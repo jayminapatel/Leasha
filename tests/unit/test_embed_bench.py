@@ -28,6 +28,7 @@ from app.index.embed_bench import (
     BenchResult,
     _infer_quantised,
     inspect_model,
+    precision_of,
     project,
     providers,
 )
@@ -108,7 +109,10 @@ def test_an_empty_cache_says_what_to_do(tmp_path):
     ("BAAI/bge-small-en-v1.5", 130, False),
     ("BAAI/bge-small-en-v1.5", 33, True),        # one byte a weight: int8
     ("BAAI/bge-small-en-v1.5", 40, True),
-    ("BAAI/bge-small-en-v1.5", 67, None),        # fp16, or a mix - do not claim
+    # fp16. Not int8, so the flag is False - and the *label* below is what a
+    # caller should actually use, because "not int8" hides that this is already
+    # half precision and an int8 build is worth two times rather than four.
+    ("BAAI/bge-small-en-v1.5", 67, False),
     ("BAAI/bge-reranker-base", 435, False),
     ("BAAI/bge-reranker-base", 109, True),
     ("who/knows", 500, None),                    # unknown model, no claim
@@ -170,3 +174,49 @@ def test_cost_is_dominated_by_sequence_length_not_model_size():
     total_cost_512 = 1 / measured[512]
     total_cost_256 = 2 * (1 / measured[256])
     assert total_cost_256 == pytest.approx(total_cost_512, rel=0.25)
+
+
+# ---------------------------------------------------------------------------
+# Precision, reported as a precision
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("model", "size_mb", "expected"), [
+    ("BAAI/bge-small-en-v1.5", 133, "fp32"),
+    ("BAAI/bge-small-en-v1.5", 66, "fp16"),      # the real file on this project
+    ("BAAI/bge-small-en-v1.5", 33, "int8"),
+    ("BAAI/bge-reranker-base", 435, "fp32"),
+    ("who/knows", 500, None),
+])
+def test_precision_is_reported_as_a_precision(model, size_mb, expected):
+    """A label, not a quantised/not flag.
+
+    The shipped model turned out to be a 66MB build of a 33M-parameter network -
+    two bytes a weight, so fp16. A boolean called that "unclear", which is the
+    wrong answer twice over: it is perfectly clear, and it means an int8 build is
+    still available and worth roughly another two times.
+    """
+    assert precision_of(model, size_mb) == expected
+
+
+# ---------------------------------------------------------------------------
+# A measurement you can trust, or one that says you cannot
+# ---------------------------------------------------------------------------
+
+def test_a_wide_spread_is_reported_as_unstable():
+    """Two runs on the same machine gave 4.42 and 2.47 for the same sequence
+    length - a 44% swing. One pass cannot tell a slow model from four seconds
+    of background load, and a projection built on it is fiction."""
+    result = BenchResult(model_name="x")
+    result.spread = {128: (17.2, 17.5), 512: (2.47, 4.42)}
+
+    assert result.unstable == [512]
+
+
+def test_a_tight_spread_is_trusted_silently():
+    result = BenchResult(model_name="x")
+    result.spread = {128: (17.2, 17.5), 256: (8.9, 9.0)}
+    assert result.unstable == []
+
+
+def test_an_unmeasured_length_is_not_called_unstable():
+    assert BenchResult(model_name="x").unstable == []

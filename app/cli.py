@@ -967,11 +967,15 @@ def cmd_embedbench(args: argparse.Namespace) -> int:
     print(f"  model            {settings.embed_model}")
     if result.model_file:
         print(f"  file             {Path(result.model_file).name}  ({result.model_mb:.0f}MB)")
+    if result.precision:
+        # Reported from the file size, so it works without `onnx` installed -
+        # and as a precision rather than a yes/no, because fp16 is a real answer
+        # and "not int8" would have hidden that int8 is still worth having.
+        print(f"  precision        {result.precision}")
     if result.weight_types:
         shown = ", ".join(f"{name} {count/1e6:.1f}M" for name, count in
                           sorted(result.weight_types.items(), key=lambda kv: -kv[1]))
         print(f"  weights          {shown}")
-        print(f"  already int8?    {'YES' if result.quantised else 'no - fp32 or fp16'}")
     print(f"  providers        {', '.join(result.available_providers) or 'unknown'}")
 
     if not args.quick:
@@ -987,9 +991,17 @@ def cmd_embedbench(args: argparse.Namespace) -> int:
 
     if result.throughput:
         print()
-        print(f"  {'tokens':>8}  {'chunks/sec':>11}")
+        print(f"  {'tokens':>8}  {'chunks/sec':>11}  {'range over 3 passes':>22}")
         for tokens, rate in sorted(result.throughput.items()):
-            print(f"  {tokens:>8}  {rate:>11.2f}")
+            low, high = result.spread.get(tokens, (rate, rate))
+            print(f"  {tokens:>8}  {rate:>11.2f}  {low:>10.2f} - {high:<9.2f}")
+
+        if result.unstable:
+            print()
+            print(f"  ! The {', '.join(str(t) for t in result.unstable)}-token"
+                  " measurement varied by more than a quarter between passes.")
+            print("    Something else was using the machine. Close it and run again -")
+            print("    the projections below are only as good as this number.")
 
         rate = result.throughput.get(512) or min(result.throughput.values())
         chunks = 0
@@ -1033,13 +1045,18 @@ def _embed_advice(result: Any) -> list[str]:
     if gpu:
         lines.append(f"  * {gpu[0]} is available and is NOT being used. That is the")
         lines.append("    largest single win here - typically five to fifteen times.")
-    if result.quantised is False:
-        lines.append("  * The model is not quantised. An int8 build is 2-4x on CPU for a")
-        lines.append("    small accuracy cost. Switching invalidates every stored vector,")
-        lines.append("    so it is cheapest while the index is small.")
-    elif result.quantised:
+    if result.precision == "int8":
         lines.append("  * The model is ALREADY int8. Quantisation is not a lever here -")
         lines.append("    do not spend time on it.")
+    elif result.precision == "fp16":
+        lines.append("  * The model is fp16 - already half the size of full precision, so")
+        lines.append("    an int8 build is worth roughly another two times rather than the")
+        lines.append("    four you would get from fp32. Switching invalidates every stored")
+        lines.append("    vector, so it is cheapest while the index is small.")
+    elif result.precision == "fp32":
+        lines.append("  * The model is full precision. An int8 build is 2-4x on CPU for a")
+        lines.append("    small accuracy cost, and switching invalidates every stored")
+        lines.append("    vector - so it is cheapest while the index is small.")
     lines += [
         "  * Fewer chunks beats faster chunks. Quoted replies and signatures are",
         "    already stripped; near-duplicate passages are the next candidate.",

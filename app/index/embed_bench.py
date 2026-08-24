@@ -33,7 +33,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-__all__ = ["BenchResult", "inspect_model", "providers", "run_benchmark", "project"]
+__all__ = [
+    "BenchResult", "inspect_model", "providers", "run_benchmark",
+    "project", "precision_of",
+]
 
 
 @dataclass
@@ -47,11 +50,28 @@ class BenchResult:
     #: answers is "is it already int8", which decides a whole line of work.
     weight_types: dict[str, int] = field(default_factory=dict)
     quantised: Optional[bool] = None
+    #: "fp32" | "fp16" | "int8" | None. More useful than the flag above,
+    #: because fp16 is a real answer and "not int8" is not.
+    precision: Optional[str] = None
     available_providers: list[str] = field(default_factory=list)
     threads: Optional[int] = None
-    #: tokens -> chunks per second, measured.
+    #: tokens -> chunks per second. The **median** of several passes, because a
+    #: single pass swung 44% between two runs on the same machine and there was
+    #: no way to tell a real number from four seconds of background load.
     throughput: dict[int, float] = field(default_factory=dict)
+    #: tokens -> (slowest, fastest) seen. A wide spread means the machine was
+    #: busy and the number should not be trusted, which the report says out loud
+    #: rather than leaving somebody to compare two runs by eye.
+    spread: dict[int, tuple[float, float]] = field(default_factory=dict)
     error: str = ""
+
+    @property
+    def unstable(self) -> list[int]:
+        """Sequence lengths whose measurement varied by more than a quarter."""
+        return [
+            tokens for tokens, (low, high) in self.spread.items()
+            if high > 0 and (high - low) / high > 0.25
+        ]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +80,9 @@ class BenchResult:
             "size_mb": round(self.model_mb, 1),
             "weight_types": self.weight_types,
             "quantised": self.quantised,
+            "precision": self.precision,
+            "spread": {k: [round(v[0], 2), round(v[1], 2)] for k, v in self.spread.items()},
+            "unstable": self.unstable,
             "providers": self.available_providers,
             "threads": self.threads,
             "throughput_per_sec": {k: round(v, 2) for k, v in self.throughput.items()},
@@ -121,7 +144,8 @@ def inspect_model(cache_dir: Path, result: BenchResult) -> BenchResult:
     # inference is what makes this useful on a machine where it is not - and
     # "should I switch to a quantised model" is a question worth answering
     # without asking anybody to install anything.
-    result.quantised = _infer_quantised(result.model_name, result.model_mb)
+    result.precision = precision_of(result.model_name, result.model_mb)
+    result.quantised = None if result.precision is None else result.precision == "int8"
 
     try:
         import collections
@@ -170,13 +194,19 @@ _PARAMS_M = {
 }
 
 
-def _infer_quantised(model_name: str, size_mb: float) -> Optional[bool]:
-    """Read a file size as a precision. None when the model is not known.
+def precision_of(model_name: str, size_mb: float) -> Optional[str]:
+    """Read a file size as a precision: "fp32", "fp16", "int8", or None.
 
-    Four bytes per weight is fp32, two is fp16, one is int8. The bands below are
-    generous because an ONNX file carries a graph and some metadata as well as
-    weights - but the gap between 133MB and 33MB is wide enough that no
-    reasonable overhead confuses them.
+    A *label* rather than a quantised/not flag, because the middle case is real
+    and the flag could not express it. This project's own model turned out to be
+    a 66MB build of a 33M-parameter network - two bytes a weight, so fp16 - and
+    a tri-state boolean reported that as "unclear", which is exactly the wrong
+    answer: it is perfectly clear, and it means int8 is still available and worth
+    roughly another two times.
+
+    Four bytes a weight is fp32, two is fp16, one is int8. The bands are generous
+    because an ONNX file carries a graph and metadata as well as weights, but the
+    gaps between 133MB, 66MB and 33MB are far wider than any overhead.
     """
     key = model_name.split("/")[-1].lower()
     params_m = _PARAMS_M.get(key)
@@ -184,10 +214,16 @@ def _infer_quantised(model_name: str, size_mb: float) -> Optional[bool]:
         return None
     bytes_per_weight = size_mb / params_m
     if bytes_per_weight >= 3.0:
-        return False                             # fp32
-    if bytes_per_weight <= 1.6:
-        return True                              # int8, or mostly so
-    return None                                  # fp16, or something in between
+        return "fp32"
+    if bytes_per_weight >= 1.7:
+        return "fp16"
+    return "int8"
+
+
+def _infer_quantised(model_name: str, size_mb: float) -> Optional[bool]:
+    """`precision_of` as a flag, for callers that only need "is it int8"."""
+    precision = precision_of(model_name, size_mb)
+    return None if precision is None else precision == "int8"
 
 
 def providers(result: BenchResult) -> BenchResult:
@@ -217,6 +253,7 @@ def run_benchmark(
     *,
     lengths: tuple[int, ...] = (128, 256, 512),
     batch: int = 32,
+    passes: int = 3,
     result: Optional[BenchResult] = None,
 ) -> BenchResult:
     """Time real embedding at several sequence lengths.
@@ -247,10 +284,22 @@ def run_benchmark(
     for tokens in lengths:
         text = (word * (tokens * _CHARS_PER_TOKEN // len(word) + 1))[:tokens * _CHARS_PER_TOKEN]
         texts = [text] * batch
-        started = time.perf_counter()
-        list(model.embed(texts))
-        elapsed = time.perf_counter() - started
-        result.throughput[tokens] = batch / elapsed if elapsed else 0.0
+
+        # **Several passes, and the median.** One pass gave 4.42 and then 2.47
+        # for the same length on the same machine - a 44% swing, because a
+        # background task for four seconds is indistinguishable from a slow
+        # model when you only look once. The median ignores a single bad pass;
+        # the spread says whether to believe any of it.
+        rates: list[float] = []
+        for _ in range(passes):
+            started = time.perf_counter()
+            list(model.embed(texts))
+            elapsed = time.perf_counter() - started
+            rates.append(batch / elapsed if elapsed else 0.0)
+
+        rates.sort()
+        result.throughput[tokens] = rates[len(rates) // 2]
+        result.spread[tokens] = (rates[0], rates[-1])
 
     return result
 
