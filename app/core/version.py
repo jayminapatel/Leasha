@@ -31,10 +31,13 @@ def version() -> str:
 
 
 @lru_cache(maxsize=1)
-def git_describe() -> str | None:
-    """Short git description, or None when git or the repo is unavailable.
+def git_describe() -> tuple[str | None, str | None]:
+    """Return (description, reason_it_failed).
 
-    Never raises: the packaged app may ship without a .git directory.
+    Never raises: a packaged build ships without a .git directory, and that is
+    not an error. But a silent `return None` hid a real problem once - git
+    refusing the repository with "dubious ownership" - so the reason is
+    reported rather than swallowed.
     """
     try:
         out = subprocess.run(
@@ -44,18 +47,34 @@ def git_describe() -> str | None:
             timeout=5,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except FileNotFoundError:
+        return None, "git is not installed or not on PATH"
+    except subprocess.TimeoutExpired:
+        return None, "git did not respond within 5s"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
     value = out.stdout.strip()
-    return value or None
+    if value:
+        return value, None
+
+    reason = out.stderr.strip() or f"git exited with code {out.returncode} and no output"
+    if "dubious ownership" in reason:
+        reason += (
+            " | fix: git config --global --add safe.directory "
+            + str(PROJECT_ROOT).replace("\\", "/")
+        )
+    return None, reason
 
 
 def build_info() -> dict[str, str]:
     """Version details for the About dialog, logs, and doctor.py output."""
     info = {"version": version()}
-    described = git_describe()
+    described, reason = git_describe()
     if described:
         info["git"] = described
+    elif reason:
+        info["git_error"] = reason
     return info
 
 

@@ -7,10 +7,41 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 ### Planned
-- Layer 1 - storage: SQLite/FTS5 store, LanceDB table lifecycle, migrations
+- Layer 2 - extraction: PDF/Office/plaintext/PST parsers and chunking
 
 ---
 
+## [0.3.0] - 2026-08-24
+
+**Layer 1 complete.** All five acceptance criteria pass; 70 tests green.
+
+### Added
+- `app/storage/sqlite_store.py` - files, chunks, messages, FTS5, skip ledger, resumability
+  cursor and the write generation. One connection with a write lock: WAL gives many readers
+  alongside one writer, which is exactly this app's shape, so `database is locked` is avoided
+  rather than retried around. `mark_skipped()` records why a file was skipped so a bad file is
+  remembered, not raised. `search_bm25()` returns [] on a malformed query instead of throwing.
+- `app/storage/vector_store.py` - LanceDB table lifecycle with an explicit Arrow schema, so
+  the fixed vector width is enforced by Arrow itself and an empty index is inspectable rather
+  than absent. Refuses a dimension mismatch on connect, which is what a changed `EMBED_MODEL`
+  looks like, instead of silently poisoning every future search. The ANN index is only built
+  past 100k rows, because a flat scan beats a badly trained index below that.
+- `app/storage/migrations.py` - schema versioning independent of the app version. Refuses to
+  open an index written by a newer build rather than corrupting it.
+- `app.cli init` - creates and migrates both stores, safe to re-run. `stats` now reports both
+  stores when they exist, and stays read-only when they do not.
+- 17 Layer 1 tests, including a hard `os._exit(9)` mid-transaction to prove committed data and
+  the cursor survive while uncommitted data does not.
+
+### Fixed
+- `set_message()` inserted NULL into `has_attach`, which is `NOT NULL`. Caught by the tests.
+- `VectorStore` used `table_names()`, deprecated in lancedb 0.37; now uses `list_tables()`
+  with a fallback so a version bump cannot silently break table detection.
+- `git_describe()` swallowed its failure reason, hiding why `stats` printed no git line.
+  It now reports the cause, and recognises git's "dubious ownership" refusal specifically,
+  appending the exact `safe.directory` command that fixes it.
+
+---
 ## [0.2.0] - 2026-08-24
 
 **Layer 0 complete.** All four acceptance criteria from `BUILD_SPEC_V2.md` pass.

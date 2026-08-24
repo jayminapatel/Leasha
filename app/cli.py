@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.config import Settings, load_settings, project_root
@@ -64,11 +64,27 @@ def cmd_stats(args: argparse.Namespace) -> int:
     settings = _load(args)
     setup_logging(settings.log_path)
 
-    info = {
+    info: dict[str, Any] = {
         "version": build_info(),
         "env_file": str(settings.env_file),
         "settings": settings.describe(),
     }
+
+    # Report the stores only if they already exist: `stats` must be a read-only
+    # inspection, not something that creates an index as a side effect.
+    if settings.fts_db.is_file():
+        from app.storage.sqlite_store import SqliteStore
+
+        with SqliteStore(settings.fts_db) as store:
+            info["sqlite"] = store.stats()
+
+    from app.storage.vector_store import VectorStore
+
+    with VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        # connect() opens an existing table but never creates one, so this
+        # stays a read-only inspection.
+        if vectors.exists:
+            info["vectors"] = vectors.stats()
 
     if args.json:
         print(json.dumps(info, indent=2))
@@ -77,11 +93,70 @@ def cmd_stats(args: argparse.Namespace) -> int:
     print(f"Local Knowledge Graph V2  version {info['version']['version']}")
     if "git" in info["version"]:
         print(f"  git: {info['version']['git']}")
+    elif "git_error" in info["version"]:
+        # Not fatal - a packaged build has no .git - but say why rather than
+        # quietly omitting the line.
+        print(f"  git: unavailable ({info['version']['git_error']})")
     print(f"  config: {settings.env_file}")
     print()
     width = max(len(k) for k in settings.describe())
     for key, value in settings.describe().items():
         print(f"  {key.ljust(width)}  {value}")
+
+    if "sqlite" in info:
+        sqlite_stats = info["sqlite"]
+        print()
+        print("  Metadata store (SQLite, the authority)")
+        print(f"    schema version   {sqlite_stats['schema_version']}"
+              f" (this build expects {sqlite_stats['expected_schema_version']})")
+        print(f"    files            {sqlite_stats['files_total']}  {sqlite_stats['files'] or '{}'}")
+        print(f"    chunks           {sqlite_stats['chunks_total']}"
+              f"  ({sqlite_stats['chunks_embedded']} embedded)")
+        print(f"    generation       {sqlite_stats['generation']}")
+        if sqlite_stats["skipped_by_code"]:
+            print(f"    skipped          {sqlite_stats['skipped_by_code']}")
+    else:
+        print()
+        print("  Metadata store    not created yet (run: app.cli init)")
+
+    if "vectors" in info:
+        vector_stats = info["vectors"]
+        print()
+        print("  Vector store (LanceDB, derived - rebuildable from SQLite)")
+        print(f"    rows             {vector_stats['rows']}")
+        print(f"    dimensions       {vector_stats['dim']}")
+        print(f"    ANN index at     {vector_stats['index_threshold']} rows")
+    else:
+        print()
+        print("  Vector store      not created yet (run: app.cli init)")
+
+    return EXIT_OK
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Create and migrate both stores. Safe to re-run."""
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    with SqliteStore(settings.fts_db) as store:
+        sqlite_stats = store.stats()
+    with VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        vectors.ensure_table()
+        vector_stats = vectors.stats()
+
+    payload = {"sqlite": sqlite_stats, "vectors": vector_stats}
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    print(f"Metadata store ready: {sqlite_stats['db_path']}")
+    print(f"  schema version {sqlite_stats['schema_version']}, "
+          f"generation {sqlite_stats['generation']}")
+    print(f"Vector store ready:   {vector_stats['uri']}")
+    print(f"  {vector_stats['rows']} rows, {vector_stats['dim']} dimensions")
     return EXIT_OK
 
 
@@ -155,6 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stats = sub.add_parser("stats", help="show the resolved configuration")
     p_stats.set_defaults(func=cmd_stats)
+
+    p_init = sub.add_parser("init", help="create and migrate the stores (safe to re-run)")
+    p_init.set_defaults(func=cmd_init)
 
     p_doctor = sub.add_parser("doctor", help="verify the environment")
     p_doctor.add_argument("--quick", action="store_true", help="skip model loading")

@@ -7,7 +7,7 @@ knowledge graph and Office document generation. Windows 10/11, single user, full
 ONNX for embeddings — all embedded. No services, no ports, no passwords. Ollama is optional
 and is never called by search.
 
-**Version:** see `VERSION` | **Status:** Layer 0 complete (foundation), Layer 1 next
+**Version:** see `VERSION` | **Status:** Layers 0-1 complete (foundation, storage), Layer 2 next
 
 ---
 
