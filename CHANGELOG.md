@@ -6,43 +6,46 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
-### Added
-- `install.ps1 -Preflight` — runs only the cheap local checks (paths, disk, winget,
-  required files) and stops at the boundary before anything is installed or downloaded
-- Installer transcript logging to `logs\install-<timestamp>.log`, started before anything
-  can fail, so a failed run always leaves a readable record
-
-### Fixed
-- **`install.ps1` failed at parse time and produced no output whatsoever** - no log, no venv,
-  no `.env`. The file was UTF-8 without a BOM, and Windows PowerShell 5.1 decodes a BOM-less
-  file with the ANSI codepage: each of the 28 em dashes (`E2 80 94`) had its third byte read
-  as cp1252 `0x94` = U+201D, a smart quote that PowerShell treats as a string delimiter.
-  Every `.ps1` is now ASCII-only *and* saved UTF-8 with a BOM.
-- `doctor.py` made ASCII-only, and stdout/stderr reconfigured to UTF-8 with
-  `errors="replace"` - under the installer's transcript, output is redirected and Python
-  falls back to the ANSI codepage, where one non-ASCII character would raise
-  `UnicodeEncodeError` mid-report.
-- `run-install.cmd` given CRLF line endings; an LF-only batch file can break `goto` labels.
-- **A successful model download was reported as a failure.** `Invoke-PythonSnippet` ended with
-  `& $python $tmp` followed by `return $LASTEXITCODE`. A PowerShell function returns everything
-  it emits to the pipeline, not just what follows `return`, so the caller received
-  `@("embedding model ready, dim = 384", 0)` instead of `0`; comparing that array against `0`
-  was true and the step threw. The function now emits nothing, routes the child process's
-  output to the host, and reports through `$script:LastPythonExit`. It also relaxes
-  `$ErrorActionPreference` for the duration of the child, since download progress bars write
-  to stderr and would otherwise be promoted to terminating errors.
-
-### Added
-- `run-install.cmd` - bypasses the execution policy for one process, parse-checks before
-  running, keeps the window open, passes arguments through
-- `scripts/parse-check.ps1` - real PowerShell parser check plus a BOM/ASCII encoding audit,
-  logged to `logs\parse-check.log`
-
 ### Planned
-- Layer 0 — foundation: config, `AppError`, logging, single-instance, CLI skeleton
+- Layer 1 - storage: SQLite/FTS5 store, LanceDB table lifecycle, migrations
 
 ---
 
+## [0.2.0] - 2026-08-24
+
+**Layer 0 complete.** All four acceptance criteria from `BUILD_SPEC_V2.md` pass.
+
+### Added
+- `app/core/errors.py` - `AppError`, `ActionType`, and a registry covering all eight codes
+  from the spec's recovery table plus `ERR_CONFIG_INVALID`, `ERR_CONFIG_MISSING`,
+  `ERR_NOT_IMPLEMENTED` and `ERR_UNEXPECTED`. `guard()` converts anything escaping a worker
+  boundary into an `AppError`, and passes precise errors through unflattened. Templates fill
+  safely: a missing context key degrades the message rather than raising on an error path.
+- `app/core/config.py` - typed `Settings` validated at startup, not at first use. Every path
+  is created and proved writable before the app runs, so a disconnected drive fails
+  immediately rather than three minutes into a 100GB index. Built on plain pydantic and a
+  stdlib .env parser: `pydantic-settings` is a separate distribution and is not installed.
+- `app/core/logging.py` - loguru with console (INFO) and rotating file (DEBUG, 10MB, 14 days)
+  sinks. `error_code` is a structured field so Layer 5 can group thousands of skips by cause.
+  `diagnose=False` deliberately: variable dumps would leak indexed file contents into logs.
+- `app/core/single_instance.py` - Windows named mutex via ctypes rather than pywin32, because
+  refusing to start must not depend on an optional dependency. POSIX fallback for tests.
+- `app/cli.py` - `stats`, `doctor`, `lock` working; `index` and `search` declared and failing
+  with `ERR_NOT_IMPLEMENTED` naming the layer that delivers them.
+- 53 tests: unit coverage of errors and config, plus the four Layer 0 acceptance tests.
+- VS Code project: `.vscode/{settings,launch,tasks,extensions}.json`,
+  `SearchProject.code-workspace`, `pyproject.toml`, `requirements-dev.txt`, `docs/VSCODE.md`.
+  Settings force `utf8bom` for PowerShell files, making the parse-time encoding failure
+  impossible to reintroduce from the editor.
+
+### Fixed
+- `make_error()` raised `TypeError: got multiple values for argument 'component'` whenever an
+  exception was converted, because `to_app_error` put `component` into `**context` where it
+  collided with the positional parameter. Found by the tests, not in production.
+- The installer's transcript recorded nothing at all from `doctor.py`. Native stdout was
+  being swallowed; it is now routed through `Write-Host` like every other child process.
+
+---
 ## [0.1.0] — 2026-08-24
 
 First versioned state of the project. Environment and plan only; no application code yet.

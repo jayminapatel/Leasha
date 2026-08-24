@@ -1,0 +1,83 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI: stats",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["stats"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: stats (json)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["--json", "stats"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: doctor",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["doctor", "--quick"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: index (Layer 3)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["index"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: search (Layer 4)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.cli",
+      "args": ["search", "example query"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "App: desktop shell (Layer 5)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\\app\\main.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "doctor.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\\doctor.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Debug the current test file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

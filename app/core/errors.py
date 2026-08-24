@@ -1,9 +1,268 @@
-"""AppError, ActionType, and the code -> message/suggestion/action registry.
+"""Structured application errors.
 
 Layer: L0
-Status: STUB — see BUILD_SPEC_V2.md for the deliverables and acceptance tests.
+
+The contract, from LOCAL_KNOWLEDGE_GRAPH_V2.md: every error surfaced anywhere -
+installer, doctor, indexing pipeline, search, UI - carries a payload saying what
+happened, what the user should do, and what kind of action that is. Never a bare
+traceback. Never a silent 'except: pass'.
+
+Two shapes:
+
+    AppError            a value object; safe to store, serialise, show in the UI
+    AppErrorException   the raisable wrapper, carrying an AppError as .error
+
+Use `guard()` at a worker boundary so an unexpected exception still arrives as an
+AppError rather than escaping as a traceback.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+import traceback
+from contextlib import contextmanager
+from enum import Enum
+from typing import Any, Iterator, Optional
+
+from pydantic import BaseModel, Field
+
+__all__ = [
+    "ActionType",
+    "AppError",
+    "AppErrorException",
+    "ERROR_REGISTRY",
+    "make_error",
+    "raise_error",
+    "guard",
+    "to_app_error",
+]
+
+
+class ActionType(str, Enum):
+    """What the user (or the app) is expected to do about an error."""
+
+    AUTO_FIX = "AUTO_FIX"            # the app fixes it itself and informs the user
+    USER_RETRY = "USER_RETRY"        # the user does something, then retries
+    RUN_COMMAND = "RUN_COMMAND"      # an exact command is shown, ready to copy
+    SKIP_CONTINUE = "SKIP_CONTINUE"  # this item is skipped, the batch carries on
+
+
+class AppError(BaseModel):
+    """One error, fully described.
+
+    `message` says what happened in plain English; `suggestion` says what to do
+    about it. `details` holds the technical detail the UI keeps collapsed.
+    """
+
+    code: str
+    component: str
+    message: str
+    details: Optional[str] = None
+    suggestion: str = ""
+    action_type: ActionType = ActionType.USER_RETRY
+    action_payload: Optional[str] = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+    def __str__(self) -> str:
+        return f"[{self.code}] {self.message}"
+
+    def render(self) -> str:
+        """Multi-line form for a console or a log."""
+        lines = [f"[{self.code}] {self.message}"]
+        if self.suggestion:
+            lines.append(f"  FIX: {self.suggestion}")
+        if self.action_payload:
+            lines.append(f"  RUN: {self.action_payload}")
+        if self.details:
+            lines.append(f"  DETAIL: {self.details}")
+        return "\n".join(lines)
+
+    @property
+    def is_fatal(self) -> bool:
+        """SKIP_CONTINUE errors never halt a batch. Everything else may."""
+        return self.action_type is not ActionType.SKIP_CONTINUE
+
+
+class AppErrorException(Exception):
+    """Raisable carrier for an AppError."""
+
+    def __init__(self, error: AppError):
+        self.error = error
+        super().__init__(str(error))
+
+
+class _Spec(BaseModel):
+    """The registry entry behind a code."""
+
+    message: str
+    suggestion: str
+    action_type: ActionType
+    action_payload: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# The registry. Codes marked (spec) come from the recovery table in
+# LOCAL_KNOWLEDGE_GRAPH_V2.md and are the required minimum set.
+#
+# Message and suggestion are format templates: `make_error` fills them from
+# keyword arguments, and leaves any placeholder it cannot fill intact rather
+# than raising. An error path must never fail because of a missing field.
+# ---------------------------------------------------------------------------
+
+ERROR_REGISTRY: dict[str, _Spec] = {
+    # --- spec: required recovery mappings ---------------------------------
+    "ERR_MODEL_LOAD": _Spec(
+        message="The embedding model failed to load.",
+        suggestion=(
+            "The first run needs internet once to download it (about 130MB); "
+            "after that the app is fully offline. Check connectivity or your proxy, then retry."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_OLLAMA_DOWN": _Spec(
+        message="Ollama is not running, so AI answers are unavailable. Search still works normally.",
+        suggestion="Start Ollama to enable AI answers and LLM entity extraction.",
+        action_type=ActionType.AUTO_FIX,
+        action_payload="ollama serve",
+    ),
+    "ERR_FILE_CORRUPT": _Spec(
+        message="Cannot read '{path}' - it is encrypted or damaged.",
+        suggestion="Repair it (scanpst.exe for PST files) or leave it skipped. Indexing continues either way.",
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_FILE_LOCKED": _Spec(
+        message="'{path}' is locked by another program.",
+        suggestion="Close the program holding it. The file is retried automatically on the next incremental pass.",
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_DISK_SPACE": _Spec(
+        message="Indexing paused: only {free_gb}GB free on {drive}.",
+        suggestion=(
+            "Indexing stopped rather than filling the disk. Free some space, or move the index "
+            "location in Settings, then resume. Progress is preserved."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_DB_LOCKED": _Spec(
+        message="Another copy of the application is already running.",
+        suggestion="Close the other copy, then try again. Two copies cannot share one index safely.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_OUTLOOK_MISSING": _Spec(
+        message="PST indexing needs Microsoft Outlook, which was not found.",
+        suggestion=(
+            "Every other file type indexes normally. To include PST archives, install Outlook, "
+            "or convert them to EML with XstReader and index the EML folder instead."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload="https://github.com/iluvadev/XstReader",
+    ),
+    "ERR_ENCODING": _Spec(
+        message="Could not decode '{path}' cleanly.",
+        suggestion="Indexed using replacement characters. The original file is untouched.",
+        action_type=ActionType.AUTO_FIX,
+    ),
+    # --- Layer 0 additions --------------------------------------------------
+    "ERR_CONFIG_INVALID": _Spec(
+        message="Configuration problem with '{key}': {reason}",
+        suggestion="Fix the value in .env, or re-run install.ps1 to regenerate it.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_CONFIG_MISSING": _Spec(
+        message="No .env file was found at {path}.",
+        suggestion="Run install.ps1 from the project folder; it writes .env.",
+        action_type=ActionType.RUN_COMMAND,
+        action_payload="run-install.cmd",
+    ),
+    "ERR_NOT_IMPLEMENTED": _Spec(
+        message="'{feature}' is not built yet - it arrives in {layer}.",
+        suggestion="See BUILD_SPEC_V2.md for what each layer delivers.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_UNEXPECTED": _Spec(
+        message="An unexpected error occurred in {component}.",
+        suggestion="This is a bug. The technical detail below, plus the log file, is what is needed to fix it.",
+        action_type=ActionType.USER_RETRY,
+    ),
+}
+
+
+def _safe_format(template: str, values: dict[str, Any]) -> str:
+    """Format `template`, leaving unknown placeholders intact.
+
+    An error path must never itself raise. A missing context key produces a
+    slightly worse message, never a KeyError on top of the original problem.
+    """
+    out = template
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
+
+def make_error(
+    code: str,
+    component: str,
+    *,
+    details: Optional[str] = None,
+    suggestion: Optional[str] = None,
+    action_payload: Optional[str] = None,
+    **context: Any,
+) -> AppError:
+    """Build an AppError from the registry, filling templates from `context`.
+
+    An unregistered code degrades to ERR_UNEXPECTED's shape rather than raising,
+    so a typo in a rarely-hit error path cannot crash the app.
+    """
+    spec = ERROR_REGISTRY.get(code)
+    if spec is None:
+        spec = ERROR_REGISTRY["ERR_UNEXPECTED"]
+        details = details or f"Unregistered error code: {code}"
+
+    # `component` is a parameter, not a context key, but templates may still
+    # reference {component}. Merge it into the formatting values only - passing
+    # it through **context would collide with the positional argument.
+    values = dict(context)
+    values.setdefault("component", component)
+
+    return AppError(
+        code=code,
+        component=component,
+        message=_safe_format(spec.message, values),
+        details=details,
+        suggestion=_safe_format(suggestion if suggestion is not None else spec.suggestion, values),
+        action_type=spec.action_type,
+        action_payload=action_payload if action_payload is not None else spec.action_payload,
+        context=context,
+    )
+
+
+def raise_error(code: str, component: str, **kwargs: Any) -> None:
+    """Build an AppError and raise it."""
+    raise AppErrorException(make_error(code, component, **kwargs))
+
+
+def to_app_error(exc: BaseException, component: str, code: str = "ERR_UNEXPECTED", **context: Any) -> AppError:
+    """Convert any exception into an AppError, preserving the traceback as detail."""
+    if isinstance(exc, AppErrorException):
+        return exc.error
+    detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
+    context.pop("component", None)  # never shadow the positional parameter
+    return make_error(code, component, details=detail, **context)
+
+
+@contextmanager
+def guard(component: str, code: str = "ERR_UNEXPECTED", **context: Any) -> Iterator[None]:
+    """Worker-boundary guard: converts any escaping exception into an AppError.
+
+    Place this at the boundary of a worker, not around every call. An AppError
+    raised inside passes through unchanged, so a precise error is never
+    flattened into a generic one.
+
+        with guard("indexer.pdf", path=str(path)):
+            parse(path)
+    """
+    try:
+        yield
+    except AppErrorException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - converting at the boundary is the point
+        raise AppErrorException(to_app_error(exc, component, code, **context)) from exc

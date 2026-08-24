@@ -1,0 +1,22 @@
+{
+  "folders": [
+    {
+      "name": "Local Knowledge Graph",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.env.example": "dotenv",
+      "schema.sql": "sql"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "charliermarsh.ruff",
+      "ms-vscode.powershell"
+    ]
+  }
+}

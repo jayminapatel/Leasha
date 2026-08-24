@@ -1,0 +1,12 @@
+# Development-only dependencies. Not needed to run the app.
+# Verified against PyPI 2026-08-24.
+#
+# Install into the project venv:
+#   venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+#
+# Or in VS Code: Terminal > Run Task > "Install dev tools"
+
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.16.4
+mypy==2.3.1

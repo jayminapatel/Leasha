@@ -41,7 +41,11 @@ tests/fixtures/**/generated/
 tests/output/
 
 # --- Editors / OS ----------------------------------------------------------
-.vscode/
+# .vscode IS committed: the shared settings enforce the utf8bom PowerShell
+# encoding rule that a BOM-less file broke once already. Only per-user state
+# is excluded.
+.vscode/*.log
+.vscode/settings.local.json
 .idea/
 *.swp
 Thumbs.db

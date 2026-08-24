@@ -1,0 +1,79 @@
+{
+  // ---------------------------------------------------------------------
+  // Python: use the project venv, not whatever happens to be on PATH.
+  // ---------------------------------------------------------------------
+  "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+
+  // ---------------------------------------------------------------------
+  // Testing: pytest, discovered from tests/
+  // ---------------------------------------------------------------------
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+
+  // ---------------------------------------------------------------------
+  // Encoding. This is not cosmetic.
+  //
+  // Windows PowerShell 5.1 decodes a BOM-less file using the ANSI codepage.
+  // An em dash saved that way became a smart quote and killed install.ps1 at
+  // parse time, silently, with no log at all. Forcing utf8bom for PowerShell
+  // files makes that failure impossible to reintroduce from this editor.
+  // ---------------------------------------------------------------------
+  "files.encoding": "utf8",
+  "[powershell]": {
+    "files.encoding": "utf8bom",
+    "files.eol": "\r\n"
+  },
+  "[bat]": {
+    "files.eol": "\r\n"
+  },
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // ---------------------------------------------------------------------
+  // Editor
+  // ---------------------------------------------------------------------
+  "editor.rulers": [100],
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+
+  // ---------------------------------------------------------------------
+  // Keep the tree, search and the file watcher usable.
+  // venv is ~1GB and the index data is hundreds of GB.
+  // ---------------------------------------------------------------------
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.pytest_cache": true,
+    "**/.ruff_cache": true,
+    "**/.mypy_cache": true
+  },
+  "search.exclude": {
+    "**/venv": true,
+    "**/logs": true,
+    "**/__pycache__": true
+  },
+  "files.watcherExclude": {
+    "**/venv/**": true,
+    "**/logs/**": true,
+    "**/.git/objects/**": true
+  },
+
+  // ---------------------------------------------------------------------
+  // Terminal
+  // ---------------------------------------------------------------------
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.cwd": "${workspaceFolder}",
+
+  "powershell.codeFormatting.preset": "OTBS"
+}

@@ -569,11 +569,21 @@ $doctorExit = 0
 if (Test-Path -LiteralPath $Doctor) {
     Push-Location $ProjectPath
     try {
-        & $Python $Doctor
-        $doctorExit = $LASTEXITCODE
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            # Write-Host, not bare output: the transcript recorded nothing at
+            # all from a plain `& $Python $Doctor`, which hid the one report
+            # that matters most.
+            & $Python $Doctor 2>&1 | ForEach-Object { Write-Host $_ }
+            $doctorExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previous
+        }
     } finally {
         Pop-Location
     }
+if ($null -eq $doctorExit) { $doctorExit = 0 }
 } else {
     Write-Host "  doctor.py missing - cannot verify." -ForegroundColor Red
     $doctorExit = 1

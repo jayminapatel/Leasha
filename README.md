@@ -7,7 +7,7 @@ knowledge graph and Office document generation. Windows 10/11, single user, full
 ONNX for embeddings — all embedded. No services, no ports, no passwords. Ollama is optional
 and is never called by search.
 
-**Version:** see `VERSION` · **Status:** environment and plan complete, Layer 0 not started
+**Version:** see `VERSION` | **Status:** Layer 0 complete (foundation), Layer 1 next
 
 ---
 
@@ -29,6 +29,17 @@ venv\Scripts\python.exe doctor.py     # must print READY
 
 Full detail, including every installer parameter, in `LOCAL_KNOWLEDGE_GRAPH_V2.md`.
 
+## Developing
+
+Open the folder in VS Code, or double-click `SearchProject.code-workspace`. See
+`docs/VSCODE.md`. Then:
+
+```powershell
+venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+venv\Scripts\python.exe -m pytest tests -q
+venv\Scripts\python.exe -m app.cli stats
+```
+
 ## Documents
 
 | File | What it is |
@@ -36,6 +47,7 @@ Full detail, including every installer parameter, in `LOCAL_KNOWLEDGE_GRAPH_V2.m
 | `LOCAL_KNOWLEDGE_GRAPH_V2.md` | Architecture, error contract, PST strategy, honest performance numbers |
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9), schemas, acceptance tests, performance budget |
 | `docs/VERSIONING.md` | Version scheme, git conventions, release checklist |
+| `docs/VSCODE.md` | Opening and working on the project in VS Code |
 | `CHANGELOG.md` | What changed and why |
 
 ## Layout
