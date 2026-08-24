@@ -1,5 +1,7 @@
 # Working on this project in VS Code
 
+**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 ## Opening it
 
 Either open the folder `D:\SearchProject`, or double-click **`SearchProject.code-workspace`**.

@@ -1,5 +1,7 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
+**Doc version:** 2.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
 proves it works**.
@@ -292,19 +294,35 @@ CREATE TABLE schema_version (version INTEGER NOT NULL);
 
 ```
 query
- ├─ FTS5 BM25        (thread A)  -> top 100
- └─ LanceDB ANN      (thread B)  -> top 100
-        └── reciprocal rank fusion (k=60)  -> top 50
-              └── optional cross-encoder rerank of top 30
-                    └── results
+ └─ parse (operators, phrases, exclusions, FTS5 sanitise)   <0.1ms, no model
+     ├─ FTS5 BM25        (thread A)  -> top 100
+     └─ LanceDB ANN      (thread B)  -> top 100
+            └── reciprocal rank fusion (k=60)  -> top 50
+                  └── optional cross-encoder rerank of top 30
+                        └── results
 ```
 
 **Build**
 
-- `keyword.py` — FTS5 `MATCH` with BM25 ranking; sanitise user input into valid FTS syntax
-  (unbalanced quotes must not raise); support phrase, prefix and `NEAR`.
+- `query.py` — **[BUILT]** parse the raw string into a `ParsedQuery`: typed operators
+  (`type:`/`ext:`, `after:`/`since:`, `before:`/`until:`, `path:`/`folder:`, `from:`),
+  `"quoted phrases"`, `-exclusions`, and `prefix*`. Dates accept ISO, partial ISO
+  (`2024-01`, `2024`) and relatives (`today`, `7d`, `last-month`). `to_fts_match()` quotes
+  every token, so the expression handed to SQLite **cannot** be malformed — `AND`, `NOT`,
+  `*` and a lone `"` are all read as text. `embed_text` strips operators, because they are
+  noise to a dense model. Pure, stdlib-only, zero I/O.
+- `keyword.py` — FTS5 `MATCH` with BM25 ranking, taking its expression from `query.py`
+  rather than from raw user input; support phrase, prefix and `NEAR`.
+  `search_bm25()`'s `OperationalError` catch stays as a backstop, but with `query.py` in
+  front of it that path should now be unreachable — if it ever fires, that is a bug in the
+  sanitiser and must be logged, not swallowed.
 - `vector.py` — embed the query once, ANN search with pushed-down filters (ext, date, folder).
-- `fusion.py` — RRF: `score = Σ 1/(k + rank)`, `k=60`. Pure function, unit-tested.
+- `fusion.py` — **[BUILT]** RRF: `score = Σ 1/(k + rank)`, `k=60`. Pure function, unit-tested.
+  Fuses on rank, not score, so BM25 and cosine never need normalising against each other.
+  Ties break by best rank then list order, so the output is deterministic and recall@10 is a
+  meaningful regression guard. `fuse_hits()` tags each row with `sources` — which retrievers
+  found it — because agreement between both is the strongest signal the pipeline produces and
+  the UI should show it.
 - `rerank.py` — cross-encoder over the top 30, loaded lazily, behind the Settings toggle.
   If the model is missing, log once and return the fused order — never fail the search.
 - `engine.py` — parallel dispatch, diskcache keyed on
@@ -312,6 +330,34 @@ query
   stale results cannot be served.
 - **Model warm-up:** load the embedding model on app start in a background thread so the
   first user search is not the one paying the 1–2s ONNX load.
+- **Two-tier dispatch.** Layer 5 searches as you type. Running the full pipeline on every
+  150ms debounce means embedding a query per keystroke burst and an ANN probe per burst —
+  most of it thrown away before the user stops typing. So:
+
+  | Trigger | Runs | Why |
+  |---|---|---|
+  | Typing pause (150ms) | BM25 + parse only, top 20 | Prefix-matches feel instant; no model touched |
+  | Idle (400ms) or `Enter` | Full hybrid + fusion + rerank | The user has committed to the query |
+
+  The interim tier must be visually identical to the final one — same row layout — so results
+  refine in place rather than flashing. Never run the interim tier after `Enter`.
+
+**Deliberately not built**
+
+Both of these are standard in cloud RAG stacks and both were assessed and rejected here.
+Recorded so they are not re-proposed:
+
+- **LLM query rewriting / deconstruction.** Would put a model in the search hot path,
+  violating the project's first non-negotiable, and costs 200–800ms on CPU against a 300ms
+  total budget. `query.py` gets the useful 90% — dates, types, paths, phrases — deterministically,
+  in under 0.1ms. If it is ever revisited it must be an optional pre-step that fails open to the
+  raw query, never a dependency.
+- **Graph RAG (graph as a retrieval stream).** Adds a third candidate source plus traversal to
+  a budget that is already tight, and the corpus is files and email, where the co-occurrence
+  graph is derived *from* the chunks the vector index already covers — so it would mostly
+  re-rank documents hybrid search had already found. The graph stays a navigation surface
+  (Layer 6): node click → filtered search. Revisit only if recall@10 on the golden set proves
+  a class of query that hybrid genuinely misses.
 
 **Acceptance**
 
@@ -320,9 +366,15 @@ query
 - [ ] First search after launch <3s.
 - [ ] Rerank on/off both work; toggling does not require a restart.
 - [ ] Deleting the rerank model mid-session degrades gracefully with one log line.
-- [ ] Malformed queries (`"unclosed`, `AND AND`, emoji, 10k characters) return results or a
-      clean `AppError` — never a crash.
+- [x] Malformed queries (`"unclosed`, `AND AND`, emoji, 10k characters) return results or a
+      clean `AppError` — never a crash. *Proved in `tests/unit/test_query.py` by running every
+      generated expression against a real FTS5 table, rather than by catching the error.*
 - [ ] Cache invalidates correctly after an incremental index run.
+- [ ] Typing a 40-character query never blocks the UI and never embeds more than once.
+- [ ] `type:pdf after:2024 "site survey" -draft` returns the same set as the equivalent
+      filter chips; the two are interchangeable and keyboard-only operation is possible.
+- [ ] An unparseable operator value (`after:nextthursday`) is surfaced as a hint in the UI,
+      not silently ignored — `ParsedQuery.unknown_operators` carries it.
 
 ---
 
@@ -335,8 +387,11 @@ query
 - `shell.py` — `QMainWindow`; search bar always focused on launch; dark mode; shortcuts
   (`Ctrl+K` focus search, `Ctrl+,` settings, `Enter` open, `Ctrl+Enter` open containing
   folder, `Esc` clear).
-- `search_view.py` — as-you-type with a 150ms debounce; filter chips for type, date range
-  and folder; every search dispatched to the worker pool, never the UI thread.
+- `search_view.py` — as-you-type with a 150ms debounce, running the **two-tier dispatch** from
+  Layer 4 (BM25-only while typing, full hybrid on idle or `Enter`); filter chips for type, date
+  range and folder, kept in sync both ways with the typed operator syntax from `query.py` —
+  setting a chip writes `type:pdf` into the bar, and typing `type:pdf` lights the chip, so
+  there is one state, not two; every search dispatched to the worker pool, never the UI thread.
 - `results_view.py` — result rows showing path, snippet with query-term highlighting,
   score, modified date; click to open, right-click for "Open containing folder", "Copy path",
   "Add to document". Missing-file detection: if the path no longer exists, mark the row and
@@ -444,15 +499,21 @@ query
 
 ## Performance budget (measure, do not assume)
 
-| Stage | Budget | Where measured |
-|---|---|---|
-| Query embedding | <15ms | `search/vector.py` |
-| FTS5 BM25 top-100 | <60ms | `search/keyword.py` |
-| LanceDB ANN top-100 | <80ms | `search/vector.py` |
-| RRF fusion | <5ms | `search/fusion.py` |
-| Cross-encoder rerank top-30 | <200ms | `search/rerank.py` |
-| **Total warm, rerank on** | **<300ms** | `search/engine.py` |
-| Model load (once per session) | <2s | startup warm-up thread |
+| Stage | Budget | Measured | Where measured |
+|---|---|---|---|
+| Query parse + FTS5 sanitise | <1ms | **0.06ms** | `search/query.py` |
+| Query embedding | <15ms | — | `search/vector.py` |
+| FTS5 BM25 top-100 | <60ms | — | `search/keyword.py` |
+| LanceDB ANN top-100 | <80ms | — | `search/vector.py` |
+| RRF fusion | <5ms | **0.14ms** | `search/fusion.py` |
+| Cross-encoder rerank top-30 | <200ms | — | `search/rerank.py` |
+| **Total warm, rerank on** | **<300ms** | — | `search/engine.py` |
+| Model load (once per session) | <2s | — | startup warm-up thread |
+| *Interim tier (typing): parse + BM25 top-20* | *<40ms* | — | `search/engine.py` |
+
+Measured figures are 1000-iteration means over 100+100 candidate rows. The two built stages
+consume 0.07% of the budget between them, which is the argument for keeping the hot path
+deterministic: everything spent here is spent on retrieval, not on parsing.
 
 Log every stage timing at DEBUG. When the budget is missed, the log says which stage —
 that is the entire point of the breakdown.

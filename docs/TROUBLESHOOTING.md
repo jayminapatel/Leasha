@@ -1,5 +1,7 @@
 # Troubleshooting
 
+**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
 

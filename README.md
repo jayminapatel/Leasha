@@ -1,5 +1,7 @@
 # Local Knowledge Graph Search + Office Suite
 
+**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 Hybrid semantic + keyword search over ~100GB of local files and PST email archives, with a
 knowledge graph and Office document generation. Windows 10/11, single user, fully local.
 
@@ -53,6 +55,8 @@ See `docs/TROUBLESHOOTING.md`.
 
 | File | What it is |
 |---|---|
+| `HANDOFF.md` | **Start here if picking this up cold.** State, decisions, traps, how to resume |
+| `docs/PROJECT_INSTRUCTIONS.md` | The standing rules for working on this project |
 | `LOCAL_KNOWLEDGE_GRAPH_V2.md` | Architecture, error contract, PST strategy, honest performance numbers |
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9), schemas, acceptance tests, performance budget |
 | `docs/VERSIONING.md` | Version scheme, git conventions, release checklist |

@@ -1,5 +1,7 @@
 # Changelog
 
+**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
@@ -7,10 +9,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 ### Planned
-- Layer 2 - extraction: PDF/Office/plaintext/PST parsers and chunking
+- Layer 2 - extraction: PDF/Office/plaintext/Outlook parsers and chunking
 
 ---
 
+## [0.3.2] - 2026-08-24
+
+Continuity documents, so the project survives being moved, paused or handed on.
+
+### Added
+- **`HANDOFF.md`** - the pick-it-up-cold document: where everything lives, what works today,
+  how to resume on a new machine, the decisions already made *with their reasoning*, the traps
+  that have already caused real failures, and the genuinely open questions.
+- **`docs/PROJECT_INSTRUCTIONS.md`** - the standing contract: the ten non-negotiables, how a
+  layer gets built, testing and commit conventions, the release checklist, what is deliberately
+  out of scope, and how to brief an AI assistant on the project.
+- `tests/unit/test_handoff_current.py` - fails the suite if either document's **Applies to**
+  version falls behind `VERSION`, or if `HANDOFF.md` loses a section someone resuming needs.
+  Enforced rather than trusted to a checklist: a stale handoff is confidently wrong.
+
+### Changed
+- Release checklist in `docs/VERSIONING.md` now requires updating `HANDOFF.md`.
+
+### Docs
+- `HANDOFF.md` 1.0, `docs/PROJECT_INSTRUCTIONS.md` 1.0, `docs/VERSIONING.md` 1.2,
+  `README.md` 1.2. All documents re-pointed at app v0.3.2.
+
+---
 ## [0.3.1] - 2026-08-24
 
 Troubleshooting infrastructure, and two scope questions answered in the spec.

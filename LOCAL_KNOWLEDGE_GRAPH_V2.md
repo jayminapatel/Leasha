@@ -1,5 +1,7 @@
 # Local Knowledge Graph Search + Office Suite — V2 (Windows, Single User)
 
+**Doc version:** 2.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 **Project Type:** Windows desktop app, embedded single-process architecture
 **Target OS:** Windows 10/11 only, single user
 **Tech Stack:** PyQt6 + SQLite/FTS5 + LanceDB + FastEmbed (ONNX) + PyMuPDF — Ollama optional

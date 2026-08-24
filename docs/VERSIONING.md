@@ -1,5 +1,7 @@
 # Versioning
 
+**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
 ## Scheme
 
 `MAJOR.MINOR.PATCH`, semantic-versioning shaped but mapped onto the build layers, because
@@ -37,6 +39,31 @@ The version lives in the top-level **`VERSION`** file. Nothing else hardcodes it
 - PowerShell reads it with `Get-Content .\VERSION`
 - `build_info()` also returns `git describe --tags --always --dirty` when a repo is present,
   so a build can always be traced to a commit — and never raises when `.git` is absent.
+
+## Document versions
+
+Every `.md` in the repo carries its own version. The specs drive the build, so a spec that
+changed silently is a spec nobody can trust — and "which version of the plan were we working
+to?" has to be answerable from the file itself, not from `git log`.
+
+Immediately under the H1, every document carries exactly this line:
+
+```
+**Doc version:** 2.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+```
+
+| Field | Meaning |
+|---|---|
+| **Doc version** | `MAJOR.MINOR`, the document's own. **MAJOR** on a rewrite that voids the previous version — the V1→V2 architecture change is why the two big specs start at `2.0`. **MINOR** on any change to content that a reader would act on differently. Typos and formatting do not bump it. |
+| **Updated** | ISO date of that bump. |
+| **Applies to** | The `VERSION` the document was last checked against. It may lag the app version; when it does, the gap is the honest signal that the document needs a review. |
+
+Document versions are **independent of the app version**. A doc at `2.1` alongside an app at
+`0.3.1` is normal and correct — they count different things.
+
+`tests/unit/test_docs_versioned.py` enforces the header on every tracked `.md`, so a new
+document cannot be added without one. A doc-version bump is recorded in `CHANGELOG.md` under
+a `### Docs` heading in the same release as the change it describes.
 
 ## Schema version
 
@@ -83,8 +110,17 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
 2. `doctor.py` prints **READY** on a clean install.
 3. Performance budget re-measured and recorded — never assumed.
 4. `VERSION` bumped.
-5. `CHANGELOG.md` `[Unreleased]` section promoted to the new version with today's date.
-6. Commit `chore(release): v<x.y.z>`, then tag.
+5. Every document changed since the last release has its **Doc version** and **Updated**
+   bumped, and its **Applies to** set to the new `VERSION`.
+   `pytest tests/unit/test_docs_versioned.py` is green.
+6. **`HANDOFF.md` updated** - current state, the next layer, and any new decision or trap
+   worth recording. `pytest tests/unit/test_handoff_current.py` is green.
+7. `CHANGELOG.md` `[Unreleased]` section promoted to the new version with today's date,
+   including its `### Docs` subsection.
+8. Commit `chore(release): v<x.y.z>`, then tag.
+
+Steps 5 and 6 are enforced by tests rather than trusted to memory. Documentation that has
+quietly gone stale is worse than none: it is confidently wrong, and someone acts on it.
 
 ## Never committed
 

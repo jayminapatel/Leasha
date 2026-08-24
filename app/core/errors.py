@@ -180,6 +180,25 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # --- Layer 2 additions --------------------------------------------------
+    "ERR_NO_TEXT_LAYER": _Spec(
+        message="'{path}' contains no text that can be extracted.",
+        suggestion=(
+            "Scanned documents and photographs hold text as pixels, not characters, so there "
+            "is nothing to index without OCR - which V2 does not do. The file is left in place "
+            "and counted, so it can be found again if OCR is added later."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_UNSUPPORTED_TYPE": _Spec(
+        message="'{ext}' files are not supported, so '{path}' was skipped.",
+        suggestion=(
+            "Supported: PDF, DOCX, XLSX, PPTX, EML, MSG, PST and plain text. The pre-2007 "
+            "binary Office formats (.doc, .xls, .ppt) are not - open one in Office and save it "
+            "as the modern equivalent to have it indexed."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     # --- Layer 0 additions --------------------------------------------------
     "ERR_CONFIG_INVALID": _Spec(
         message="Configuration problem with '{key}': {reason}",
