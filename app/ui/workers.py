@@ -24,8 +24,7 @@ from app.core.errors import AppError, to_app_error
 from app.core.logging import logger
 
 __all__ = [
-    "WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker",
-    "GraphWorker", "run",
+    "WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker", "run",
 ]
 
 _log = logger.bind(component="ui.workers")
@@ -196,64 +195,6 @@ class IndexWorker(QRunnable):
             _emit(self.signals, "finished", stats)
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.index")
-            _log.bind(error_code=error.code).error("{}", error.render())
-            _emit(self.signals, "failed", error)
-        finally:
-            _emit(self.signals, "done")
-
-
-class GraphWorker(QRunnable):
-    """Build the knowledge graph, optionally enriching it, off the UI thread.
-
-    Ollama being unavailable is reported through `finished`, not `failed`. It is
-    not an error: the co-occurrence graph is complete without it, and routing it
-    to the error path would put a red banner in front of someone whose graph
-    built perfectly. The `EnrichResult` carries the `AppError` for the panel to
-    show as a note.
-    """
-
-    def __init__(self, store: Any, settings: Any, *, rebuild: bool = False, enrich: bool = False):
-        super().__init__()
-        self._store = store
-        self._settings = settings
-        self._rebuild = rebuild
-        self._enrich = enrich
-        self._builder: Any = None
-        self._enricher: Any = None
-        self.signals = WorkerSignals()
-
-    def stop(self) -> None:
-        for job in (self._builder, self._enricher):
-            if job is not None:
-                job.request_stop()
-
-    def run(self) -> None:                       # noqa: D102
-        from app.graph.builder import GraphBuilder
-
-        try:
-            total = int(self._store.stats().get("chunks_total", 0))
-            # Not `self.signals.progress.emit` - that binds the method now and
-            # calls it unguarded for the next several minutes, which is the same
-            # mistake `_emit` exists to prevent, just spelled differently.
-            self._builder = GraphBuilder(
-                self._store,
-                on_progress=lambda payload: _emit(self.signals, "progress", payload),
-            )
-            result = self._builder.build(rebuild=self._rebuild, chunks_total=total)
-
-            if self._enrich and not result.interrupted:
-                from app.graph.entities_llm import EntityEnricher
-                from app.llm.ollama import OllamaClient
-
-                self._enricher = EntityEnricher(
-                    self._store,
-                    OllamaClient(self._settings.ollama_url, self._settings.ollama_model),
-                )
-                self._enricher.run(chunks_total=total)
-
-            _emit(self.signals, "finished", result)
-        except Exception as exc:                 # noqa: BLE001
-            error = to_app_error(exc, "ui.graph")
             _log.bind(error_code=error.code).error("{}", error.render())
             _emit(self.signals, "failed", error)
         finally:

@@ -178,27 +178,56 @@ def semantic_search_warnings(
     if chunks == 0:
         return []
 
-    out: list[str] = []
+    fix = r"      venv\Scripts\python.exe -m app.cli reembed"
+
+    # **Measured against `chunks_total`, not `chunks_embedded`.** The first
+    # version of this check compared the vector row count against the number of
+    # chunks *flagged* as embedded, and those two agreed perfectly on a corpus
+    # where only 154 of 3,355 passages had ever been embedded - so it printed
+    # nothing at all, on precisely the machine it was written for.
+    #
+    # The flag answers "did the vectors get written for the chunks we tried",
+    # which is not the question. The question is "can meaning-based search see
+    # my corpus", and only the total can answer that.
     if rows == 0:
-        out += [
+        return [
             "",
-            "  ⚠ Meaning-based search is NOT working.",
+            "  [!] Meaning-based search is NOT working.",
             f"    {chunks:,} passages are indexed but the vector store is empty, so only",
             "    keyword matching is running. A question phrased in your own words will",
             "    only find documents that happen to use those exact words.",
             "",
             "    Rebuild the vectors from SQLite, which is the authority:",
-            r"      venv\Scripts\python.exe -m app.cli reembed",
+            fix,
         ]
-    elif embedded and rows < embedded * 0.9:
-        out += [
+
+    covered = rows / chunks
+    if covered < 0.95:
+        missing = chunks - rows
+        return [
             "",
-            f"  ⚠ The vector store has {rows:,} rows but SQLite says {embedded:,} passages",
-            "    were embedded. Meaning-based search is working on part of your corpus",
-            "    only. Rebuilding the vectors will fix it:",
-            r"      venv\Scripts\python.exe -m app.cli reembed",
+            f"  [!] Meaning-based search covers {covered:.0%} of your corpus.",
+            f"    {rows:,} of {chunks:,} passages have a vector; {missing:,} do not, and are",
+            "    findable by keyword only. Embedding stops early if an index run is",
+            "    paused, interrupted, or runs short of memory - and nothing has said so",
+            "    until now, because the run itself reported success.",
+            "",
+            "    Embed what is missing (no document is re-read; minutes, not hours):",
+            fix,
         ]
-    return out
+
+    if embedded and rows > embedded * 1.05:
+        # More vectors than SQLite believes were embedded means orphaned rows,
+        # usually from an interrupted rebuild. Searches will return chunk ids
+        # that no longer resolve, which looks like results silently going missing.
+        return [
+            "",
+            f"  [!] The vector store has {rows:,} rows but SQLite says {embedded:,} passages",
+            "    were embedded. The extra rows are orphans and may produce results that",
+            "    cannot be opened. Rebuild from the authority:",
+            r"      venv\Scripts\python.exe -m app.cli reembed --all",
+        ]
+    return []
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -858,119 +887,6 @@ def cmd_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def cmd_graph(args: argparse.Namespace) -> int:
-    """Build, enrich, inspect or draw the knowledge graph. Layer 6's entry point.
-
-    Takes the single-instance lock: it writes, and two builds accumulating edge
-    weights into one database would double every count between them.
-
-    `--enrich` is the only part that needs Ollama, and it is the only part that
-    can be skipped entirely without losing the feature.
-    """
-    from app.graph import render
-    from app.graph.builder import GraphBuilder
-    from app.storage.sqlite_store import SqliteStore
-
-    settings = _load(args)
-    setup_logging(settings.log_path)
-    log = logger.bind(component="cli.graph")
-
-    with SingleInstance(), SqliteStore(settings.fts_db) as store:
-        payload: dict[str, Any] = {}
-
-        if not args.show_only:
-            def tick(progress) -> None:
-                if not args.quiet:
-                    print(
-                        f"  {progress.phase:<8} {progress.chunks_done:>8,} chunks  "
-                        f"{progress.entities:>7,} entities  {progress.edges:>8,} connections",
-                        flush=True,
-                    )
-
-            total = int(store.stats().get("chunks_total", 0))
-            builder = GraphBuilder(
-                store,
-                min_weight=args.min_weight,
-                min_npmi=args.min_pmi,
-                on_progress=None if args.quiet else tick,
-            )
-            result = builder.build(rebuild=args.rebuild, chunks_total=total)
-            payload["build"] = result.as_dict()
-
-        if args.enrich:
-            from app.graph.entities_llm import EntityEnricher
-            from app.llm.ollama import OllamaClient
-
-            client = OllamaClient(settings.ollama_url, settings.ollama_model)
-            enricher = EntityEnricher(store, client)
-            enriched = enricher.run(chunks_total=int(store.stats().get("chunks_total", 0)))
-            payload["enrich"] = enriched.as_dict()
-            if enriched.error is not None and not args.json:
-                print()
-                print(enriched.error.render())
-
-        stats = store.graph_stats()
-        payload["graph"] = stats
-
-        entities = store.top_entities(max(args.top, render.MAX_RENDER_NODES if args.html else args.top))
-        view = render.select_top(
-            entities, store.edges_among, limit=render.MAX_RENDER_NODES if args.html else args.top
-        )
-
-        if args.html:
-            out = Path(args.html).expanduser()
-            try:
-                render.render_html(view, out, title=f"Knowledge graph - {settings.fts_db.parent.name}")
-                payload["html"] = str(out)
-            except AppErrorException as exc:
-                # The picture is optional; the numbers below are not. Report and
-                # carry on rather than failing a command that mostly succeeded.
-                return _report(exc.error, args.json)
-
-        if args.json:
-            print(json.dumps(payload, indent=2, default=str))
-            return EXIT_OK
-
-        print()
-        print(f"Entities  {stats['entities']:,}   Connections {stats['edges']:,}")
-        if stats["by_kind"]:
-            print("By kind:  " + "  ".join(f"{k}={v:,}" for k, v in sorted(stats["by_kind"].items())))
-        if stats["entities"] == 0:
-            print()
-            print("Nothing yet. Index some documents first, then run this again:")
-            print(r'  venv\Scripts\python.exe -m app.cli index "D:\SearchData"')
-            return EXIT_OK
-
-        print()
-        print(f"Most connected ({min(args.top, len(view.nodes))} of {stats['entities']:,}):")
-        labels = {int(node["id"]): str(node["display"]) for node in view.nodes}
-        for node in view.nodes[: args.top]:
-            print(f"  {str(node['display'])[:44]:<44} {node['kind']:<9} {node['doc_count']:>6,} docs")
-
-        if args.entity:
-            wanted = args.entity.casefold()
-            match = next((i for i, label in labels.items() if label.casefold() == wanted), None)
-            print()
-            if match is None:
-                print(f"No entity named '{args.entity}'. Names above are exact.")
-            else:
-                print(f"'{labels[match]}' is connected to:")
-                for row in render.neighbourhood(match, view.edges, labels):
-                    print(f"  {row['label'][:40]:<40} {row['weight']:>4} passages  npmi {row['pmi']:.2f}")
-                print()
-                print("Seen in:")
-                for row in store.chunks_mentioning(match, 5):
-                    print(f"  {row['path']}")
-
-        if args.html:
-            print()
-            print(f"Interactive graph written to {payload['html']}")
-            print("  Open it in a browser. It is fully self-contained and works offline.")
-
-        log.info("graph command complete: {}", payload.get("graph"))
-        return EXIT_OK
-
-
 def cmd_files(args: argparse.Namespace) -> int:
     """Find a file by its NAME. Not a content search.
 
@@ -1093,6 +1009,29 @@ def cmd_reembed(args: argparse.Namespace) -> int:
         if rows < total:
             print(f"  {total - rows:,} passages still have no vector - see the log.")
         return EXIT_OK
+
+
+def cmd_commands(args: argparse.Namespace) -> int:
+    """List the search filters. The answer to "what can I type in that box?".
+
+    Every one of these has worked since Layer 4 and none of them were documented
+    anywhere a user would look, which made them worth exactly nothing. Printed
+    from `app/search/commands.py` - the same list the `/` dropdown shows and the
+    same one Layer 8a hands to the model, so the three cannot drift apart.
+    """
+    from app.search.commands import COMMANDS, help_lines
+
+    if args.json:
+        print(json.dumps([
+            {"name": c.name, "aliases": list(c.aliases), "summary": c.summary,
+             "example": c.example, "value": c.value_hint}
+            for c in COMMANDS
+        ], indent=2))
+        return EXIT_OK
+
+    for line in help_lines():
+        print(line)
+    return EXIT_OK
 
 
 def cmd_ollama(args: argparse.Namespace) -> int:
@@ -1430,29 +1369,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_convert.add_argument("--quiet", action="store_true", help="no progress lines")
     p_convert.set_defaults(func=cmd_convert)
 
-    p_graph = sub.add_parser(
-        "graph", parents=[common],
-        help="build and inspect the knowledge graph over the indexed chunks")
-    p_graph.add_argument("--rebuild", action="store_true",
-                         help="discard the existing graph and start over "
-                              "(safe: it is derived from the index)")
-    p_graph.add_argument("--show-only", action="store_true",
-                         help="report what is already stored without building")
-    p_graph.add_argument("--enrich", action="store_true",
-                         help="also run typed entity extraction through Ollama, "
-                              "resuming where the last run stopped")
-    p_graph.add_argument("--top", type=int, default=25, metavar="N",
-                         help="entities to list (default 25)")
-    p_graph.add_argument("--entity", metavar="NAME",
-                         help="show what one entity connects to, and where it appears")
-    p_graph.add_argument("--html", metavar="PATH",
-                         help="also write a self-contained interactive page")
-    p_graph.add_argument("--min-weight", type=int, default=2, metavar="N",
-                         help="drop connections seen in fewer than N passages (default 2)")
-    p_graph.add_argument("--min-pmi", type=float, default=0.0, metavar="X",
-                         help="drop connections at or below this normalised PMI (default 0.0)")
-    p_graph.add_argument("--quiet", action="store_true", help="no progress lines")
-    p_graph.set_defaults(func=cmd_graph)
 
     p_files = sub.add_parser(
         "files", parents=[common],
@@ -1471,6 +1387,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="drop every vector and start over, not just the missing ones")
     p_reembed.add_argument("--quiet", action="store_true", help="no progress lines")
     p_reembed.set_defaults(func=cmd_reembed)
+
+    p_commands = sub.add_parser(
+        "commands", parents=[common],
+        help="list the search filters you can type (/type, /from, /after ...)")
+    p_commands.set_defaults(func=cmd_commands)
 
     p_ollama = sub.add_parser(
         "ollama", parents=[common],

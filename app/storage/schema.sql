@@ -160,7 +160,22 @@ CREATE INDEX IF NOT EXISTS idx_hits_opened ON search_hits(opened) WHERE opened =
 -- the passages behind it, and PMI has to be recomputable without re-extracting.
 -- Edges are stored once, with a_id < b_id enforced by CHECK — co-occurrence is
 -- symmetric, and two stored halves can only ever disagree.
--- ---------------------------------------------------------------------------
+--
+-- ###########################################################################
+-- DEPRECATED as of the scope change recorded in HANDOFF.md and CHANGELOG.md.
+--
+-- The knowledge graph was removed: it was never in the search path, nothing
+-- depended on it, and the only user did not want it. `app/graph/` and the Graph
+-- tab are gone; git preserves them at tag v0.3.2.
+--
+-- **These three tables stay, empty, and the schema version does NOT move.**
+-- Dropping them would need a migration to v5, and migrations only step forward
+-- - so reviving the feature would then need a v6 to undo the v5, and the
+-- database would carry a permanent record of a decision that was reversed. An
+-- empty table costs nothing; a migration pair costs clarity forever.
+--
+-- Drop them at Layer 9 if it still seems worthwhile by then.
+-- ###########################################################################
 
 CREATE TABLE IF NOT EXISTS entities (
     id          INTEGER PRIMARY KEY,

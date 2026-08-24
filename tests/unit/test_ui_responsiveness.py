@@ -92,23 +92,27 @@ def test_no_view_sleeps(name: str) -> None:
     assert "time.sleep" not in _calls_in(tree(name)), f"{name} sleeps on the UI thread"
 
 
-def test_the_graph_panel_does_not_read_the_store_while_painting() -> None:
-    """`refresh()` was `top_entities(500)` plus `edges_among` over 96,712 edges,
-    on the UI thread, on every switch to the Graph tab - and it also waited on
-    the SQLite lock whenever an index run held a write.
+def test_no_view_reads_the_store_while_painting() -> None:
+    """A `_refreshed`-style method is handed data; it must not fetch it.
 
-    The reads now happen in a worker closure; the method that paints must not
-    touch the store itself.
+    The Graph panel read `top_entities(500)` plus `edges_among` over 96,712
+    edges on the UI thread, on every tab switch - and waited on the SQLite lock
+    whenever an index run held a write. That panel is gone with the knowledge
+    graph, but the rule it broke applies to every view that replaces it, so the
+    test outlives the code that failed it.
     """
-    module = tree("graph_view.py")
-    painter = next(
-        node for node in ast.walk(module)
-        if isinstance(node, ast.FunctionDef) and node.name == "_refreshed"
-    )
-    assert not any(
-        call.startswith("_store.") or call in {"top_entities", "edges_among", "graph_stats"}
-        for call in _calls_in(painter)
-    ), "_refreshed paints; it must be handed data, not fetch it"
+    for path in sorted(UI.glob("*_view.py")):
+        module = tree(path.name)
+        for node in ast.walk(module):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if not node.name.endswith(("_refreshed", "_painted", "_done")):
+                continue
+            reads = [c for c in _calls_in(node) if c.startswith("_store.")]
+            assert not reads, (
+                f"{path.name}.{node.name} paints; it must be handed data, not "
+                f"fetch it. Found: {reads}"
+            )
 
 
 def test_settings_counts_the_usage_log_without_reading_it() -> None:

@@ -63,7 +63,7 @@ def _packages() -> dict[str, str]:
 
     wanted = [
         "PyQt6", "lancedb", "fastembed", "pymupdf", "python-docx", "openpyxl",
-        "python-pptx", "pywin32", "diskcache", "networkx", "pyvis", "pydantic",
+        "python-pptx", "pywin32", "diskcache", "pydantic",
         "python-dotenv", "loguru", "tqdm", "requests", "pyarrow", "numpy",
         "onnxruntime", "pytest",
     ]

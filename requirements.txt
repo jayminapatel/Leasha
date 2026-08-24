@@ -52,8 +52,6 @@ extract-msg==0.56.1   # single .msg items only - NEVER .pst (see email_files.py)
 # The import is guarded everywhere, so its absence changes nothing.
 
 # --- Graph -----------------------------------------------------------------
-networkx==3.6.1
-pyvis==0.3.2
 
 olefile==0.47         # OLE summary metadata for .vsd / .mpp - pure Python, no COM
 # Reads the documented summary stream out of a pre-2007 Office compound file, so

@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.search.commands import expand_slashes
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -40,6 +41,7 @@ from app.ui.presenter import (
     tier_for,
 )
 from app.ui.results_view import ResultsView
+from app.ui.widgets.command_popup import attach_to
 from app.ui.workers import SearchWorker, run
 
 __all__ = ["SearchView"]
@@ -70,12 +72,16 @@ class SearchView(QWidget):
         self._last_search_id: Optional[int] = None
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText(
-            'Search…    type:pdf  after:2024  path:Projects  "exact phrase"  -exclude'
-        )
+        self.input.setPlaceholderText("Search…    press / for filters")
         self.input.setClearButtonEnabled(True)
         self.input.textChanged.connect(self._on_text_changed)
         self.input.returnPressed.connect(self._on_submitted)
+
+        # Typing `/` lists the filters. They all worked already; nothing in the
+        # app had ever mentioned them, so the box was in practice a bag of words.
+        # The placeholder now advertises the doorway rather than trying to fit
+        # five operators into it, which nobody read.
+        self.commands = attach_to(self.input)
 
         # Scope chips. A filter, not a mode: you should never have to decide
         # whether a thing was an email or a document *before* typing, because
@@ -149,8 +155,9 @@ class SearchView(QWidget):
     def search_now(self) -> None:
         """Run the full search immediately, as if Enter had been pressed.
 
-        Exists for the graph panel: clicking an entity is an explicit choice, so
-        it should not wait out a debounce meant for someone still typing.
+        For anything that starts a search on the user's behalf - a filter chosen
+        from a menu, a suggestion accepted. An explicit choice should not wait
+        out a debounce meant for someone still typing.
         """
         self._dispatch(Tier.FULL)
 
@@ -171,7 +178,9 @@ class SearchView(QWidget):
             self._dispatch(tier)
 
     def _dispatch(self, tier: str) -> None:
-        query = self.input.text().strip()
+        # `/type pdf` becomes `type:pdf` here, so nothing below this line -
+        # and nothing in the parser - has to know slashes exist.
+        query = expand_slashes(self.input.text().strip())
         if not query:
             self.results.clear()
             self.status.setText("")

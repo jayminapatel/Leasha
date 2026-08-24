@@ -41,17 +41,11 @@ __all__ = [
     "group_skips",
     "ResultRow",
     "to_row",
-    "EntityRow",
-    "entity_rows",
-    "neighbour_rows",
-    "graph_headline",
-    "graph_phase_line",
     "FileRow",
     "file_rows",
     "doctor_report",
     "doctor_lines",
     "search_shape",
-    "read_graph",
     "semantic_health",
     "format_size",
     "format_when",
@@ -394,123 +388,6 @@ def to_rows(results: Iterable[Any], terms: Sequence[str], **kwargs: Any) -> list
 
 
 # ---------------------------------------------------------------------------
-# Layer 6 - the knowledge graph panel
-#
-# The picture opens in a browser (see app/graph/render.py for why), so what the
-# app itself shows is a *table*: entities, what each connects to, and the
-# passages behind it. Everything below turns stored rows into display strings,
-# which is the same split the rest of this module exists to keep - the view
-# arranges widgets and nothing else.
-# ---------------------------------------------------------------------------
-
-#: What each entity kind is called on screen. The stored values are terse
-#: because they are keys; a person reading a table wants a word.
-KIND_LABELS = {
-    "name": "Name",
-    "acronym": "Term",
-    "email": "Email",
-    "file": "File",
-    "person": "Person",
-    "org": "Organisation",
-    "project": "Project",
-    "system": "System",
-    "place": "Place",
-    "standard": "Standard",
-    "date": "Date",
-}
-
-
-@dataclass(frozen=True, slots=True)
-class EntityRow:
-    entity_id: int
-    label: str
-    kind: str
-    documents: str
-    mentions: str
-    typed_by_model: bool
-
-
-def entity_rows(entities: Iterable[Any], *, label_limit: int = 48) -> list[EntityRow]:
-    """Stored entity rows to display rows."""
-    out: list[EntityRow] = []
-    for row in entities:
-        label = str(row["display"])
-        if len(label) > label_limit:
-            label = label[: label_limit - 1] + "…"
-        out.append(EntityRow(
-            entity_id=int(row["id"]),
-            label=label,
-            kind=KIND_LABELS.get(str(row["kind"]), str(row["kind"]).title()),
-            documents=format_count(int(row["doc_count"])),
-            mentions=format_count(int(row["mentions"])),
-            typed_by_model=str(row.get("source", "")) == "llm",
-        ))
-    return out
-
-
-def neighbour_rows(neighbours: Iterable[Mapping[str, Any]]) -> list[tuple[str, str, str]]:
-    """`(label, strength, evidence)` for the connections panel.
-
-    The npmi is shown as a word rather than a number. "0.62" is meaningless to
-    anyone who has not read the PMI definition, and the panel exists to be read
-    at a glance; the passage count beside it is the part that is checkable.
-    """
-    out: list[tuple[str, str, str]] = []
-    for row in neighbours:
-        pmi = float(row.get("pmi") or 0.0)
-        if pmi >= 0.7:
-            strength = "almost always together"
-        elif pmi >= 0.4:
-            strength = "strongly linked"
-        elif pmi >= 0.15:
-            strength = "linked"
-        else:
-            strength = "weakly linked"
-        passages = int(row.get("weight", 0))
-        out.append((
-            str(row.get("label", "")),
-            strength,
-            f"{passages:,} passage{'s' if passages != 1 else ''}",
-        ))
-    return out
-
-
-def graph_headline(stats: Mapping[str, Any]) -> str:
-    """One line describing the stored graph, or how to get one."""
-    entities = int(stats.get("entities", 0))
-    edges = int(stats.get("edges", 0))
-    if entities == 0:
-        return "No graph yet. Index some documents, then choose Build."
-    return f"{entities:,} entities, {edges:,} connections"
-
-
-def graph_phase_line(progress: Any) -> str:
-    """Progress text for a build in flight.
-
-    The three phases are named rather than merged into one bar because they take
-    wildly different times and only the first has a meaningful total: scoring and
-    pruning are single passes over tables whose size nobody knows in advance, and
-    a bar that stalls at 99% for a minute reads as a hang.
-    """
-    phase = {
-        "extract": "Reading passages",
-        "score": "Scoring connections",
-        "prune": "Removing weak connections",
-    }.get(getattr(progress, "phase", ""), "Working")
-
-    done = int(getattr(progress, "chunks_done", 0))
-    total = int(getattr(progress, "chunks_total", 0))
-    entities = int(getattr(progress, "entities", 0))
-
-    if phase == "Reading passages" and total > 0:
-        return (
-            f"{phase}: {done:,} of {total:,} "
-            f"({done * 100 // max(total, 1)}%) - {entities:,} entities so far"
-        )
-    return f"{phase}… {entities:,} entities so far"
-
-
-# ---------------------------------------------------------------------------
 # Finding a file by its name
 #
 # A different question from "which document says this", and it deserves a
@@ -729,23 +606,3 @@ def semantic_health(response: Any) -> Optional[str]:
 GRAPH_TABLE_LIMIT = 500
 
 
-def read_graph(store: Any, *, limit: int = GRAPH_TABLE_LIMIT) -> dict[str, Any]:
-    """Everything the Graph panel needs, in one read. Runs in a worker.
-
-    A plain function taking the store, rather than a closure inside the view,
-    for the reason this module exists: it can be called with a fake store in a
-    test, and the view is left with nothing but painting.
-
-    It is the read that froze the window. `edges_among` over a real corpus scans
-    96,712 edges, and it was running on the UI thread on every switch to the
-    Graph tab - including while an index run held a write transaction, in which
-    case it also sat waiting on the SQLite lock.
-    """
-    entities = store.top_entities(limit)
-    labels = {int(row["id"]): str(row["display"]) for row in entities}
-    return {
-        "stats": store.graph_stats(),
-        "entities": entities,
-        "labels": labels,
-        "edges": store.edges_among(list(labels)),
-    }

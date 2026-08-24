@@ -36,7 +36,6 @@ from app.core.logging import logger
 from app.index.resources import limits_from_settings
 from app.index.schedule import SchedulePolicy
 from app.ui.files_view import FilesView
-from app.ui.graph_view import GraphView
 from app.ui.indexing_view import IndexingView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
@@ -162,14 +161,10 @@ class MainWindow(QMainWindow):
         self.files_view = FilesView(store)
         self.files_view.error.connect(self._show_error)
 
-        self.graph_view = GraphView(store, settings)
-        self.graph_view.error.connect(self._show_error)
-        self.graph_view.search_requested.connect(self._search_for)
-
         self.tabs = QTabWidget()
         # (view, title, wrap in a scroll area?)
         #
-        # Only stacked forms are wrapped. Search, Files, Graph and Indexing are
+        # Only stacked forms are wrapped. Search, Files and Indexing are
         # each built around a table, list or splitter that already fills the
         # window and scrolls its own contents - nesting a second scroll area
         # around one of those makes the two fight over the wheel, and the outer
@@ -182,15 +177,14 @@ class MainWindow(QMainWindow):
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
             (self.indexing_view, "Indexing", False),
-            (self.graph_view, "Graph", False),
             (self.settings_view, "Settings", True),
         ):
             self._tab_index[view] = self.tabs.addTab(
                 wrap_if_needed(view, scroll=scroll), title
             )
-        # Reload the graph panel when it comes forward rather than on a timer:
-        # an index run between visits changes what it should show, and polling
-        # a table nobody is looking at is work for nothing.
+        # Refresh a panel when it comes forward rather than on a timer: an
+        # index run between visits changes what it should show, and polling a
+        # table nobody is looking at is work for nothing.
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
 
@@ -256,7 +250,6 @@ class MainWindow(QMainWindow):
         self.search_view.error.connect(lambda e: record("error", where="search", **_err(e)))
         self.indexing_view.error.connect(lambda e: record("error", where="index", **_err(e)))
         self.files_view.error.connect(lambda e: record("error", where="files", **_err(e)))
-        self.graph_view.error.connect(lambda e: record("error", where="graph", **_err(e)))
 
         self.indexing_view.start_button.clicked.connect(
             lambda _c=False: record("click", what="start_indexing")
@@ -264,11 +257,6 @@ class MainWindow(QMainWindow):
         self.indexing_view.finished.connect(
             lambda stats: record("index_finished", **_stats(stats))
         )
-        self.graph_view.build_button.clicked.connect(
-            lambda _c=False: record("click", what="build_graph",
-                                    enrich=self.graph_view.enrich_box.isChecked())
-        )
-        self.graph_view.finished.connect(lambda _r: record("graph_finished"))
         self.settings_view.environment.run_doctor_button.clicked.connect(
             lambda _c=False: record("click", what="run_doctor")
         )
@@ -299,7 +287,6 @@ class MainWindow(QMainWindow):
         bind("Ctrl+F", self._focus_search)
         bind("Ctrl+,", lambda: self._show(self.settings_view))
         bind("Ctrl+I", lambda: self._show(self.indexing_view))
-        bind("Ctrl+G", lambda: self._show(self.graph_view))
         bind("Ctrl+P", self._focus_files)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
@@ -440,27 +427,12 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentIndex(index)
 
     def _tab_changed(self, index: int) -> None:
-        if index == self._tab_index.get(self.graph_view):
-            self.graph_view.refresh()
-        elif index == self._tab_index.get(self.indexing_view):
+        if index == self._tab_index.get(self.indexing_view):
             self.indexing_view.refresh_totals(self._store)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
             self.files_view.focus()
 
-    def _search_for(self, term: str) -> None:
-        """Jump from a graph node to the results for it.
-
-        Quoted, because entity names contain spaces far more often than search
-        terms do - "Acme Water Ltd" unquoted is three separate terms and finds
-        the wrong thing.
-        """
-        if not term:
-            return
-        self._show(self.search_view)
-        self.search_view.input.setText(f'"{term}"')
-        self.search_view.search_now()
-        self.search_view.focus()
 
     def _focus_search(self) -> None:
         self._show(self.search_view)
@@ -644,10 +616,10 @@ class MainWindow(QMainWindow):
         """Ask every background job to stop, then wait briefly before closing.
 
         **This was three nested tracebacks on exit.** The window closed while a
-        graph run was 200 seconds into waiting on a dead Ollama. Closing tore
-        down the QApplication, sip deleted the worker's `WorkerSignals`, and the
-        thread - still running, knowing nothing about any of it - finished and
-        emitted into a deleted C++ object.
+        background job was 200 seconds into waiting on a dead Ollama. Closing
+        tore down the QApplication, sip deleted the worker's `WorkerSignals`,
+        and the thread - still running, knowing nothing about any of it -
+        finished and emitted into a deleted C++ object.
 
         The stores are worse than the signals. `SqliteStore.__exit__` runs on the
         way out of `main()`, so a worker still holding a cursor finds the
@@ -656,7 +628,6 @@ class MainWindow(QMainWindow):
         """
         self.recorder.event("closing")
         self.indexing_view.stop()
-        self.graph_view.stop_all()
         try:
             self.scheduler.stop()
         except Exception:                                # noqa: BLE001

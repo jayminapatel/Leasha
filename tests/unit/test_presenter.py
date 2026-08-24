@@ -349,9 +349,6 @@ def test_every_qt_view_keeps_its_logic_in_the_presenter() -> None:
         assert len(code) < 250, f"{name} has {len(code)} lines - logic may be leaking into the view"
 
 
-# ---------------------------------------------------------------------------
-# Layer 6 - the graph panel
-# ---------------------------------------------------------------------------
 
 def _entity(**overrides):
     row = {
@@ -362,84 +359,16 @@ def _entity(**overrides):
     return row
 
 
-def test_entity_rows_name_the_kind_in_words() -> None:
-    """'acronym' is a key. A person reading a table column wants a word."""
-    rows = presenter.entity_rows([_entity(kind="acronym"), _entity(id=2, kind="org")])
-    assert [row.kind for row in rows] == ["Term", "Organisation"]
 
 
-def test_an_unknown_kind_is_shown_rather_than_hidden() -> None:
-    """A model inventing a type must not produce a blank cell."""
-    assert presenter.entity_rows([_entity(kind="vessel")])[0].kind == "Vessel"
 
 
-def test_a_long_entity_name_is_shortened_for_the_table() -> None:
-    row = presenter.entity_rows([_entity(display="X" * 200)])[0]
-    assert len(row.label) <= 48
-    assert row.label.endswith("…")
 
 
-def test_the_row_remembers_which_types_came_from_the_model() -> None:
-    rows = presenter.entity_rows([_entity(source="llm"), _entity(id=2, source="cooccurrence")])
-    assert [row.typed_by_model for row in rows] == [True, False]
 
 
-def test_neighbour_rows_say_how_strong_in_words_not_in_pmi() -> None:
-    """0.62 means nothing to anyone who has not read the PMI definition."""
-    rows = presenter.neighbour_rows([
-        {"label": "Barnsley Dairy", "weight": 9, "pmi": 0.9},
-        {"label": "HACCP", "weight": 4, "pmi": 0.5},
-        {"label": "SCADA", "weight": 2, "pmi": 0.2},
-        {"label": "MES", "weight": 1, "pmi": 0.05},
-    ])
-    assert [row[1] for row in rows] == [
-        "almost always together", "strongly linked", "linked", "weakly linked",
-    ]
 
 
-def test_a_single_passage_is_not_pluralised() -> None:
-    rows = presenter.neighbour_rows([{"label": "X", "weight": 1, "pmi": 0.5}])
-    assert rows[0][2] == "1 passage"
-
-
-def test_a_missing_pmi_does_not_break_the_panel() -> None:
-    """`pmi` is NULL on every edge until the scoring pass runs."""
-    rows = presenter.neighbour_rows([{"label": "X", "weight": 3, "pmi": None}])
-    assert rows[0][1] == "weakly linked"
-
-
-def test_an_empty_graph_says_what_to_do_about_it() -> None:
-    headline = presenter.graph_headline({"entities": 0, "edges": 0})
-    assert "Index" in headline
-
-
-def test_the_headline_counts_what_is_there() -> None:
-    assert presenter.graph_headline({"entities": 1234, "edges": 5678}) == (
-        "1,234 entities, 5,678 connections"
-    )
-
-
-class _Progress:
-    def __init__(self, phase, done=0, total=0, entities=0):
-        self.phase, self.chunks_done, self.chunks_total, self.entities = phase, done, total, entities
-
-
-def test_the_progress_line_names_the_phase() -> None:
-    """Three phases with wildly different durations; one bar reads as a hang."""
-    assert "Reading passages" in presenter.graph_phase_line(_Progress("extract", 50, 100, 7))
-    assert "Scoring connections" in presenter.graph_phase_line(_Progress("score", entities=7))
-    assert "Removing weak" in presenter.graph_phase_line(_Progress("prune", entities=7))
-
-
-def test_the_progress_line_shows_a_percentage_only_when_a_total_is_known() -> None:
-    """Scoring and pruning have no meaningful total, so they must not claim one."""
-    assert "50%" in presenter.graph_phase_line(_Progress("extract", 50, 100))
-    assert "%" not in presenter.graph_phase_line(_Progress("score", 50, 100))
-
-
-def test_the_progress_line_survives_a_zero_total() -> None:
-    """An index with no chunks yet, which is a division by zero waiting to happen."""
-    assert presenter.graph_phase_line(_Progress("extract", 0, 0))
 
 
 # ---------------------------------------------------------------------------

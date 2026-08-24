@@ -133,8 +133,6 @@ PACKAGES = [
     ("openpyxl", "openpyxl"),
     ("pptx", "python-pptx"),
     ("diskcache", "diskcache"),
-    ("networkx", "networkx"),
-    ("pyvis", "pyvis"),
     ("pydantic", "pydantic"),
     ("dotenv", "python-dotenv"),
     ("loguru", "loguru"),
