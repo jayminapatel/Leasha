@@ -53,6 +53,12 @@ HEALTH_CACHE_S = 10.0
 #: window did exactly that: 120.09 seconds, zero chunks.
 CONNECT_TIMEOUT_S = 3.0
 
+#: The cap on the diagnostic's own trial completion. Deliberately short: this is
+#: the command somebody runs *because* something is hanging, and a diagnostic
+#: that hangs is worse than no diagnostic. A local model that cannot manage one
+#: word in this long is a finding in its own right.
+PROBE_TIMEOUT_S = 30.0
+
 
 @dataclass(frozen=True, slots=True)
 class OllamaResponse:
@@ -160,6 +166,63 @@ class OllamaClient:
         except Exception:  # noqa: BLE001
             return []
         return [str(entry.get("name", "")) for entry in payload.get("models", [])]
+
+    def has_model(self) -> bool:
+        """Is the configured model actually installed?
+
+        Ollama answers `/api/tags` as soon as the service is up, whether or not
+        any model has been pulled. So "the port is open" and "this will work" are
+        different questions, and treating the first as the second is how a run
+        gets as far as `generate` before finding out - by which point it is
+        holding a connection open with a long read timeout on it.
+
+        Matched on the bare name as well as the full tag, because `mistral` and
+        `mistral:latest` are the same model and people write the short form.
+        """
+        installed = self.available_models()
+        wanted = self.model.split(":")[0]
+        return any(name == self.model or name.split(":")[0] == wanted for name in installed)
+
+    def diagnose(self) -> dict[str, Any]:
+        """Answer "why is Ollama not working" in one call, without raising.
+
+        Four separate questions, reported separately, because each has a
+        different fix and a single true/false conflates them:
+
+        1. Is anything listening at the URL?
+        2. Which models are installed?
+        3. Is the configured one among them?
+        4. Does a trivial completion actually come back, and how fast?
+
+        Step 4 is capped hard. This is the command somebody runs *because*
+        something is hanging, so it must not hang too.
+        """
+        report: dict[str, Any] = {
+            "url": self.url, "model": self.model,
+            "reachable": False, "models": [], "model_installed": False,
+            "generated": False, "elapsed_s": None, "error": None,
+        }
+
+        report["reachable"] = self.health(force=True)
+        if not report["reachable"]:
+            report["error"] = f"Nothing answered at {self.url}"
+            return report
+
+        report["models"] = self.available_models()
+        report["model_installed"] = self.has_model()
+        if not report["model_installed"]:
+            report["error"] = f"Ollama is running but '{self.model}' is not installed"
+            return report
+
+        started = time.monotonic()
+        try:
+            answer = self.generate("Reply with the single word: ok", timeout=PROBE_TIMEOUT_S)
+            report["generated"] = bool(answer.text.strip())
+            report["reply"] = answer.text.strip()[:80]
+        except Exception as exc:  # noqa: BLE001 - a diagnostic never raises
+            report["error"] = str(exc)
+        report["elapsed_s"] = round(time.monotonic() - started, 2)
+        return report
 
     def generate(
         self,

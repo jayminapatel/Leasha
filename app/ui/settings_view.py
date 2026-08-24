@@ -4,9 +4,11 @@ Layer: L5
 
 Two things here are not conveniences.
 
-**"Run doctor" renders `doctor.py --json` inline.** When something is wrong, the
-answer is already written - every check states what failed and how to fix it -
-and making the person find a terminal to see it wastes the work.
+**Six sections, and two of them live elsewhere.** `IndexingSettings` holds the
+schedule and the resource ceilings; `EnvironmentBox` holds doctor and session
+recording. Both were split out when this file crossed the 250-line guard, which
+was right to complain: the sections are independent and only shared a
+constructor.
 
 **"Clear search history" exists because the usage log exists.** Layer 4 records
 every search and every result opened, so Layer 10 has evidence to tune from. A
@@ -29,7 +31,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -37,7 +38,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
-from app.ui.presenter import doctor_lines, doctor_report
+from app.ui.widgets.environment_box import EnvironmentBox
 
 __all__ = ["SettingsView"]
 
@@ -52,12 +53,12 @@ class SettingsView(QWidget):
 
     cloud_toggled = pyqtSignal(bool)
     history_cleared = pyqtSignal(int)
+    debug_recording_toggled = pyqtSignal(bool)
 
     def __init__(self, settings: Any, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._store = store
-        self._doctor_running = False
 
         # --- roots
         self.roots = QListWidget()
@@ -146,17 +147,9 @@ class SettingsView(QWidget):
         privacy_layout.addWidget(self.history_label)
         privacy_layout.addWidget(clear)
 
-        # --- doctor
-        self.doctor_output = QPlainTextEdit()
-        self.doctor_output.setReadOnly(True)
-        self.doctor_output.setPlaceholderText("Run doctor to check the environment.")
-        self.run_doctor_button = QPushButton("Run doctor")
-        self.run_doctor_button.clicked.connect(lambda _checked=False: self._run_doctor())
-
-        doctor_box = QGroupBox("Environment")
-        doctor_layout = QVBoxLayout(doctor_box)
-        doctor_layout.addWidget(self.run_doctor_button)
-        doctor_layout.addWidget(self.doctor_output)
+        # --- environment and diagnostics (its own widget; see the module)
+        self.environment = EnvironmentBox(settings)
+        self.environment.recording_toggled.connect(self.debug_recording_toggled)
 
         layout = QVBoxLayout(self)
         layout.addWidget(roots_box)
@@ -164,7 +157,7 @@ class SettingsView(QWidget):
         layout.addWidget(pst_box)
         layout.addWidget(behaviour)
         layout.addWidget(privacy)
-        layout.addWidget(doctor_box, stretch=1)
+        layout.addWidget(self.environment, stretch=1)
 
         self.refresh_history_count()
         self.refresh_pst_status()
@@ -261,44 +254,3 @@ class SettingsView(QWidget):
         self.history_label.setText(f"Cleared. {removed:,} searches removed.")
         self.history_cleared.emit(removed)
 
-    # -- doctor -------------------------------------------------------------
-
-    def _run_doctor(self) -> None:
-        """Run doctor.py in a worker and render its JSON when it comes back.
-
-        **This was the frozen window.** It called `subprocess.run(timeout=120)`
-        directly here, on the UI thread. Doctor probes Outlook over COM, opens
-        LanceDB and may load an ONNX model - seconds at best, and the timeout
-        says two minutes is possible. For all of that the event loop is not
-        running, so the window does not repaint, Windows paints "Not Responding"
-        over it, and Ctrl+C in the terminal does nothing because Python never
-        gets a chance to see the signal. End Task is the only way out, and from
-        the outside it is indistinguishable from a crash.
-
-        Nothing about the check needed to be synchronous. It just looked
-        harmless, which is how UI-thread I/O usually gets written.
-        """
-        from app.ui.workers import CallableWorker, run
-
-        if self._doctor_running:
-            return                               # a second click would run it twice
-        self._doctor_running = True
-        self.run_doctor_button.setEnabled(False)
-        self.doctor_output.setPlainText("Running…")
-
-        worker = CallableWorker(doctor_report, component="ui.doctor")
-        worker.signals.finished.connect(self._doctor_done)
-        worker.signals.failed.connect(
-            lambda error: self.doctor_output.setPlainText(
-                f"{getattr(error, 'message', error)}\n\n{getattr(error, 'suggestion', '')}"
-            )
-        )
-        worker.signals.done.connect(self._doctor_finished)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _doctor_finished(self) -> None:
-        self._doctor_running = False
-        self.run_doctor_button.setEnabled(True)
-
-    def _doctor_done(self, report: dict) -> None:
-        self.doctor_output.setPlainText("\n".join(doctor_lines(report)))

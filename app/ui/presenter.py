@@ -50,6 +50,9 @@ __all__ = [
     "file_rows",
     "doctor_report",
     "doctor_lines",
+    "search_shape",
+    "read_graph",
+    "semantic_health",
     "format_size",
     "format_when",
     "SNIPPET_CHARS",
@@ -673,3 +676,76 @@ def doctor_lines(report: Mapping[str, Any]) -> list[str]:
         if not ok and check.get("fix"):
             lines.append(f"       FIX: {check['fix']}")
     return lines
+
+
+def search_shape(response: Any, *, query_len: int, scope: str) -> dict[str, Any]:
+    """One completed search, described by shape only - never by its text.
+
+    For the debug recorder. `keyword_hits` and `vector_hits` are the two fields
+    that justify the whole thing: `vector.search` returns `[]` for an empty
+    vector store, a failed embedding or a LanceDB hiccup, and search carries on
+    with keyword results because half a search beats none. That is the right
+    behaviour and it makes the failure **invisible** - results look thin, and
+    nothing distinguishes "the corpus is thin" from "the semantic half is dead".
+
+    `vector_hits == 0` beside a healthy `keyword_hits` is the signal, and a
+    session file carries it without anybody having to know to ask.
+    """
+    parsed = getattr(response, "parsed", None)
+    return {
+        "tier": "interim" if getattr(response, "interim", False) else "full",
+        "query_len": query_len,
+        "terms": len(parsed.terms) if parsed else 0,
+        "phrases": len(parsed.phrases) if parsed else 0,
+        "filters": bool(parsed and parsed.has_filters),
+        "scope": scope,
+        "results": len(getattr(response, "results", ())),
+        "keyword_hits": getattr(response, "keyword_count", None),
+        "vector_hits": getattr(response, "vector_count", None),
+        "elapsed_ms": round(getattr(response, "elapsed_ms", 0.0), 1),
+        "reranked": bool(getattr(response, "reranked", False)),
+        "from_cache": bool(getattr(response, "from_cache", False)),
+    }
+
+
+def semantic_health(response: Any) -> Optional[str]:
+    """A sentence for the status bar when meaning-based search is not working.
+
+    None when it is fine. The condition - keyword results but no vector results -
+    is not something a person can infer from a results list, and the fix is a
+    single command, so saying it is far better than letting the results quietly
+    be worse than they should be.
+    """
+    keyword = getattr(response, "keyword_count", 0) or 0
+    vector = getattr(response, "vector_count", 0) or 0
+    if keyword and not vector:
+        return ("Keyword results only - meaning-based search returned nothing. "
+                "Check it with: app.cli stats")
+    return None
+
+
+#: Entities loaded into the Graph panel's table. Above this the table itself
+#: becomes the bottleneck rather than the query, and nobody scrolls 500 rows.
+GRAPH_TABLE_LIMIT = 500
+
+
+def read_graph(store: Any, *, limit: int = GRAPH_TABLE_LIMIT) -> dict[str, Any]:
+    """Everything the Graph panel needs, in one read. Runs in a worker.
+
+    A plain function taking the store, rather than a closure inside the view,
+    for the reason this module exists: it can be called with a fake store in a
+    test, and the view is left with nothing but painting.
+
+    It is the read that froze the window. `edges_among` over a real corpus scans
+    96,712 edges, and it was running on the UI thread on every switch to the
+    Graph tab - including while an index run held a write transaction, in which
+    case it also sat waiting on the SQLite lock.
+    """
+    entities = store.top_entities(limit)
+    labels = {int(row["id"]): str(row["display"]) for row in entities}
+    return {
+        "stats": store.graph_stats(),
+        "entities": entities,
+        "labels": labels,
+        "edges": store.edges_among(list(labels)),
+    }

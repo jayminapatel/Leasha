@@ -43,6 +43,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
+from app.core.branding import SHORT_DESCRIPTION, banner
 from app.core.config import Settings, load_settings, project_root
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import setup_logging, log_app_error, logger
@@ -106,7 +107,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(json.dumps(info, indent=2))
         return EXIT_OK
 
-    print(f"Local Knowledge Graph V2  version {info['version']['version']}")
+    print(banner(info["version"]["version"]))
     if "git" in info["version"]:
         print(f"  git: {info['version']['git']}")
     elif "git_error" in info["version"]:
@@ -146,7 +147,58 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print()
         print("  Vector store      not created yet (run: app.cli init)")
 
+    for line in semantic_search_warnings(info.get("sqlite"), info.get("vectors")):
+        print(line)
+
     return EXIT_OK
+
+
+def semantic_search_warnings(
+    sqlite_stats: Optional[dict], vector_stats: Optional[dict]
+) -> list[str]:
+    """Say in words when meaning-based search cannot work. Empty when it can.
+
+    Searching is deliberately forgiving: `vector.search` returns `[]` for an
+    empty index, a failed embedding or a LanceDB hiccup, because a half-working
+    search is better than none and keyword results still come back. But that
+    makes the failure **invisible** - the results look thin and nobody can tell
+    whether the corpus is thin or the semantic half is simply dead.
+
+    That is the same shape as the sentinel bug that hid every PST for weeks: a
+    silent degradation that reports success. So the numbers that would reveal it
+    are compared here and stated plainly, rather than left as two figures on
+    different lines for somebody to notice.
+    """
+    if not sqlite_stats:
+        return []
+
+    chunks = int(sqlite_stats.get("chunks_total", 0))
+    embedded = int(sqlite_stats.get("chunks_embedded", 0))
+    rows = int((vector_stats or {}).get("rows", 0))
+    if chunks == 0:
+        return []
+
+    out: list[str] = []
+    if rows == 0:
+        out += [
+            "",
+            "  ⚠ Meaning-based search is NOT working.",
+            f"    {chunks:,} passages are indexed but the vector store is empty, so only",
+            "    keyword matching is running. A question phrased in your own words will",
+            "    only find documents that happen to use those exact words.",
+            "",
+            "    Rebuild the vectors from SQLite, which is the authority:",
+            r"      venv\Scripts\python.exe -m app.cli reembed",
+        ]
+    elif embedded and rows < embedded * 0.9:
+        out += [
+            "",
+            f"  ⚠ The vector store has {rows:,} rows but SQLite says {embedded:,} passages",
+            "    were embedded. Meaning-based search is working on part of your corpus",
+            "    only. Rebuilding the vectors will fix it:",
+            r"      venv\Scripts\python.exe -m app.cli reembed",
+        ]
+    return out
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -977,6 +1029,140 @@ def cmd_files(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_reembed(args: argparse.Namespace) -> int:
+    """Rebuild the vector store from SQLite. No re-reading of any document.
+
+    **This is why SQLite is the authority and LanceDB is derived.** Every chunk's
+    text is already in the metadata store, so the vectors can always be rebuilt
+    without touching the corpus - which turns "the semantic half of search is
+    broken" from a 100GB re-index into a job measured in minutes.
+
+    Deliberately its own command rather than a flag on `index`. It answers a
+    different question ("the vectors are wrong") and must not walk the disk,
+    hash anything, or prune a file that happens to be on a disconnected drive.
+    """
+    from app.index.embedder import Embedder
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    with SingleInstance(), \
+            SqliteStore(settings.fts_db) as store, \
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        stats = store.stats()
+        total = int(stats["chunks_total"])
+        if total == 0:
+            print("Nothing is indexed yet, so there is nothing to embed.")
+            print(r'  venv\Scripts\python.exe -m app.cli index "D:\YourFolder"')
+            return EXIT_OK
+
+        if args.all:
+            # Every chunk goes back in the queue. The table is dropped rather
+            # than written over: leaving stale rows behind is how a rebuild ends
+            # up with more vectors than there are passages.
+            print(f"Clearing the vector store and re-embedding all {total:,} passages.")
+            vectors.drop()
+            store.mark_all_unembedded()
+
+        embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
+                            cache_dir=str(settings.model_cache))
+        done = 0
+        started = time.time()
+        for batch in store.iter_unembedded(batch_size=256):
+            written = vectors.add(
+                chunk_ids=[chunk.id for chunk in batch],
+                file_ids=[chunk.file_id for chunk in batch],
+                vectors=embedder.embed([chunk.text for chunk in batch]),
+            )
+            # Marked only after the vectors are safely written. The other order
+            # loses passages silently: a crash between the two would leave rows
+            # flagged embedded with nothing in LanceDB, and nothing would ever
+            # pick them up again.
+            if written:
+                store.mark_embedded([chunk.id for chunk in batch])
+            done += len(batch)
+            if not args.quiet:
+                rate = done / max(time.time() - started, 0.001) * 60
+                print(f"  embedded {done:,} passages  ({rate:,.0f}/min)", flush=True)
+
+        rows = vectors.count()
+        print()
+        print(f"Done. {rows:,} vectors for {total:,} passages.")
+        if rows < total:
+            print(f"  {total - rows:,} passages still have no vector - see the log.")
+        return EXIT_OK
+
+
+def cmd_ollama(args: argparse.Namespace) -> int:
+    """Why is Ollama not working? Four questions, answered separately.
+
+    Each has a different fix, so a single "up / down" would send people looking
+    in the wrong place - which is exactly what happened: the service was running,
+    `/api/tags` answered, and enrichment then spent 200 seconds discovering that
+    the model was not installed.
+
+    **Ollama is optional and only types graph entities.** It has nothing to do
+    with search, so this command says so plainly - it is the natural place to
+    look when "search did not work", and the wrong one.
+    """
+    from app.llm.ollama import OllamaClient
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    client = OllamaClient(settings.ollama_url, settings.ollama_model)
+    report = client.diagnose()
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return EXIT_OK if report["generated"] else EXIT_ERROR
+
+    print(f"Ollama at {report['url']}")
+    print(f"Model wanted: {report['model']}")
+    print()
+
+    def mark(ok: bool) -> str:
+        return "  OK  " if ok else " FAIL "
+
+    print(f"[{mark(report['reachable'])}] something is listening")
+    if not report["reachable"]:
+        print()
+        print("  Ollama is not running, or is on a different address.")
+        print("  Start it:      ollama serve")
+        print("  Check the URL: OLLAMA_URL in your .env")
+        print()
+        print("  Nothing is broken by this. Ollama only adds person/organisation")
+        print("  /place types to the knowledge graph. Search does not use it.")
+        return EXIT_ERROR
+
+    print(f"[{mark(bool(report['models']))}] models installed: "
+          f"{', '.join(report['models']) or 'none'}")
+    print(f"[{mark(report['model_installed'])}] '{report['model']}' is one of them")
+    if not report["model_installed"]:
+        print()
+        print(f"  Ollama is running but has no '{report['model']}'. Pull it:")
+        print(f"    ollama pull {report['model']}")
+        print("  Or point OLLAMA_MODEL at one of the models listed above.")
+        return EXIT_ERROR
+
+    took = f" in {report['elapsed_s']}s" if report["elapsed_s"] is not None else ""
+    print(f"[{mark(report['generated'])}] it answered a trial question{took}")
+    if not report["generated"]:
+        print()
+        print(f"  {report['error']}")
+        print("  The model is installed but did not reply within 30 seconds.")
+        print("  A first call loads the model into memory and can be slow;")
+        print("  try again, and if it persists the model may be too large for")
+        print("  this machine.")
+        return EXIT_ERROR
+
+    print()
+    print(f"Working. Reply: {report.get('reply', '')!r}")
+    return EXIT_OK
+
+
 def cmd_formats(args: argparse.Namespace) -> int:
     """What gets indexed, what reads it, and what is switched off.
 
@@ -1144,7 +1330,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="app.cli",
-        description="Local Knowledge Graph V2 - headless entry point.",
+        description=f"{SHORT_DESCRIPTION}\n\nHeadless entry point.",
     )
     parser.add_argument("--env", help="path to an alternative .env file")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
@@ -1277,6 +1463,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_reembed = sub.add_parser(
+        "reembed", parents=[common],
+        help="rebuild the vector store from SQLite - no documents are re-read")
+    p_reembed.add_argument("--all", action="store_true",
+                           help="drop every vector and start over, not just the missing ones")
+    p_reembed.add_argument("--quiet", action="store_true", help="no progress lines")
+    p_reembed.set_defaults(func=cmd_reembed)
+
+    p_ollama = sub.add_parser(
+        "ollama", parents=[common],
+        help="check the Ollama connection (optional; only types graph entities)")
+    p_ollama.set_defaults(func=cmd_ollama)
 
     p_formats = sub.add_parser(
         "formats", parents=[common],

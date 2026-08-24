@@ -491,6 +491,19 @@ class SqliteStore:
             last_id = batch[-1].id
             yield batch
 
+    def mark_all_unembedded(self) -> int:
+        """Put every chunk back in the embedding queue. Returns how many.
+
+        For `app.cli reembed --all`, after the vector table has been dropped.
+        Touches no text and re-reads no document: the chunks stay exactly as they
+        are, only the flag saying a vector exists for them is cleared. That is
+        the whole point of SQLite being the authority - the derived store can be
+        thrown away and rebuilt without going near the corpus.
+        """
+        with self.write() as conn:
+            cursor = conn.execute("UPDATE chunks SET embedded = 0 WHERE embedded = 1")
+            return int(cursor.rowcount)
+
     def mark_embedded(self, chunk_ids: Iterable[int]) -> None:
         ids = [(int(i),) for i in chunk_ids]
         if not ids:

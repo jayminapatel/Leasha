@@ -1,4 +1,4 @@
--- Local Knowledge Graph V2 — SQLite schema
+-- Leasha — SQLite schema
 -- Layer: L1
 -- SQLite is the authority on files, chunks and indexing state.
 -- LanceDB is a DERIVED store: if the two disagree, this file wins and the

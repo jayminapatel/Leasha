@@ -228,20 +228,38 @@ class EntityEnricher:
         started = time.monotonic()
         result = EnrichResult()
 
+        # Two checks, not one. `/api/tags` answers as soon as the service is up,
+        # whether or not any model has been pulled - so "the port is open" and
+        # "this will work" are different questions.
+        #
+        # Conflating them cost 200 seconds in a real run: health passed, the loop
+        # started, and the first `generate` sat on a long read timeout waiting for
+        # a model that was not there. `request_stop` could not help, because it is
+        # only read between batches and the thread was inside the HTTP call.
+        # `has_model` asks the second question in milliseconds, before anything
+        # is opened.
+        reason = None
         if not self.client.health(force=True):
+            reason = "Ollama is not running"
+        elif not getattr(self.client, "has_model", lambda: True)():
+            reason = "Ollama is running but the model it was asked for is not installed"
+
+        if reason is not None:
             # Not an exception: Ollama being off is the expected state on most
             # machines most of the time, and the caller's correct response is to
             # carry on with the co-occurrence graph, not to handle a failure.
             result.paused = True
             result.error = make_error(
                 "ERR_OLLAMA_DOWN", "graph.entities_llm",
-                details="Typed entity extraction was not started because Ollama is not running.",
+                details=f"Typed entity extraction was not started: {reason}.",
                 suggestion=(
-                    "Start Ollama and run this again - it resumes where it left off. "
-                    "The co-occurrence graph is already built and does not need it."
+                    "Check it with: venv\\Scripts\\python.exe -m app.cli ollama - "
+                    "it says which of the two is wrong and what to run. Enrichment "
+                    "resumes where it left off. The co-occurrence graph is already "
+                    "built and does not need it."
                 ),
             )
-            log.info("llm enrichment: Ollama unavailable; nothing attempted")
+            log.info("llm enrichment: {}; nothing attempted", reason)
             result.elapsed_s = time.monotonic() - started
             return result
 

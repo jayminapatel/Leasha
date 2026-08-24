@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from app.core.branding import NAME
+
 __all__ = ["build_bundle", "collect_sections"]
 
 #: How many of the most recent files to take from each log folder.
@@ -246,7 +248,7 @@ def build_bundle(
 
 def _summary(sections: dict[str, Any]) -> str:
     """A short human-readable header, so the zip is useful without tooling."""
-    lines = ["Local Knowledge Graph V2 - diagnostic summary", "=" * 45, ""]
+    lines = [f"{NAME} - diagnostic summary", "=" * 45, ""]
 
     version = sections.get("version", {})
     if isinstance(version, dict):

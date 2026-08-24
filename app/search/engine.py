@@ -108,6 +108,18 @@ class SearchResponse:
     search_id: Optional[int] = None
     timings: dict[str, float] = field(default_factory=dict)
 
+    #: How many hits each retriever contributed, before fusion.
+    #:
+    #: Recorded because `vector.search` returns `[]` for an empty vector store,
+    #: a failed embedding or a LanceDB hiccup - deliberately, since keyword
+    #: results are better than an error. But that makes the failure invisible:
+    #: results look thin and nothing distinguishes "the corpus is thin" from
+    #: "the semantic half is dead". `vector_count == 0` on a query that clearly
+    #: has meaning is the signal, and without these two numbers nobody can see
+    #: it. This is the same shape as the sentinel bug that hid every PST.
+    keyword_count: int = 0
+    vector_count: int = 0
+
     def __len__(self) -> int:
         return len(self.results)
 
@@ -185,6 +197,7 @@ class SearchEngine:
         ]
         return SearchResponse(
             results=results, parsed=parsed, interim=True,
+            keyword_count=len(hits),
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
 
@@ -258,8 +271,20 @@ class SearchEngine:
 
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
+            keyword_count=len(keyword_hits), vector_count=len(vector_hits),
             elapsed_ms=(time.perf_counter() - started) * 1000, timings=timings,
         )
+        if keyword_hits and not vector_hits:
+            # Worth a line in the log every time. Meaning-based search returning
+            # nothing while keyword search returns plenty is not a normal state -
+            # it means the vector store is empty, the embedder failed, or a
+            # filter excluded everything - and without this the only symptom is
+            # results that feel worse than they should.
+            _log.warning(
+                "no vector hits for a query with {} keyword hits - "
+                "meaning-based search may not be working. Check: app.cli stats",
+                len(keyword_hits),
+            )
 
         if use_cache and self.cache is not None:
             self._cache_set(cache_key, response)

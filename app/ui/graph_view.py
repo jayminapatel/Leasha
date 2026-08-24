@@ -38,7 +38,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.presenter import entity_rows, graph_headline, graph_phase_line, neighbour_rows
+from app.ui.presenter import (
+    entity_rows,
+    graph_headline,
+    graph_phase_line,
+    neighbour_rows,
+    read_graph,
+)
 from app.ui.workers import CallableWorker, GraphWorker, run
 
 __all__ = ["GraphView"]
@@ -162,17 +168,7 @@ class GraphView(QWidget):
             return
         self._refreshing = True
 
-        def read() -> dict:
-            entities = self._store.top_entities(500)
-            labels = {int(row["id"]): str(row["display"]) for row in entities}
-            return {
-                "stats": self._store.graph_stats(),
-                "entities": entities,
-                "labels": labels,
-                "edges": self._store.edges_among(list(labels)),
-            }
-
-        worker = CallableWorker(read, component="ui.graph.refresh")
+        worker = CallableWorker(read_graph, self._store, component="ui.graph.refresh")
         worker.signals.finished.connect(self._refreshed)
         worker.signals.failed.connect(
             lambda error: self.headline.setText(
@@ -265,6 +261,15 @@ class GraphView(QWidget):
         if self._worker is not None:
             self._worker.stop()
             self.status.setText("Finishing the current batch…")
+
+    def stop_all(self) -> None:
+        """Ask every job here to stop. Called when the window is closing.
+
+        A graph run can sit for minutes waiting on Ollama, and if the window
+        closes underneath it the stores are torn down while it still holds a
+        cursor. Asking first turns that race into an ordinary stop.
+        """
+        self._stop()
 
     def _done(self, result: Any) -> None:
         self.refresh()

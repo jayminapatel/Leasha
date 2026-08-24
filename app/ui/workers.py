@@ -64,19 +64,44 @@ def run(pool: Any, worker: Any) -> Any:
     return worker
 
 
-def _emit(signal: Any, *args: Any) -> None:
-    """Emit, unless Qt has already torn the receiving object down.
+def _emit(signals: Any, name: str, *args: Any) -> None:
+    """Emit `signals.<name>`, unless Qt has already torn the object down.
 
-    At shutdown the C++ side goes first and a thread still finishing its work
-    emits into nothing. That is not an error worth a traceback - the window is
-    closing and nobody is listening - but an unhandled `RuntimeError` inside a
-    `QRunnable` produces three nested tracebacks in the console and looks like a
-    crash.
+    At shutdown the C++ side goes first, and a thread still finishing its work
+    emits into nothing. The window is closing and nobody is listening, so that is
+    not worth a traceback - but an unhandled `RuntimeError` inside a `QRunnable`
+    produces three nested ones and looks exactly like a crash.
+
+    **The signal is looked up by name, inside the try.** That is the whole point
+    of the two-argument form, and it is not a style choice. The first version
+    took the bound signal directly - `_emit(self.signals.finished, result)` -
+    which cannot work: the attribute is evaluated at the *call site*, before
+    `_emit` is entered, so once sip has deleted the underlying object the
+    `RuntimeError` is raised while building the arguments, outside the
+    try/except written to catch it.
+
+    The guard was therefore never reached even once, and the proof was a
+    traceback whose caret pointed at the argument rather than at `emit`:
+
+        File "app/ui/workers.py", line 223, in run
+            _emit(self.signals.finished, result)
+                  ^^^^^^^^^^^^^^^^^^^^^
+        RuntimeError: wrapped C/C++ object of type WorkerSignals has been deleted
+
+    The `except` clause then tried `self.signals.failed` and the `finally` tried
+    `self.signals.done`, each failing the same way - so one dead object produced
+    three nested tracebacks, which is exactly what this was written to prevent.
+
+    Never pass a bound signal to this function.
     """
     try:
-        signal.emit(*args)
+        getattr(signals, name).emit(*args)
     except RuntimeError:
         pass
+    except Exception as exc:                     # noqa: BLE001
+        # A slot that raises must not take the worker down with it, and must not
+        # skip the `done` signal that releases the worker from `_IN_FLIGHT`.
+        _log.debug("emitting {} failed: {}", name, exc)
 
 
 class WorkerSignals(QObject):
@@ -101,13 +126,13 @@ class CallableWorker(QRunnable):
 
     def run(self) -> None:                       # noqa: D102 - Qt's entry point
         try:
-            _emit(self.signals.finished, self._work(*self._args, **self._kwargs))
+            _emit(self.signals, "finished", self._work(*self._args, **self._kwargs))
         except Exception as exc:                 # noqa: BLE001 - the boundary; see module docstring
             error = to_app_error(exc, self._component)
             _log.bind(error_code=error.code).error("{}", error.render())
-            _emit(self.signals.failed, error)
+            _emit(self.signals, "failed", error)
         finally:
-            _emit(self.signals.done)
+            _emit(self.signals, "done")
 
 
 class SearchWorker(QRunnable):
@@ -139,13 +164,13 @@ class SearchWorker(QRunnable):
                 )
             else:
                 response = self._engine.search(self._query, **self._options)
-            _emit(self.signals.finished, (self.generation, response))
+            _emit(self.signals, "finished", (self.generation, response))
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.search")
             _log.bind(error_code=error.code).error("{}", error.render())
-            _emit(self.signals.failed, error)
+            _emit(self.signals, "failed", error)
         finally:
-            _emit(self.signals.done)
+            _emit(self.signals, "done")
 
 
 class IndexWorker(QRunnable):
@@ -166,15 +191,15 @@ class IndexWorker(QRunnable):
     def run(self) -> None:                       # noqa: D102
         try:
             stats = self.pipeline.run(
-                on_progress=lambda payload: _emit(self.signals.progress, payload)
+                on_progress=lambda payload: _emit(self.signals, "progress", payload)
             )
-            _emit(self.signals.finished, stats)
+            _emit(self.signals, "finished", stats)
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.index")
             _log.bind(error_code=error.code).error("{}", error.render())
-            _emit(self.signals.failed, error)
+            _emit(self.signals, "failed", error)
         finally:
-            _emit(self.signals.done)
+            _emit(self.signals, "done")
 
 
 class GraphWorker(QRunnable):
@@ -207,7 +232,13 @@ class GraphWorker(QRunnable):
 
         try:
             total = int(self._store.stats().get("chunks_total", 0))
-            self._builder = GraphBuilder(self._store, on_progress=self.signals.progress.emit)
+            # Not `self.signals.progress.emit` - that binds the method now and
+            # calls it unguarded for the next several minutes, which is the same
+            # mistake `_emit` exists to prevent, just spelled differently.
+            self._builder = GraphBuilder(
+                self._store,
+                on_progress=lambda payload: _emit(self.signals, "progress", payload),
+            )
             result = self._builder.build(rebuild=self._rebuild, chunks_total=total)
 
             if self._enrich and not result.interrupted:
@@ -220,13 +251,13 @@ class GraphWorker(QRunnable):
                 )
                 self._enricher.run(chunks_total=total)
 
-            _emit(self.signals.finished, result)
+            _emit(self.signals, "finished", result)
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.graph")
             _log.bind(error_code=error.code).error("{}", error.render())
-            _emit(self.signals.failed, error)
+            _emit(self.signals, "failed", error)
         finally:
-            _emit(self.signals.done)
+            _emit(self.signals, "done")
 
 
 def open_in_explorer(path: str, *, select: bool = True) -> Optional[AppError]:

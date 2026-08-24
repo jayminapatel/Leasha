@@ -3,6 +3,7 @@
 Layer: L5
 
     venv\\Scripts\\python.exe -m app.main
+    venv\\Scripts\\python.exe -m app.main --debug   # record this session to logs\\sessions\\
 
 Startup order matters and is deliberate:
 
@@ -20,6 +21,7 @@ from __future__ import annotations
 import sys
 from typing import Optional, Sequence
 
+from app.core.branding import NAME
 from app.core.errors import AppError, AppErrorException
 from app.core.logging import log_app_error, setup_logging
 
@@ -94,6 +96,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     from app.core.config import load_settings
     from app.core.single_instance import SingleInstance
 
+    arguments = list(argv if argv is not None else sys.argv)
+    # Parsed by hand rather than with argparse: this is a GUI entry point, and
+    # argparse would exit the process with a usage message on any stray argument
+    # Windows decides to pass to a shortcut.
+    debug = "--debug" in arguments
+    qt_arguments = [a for a in arguments if a != "--debug"]
+
     try:
         settings = load_settings()
     except AppErrorException as exc:
@@ -119,8 +128,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             suggestion="Re-run the installer: run-install.cmd",
         ))
 
-    application = QApplication(list(argv or sys.argv))
-    application.setApplicationName("Local Knowledge Graph")
+    application = QApplication(qt_arguments)
+    application.setApplicationName(NAME)
     _make_ctrl_c_work(application)
 
     try:
@@ -135,7 +144,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                   cache_dir=str(settings.model_cache),
                                   enabled=settings.rerank_enabled),
             )
-            window = MainWindow(settings, store, vectors, engine)
+            window = MainWindow(settings, store, vectors, engine, debug=debug)
             window.show()
             return application.exec()
     except AppErrorException as exc:

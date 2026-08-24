@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-doctor.py - Local Knowledge Graph V2 environment verification.
+doctor.py - Leasha environment verification.
 
 Every check that fails states WHAT failed, WHY, and HOW to fix it.
 Optional components (rerank model, Outlook, Ollama) can fail without
@@ -561,7 +561,7 @@ def run_all(quick: bool = False) -> list[Check]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify the Local Knowledge Graph V2 environment.")
+    parser = argparse.ArgumentParser(description="Verify the Leasha environment.")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument("--quick", action="store_true", help="skip model loading (much faster)")
     args = parser.parse_args()

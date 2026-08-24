@@ -31,7 +31,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.presenter import IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, tier_for
+from app.ui.presenter import (
+    IDLE_DEBOUNCE_MS,
+    TYPING_DEBOUNCE_MS,
+    Tier,
+    search_shape,
+    semantic_health,
+    tier_for,
+)
 from app.ui.results_view import ResultsView
 from app.ui.workers import SearchWorker, run
 
@@ -46,6 +53,12 @@ class SearchView(QWidget):
     add_to_document = pyqtSignal(object)
     reindex_requested = pyqtSignal(object)
     error = pyqtSignal(object)
+
+    #: One search, described by shape only - never the text of the query. The
+    #: debug recorder listens to this; see `debug_recorder.py` for why a session
+    #: file that contained somebody's actual searches would be a file nobody
+    #: would ever send.
+    searched = pyqtSignal(dict)
 
     def __init__(self, engine: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -196,15 +209,25 @@ class SearchView(QWidget):
                 hint = "  The filters may be excluding everything."
             self.results.clear(f"No results.{hint}")
             self.status.setText(self._status_line(response))
+            self._announce(response)
             return
 
         self.results.show_results(response.results, terms, summary=self._status_line(response))
-        self.status.setText("")
+        # Say it when the semantic half returned nothing. Silent degradation is
+        # how "search feels worse than it should" goes unreported for weeks.
+        self.status.setText(semantic_health(response) or "")
+        self._announce(response)
 
         if response.parsed and response.parsed.unknown_operators:
             self.status.setText(
                 "Ignored: " + ", ".join(response.parsed.unknown_operators)
             )
+
+    def _announce(self, response: Any) -> None:
+        """Emit the shape of a completed search, for the debug recorder."""
+        self.searched.emit(search_shape(
+            response, query_len=len(self.input.text()), scope=self.current_scope()
+        ))
 
     def _status_line(self, response: Any) -> str:
         bits = [f"{len(response.results)} result(s)", f"{response.elapsed_ms:.0f}ms"]

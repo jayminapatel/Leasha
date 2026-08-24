@@ -1,12 +1,91 @@
 # Changelog
 
-**Doc version:** 3.4 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.5 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — the application is called **Leasha**
+
+The name lived in nine files - window title, QApplication name, CLI banner,
+argparse description, diagnostic header, a SQL comment, the package docstring
+and two places in `doctor.py`. `app/core/branding.py` now holds it once, beside
+`version.py` and for the same reason: **anything a person reads should have
+exactly one definition.** A test fails if any module spells it out again.
+
+`leasha.cmd` is the launcher: `leasha` opens the window, `leasha --debug`
+records the session, and anything else (`leasha stats`, `leasha formats`) goes to
+the command line tool. The Python package stays `app` - that is plumbing, not a
+name anybody reads.
+
+### Added — a debug recorder, so a bug report is evidence
+
+`--debug`, or the switch in Settings, writes one JSONL file per session under
+`logs\sessions\`: every tab change, button, search, error and timing, with a
+millisecond timestamp. Three rules, and they are the design.
+
+- **Off unless asked.** A tool that watches by default is one people stop
+  trusting, and this application's whole promise is that nothing leaves the
+  machine.
+- **It can never cause a failure.** A recorder that raises would turn a small
+  bug into a crash, inside the handler for the bug you were chasing.
+- **Shape, never content.** A search is its length and its result counts, not
+  the query. A file is an extension, not a name. A first version also kept the
+  first 60 characters of long strings as a "head" - a content leak wearing a
+  debugging hat, caught by its own test, and exactly what would have made
+  session files unsafe to send. Sending them is the only thing they are for.
+
+### Added — `app.cli ollama`, because "is it up" was the wrong question
+
+Enrichment sat for 200 seconds and produced nothing. `/api/tags` answered - the
+service was running - and the first `generate` then waited on a long read
+timeout for a model that was not installed. `health()` and "this will work" are
+different questions and were being conflated.
+
+The command asks four separately: is anything listening, which models exist, is
+the configured one among them, and does a trial completion actually return (in
+at most 30 seconds - this is the command people run *because* something is
+hanging). `EntityEnricher` now checks `has_model()` before opening anything, so
+the same failure costs milliseconds.
+
+### Added — meaning-based search says when it is not working
+
+`vector.search` returns `[]` for an empty vector store, a failed embedding or a
+LanceDB hiccup, and search carries on with keyword results. That is right - half
+a search beats none - and it makes the failure **invisible**: results look thin,
+and nothing distinguishes "the corpus is thin" from "the semantic half is dead".
+The same shape as the sentinel bug that hid every PST.
+
+So `SearchResponse` now carries `keyword_count` and `vector_count`, the status
+bar says "keyword results only" when the second is zero, the engine logs it, and
+`app.cli stats` compares the passage count against the vector count and says in
+words what to run. `app.cli reembed` is that command: it rebuilds LanceDB from
+SQLite without re-reading a single document, which is the entire point of one
+store being the authority and the other being derived.
+
+### Fixed — the guard against dead-object tracebacks never ran
+
+`_emit` existed to swallow `RuntimeError` when sip has deleted a worker's
+`WorkerSignals` at shutdown. It could not work: it took the bound signal as an
+argument, so `self.signals.finished` was evaluated at the *call site*, before
+`_emit` was entered, and the exception was raised while building the arguments -
+outside the try/except written to catch it. The `except` clause then tried
+`failed` and the `finally` tried `done`, each failing identically, so one dead
+object produced three nested tracebacks: precisely what it was written to
+prevent. It now takes the signal's *name* and looks it up inside the try.
+
+### Fixed — closing the window raced its own background threads
+
+A graph run was 200 seconds into waiting on Ollama when the window closed.
+Closing tore down the QApplication and both stores while that thread was still
+running and holding a cursor. `closeEvent` now asks every job to stop, then
+drains the pool for up to four seconds while still pumping events - waiting
+without pumping would freeze the window during the one operation nobody will
+wait out.
+
 
 ### Added — file types are configuration, not code
 

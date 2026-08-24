@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.core.branding import window_title
 from app.core.logging import logger
 from app.index.resources import limits_from_settings
 from app.index.schedule import SchedulePolicy
@@ -40,6 +41,7 @@ from app.ui.indexing_view import IndexingView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
+from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
 from app.ui.widgets.scroll import wrap_if_needed
 from app.ui.workers import CallableWorker, open_in_explorer, run
@@ -55,6 +57,23 @@ _log = logger.bind(component="ui.shell")
 DARK_STYLESHEET = stylesheet("dark")
 
 
+def _err(error: Any) -> dict:
+    """An AppError as the few fields a reader of the session file needs."""
+    return {
+        "code": getattr(error, "code", "?"),
+        "component": getattr(error, "component", ""),
+        "message": str(getattr(error, "message", error))[:200],
+    }
+
+
+def _stats(stats: Any) -> dict:
+    """The numbers from an index run, without the file paths."""
+    payload = stats.as_dict() if hasattr(stats, "as_dict") else dict(stats or {})
+    keep = ("seen", "indexed", "unchanged", "skipped", "deleted", "chunks",
+            "elapsed_s", "pauses", "paused_s", "stopped_early", "skipped_by_code")
+    return {key: payload[key] for key in keep if key in payload}
+
+
 class MainWindow(QMainWindow):
     """Search, indexing and settings in one window."""
 
@@ -65,6 +84,7 @@ class MainWindow(QMainWindow):
         vectors: Any,
         engine: Any,
         *,
+        debug: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -73,7 +93,7 @@ class MainWindow(QMainWindow):
         self._vectors = vectors
         self._engine = engine
 
-        self.setWindowTitle("Local Knowledge Graph")
+        self.setWindowTitle(window_title())
         self.resize(1100, 760)
         # A floor, not the opening size. Without one Qt will happily shrink the
         # window until the tab bar is the only thing left, and a view with no
@@ -93,6 +113,15 @@ class MainWindow(QMainWindow):
         # exactly what this session's freeze turned out to be.
         self._theme_preference = self._read_state("ui:theme", "system")
         self._theme_hooked = False
+
+        # Off unless explicitly asked for, by `--debug` or the switch in
+        # Settings. See `debug_recorder.py`: it records the shape of what
+        # happened, never the content, so a session file is safe to send.
+        self.recorder = recorder_for(
+            settings.log_path,
+            enabled=debug or self._read_state("ui:debug_recording", "") == "on",
+            context={"roots": len(self._load_roots())},
+        )
 
         self.search_view = SearchView(engine)
         self.search_view.result_opened.connect(self._open_result)
@@ -122,6 +151,12 @@ class MainWindow(QMainWindow):
         self.settings_view.indexing.schedule_changed.connect(self._schedule_changed)
         self.settings_view.indexing.limits_changed.connect(self._limits_changed)
         self.settings_view.indexing.theme_changed.connect(self._theme_changed)
+        self.settings_view.environment.recording.setChecked(self.recorder.enabled)
+        self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
+        self.settings_view.environment.set_recording_status(
+            f"Recording to {self.recorder.path.name}" if self.recorder.enabled
+            else "Not recording."
+        )
         self._apply_pst_backend(self._store.get_state("ui:pst_backend", "auto") or "auto")
 
         self.files_view = FilesView(store)
@@ -164,10 +199,92 @@ class MainWindow(QMainWindow):
         self._refresh_status()
         self._build_shortcuts()
         self._start_scheduler()
+        self._wire_recorder()
 
         self._apply_theme()
         self.search_view.focus()
         self._warm_models()
+
+    # -- the debug recorder --------------------------------------------------
+
+    def _debug_recording_toggled(self, on: bool) -> None:
+        """Remember the choice; it takes effect at the next start.
+
+        Deliberately not applied to the running window. Turning recording on
+        mid-session would produce a file that begins in the middle of whatever
+        went wrong, missing the startup context that makes the rest readable -
+        and the whole point of the feature is a file somebody else can follow
+        from the top.
+        """
+        self._store.set_state("ui:debug_recording", "on" if on else "off")
+        if on and not self.recorder.enabled:
+            self.settings_view.environment.set_recording_status(
+                "Recording starts the next time you open the app. "
+                "The file goes in logs\\sessions\\."
+            )
+        elif not on and self.recorder.enabled:
+            self.settings_view.environment.set_recording_status(
+                f"Still recording to {self.recorder.path.name} until you close the app."
+            )
+
+    def _wire_recorder(self) -> None:
+        """Attach the recorder to signals that already exist.
+
+        Deliberately in one place rather than a `recorder.event(...)` line
+        scattered through every view. Two reasons: the views stay thin, which is
+        the rule the whole layer is built on and which a size test enforces; and
+        when recording is off this costs a handful of `NullRecorder` calls
+        instead of forty branches that each have to be written correctly.
+
+        Every widget that matters already emits a signal, because that is how it
+        talks to this window - so there is nothing to add to them, only to
+        listen to.
+        """
+        if not self.recorder.enabled:
+            return
+
+        record = self.recorder.event
+        _log.info("recording this session to {}", self.recorder.path)
+        self.statusBar().showMessage(
+            f"Recording this session to {self.recorder.path.name}", 10_000
+        )
+
+        self.tabs.currentChanged.connect(
+            lambda i: record("tab", name=self.tabs.tabText(i))
+        )
+
+        self.search_view.error.connect(lambda e: record("error", where="search", **_err(e)))
+        self.indexing_view.error.connect(lambda e: record("error", where="index", **_err(e)))
+        self.files_view.error.connect(lambda e: record("error", where="files", **_err(e)))
+        self.graph_view.error.connect(lambda e: record("error", where="graph", **_err(e)))
+
+        self.indexing_view.start_button.clicked.connect(
+            lambda _c=False: record("click", what="start_indexing")
+        )
+        self.indexing_view.finished.connect(
+            lambda stats: record("index_finished", **_stats(stats))
+        )
+        self.graph_view.build_button.clicked.connect(
+            lambda _c=False: record("click", what="build_graph",
+                                    enrich=self.graph_view.enrich_box.isChecked())
+        )
+        self.graph_view.finished.connect(lambda _r: record("graph_finished"))
+        self.settings_view.environment.run_doctor_button.clicked.connect(
+            lambda _c=False: record("click", what="run_doctor")
+        )
+        self.settings_view.roots_changed.connect(
+            lambda roots: record("roots_changed", count=len(roots))
+        )
+        self.settings_view.indexing.theme_changed.connect(
+            lambda pref: record("theme_changed", preference=pref)
+        )
+
+        # Searches are recorded by *shape* only - length and result count, never
+        # the query. A file full of somebody's actual searches is a liability,
+        # and a recorder nobody dares send is a recorder that does nothing.
+        self.search_view.searched.connect(
+            lambda info: record("search", **info)
+        )
 
     # -- shortcuts ----------------------------------------------------------
 
@@ -517,10 +634,63 @@ class MainWindow(QMainWindow):
             self._start_indexing(roots=sorted(set(folders)))
         event.acceptProposedAction()
 
+    #: How long closing waits for background threads to notice and stop. Long
+    #: enough for a batch to finish and commit; short enough that nobody reaches
+    #: for Task Manager. A worker that ignores it is left to Qt, which is the
+    #: same outcome as before - just without the wait.
+    SHUTDOWN_GRACE_MS = 4_000
+
     def closeEvent(self, event: Any) -> None:           # noqa: N802
+        """Ask every background job to stop, then wait briefly before closing.
+
+        **This was three nested tracebacks on exit.** The window closed while a
+        graph run was 200 seconds into waiting on a dead Ollama. Closing tore
+        down the QApplication, sip deleted the worker's `WorkerSignals`, and the
+        thread - still running, knowing nothing about any of it - finished and
+        emitted into a deleted C++ object.
+
+        The stores are worse than the signals. `SqliteStore.__exit__` runs on the
+        way out of `main()`, so a worker still holding a cursor finds the
+        database closed underneath it. Asking first, and waiting, turns a
+        shutdown race into an ordinary stop.
+        """
+        self.recorder.event("closing")
         self.indexing_view.stop()
+        self.graph_view.stop_all()
+        try:
+            self.scheduler.stop()
+        except Exception:                                # noqa: BLE001
+            pass
+
+        self._drain_workers()
+        self.recorder.close()
+
         try:
             self._engine.close()
         except Exception:                                # noqa: BLE001
             pass
         super().closeEvent(event)
+
+    def _drain_workers(self) -> None:
+        """Wait for the thread pool, keeping the UI alive while it empties.
+
+        `waitForDone` alone would block the UI thread, so a slow worker would
+        freeze the window during the one operation nobody will wait out - and
+        we would be back to Task Manager. Pumping events while waiting keeps
+        the window painting until the threads are actually finished.
+        """
+        from PyQt6.QtCore import QDeadlineTimer, QEventLoop, QThreadPool
+        from PyQt6.QtWidgets import QApplication
+
+        pool = QThreadPool.globalInstance()
+        deadline = QDeadlineTimer(self.SHUTDOWN_GRACE_MS)
+        while pool.activeThreadCount() and not deadline.hasExpired():
+            pool.waitForDone(50)
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 10)
+
+        remaining = pool.activeThreadCount()
+        if remaining:
+            _log.warning(
+                "closing with {} background thread(s) still running; "
+                "they will be abandoned", remaining,
+            )
