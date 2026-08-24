@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -614,103 +614,89 @@ layer where that is unavoidable.
 
 ---
 
-## Layer 6 — Knowledge graph
+## ~~Layer 6 — Knowledge graph~~ · REMOVED
 
-**Goal:** useful without Ollama; better with it.
+Built, all four acceptance criteria passing, and removed. It was never in the search path,
+nothing depended on it, and the only user did not want it. Git preserves it at tag `v0.3.2`.
 
-**Build**
+The three `entities` tables remain in the schema, empty and commented as deprecated: dropping
+them needs a migration to v5, and migrations only step forward, so reviving the feature would
+then need a v6 to undo it.
 
-- `cooccurrence.py` — the **default**, no LLM. Entities from capitalised n-grams,
-  email addresses, filenames and folder names; edges from co-occurrence within a chunk,
-  weighted by PMI. Deterministic and fast.
-- `entities_llm.py` — the **upgrade**. Batch chunks to Ollama for typed entity extraction
-  (person / org / project / system / date). Strictly a background enrichment job with a
-  progress indicator; it must never block search, and it must checkpoint so it can resume.
-- `render.py` — networkx for layout and metrics, pyvis for the interactive view.
-  Node click → filtered search on that entity.
+**What would justify reviving it, and the decision record:** `HANDOFF.md` §3a.
 
-**Acceptance** — all four pass; see `tests/integration/test_layer6_acceptance.py`,
-where each has a test named after it.
+## ~~Layer 7 — Office document builder~~ · CANCELLED
 
-- [x] Graph renders from the co-occurrence baseline with Ollama stopped.
-- [x] Starting Ollama and running enrichment visibly improves entity quality.
-- [x] Killing Ollama mid-enrichment: job pauses with `ERR_OLLAMA_DOWN`, resumes later, no data loss.
-- [x] Graph stays interactive at 5k nodes (cap and cluster beyond that).
+A 225-byte stub. Never requested by anybody; it was in the plan because the plan predated a
+clear statement of what the tool is for. Deleted.
 
-**Decisions taken during the build, worth not relitigating**
+*What would justify building it:* a repeated need to get results **out** — into a report, a
+spreadsheet, an email. Until somebody asks twice, exporting is a feature looking for a user.
 
-- **Schema v3 adds `entities`, `entity_mentions`, `entity_edges`** and nothing else.
-  Additive, like v2: the graph is derived entirely from `chunks`, so it is built at
-  leisure on an existing index without re-reading one file, and `--rebuild` is always safe.
-- **`key` is identity, `display` is what you show.** Casefolded and whitespace-collapsed,
-  so "Acme Ltd", "ACME LTD" and a name line-wrapped by a PDF are one node. Without it the
-  biggest nodes in the graph are duplicates of each other.
-- **Normalised PMI, not raw PMI or raw counts.** Raw counts give a hairball centred on
-  the commonest word. Raw PMI's ceiling depends on how rare a pair is, so a threshold
-  chosen today stops filtering as the corpus grows; npmi is bounded to [-1, 1] and a
-  cutoff keeps meaning. Defaults: `min_weight=2`, `min_npmi=0.0`.
-- **The build is two passes.** An edge's score depends on corpus-wide totals that do not
-  exist until the last chunk is read, so scoring during the walk would judge early edges
-  against a corpus that had not happened yet.
-- **The cursor is committed in the same transaction as the batch it describes.** Edge
-  weights accumulate, so a replayed batch double-counts silently - no error, no way to
-  detect it afterwards. One transaction makes it impossible rather than unlikely.
-- **`MAX_ENTITIES_PER_CHUNK = 24`.** Pairs are quadratic, and one contact list or email
-  footer would otherwise contribute 20,000 edges on its own.
-- **The picture opens in a browser, not in a tab.** Embedding it needs `PyQt6-WebEngine`:
-  ~150MB, a second Chromium beside the ONNX runtime, and a known packaging problem. The
-  *interactive* half - click an entity, see neighbours, see the passages, search it - is
-  ordinary Qt widgets in the Graph tab, which is faster for the thing people repeat.
-- **pyvis emits two CDN tags even with `cdn_resources="in_line"`.** They are stripped from
-  the written file and an acceptance test greps for `https://`. Found by rendering and
-  checking, not by reading the docs: on a connected machine the page looks perfect.
-- **The LLM pass only adds and refines.** It never deletes a co-occurrence entity and never
-  rewrites edges, so the deterministic graph stays intact and enrichment stays reversible.
-- **Two cursors, not one.** `graph:cursor` and `graph:llm_cursor` walk the same chunks at
-  completely different speeds; sharing one means whichever ran last dictates where the
-  other resumes.
+## Layer 8a — Natural-language query translation
 
----
+**The feature the application exists for**, and the reason Layers 6, 7 and 10 went.
 
-## Layer 7 — Office document builder
+> "Local search is my main objective, but I want to write in normal text what I am looking
+> for, and this complexity to solve may need AI."
 
-**Goal:** turn search results into a document without leaving the app.
+The model's entire job is to emit the operator syntax `parse_query` already accepts:
 
-**Build**
+```
+"the safety report Dave sent me about Leeds before the audit last March"
+    ->  safety report Leeds from:dave before:2025-03-01
+```
 
-- `builder.py` — DOCX (python-docx), XLSX (openpyxl), PPTX (python-pptx).
-- Selected results → a document with source path, date and snippet per entry, plus a
-  citation list. Templates for "research summary", "evidence pack", "results table".
-- Export raw results as CSV / JSON.
+Three properties follow, and they are why this is safe rather than merely useful:
 
-**Acceptance**
+- **A malformed translation is caught by existing code.** Nothing new validates anything.
+- **There is no injection surface.** The model cannot express anything a person could not
+  have typed, because the output is checked against a fixed grammar and discarded if it does
+  not fit.
+- **It is testable with no model.** Sentence in, query string out, asserted against a string.
 
-- [ ] Each format opens without a repair prompt in real Microsoft Office.
-- [ ] Unicode, very long paths and 500-row exports all survive intact.
-- [ ] Every generated document cites the source file path for every excerpt.
+### The rule that bends, stated precisely so it does not erode
 
----
+> **The retrieval path never calls the LLM.** Query *translation* may. It is optional, costs
+> about a second, runs once before the search, and is always visible. Plain keyword and
+> semantic search remain instant and never touch a model.
 
-## Layer 8 — RAG answers (optional)
+Enforced by a static test: nothing under `app/search/` imports `app.llm` except
+`translate.py`, and `SearchEngine.search()` cannot reach it.
 
-**Goal:** a natural-language answer over retrieved chunks — strictly additive.
+### Acceptance — all met
 
-**Build**
+- [x] Fifteen-plus sentence → query pairs covering sender, type, dates, phrases, exclusions.
+- [x] Junk output — empty, prose, unclosed quote, invented operator, 10,000 characters — falls
+      back to the **raw text whole**, never to a partial query.
+- [x] An invented operator (`colour:red`) is rejected, not passed through.
+- [x] A date the parser rejects causes full fallback, not a query with the constraint dropped.
+- [x] Ollama unreachable: the search still runs and returns results.
+- [x] The translated query reaches the presenter, so the UI can show and edit it.
+- [x] Static: `app/search/` does not import `app.llm` except the one module.
+- [x] **Measured**: constrained recall at rank 1 goes 50% → 92% with translation.
 
-- `llm/ollama.py` — thin client. Health check before every call; on failure return
-  `ERR_OLLAMA_DOWN` as `AUTO_FIX` and fall back to plain results with a one-line notice.
-- Answers stream into the UI. Every claim carries a numbered citation back to a chunk,
-  and clicking it opens the source at that location.
-- Hard rule: **the answer panel is never on the critical path.** Results render first;
-  the answer fills in when it is ready.
+### Measured, and the reason it was worth building
 
-**Acceptance**
+`app.cli evaluate` runs twenty sentences against a corpus with known answers, reporting
+recall **split by whether the sentence carried a constraint** — because one number cannot
+distinguish "search is bad" from "search is fine at topics and blind to constraints".
 
-- [ ] With Ollama off, search is unaffected and the notice is accurate and non-alarming.
-- [ ] With Ollama on, answers stream and every citation resolves to a real chunk.
-- [ ] Stopping Ollama mid-answer produces a clean partial state, not a hung UI.
+| at rank 1 | plain | translated |
+|---|---|---|
+| topic only | 88% | 88% |
+| with a constraint | 50% | **92%** |
 
----
+## Layer 8b — Prose answers · DEFERRED
+
+Not to be built until 8a has been used in anger and the owner asks for it. If it is:
+
+One search, then answer — not multi-step retrieval. Reuse `SearchEngine`; do not write a
+second retrieval path. **Every claim carries a citation that opens the source passage**; an
+answer with no citations is a bug, asserted by a test. That is the only workable mitigation
+for a 7B model stating wrong things confidently over technical material: it makes a wrong
+answer visibly wrong rather than plausibly wrong. Instruct the model that "the passages do
+not answer this" is a correct response. When the context fills, drop history, never passages.
 
 ## Layer 9 — Hardening and packaging
 
@@ -732,64 +718,11 @@ where each has a test named after it.
 
 ---
 
-## Layer 10 — Adaptive tuning
+## ~~Layer 10 — Adaptive tuning~~ · CANCELLED
 
-**Goal:** the defaults in this spec are educated guesses. Replace them, one at a time, with
-numbers measured on *this* corpus and *this* person's searches.
-
-**Deliberately last, and not because it is optional.** Every knob here needs evidence that only
-accumulates once the system is in daily use. Tuning before that is guessing with extra steps —
-and worse, it produces confident numbers derived from a corpus that is not yet representative.
-The prerequisite is Layer 4's `searches` / `search_hits` tables, which is why they are built
-seven layers earlier than anything that reads them.
-
-**Three tiers, in order of both value and difficulty.**
-
-### 10a — Self-tuning: mechanical, no learning
-
-| Knob | Today | How it gets decided |
-|---|---|---|
-| RRF weights | 1.0 / 1.0 | Grid-search weights against clicked results; keep the pair that maximises recall@10. On a corpus of technical documents and fifteen years of email, keyword may well deserve more than parity — nobody currently knows. |
-| Chunk size | 512 / 64 overlap | Re-index a sample at 256/512/768 and compare recall@10. Chunk size is the single most impactful retrieval parameter and 512 is a spec number, not a measured one. |
-| Rerank trigger | always, when enabled | Rerank only when the top fused scores are *close*. A query whose winner is unambiguous does not need 200ms of cross-encoder. Measured on score margin. |
-| ANN probes | LanceDB default | Sweep probes against p95 latency and recall on the real index. |
-| Priority folders | user-nominated | Rank folders by how often results from them get opened. |
-
-### 10b — Self-learning: from actual use
-
-- **Implicit relevance.** An opened result is a weak positive label; a result ranked above it
-  and skipped is a weak negative. Thousands of those beat a hand-written golden set, and they
-  arrive for free.
-- **Personal vocabulary.** Which terms co-occur in *this* corpus and co-lead to the same
-  opened documents. No general model knows that "MES", "Manufacturing Execution System" and
-  "Work Tasks" are one territory in this person's world; their own documents do.
-- **Query reformulation memory.** When a search is immediately followed by a refined one and
-  then a click, the pair is a lesson about what the first query should have matched.
-
-### 10c — Self-optimising: runtime
-
-- Batch size adapted to measured throughput and free memory rather than fixed at 64.
-- Cache pre-warming for the queries actually repeated.
-- Detecting when the ANN index needs retraining from row-count drift, instead of a fixed
-  threshold.
-
-**Non-negotiable for the whole layer: every learned value is inspectable and resettable.**
-A search engine that silently changes its own ranking, with no way to see the current weights
-or restore the defaults, is impossible to debug and unpleasant to trust. Settings shows every
-tuned parameter, what it was, what it became, and what evidence moved it — with one button to
-put it all back.
-
-**Acceptance**
-
-- [ ] Every tuned parameter is visible in Settings with its default alongside its current value.
-- [ ] "Reset tuning" restores every default and is proved by a before/after search returning
-      identical ordering.
-- [ ] A tuning run reports the measured improvement, and refuses to apply a change that does
-      not beat the default on the held-out set.
-- [ ] Turning learning off entirely leaves a system that behaves exactly like Layer 4.
-- [ ] Usage data can be exported and deleted by the user.
-
----
+Ranking that changes based on what you clicked is unpredictable ranking, and this
+application's entire value is that you can trust what it returns. The usage log still records
+searches and opens, so the option remains open if evidence ever justifies it.
 
 ## Performance budget (measure, do not assume)
 

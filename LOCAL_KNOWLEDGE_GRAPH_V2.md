@@ -1,6 +1,14 @@
-# Local Knowledge Graph Search + Office Suite — V2 (Windows, Single User)
+# Leasha — architecture and installation
 
-**Doc version:** 2.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.4 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+
+> **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
+> "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
+> graph was removed and the Office builder cancelled, because neither was what the tool is
+> for. See `HANDOFF.md` §3a for the decision and what would reverse it.
+>
+> The filename is kept for now so existing links and the installer do not break. It is a
+> Layer 9 job to rename it once nothing points at it.
 
 **Project Type:** Windows desktop app, embedded single-process architecture
 **Target OS:** Windows 10/11 only, single user

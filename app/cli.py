@@ -945,6 +945,163 @@ def cmd_files(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """Does a plain sentence find the right document? Ask twenty and count.
+
+    Two corpora, and the difference matters.
+
+    **`--builtin`** uses a small corpus with known answers, shipped with the
+    application. It answers "does the mechanism work" and "did today's change
+    break something", and it needs nothing but the code.
+
+    **The default** runs against your own index, from a file of your own
+    questions - one per line, `sentence | fragment-of-the-wanted-path`. That is
+    the measurement that actually matters, because a real archive has
+    near-duplicates, inconsistent naming and years of drift that no fixture
+    reproduces. Every number from the built-in corpus is optimistic.
+
+    Recall is reported **split by whether the sentence carried a constraint**.
+    One number cannot distinguish "search is bad" from "search is fine at topics
+    and blind to constraints", and those have completely different fixes.
+    """
+    from app.search.evaluate import evaluate
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    if args.builtin:
+        return _evaluate_builtin(args, evaluate)
+
+    questions = _read_questions(Path(args.questions)) if args.questions else []
+    if not questions:
+        print("Give a file of questions, or use --builtin.")
+        print()
+        print("  One per line:   sentence | part-of-the-wanted-path")
+        print("  For example:    the safety report Dave sent | leeds-safety")
+        print()
+        print(r"  venv\Scripts\python.exe -m app.cli evaluate --questions mine.txt")
+        print(r"  venv\Scripts\python.exe -m app.cli evaluate --builtin")
+        return EXIT_ERROR
+
+    from app.index.embedder import Embedder
+    from app.search.engine import SearchEngine
+    from app.search.rerank import Reranker
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+
+    with SqliteStore(settings.fts_db) as store, \
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        engine = SearchEngine(
+            store, vectors,
+            Embedder(settings.embed_model, dim=settings.embed_dim,
+                     cache_dir=str(settings.model_cache)),
+            reranker=Reranker(settings.rerank_model,
+                              cache_dir=str(settings.model_cache),
+                              enabled=settings.rerank_enabled),
+        )
+
+        def search(query: str) -> list[str]:
+            return [result.path for result in engine.search(query, limit=args.k).results]
+
+        translate = None
+        if args.interpret:
+            from app.llm.ollama import OllamaClient
+            from app.search.translate import QueryTranslator
+
+            translator = QueryTranslator(
+                OllamaClient(settings.ollama_url, settings.ollama_model)
+            )
+            if not translator.available():
+                print("Ollama is not answering, so --interpret would measure nothing.")
+                print(r"  Check it: venv\Scripts\python.exe -m app.cli ollama")
+                return EXIT_ERROR
+            translate = lambda sentence: translator.translate(sentence).query  # noqa: E731
+
+        report = evaluate(
+            questions, search, k=args.k,
+            mode="your index, interpreted" if args.interpret else "your index",
+            translate=translate,
+        )
+
+    for line in report.lines():
+        print(line)
+    if args.json:
+        print()
+        print(json.dumps(report.as_dict(), indent=2))
+    return EXIT_OK
+
+
+def _read_questions(path: Path) -> list:
+    """`sentence | expected-path-fragment | optional-constraint` per line."""
+    from app.search.evaluate import Question
+
+    questions = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        print(f"Could not read {path}: {exc}")
+        return []
+
+    for number, line in enumerate(lines, start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            print(f"  line {number} ignored - expected 'sentence | path-fragment'")
+            continue
+        questions.append(Question(
+            sentence=parts[0], expects=parts[1],
+            constraint=parts[2] if len(parts) > 2 else "",
+        ))
+    return questions
+
+
+def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
+    """The shipped corpus, with keyword search only.
+
+    Deliberately keyword-only: it is the half that needs no model, so this runs
+    anywhere and measures the same thing every time. The vector half is what the
+    `--questions` mode against a real index exercises.
+    """
+    import tempfile
+
+    from app.search import keyword
+    from app.search.commands import expand_slashes
+    from app.search.query import parse_query
+    from app.storage.sqlite_store import SqliteStore
+
+    try:
+        from tests.fixtures.evaluation import CORPUS, QUESTIONS, load_into
+    except ImportError:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.evaluate", key="tests",
+            reason="the built-in corpus ships with the tests, which are not installed",
+            suggestion="Run from a source checkout, or use --questions with your own.",
+        ), args.json)
+
+    folder = Path(tempfile.mkdtemp())
+    with SqliteStore(folder / "evaluate.db") as store:
+        load_into(store)
+
+        def search(query: str) -> list[str]:
+            parsed = parse_query(expand_slashes(query))
+            return [hit["path"] for hit in keyword.search(store, parsed, limit=args.k)]
+
+        report = evaluate(
+            QUESTIONS, search, k=args.k, mode="built-in corpus, keyword only",
+            note=f"{len(CORPUS)} documents. A small clean corpus with no "
+                 "near-duplicates - every number here is optimistic. Your own "
+                 "questions against your own index are the measurement that counts.",
+        )
+
+    for line in report.lines():
+        print(line)
+    if args.json:
+        print()
+        print(json.dumps(report.as_dict(), indent=2))
+    return EXIT_OK
+
+
 def cmd_embedbench(args: argparse.Namespace) -> int:
     """Measure what embedding costs on this machine, and say what would help.
 
@@ -1557,6 +1714,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_eval = sub.add_parser(
+        "evaluate", parents=[common],
+        help="measure whether plain sentences find the right documents")
+    p_eval.add_argument("--questions", metavar="FILE",
+                        help="your own: 'sentence | part-of-the-wanted-path' per line")
+    p_eval.add_argument("--builtin", action="store_true",
+                        help="use the shipped corpus with known answers (no model needed)")
+    p_eval.add_argument("--interpret", action="store_true",
+                        help="translate each sentence with Ollama first, to measure the gain")
+    p_eval.add_argument("--k", type=int, default=10, metavar="N",
+                        help="count a hit if the document is in the top N (default 10)")
+    p_eval.set_defaults(func=cmd_evaluate)
 
     p_bench = sub.add_parser(
         "embed-bench", parents=[common],

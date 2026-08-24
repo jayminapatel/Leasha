@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -50,6 +50,41 @@ The message names the exact key, for example:
 ```
 
 Fix that key, or delete the file and start again.
+
+## The interpreted query was wrong
+
+Press **Interpret** (or Ctrl+Enter) and the query it builds goes **into the search box**. If
+it got something wrong, edit it and press Enter. That is the whole fix, and it is why the
+query is shown rather than applied invisibly.
+
+If it consistently misreads you, it is worth knowing what it is allowed to produce:
+
+```powershell
+venv\Scripts\python.exe -m app.cli commands
+```
+
+The model can only emit those filters. It cannot invent one - anything it makes up is
+rejected and your original words are searched instead.
+
+If nothing happens when you press Interpret, Ollama is not running. Plain Enter always works
+and never uses it:
+
+```powershell
+venv\Scripts\python.exe -m app.cli ollama
+```
+
+## Search does not find something I know is there
+
+In order of how often it is the cause:
+
+1. **Is it indexed?** `app.cli files <part of the name>` finds it by filename alone. If that
+   comes back empty, the file was never indexed and no search will find it.
+2. **Is meaning-based search working?** `app.cli stats` says so in words at the bottom, and
+   tells you what to run if not. A corpus that is only partly embedded is findable by exact
+   words only.
+3. **Is the file type switched on?** `app.cli formats` lists what is indexed and what is off.
+   Anything in the "Off" list is never opened at all.
+4. **Are you fighting a filter?** `/type pdf` on a Word document finds nothing, correctly.
 
 ## The window has gone white / says "Not Responding"
 

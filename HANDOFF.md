@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 3.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 4.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -13,8 +13,13 @@ This document is the state; that one is the contract.
 
 ## 1. What this is
 
-A Windows desktop app that searches ~100GB of local files and Outlook email, combining
-keyword and semantic search, with a knowledge graph and Office document generation.
+**Leasha.** A Windows desktop app that searches ~100GB of local files and Outlook email,
+combining keyword and semantic search, driven by a plain-English description of what you are
+looking for.
+
+That last clause is the whole scope, and it narrowed deliberately - see §3a. There is no
+knowledge graph and no document generation; both were built or planned, and both were removed
+because they were not what the tool is for.
 
 Everything runs in **one process**. SQLite/FTS5 for metadata and keyword search, LanceDB for
 vectors, FastEmbed ONNX for embeddings - all embedded libraries, no services, no ports, no
@@ -41,17 +46,111 @@ entirely rebuildable from your documents, so deleting it is always safe.
 
 | Layer | What it is | State |
 |---|---|---|
-| L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - v0.2.0 |
-| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - v0.3.0 |
+| L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** |
+| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** |
 | L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
 | L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - needs a real-scale run |
-| L4 | Search: BM25 + ANN, RRF fusion, rerank | **Code-complete** - p95 needs the real corpus |
-| L5 | PyQt6 UI shell | **Code-complete** - opened once; five bugs found and fixed |
-| L6 | Knowledge graph | **Code-complete** - all four acceptance criteria pass |
-| L7 | Office document builder | **Next** |
-| L8 | Optional RAG answers | Not started |
+| L4 | Search: BM25 + ANN, RRF fusion, rerank, filters | **Code-complete** - and now measured, see §3b |
+| L5 | PyQt6 UI shell | **Code-complete** - opened, and eleven bugs found by opening it |
+| ~~L6~~ | ~~Knowledge graph~~ | **Removed** - §3a |
+| ~~L7~~ | ~~Office document builder~~ | **Cancelled** - never requested, never started |
+| **L8a** | Natural-language query translation | **Code-complete** - justified by measurement, §3b |
+| L8b | Prose answers over results | **Deferred** until L8a has been used in anger |
 | L9 | Hardening and packaging | Not started |
-| L10 | Adaptive tuning (self-tuning / learning) | Not started - deliberately last |
+| ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
+
+### What is **Next**
+
+In order, and the first two need the owner rather than the code:
+
+1. **Open the window and use it.** Every UI fault in this project was found by somebody
+   clicking, never by a test. Eleven so far.
+2. **Index one full 200K-message PST.** The only thing that has never been done at scale, and
+   the one that will find what the fixtures cannot.
+3. **Decide chunk size and model precision** - §7, question 1. Both are far cheaper now than
+   after 100GB is indexed, and both should be settled by `app.cli evaluate` before and after
+   rather than by argument.
+4. **Finish the file-type work order**: `odf.py`, `cloudstub.py`, `converter.py`, `ocr.py`,
+   and the file-types editor in Settings. Config and routing are already in place and
+   switched off, waiting for each extractor to land.
+5. **Layer 9**: hardening and packaging.
+
+## 3a. The scope change, and what would reverse it
+
+**This section matters more than any code in the repository.** It records a decision that
+cost two layers, and the reasoning is what stops it being re-litigated or accidentally undone.
+
+The owner, asked what the tool was for:
+
+> "Local search is my main objective, but I want to write in normal text what I am looking
+> for, and this complexity to solve may need AI."
+
+Everything follows from that sentence.
+
+**The knowledge graph was removed.** It worked - all four acceptance criteria passed - and it
+was never in the search path, nothing depended on it, and the only user did not want it. A
+feature that is finished, tested and unwanted still costs maintenance forever. Git preserves
+it at tag `v0.3.2`.
+
+*What would justify reviving it:* somebody asking "who else was involved in this?" or "what
+else touches this project?" repeatedly, and search not answering it. Entity co-occurrence is
+a genuinely good answer to that question - it was simply not the question being asked.
+
+**Layer 7, the Office document builder, was cancelled.** It was a 225-byte stub. Nobody had
+ever asked for it; it was in the plan because the plan was written before the purpose was
+clear.
+
+*What would justify building it:* a repeated need to get results *out* - into a report, a
+spreadsheet, an email. Until somebody asks twice, exporting is a feature looking for a user.
+
+**Layer 10, adaptive tuning, was cancelled.** Ranking that changes based on what you clicked
+is unpredictable ranking, and this application's entire value is that you can trust what it
+returns. The usage log still records searches, so the option remains open.
+
+**Layer 8 became 8a and 8b, and 8b is deferred.** Translating a sentence into a query is
+cheap, safe and testable. Generating prose answers is none of those things, and a 7B model
+stating something wrong confidently over technical material is worse than no answer.
+
+*What would justify L8b:* L8a in daily use, and the owner saying "now I want it to just tell
+me". Not before.
+
+**The three `entities` tables stay in the schema, empty and commented as deprecated.**
+Dropping them needs a migration to v5, and migrations only step forward - so reviving the
+graph would then need a v6 to undo the v5, and the database would carry a permanent record of
+a decision that was reversed. An empty table costs nothing. Drop them at L9 if it still seems
+worthwhile.
+
+## 3b. What search actually does, measured
+
+Twenty sentences against a corpus with known answers, run by
+`app.cli evaluate --builtin`. **This is the first time search itself was measured rather than
+its parts.** Two faults surfaced that a thousand passing unit tests had not, because every
+test asked "does this function return what I expect" and none asked "does search work".
+
+Nineteen of twenty plain sentences returned **zero results**. Every term was ANDed, stopwords
+included, so `drawings of the pump station` required the document to contain "of" and "the".
+
+Fixed, the split is the finding - and it is what justifies L8a:
+
+| at rank 1 | plain sentence | translated |
+|---|---|---|
+| overall | 50% | **75%** |
+| topic only | 88% | 88% |
+| with a constraint | 50% | **92%** |
+| sender | 50% | 100% |
+| recipient | 0% | 100% |
+| attachment | 0% | 100% |
+
+Topic matching is decent; constraints are ignored entirely. "From Chris" goes into the text
+search and the sender field is never consulted. Translated to `from:chris`, it is a filter.
+
+**The numbers are optimistic.** Twenty-one clean documents, no near-duplicates, no years of
+drift. The owner's own twenty sentences against the real archive remain the measurement that
+counts, and are deferred until enough is indexed for the answer to mean anything:
+
+```powershell
+venv\Scripts\python.exe -m app.cli evaluate --questions mine.txt
+```
 
 ### Built out of order, deliberately
 
@@ -340,10 +439,38 @@ Reopening these without new evidence wastes time. The reasoning matters more tha
 | `win32com` MAPI for email, never `pypff` | `pypff` has no reliable Windows wheels. `extract-msg` reads `.msg` only, not `.pst` | A maintained PST library with Windows wheels |
 | Every `.ps1` ASCII-only **and** UTF-8 with BOM | PowerShell 5.1 decodes a BOM-less file as ANSI; one em dash became a smart quote and killed the installer at parse time, silently | Dropping Windows PowerShell 5.1 support |
 | pydantic, not pydantic-settings | It is a separate distribution and is not installed. A dependency to save a dozen lines is a bad trade | Adding it to `requirements.txt` for a real reason |
+| Search terms are ORed, not ANDed | Measured: ANDing every word left nineteen of twenty plain sentences returning **nothing**. People describe documents with words that are *about* them rather than *in* them | A measurement showing precision loss that ranking does not recover |
+| The model fills in a form that already exists | L8a emits the operator syntax `parse_query` already accepts, so a bad translation is caught by tested code and there is no injection surface - the model cannot express anything a person could not have typed | Nothing; this is what makes translation safe rather than merely useful |
+| A translation is always visible and editable | Invisible query rewriting makes search unpredictable, and unpredictable search over your own archive is worse than blunt search, because you stop trusting it | Nothing |
+| Translation never blocks a search | Ollama missing, slow or answering nonsense all fall back to the raw text. The worst case is the behaviour before it existed | Nothing |
+| One catalogue for the filters | `commands.py` feeds the `/` dropdown, `app.cli commands` and the model's prompt. Three descriptions of one grammar is how a filter gets offered that the parser rejects | Nothing |
 
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**A throughput number without its conditions is not a number.** Embedding was measured at
+1.53 passages/second and called "twenty times too slow", on the assumption that a small model
+should manage tens per second - true for short sentences, false for the 512-token passages
+this app embeds. Then the tool written to settle it reported the *reranker's* file size while
+timing the *embedder*. Then a single-pass measurement swung 44% between runs. Three
+corrections, all the same mistake: reporting a measurement without what produced it.
+`app.cli embed-bench` now repeats each measurement and refuses to be trusted when the spread
+is wide.
+
+**A feature nobody can find delivers nothing.** `type:pdf from:dave` parsed correctly, was
+tested and shipped in Layer 4 - and went unused for months, because nothing in the
+application ever said it existed. The `/` dropdown is not a convenience; it is the difference
+between a search box that is a bag of words and one that can answer a real question.
+
+**Test the thing, not its parts.** Every fault in §3b was invisible to a thousand passing
+tests, because each asked "does this function return what I expect" and none asked "does
+search work". `app.cli evaluate` is the guard now.
+
+**A benchmark can be wrong, and it will be believed.** Two of the twenty evaluation questions
+were unanswerable when written - one pointed at a message the named person *sent* rather than
+received. Both scored zero for reasons that had nothing to do with search. A test asserts
+every question's answer exists in the corpus.
 
 **Every Qt worker must go through `workers.run()`, never `pool.start()`.** The
 pool owns the runnable on the C++ side but nothing owns the Python-side signals
@@ -444,16 +571,29 @@ wrong, not the tokenizer.
 
 Not blockers, but decide them deliberately rather than by accident.
 
-1. **Indexing throughput is unmeasured.** The spec says "days on CPU" for 100GB. Layer 3's
-   acceptance criteria include measuring it on a 10k-file corpus, because the UI's ETA and the
-   value of folder prioritisation both depend on the real number. If it comes back at two
-   weeks rather than three days, prioritisation stops being a nicety.
+1. **Indexing cost is now measured, and it is the main constraint.** `app.cli embed-bench`
+   on the owner's machine: 2.29 passages/second at 512 tokens, twelve threads, fp16 model.
+   That is ~97 hours for a 100GB corpus, and `reembed` reports the time as **100% model** -
+   not I/O, so no amount of tuning the stores will help. Three levers, measured:
+
+   | Lever | Worth | Costs |
+   |---|---|---|
+   | 256-token chunks instead of 512 | 1.54x | less context per vector; needs a **re-index** |
+   | int8 model instead of fp16 | ~2x | small accuracy loss; needs a **re-embed** |
+   | fewer chunks (quoted replies stripped) | ~1.8x on mail | nothing - already done |
+
+   Both of the first two are far cheaper now, at 355 files, than at 100GB. **Neither has been
+   decided.** The chunk-size question is a retrieval trade rather than a speed one, and
+   should be settled by running `app.cli evaluate` before and after.
 2. **Cached Exchange Mode window.** How much of the live mailbox to index, and whether to
-   fetch beyond the local cache, needs a UI decision in Layer 5.
-3. **OCR is out of scope for V2.** Image-only PDFs are marked, not read. Revisit only if the
-   real corpus turns out to be full of scans.
+   fetch beyond the local cache.
+3. **OCR is being built** - it was out of scope for V2 and the owner overrode that
+   deliberately, knowing it may add days to a first 100GB run. Images and scanned PDFs are
+   routed in `config/extractors.toml` and switched off until `app/extract/ocr.py` lands.
 4. **Packaging.** PyInstaller may fight the ONNX runtime and Qt plugins. Layer 9 says ship the
    venv plus a shortcut rather than let packaging block a working app.
+5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
+   mean anything. The synthetic corpus is a floor, not a substitute.
 
 ## 8. Where to look
 

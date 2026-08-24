@@ -1,16 +1,32 @@
-# Local Knowledge Graph Search + Office Suite
+# Leasha
 
-**Doc version:** 1.3 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
-Hybrid semantic + keyword search over ~100GB of local files and PST email archives, with a
-knowledge graph and Office document generation. Windows 10/11, single user, fully local.
+**Search everything on this machine — by describing it in plain English.**
+
+One headline feature. Type what you remember about a document, and get the document:
+
+```
+the safety report Dave sent about Leeds before the audit
+```
+
+Keyword and meaning-based search run together over ~100GB of local files and Outlook
+archives. Filters — sender, recipient, subject, date, file type, size — are typed with `/`
+and offered as you type. Windows 10/11, single user, **fully local**.
 
 **One process.** SQLite/FTS5 for metadata and keyword search, LanceDB for vectors, FastEmbed
-ONNX for embeddings — all embedded. No services, no ports, no passwords. Ollama is optional
-and is never called by search.
+ONNX for embeddings — all embedded libraries. No services, no ports, no passwords, and
+nothing leaves the machine.
 
-**Version:** see `VERSION` | **Status:** Layers 0-1 complete; Layer 2 (extraction) complete
-except Outlook/PST; Layer 3 next
+Ollama is optional and **never touches the retrieval path**. It does one job: turning a
+sentence into the filter syntax the search box already understands, visibly, so you can
+correct it. With Ollama stopped, search works exactly as it always does.
+
+```powershell
+leasha                    # open the window
+leasha commands           # the filters you can type
+leasha evaluate --builtin # does search actually work?
+```
 
 ---
 
@@ -72,11 +88,9 @@ app/core      L0  config, AppError, logging, single-instance, version
 app/storage   L1  SQLite/FTS5 + LanceDB
 app/extract   L2  PDF, Office, plaintext, PST/EML parsers + chunking
 app/index     L3  walker, resumable pipeline, embedder
-app/search    L4  BM25 + ANN, RRF fusion, optional rerank
+app/search    L4  BM25 + ANN, RRF fusion, rerank, filters, evaluation
 app/ui        L5  PyQt6 shell
-app/graph     L6  co-occurrence baseline, optional LLM entities
-app/office    L7  DOCX/XLSX/PPTX builder
-app/llm       L8  optional Ollama client
+app/llm       L8  optional Ollama client (query translation only)
 tests/        unit, integration, and fixtures (healthy + deliberately corrupt)
 ```
 
@@ -92,6 +106,10 @@ These are design constraints, not preferences. They are the reason V2 exists.
 - **Everything long-running is resumable.** The cursor is persisted before it is needed.
 - **The UI thread never does I/O.**
 - **SQLite is the authority.** LanceDB is derived and can always be rebuilt from it.
+- **The retrieval path never calls a model.** Query *translation* may, once, before the
+  search, and always visibly. Keyword and semantic search stay instant.
+- **A translated query is shown and editable.** Invisible rewriting makes search
+  unpredictable, and unpredictable search over your own archive is worse than blunt search.
 - **Every `.ps1` is ASCII-only or UTF-8 with a BOM.** PowerShell 5.1 reads a BOM-less file as
   the ANSI codepage; one em dash is enough to kill the script at parse time, silently.
 
