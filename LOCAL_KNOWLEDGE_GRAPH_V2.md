@@ -11,7 +11,9 @@
 
 | File | Purpose |
 |---|---|
-| `install.ps1` | Automated installer. Run from a normal PowerShell window. |
+| `run-install.cmd` | **Start here.** Parse-checks, bypasses execution policy, then runs the installer. |
+| `install.ps1` | The installer itself. |
+| `scripts\parse-check.ps1` | Real PowerShell parse + encoding audit; logs to `logs\parse-check.log`. |
 | `requirements.txt` | Pinned dependencies, all verified to ship Windows wheels. |
 | `doctor.py` | Environment verification with a fix for every failure. |
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9) with acceptance tests. |
@@ -76,12 +78,20 @@ drive from the app). Everything else runs unattended and `doctor.py` runs automa
 
 ## Step 1: Run the installer
 
-Open **PowerShell** (normal window — winget does not need admin), `cd` into this folder, and run:
+Use the wrapper - it is the reliable entry point:
 
-```powershell
-cd D:\SearchProject
-.\install.ps1
 ```
+cd D:\SearchProject
+run-install.cmd
+```
+
+`run-install.cmd` bypasses the execution policy for one process (so a Restricted or
+AllSigned machine policy cannot block it), parse-checks the scripts with the real
+PowerShell parser before running them, and keeps the window open so nothing scrolls away.
+Arguments pass straight through: `run-install.cmd -Preflight`.
+
+Running `.\install.ps1` directly from a normal PowerShell window also works, provided your
+execution policy allows it.
 
 The script installs into **its own folder**, not your current directory. This matters: an earlier
 run launched from `C:\Windows\system32` created the project there and then could not find
@@ -146,6 +156,7 @@ These all came out of the first real run and are fixed rather than papered over:
 | `Download embedding model → Traceback` | Cascade: pip never ran, so `fastembed` was not importable. | Package install is a required step; aborting there by default stops the pointless cascade. |
 | `ollama pull` stalls on `pulling manifest` | A freshly installed Ollama has no service listening yet. | The step waits up to 60s for `127.0.0.1:11434`, starting `ollama serve` if needed, before pulling. |
 | `can't open file 'C:\Windows\system32\local-knowledge-graph\doctor.py'` | Same cwd bug, at the verification step. | Absolute paths throughout; `Push-Location`/`Pop-Location` around anything that must change directory. |
+| **Script produced no output at all** - no log, no venv, no `.env` | `install.ps1` was UTF-8 **without a BOM**. Windows PowerShell 5.1 decodes a BOM-less file with the ANSI codepage, so each em dash (`E2 80 94`) had its third byte read as cp1252 `0x94` = U+201D - a smart quote PowerShell treats as a string delimiter. Parse error before line 1 executed. | Every `.ps1` is ASCII-only **and** saved UTF-8 with a BOM. `scripts\parse-check.ps1` audits both, and `run-install.cmd` runs it before the installer. |
 | Braille spinners rendered as `â ‹` | Console not in UTF-8. | `[Console]::OutputEncoding` set to UTF-8 at the top. |
 
 Design rules the script follows (and the app must follow too):
