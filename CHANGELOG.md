@@ -1,12 +1,37 @@
 # Changelog
 
-**Doc version:** 3.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.10 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — Google Workspace pointers are findable instead of invisible
+
+Step 3 of the file-types work order. A `.gdoc` is not a document: it is a few
+hundred bytes of JSON holding a URL, and Drive for Desktop leaves thousands of
+them in a synced folder.
+
+**The reason to index them is the failure they otherwise cause.** Unsupported,
+they are skipped and invisible — somebody searches for a document they know
+exists, finds nothing, and concludes the search is broken. Indexed, the pointer
+is findable by name and says plainly *"the text of this document is not stored
+on this machine"*, which turns a mystery into an answer.
+
+**It never fetches the URL.** Not once, not optionally, not behind a flag. A
+fetch would be an authenticated request telling Google what is being indexed and
+when, from an application whose whole proposition is that nothing leaves the
+machine — and it would look like a small convenience while doing it. Two tests
+assert it: no network module is importable from that file, and no call in it
+resembles a fetch.
+
+Both of Drive's historic JSON formats are read, because old files keep the old
+shape, and the file id is recovered from the URL when Drive did not write it as
+a field — it is stable across renames and is what somebody pastes to find the
+file again.
+
 
 ### Added — OpenDocument (.odt, .ods, .odp), with no new dependency
 

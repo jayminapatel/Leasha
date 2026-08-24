@@ -43,8 +43,8 @@ enabled = true
 
 # NOTE ON `enabled = false` BELOW
 #
-# `odf` has landed and its routes are on. The `cloudstub` and `ocr` extractors
-# are still being built and are not in this release yet. Their routes ship here, switched off, so the file documents
+# `odf` and `cloudstub` have landed and their routes are on. `ocr` is still
+# being built and is not in this release yet. Their routes ship here, switched off, so the file documents
 # where those formats will go and so each one can be turned on by the release
 # that delivers it - a single line, no new configuration to invent.
 #
@@ -65,13 +65,13 @@ enabled = true
 # These hold no document content - only a URL and an id. Indexed so the pointer
 # is findable, and flagged so "I searched for text I know is in that doc" has an
 # answer. See app/extract/cloudstub.py.
-".gdoc"    = { extractor = "cloudstub", enabled = false }
-".gsheet"  = { extractor = "cloudstub", enabled = false }
-".gslides" = { extractor = "cloudstub", enabled = false }
-".gdraw"   = { extractor = "cloudstub", enabled = false }
-".gform"   = { extractor = "cloudstub", enabled = false }
-".gjam"    = { extractor = "cloudstub", enabled = false }
-".gsite"   = { extractor = "cloudstub", enabled = false }
+".gdoc"    = { extractor = "cloudstub" }
+".gsheet"  = { extractor = "cloudstub" }
+".gslides" = { extractor = "cloudstub" }
+".gdraw"   = { extractor = "cloudstub" }
+".gform"   = { extractor = "cloudstub" }
+".gjam"    = { extractor = "cloudstub" }
+".gsite"   = { extractor = "cloudstub" }
 
 # --- Images, read by OCR ----------------------------------------------------
 # TO BE ON BY DEFAULT, by the project owner's explicit choice, made knowing that
