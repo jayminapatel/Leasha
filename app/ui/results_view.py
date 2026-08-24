@@ -18,17 +18,16 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QVBoxLayout,
     QWidget,
 )
 
+from app.ui.widgets.file_menu import FileActions, show_for
 from app.ui.presenter import ResultRow, to_rows
 
 __all__ = ["ResultsView"]
@@ -39,7 +38,6 @@ class ResultsView(QWidget):
 
     opened = pyqtSignal(object)          # ResultRow
     reveal_requested = pyqtSignal(object)
-    add_to_document = pyqtSignal(object)
     reindex_requested = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -99,41 +97,22 @@ class ResultsView(QWidget):
             self.opened.emit(row)
 
     def _on_context_menu(self, point: Any) -> None:
+        """One menu, shared with the filename browser - see widgets/file_menu.py.
+
+        It used to be built here, and offered "Add to document", which emitted a
+        signal nothing was connected to. Layer 7 was cancelled before it was
+        built, and the menu item outlived it: a thing you could click that did
+        nothing at all, silently.
+        """
         row = self._row_for(self._list.itemAt(point))
         if row is None:
             return
 
-        menu = QMenu(self)
-        missing = not Path(row.path).exists()
-
-        open_action = QAction("Open", self)
-        open_action.setEnabled(not missing)
-        open_action.triggered.connect(lambda: self.opened.emit(row))
-        menu.addAction(open_action)
-
-        reveal = QAction("Open containing folder", self)
-        reveal.setEnabled(not missing)
-        reveal.triggered.connect(lambda: self.reveal_requested.emit(row))
-        menu.addAction(reveal)
-
-        copy = QAction("Copy path", self)
-        copy.triggered.connect(lambda: QGuiApplication.clipboard().setText(row.path))
-        menu.addAction(copy)
-
-        menu.addSeparator()
-        add = QAction("Add to document", self)
-        add.triggered.connect(lambda: self.add_to_document.emit(row))
-        menu.addAction(add)
-
-        if missing:
-            menu.addSeparator()
-            # The offer only appears when it can actually help: the file is gone,
-            # so re-indexing is the thing that makes the stale row disappear.
-            retry = QAction("File is missing — re-index this folder", self)
-            retry.triggered.connect(lambda: self.reindex_requested.emit(row))
-            menu.addAction(retry)
-
-        menu.exec(self._list.mapToGlobal(point))
+        show_for(self._list, point, row.path, FileActions(
+            open_file=lambda: self.opened.emit(row),
+            reveal=lambda: self.reveal_requested.emit(row),
+            reindex=lambda: self.reindex_requested.emit(row),
+        ))
 
 
 class _ResultItem(QWidget):

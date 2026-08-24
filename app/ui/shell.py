@@ -138,13 +138,14 @@ class MainWindow(QMainWindow):
 
         self.indexing_view = IndexingView()
         self.indexing_view.error.connect(self._show_error)
+        self.indexing_view.reset_requested.connect(self._reset_index)
         self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
         self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
         self.indexing_view.finished.connect(
-            lambda _stats: self.indexing_view.refresh_totals(self._store)
+            lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
         )
         # A finished index means new filenames, so the Files summary is stale.
         self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
@@ -168,6 +169,7 @@ class MainWindow(QMainWindow):
 
         self.files_view = FilesView(store)
         self.files_view.error.connect(self._show_error)
+        self.files_view.search_inside_requested.connect(self._search_inside)
 
         self.tabs = QTabWidget()
         # (view, title, wrap in a scroll area?)
@@ -197,7 +199,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.setStatusBar(QStatusBar())
-        self.indexing_view.refresh_totals(store)
+        self.indexing_view.refresh_totals(store, settings)
         self._refresh_status()
         self._build_shortcuts()
         self._start_scheduler()
@@ -445,7 +447,7 @@ class MainWindow(QMainWindow):
 
     def _tab_changed(self, index: int) -> None:
         if index == self._tab_index.get(self.indexing_view):
-            self.indexing_view.refresh_totals(self._store)
+            self.indexing_view.refresh_totals(self._store, self._settings)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
             self.files_view.focus()
@@ -594,6 +596,76 @@ class MainWindow(QMainWindow):
             ),
         )
         self.indexing_view.start(pipeline)
+
+    def _search_inside(self, path: str) -> None:
+        """Found it by name; now find what is in it.
+
+        Uses `path:` with the file's own name, so the search is scoped to that
+        one document. Without this the filename browser is a dead end - you can
+        see a file and do nothing with it but open it.
+        """
+        from pathlib import Path as _Path
+
+        name = _Path(path).name
+        if not name:
+            return
+        self._show(self.search_view)
+        self.search_view.input.setText(f'path:"{name}" ')
+        self.search_view.input.setFocus()
+        self.statusBar().showMessage(
+            f"Searching inside {name} - type what you are looking for.", 8_000)
+
+    def _reset_index(self) -> None:
+        """Delete everything indexed, after asking, and never the documents.
+
+        **The confirmation says what is and is not at risk**, because "reset"
+        is a word people have learned to fear from applications that mean
+        something else by it. Nothing here touches a single document: the index
+        is derived from them and is rebuilt by pointing the indexer at the same
+        folders again. The only real cost is the time to do that.
+        """
+        if self.indexing_view.is_running():
+            self.statusBar().showMessage(
+                "Stop the index run before resetting.", 6_000)
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Reset the index?")
+        box.setText("Delete everything that has been indexed and start over?")
+        box.setInformativeText(
+            "Your documents and emails are NOT touched - the index is built from "
+            "them and can always be rebuilt.\n\n"
+            "What it costs is the time to index again, and your saved folders, "
+            "schedule and settings are kept."
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Reset
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Reset:
+            return
+
+        self.recorder.event("click", what="reset_index")
+        self.statusBar().showMessage("Clearing the index…")
+
+        def clear() -> int:
+            removed = self._store.clear_index()
+            self._vectors.drop()
+            return removed
+
+        worker = CallableWorker(clear, component="ui.reset")
+        worker.signals.finished.connect(self._index_cleared)
+        worker.signals.failed.connect(self._show_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _index_cleared(self, removed: int) -> None:
+        self.statusBar().showMessage(
+            f"Index cleared - {removed:,} documents removed. "
+            "Press Start indexing to rebuild.", 15_000)
+        self.indexing_view.refresh_totals(self._store, self._settings)
+        self.files_view.refresh_summary()
+        self._refresh_status()
 
     def _show_error(self, error: Any) -> None:
         """Every error shows what happened, the fix, and a working button."""

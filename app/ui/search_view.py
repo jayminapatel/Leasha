@@ -54,7 +54,6 @@ class SearchView(QWidget):
 
     result_opened = pyqtSignal(object)
     reveal_requested = pyqtSignal(object)
-    add_to_document = pyqtSignal(object)
     reindex_requested = pyqtSignal(object)
     error = pyqtSignal(object)
 
@@ -136,7 +135,6 @@ class SearchView(QWidget):
         self.results = ResultsView()
         self.results.opened.connect(self._on_opened)
         self.results.reveal_requested.connect(self.reveal_requested)
-        self.results.add_to_document.connect(self.add_to_document)
         self.results.reindex_requested.connect(self.reindex_requested)
 
         top = QHBoxLayout()

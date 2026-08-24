@@ -30,14 +30,32 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.presenter import format_count, format_eta, format_when, group_skips
-from app.ui.workers import IndexWorker, run
+from app.core.logging import logger
+from app.ui.presenter import (
+    format_count,
+    format_eta,
+
+    group_skips,
+    index_summary,
+    read_index_summary,
+    when_text,
+)
+from app.ui.widgets.index_stats import IndexStats
+from app.ui.workers import CallableWorker, IndexWorker, run
 
 __all__ = ["IndexingView"]
+
+_log = logger.bind(component="ui.indexing")
+
+
 
 
 class IndexingView(QWidget):
     """Start, watch, pause and resume an index run; review what was skipped."""
+
+    #: Asked for, not performed here. The view has no business deleting an
+    #: index; the window owns the stores and does it, after confirming.
+    reset_requested = pyqtSignal()
 
     finished = pyqtSignal(object)        # IndexStats
     error = pyqtSignal(object)
@@ -47,6 +65,8 @@ class IndexingView(QWidget):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._worker: Optional[IndexWorker] = None
+        self._refreshing = False
+        self._next_run_text = ""
         self._total_estimate = 0
 
         self.headline = QLabel("Nothing indexed yet.")
@@ -56,8 +76,16 @@ class IndexingView(QWidget):
         # previously showed nothing at all until an index was started, so
         # opening it answered none of "is there an index, how big, how old" -
         # which is the whole reason somebody opens it.
+        # A grid, not a sentence. The page previously carried one line -
+        # documents and chunks - and showed *nothing at all* when the store read
+        # failed, because the handler was `except: return`. A blank page is the
+        # worst answer to "is my index working": it looks identical to an empty
+        # index, a broken one, and a bug.
         self.totals = QLabel("")
         self.totals.setObjectName("indexTotals")
+        self.totals.setVisible(False)
+
+        self.stats_box = IndexStats()
 
         self.bar = QProgressBar()
         self.bar.setTextVisible(True)
@@ -75,10 +103,20 @@ class IndexingView(QWidget):
         )
         self.stop_button.clicked.connect(self.stop)
 
+        # Destructive, so it is placed away from Start and asks before acting.
+        self.reset_button = QPushButton("Reset index…")
+        self.reset_button.setToolTip(
+            "Delete everything indexed and start over.\n\n"
+            "Your documents are never touched - the index is built from them and "
+            "can always be rebuilt. What it costs is the time to index again."
+        )
+        self.reset_button.clicked.connect(lambda _c=False: self.reset_requested.emit())
+
         controls = QHBoxLayout()
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
         controls.addStretch(1)
+        controls.addWidget(self.reset_button)
 
         self._skips_box = QGroupBox("Skipped files")
         self._skips_layout = QVBoxLayout(self._skips_box)
@@ -99,6 +137,7 @@ class IndexingView(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self.headline)
         layout.addWidget(self.totals)
+        layout.addWidget(self.stats_box)
         layout.addWidget(self.bar)
         layout.addWidget(self.detail)
         layout.addLayout(controls)
@@ -116,32 +155,43 @@ class IndexingView(QWidget):
         """
         return self._worker is not None
 
-    def refresh_totals(self, store: Any) -> None:
-        """Show what is already indexed. Cheap enough for every tab switch."""
-        try:
-            stats = store.stats()
-            last = store.get_state("index:last_run")
-        except Exception:                    # noqa: BLE001 - a label is not worth crashing over
+    def refresh_totals(self, store: Any, settings: Any = None) -> None:
+        """Read the index summary in a worker and paint it.
+
+        **Never leaves the panel blank.** The previous version was
+        `except: return`, so a locked or missing database produced an empty page
+        with nothing to explain it - and an empty page is indistinguishable from
+        an empty index. Every outcome now produces rows, including the failure.
+        """
+        if self._refreshing:
             return
+        self._refreshing = True
 
-        documents = int(stats.get("files_total", 0))
-        chunks = int(stats.get("chunks_total", 0))
-        if not documents:
-            self.totals.setText("Nothing indexed yet.")
-            return
-
-        when = ""
-        if last:
-            try:
-                from datetime import datetime
-
-                moment = datetime.fromisoformat(last)
-                when = f"  ·  last run {format_when(int(moment.timestamp() * 1e9))}"
-            except ValueError:
-                when = ""
-        self.totals.setText(
-            f"{documents:,} documents  ·  {chunks:,} searchable chunks{when}"
+        worker = CallableWorker(
+            read_index_summary, store, settings, component="ui.index.totals"
         )
+        worker.signals.finished.connect(self._show_totals)
+        worker.signals.done.connect(self._totals_done)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _totals_done(self) -> None:
+        self._refreshing = False
+
+    def _show_totals(self, payload: dict) -> None:
+        """Paint the summary. UI thread, no I/O."""
+        rows = index_summary(
+            payload.get("stats"),
+            payload.get("vectors"),
+            data_path=payload.get("data_path", ""),
+            disk_bytes=payload.get("disk_bytes"),
+            last_run=when_text(payload.get("last_run") or ""),
+            next_run=self._next_run_text,
+            error=payload.get("error", ""),
+        )
+        self.stats_box.show_rows(rows)
+
+    def set_next_run(self, text: str) -> None:
+        self._next_run_text = text
 
     def start(self, pipeline: Any, *, total_estimate: int = 0) -> None:
         if self._worker is not None:

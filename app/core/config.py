@@ -14,6 +14,8 @@ than surfacing three minutes into a 100GB index run.
 from __future__ import annotations
 
 import os
+import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -357,6 +359,43 @@ def parse_daily_at(value: str) -> Optional[tuple[int, int]]:
     return None
 
 
+
+#: A Windows path is `C:\...` or `\\server\share`. On Windows these are the
+#: only paths there are; anywhere else they are meaningless - and, because a
+#: backslash is a perfectly legal filename character on Linux and macOS,
+#: `Path("D:\\Data").mkdir(parents=True)` cheerfully creates a *directory
+#: literally named* `D:\Data` in the working folder.
+#:
+#: That is exactly what happened: running the CLI from a Linux sandbox against a
+#: Windows `.env` littered the project root with folders called
+#: `D:\KnowledgeGraphData`, `D:\KnowledgeGraphData\cache` and so on. Nothing
+#: raised, nothing warned, and the index appeared to be configured correctly
+#: while writing somewhere else entirely.
+_WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _refuse_foreign_path(key: str, target: Path) -> None:
+    """Refuse a Windows path on a platform that has no idea what it means.
+
+    Better to fail at startup with a sentence than to silently create a folder
+    with a colon and backslashes in its name and index into it.
+    """
+    if sys.platform == "win32":
+        return
+    if not _WINDOWS_PATH.match(str(target)):
+        return
+    raise AppErrorException(make_error(
+        "ERR_CONFIG_INVALID", "core.config",
+        key=key,
+        reason=f"'{target}' is a Windows path and this is {sys.platform}",
+        suggestion=(
+            "Point this at a path for this platform, or run on Windows. "
+            "Creating it here would make a directory whose *name* contains a "
+            "drive letter and backslashes, which is not what anybody meant."
+        ),
+    ))
+
+
 def _validate_paths(settings: Settings, *, create_dirs: bool, check_writable: bool) -> None:
     """Prove every directory the app needs exists and can be written to."""
     targets: list[tuple[str, Path]] = [
@@ -370,6 +409,7 @@ def _validate_paths(settings: Settings, *, create_dirs: bool, check_writable: bo
     ]
 
     for key, target in targets:
+        _refuse_foreign_path(key, target)
         if not target.exists():
             if not create_dirs:
                 raise AppErrorException(make_error(

@@ -24,9 +24,12 @@ from types import TracebackType
 from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence, Type
 
 from app.core.errors import AppError, AppErrorException, make_error
+from app.core.logging import logger
 from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 
 __all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus"]
+
+_log = logger.bind(component="storage.sqlite")
 
 #: Entities sharing a first word beyond which containment merging is skipped.
 #: A bucket that large is a word that begins thousands of names, and grinding
@@ -624,6 +627,55 @@ class SqliteStore:
             "SELECT * FROM searches ORDER BY searched_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def clear_index(self) -> int:
+        """Delete everything indexed. Returns how many documents were removed.
+
+        **Never touches a document on disk.** The index is derived from the
+        corpus and is rebuilt by pointing the indexer at the same folders again;
+        the only cost of this is the time to do that.
+
+        **Settings survive.** `index_state` holds the folders to index, the
+        schedule, the theme and the resource ceilings alongside the indexing
+        cursors - so the cursors go and the choices stay. A reset that also
+        forgot which folders to index would be a reset nobody could recover
+        from without setting the application up again.
+
+        One transaction, so a crash half-way leaves either the old index or no
+        index, never a half-deleted one that reports success.
+        """
+        with self.write() as conn:
+            count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
+            # `files` cascades to chunks, messages and the FTS tables; the
+            # entity tables are deprecated and empty but are cleared anyway so
+            # a reset means what it says.
+            for table in ("entity_mentions", "entity_edges", "entities",
+                          "search_hits", "searches", "files"):
+                try:
+                    conn.execute(f"DELETE FROM {table}")
+                except sqlite3.OperationalError:
+                    # A table that does not exist in this schema version is not
+                    # an error: there is nothing in it to delete.
+                    continue
+            # Cursors point at chunk ids that no longer exist. Left behind, the
+            # next run would resume past the beginning of an empty index and
+            # quietly index nothing.
+            conn.execute(
+                "DELETE FROM index_state WHERE key LIKE 'graph:%' OR key LIKE 'index:%'"
+            )
+        self._vacuum_quietly()
+        return count
+
+    def _vacuum_quietly(self) -> None:
+        """Give the space back. A failure here is not worth reporting.
+
+        Without it the database file stays the size it was, and somebody who
+        just deleted a 4GB index to free space would find they had not.
+        """
+        try:
+            self.conn.execute("VACUUM")
+        except sqlite3.Error as exc:
+            _log.debug("vacuum after reset skipped: {}", exc)
 
     def count_searches(self) -> int:
         """How many searches are recorded. One row out, not all of them.

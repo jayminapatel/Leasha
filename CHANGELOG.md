@@ -1,12 +1,81 @@
 # Changelog
 
-**Doc version:** 3.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the Indexing page was blank, and said nothing about why
+
+`refresh_totals` ended in `except: return`. A store read that failed left an
+empty label with nothing to explain it — and a blank page is the worst possible
+answer to "is my index working", because it is indistinguishable from an empty
+index, a broken one, and a bug in the page itself.
+
+It is now a panel that **always produces rows, including for failure**:
+
+| | |
+|---|---|
+| Documents | 355 indexed |
+| Searchable passages | 3,355 |
+| **Meaning-based search covers** | **5%** — 154 of 3,355 have a vector |
+| Skipped | 12 — ERR_UNSUPPORTED_TYPE (12) |
+| Index location | `D:\KnowledgeGraphData` · 1.1 GB |
+| Last run | 2 hours ago |
+
+The coverage line is the one that matters: it is the number that was invisible
+for weeks while meaning-based search silently did a twentieth of its job. The
+location line answers "is the index where I configured it", which previously
+needed the command line.
+
+Read in a worker, because it opens the vector store and measures a folder.
+
+### Added — Reset index
+
+Deletes everything indexed and starts over. The confirmation says plainly what
+is *not* at risk: no document is touched, the index is derived from them, and
+the only real cost is the time to rebuild. Saved folders, schedule and theme all
+survive — a reset that forgot which folders to index would be one nobody could
+recover from without setting the application up again. Cursors are cleared,
+because they point at chunk ids that no longer exist, and the database is
+vacuumed so the space actually comes back.
+
+### Fixed — the Files tab could not do anything with a file
+
+No right-click, no Enter, and double-click *revealed* in Explorer rather than
+opening — everywhere else in Windows, double-clicking a file opens it. A list of
+files you cannot act on is a list of disappointments.
+
+One menu now serves both lists (`widgets/file_menu.py`): Open, Show in folder,
+**Search inside this file**, Copy path, Copy file name. Every action is checked
+before it is offered — a file that has moved is greyed out, and a "re-index this
+folder" action appears in its place, because that is the thing that would
+actually help.
+
+"Search inside this file" is the bridge that was missing: found it by name, now
+find what is in it.
+
+### Fixed — a menu item that did nothing at all
+
+The results menu offered "Add to document". Layer 7 was cancelled before it was
+built and the menu item outlived it, emitting a signal nothing was connected to.
+Clicking it did nothing, silently.
+
+### Fixed — a Windows path on a non-Windows platform created a nonsense folder
+
+A backslash is a legal filename character on Linux and macOS, so
+`Path("D:\Data").mkdir(parents=True)` cheerfully creates a directory *named*
+`D:\Data`. Running the CLI from a Linux sandbox against a Windows `.env`
+littered the project root with folders called `D:\KnowledgeGraphData` and
+`D:\KnowledgeGraphData\cache`. Nothing raised, nothing warned, and the index
+appeared correctly configured while writing somewhere else entirely.
+
+Configuration now refuses a Windows path on a platform that has no idea what it
+means, with a sentence rather than a silent mkdir.
+
 
 ### Fixed — plain-English search returned nothing at all
 

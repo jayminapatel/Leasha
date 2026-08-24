@@ -43,6 +43,11 @@ __all__ = [
     "to_row",
     "FileRow",
     "file_rows",
+    "StatRow",
+    "index_summary",
+    "read_index_summary",
+    "folder_size",
+    "when_text",
     "doctor_report",
     "doctor_lines",
     "search_shape",
@@ -606,3 +611,196 @@ def semantic_health(response: Any) -> Optional[str]:
 GRAPH_TABLE_LIMIT = 500
 
 
+
+
+# ---------------------------------------------------------------------------
+# What is in the index, as a panel
+#
+# The Indexing tab showed one line - documents and chunks - and showed nothing
+# at all when the store read failed, because the handler was `except: return`.
+# A blank page is the worst possible answer to "is my index working": it is
+# indistinguishable from an empty index, a broken one, and a bug.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class StatRow:
+    """One line of the index summary."""
+
+    label: str
+    value: str
+    #: A quiet explanation under the value, or "".
+    note: str = ""
+    #: True when this row is reporting a problem the person should act on.
+    warn: bool = False
+
+
+def index_summary(
+    stats: Optional[Mapping[str, Any]],
+    vectors: Optional[Mapping[str, Any]] = None,
+    *,
+    data_path: str = "",
+    disk_bytes: Optional[int] = None,
+    last_run: str = "",
+    next_run: str = "",
+    error: str = "",
+) -> list[StatRow]:
+    """Everything worth knowing about the index, in one list.
+
+    Takes plain mappings rather than a store, so it is tested without a
+    database and cannot itself do I/O on the UI thread.
+
+    **It always returns rows.** When the store could not be read it says so, in
+    the same shape as any other answer - because the alternative, which is what
+    it did before, is an empty panel that looks identical to having no index.
+    """
+    if error:
+        return [StatRow("Could not read the index", error, warn=True)]
+
+    if not stats:
+        return [StatRow(
+            "Nothing indexed yet",
+            "Add a folder in Settings, then press Start indexing.",
+        )]
+
+    documents = int(stats.get("files_total", 0) or 0)
+    chunks = int(stats.get("chunks_total", 0) or 0)
+    embedded = int(stats.get("chunks_embedded", 0) or 0)
+    rows_in_vectors = int((vectors or {}).get("rows", 0) or 0)
+
+    out = [
+        StatRow("Documents", f"{documents:,}", _by_status(stats.get("files"))),
+        StatRow("Searchable passages", f"{chunks:,}"),
+    ]
+
+    # **The coverage line.** Meaning-based search runs only on passages that
+    # have a vector, and a partly-embedded corpus is findable by exact words
+    # only - silently. This is the number that was invisible for weeks while
+    # 154 of 3,355 passages were embedded and search quietly did half its job.
+    if chunks:
+        covered = rows_in_vectors / chunks
+        out.append(StatRow(
+            "Meaning-based search covers",
+            f"{covered:.0%}",
+            note=(f"{rows_in_vectors:,} of {chunks:,} passages have a vector. "
+                  "The rest are findable by exact words only."
+                  if covered < 0.95 else
+                  f"{rows_in_vectors:,} vectors"),
+            warn=covered < 0.95,
+        ))
+        if embedded and rows_in_vectors > embedded * 1.05:
+            out.append(StatRow(
+                "Orphaned vectors",
+                f"{rows_in_vectors - embedded:,}",
+                note="More vectors than passages. Rebuild to clear them.",
+                warn=True,
+            ))
+
+    skipped = stats.get("skipped_by_code") or {}
+    if skipped:
+        worst = sorted(skipped.items(), key=lambda kv: -int(kv[1]))[:3]
+        out.append(StatRow(
+            "Skipped",
+            f"{sum(int(v) for v in skipped.values()):,}",
+            note=", ".join(f"{code} ({count})" for code, count in worst),
+        ))
+
+    if data_path:
+        # Answers "is the index where I told it to be" at a glance, which is
+        # otherwise a question requiring the CLI.
+        size = f"  ·  {format_size(disk_bytes)}" if disk_bytes else ""
+        out.append(StatRow("Index location", data_path, note=f"on disk{size}" if size else ""))
+
+    if last_run:
+        out.append(StatRow("Last run", last_run, note=next_run))
+    elif next_run:
+        out.append(StatRow("Next run", next_run))
+
+    return out
+
+
+def _by_status(files: Any) -> str:
+    """`{'INDEXED': 355}` as words. Failures are named; successes are counted."""
+    if not isinstance(files, Mapping) or not files:
+        return ""
+    parts = []
+    for status, count in sorted(files.items()):
+        label = str(status).lower()
+        parts.append(f"{int(count):,} {label}")
+    return ", ".join(parts)
+
+
+def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
+    """Gather everything `index_summary` needs. **Runs in a worker, never on the
+    UI thread** - it opens the vector store and walks a folder.
+
+    Returns a payload rather than rows so the failure is data too: a locked
+    database produces `{"error": ...}`, which `index_summary` renders as a row
+    like any other. The previous version of this returned early on any
+    exception, leaving the page blank with nothing to explain it.
+    """
+    payload: dict[str, Any] = {"error": ""}
+    try:
+        payload["stats"] = store.stats()
+        payload["last_run"] = store.get_state("index:last_run") or ""
+    except Exception as exc:                     # noqa: BLE001 - reported, not swallowed
+        payload["error"] = f"{type(exc).__name__}: {exc}"
+        return payload
+
+    if settings is None:
+        return payload
+
+    payload["data_path"] = str(getattr(settings, "data_path", ""))
+    payload["disk_bytes"] = folder_size(getattr(settings, "data_path", None))
+    try:
+        from app.storage.vector_store import VectorStore
+
+        with VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+            payload["vectors"] = vectors.stats() if vectors.exists else {}
+    except Exception:                            # noqa: BLE001 - one missing number
+        payload["vectors"] = {}
+    return payload
+
+
+def folder_size(path: Any) -> Optional[int]:
+    """Bytes under a folder, or None. Never raises and never takes long.
+
+    Capped at a few thousand files: the index is a handful of large files plus a
+    model cache, so a full walk is unnecessary, and a diagnostic that stalls on
+    a network drive is worse than one that says nothing.
+    """
+    if not path:
+        return None
+    from pathlib import Path as _Path
+
+    total = 0
+    seen = 0
+    try:
+        for item in _Path(path).rglob("*"):
+            if seen > 5000:
+                break
+            try:
+                if item.is_file():
+                    total += item.stat().st_size
+                    seen += 1
+            except OSError:
+                continue
+    except OSError:
+        return None
+    return total or None
+
+
+def when_text(iso: str) -> str:
+    """An ISO timestamp as "2 hours ago", or "" if it is not one.
+
+    A corrupt or absent timestamp must not stop the panel drawing - it is one
+    line out of eight, and losing the other seven to it would be a poor trade.
+    """
+    if not iso:
+        return ""
+    from datetime import datetime
+
+    try:
+        moment = datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return ""
+    return format_when(int(moment.timestamp() * 1e9))

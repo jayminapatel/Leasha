@@ -37,10 +37,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.core.logging import logger
 from app.ui.presenter import file_rows
+from app.ui.widgets.file_menu import FileActions, show_for
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS"]
+
+_log = logger.bind(component="ui.files")
 
 #: Much shorter than the search box's debounce. There is no model to load and
 #: no vectors to probe - one FTS5 lookup over a table of filenames - so the only
@@ -52,6 +56,11 @@ class FilesView(QWidget):
     """A filename browser: type, get files, double-click to open."""
 
     error = pyqtSignal(object)
+
+    #: A path to search the *contents* of. The bridge between the two lists:
+    #: found it by name, now find what is in it. Without it the filename
+    #: browser is a dead end - you can see the file and do nothing with it.
+    search_inside_requested = pyqtSignal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -77,7 +86,13 @@ class FilesView(QWidget):
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        self.results.itemDoubleClicked.connect(self._open_selected)
+        # Double-click opens the file; right-click offers everything else; Enter
+        # does what double-click does, because a keyboard user should never have
+        # to reach for the mouse to act on a result they have already selected.
+        self.results.itemDoubleClicked.connect(lambda _item: self._open_selected())
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.results.customContextMenuRequested.connect(self._on_context_menu)
+        self.results.installEventFilter(self)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -166,22 +181,71 @@ class FilesView(QWidget):
 
     # -- opening -------------------------------------------------------------
 
-    def _open_selected(self) -> None:
+    def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
+        """Enter opens the selected row.
+
+        A table that can only be acted on with a mouse fails the keyboard-only
+        requirement, and this one could not even be opened without one.
+        """
+        from PyQt6.QtCore import QEvent
+
+        if watched is self.results and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._open_selected()
+                return True
+        return super().eventFilter(watched, event)
+
+    def selected_path(self) -> Optional[str]:
+        """The path of the highlighted row, or None. Never raises."""
         items = self.results.selectedItems()
         if not items:
-            return
+            return None
         cell = self.results.item(items[0].row(), 0)
         if cell is None:
-            return
-        file_id = cell.data(Qt.ItemDataRole.UserRole)
+            return None
         try:
-            record = self._store.get_file_by_id(int(file_id))
-        except Exception:                          # noqa: BLE001
-            record = None
-        if record is None:
+            record = self._store.get_file_by_id(int(cell.data(Qt.ItemDataRole.UserRole)))
+        except Exception as exc:                   # noqa: BLE001
+            _log.debug("could not read the selected file: {}", exc)
+            return None
+        return record.path if record is not None else None
+
+    def _open_selected(self) -> None:
+        """Open the file itself.
+
+        This used to *reveal* it in Explorer instead, on the reasoning that a
+        filename search is usually the first half of doing something in the
+        folder. That is sometimes true and always surprising: everywhere else,
+        double-clicking a file opens it. Both are available from the right-click
+        menu, and the unsurprising one is now the default.
+        """
+        path = self.selected_path()
+        if path is None:
             return
-        # Reveal in Explorer rather than launching: a filename search is usually
-        # the first half of "and then do something with it in the folder".
-        found = open_in_explorer(record.path, select=True)
-        if found is not None:
-            self.error.emit(found)
+        error = open_in_explorer(path, select=False)
+        if error is not None:
+            self.error.emit(error)
+
+    def _reveal_selected(self) -> None:
+        path = self.selected_path()
+        if path is None:
+            return
+        error = open_in_explorer(path, select=True)
+        if error is not None:
+            self.error.emit(error)
+
+    def _on_context_menu(self, point: Any) -> None:
+        """The same menu the search results use - see widgets/file_menu.py."""
+        row = self.results.rowAt(point.y())
+        if row < 0:
+            return
+        self.results.selectRow(row)
+        path = self.selected_path()
+        if path is None:
+            return
+
+        show_for(self.results, point, path, FileActions(
+            open_file=self._open_selected,
+            reveal=self._reveal_selected,
+            search_inside=lambda: self.search_inside_requested.emit(path),
+        ))
