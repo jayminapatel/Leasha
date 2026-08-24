@@ -1,12 +1,53 @@
 # Changelog
 
-**Doc version:** 3.11 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.12 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — OCR for images and scanned PDFs, on by default and honest about it
+
+Step 5 of the file-types work order, and the owner's explicit override of "OCR
+is out of scope for V2", taken knowing it can dominate an index run.
+
+**That is a decision somebody is entitled to make about their own machine — but
+it is only a real decision if the cost is visible**, so it was measured rather
+than estimated:
+
+| | |
+|---|---|
+| A full page of text | **3.6 seconds** |
+| Roughly | **8× the cost of embedding one passage** |
+| 1,000 scanned pages | 1 hour |
+| 10,000 | 10 hours |
+| 100,000 | 100 hours |
+
+Every document records `ocr_seconds` and `ocr_confidence`, so slow indexing is
+attributable rather than mysterious — "indexing got slow" with no attribution is
+a complaint nobody can act on. To switch it off, set `enabled = false` on the
+image lines in your own `<DATA_PATH>\extractors.toml`.
+
+**RapidOCR rather than Tesseract**: the models ship inside the wheel, so there
+is no separate binary and no `TESSDATA_PREFIX` for an installer to get wrong on
+a machine nobody can log into. Tesseract stays reachable as a Tier 2 converter
+for anybody who prefers it.
+
+Two things it declines to spend time on. Images below 64×64 are icons, bullets
+and spacers — a document-heavy corpus holds thousands, each costing a model call
+to yield nothing. And a page that already has a text layer is never OCR'd:
+running it over a searchable PDF costs seconds to produce a worse copy of text
+already extracted.
+
+The engine is a seam, so every path — missing package, engine failure, low
+confidence, an unexpected return shape — is tested with a fake on a machine
+where OCR is not installed. One of those tests caught a real crash: RapidOCR's
+return shape has changed between versions, and a future one returning a bare
+number would have passed the truthiness check and then failed on iteration,
+taking an index worker with it.
+
 
 ### Added — Tier 2 converters: a dozen dead formats, one implementation
 

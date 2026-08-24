@@ -41,17 +41,11 @@ enabled = true
 
 [extensions]
 
-# NOTE ON `enabled = false` BELOW
-#
-# `odf` and `cloudstub` have landed and their routes are on. `ocr` is still
-# being built and is not in this release yet. Their routes ship here, switched off, so the file documents
-# where those formats will go and so each one can be turned on by the release
-# that delivers it - a single line, no new configuration to invent.
-#
-# A disabled route is not validated against the extractor registry, for exactly
-# this reason: if it were, adding a format would mean changing config and code in
-# the same commit or the application would refuse to start. The check runs the
-# moment the line is enabled, which is when the answer starts to matter.
+# Every extractor named below now exists, and every route here is on. A route
+# may still be switched off deliberately - `enabled = false` - and a disabled
+# one is not validated against the registry, so a format can be routed here
+# before the code that reads it ships. The check runs the moment the line is
+# enabled, which is when the answer starts to matter.
 
 # --- OpenDocument, read natively (zipfile + ElementTree, no dependency) ------
 ".odt" = { extractor = "odf" }
@@ -74,22 +68,27 @@ enabled = true
 ".gsite"   = { extractor = "cloudstub" }
 
 # --- Images, read by OCR ----------------------------------------------------
-# TO BE ON BY DEFAULT, by the project owner's explicit choice, made knowing that
-# on a corpus with many images this can dominate an entire index run. The
-# indexing view will report OCR'd counts and time separately so the cost is
-# visible rather than mysterious. 25MB cap: a larger image is a scan nobody will
-# read anyway, and OCR cost scales with pixels.
+# ON BY DEFAULT, by the project owner's explicit choice, made knowing that on a
+# corpus with many images this can dominate an entire index run.
 #
-# `enabled = false` here says only "the extractor does not exist yet". These
-# flip to true in the release that ships app/extract/ocr.py.
-".png"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".jpg"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".jpeg" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".tif"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".tiff" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".bmp"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".webp" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
-".gif"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+# **Measured**: about 3.6 seconds for a full page of text, which is roughly eight
+# times what embedding one passage costs. Ten thousand scanned pages is ten
+# hours. Each document records `ocr_seconds`, so the cost is attributable rather
+# than mysterious.
+#
+# 25MB cap: OCR cost scales with pixels, so a larger image is minutes of work for
+# a scan nobody will read.
+#
+# To switch it off, set `enabled = false` on these lines in your own
+# `<DATA_PATH>\extractors.toml` - the packaged file is replaced on upgrade.
+".png"  = { extractor = "ocr", max_bytes = 26214400 }
+".jpg"  = { extractor = "ocr", max_bytes = 26214400 }
+".jpeg" = { extractor = "ocr", max_bytes = 26214400 }
+".tif"  = { extractor = "ocr", max_bytes = 26214400 }
+".tiff" = { extractor = "ocr", max_bytes = 26214400 }
+".bmp"  = { extractor = "ocr", max_bytes = 26214400 }
+".webp" = { extractor = "ocr", max_bytes = 26214400 }
+".gif"  = { extractor = "ocr", max_bytes = 26214400 }
 
 # --- Text-ish files that are plain text by any other name -------------------
 ".conf"       = { extractor = "plaintext" }

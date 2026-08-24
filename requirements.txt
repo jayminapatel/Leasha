@@ -93,3 +93,13 @@ python-dotenv==1.2.3
 loguru==0.7.3
 tqdm==4.70.0
 requests==2.34.2      # only used for optional Ollama calls
+
+# OCR for images and scanned PDFs. On by default, by the project owner's
+# explicit decision, taken knowing it can dominate an index run on a corpus with
+# many images - about 3.6 seconds per full page, measured.
+#
+# RapidOCR rather than Tesseract: the models ship inside the wheel, so there is
+# no separate binary to install and no TESSDATA_PREFIX for an installer to get
+# wrong on a machine nobody can log into.
+rapidocr-onnxruntime==1.4.4
+pillow==12.3.0

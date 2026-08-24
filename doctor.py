@@ -351,6 +351,30 @@ def check_resources() -> Check:
     )
 
 
+def check_ocr() -> Check:
+    """Is OCR usable, and does it know what it costs?
+
+    Optional in the sense that the application runs without it - but it is on by
+    default, so a machine missing the package silently indexes no images at all.
+    Better to say so here than to leave somebody wondering why a folder of scans
+    produced nothing.
+    """
+    from app.extract.ocr import available
+
+    if available():
+        return Check(
+            "OCR (rapidocr-onnxruntime)", True,
+            detail="images and scanned PDFs will be read (~3.6s per page)",
+            optional=True,
+        )
+    return Check(
+        "OCR (rapidocr-onnxruntime)", False,
+        detail="not installed - images and scanned PDFs will not be indexed",
+        optional=True,
+        fix=rf'"{sys.executable}" -m pip install rapidocr-onnxruntime pillow',
+    )
+
+
 def check_converters() -> Check:
     """Which Tier 2 converter binaries are installed.
 
@@ -562,6 +586,7 @@ def run_all(quick: bool = False) -> list[Check]:
     checks += check_packages()
     checks.append(check_pywin32())
     checks.append(check_converters())
+    checks.append(check_ocr())
     checks += [
         check_fts5(),
         check_sqlite_wal(),
