@@ -1,12 +1,46 @@
 # Changelog
 
-**Doc version:** 3.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — OpenDocument (.odt, .ods, .odp), with no new dependency
+
+Step 2 of the file-types work order. An ODF file is a ZIP holding
+`content.xml`, and both halves are in the standard library.
+
+**`odfpy` was the obvious choice and is the wrong one.** It publishes no wheel,
+so pip builds it from source, which needs a compiler present on every machine
+that installs this. A dependency that can fail at install time, on Windows, for
+a format most corpora hold a handful of, is a poor trade against a hundred lines.
+
+Two bugs found by running it against documents rather than reasoning about it:
+
+- **Inline formatting scrambled sentences.** ODF marks emphasis with nested
+  elements, so `<p>Findings from the <span>annual</span> inspection.</p>` holds
+  three fragments — the paragraph's text, the span's, and the span's *tail*.
+  Ending the paragraph at the first fragment produced "Findings from the /
+  inspection. annual". Fixed by walking with enter and exit events rather than
+  text alone.
+- **Spreadsheets lost their rows.** A `<text:p>` inside a cell closed before the
+  cell did, so every cell landed on its own line and "Licence" ended up two
+  lines from "12400". That adjacency is the entire reason a spreadsheet is worth
+  indexing: a number beside a label is a fact; a number alone is noise.
+
+Namespaces are matched on local name, not URI — ODF's has changed between
+versions, and another office suite writing its own would otherwise yield
+nothing at all, silently. Comments and tracked changes are left out: an aside is
+not the document, and indexing it puts words in a file its author never wrote
+there.
+
+`ERR_FILE_TOO_LARGE` joins the registry, checked from the archive header — the
+point of a size limit is not to allocate the gigabyte in order to discover it is
+a gigabyte.
+
 
 ### Fixed — the Indexing page was blank, and said nothing about why
 

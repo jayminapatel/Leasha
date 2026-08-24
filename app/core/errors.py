@@ -248,6 +248,15 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.SKIP_CONTINUE,
     ),
     # --- Layer 2 additions --------------------------------------------------
+    "ERR_FILE_TOO_LARGE": _Spec(
+        message="'{path}' is larger than the limit for its type.",
+        suggestion=(
+            "Size limits are per format in config\\extractors.toml, and exist because the "
+            "cost of reading one is per byte. Raise the limit for this type if the file is "
+            "genuinely worth indexing, or leave it: it is counted and can be found again."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     "ERR_NO_TEXT_LAYER": _Spec(
         message="'{path}' contains no text that can be extracted.",
         suggestion=(

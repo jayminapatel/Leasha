@@ -43,8 +43,8 @@ enabled = true
 
 # NOTE ON `enabled = false` BELOW
 #
-# The `odf`, `cloudstub` and `ocr` extractors are being built now and are not in
-# this release yet. Their routes ship here, switched off, so the file documents
+# `odf` has landed and its routes are on. The `cloudstub` and `ocr` extractors
+# are still being built and are not in this release yet. Their routes ship here, switched off, so the file documents
 # where those formats will go and so each one can be turned on by the release
 # that delivers it - a single line, no new configuration to invent.
 #
@@ -54,12 +54,12 @@ enabled = true
 # moment the line is enabled, which is when the answer starts to matter.
 
 # --- OpenDocument, read natively (zipfile + ElementTree, no dependency) ------
-".odt" = { extractor = "odf", enabled = false }
-".ods" = { extractor = "odf", enabled = false }
-".odp" = { extractor = "odf", enabled = false }
-".ott" = { extractor = "odf", enabled = false }
-".ots" = { extractor = "odf", enabled = false }
-".otp" = { extractor = "odf", enabled = false }
+".odt" = { extractor = "odf" }
+".ods" = { extractor = "odf" }
+".odp" = { extractor = "odf" }
+".ott" = { extractor = "odf" }
+".ots" = { extractor = "odf" }
+".otp" = { extractor = "odf" }
 
 # --- Google Workspace pointers ----------------------------------------------
 # These hold no document content - only a URL and an id. Indexed so the pointer
