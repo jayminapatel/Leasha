@@ -317,9 +317,20 @@ def test_uppercase_not_excludes_like_a_minus_sign():
     assert "draft" not in parsed.terms
 
 
-def test_explicit_and_changes_nothing_because_it_is_the_default():
+def test_explicit_and_is_honoured_because_it_is_no_longer_the_default():
+    """It *was* the default, and this test asserted AND changed nothing.
+
+    Measuring twenty sentences against a known corpus showed that ANDing every
+    word left six of them returning nothing at all, so terms are now joined with
+    OR and BM25 ranks by how much matched. That makes an explicit AND a real
+    instruction rather than a decoration - and it has to work, because it is the
+    answer offered to anybody who finds the default too loose.
+    """
     assert parse_query("pump AND valve").or_groups == (("pump", "valve"),)
-    assert parse_query("pump AND valve").fts_match() == parse_query("pump valve").fts_match()
+    assert parse_query("pump AND valve").fts_match() == '"pump" AND "valve"'
+    assert parse_query("pump valve").fts_match() == '"pump" OR "valve"'
+    assert parse_query("pump AND valve").explicit_and is True
+    assert parse_query("pump valve").explicit_and is False
 
 
 def test_a_phrase_applies_to_every_alternative():
@@ -329,10 +340,16 @@ def test_a_phrase_applies_to_every_alternative():
     assert expression.count('"site" + "survey"') == 2
 
 
-def test_a_query_without_or_produces_exactly_what_it_always_did():
-    """The compatibility guarantee. Grouping was added underneath every existing
-    query, so the one-group case must be byte-identical."""
-    assert parse_query("pump valve leeds").fts_match() == '"pump" AND "valve" AND "leeds"'
+def test_terms_are_joined_with_or_so_a_description_need_not_match_every_word():
+    """This asserted AND, as a compatibility guarantee, until the guarantee was
+    measured and found to be the bug.
+
+    "drawings of the pump station" required a document to contain "of" and
+    "the", and nineteen of twenty plain sentences returned zero results.
+    Precision is recovered by BM25 ranking and by the strict forms - quoted
+    phrases and an explicit AND - which still mean exactly what they say.
+    """
+    assert parse_query("pump valve leeds").fts_match() == '"pump" OR "valve" OR "leeds"'
 
 
 def test_or_still_composes_with_exclusions():

@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, Sequence
 
 __all__ = [
     "ParsedQuery",
@@ -143,6 +143,10 @@ class ParsedQuery:
     #: `(a AND b) OR c`. A query with no `OR` has exactly one group, which
     #: produces the same expression as before this existed.
     or_groups: tuple[tuple[str, ...], ...] = ()
+    #: True when the person typed `AND` themselves. Terms are otherwise joined
+    #: with OR so a description need not match every word; an explicit AND is a
+    #: direct instruction and overrides that.
+    explicit_and: bool = False
     #: True for `has:attachment`, False for `has:no-attachment`, None when the
     #: person did not say. Three states, because "did not ask" and "asked for
     #: none" are different searches and a bool cannot tell them apart.
@@ -273,6 +277,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     groups: list[list[str]] = []
     current_group: list[str] = []
     pending_not = False
+    explicit_and = False
     sizes: list[tuple[str, int]] = []
     has_attachment: Optional[bool] = None
     unknown: list[str] = []
@@ -358,6 +363,14 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         # cannot break a query somebody was already typing. Lowercase `or` stays
         # a search term.
         if chunk in ("OR", "AND", "NOT"):
+            if chunk == "AND":
+                # **Honoured, not merely tolerated.** Terms are otherwise
+                # joined with OR so a description does not have to match every
+                # word - but somebody who types AND has asked for the strict
+                # reading in as many words, and overriding that would make the
+                # operator a decoration. It is also the answer offered to
+                # anybody who finds the default too loose, so it has to work.
+                explicit_and = True
             if chunk == "OR":
                 # Start a new alternative. AND is the default between terms, so
                 # an explicit AND only has to not break anything.
@@ -408,6 +421,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         names=tuple(names),
         sizes=tuple(sizes),
         or_groups=tuple(tuple(g) for g in groups if g),
+        explicit_and=explicit_and,
         has_attachment=has_attachment,
         unknown_operators=tuple(unknown),
     )
@@ -425,6 +439,87 @@ def _fts_quote(value: str) -> str:
     if not body:
         return ""
     return f'"{body}"' + ("*" if prefix else "")
+
+
+#: Words dropped from the FTS expression, and **only** from the FTS expression.
+#:
+#: Every term is joined with AND, so a query is satisfied only by a document
+#: containing all of them. That is right for keywords and catastrophic for a
+#: sentence: "drawings of the pump station" became
+#:
+#:     "drawings" AND "of" AND "the" AND "pump" AND "station"
+#:
+#: and the document - "Pump station general arrangement drawings." - contains no
+#: "of" and no "the", so it matched nothing. Measured against twenty plain
+#: sentences, nineteen returned **zero results**: not badly ranked, not ranked at
+#: all. The application's stated purpose is to let somebody "write in normal text
+#: what I am looking for", and the keyword half was mathematically incapable of
+#: it, because normal text is mostly these words.
+#:
+#: They stay in `terms` for highlighting and in `embed_text` for the vector side,
+#: where they carry real meaning: "report from Dave" and "report for Dave" embed
+#: differently, and should.
+_STOPWORDS = frozenset("""
+a about all am an and any are as at
+be been being but by
+can could
+did do does doing done
+for from
+had has have having he her his how
+i if in into is it its
+me my
+of on or our out over
+said say says she should so some
+than that the their them then there these they this those to
+under up us
+was we were what when where which who whom why will with would
+you your
+""".split())
+
+
+#: Above this many content words, terms are joined with OR rather than AND.
+#:
+#: **Because a sentence is not a keyword list.** Even after stopwords go, "the
+#: email from Chris about buying a licence" leaves `email AND Chris AND buying
+#: AND licence`, and the message does not contain the word "email" - so it
+#: matched nothing. People describe what they want using words that are *about*
+#: the document rather than *in* it: "email", "version", "deck", "actually".
+#:
+#: With OR, BM25 ranks a document matching four terms above one matching two, so
+#: the best answer still comes first - and the terms that were not in any
+#: document simply contribute nothing instead of excluding everything.
+#:
+#: **One, chosen by measurement rather than by taste.** Against twenty sentences
+#: and a corpus with known answers:
+#:
+#:     limit   empty results   recall@1   recall@3   translated@1
+#:         1               0        70%        95%            90%
+#:         2               2        65%        85%            85%
+#:         3               6        50%        65%            75%
+#:         4              11        35%        45%            75%
+#:
+#: Three was the first guess and left six of twenty sentences returning nothing
+#: at all. Anything above one word is a description, and demanding every word of
+#: a description is how a search box earns a reputation for finding nothing.
+#:
+#: Precision is not lost, because this is the retrieval stage. BM25 ranks a
+#: document matching four terms above one matching two, fusion with the vector
+#: side reorders, and the cross-encoder reranks after that. Somebody who wants a
+#: strict match has `"quoted phrases"` and an explicit `AND`, both of which
+#: still mean exactly what they say.
+AND_TERM_LIMIT = 1
+
+
+def _content_terms(terms: Sequence[str]) -> list[str]:
+    """`terms` without stopwords - unless that would leave nothing.
+
+    A search for "the" alone, or "how to", must still search for what was typed.
+    Dropping every word and returning an empty expression would turn a query
+    that finds little into one that finds nothing, which is a worse answer to a
+    worse question.
+    """
+    kept = [term for term in terms if term.lower().rstrip("*") not in _STOPWORDS]
+    return kept or list(terms)
 
 
 def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
@@ -461,13 +556,29 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
 
     alternatives: list[str] = []
     for group in groups:
-        clauses = list(phrase_clauses)
-        for term in group:
+        content = _content_terms(group)
+        quoted_terms: list[str] = []
+        for term in content:
             if prefix_last and term == last_term and not term.endswith("*"):
                 term = term + "*"
             quoted = _fts_quote(term)
             if quoted:
-                clauses.append(quoted)
+                quoted_terms.append(quoted)
+
+        # A description gets OR so BM25 can rank by how much matched; a short
+        # keyword query keeps AND, because that is what somebody means by it.
+        joiner = (
+            " AND " if parsed.explicit_and or len(quoted_terms) <= AND_TERM_LIMIT
+            else " OR "
+        )
+        body = joiner.join(quoted_terms)
+
+        # A phrase is always required. Quoting something is the most explicit
+        # statement of intent the box offers, and loosening it to OR would make
+        # "critical control point" behave like three loose words.
+        clauses = list(phrase_clauses)
+        if body:
+            clauses.append(f"({body})" if joiner == " OR " and len(clauses) else body)
         if clauses:
             alternatives.append(" AND ".join(clauses))
 

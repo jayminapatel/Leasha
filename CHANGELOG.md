@@ -1,12 +1,82 @@
 # Changelog
 
-**Doc version:** 3.6 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — plain-English search returned nothing at all
+
+Twenty sentences of the kind somebody actually types, against a corpus with
+known answers. **Nineteen returned zero results.** Not badly ranked - not ranked
+at all. The application's stated purpose is to let somebody "write in normal
+text what I am looking for", and the keyword half was mathematically incapable
+of it.
+
+Two causes, both found by running the measurement rather than by any unit test:
+
+- **Every term was ANDed, stopwords included.** "drawings of the pump station"
+  became `drawings AND of AND the AND pump AND station`, and the document -
+  "Pump station general arrangement drawings" - contains neither "of" nor "the".
+  Stopwords are now dropped from the FTS expression only; they stay in the terms
+  used for highlighting and in the text sent to the embedder, where "from Dave"
+  and "for Dave" genuinely differ.
+- **ANDing the remaining content words was still too strict.** People describe
+  documents with words that are *about* them rather than *in* them - "email",
+  "version", "deck". One such word excluded everything. Terms are now joined
+  with OR and BM25 ranks by how much matched.
+
+The OR threshold was chosen by measurement, not taste:
+
+| terms before OR | empty results | recall@1 | recall@3 |
+|---|---|---|---|
+| 1 | **0** | **70%** | **95%** |
+| 2 | 2 | 65% | 85% |
+| 3 | 6 | 50% | 65% |
+| 4 | 11 | 35% | 45% |
+
+Three was the first guess. Precision is not lost: this is the retrieval stage,
+BM25 ranks by how much matched, and fusion and reranking follow. Anybody wanting
+a strict match has `"quoted phrases"` and an explicit `AND` - the latter now
+honoured rather than overridden, which a test caught.
+
+### Added — a measurement of whether search actually works
+
+`app/search/evaluate.py` and a twenty-sentence corpus with known answers. It
+reports recall **split by whether the sentence carried a constraint**, because
+one number cannot distinguish "search is bad" from "search is fine at topics
+and blind to constraints" - and those have completely different fixes.
+
+The split is the finding, and it is the one the work order predicted:
+
+| | plain sentence | with translation |
+|---|---|---|
+| overall @1 | 50% | **75%** |
+| constrained @1 | 50% | **92%** |
+| sender | 50% | 100% |
+| type | 67% | 100% |
+| recipient | 0% | 100% |
+| attachment | 0% | 100% |
+
+**This is what justifies Layer 8a.** A plain sentence cannot honour "from
+Chris": the words go into the text search and the sender field is never
+consulted. Translated to `from:chris`, it is a filter.
+
+Two of the twenty questions were wrong when first written - one pointed at a
+message the named person *sent* rather than received, another described a
+five-month-old document as "over a year ago". Both scored zero for reasons that
+had nothing to do with search. A test now asserts every question's answer
+exists in the corpus.
+
+**What it cannot tell you**, stated because a benchmark believed beyond its
+evidence is worse than none: how well search works on the owner's real archive.
+Twenty-one documents is a small, clean corpus with no near-duplicates and no
+twelve years of drift. Every number here is optimistic, and the twenty real
+sentences remain the measurement that matters.
+
 
 ### Added — the search box is now worth typing into
 
