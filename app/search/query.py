@@ -49,6 +49,8 @@ _FIELD_ALIASES = {
     "to": "recipient", "recipient": "recipient", "cc": "recipient",
     "subject": "subject", "title": "subject", "re": "subject",
     "has": "has",
+    "name": "name", "filename": "name", "file": "name",
+    "size": "size", "bigger": "size", "smaller": "size",
 }
 
 # field:value, where value is either "a quoted string" or a bare run of non-space.
@@ -130,6 +132,17 @@ class ParsedQuery:
     #: person actually asked for it.
     recipients: tuple[str, ...] = ()
     subjects: tuple[str, ...] = ()
+    #: Filename filters - the *basename*, not the whole path. `path:` already
+    #: answers "which folder"; this answers "what is it called", and they are
+    #: different questions that people ask for different reasons.
+    names: tuple[str, ...] = ()
+    #: `(comparison, bytes)` pairs, e.g. `(">=", 1048576)`.
+    sizes: tuple[tuple[str, int], ...] = ()
+    #: Terms grouped by `OR`. Within a group terms are ANDed, between groups
+    #: ORed - the precedence everybody expects, where `a b OR c` means
+    #: `(a AND b) OR c`. A query with no `OR` has exactly one group, which
+    #: produces the same expression as before this existed.
+    or_groups: tuple[tuple[str, ...], ...] = ()
     #: True for `has:attachment`, False for `has:no-attachment`, None when the
     #: person did not say. Three states, because "did not ask" and "asked for
     #: none" are different searches and a bool cannot tell them apart.
@@ -146,6 +159,7 @@ class ParsedQuery:
         return bool(
             self.ext or self.after or self.before or self.paths
             or self.senders or self.recipients or self.subjects
+            or self.names or self.sizes
             or self.has_attachment is not None or self.scope != "all"
         )
 
@@ -177,6 +191,31 @@ class ParsedQuery:
     def fts_match(self, *, prefix_last: bool = False) -> str:
         """FTS5 MATCH expression. Guaranteed parseable or empty."""
         return to_fts_match(self, prefix_last=prefix_last)
+
+
+_SIZE_UNITS = {"b": 1, "k": 1024, "kb": 1024, "m": 1024**2, "mb": 1024**2,
+               "g": 1024**3, "gb": 1024**3}
+_SIZE = re.compile(r"^(?P<op>[<>]=?|=)?\s*(?P<n>\d+(?:\.\d+)?)\s*(?P<unit>[kmgb]b?)?$", re.I)
+
+
+def _parse_size(value: str) -> Optional[tuple[str, int]]:
+    """`>1mb` -> `(">", 1048576)`. None when it is not a size at all.
+
+    Returned rather than raised so the caller can report `size:banana` as an
+    unknown operator instead of guessing at it - a size filter that silently
+    does nothing gives a wider result set than was asked for, with no sign.
+
+    A bare number with no comparison means "at least this", because that is
+    what somebody typing `size:1mb` is looking for: the big ones.
+    """
+    match = _SIZE.match(value.strip())
+    if match is None:
+        return None
+    unit = (match.group("unit") or "b").lower()
+    if unit not in _SIZE_UNITS:
+        return None
+    count = int(float(match.group("n")) * _SIZE_UNITS[unit])
+    return (match.group("op") or ">=", count)
 
 
 def _norm_ext(value: str) -> tuple[str, ...]:
@@ -228,6 +267,13 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     senders: list[str] = []
     recipients: list[str] = []
     subjects: list[str] = []
+    names: list[str] = []
+    # Terms grouped by OR. One group is the ordinary case and produces exactly
+    # the AND-joined expression this has always built.
+    groups: list[list[str]] = []
+    current_group: list[str] = []
+    pending_not = False
+    sizes: list[tuple[str, int]] = []
     has_attachment: Optional[bool] = None
     unknown: list[str] = []
     after: Optional[date] = None
@@ -251,6 +297,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         elif fld == "subject":
             if val:
                 subjects.append(val.lower())
+        elif fld == "name":
+            if val:
+                names.append(val.lower())
+        elif fld == "size":
+            parsed_size = _parse_size(val)
+            if parsed_size is not None:
+                sizes.append(parsed_size)
+            else:
+                unknown.append(match.group(0))
         elif fld == "has":
             # `has:attachment` and `has:no-attachment`. Anything else is a typo
             # and is reported rather than guessed at - silently ignoring it
@@ -295,7 +350,25 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     seen: set[str] = set()
     seen_excluded: set[str] = set()
     for chunk in working.split():
-        negative = chunk.startswith("-") and len(chunk) > 1
+        # **Boolean operators, uppercase only.**
+        #
+        # `pump OR valve` is a choice; "salt and pepper" and "one or two" are
+        # ordinary English that people search for constantly. Requiring capitals
+        # is how every search engine tells them apart, and it means the feature
+        # cannot break a query somebody was already typing. Lowercase `or` stays
+        # a search term.
+        if chunk in ("OR", "AND", "NOT"):
+            if chunk == "OR":
+                # Start a new alternative. AND is the default between terms, so
+                # an explicit AND only has to not break anything.
+                if current_group:
+                    groups.append(current_group)
+                    current_group = []
+            pending_not = chunk == "NOT"
+            continue
+
+        negative = (chunk.startswith("-") and len(chunk) > 1) or pending_not
+        pending_not = False
         for token in _TERM.findall(chunk):
             token = token.rstrip("*") if token.count("*") > 1 else token
             key = token.lower()
@@ -308,6 +381,10 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             elif key not in seen and len(terms) < MAX_TERMS:
                 seen.add(key)
                 terms.append(token)
+                current_group.append(token)
+
+    if current_group:
+        groups.append(current_group)
 
     # after:2025 before:2024 is a typo, not an intent. Swap rather than return nothing.
     if after and before and after > before:
@@ -328,6 +405,9 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         senders=tuple(senders),
         recipients=tuple(recipients),
         subjects=tuple(subjects),
+        names=tuple(names),
+        sizes=tuple(sizes),
+        or_groups=tuple(tuple(g) for g in groups if g),
         has_attachment=has_attachment,
         unknown_operators=tuple(unknown),
     )
@@ -363,23 +443,43 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
     a prefix would make "cat" match "catastrophe" in a committed search, which is
     not what anyone means when they press Enter.
     """
-    clauses: list[str] = []
+    phrase_clauses: list[str] = []
     for phrase in parsed.phrases:
         tokens = [t for t in (_fts_quote(t) for t in _TERM.findall(phrase)) if t]
         if tokens:
-            clauses.append(f"({' + '.join(tokens)})")     # + is FTS5 phrase adjacency
-    for index, term in enumerate(parsed.terms):
-        is_last = index == len(parsed.terms) - 1
-        if prefix_last and is_last and not term.endswith("*"):
-            term = term + "*"
-        quoted = _fts_quote(term)
-        if quoted:
-            clauses.append(quoted)
+            phrase_clauses.append(f"({' + '.join(tokens)})")   # + is FTS5 adjacency
 
-    if not clauses:
+    # Terms come grouped by OR. One group is the ordinary case and produces the
+    # same AND-joined expression this has always produced; several groups become
+    # `(a AND b) OR (c)`, which is the precedence everybody expects.
+    #
+    # Phrases apply to the whole query rather than to one alternative: somebody
+    # writing `"site survey" pump OR valve` means the phrase in both cases.
+    # Distributing them is the reading that matches how people write it.
+    groups = parsed.or_groups or ((tuple(parsed.terms),) if parsed.terms else ())
+    last_term = parsed.terms[-1] if parsed.terms else None
+
+    alternatives: list[str] = []
+    for group in groups:
+        clauses = list(phrase_clauses)
+        for term in group:
+            if prefix_last and term == last_term and not term.endswith("*"):
+                term = term + "*"
+            quoted = _fts_quote(term)
+            if quoted:
+                clauses.append(quoted)
+        if clauses:
+            alternatives.append(" AND ".join(clauses))
+
+    if not alternatives and phrase_clauses:
+        alternatives = [" AND ".join(phrase_clauses)]
+    if not alternatives:
         return ""
 
-    expression = " AND ".join(clauses)
+    expression = (
+        alternatives[0] if len(alternatives) == 1
+        else " OR ".join(f"({a})" for a in alternatives)
+    )
 
     # NOT needs a left operand in FTS5, so exclusions only apply to a real query.
     negatives = [q for q in (_fts_quote(t) for t in parsed.excluded) if q]

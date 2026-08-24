@@ -1,12 +1,73 @@
 # Changelog
 
-**Doc version:** 3.5 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.6 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the search box is now worth typing into
+
+Every filter below existed or was one small change away; almost none of them
+were reachable, because nothing in the application ever said they were there.
+
+| Type | Does |
+|---|---|
+| `/type pdf` | only this kind of file |
+| `/from dave` `/to priya` | email from / to this person |
+| `/subject licence` | subject contains |
+| `/has attachment` | with, or `no-attachment` without |
+| `/after` `/before` | date range, including `last month` and `30d` |
+| `/path leeds` | inside matching folders |
+| `/name invoice` | files **called** this — a different question from `/path` |
+| `/size >1mb` | above or below a size |
+| `"exact phrase"` `-word` `A OR B` `NOT word` `word*` | operators |
+
+`AND`, `OR` and `NOT` are recognised **only in capitals**. "salt and pepper" and
+"one or two" are things people genuinely search for, and a boolean feature that
+broke them would cost more than it delivers.
+
+`/type pdf` is rewritten to `type:pdf` before parsing, so the parser never learns
+about slashes: one grammar, one set of tests. An unrecognised `/word` is left
+exactly as typed — `12/03`, `D:/Projects` and `/var/log` all survive, because
+silently rewriting a query is how a search box loses trust.
+
+One catalogue in `app/search/commands.py` feeds the `/` dropdown, `app.cli
+commands`, and the grammar Layer 8a hands the model, with a test that fails if
+any of the three drift from what the parser accepts.
+
+### Fixed — three filters that looked present and did nothing
+
+- **`_OPERATOR` carried its own hardcoded list of field names**, separate from
+  the alias table. Adding `to:`, `subject:` and `has:` to the aliases therefore
+  achieved nothing at all: the regex never matched them, the handler was
+  unreachable, and the words became ordinary search terms. The pattern is built
+  from the alias table now, and a test asserts every documented alias matches.
+- **`from:` matched with `LOWER(sender) IN (...)`** — an exact comparison
+  against the whole address, so `from:dave` never found `dave.smith@acme.com`.
+  Nobody searches that way. Every mail field matches on any part now.
+- **`upsert_file` stored whatever extension it was handed.** `files.ext` holds
+  no leading dot and `type:pdf` compares against exactly that, so a caller
+  passing `".pdf"` wrote a row that was indexed, searchable by text, and
+  invisible to every filter, with nothing to explain it. The store normalises
+  its own invariant now.
+
+### Added — `app.cli embed-bench`, after an estimate was wrong
+
+Embedding was measured at 1.53 passages/second and called "twenty to sixty times
+too slow". That was wrong: the estimate assumed short sentences, and this
+application embeds 512-token passages. The arithmetic for a 512-token
+transformer on a CPU predicts 1.5/sec, so nothing was misconfigured.
+
+**A throughput number without the sequence length beside it is not a number**,
+and a projection built on the wrong one sends somebody optimising the wrong
+thing for a week. So `embed-bench` measures rather than predicts: it reads the
+ONNX weight dtypes to answer "is the model already quantised", reports which
+execution providers onnxruntime can actually see, times real embedding at
+several sequence lengths, and projects the corpus from the measured rate.
+
 
 ### Changed — the application is called **Leasha**
 

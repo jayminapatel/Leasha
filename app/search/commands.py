@@ -133,6 +133,20 @@ COMMANDS: tuple[Command, ...] = (
         example="/path projects/leeds",
         value_hint="any part of a folder path",
     ),
+    Command(
+        name="name",
+        aliases=("filename", "file"),
+        summary="Only files whose NAME contains this",
+        example="/name invoice",
+        value_hint="part of a filename - not the folder, which is /path",
+    ),
+    Command(
+        name="size",
+        aliases=("bigger", "smaller"),
+        summary="Only files above or below a size",
+        example="/size >1mb",
+        value_hint=">1mb, <500kb, >=10mb; a bare 1mb means at least that",
+    ),
 )
 
 #: Not filters, but the other two things the search box understands. Listed in
@@ -141,6 +155,10 @@ COMMANDS: tuple[Command, ...] = (
 EXTRAS: tuple[tuple[str, str, str], ...] = (
     ('"exact phrase"', "Words in this exact order", '"site survey report"'),
     ("-word", "Leave out anything containing this word", "-draft"),
+    ("A OR B", "Either one. MUST BE CAPITALS", "pump OR valve"),
+    ("A AND B", "Both. This is the default, so rarely needed", "pump AND valve"),
+    ("NOT word", "Same as -word", "NOT draft"),
+    ("word*", "Starts with", "install*"),
 )
 
 _BY_SPELLING = {
@@ -209,13 +227,19 @@ def help_lines() -> list[str]:
         if others:
             out.append(f"  {' ' * width}   also: {others}")
         out.append("")
-    out.append("Also:")
+    out.append("Operators:")
     for syntax, summary, example in EXTRAS:
         out.append(f"  {syntax.ljust(width)}   {summary}  ({example})")
     out += [
         "",
+        "AND, OR and NOT must be CAPITALS. Lowercase 'and' and 'or' are searched",
+        "for as ordinary words, because 'salt and pepper' is a real thing to look",
+        "for and breaking it would be worse than the feature is worth.",
+        "",
         "Combine them freely, with or without the slash:",
         '  /type pdf /from dave /after 2024-01-01 "site survey" -draft',
+        "  /name invoice /size >1mb",
+        "  pump OR valve /path leeds",
         "  type:pdf from:dave after:2024-01-01",
         "",
         "Everything not part of a filter is searched for normally - by keyword",
@@ -238,6 +262,7 @@ def grammar_for_model() -> str:
     lines += [
         '  "quoted phrase"   words in this exact order',
         "  -word             exclude anything containing this word",
+        "  A OR B            either one; must be capitals",
         "",
         "Dates must be written as YYYY-MM-DD.",
         "Anything not covered by an operator stays as plain search words.",

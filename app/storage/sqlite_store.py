@@ -242,7 +242,13 @@ class SqliteStore:
             ))
 
         as_path = Path(path)
-        ext = (ext if ext is not None else as_path.suffix.lower().lstrip(".")) or ""
+        # **Normalised here, not trusted from the caller.** `files.ext` is stored
+        # without a leading dot, and `type:pdf` compares against exactly that.
+        # A caller passing ".pdf" would write a row no `type:` filter could ever
+        # match - the file would be indexed, searchable by text, and invisible to
+        # every filter, with nothing anywhere to explain it. The store owns this
+        # invariant because the store is what depends on it.
+        ext = (ext if ext is not None else as_path.suffix).lower().lstrip(".") or ""
         parent_dir = parent_dir if parent_dir is not None else str(as_path.parent)
 
         with self.write() as conn:

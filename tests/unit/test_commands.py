@@ -233,3 +233,127 @@ def test_a_mail_query_combines_every_field():
     assert parsed.subjects == ("licence renewal",)
     assert parsed.has_attachment is True
     assert "quote" in parsed.terms
+
+
+# ---------------------------------------------------------------------------
+# File filters: name and size
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("typed", "expected"), [
+    ("/name invoice", ("invoice",)),
+    ("/filename report", ("report",)),
+    ("/file summary.pdf", ("summary.pdf",)),
+])
+def test_name_filters_the_basename(typed, expected):
+    assert parse_query(expand_slashes(typed)).names == expected
+
+
+def test_name_and_path_are_different_questions():
+    """`/path leeds` finds everything in a Leeds folder; `/name leeds` finds
+    files called Leeds. Conflating them makes one of the two useless."""
+    assert parse_query("name:leeds").names == ("leeds",)
+    assert parse_query("name:leeds").paths == ()
+    assert parse_query("path:leeds").paths == ("leeds",)
+    assert parse_query("path:leeds").names == ()
+
+
+@pytest.mark.parametrize(("typed", "expected"), [
+    ("/size >1mb", (">", 1024**2)),
+    ("/size <500kb", ("<", 500 * 1024)),
+    ("/size >=10mb", (">=", 10 * 1024**2)),
+    ("/size 1mb", (">=", 1024**2)),          # bare means "at least"
+    ("/size 2gb", (">=", 2 * 1024**3)),
+    ("/size 500b", (">=", 500)),
+])
+def test_size_parses_with_and_without_a_comparison(typed, expected):
+    assert parse_query(expand_slashes(typed)).sizes == (expected,)
+
+
+def test_a_size_that_is_not_a_size_is_reported_not_ignored():
+    """A silently dropped size filter returns more than was asked for, and the
+    person has no way to know their filter did nothing."""
+    assert parse_query("size:banana").unknown_operators == ("size:banana",)
+    assert parse_query("size:banana").sizes == ()
+
+
+# ---------------------------------------------------------------------------
+# Boolean operators
+#
+# The whole design rests on one rule: **only capitals are operators.**
+# "salt and pepper" and "one or two" are things people genuinely search for,
+# and a feature that broke them would cost more than it delivers.
+# ---------------------------------------------------------------------------
+
+def test_or_splits_terms_into_alternatives():
+    parsed = parse_query("pump OR valve")
+    assert parsed.or_groups == (("pump",), ("valve",))
+    assert parsed.fts_match() == '("pump") OR ("valve")'
+
+
+def test_and_binds_tighter_than_or():
+    """`a b OR c` means `(a AND b) OR c` - the precedence every search engine
+    uses and the one people expect without being told."""
+    parsed = parse_query("pump station OR valve")
+    assert parsed.or_groups == (("pump", "station"), ("valve",))
+
+
+@pytest.mark.parametrize("query", [
+    "salt and pepper",
+    "one or two",
+    "this and that or the other",
+    "not now",
+])
+def test_lowercase_and_or_not_are_ordinary_words(query):
+    """The rule that makes the feature safe to add to a box people already use."""
+    parsed = parse_query(query)
+    assert len(parsed.or_groups) == 1, f"{query!r} was treated as boolean"
+    for word in query.split():
+        assert word in parsed.terms
+
+
+def test_uppercase_not_excludes_like_a_minus_sign():
+    parsed = parse_query("leeds NOT draft")
+    assert parsed.excluded == ("draft",)
+    assert "draft" not in parsed.terms
+
+
+def test_explicit_and_changes_nothing_because_it_is_the_default():
+    assert parse_query("pump AND valve").or_groups == (("pump", "valve"),)
+    assert parse_query("pump AND valve").fts_match() == parse_query("pump valve").fts_match()
+
+
+def test_a_phrase_applies_to_every_alternative():
+    """`"site survey" pump OR valve` means the phrase in both cases - which is
+    how people write it, and the only reading that is not surprising."""
+    expression = parse_query('"site survey" pump OR valve').fts_match()
+    assert expression.count('"site" + "survey"') == 2
+
+
+def test_a_query_without_or_produces_exactly_what_it_always_did():
+    """The compatibility guarantee. Grouping was added underneath every existing
+    query, so the one-group case must be byte-identical."""
+    assert parse_query("pump valve leeds").fts_match() == '"pump" AND "valve" AND "leeds"'
+
+
+def test_or_still_composes_with_exclusions():
+    expression = parse_query("pump OR valve -draft").fts_match()
+    assert expression == '(("pump") OR ("valve")) NOT ("draft")'
+
+
+def test_every_boolean_expression_is_valid_fts5(tmp_path):
+    """The guarantee `to_fts_match` exists to make: SQLite must always parse it.
+    A malformed expression makes a search report "no results" when what actually
+    happened is a syntax error."""
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE VIRTUAL TABLE t USING fts5(body)")
+    conn.execute("INSERT INTO t VALUES ('pump valve station leeds survey')")
+
+    for query in ["pump OR valve", "pump station OR valve leeds", "a OR b OR c",
+                  'x "site survey" OR y', "pump OR valve -draft", "OR", "OR OR",
+                  "pump OR", "OR pump", "NOT", "AND OR NOT"]:
+        expression = parse_query(query).fts_match()
+        if not expression:
+            continue
+        conn.execute("SELECT count(*) FROM t WHERE t MATCH ?", (expression,)).fetchone()

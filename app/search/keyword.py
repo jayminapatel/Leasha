@@ -59,6 +59,25 @@ def _filter_sql(parsed: ParsedQuery) -> tuple[str, list[Any]]:
         clauses.append("LOWER(f.path) LIKE ?")
         params.append(f"%{folder.lower()}%")
 
+    for name in parsed.names:
+        # The **basename**, not the whole path - `path:` already answers "which
+        # folder", and matching the full path here would make `name:leeds` hit
+        # every file in a Leeds directory, which is a different and much larger
+        # answer than the one asked for.
+        #
+        # `parent_dir` is stored, so removing it from `path` leaves the name,
+        # without any assumption about which slash this platform uses.
+        clauses.append("LOWER(REPLACE(f.path, f.parent_dir, '')) LIKE ?")
+        params.append(f"%{name.lower()}%")
+
+    for comparison, size in parsed.sizes:
+        # The comparison came from `_parse_size`, which only ever returns one of
+        # these five - so it can go into the SQL text safely, and never from
+        # anything the user typed directly.
+        if comparison in ("<", "<=", ">", ">=", "="):
+            clauses.append(f"f.size_bytes {comparison} ?")
+            params.append(size)
+
     # Mail or documents, from the scope chips. `source_kind` is on `files` and
     # already indexed, so this costs nothing.
     if parsed.scope == "mail":

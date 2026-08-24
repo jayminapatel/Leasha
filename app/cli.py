@@ -945,6 +945,111 @@ def cmd_files(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_embedbench(args: argparse.Namespace) -> int:
+    """Measure what embedding costs on this machine, and say what would help.
+
+    Exists because an estimate was wrong once, expensively. "1.53 passages per
+    second" was called twenty times too slow, on the assumption that a small
+    model should manage tens per second - true for short sentences, false for
+    the 512-token passages this app embeds. A throughput number without the
+    sequence length beside it is not a number.
+    """
+    from app.index.embed_bench import inspect_model, project, providers, run_benchmark
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    cache = Path(settings.model_cache)
+
+    result = inspect_model(cache, providers(_bench_result(settings)))
+    print("Embedding on this machine")
+    print("=" * 68)
+    print(f"  model            {settings.embed_model}")
+    if result.model_file:
+        print(f"  file             {Path(result.model_file).name}  ({result.model_mb:.0f}MB)")
+    if result.weight_types:
+        shown = ", ".join(f"{name} {count/1e6:.1f}M" for name, count in
+                          sorted(result.weight_types.items(), key=lambda kv: -kv[1]))
+        print(f"  weights          {shown}")
+        print(f"  already int8?    {'YES' if result.quantised else 'no - fp32 or fp16'}")
+    print(f"  providers        {', '.join(result.available_providers) or 'unknown'}")
+
+    if not args.quick:
+        print()
+        print("  measuring…")
+        result = run_benchmark(settings.embed_model, cache, result=result)
+        if result.threads:
+            print(f"  threads          {result.threads}")
+
+    if result.error:
+        print()
+        print(f"  ! {result.error}")
+
+    if result.throughput:
+        print()
+        print(f"  {'tokens':>8}  {'chunks/sec':>11}")
+        for tokens, rate in sorted(result.throughput.items()):
+            print(f"  {tokens:>8}  {rate:>11.2f}")
+
+        rate = result.throughput.get(512) or min(result.throughput.values())
+        chunks = 0
+        if settings.fts_db.is_file():
+            with SqliteStore(settings.fts_db) as store:
+                chunks = int(store.stats()["chunks_total"])
+        print()
+        print("  At the 512-token rate:")
+        for label, count in (("your index now", chunks), ("200K messages", 400_000),
+                             ("100GB corpus", 800_000)):
+            if count:
+                hours = project(count, rate)["hours"]
+                unit = f"{hours*60:.0f} min" if hours < 1.5 else f"{hours:.0f} hours"
+                print(f"    {label:<18} {count:>9,} chunks   {unit}")
+
+    if args.json:
+        print()
+        print(json.dumps(result.as_dict(), indent=2))
+
+    print()
+    for line in _embed_advice(result):
+        print(line)
+    return EXIT_OK
+
+
+def _bench_result(settings: Settings):
+    from app.index.embed_bench import BenchResult
+
+    return BenchResult(model_name=settings.embed_model)
+
+
+def _embed_advice(result: Any) -> list[str]:
+    """What would actually help, given what was measured.
+
+    Deliberately says "nothing to gain here" when that is the answer. Advice
+    that always finds something to recommend is advice nobody can act on.
+    """
+    lines = ["What would help:"]
+    gpu = [p for p in result.available_providers
+           if any(k in p for k in ("CUDA", "Dml", "DirectML", "ROCm", "CoreML"))]
+    if gpu:
+        lines.append(f"  * {gpu[0]} is available and is NOT being used. That is the")
+        lines.append("    largest single win here - typically five to fifteen times.")
+    if result.quantised is False:
+        lines.append("  * The model is not quantised. An int8 build is 2-4x on CPU for a")
+        lines.append("    small accuracy cost. Switching invalidates every stored vector,")
+        lines.append("    so it is cheapest while the index is small.")
+    elif result.quantised:
+        lines.append("  * The model is ALREADY int8. Quantisation is not a lever here -")
+        lines.append("    do not spend time on it.")
+    lines += [
+        "  * Fewer chunks beats faster chunks. Quoted replies and signatures are",
+        "    already stripped; near-duplicate passages are the next candidate.",
+        "  * The cost is per token, so it scales with how much text is indexed,",
+        "    not with how many files. Narrowing the index roots is the bluntest",
+        "    and most reliable saving available.",
+    ]
+    return lines
+
+
 def cmd_reembed(args: argparse.Namespace) -> int:
     """Rebuild the vector store from SQLite. No re-reading of any document.
 
@@ -1379,6 +1484,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_bench = sub.add_parser(
+        "embed-bench", parents=[common],
+        help="measure what embedding costs on this machine, and what would help")
+    p_bench.add_argument("--quick", action="store_true",
+                         help="inspect the model but do not time it")
+    p_bench.set_defaults(func=cmd_embedbench)
 
     p_reembed = sub.add_parser(
         "reembed", parents=[common],
