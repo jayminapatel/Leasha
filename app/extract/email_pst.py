@@ -502,10 +502,24 @@ class Win32ComSession:
 
     def __init__(self) -> None:
         try:
+            import pythoncom
             import win32com.client
         except ImportError as exc:
             raise_error("ERR_OUTLOOK_MISSING", "extract.pst", details=str(exc))
             raise  # unreachable; raise_error always raises
+
+        # COM is per-thread, and the indexing pipeline extracts on worker
+        # threads. Without this, `Dispatch` fails with "CoInitialize has not
+        # been called" anywhere except the main thread - which is exactly why
+        # `extract --mailbox` worked from the command line while indexing the
+        # same archive from the GUI did nothing.
+        self._com_initialised = False
+        try:
+            pythoncom.CoInitialize()
+            self._com_initialised = True
+        except Exception:                                 # noqa: BLE001 - already initialised is fine
+            pass
+        self._pythoncom = pythoncom
 
         try:
             self._outlook = win32com.client.Dispatch("Outlook.Application")
@@ -539,6 +553,17 @@ class Win32ComSession:
             )) from exc
 
     def close(self) -> None:
+        try:
+            self._detach()
+        finally:
+            if getattr(self, "_com_initialised", False):
+                try:
+                    self._pythoncom.CoUninitialize()
+                except Exception:                         # noqa: BLE001
+                    pass
+                self._com_initialised = False
+
+    def _detach(self) -> None:
         for store in self.stores():
             if (store.file_path or "").lower() in self._attached:
                 try:
@@ -586,6 +611,11 @@ class PstExtractor:
 
     name = "pst"
     extensions = OUTLOOK_EXTENSIONS
+
+    #: Read through Outlook, which holds the archive open - so it must never be
+    #: byte-hashed. On the first real run that hash raised a permission error in
+    #: the walker and took the entire index run down with it.
+    reads_externally = True
 
     #: Injectable for tests; None means build a real Win32ComSession.
     session_factory: Optional[Callable[[], MapiSession]] = None

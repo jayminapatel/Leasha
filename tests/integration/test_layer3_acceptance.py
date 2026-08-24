@@ -490,3 +490,64 @@ def test_an_empty_corpus_is_not_an_error(stores, tmp_path: Path) -> None:
     empty.mkdir()
     stats = build(stores, empty).run()
     assert stats.indexed == 0 and stats.skipped == 0
+
+
+# --- the first real Windows run -------------------------------------------
+
+def test_an_unhashable_file_does_not_end_the_walk(stores, corpus: Path, monkeypatch) -> None:
+    """The bug that cost a whole run, and the reason non-negotiable #4 exists.
+
+    A `.pst` held open by Outlook could not be hashed. The permission error was
+    raised on the *walker* thread, where one escaping exception abandons every
+    file not yet reached. The run reported `seen=7, indexed=0, unchanged=6,
+    skipped=0` - success, having done nothing, with no skip anyone could see.
+    """
+    store, _vectors = stores
+    locked = corpus / "locked.txt"
+    locked.write_text("content nobody can read right now", encoding="utf-8")
+    age(corpus)
+
+    import app.index.walker as walker_module
+
+    real_hash = walker_module.content_hash
+
+    def refuse(path, **kwargs):
+        if path == locked:
+            raise PermissionError(32, "The process cannot access the file")
+        return real_hash(path, **kwargs)
+
+    monkeypatch.setattr(walker_module, "content_hash", refuse)
+
+    stats = build(stores, corpus).run()
+
+    assert stats.indexed >= 12, "every other file still indexed"
+    assert stats.seen == 13
+    assert stats.indexed + stats.skipped + stats.unchanged == stats.seen, (
+        "every file seen must be accounted for - indexed, skipped or unchanged"
+    )
+
+
+def test_a_walker_failure_is_reported_not_silent(stores, corpus: Path, monkeypatch) -> None:
+    """If the scan really does stop early, the run must say so rather than
+    report success. The silent version logged one line nobody saw."""
+    import app.index.walker as walker_module
+
+    def explode(_config):
+        raise RuntimeError("the drive went away mid-walk")
+
+    monkeypatch.setattr("app.index.pipeline.walk", explode)
+    stats = build(stores, corpus).run()
+
+    assert stats.stopped_early is not None
+    assert "re-run" in stats.stopped_early.suggestion.lower()
+
+
+def test_a_pst_is_never_byte_hashed(tmp_path: Path) -> None:
+    """Outlook holds the archive open, so hashing it fails - and the bytes are
+    not what gets parsed anyway."""
+    from app.extract.base import reads_externally
+
+    assert reads_externally(Path("archive.pst"))
+    assert reads_externally(Path("cache.ost"))
+    assert not reads_externally(Path("report.pdf"))
+    assert not reads_externally(Path("notes.txt"))

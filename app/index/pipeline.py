@@ -45,6 +45,7 @@ from typing import Any, Callable, Iterator, Optional
 from app.core.errors import AppError, AppErrorException, make_error, to_app_error
 from app.core.logging import logger
 from app.extract import chunk_document, extract
+from app.extract.base import reads_externally
 from app.index.embedder import Embedder
 from app.index.walker import Candidate, WalkConfig, content_hash, has_changed, walk
 from app.storage.sqlite_store import FileStatus, SqliteStore
@@ -258,7 +259,14 @@ class Pipeline:
                     except queue.Full:
                         continue                # bounded on purpose: this is backpressure
         except Exception as exc:                # noqa: BLE001 - a walker crash must not hang the run
-            self._log.error("walker failed: {}", exc)
+            # Loud, and recorded in the stats. The silent version of this cost a
+            # whole run: it logged one line nobody saw and reported success.
+            stats.stopped_early = to_app_error(
+                exc, "index.pipeline",
+                suggestion="The file scan stopped early, so some folders were not reached. "
+                           "The files already indexed are safe - re-run to continue.",
+            )
+            self._log.error("walker stopped early: {}", stats.stopped_early.render())
         finally:
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
@@ -294,15 +302,32 @@ class Pipeline:
                             priority=0)          # retried first: they are few and cheap
 
     def _classify(self, candidate: Candidate) -> Optional[Optional[str]]:
-        """None if unchanged; otherwise the content hash (which may be None)."""
-        record = self.store.get_file(str(candidate.path))
-        changed, digest = has_changed(
-            candidate,
-            known_mtime_ns=record.mtime_ns if record else None,
-            known_size=record.size_bytes if record else None,
-            known_hash=record.content_hash if record else None,
-            verify_hash=self.config.verify_hash,
-        )
+        """None if unchanged; otherwise the content hash (which may be None).
+
+        Never raises. This runs on the walker thread, where one escaping
+        exception abandons every file not yet reached - which is precisely what
+        happened on the first real run: a `.pst` held open by Outlook could not
+        be hashed, the permission error escaped, and the whole index run ended
+        having done nothing, reporting no skips and no error the user could see.
+        """
+        try:
+            record = self.store.get_file(str(candidate.path))
+            changed, digest = has_changed(
+                candidate,
+                known_mtime_ns=record.mtime_ns if record else None,
+                known_size=record.size_bytes if record else None,
+                known_hash=record.content_hash if record else None,
+                # A file read through another application is held open by it, so
+                # hashing its bytes fails - and those bytes are not what gets
+                # parsed anyway. mtime and size are all there is, and enough.
+                verify_hash=self.config.verify_hash and not reads_externally(candidate.path),
+            )
+        except Exception as exc:            # noqa: BLE001 - see the docstring
+            self._log.warning(
+                "could not classify {}, queuing it anyway: {}", candidate.path, exc
+            )
+            return ""                        # queue it; the worker reports properly
+
         if not changed and record is not None and record.status == FileStatus.INDEXED:
             return None
         return digest
@@ -347,7 +372,7 @@ class Pipeline:
                 continue
 
     def _extract_one(self, candidate: Candidate, digest: Optional[str]) -> _Extracted:
-        if digest is None:
+        if digest is None and not reads_externally(candidate.path):
             try:
                 digest = content_hash(candidate.path)
             except OSError as exc:

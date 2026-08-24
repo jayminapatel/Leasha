@@ -44,6 +44,7 @@ from app.core.winfs import CLOUD_PLACEHOLDER_MASK
 __all__ = [
     "Candidate",
     "WalkConfig",
+    "RECENT_EDIT_WINDOW_S",
     "walk",
     "content_hash",
     "has_changed",
@@ -292,7 +293,17 @@ def has_changed(
     that accepts the risk of missing a same-size, same-mtime edit.
     """
     if known_mtime_ns is None or known_size is None:
-        return True, (content_hash(candidate.path) if verify_hash else None)
+        if not verify_hash:
+            return True, None
+        try:
+            return True, content_hash(candidate.path)
+        except OSError:
+            # Unreadable right now - locked by the program that owns it, or gone.
+            # Changed, unhashed: the pipeline attempts it and produces a proper
+            # per-file AppError. Letting this escape took down an entire index
+            # run on the first real use, because it is raised in the walker
+            # thread where one exception ends the walk for every remaining file.
+            return True, None
 
     if candidate.mtime_ns == known_mtime_ns and candidate.size_bytes == known_size:
         if _modified_recently(candidate):

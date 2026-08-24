@@ -227,6 +227,16 @@ class Extractor(Protocol):
     name: str
     extensions: frozenset[str]
 
+    #: True when the file is read through another application rather than by
+    #: reading its bytes - `.pst` through Outlook being the only case today.
+    #:
+    #: Two consequences, and both bit on the first real run. The file is **held
+    #: open by that application**, so reading it to compute a content hash fails
+    #: with a permission error; and the hash would be meaningless anyway, because
+    #: nothing here parses those bytes. Change detection falls back to mtime and
+    #: size, which is all that is available and all that is needed.
+    reads_externally: bool
+
     def supports(self, path: Path) -> bool: ...
 
     def extract(self, path: Path) -> Iterable[Document]: ...
@@ -262,6 +272,16 @@ def extractor_for(path: Path) -> Optional[Extractor]:
 
 def supported_extensions() -> frozenset[str]:
     return frozenset(REGISTRY)
+
+
+def reads_externally(path: Path) -> bool:
+    """True if this file is read through another application, not by its bytes.
+
+    Callers use it to skip hashing: the owning application holds the file open,
+    so the read fails, and the bytes are not what gets parsed anyway.
+    """
+    extractor = extractor_for(path)
+    return bool(getattr(extractor, "reads_externally", False))
 
 
 def extract(path: Path) -> Iterator[Document]:

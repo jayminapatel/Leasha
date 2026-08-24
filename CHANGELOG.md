@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 1.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -174,6 +174,27 @@ manual `app.cli extract --mailbox`. `VERSION` stays at 0.3.2 until that has been
 - `ERR_PST_NOT_BUILT`. It existed for one afternoon to make the gap visible; PST is built, so
   a `.pst` now either indexes or fails for a real reason. A code nothing raises is a lie in the
   registry.
+
+### Fixed — found by indexing a real folder containing a real .pst
+The GUI reported `seen: 7, indexed: 0, unchanged: 6, skipped: 0` and success. The seventh file
+- an Outlook archive - was seen, then vanished from the accounting entirely. Three faults, in
+the order they compound:
+
+- **One unreadable file ended the entire walk.** A `.pst` that Outlook holds open cannot be
+  read, so `content_hash()` raised `PermissionError` - **on the walker thread**, where one
+  escaping exception abandons every file not yet reached. It was caught by a handler that
+  logged a single line and let `run()` report success. This is a direct violation of
+  non-negotiable #4, *one bad file never halts a batch*, in the one place that rule matters
+  most. `has_changed()` now returns "changed, unhashed" instead of raising, `_classify()`
+  cannot raise at all, and a walk that really does stop early sets `stopped_early` so the run
+  says so rather than claiming to have finished.
+- **A `.pst` should never have been byte-hashed.** It is read through Outlook, which holds the
+  lock, and its bytes are not what gets parsed. Extractors now declare `reads_externally`, and
+  those files are change-detected on mtime and size alone.
+- **COM was being used from worker threads without `CoInitialize`.** COM is per-thread; without
+  it `Dispatch` fails everywhere except the main thread. That is exactly why
+  `app.cli extract --mailbox` worked from the command line while indexing the same archive from
+  the GUI did nothing - the difference was never Outlook, it was which thread asked.
 
 ### Fixed — found by the first run on real Windows
 Four failures that Linux hid. Three were real bugs; the platform difference is the point.

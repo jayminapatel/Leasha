@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 1.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -240,6 +240,16 @@ alongside it, every time, or search will keep returning rows whose source no lon
 
 **Outlook must stay open** during an email index run, and Cached Exchange Mode means older
 mail is not local. Read the email section of `LOCAL_KNOWLEDGE_GRAPH_V2.md` before Layer 2.
+
+**COM is per-thread.** Anything touching Outlook must call `pythoncom.CoInitialize()` on its
+own thread first. The indexing pipeline extracts on worker threads, so this is not optional -
+and its absence produced the most confusing symptom of the project so far: the CLI could read
+the mailbox and the GUI could not, because one ran on the main thread and the other did not.
+
+**A file held open by another program cannot be hashed.** `.pst` is the case that matters, and
+extractors now declare `reads_externally` so those files are never read for a hash. More
+generally: nothing on the walker thread may raise, because one exception there abandons every
+file not yet reached and the run still reports success.
 
 **Filesystem timestamps have a resolution, and Windows' is coarse.** Two writes inside one tick
 share an mtime; if the edit preserves the file's size, no cheap check can see it. The walker
