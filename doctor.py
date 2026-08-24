@@ -351,6 +351,29 @@ def check_resources() -> Check:
     )
 
 
+def check_converters() -> Check:
+    """Which Tier 2 converter binaries are installed.
+
+    Optional by nature: every converter ships disabled, and a machine with none
+    of them simply indexes fewer formats. Reported so Settings can offer to
+    enable exactly the ones that would work - switching on a format whose binary
+    is absent means it fails on every file.
+    """
+    from app.extract.converter import available_binaries
+
+    found = available_binaries()
+    present = [name for name, path in found.items() if path]
+    return Check(
+        "Document converters (optional)",
+        True,
+        detail=(", ".join(present) if present else
+                "none installed - .doc, .xls, .ppt and friends will not be read"),
+        optional=True,
+        fix=("Install LibreOffice to read the older Office formats: "
+             "https://www.libreoffice.org/download/" if not present else ""),
+    )
+
+
 def check_diagram_readers() -> Check:
     """What Visio and Project files can actually be read on this machine.
 
@@ -538,6 +561,7 @@ def run_all(quick: bool = False) -> list[Check]:
     ]
     checks += check_packages()
     checks.append(check_pywin32())
+    checks.append(check_converters())
     checks += [
         check_fts5(),
         check_sqlite_wal(),

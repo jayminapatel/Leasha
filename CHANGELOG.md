@@ -1,12 +1,54 @@
 # Changelog
 
-**Doc version:** 3.10 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.11 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — Tier 2 converters: a dozen dead formats, one implementation
+
+Step 4 of the file-types work order. LibreOffice alone now covers `.doc`,
+`.xls`, `.ppt`, `.rtf`, `.pages`, `.numbers`, `.key`, `.wpd` and `.pub`; pandoc
+covers `.epub` and `.fb2`. Adding a format is a line in a text file rather than
+a parser.
+
+That leverage also makes this the most dangerous module in the application,
+because it runs programs. Every decision in it narrows what that can mean, and
+each is asserted by a test rather than trusted:
+
+- **The allow-list is in code, not configuration.** `soffice`, `libreoffice`,
+  `pandoc`, `xstexporter`, `tesseract` — nothing else, ever. Config chooses
+  among allowed converters; it cannot introduce one. `extractors.toml` is a file
+  a person edits, and on a shared or synced machine it is a file *someone else*
+  might edit; a configuration format that can name any executable is a way to
+  run anything. Anything off the list is `ERR_CONVERTER_BLOCKED`, refused
+  **before** it is even resolved.
+- **The command never reaches a shell.** `subprocess.run(list, shell=False)`,
+  always. Filenames come from the corpus being indexed — precisely the input not
+  to trust — and a shell would interpret `;`, `&&`, `|` and backticks in one. A
+  test converts a file literally named `report; rm -rf ~.doc` to prove it stays
+  a single argument.
+- **The absolute path invoked is resolved and logged**, every run. `soffice` on
+  `PATH` is whatever `PATH` says today.
+- **Every temporary directory is removed in a `finally`.** A 100GB run leaking
+  one per converted file fills the disk, and the failure then appears somewhere
+  else entirely.
+- **The timeout is capped at five minutes** regardless of what config asks for.
+
+A converted document is repointed at the **original** file, because a result
+linking to `/tmp/leasha-convert-xyz/report.txt` is worse than no result: it
+looks like an answer and cannot be opened.
+
+Converters still ship disabled — the binary may not be installed, and a format
+that fails on every file is worse than one that says plainly it is off. An
+unconfigured `.doc` therefore stays `ERR_UNSUPPORTED_TYPE` ("this app does not
+do that") rather than becoming `ERR_CONVERTER_MISSING` ("something is broken")
+on every file in the corpus. `doctor` reports which binaries were found so
+Settings can offer exactly those.
+
 
 ### Added — Google Workspace pointers are findable instead of invisible
 

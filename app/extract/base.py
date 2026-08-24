@@ -311,6 +311,35 @@ def reads_externally(path: Path) -> bool:
     return bool(getattr(extractor, "reads_externally", False))
 
 
+def _try_converter(path: Path) -> Optional[Iterator[Document]]:
+    """An enabled Tier 2 converter for this extension, or None.
+
+    **Only if it is switched on.** Converters ship disabled because the binary
+    may not be installed, and a format that fails on every file is worse than
+    one that says plainly it is off - so an unconfigured `.doc` stays
+    ERR_UNSUPPORTED_TYPE rather than becoming ERR_CONVERTER_MISSING on every
+    file in the corpus.
+
+    Imported lazily. `converter.py` runs external programs, and nothing should
+    be able to reach that by importing the extraction package to ask whether
+    `.pdf` is supported.
+    """
+    try:
+        from app.core.formats import load_rules
+        from app.extract.converter import extract_via_converter
+    except ImportError:                          # pragma: no cover - partial install
+        return None
+
+    try:
+        rule = load_rules().converter_for(path.suffix.lower())
+    except Exception:                            # noqa: BLE001 - bad config is not this
+        return None                              # path's problem; `formats` reports it
+
+    if rule is None or not rule.enabled:
+        return None
+    return iter(extract_via_converter(path, rule))
+
+
 def extract(path: Path) -> Iterator[Document]:
     """Extract one path through the registry.
 
@@ -321,6 +350,15 @@ def extract(path: Path) -> Iterator[Document]:
     """
     extractor = extractor_for(path)
     if extractor is None:
+        # No extractor claims this type in code. Before calling it unsupported,
+        # ask whether an *enabled* Tier 2 converter covers it - that is the
+        # whole point of Tier 2, and checking here means every caller gets it
+        # without knowing converters exist.
+        converted = _try_converter(path)
+        if converted is not None:
+            yield from converted
+            return
+
         raise_error(
             "ERR_UNSUPPORTED_TYPE",
             "extract",
