@@ -51,6 +51,8 @@ __all__ = [
     "packaged_path",
     "user_path",
     "SCHEMA_VERSION",
+    "save_overrides",
+    "differences",
     "DEFAULT_MAX_BYTES",
 ]
 
@@ -255,18 +257,34 @@ def load_rules(
 
 
 def _merge(base: dict[str, Any], over: dict[str, Any], *, source: Path) -> dict[str, Any]:
-    """User file over packaged, one level deep per section.
+    """User file over packaged: sections merged, and rules **patched**.
 
-    Deliberately **not** a deep merge of individual rules: a user entry replaces
-    the packaged rule for that extension outright. Half-overriding a rule - the
-    extractor from one file, the size cap from another - produces behaviour that
-    matches neither file, and no way to reason about which won.
+    A user entry updates the packaged rule key by key rather than replacing it.
+    This was the other way round at first - replace outright, on the reasoning
+    that half a rule from each file matches neither and cannot be reasoned about.
+
+    The editor showed that to be wrong in the case that matters most. Turning
+    `.png` off is one key; writing the whole rule to express it pins `extractor`
+    and `max_bytes` at today's values forever, so a later release improving
+    either would arrive with the improvement silently discarded. **A patch is
+    what "I changed this one thing" actually means**, and it is the only shape
+    that survives an upgrade.
+
+    A rule for an extension the packaged file does not have must still be
+    complete, because there is nothing to patch.
     """
     out = dict(base)
     for key, value in over.items():
         if key in ("extensions", "converters") and isinstance(value, dict):
             section = dict(out.get(key) or {})
-            section.update(value)
+            for extension, patch in value.items():
+                existing = section.get(extension)
+                if isinstance(existing, dict) and isinstance(patch, dict):
+                    merged_rule = dict(existing)
+                    merged_rule.update(patch)
+                    section[extension] = merged_rule
+                else:
+                    section[extension] = patch
             out[key] = section
         elif key == "defaults" and isinstance(value, dict):
             defaults = dict(out.get(key) or {})
@@ -514,3 +532,59 @@ def with_override(rules: FormatRules, extension: str, **changes: Any) -> FormatR
     updated = dict(rules.extensions)
     updated[extension] = replace(existing, **changes)
     return replace(rules, extensions=updated)
+
+
+def save_overrides(data_path: Path, changes: Mapping[str, bool]) -> Path:
+    """Write the user's on/off choices to `<DATA_PATH>/extractors.toml`.
+
+    **Only the differences, and only `enabled`.** The packaged file is replaced
+    on upgrade, so a user file that copied everything would freeze today's
+    defaults forever - a new format added in a later release would arrive
+    switched off, or with an old size limit, and nobody would know why.
+
+    Written whole and atomically: a half-written config that fails to parse
+    stops the application starting, and the person who caused it was only trying
+    to turn off `.png`.
+    """
+    target = user_path(data_path)
+    lines = [
+        "# Your file-type choices. Written by Settings.",
+        "#",
+        "# Only differences from the packaged defaults are stored here, so an",
+        "# upgrade still brings you new formats and better limits. Deleting this",
+        "# file restores the shipped behaviour exactly - it is always safe.",
+        "",
+        f"schema_version = {SCHEMA_VERSION}",
+        "",
+        "[extensions]",
+    ]
+    for extension in sorted(changes):
+        enabled = "true" if changes[extension] else "false"
+        lines.append(f'"{extension}" = {{ enabled = {enabled} }}')
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".toml.tmp")
+    temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    temporary.replace(target)
+    log.info("wrote {} override(s) to {}", len(changes), target)
+    return target
+
+
+def differences(rules: FormatRules, packaged: Optional[FormatRules] = None) -> dict[str, bool]:
+    """Which extensions are set differently from the shipped defaults.
+
+    This is what `save_overrides` should be given: storing the whole current
+    state would pin every default at today's value.
+    """
+    baseline = packaged or _packaged_only()
+    out: dict[str, bool] = {}
+    for extension, rule in rules.extensions.items():
+        shipped = baseline.extensions.get(extension)
+        if shipped is None or shipped.enabled != rule.enabled:
+            out[extension] = rule.enabled
+    return out
+
+
+def _packaged_only() -> FormatRules:
+    """The shipped defaults with no user file merged over them."""
+    return load_rules(None)

@@ -1,12 +1,38 @@
 # Changelog
 
-**Doc version:** 3.12 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.13 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the file-types editor, and the work order is complete
+
+Step 6, the last of six. Settings now lists every file type with a checkbox,
+what reads it, and its size limit. Anything switched off is never opened at all.
+
+**Only `enabled` is editable, deliberately.** Size caps and extractor routing
+are per-format decisions with real consequences — an OCR cap raised to 100MB is
+minutes of work per image — and they belong in `config\extractors.toml` beside
+the comments explaining each one. A checkbox that could silently make indexing
+twenty times slower is not a kindness.
+
+**Changes are stored as differences, never as a snapshot**, and this reversed an
+earlier decision. A user entry originally *replaced* the packaged rule outright,
+on the reasoning that half a rule from each file matches neither and cannot be
+reasoned about. The editor showed that wrong in the case that matters most:
+turning `.png` off is one key, and writing the whole rule to say so would pin
+`extractor` and `max_bytes` at today's values — so a later release improving
+either would have the improvement silently discarded. A user entry now **patches**
+the packaged rule; a brand-new extension must still be complete, because there
+is nothing to patch.
+
+The panel also says what it does *not* do: a format switched on does not
+retrospectively index the files already skipped, and somebody not told that
+concludes the setting did not work.
+
 
 ### Added — OCR for images and scanned PDFs, on by default and honest about it
 

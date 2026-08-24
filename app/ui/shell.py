@@ -161,6 +161,12 @@ class MainWindow(QMainWindow):
         self.settings_view.indexing.theme_changed.connect(self._theme_changed)
         self.settings_view.environment.recording.setChecked(self.recorder.enabled)
         self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
+        self.settings_view.error.connect(self._show_error)
+        self.settings_view.file_types.changes_saved.connect(
+            lambda changes: self.statusBar().showMessage(
+                f"File types saved - {len(changes)} differ from the defaults. "
+                "They apply to the next index run.", 12_000)
+        )
         self.settings_view.environment.set_recording_status(
             f"Recording to {self.recorder.path.name}" if self.recorder.enabled
             else "Not recording."

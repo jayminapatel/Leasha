@@ -370,3 +370,92 @@ def test_describe_covers_both_sections():
     )
     extensions = {row["extension"] for row in rules.describe()}
     assert extensions == {".log", ".doc"}
+
+
+# ---------------------------------------------------------------------------
+# The editor: saving choices without freezing today's defaults
+# ---------------------------------------------------------------------------
+
+def test_only_the_differences_are_stored(tmp_path):
+    """**The property that makes an upgrade work.**
+
+    The packaged file is replaced on upgrade, so writing the whole current state
+    would pin today's defaults forever: a format added in a later release would
+    arrive switched off, or with an old size limit, and nobody would know why.
+    """
+    from app.core.formats import differences, with_override
+
+    rules = load_rules(tmp_path)
+    changed = with_override(rules, ".png", enabled=False)
+
+    assert differences(changed) == {".png": False}
+
+
+def test_no_changes_means_no_overrides_at_all(tmp_path):
+    from app.core.formats import differences
+
+    assert differences(load_rules(tmp_path)) == {}
+
+
+def test_a_saved_override_survives_a_reload(tmp_path):
+    from app.core.formats import differences, save_overrides, with_override
+
+    rules = load_rules(tmp_path)
+    save_overrides(tmp_path, differences(with_override(rules, ".png", enabled=False)))
+
+    assert load_rules(tmp_path).is_enabled(".png") is False
+
+
+def test_an_override_patches_the_rule_rather_than_replacing_it(tmp_path):
+    """The decision that was reversed, and why.
+
+    A user entry originally replaced the packaged rule outright, on the
+    reasoning that half a rule from each file matches neither. The editor showed
+    that wrong in the case that matters: turning `.png` off is one key, and
+    writing the whole rule to express it would pin `extractor` and `max_bytes`
+    at today's values - so a later release improving either would have the
+    improvement silently discarded.
+    """
+    from app.core.formats import save_overrides
+
+    save_overrides(tmp_path, {".png": False})
+    rule = load_rules(tmp_path).rule_for(".png")
+
+    assert rule.enabled is False
+    assert rule.extractor == "ocr", "the extractor came from the packaged file"
+    assert rule.max_bytes < load_rules(tmp_path).default_max_bytes, "so did the cap"
+
+
+def test_a_brand_new_extension_must_still_be_complete(tmp_path):
+    """There is nothing to patch, so a partial rule is a mistake worth naming."""
+    (tmp_path / "extractors.toml").write_text(
+        '[extensions]\n".brandnew" = { enabled = true }\n', encoding="utf-8")
+
+    with pytest.raises(AppErrorException) as caught:
+        load_rules(tmp_path)
+    assert "extractor" in caught.value.error.render()
+
+
+def test_the_override_file_can_always_be_deleted(tmp_path):
+    """Stated in the file's own header, and true: deleting it restores the
+    shipped behaviour exactly, which makes it a safe thing to try."""
+    from app.core.formats import save_overrides, user_path
+
+    save_overrides(tmp_path, {".png": False})
+    assert load_rules(tmp_path).is_enabled(".png") is False
+
+    user_path(tmp_path).unlink()
+    assert load_rules(tmp_path).is_enabled(".png") is True
+
+
+def test_saving_is_atomic(tmp_path):
+    """A half-written config that fails to parse stops the application starting,
+    and the person who caused it was only trying to turn off `.png`."""
+    from app.core.formats import save_overrides, user_path
+
+    save_overrides(tmp_path, {".png": False})
+    written = user_path(tmp_path)
+
+    assert written.is_file()
+    assert not list(tmp_path.glob("*.tmp")), "no temporary file should be left behind"
+    load_rules(tmp_path)                        # parses, therefore complete

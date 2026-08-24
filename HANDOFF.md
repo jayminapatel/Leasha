@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 4.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -70,10 +70,12 @@ In order, and the first two need the owner rather than the code:
 3. **Decide chunk size and model precision** - §7, question 1. Both are far cheaper now than
    after 100GB is indexed, and both should be settled by `app.cli evaluate` before and after
    rather than by argument.
-4. **Finish the file-type work order**: `odf.py`, `cloudstub.py`, `converter.py`, `ocr.py`,
-   and the file-types editor in Settings. Config and routing are already in place and
-   switched off, waiting for each extractor to land.
-5. **Layer 9**: hardening and packaging.
+4. **Layer 9**: hardening and packaging.
+
+The file-type work order is **complete** - all six steps. OpenDocument and Google Drive
+pointers read natively, Tier 2 converters cover a dozen dead Office formats through
+LibreOffice and pandoc, OCR reads images and scanned PDFs, and Settings has a checkbox per
+type. `app.cli formats` prints what is on and what is off.
 
 ## 3a. The scope change, and what would reverse it
 

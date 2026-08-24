@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.environment_box import EnvironmentBox
+from app.ui.widgets.file_types import FileTypesEditor
 
 __all__ = ["SettingsView"]
 
@@ -54,6 +55,7 @@ class SettingsView(QWidget):
     cloud_toggled = pyqtSignal(bool)
     history_cleared = pyqtSignal(int)
     debug_recording_toggled = pyqtSignal(bool)
+    error = pyqtSignal(object)
 
     def __init__(self, settings: Any, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -147,6 +149,10 @@ class SettingsView(QWidget):
         privacy_layout.addWidget(self.history_label)
         privacy_layout.addWidget(clear)
 
+        # --- what gets indexed at all
+        self.file_types = FileTypesEditor(settings)
+        self.file_types.error.connect(self.error)
+
         # --- environment and diagnostics (its own widget; see the module)
         self.environment = EnvironmentBox(settings)
         self.environment.recording_toggled.connect(self.debug_recording_toggled)
@@ -157,6 +163,7 @@ class SettingsView(QWidget):
         layout.addWidget(pst_box)
         layout.addWidget(behaviour)
         layout.addWidget(privacy)
+        layout.addWidget(self.file_types)
         layout.addWidget(self.environment, stretch=1)
 
         self.refresh_history_count()
