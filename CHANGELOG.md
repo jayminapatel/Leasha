@@ -23,6 +23,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   falls back to the ANSI codepage, where one non-ASCII character would raise
   `UnicodeEncodeError` mid-report.
 - `run-install.cmd` given CRLF line endings; an LF-only batch file can break `goto` labels.
+- **A successful model download was reported as a failure.** `Invoke-PythonSnippet` ended with
+  `& $python $tmp` followed by `return $LASTEXITCODE`. A PowerShell function returns everything
+  it emits to the pipeline, not just what follows `return`, so the caller received
+  `@("embedding model ready, dim = 384", 0)` instead of `0`; comparing that array against `0`
+  was true and the step threw. The function now emits nothing, routes the child process's
+  output to the host, and reports through `$script:LastPythonExit`. It also relaxes
+  `$ErrorActionPreference` for the duration of the child, since download progress bars write
+  to stderr and would otherwise be promoted to terminating errors.
 
 ### Added
 - `run-install.cmd` - bypasses the execution policy for one process, parse-checks before

@@ -53,6 +53,7 @@ $script:Failures     = @()
 $script:Skipped      = @()
 $script:LogFile      = $null
 $script:Transcribing = $false
+$script:LastPythonExit = 0
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,15 +90,45 @@ function Write-Utf8NoBom {
     [System.IO.File]::WriteAllText($Path, $Content, $enc)
 }
 
+<#
+    Invoke-PythonSnippet runs a short Python program in the project venv.
+
+    It deliberately returns NOTHING and sets $script:LastPythonExit instead.
+
+    A PowerShell function returns everything it emits to the pipeline, not just
+    what follows `return`. An earlier version did:
+
+        & $script:Python $tmp     # emits Python's stdout
+        return $LASTEXITCODE      # appends the exit code
+
+    which handed the caller @("embedding model ready, dim = 384", 0) rather than
+    0 - so a completely successful model download was reported as a failure.
+    Routing the child's output to the host keeps the pipeline clean.
+#>
 function Invoke-PythonSnippet {
-    # Writing to a temp .py file is more reliable than piping to `python -`,
-    # which is sensitive to console encoding on Windows PowerShell 5.1.
     param([string]$Code)
+
     $tmp = Join-Path $env:TEMP ("lkg_" + [guid]::NewGuid().ToString("N") + ".py")
+    $script:LastPythonExit = 1
     try {
         Write-Utf8NoBom -Path $tmp -Content $Code
-        & $script:Python $tmp
-        return $LASTEXITCODE
+
+        # Progress bars (tqdm, huggingface downloads) go to stderr. Under
+        # $ErrorActionPreference = "Stop" that can be promoted to a terminating
+        # error, so relax it for the duration of the child process only.
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $script:Python $tmp 2>&1 | ForEach-Object {
+                Write-Host "    $_" -ForegroundColor DarkGray
+            }
+            $code = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previous
+        }
+
+        if ($null -eq $code) { $code = 0 }
+        $script:LastPythonExit = [int]$code
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
@@ -461,8 +492,10 @@ m = TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir=r'$DataPath\models')
 v = list(m.embed(['warmup']))[0]
 print('embedding model ready, dim =', len(v))
 "@
-        $rc = Invoke-PythonSnippet -Code $code
-        if ($rc -ne 0) { throw "model download or warm-up failed (exit $rc)" }
+        Invoke-PythonSnippet -Code $code
+        if ($script:LastPythonExit -ne 0) {
+            throw "model download or warm-up failed (python exit code $script:LastPythonExit)"
+        }
     }
 
 Invoke-Step -Name "Download rerank model bge-reranker-base (~1.1GB)" -Optional `
@@ -475,8 +508,10 @@ from fastembed.rerank.cross_encoder import TextCrossEncoder
 m = TextCrossEncoder('BAAI/bge-reranker-base', cache_dir=r'$DataPath\models')
 print('rerank scores:', list(m.rerank('warmup query', ['warmup document'])))
 "@
-        $rc = Invoke-PythonSnippet -Code $code
-        if ($rc -ne 0) { throw "model download or warm-up failed (exit $rc)" }
+        Invoke-PythonSnippet -Code $code
+        if ($script:LastPythonExit -ne 0) {
+            throw "model download or warm-up failed (python exit code $script:LastPythonExit)"
+        }
     }
 
 # ---------------------------------------------------------------------------
