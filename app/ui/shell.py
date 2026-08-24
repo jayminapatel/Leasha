@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
 from app.core.branding import window_title
 from app.core.logging import logger
 from app.index.resources import limits_from_settings
+from app.llm.ollama import OllamaClient
+from app.search.translate import QueryTranslator
 from app.index.schedule import SchedulePolicy
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
@@ -122,7 +124,13 @@ class MainWindow(QMainWindow):
             context={"roots": len(self._load_roots())},
         )
 
-        self.search_view = SearchView(engine)
+        # Optional, and never on the retrieval path: `Interpret` spends a
+        # second on a model to build a query, which then goes into the box for
+        # the person to read and edit. Plain Enter never touches it.
+        translator = QueryTranslator(
+            OllamaClient(settings.ollama_url, settings.ollama_model)
+        )
+        self.search_view = SearchView(engine, translator)
         self.search_view.result_opened.connect(self._open_result)
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
         self.search_view.reindex_requested.connect(self._reindex_for)
@@ -272,6 +280,15 @@ class MainWindow(QMainWindow):
         # and a recorder nobody dares send is a recorder that does nothing.
         self.search_view.searched.connect(
             lambda info: record("search", **info)
+        )
+        self.search_view.interpreted.connect(
+            lambda tr: record(
+                "interpreted", changed=tr.changed, from_cache=tr.from_cache,
+                elapsed_s=round(tr.elapsed_s, 2), note=tr.note,
+                # The queries themselves are content and are never recorded;
+                # their shape is what makes a session file diagnosable.
+                raw_len=len(tr.raw), query_len=len(tr.query),
+            )
         )
 
     # -- shortcuts ----------------------------------------------------------

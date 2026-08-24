@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from app.core.errors import raise_error
+from app.core.logging import logger
+from app.extract.quoting import strip_quoted
 from app.extract.base import (
     Document,
     DocumentBuilder,
@@ -40,6 +42,8 @@ from app.extract.base import (
 )
 
 __all__ = ["EmlExtractor", "MsgExtractor", "html_to_text", "build_email_document"]
+
+_log = logger.bind(component="extract.email")
 
 _SCRIPT_OR_STYLE = re.compile(r"<(script|style)\b.*?</\1>", re.IGNORECASE | re.DOTALL)
 _BLOCK_END = re.compile(r"</(p|div|tr|li|h[1-6]|table|blockquote)\s*>", re.IGNORECASE)
@@ -143,7 +147,24 @@ def build_email_document(
     if attachments:
         header_lines.append(f"Attachments: {', '.join(attachments)}")
     builder.add("\n".join(line for line in header_lines if line), label="Headers")
-    builder.add(body, label="Body")
+
+    # Quoted chains and signatures are cut here, at the one point every mail
+    # path passes through - EML, MSG, PST via Outlook, and PST via libpff all
+    # call this function. Doing it in each extractor would be four
+    # implementations that could disagree about what a thread looks like.
+    #
+    # A twelve-message thread otherwise puts its first message into the index
+    # twelve times: once as itself and eleven more times quoted inside replies.
+    # The visible symptom is ten results from one conversation all showing the
+    # same paragraph, crowding out ten different documents - which a person
+    # experiences as "search is bad" rather than as "the index is redundant".
+    stripped = strip_quoted(body)
+    if stripped.changed:
+        _log.debug(
+            "stripped {} chars of {} from {}",
+            stripped.removed_chars, stripped.reason, path.name,
+        )
+    builder.add(stripped.text, label="Body")
 
     builder.meta.update(
         {

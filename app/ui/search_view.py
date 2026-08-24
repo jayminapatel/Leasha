@@ -21,12 +21,14 @@ import time
 from typing import Any, Optional
 
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +44,7 @@ from app.ui.presenter import (
 )
 from app.ui.results_view import ResultsView
 from app.ui.widgets.command_popup import attach_to
-from app.ui.workers import SearchWorker, run
+from app.ui.workers import CallableWorker, SearchWorker, run
 
 __all__ = ["SearchView"]
 
@@ -62,9 +64,19 @@ class SearchView(QWidget):
     #: would ever send.
     searched = pyqtSignal(dict)
 
-    def __init__(self, engine: Any, parent: Optional[QWidget] = None) -> None:
+    #: Emitted after an interpretation, with the `Translation`. The window uses
+    #: it for the status bar and the debug recorder.
+    interpreted = pyqtSignal(object)
+
+    def __init__(
+        self,
+        engine: Any,
+        translator: Any = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
+        self._translator = translator
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._shown_generation = -1
@@ -96,6 +108,21 @@ class SearchView(QWidget):
         )
         self.scope.currentIndexChanged.connect(self._on_scope_changed)
 
+        # Explicit, never automatic. Plain Enter runs what was typed, exactly as
+        # it always has; this button is the user choosing to spend a second on a
+        # model. Silently interpreting every search would make results
+        # unpredictable, and unpredictable search over your own archive is worse
+        # than blunt search because you stop trusting it.
+        self.interpret_button = QPushButton("Interpret")
+        self.interpret_button.setToolTip(
+            "Turn a sentence into a search query using Ollama.  Ctrl+Enter\n\n"
+            "The query it builds goes into the box so you can read and edit it.\n"
+            "If Ollama is not running, your words are searched for unchanged."
+        )
+        self.interpret_button.clicked.connect(lambda _c=False: self.interpret())
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.interpret)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.interpret)
+
         self.rerank_toggle = QCheckBox("Rerank")
         self.rerank_toggle.setToolTip(
             "Slower but more precise ordering. Turning it off does not need a restart."
@@ -114,6 +141,7 @@ class SearchView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
+        top.addWidget(self.interpret_button)
         top.addWidget(self.scope)
         top.addWidget(self.rerank_toggle)
 
@@ -256,3 +284,48 @@ class SearchView(QWidget):
         except Exception:                        # noqa: BLE001 - never block an open
             pass
         self.result_opened.emit(row)
+
+    # -- interpreting a sentence --------------------------------------------
+
+    def interpret(self) -> None:
+        """Translate the sentence in the box, then search what it produced.
+
+        **The translated query goes into the box.** That is a hard requirement,
+        not a nicety: a bad translation must be a two-second correction rather
+        than a mystery, and it can only be corrected if it can be seen. The next
+        search then starts from it, like any other text.
+
+        Off the UI thread, because it costs about a second and a second of
+        frozen window is how this application has repeatedly looked broken.
+        """
+        sentence = self.input.text().strip()
+        if not sentence or self._translator is None:
+            self._dispatch(Tier.FULL)
+            return
+
+        self.interpret_button.setEnabled(False)
+        self.status.setText("Interpreting…")
+
+        worker = CallableWorker(
+            self._translator.translate, sentence, component="ui.translate"
+        )
+        worker.signals.finished.connect(self._interpreted)
+        worker.signals.failed.connect(self._interpret_failed)
+        worker.signals.done.connect(
+            lambda: self.interpret_button.setEnabled(True)
+        )
+        run(self._pool, worker)
+
+    def _interpreted(self, translation: Any) -> None:
+        if translation.changed:
+            # Into the box, so it is visible and editable.
+            self.input.setText(translation.query)
+        self.status.setText(translation.note)
+        self.interpreted.emit(translation)
+        self._dispatch(Tier.FULL)
+
+    def _interpret_failed(self, error: Any) -> None:
+        """Even a failure searches. `translate` is not supposed to raise, but a
+        button that does nothing is worse than one that does the plain thing."""
+        self.status.setText(getattr(error, "message", "Could not interpret that."))
+        self._dispatch(Tier.FULL)

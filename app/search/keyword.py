@@ -70,12 +70,39 @@ def _filter_sql(parsed: ParsedQuery) -> tuple[str, list[Any]]:
         clauses.append(f"f.source_kind NOT IN ({placeholders})")
         params.extend(MAIL_KINDS)
 
-    if parsed.senders:
-        placeholders = ", ".join("?" for _ in parsed.senders)
+    # --- mail fields, all on the `messages` table -------------------------
+    #
+    # **Substring, not equality.** `from:dave` used `LOWER(sender) IN (...)`,
+    # an exact match against the whole address - so it found a message only if
+    # somebody had typed `dave.smith@acme.com` in full, and `from:dave` matched
+    # nothing at all. Nobody searches that way, and the filter looked broken
+    # rather than strict. Every mail field below matches on any part.
+    for sender in parsed.senders:
         clauses.append(
-            f"f.id IN (SELECT file_id FROM messages WHERE LOWER(sender) IN ({placeholders}))"
+            "f.id IN (SELECT file_id FROM messages WHERE LOWER(sender) LIKE ?)"
         )
-        params.extend(parsed.senders)
+        params.append(f"%{sender.lower()}%")
+
+    for recipient in parsed.recipients:
+        # `recipients` is a JSON array, and matching inside the text is enough:
+        # an address is distinctive, and parsing JSON per row to do it properly
+        # would cost far more than it could ever save.
+        clauses.append(
+            "f.id IN (SELECT file_id FROM messages WHERE LOWER(recipients) LIKE ?)"
+        )
+        params.append(f"%{recipient.lower()}%")
+
+    for subject in parsed.subjects:
+        clauses.append(
+            "f.id IN (SELECT file_id FROM messages WHERE LOWER(subject) LIKE ?)"
+        )
+        params.append(f"%{subject.lower()}%")
+
+    if parsed.has_attachment is not None:
+        clauses.append(
+            "f.id IN (SELECT file_id FROM messages WHERE has_attach = ?)"
+        )
+        params.append(1 if parsed.has_attachment else 0)
 
     return (" AND " + " AND ".join(clauses) if clauses else ""), params
 

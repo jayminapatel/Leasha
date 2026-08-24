@@ -40,9 +40,28 @@ __all__ = [
 MAX_QUERY_CHARS = 4096
 MAX_TERMS = 64
 
+_FIELD_ALIASES = {
+    "type": "ext", "ext": "ext", "kind": "ext",
+    "after": "after", "since": "after",
+    "before": "before", "until": "before",
+    "path": "path", "folder": "path", "dir": "path",
+    "from": "sender", "sender": "sender",
+    "to": "recipient", "recipient": "recipient", "cc": "recipient",
+    "subject": "subject", "title": "subject", "re": "subject",
+    "has": "has",
+}
+
 # field:value, where value is either "a quoted string" or a bare run of non-space.
+#
+# **The field list is built from `_FIELD_ALIASES`, not written out again.** It
+# used to be a second hardcoded alternation, and adding `to:`, `subject:` and
+# `has:` to the alias table did nothing at all: the alias was accepted by the
+# handler that would never be reached, because the regex did not match the
+# operator in the first place. The words simply became search terms, and the
+# filter silently did nothing - exactly the shape of failure this project keeps
+# finding. One list, one place.
 _OPERATOR = re.compile(
-    r'\b(?P<field>type|ext|kind|after|since|before|until|path|folder|dir|from|sender)'
+    r'\b(?P<field>' + "|".join(sorted(_FIELD_ALIASES, key=len, reverse=True)) + r')'
     r':(?P<value>"[^"]*"|\S+)',
     re.IGNORECASE,
 )
@@ -52,13 +71,6 @@ _PHRASE = re.compile(r'"([^"]*)"')
 # indexed and would only ever be FTS5 syntax errors waiting to happen.
 _TERM = re.compile(r"[^\W_]+(?:[._'\-][^\W_]+)*\*?", re.UNICODE)
 
-_FIELD_ALIASES = {
-    "type": "ext", "ext": "ext", "kind": "ext",
-    "after": "after", "since": "after",
-    "before": "before", "until": "before",
-    "path": "path", "folder": "path", "dir": "path",
-    "from": "sender", "sender": "sender",
-}
 
 # type:doc should find .doc and .docx; the user is naming a kind, not an extension.
 _EXT_GROUPS = {
@@ -113,6 +125,15 @@ class ParsedQuery:
     before: Optional[date] = None
     paths: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
+    #: Mail-only fields. Empty for a document search, which is why they cost
+    #: nothing when unused: each becomes a subquery on `messages` only if the
+    #: person actually asked for it.
+    recipients: tuple[str, ...] = ()
+    subjects: tuple[str, ...] = ()
+    #: True for `has:attachment`, False for `has:no-attachment`, None when the
+    #: person did not say. Three states, because "did not ask" and "asked for
+    #: none" are different searches and a bool cannot tell them apart.
+    has_attachment: Optional[bool] = None
     #: "all" | "mail" | "documents". Not typed by the user - set by the scope
     #: chips beside the search box, and folded in here so it travels with the
     #: query through fusion, the cache key and the usage log rather than being
@@ -124,7 +145,8 @@ class ParsedQuery:
     def has_filters(self) -> bool:
         return bool(
             self.ext or self.after or self.before or self.paths
-            or self.senders or self.scope != "all"
+            or self.senders or self.recipients or self.subjects
+            or self.has_attachment is not None or self.scope != "all"
         )
 
     def scoped(self, scope: str) -> "ParsedQuery":
@@ -204,12 +226,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     ext: list[str] = []
     paths: list[str] = []
     senders: list[str] = []
+    recipients: list[str] = []
+    subjects: list[str] = []
+    has_attachment: Optional[bool] = None
     unknown: list[str] = []
     after: Optional[date] = None
     before: Optional[date] = None
 
     def _take_operator(match: re.Match[str]) -> str:
-        nonlocal after, before
+        nonlocal after, before, has_attachment
         fld = _FIELD_ALIASES.get(match.group("field").lower())
         val = match.group("value").strip('"')
         if fld == "ext":
@@ -220,6 +245,24 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         elif fld == "sender":
             if val:
                 senders.append(val.lower())
+        elif fld == "recipient":
+            if val:
+                recipients.append(val.lower())
+        elif fld == "subject":
+            if val:
+                subjects.append(val.lower())
+        elif fld == "has":
+            # `has:attachment` and `has:no-attachment`. Anything else is a typo
+            # and is reported rather than guessed at - silently ignoring it
+            # would widen the search without saying so.
+            lowered = val.lower()
+            negated = lowered.startswith(("no", "-", "!", "without"))
+            cleaned = re.sub(r"^(no[t]?[-_ ]?|without[-_ ]?|[-!])", "", lowered)
+            cleaned = cleaned.replace("attachments", "attachment")
+            if cleaned in ("attachment", "attached", "file"):
+                has_attachment = not negated
+            else:
+                unknown.append(match.group(0))
         elif fld == "after":
             parsed = _parse_date(val, today=today)
             if parsed:
@@ -283,6 +326,9 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         before=before,
         paths=tuple(paths),
         senders=tuple(senders),
+        recipients=tuple(recipients),
+        subjects=tuple(subjects),
+        has_attachment=has_attachment,
         unknown_operators=tuple(unknown),
     )
 

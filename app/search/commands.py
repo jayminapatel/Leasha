@@ -90,6 +90,27 @@ COMMANDS: tuple[Command, ...] = (
         value_hint="part of a name or address; dave matches dave.smith@acme.com",
     ),
     Command(
+        name="to",
+        aliases=("recipient", "cc"),
+        summary="Only email sent to this person",
+        example="/to priya",
+        value_hint="part of a name or address; matches the To and Cc lines",
+    ),
+    Command(
+        name="subject",
+        aliases=("title", "re"),
+        summary="Only email whose subject contains this",
+        example="/subject licence",
+        value_hint='any part of the subject; quote it for several words: "licence renewal"',
+    ),
+    Command(
+        name="has",
+        aliases=(),
+        summary="Only email with (or without) an attachment",
+        example="/has attachment",
+        value_hint="attachment, or no-attachment",
+    ),
+    Command(
         name="after",
         aliases=("since",),
         summary="Only things changed on or after this date",

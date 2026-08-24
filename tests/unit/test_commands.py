@@ -162,3 +162,74 @@ def test_the_listing_mentions_phrases_and_exclusions():
     text = "\n".join(help_lines())
     assert "exact phrase" in text
     assert "-draft" in text
+
+
+# ---------------------------------------------------------------------------
+# Mail search: to, subject, has:attachment
+#
+# Reported by the owner: "the / command does not have To for mail... and
+# subject and has attachments etc". They were missing from the parser, not just
+# from the catalogue - and adding them exposed two older bugs, pinned below.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("typed", "field", "expected"), [
+    ("/to priya", "recipients", ("priya",)),
+    ("/cc chris", "recipients", ("chris",)),
+    ("/recipient dave", "recipients", ("dave",)),
+    ("/subject licence", "subjects", ("licence",)),
+    ("/title invoice", "subjects", ("invoice",)),
+    ("/re renewal", "subjects", ("renewal",)),
+])
+def test_the_mail_fields_parse(typed, field, expected):
+    assert getattr(parse_query(expand_slashes(typed)), field) == expected
+
+
+@pytest.mark.parametrize(("typed", "expected"), [
+    ("/has attachment", True),
+    ("/has attachments", True),
+    ("/has attached", True),
+    ("/has no-attachment", False),
+    ("/has no-attachments", False),
+    ("/has without-attachment", False),
+])
+def test_has_attachment_is_three_state(typed, expected):
+    """`None` means "did not ask", which is a different search from "asked for
+    none". A bool cannot tell those apart, and conflating them would silently
+    exclude every message with a file attached."""
+    assert parse_query(expand_slashes(typed)).has_attachment is expected
+
+
+def test_not_asking_about_attachments_is_not_the_same_as_asking_for_none():
+    assert parse_query("licence").has_attachment is None
+
+
+def test_an_unrecognised_has_value_is_reported_not_ignored():
+    """Silently ignoring `has:banana` would widen the search without saying so,
+    and the person would never learn their filter did nothing."""
+    assert parse_query("has:banana").unknown_operators == ("has:banana",)
+
+
+def test_the_operator_pattern_is_built_from_the_alias_table():
+    """The bug found while adding these three.
+
+    `_OPERATOR` carried its own hardcoded alternation of field names. Adding
+    `to`, `subject` and `has` to `_FIELD_ALIASES` therefore did nothing at all:
+    the regex never matched them, so the handler that would have used them was
+    unreachable and the words became ordinary search terms. The filter appeared
+    to work and silently did nothing.
+    """
+    from app.search.query import _FIELD_ALIASES, _OPERATOR
+
+    for alias in _FIELD_ALIASES:
+        assert _OPERATOR.match(f"{alias}:value"), f"{alias}: is documented but unmatched"
+
+
+def test_a_mail_query_combines_every_field():
+    parsed = parse_query(expand_slashes(
+        '/from chris /to priya /subject "licence renewal" /has attachment quote'
+    ))
+    assert parsed.senders == ("chris",)
+    assert parsed.recipients == ("priya",)
+    assert parsed.subjects == ("licence renewal",)
+    assert parsed.has_attachment is True
+    assert "quote" in parsed.terms
