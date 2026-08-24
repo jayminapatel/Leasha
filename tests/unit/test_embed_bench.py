@@ -154,26 +154,55 @@ def test_a_zero_rate_does_not_divide_by_zero():
 # The arithmetic that should have been checked the first time
 # ---------------------------------------------------------------------------
 
-def test_cost_is_dominated_by_sequence_length_not_model_size():
-    """The fact behind the original wrong estimate, written down.
+#: A stable run on the owner's machine - three passes per length, medians,
+#: spreads under 10%. The earlier single-pass numbers swung 44% and the
+#: conclusion drawn from them was wrong; these are what replaced them.
+MEASURED = {128: 17.11, 256: 7.04, 512: 2.29}
 
-    A throughput figure with no sequence length beside it means nothing: the
-    same model on the same machine differs by roughly four times between 128
-    and 512 tokens. Quoting one number as if it were a property of the model is
-    what sent a week of attention at the wrong problem.
+
+def test_a_throughput_figure_is_meaningless_without_its_sequence_length():
+    """The original wrong estimate, written down.
+
+    The same model on the same machine differs by more than seven times between
+    128 and 512 tokens. Quoting one figure as though it were a property of the
+    model is what sent a week of attention at the wrong problem.
     """
-    measured = {128: 17.46, 256: 9.00, 512: 4.42}      # from a real machine
+    assert MEASURED[128] / MEASURED[512] > 5
 
-    assert measured[128] / measured[512] > 3, (
-        "sequence length must dominate; if it does not, this test is measuring "
-        "something other than the transformer"
-    )
-    # Roughly linear in tokens rather than quadratic, at these lengths - which
-    # is why halving the chunk size does not halve the total cost: you simply
-    # get twice as many chunks.
-    total_cost_512 = 1 / measured[512]
-    total_cost_256 = 2 * (1 / measured[256])
-    assert total_cost_256 == pytest.approx(total_cost_512, rel=0.25)
+
+def test_shorter_chunks_are_cheaper_per_token_not_merely_smaller():
+    """**The correction.** Attention is quadratic, so the saving is real.
+
+    An earlier version of this test asserted that halving the chunk size was
+    roughly a wash - twice as many chunks at twice the speed - and said so on
+    the strength of an unstable measurement. With three passes and a tight
+    spread it is plainly false: per *token*, 256-token chunks run about 1.5
+    times faster than 512-token ones and 128-token chunks about 1.9 times.
+
+    That makes chunk size a real lever on indexing cost, and one that costs no
+    accuracy in the embedding itself - only context per vector, which is a
+    retrieval question rather than a throughput one.
+    """
+    def tokens_per_second(size: int) -> float:
+        return size * MEASURED[size]
+
+    assert tokens_per_second(256) / tokens_per_second(512) > 1.4
+    assert tokens_per_second(128) / tokens_per_second(512) > 1.7
+    # Monotonic: shorter is always cheaper per token at these lengths.
+    rates = [tokens_per_second(size) for size in sorted(MEASURED, reverse=True)]
+    assert rates == sorted(rates)
+
+
+def test_the_projection_uses_tokens_because_that_is_what_a_corpus_has():
+    """A corpus is a quantity of text. How it is cut into chunks is a choice,
+    and quoting hours against a chunk count hides that the choice matters."""
+    total_tokens = 800_000 * 512
+    hours = {
+        size: total_tokens / (size * MEASURED[size]) / 3600
+        for size in MEASURED
+    }
+    assert hours[512] > hours[256] > hours[128]
+    assert hours[512] / hours[128] > 1.7
 
 
 # ---------------------------------------------------------------------------

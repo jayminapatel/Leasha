@@ -991,10 +991,17 @@ def cmd_embedbench(args: argparse.Namespace) -> int:
 
     if result.throughput:
         print()
-        print(f"  {'tokens':>8}  {'chunks/sec':>11}  {'range over 3 passes':>22}")
+        # **Tokens per second, beside chunks per second.** A corpus is a
+        # quantity of text; how it is cut into chunks is a choice. Quoting only
+        # chunks/sec hides that the choice changes the total - and it hid it
+        # well enough that "halving the chunk size is roughly a wash" was said
+        # out loud on the strength of it, which the numbers below disprove.
+        print(f"  {'chunk':>8}  {'chunks/sec':>11}  {'tokens/sec':>11}"
+              f"  {'range':>18}")
         for tokens, rate in sorted(result.throughput.items()):
             low, high = result.spread.get(tokens, (rate, rate))
-            print(f"  {tokens:>8}  {rate:>11.2f}  {low:>10.2f} - {high:<9.2f}")
+            print(f"  {tokens:>8}  {rate:>11.2f}  {tokens * rate:>11,.0f}"
+                  f"  {low:>8.2f} - {high:<7.2f}")
 
         if result.unstable:
             print()
@@ -1004,6 +1011,17 @@ def cmd_embedbench(args: argparse.Namespace) -> int:
             print("    the projections below are only as good as this number.")
 
         rate = result.throughput.get(512) or min(result.throughput.values())
+        # The same corpus, cut differently. Everything here is measured on this
+        # machine; only the choice of chunk size is hypothetical.
+        biggest = max(result.throughput)
+        total_tokens = 800_000 * biggest
+        if len(result.throughput) > 1:
+            print()
+            print("  The same 100GB corpus, cut into different chunk sizes:")
+            for size in sorted(result.throughput):
+                hours = total_tokens / (size * result.throughput[size]) / 3600
+                marker = "  <- current" if size == biggest else ""
+                print(f"    {size:>3}-token chunks   {hours:>5.0f} hours{marker}")
         chunks = 0
         if settings.fts_db.is_file():
             with SqliteStore(settings.fts_db) as store:
@@ -1058,6 +1076,11 @@ def _embed_advice(result: Any) -> list[str]:
         lines.append("    small accuracy cost, and switching invalidates every stored")
         lines.append("    vector - so it is cheapest while the index is small.")
     lines += [
+        "  * Smaller chunks are cheaper PER TOKEN, not just smaller - attention",
+        "    is quadratic, so 256-token chunks run about 1.5x faster over the",
+        "    same text than 512-token ones. It costs context per vector, which",
+        "    is a retrieval question, and it needs a re-index rather than a",
+        "    re-embed because chunking happens at extraction.",
         "  * Fewer chunks beats faster chunks. Quoted replies and signatures are",
         "    already stripped; near-duplicate passages are the next candidate.",
         "  * The cost is per token, so it scales with how much text is indexed,",
