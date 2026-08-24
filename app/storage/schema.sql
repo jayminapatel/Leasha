@@ -113,6 +113,44 @@ CREATE TABLE IF NOT EXISTS index_generation (
 );
 INSERT OR IGNORE INTO index_generation (id, generation) VALUES (1, 0);
 
+
+-- ---------------------------------------------------------------------------
+-- Usage logging (schema v2) — the evidence Layer 10's tuning is derived from.
+--
+-- Built seven layers before anything reads it, because it is the one part of
+-- adaptive tuning that CANNOT be added later: in six months there is no record
+-- of what was searched or what turned out to be useful, and the only route left
+-- is hand-writing a golden set.
+--
+-- Entirely local. Never transmitted. Clearable from Settings — it is a record of
+-- what someone searched on their own machine, so they must be able to see it and
+-- delete it.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS searches (
+    id          INTEGER PRIMARY KEY,
+    query       TEXT    NOT NULL,      -- the raw string, before parsing
+    filters     TEXT,                  -- JSON: the ParsedQuery operators
+    hits        INTEGER NOT NULL,
+    elapsed_ms  INTEGER NOT NULL,
+    rerank_on   INTEGER NOT NULL,
+    searched_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_searches_at ON searches(searched_at);
+
+CREATE TABLE IF NOT EXISTS search_hits (
+    search_id   INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE,
+    chunk_id    INTEGER NOT NULL,
+    rank        INTEGER NOT NULL,      -- 1-based, after fusion and rerank
+    sources     TEXT    NOT NULL,      -- which retrievers found it
+    opened      INTEGER NOT NULL DEFAULT 0,
+    opened_at   INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_hits_search ON search_hits(search_id);
+CREATE INDEX IF NOT EXISTS idx_hits_opened ON search_hits(opened) WHERE opened = 1;
+
 -- ---------------------------------------------------------------------------
 -- Schema version — independent of the app version. See docs/VERSIONING.md
 -- ---------------------------------------------------------------------------
@@ -121,4 +159,4 @@ CREATE TABLE IF NOT EXISTS schema_version (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
     version INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 1);
+INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 2);

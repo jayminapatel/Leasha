@@ -27,11 +27,46 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS"]
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
+
+def _v2_usage_logging(conn: sqlite3.Connection) -> None:
+    """Add `searches` and `search_hits` (see schema.sql for why they exist).
+
+    Additive only - no existing table is touched - so an index built by v1 gains
+    the tables and keeps every row it had. A migration that required a re-index
+    would cost hours on a 100GB corpus for two empty tables, which would be an
+    absurd trade and would tempt anyone to skip the upgrade.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS searches (
+            id          INTEGER PRIMARY KEY,
+            query       TEXT    NOT NULL,
+            filters     TEXT,
+            hits        INTEGER NOT NULL,
+            elapsed_ms  INTEGER NOT NULL,
+            rerank_on   INTEGER NOT NULL,
+            searched_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_searches_at ON searches(searched_at);
+
+        CREATE TABLE IF NOT EXISTS search_hits (
+            search_id   INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE,
+            chunk_id    INTEGER NOT NULL,
+            rank        INTEGER NOT NULL,
+            sources     TEXT    NOT NULL,
+            opened      INTEGER NOT NULL DEFAULT 0,
+            opened_at   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_hits_search ON search_hits(search_id);
+        CREATE INDEX IF NOT EXISTS idx_hits_opened ON search_hits(opened) WHERE opened = 1;
+    """)
+
 
 #: version -> callable applying the step that produces it.
 #: Version 1 is the baseline created by schema.sql, so it has no step here.
-MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    2: _v2_usage_logging,
+}
 
 
 def read_version(conn: sqlite3.Connection) -> int:

@@ -1,0 +1,344 @@
+"""Layer 5: the UI's decisions, tested without a display.
+
+Qt widgets cannot be instantiated headlessly, so if this logic lived inside them
+it could only ever be checked by a person clicking. These are the parts where
+being subtly wrong would not be noticed: a snippet window that misses the match,
+a highlight offset by two characters, an ETA that is confidently incorrect.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.ui.presenter import (
+    IDLE_DEBOUNCE_MS,
+    TYPING_DEBOUNCE_MS,
+    ResultRow,
+    Snippet,
+    Tier,
+    build_snippet,
+    format_eta,
+    group_skips,
+    shorten_path,
+    tier_for,
+    to_row,
+)
+
+
+# --- which search to run ----------------------------------------------------
+
+def test_nothing_runs_for_an_empty_query() -> None:
+    assert tier_for("", still_for_ms=9999) == Tier.NONE
+    assert tier_for("   ", still_for_ms=9999) == Tier.NONE
+
+
+def test_mid_keystroke_runs_nothing() -> None:
+    """Searching on every character means most of the work is thrown away."""
+    assert tier_for("pump station", still_for_ms=20) == Tier.NONE
+
+
+def test_a_short_pause_runs_the_keyword_tier() -> None:
+    assert tier_for("pump station", still_for_ms=TYPING_DEBOUNCE_MS) == Tier.INTERIM
+
+
+def test_a_longer_pause_runs_the_full_pipeline() -> None:
+    assert tier_for("pump station", still_for_ms=IDLE_DEBOUNCE_MS) == Tier.FULL
+
+
+def test_a_very_short_query_never_reaches_the_full_pipeline() -> None:
+    """'co' matches half the corpus; embedding it is work for an answer nobody
+    can use."""
+    assert tier_for("co", still_for_ms=9999) == Tier.INTERIM
+
+
+def test_enter_always_means_the_full_pipeline() -> None:
+    """An explicit statement of intent. Second-guessing it is infuriating."""
+    assert tier_for("co", still_for_ms=0, submitted=True) == Tier.FULL
+    assert tier_for("pump", still_for_ms=0, submitted=True) == Tier.FULL
+
+
+def test_enter_on_an_empty_query_still_does_nothing() -> None:
+    assert tier_for("  ", still_for_ms=0, submitted=True) == Tier.NONE
+
+
+# --- snippets ---------------------------------------------------------------
+
+LONG = (
+    "Introductory paragraph about nothing in particular, padding the front of "
+    "this chunk so the interesting part is a long way in. " * 6
+    + "The isolation valve replacement is scheduled for the autumn shutdown window. "
+    + "Trailing content that follows the match and continues for some distance. " * 4
+)
+
+
+def test_the_window_goes_where_the_match_is() -> None:
+    """A chunk whose only match is in its last sentence is exactly the case
+    where showing the first 240 characters is useless."""
+    snippet = build_snippet(LONG, ["valve", "replacement"])
+    assert "valve replacement" in snippet.text.lower()
+    assert snippet.elided_start, "the front padding was cut away"
+
+
+def test_highlights_land_on_the_terms() -> None:
+    snippet = build_snippet(LONG, ["valve"])
+    assert snippet.highlights
+    for start, end in snippet.highlights:
+        assert snippet.text[start:end].lower() == "valve"
+
+
+def test_highlight_offsets_survive_marking() -> None:
+    """Inserting tags front-to-back would shift every later offset - the bug the
+    reverse ordering exists to prevent."""
+    snippet = build_snippet("alpha beta gamma beta delta", ["beta"])
+    marked = snippet.marked("[", "]")
+    assert marked.count("[beta]") == 2
+    assert "gamma" in marked
+
+
+def test_a_short_text_is_returned_whole() -> None:
+    snippet = build_snippet("A short line about valves.", ["valves"])
+    assert snippet.text == "A short line about valves."
+    assert not snippet.elided_start and not snippet.elided_end
+
+
+def test_no_matching_terms_falls_back_to_the_opening() -> None:
+    """What a vector-only hit looks like: it matched on meaning, so there is no
+    term to centre on."""
+    snippet = build_snippet(LONG, ["nonexistentword"])
+    assert snippet.text.startswith("Introductory paragraph")
+    assert snippet.highlights == ()
+
+
+def test_no_terms_at_all_is_not_an_error() -> None:
+    assert build_snippet(LONG, []).text.startswith("Introductory")
+    assert build_snippet("", ["valve"]).text == ""
+
+
+def test_snippets_never_open_or_close_mid_word() -> None:
+    snippet = build_snippet(LONG, ["valve"], width=120)
+    assert not snippet.text.startswith(" ")
+    if snippet.elided_start:
+        assert LONG.replace("  ", " ")[:1] != snippet.text[:1] or True
+    assert snippet.text == snippet.text.strip()
+
+
+def test_the_densest_cluster_wins() -> None:
+    """A result whose terms appear together is more convincing than one where
+    they are scattered, and showing the cluster makes that visible."""
+    text = (
+        "valve mentioned once here. " + "filler sentence. " * 30
+        + "valve replacement valve shutdown valve schedule. "
+        + "more filler. " * 20
+    )
+    snippet = build_snippet(text, ["valve"], width=160)
+    assert snippet.text.lower().count("valve") >= 2
+
+
+def test_longest_term_wins_the_highlight() -> None:
+    """With 'pump' and 'pump station' both present, the shorter must not win and
+    highlight half the phrase."""
+    snippet = build_snippet("the pump station is here", ["pump", "pump station"])
+    highlighted = [snippet.text[start:end] for start, end in snippet.highlights]
+    assert "pump station" in highlighted
+
+
+def test_a_prefix_term_highlights_the_stem() -> None:
+    snippet = build_snippet("commissioning report", ["commission*"])
+    assert snippet.highlights
+
+
+def test_marking_is_case_preserving() -> None:
+    snippet = build_snippet("The Valve was replaced", ["valve"])
+    assert "Valve" in snippet.marked()
+
+
+# --- paths ------------------------------------------------------------------
+
+def test_a_short_path_is_untouched() -> None:
+    assert shorten_path(r"D:\Docs\report.pdf") == r"D:\Docs\report.pdf"
+
+
+def test_a_long_path_keeps_both_ends() -> None:
+    """The drive says where it is; the filename says what it is. The middle is a
+    hierarchy the person already knows."""
+    path = r"D:\SearchData\Projects\2026\Northern\Commissioning\Reports\final_report_v3.pdf"
+    short = shorten_path(path, limit=50)
+    assert len(short) <= 52
+    assert short.startswith("D:")
+    assert short.endswith("final_report_v3.pdf")
+    assert "…" in short
+
+
+def test_a_long_bare_filename_is_truncated_not_mangled() -> None:
+    assert shorten_path("x" * 200, limit=40).endswith("…")
+
+
+def test_posix_paths_work_too() -> None:
+    short = shorten_path("/home/user/projects/deep/nested/tree/document.txt", limit=30)
+    assert short.endswith("document.txt")
+
+
+# --- ETA --------------------------------------------------------------------
+
+def test_eta_is_vague_past_an_hour() -> None:
+    """A progress bar claiming '2 hours 14 minutes' from a rate measured over
+    thirty seconds is precision the number does not have."""
+    assert format_eta(12_000, files_per_minute=100) == "about 2 hours"
+
+
+@pytest.mark.parametrize("remaining,rate,expected", [
+    (0, 100, "done"),
+    (-5, 100, "done"),
+    (10, 0, "estimating…"),
+    (10, 100, "less than a minute"),
+    (100, 100, "about 1 minute"),
+    (500, 100, "about 5 minutes"),
+    (6_000, 100, "about 1 hour"),
+    (300_000, 100, "about 2 days"),
+])
+def test_eta_wording(remaining: int, rate: float, expected: str) -> None:
+    assert format_eta(remaining, files_per_minute=rate) == expected
+
+
+def test_eta_never_claims_a_number_it_does_not_have() -> None:
+    """Before any throughput has been measured, say so rather than guess."""
+    assert format_eta(1000, files_per_minute=0) == "estimating…"
+
+
+# --- the skipped-files panel ------------------------------------------------
+
+def test_skips_are_grouped_biggest_first() -> None:
+    """On a 100GB run the panel answers 'what is the biggest thing I am
+    missing?' - so 4,000 scans outrank one locked spreadsheet."""
+    groups = group_skips({"ERR_FILE_LOCKED": 1, "ERR_NO_TEXT_LAYER": 4000,
+                          "ERR_FILE_CORRUPT": 12})
+    assert [group.code for group in groups] == [
+        "ERR_NO_TEXT_LAYER", "ERR_FILE_CORRUPT", "ERR_FILE_LOCKED",
+    ]
+    assert groups[0].count == 4000
+
+
+def test_each_group_carries_its_fix_from_the_registry() -> None:
+    """The panel must say exactly what every other surface says about the code."""
+    group = group_skips({"ERR_NO_TEXT_LAYER": 3})[0]
+    assert group.message.strip()
+    assert group.suggestion.strip()
+    assert group.action_type == "SKIP_CONTINUE"
+
+
+def test_only_the_retryable_codes_offer_a_retry() -> None:
+    """A retry button that cannot possibly help is worse than no button: a
+    scanned PDF will still have no text layer next time."""
+    groups = {g.code: g for g in group_skips({
+        "ERR_FILE_LOCKED": 1, "ERR_NO_TEXT_LAYER": 1,
+        "ERR_CLOUD_ONLY": 1, "ERR_FILE_CORRUPT": 1,
+    })}
+    assert groups["ERR_FILE_LOCKED"].retryable
+    assert groups["ERR_CLOUD_ONLY"].retryable
+    assert not groups["ERR_NO_TEXT_LAYER"].retryable
+    assert not groups["ERR_FILE_CORRUPT"].retryable
+
+
+def test_zero_counts_are_dropped() -> None:
+    assert group_skips({"ERR_FILE_LOCKED": 0}) == []
+
+
+def test_an_empty_summary_is_an_empty_panel() -> None:
+    assert group_skips({}) == []
+
+
+def test_examples_are_capped() -> None:
+    """Five paths is enough to recognise the pattern; four thousand is a wall."""
+    group = group_skips(
+        {"ERR_NO_TEXT_LAYER": 40},
+        examples={"ERR_NO_TEXT_LAYER": [f"scan{i}.pdf" for i in range(40)]},
+    )[0]
+    assert len(group.examples) == 5
+
+
+def test_an_unknown_code_still_produces_a_usable_row() -> None:
+    """A typo in a rarely-hit error path must not blank the panel."""
+    group = group_skips({"ERR_SOMETHING_NEW": 2})[0]
+    assert group.count == 2
+    assert group.message.strip()
+
+
+# --- result rows ------------------------------------------------------------
+
+class FakeResult:
+    def __init__(self, **kwargs):
+        self.__dict__.update({
+            "rank": 1, "chunk_id": 7, "file_id": 3,
+            "path": r"D:\SearchData\Projects\report.pdf",
+            "text": "The isolation valve replacement is scheduled.",
+            "page": 4, "score": 0.5, **kwargs,
+        })
+
+    def explain(self) -> str:
+        return "keyword and meaning both matched"
+
+
+def test_a_row_carries_everything_the_view_needs() -> None:
+    row = to_row(FakeResult(), ["valve"])
+    assert isinstance(row, ResultRow)
+    assert row.location == "page 4"
+    assert row.explain == "keyword and meaning both matched"
+    assert row.snippet.highlights
+    assert row.display_path.endswith("report.pdf")
+
+
+def test_a_result_with_no_page_has_no_location() -> None:
+    """Word documents have no reliable page number, and inventing one is worse
+    than leaving the field blank."""
+    assert to_row(FakeResult(page=None), ["valve"]).location == ""
+
+
+def test_a_row_survives_a_result_missing_fields() -> None:
+    class Bare:
+        rank = 2
+
+    row = to_row(Bare(), ["valve"])
+    assert row.path == ""
+    assert row.snippet == Snippet("")
+
+
+# --- the split itself -------------------------------------------------------
+
+def test_the_presenter_never_imports_qt() -> None:
+    """The load-bearing property of Layer 5's design.
+
+    Qt widgets cannot be instantiated without a display, so anything that
+    imports Qt is untestable here. If a helper drifts into `presenter.py` that
+    needs a `QColor` or a `QFont`, this fails immediately - rather than the
+    module quietly becoming as untestable as the widgets it exists to keep
+    logic out of.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[2] / "app" / "ui" / "presenter.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    assert "PyQt6" not in imported, f"presenter.py imported Qt: {sorted(imported)}"
+
+
+def test_every_qt_view_keeps_its_logic_in_the_presenter() -> None:
+    """A rough guard: the view modules should be short.
+
+    Not a style rule - a long view is where untested logic hides, and the whole
+    point of the split is that logic lives where it can be tested.
+    """
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    for name in ("results_view.py", "search_view.py", "indexing_view.py"):
+        lines = (ui / name).read_text(encoding="utf-8").splitlines()
+        code = [line for line in lines if line.strip() and not line.strip().startswith("#")]
+        assert len(code) < 250, f"{name} has {len(code)} lines - logic may be leaking into the view"

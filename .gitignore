@@ -61,6 +61,11 @@ build/
 dist/
 *.spec
 
+# --- pytest scratch --------------------------------------------------------
+# Set by --basetemp in pyproject.toml. pytest DELETES this folder's contents on
+# every run, so never put anything real here.
+.pytest_tmp/
+
 # --- Generated test fixtures -----------------------------------------------
 # Built by tests/fixtures/generate.py, never committed. Binary fixtures in git
 # rot: nobody can review a .docx diff, and an editor that opens and re-saves one

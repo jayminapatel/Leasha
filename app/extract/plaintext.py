@@ -112,6 +112,15 @@ class PlainTextExtractor:
                 "ERR_NO_TEXT_LAYER",
                 "extract.plaintext",
                 path=str(path),
+                # The registry's default suggestion talks about scans and OCR,
+                # which would be nonsense here. An error that gives the wrong
+                # advice is worse than one that gives none.
+                suggestion=(
+                    "The extension says text but the contents are binary - usually a database, "
+                    "an archive or an image that has been renamed. Indexing its bytes as words "
+                    "would fill the search index with matches for nothing. Rename it to its real "
+                    "extension if you want it handled properly."
+                ),
                 details="Contains NUL bytes, so it is a binary file with a text extension.",
             )
             return

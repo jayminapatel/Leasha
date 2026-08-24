@@ -328,6 +328,62 @@ def check_rerank_model(quick: bool = False) -> Check:
         )
 
 
+def check_git() -> Check:
+    """Git on PATH, which the release process assumes and nothing else checks.
+
+    Optional, because the app runs perfectly without it: `build_info()` degrades
+    to a version with no commit. But every convention in docs/VERSIONING.md -
+    branch per layer, conventional commits, tags per release - silently stops
+    working, and the failure looks like "git is not recognized" long after the
+    installer said it was done.
+
+    The usual cause is not a missing install: `install.ps1` installs Git via
+    winget, but a PowerShell window opened *before* that inherits the old PATH
+    and keeps it until it is closed. So the fix leads with refreshing PATH.
+    """
+    import subprocess
+
+    location = shutil.which("git")
+    if location is None:
+        return Check(
+            "Git on PATH", False, "not found",
+            fix=(
+                "Usually a stale PATH rather than a missing install: a PowerShell window opened "
+                "before Git was installed keeps the old PATH until it is closed. Refresh it in "
+                "place with:  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') "
+                "+ ';' + [Environment]::GetEnvironmentVariable('Path','User')   - or just open a "
+                "new terminal. If it is genuinely absent:  winget install --id Git.Git -e"
+            ),
+            optional=True,
+        )
+
+    try:
+        version = subprocess.run(
+            [location, "--version"], capture_output=True, text=True, timeout=10, check=False
+        ).stdout.strip()
+    except Exception as exc:                              # noqa: BLE001
+        return Check("Git on PATH", False, f"{type(exc).__name__}: {exc}",
+                     fix="Git is on PATH but would not run. Reinstall: winget install --id Git.Git -e",
+                     optional=True)
+
+    return Check("Git on PATH", True, f"{version} at {location}", optional=True)
+
+
+def new_outlook_present() -> bool:
+    """True if the 'new Outlook' web app is installed.
+
+    Worth knowing because it is a trap, not a help: new Outlook has no COM or
+    MAPI automation and cannot open .pst files at all. Someone who has it and
+    reads "Outlook not found" will reasonably conclude the check is broken.
+    """
+    if sys.platform != "win32":
+        return False
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local and Path(local, "Microsoft", "WindowsApps", "olk.exe").exists():
+        return True
+    return shutil.which("olk") is not None
+
+
 def check_outlook() -> Check:
     if sys.platform != "win32":
         return Check("Outlook MAPI (PST)", False, "not Windows",
@@ -335,15 +391,26 @@ def check_outlook() -> Check:
     try:
         import win32com.client
         win32com.client.Dispatch("Outlook.Application")
-        return Check("Outlook MAPI available (PST ingestion)", True, optional=True)
+        return Check("Classic Outlook MAPI available (PST ingestion)", True, optional=True)
     except Exception as exc:
-        return Check(
-            "Outlook MAPI (PST ingestion)", False, f"{type(exc).__name__}: {exc}",
-            fix="OPTIONAL - needed only to index .pst archives; every other file type indexes normally. "
-                "Either install Outlook, or convert PST to EML with XstReader and index the EML folder. "
-                "Do NOT substitute extract-msg: it reads .msg files only, not .pst.",
-            optional=True,
-        )
+        detail = f"{type(exc).__name__}: {exc}"
+        if new_outlook_present():
+            detail += "  -- 'new Outlook' IS installed, but it cannot do this"
+            fix = (
+                "OPTIONAL, but note the trap: you have the NEW Outlook, which is a web app with "
+                "no COM or MAPI automation and no .pst support whatsoever. It cannot index mail "
+                "however it is configured. Switch to CLASSIC Outlook with the toggle in its "
+                "top-right corner (installing it if necessary), then re-run. Every other file "
+                "type indexes normally either way."
+            )
+        else:
+            fix = (
+                "OPTIONAL - needed only to index .pst archives; every other file type indexes "
+                "normally. Install CLASSIC Outlook - the new Outlook is a web app and cannot "
+                "open .pst files - or convert PST to EML with XstReader and index that folder. "
+                "Do NOT substitute extract-msg: it reads .msg files only, not .pst."
+            )
+        return Check("Classic Outlook MAPI (PST ingestion)", False, detail, fix=fix, optional=True)
 
 
 def check_ollama() -> Check:
@@ -397,6 +464,7 @@ def run_all(quick: bool = False) -> list[Check]:
         check_lancedb_roundtrip(),
         check_embedding_model(quick),
         check_rerank_model(quick),
+        check_git(),
         check_outlook(),
         check_ollama(),
     ]

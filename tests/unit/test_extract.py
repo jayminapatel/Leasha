@@ -393,3 +393,123 @@ def test_normalise_whitespace_collapses_ragged_input() -> None:
     assert normalise_whitespace("a  \n\n\n\n\nb") == "a\n\nb"
     assert normalise_whitespace("\r\nline\r\n") == "line"
     assert normalise_whitespace("   ") == ""
+
+
+# --- PPTX: where the text actually hides ------------------------------------
+#
+# A deck-heavy corpus is the hard case. `slide.shapes` yields only top-level
+# shapes, and a group is one opaque shape with no text frame - so reading
+# `has_text_frame` alone silently loses every word inside every group, and
+# grouping is how slides get built. Tables and charts are the same problem
+# wearing different hats.
+
+def test_pptx_reads_text_inside_grouped_shapes(fixture_root: Path) -> None:
+    """The bug this guards: Ctrl+G on two shapes made their text invisible."""
+    from tests.fixtures.generate import PPTX_GROUPED_TEXT
+
+    document = extract_one(fixture_root / "office/rich.pptx")
+    assert PPTX_GROUPED_TEXT in document.text
+    assert "Second member of the group" in document.text
+
+
+def test_pptx_reads_table_cells(fixture_root: Path) -> None:
+    from tests.fixtures.generate import PPTX_TABLE
+
+    document = extract_one(fixture_root / "office/rich.pptx")
+    for row in PPTX_TABLE:
+        for cell in row:
+            assert cell in document.text, f"table cell {cell!r} was lost"
+
+
+def test_pptx_reads_chart_labels(fixture_root: Path) -> None:
+    """Category and series names are words people search for; the numbers are not."""
+    from tests.fixtures.generate import (
+        PPTX_CHART_CATEGORIES,
+        PPTX_CHART_SERIES,
+        PPTX_CHART_TITLE,
+    )
+
+    document = extract_one(fixture_root / "office/rich.pptx")
+    assert PPTX_CHART_TITLE in document.text
+    assert PPTX_CHART_SERIES in document.text
+    for category in PPTX_CHART_CATEGORIES:
+        assert category in document.text
+
+
+def test_naive_shape_reading_would_have_missed_all_of_it(fixture_root: Path) -> None:
+    """Proves the fix is load-bearing rather than decorative.
+
+    Reconstructs the old logic - top-level shapes with a text frame - and
+    asserts it finds none of the grouped, tabular or charted text. If this ever
+    starts passing, python-pptx changed and the recursion may be redundant.
+    """
+    from pptx import Presentation
+
+    from tests.fixtures.generate import PPTX_CHART_TITLE, PPTX_GROUPED_TEXT, PPTX_TABLE
+
+    deck = Presentation(str(fixture_root / "office/rich.pptx"))
+    naive = "\n".join(
+        shape.text_frame.text
+        for slide in deck.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert PPTX_GROUPED_TEXT not in naive
+    assert PPTX_TABLE[1][0] not in naive
+    assert PPTX_CHART_TITLE not in naive
+
+
+def test_picture_heavy_deck_is_flagged_but_still_indexed() -> None:
+    """The PPTX analogue of a scanned PDF.
+
+    A deck is rarely *entirely* pictures - there is always a title - so it
+    indexes successfully while most of what it says stays unfindable. Without a
+    warning the file looks fine and the absence only surfaces later, as a search
+    that should have matched and didn't.
+
+    Tested against the rule directly rather than by building a 50MB fixture:
+    the threshold is the logic, and a real deck of that size would make the
+    suite slow and the failure output unreadable.
+    """
+    from app.extract.office import _warn_if_mostly_pictures
+
+    builder = DocumentBuilder(Path("infographic.pptx"))
+    builder.add("Title only")
+    _warn_if_mostly_pictures(
+        builder, Path("infographic.pptx"),
+        characters=300, slides=12, size_bytes=50 * 1_048_576,
+    )
+    document = builder.build()
+
+    assert "Title only" in document.text, "still indexed, not skipped"
+    assert [w.code for w in document.warnings] == ["ERR_NO_TEXT_LAYER"]
+    assert "images rather than text" in document.warnings[0].suggestion
+    assert "chars/MB" in document.warnings[0].details
+
+
+def test_text_carrying_deck_is_not_flagged() -> None:
+    from app.extract.office import _warn_if_mostly_pictures
+
+    builder = DocumentBuilder(Path("report.pptx"))
+    _warn_if_mostly_pictures(
+        builder, Path("report.pptx"),
+        characters=80_000, slides=40, size_bytes=20 * 1_048_576,
+    )
+    assert not builder.build().warnings
+
+
+def test_small_deck_is_never_flagged() -> None:
+    """Under a megabyte the ratio is noise - a 3-slide title deck is not a bug."""
+    from app.extract.office import _warn_if_mostly_pictures
+
+    builder = DocumentBuilder(Path("tiny.pptx"))
+    _warn_if_mostly_pictures(
+        builder, Path("tiny.pptx"), characters=10, slides=1, size_bytes=200_000
+    )
+    assert not builder.build().warnings
+
+
+def test_normal_deck_is_not_flagged(fixture_root: Path) -> None:
+    """The warning must not cry wolf on an ordinary small deck."""
+    document = extract_one(fixture_root / "office/healthy.pptx")
+    assert not document.warnings

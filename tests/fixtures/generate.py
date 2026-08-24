@@ -46,6 +46,19 @@ PPTX_SLIDES = [
     ("Risks", "Long-lead valve delivery remains the critical path item."),
 ]
 
+#: Text placed only inside a grouped shape, a table and a chart - the three
+#: places `slide.shapes` + `has_text_frame` alone cannot reach. On a deck-heavy
+#: corpus these hold most of the content, so each string is asserted by name.
+PPTX_GROUPED_TEXT = "Grouped callout about throughput"
+PPTX_TABLE = [
+    ["Region", "Units"],
+    ["Northern plant", "4150"],
+    ["Southern plant", "2120"],
+]
+PPTX_CHART_TITLE = "Output by quarter"
+PPTX_CHART_CATEGORIES = ["Q1 commissioning", "Q2 handover"]
+PPTX_CHART_SERIES = "Planned tonnage"
+
 
 def ensure_fixtures(root: Path | None = None) -> Path:
     """Create every fixture that is missing. Returns the fixture root."""
@@ -216,6 +229,7 @@ def _office(folder: Path) -> None:
     _docx(folder / "healthy.docx")
     _xlsx(folder / "healthy.xlsx")
     _pptx(folder / "healthy.pptx")
+    _pptx_rich(folder / "rich.pptx")
 
 
 def _docx(path: Path) -> None:
@@ -269,6 +283,55 @@ def _pptx(path: Path) -> None:
         slide = deck.slides.add_slide(layout)
         slide.shapes.title.text = title
         slide.notes_slide.notes_text_frame.text = notes
+    deck.save(str(path))
+
+
+def _pptx_rich(path: Path) -> None:
+    """A deck whose text lives where a naive reader cannot see it."""
+    if path.exists():
+        return
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches, Pt
+
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])          # blank
+
+    # --- a grouped shape. python-pptx cannot create a group directly, so two
+    # textboxes are made and their XML is moved into a group element by hand.
+    # Contrived to build, but this is exactly what PowerPoint produces when
+    # somebody selects two shapes and presses Ctrl+G - which is constantly.
+    first = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    first.text_frame.text = PPTX_GROUPED_TEXT
+    second = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    second.text_frame.text = "Second member of the group"
+
+    group = slide.shapes.add_group_shape()
+    for member in (first, second):
+        group._element.append(member._element)
+
+    # --- a table
+    rows, cols = len(PPTX_TABLE), len(PPTX_TABLE[0])
+    table_shape = slide.shapes.add_table(
+        rows, cols, Inches(1), Inches(3), Inches(6), Inches(1.5)
+    )
+    for r, row in enumerate(PPTX_TABLE):
+        for c, value in enumerate(row):
+            table_shape.table.cell(r, c).text = value
+
+    # --- a chart
+    chart_data = CategoryChartData()
+    chart_data.categories = PPTX_CHART_CATEGORIES
+    chart_data.add_series(PPTX_CHART_SERIES, (19.2, 21.4))
+    frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(1), Inches(5), Inches(6), Inches(2), chart_data,
+    )
+    frame.chart.has_title = True
+    frame.chart.chart_title.text_frame.text = PPTX_CHART_TITLE
+    frame.chart.chart_title.text_frame.paragraphs[0].runs[0].font.size = Pt(18)
+
     deck.save(str(path))
 
 

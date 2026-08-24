@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.6 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -37,21 +37,21 @@ entirely rebuildable from your documents, so deleting it is always safe.
 
 ## 3. Current state
 
-**Version 0.3.2. Layers 0 and 1 complete, Layer 2 complete except Outlook. 358 tests passing,
-2 xfailed (PST, deliberately).**
+**Version 0.3.2. Layers 0-5 code-complete. 634 tests passing, 1 xfailed (real-Outlook COM, deliberately).**
 
 | Layer | What it is | State |
 |---|---|---|
 | L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - v0.2.0 |
 | L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - v0.3.0 |
-| L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Files done; PST outstanding** - see below |
-| L3 | Indexing pipeline: walker, workers, resumable cursor | **Next** |
-| L4 | Search: BM25 + ANN, RRF fusion, rerank | **Partially built ahead of order** - see below |
-| L5 | PyQt6 UI shell | Not started |
-| L6 | Knowledge graph | Not started |
+| L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
+| L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - needs a real-scale run |
+| L4 | Search: BM25 + ANN, RRF fusion, rerank | **Code-complete** - p95 needs the real corpus |
+| L5 | PyQt6 UI shell | **Code-complete** - needs a human to run it |
+| L6 | Knowledge graph | **Next** |
 | L7 | Office document builder | Not started |
 | L8 | Optional RAG answers | Not started |
 | L9 | Hardening and packaging | Not started |
+| L10 | Adaptive tuning (self-tuning / learning) | Not started - deliberately last |
 
 ### Built out of order, deliberately
 
@@ -64,27 +64,41 @@ Do not read this as permission to skip ahead generally. It worked because those 
 take plain data in and return plain data out. Anything touching storage, extraction or the
 pipeline must respect the order.
 
-### Layer 2: what is done and what is not
+### Layer 2: done, with one thing only you can check
 
-Done and tested: `base.py` (the `Document`/`Segment` contract and the extractor registry),
-`chunker.py`, `pdf.py`, `office.py`, `plaintext.py`, `email_files.py` (`.eml` and `.msg`).
-Six of the eight acceptance criteria pass.
+All eight acceptance criteria pass. `base.py`, `chunker.py`, `pdf.py`, `office.py`,
+`plaintext.py`, `email_files.py` and `email_pst.py` are built and tested.
 
-**Not done: `email_pst.py`.** It needs `win32com` against a live Outlook, which cannot be
-verified on any machine without one, so it was left as its own pass rather than shipped as
-untested code that looks finished. Acceptance criteria 5 and 6 are marked `xfail(run=False)`
-in `tests/integration/test_layer2_acceptance.py` - visibly outstanding rather than quietly
-missing. **Layer 2 is not complete and `VERSION` has not moved to 0.4.0.**
+**The one outstanding item.** `Win32ComSession` is the only code that talks to COM, and no
+test anywhere can prove it drives real Outlook. Everything above it - the folder walk,
+conversation grouping, attachment dedup, `ERR_OUTLOOK_BUSY` handling - is tested against a
+fake MAPI session and runs on any machine. So:
 
-Attachment recursion lands with the PST pass. Today `.eml` records attachment *names* in
-`meta` and sets `has_attach`, but does not extract their contents.
+```powershell
+venv\Scripts\python.exe -m app.cli extract --mailbox
+```
 
-Two smaller gaps, both recorded in `CHANGELOG.md`: the `.msg` happy path is untested (a valid
-`.msg` is an OLE compound document and cannot be synthesised in a fixture generator - a real
-Outlook-saved sample would close it), and `extract-msg` pulls in `red-black-tree-mod`, which
-publishes no wheel. It is pure Python so no compiler is needed, but it breaks the
-"every pin ships a wheel" rule at the top of `requirements.txt`, and the reason is written
-there.
+with Outlook open. Until that has been run once and the counts look sane, treat Layer 2 as
+code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
+
+**Design decisions inside PST worth not relitigating:**
+
+- **Identity is the `EntryID`, never a folder path.** Moving a message between folders must
+  not make it look like a new message. On a mailbox that gets reorganised, path-keying is the
+  difference between an index that settles and one that grows forever.
+- **Attachments dedup by content hash**, and the hash set belongs to the caller so Layer 3 can
+  persist it in `files.content_hash`. 30GB of archives holds the same deck mailed round the
+  team eight times; without this you get eight identical results and eight times the embedding.
+- **`Deleted Items`, junk and sync-conflict folders are skipped by default.** On a fifteen-year
+  archive Deleted Items is often a third of the messages, all of them things the owner threw
+  away. Override with `skip_folders=frozenset()`.
+- **A closed folder costs that folder, not the run.** By the time Outlook gets closed mid-index,
+  thousands of messages may already be read; losing them would be unforgivable.
+- **Nothing reaches past the Cached Exchange Mode cache.** Coverage is whatever Outlook already
+  holds locally, and `store_cached_only` is recorded on every document so the gap is visible.
+
+**Known gap:** loose `.eml` files on disk still record attachment *names* only; their contents
+are not extracted. PST attachments are. Worth closing when it matters.
 
 **Fixtures are generated, not committed** - `tests/fixtures/generate.py`, called automatically
 by a session fixture in `conftest.py`. Binary test files in git cannot be reviewed in a diff,
@@ -93,17 +107,70 @@ Delete the fixture folders freely; the next test run rebuilds them.
 
 ### What works right now
 
+**The app itself:**
+
 ```powershell
 cd D:\SearchProject
+venv\Scripts\python.exe -m app.main
+```
+
+Search bar focused on launch. `Ctrl+K` returns to it from anywhere, `Ctrl+I` shows indexing,
+`Ctrl+,` settings, `Esc` clears, `F5` indexes. Add folders in Settings first, or drag them onto
+the window. **Nobody has run this yet** - Qt cannot be started without a display, so it is the
+one part of the project verified by reading rather than by testing. Expect wiring problems, not
+logic problems: the decisions all live in `app/ui/presenter.py`, which has 44 tests and is
+forbidden by another test from importing Qt at all.
+
+**The command line:**
+
+```powershell
 venv\Scripts\python.exe -m app.cli stats      # resolved config + both store summaries
 venv\Scripts\python.exe -m app.cli init       # create/migrate both stores, safe to re-run
 venv\Scripts\python.exe -m app.cli doctor     # environment verification
 venv\Scripts\python.exe -m app.cli diagnose   # troubleshooting bundle -> logs\diagnostics\
-venv\Scripts\python.exe -m pytest tests -q    # 358 passed, 2 xfailed
+venv\Scripts\python.exe -m pytest tests -q    # 634 passed, 1 xfailed (~5 min)
+venv\Scripts\python.exe -m pytest tests -q -m "not slow"   # fast loop, skips Layer 3 acceptance
 ```
 
-`app.cli index` and `app.cli search` exist but return `ERR_NOT_IMPLEMENTED` naming the layer
-that delivers them. That is intentional: declared, honest, not pretending.
+**Layer 2's entry point - point it at your own documents:**
+
+```powershell
+venv\Scripts\python.exe -m app.cli extract "D:\Docs\report.pdf" --chunks
+venv\Scripts\python.exe -m app.cli extract "D:\Docs" --limit 200
+venv\Scripts\python.exe -m app.cli extract "D:\Docs" --out report.json
+venv\Scripts\python.exe -m app.cli extract --mailbox     # Outlook archives + cached mailbox
+```
+
+**Layer 3 - actually build the index (this one writes):**
+
+```powershell
+venv\Scripts\python.exe -m app.cli index "D:\SearchData"
+venv\Scripts\python.exe -m app.cli index "D:\SearchData" --first "D:\SearchData\Current"
+```
+
+`--first` is repeatable and ordered, so search becomes useful on the folders you care about
+within minutes rather than after the whole corpus. Re-running is cheap: an unchanged file costs
+a `stat()`, and a test asserts the second pass never opens one.
+
+`extract` is read-only and `index` writes - that distinction is deliberate. `extract` is safe
+to point at anything and is how you find out whether extraction works on *your* files rather
+than on synthetic fixtures; it also reports MB/s, which is the evidence for the throughput
+question in section 7.
+
+**Layer 4 - search it:**
+
+```powershell
+venv\Scripts\python.exe -m app.cli search "site survey" type:pdf after:2024
+venv\Scripts\python.exe -m app.cli search "valve replacement" --limit 5 --no-rerank
+```
+
+Typed operators work anywhere in the query: `type:` `after:` `before:` `path:` `from:`,
+`"phrases"` and `-exclusions`. Every result says *why* it matched - keyword, meaning, or both
+agreeing, which is the strongest signal the pipeline produces.
+
+Every search and every result is recorded in `searches` / `search_hits`, and opening a result
+marks it. That data is what Layer 10's tuning is derived from, it is local and clearable, and
+it is collected now because it cannot be reconstructed later.
 
 ## 4. Resuming from cold
 

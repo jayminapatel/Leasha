@@ -7,7 +7,27 @@ testpaths = ["tests"]
 # Makes `import app` work regardless of where pytest is invoked from, so the
 # VS Code Test Explorer and a bare `pytest` behave identically.
 pythonpath = ["."]
-addopts = "-q --strict-markers"
+# --basetemp keeps pytest's temporary files inside the project instead of
+# %LOCALAPPDATA%\Temp. Not tidiness - a correctness fix.
+#
+# pytest maintains a `pytest-current` junction in its temp root pointing at the
+# newest run. On Windows, creating and resolving a junction needs a privilege
+# that a normal account may not have (it comes with Developer Mode or admin),
+# and antivirus "controlled folder access" blocks it too. When resolving fails,
+# `cleanup_dead_symlinks` raises `PermissionError: [WinError 5]` from
+# `pytest_sessionfinish` - AFTER every test has passed. The suite is green and
+# the process still exits non-zero, which is the worst of both worlds: nothing
+# to fix in the code, and no way to trust the exit code.
+#
+# Pointing basetemp at a directory we own sidesteps the junction entirely, and
+# puts scratch I/O on the same drive as the project.
+#
+# WARNING: pytest DELETES the contents of basetemp. It must stay a dedicated
+# folder - never point it at anything real. It is gitignored.
+addopts = "-q --strict-markers --basetemp=.pytest_tmp"
+# Keep the last few runs' temp trees for inspection, then discard them.
+tmp_path_retention_count = 3
+tmp_path_retention_policy = "failed"
 markers = [
     "slow: takes more than a second (model loading, large fixtures)",
     "windows: requires Windows (Outlook MAPI, named mutex)",

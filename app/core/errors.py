@@ -148,10 +148,14 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.USER_RETRY,
     ),
     "ERR_OUTLOOK_MISSING": _Spec(
-        message="PST indexing needs Microsoft Outlook, which was not found.",
+        message="PST indexing needs classic Outlook, which was not found.",
         suggestion=(
-            "Every other file type indexes normally. To include PST archives, install Outlook, "
-            "or convert them to EML with XstReader and index the EML folder instead."
+            "It must be CLASSIC Outlook. The 'new Outlook' for Windows is a web app: it has no "
+            "COM or MAPI automation and cannot open .pst files at all, so having it installed "
+            "does not help. If both are installed, use the toggle in Outlook's top-right to "
+            "switch back to classic, then re-run. Every other file type indexes normally either "
+            "way. If classic Outlook is not available, convert the archives to EML with "
+            "XstReader and index that folder instead."
         ),
         action_type=ActionType.RUN_COMMAND,
         action_payload="https://github.com/iluvadev/XstReader",

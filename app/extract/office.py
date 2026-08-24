@@ -14,9 +14,14 @@ Each format has one thing that is easy to get wrong:
   searching for a number is actually looking for. Sheet names are written into
   the text because there is no column for them and "which sheet was that on?" is
   a real question.
-* **PPTX** - the speaker notes usually contain the sentences, while the slide
-  contains three words and a chart. Both are extracted; notes are labelled so a
-  result can say where it came from.
+* **PPTX** - `slide.shapes` yields **top-level shapes only**, and a group is one
+  opaque shape with no text frame of its own. Reading `has_text_frame` alone
+  therefore loses every word inside every group - and grouping is how slides get
+  built, so on a deck-heavy corpus that is not an edge case, it is most of the
+  content. Groups are recursed into; tables and charts, which have no text frame
+  either, are read for their cells and their category and series labels. The
+  speaker notes usually contain the sentences while the slide contains three
+  words and a chart, so both are extracted and the notes are labelled.
 
 The pre-2007 binary formats (.doc, .xls, .ppt) are deliberately unregistered:
 they need a completely different parser, and `ERR_UNSUPPORTED_TYPE` already tells
@@ -193,15 +198,17 @@ class PptxExtractor:
 
         builder = DocumentBuilder(path)
         builder.meta["slide_count"] = len(deck.slides)
+        total_chars = 0
 
         for number, slide in enumerate(deck.slides, start=1):
-            parts = [
-                shape.text_frame.text
-                for shape in slide.shapes
-                if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip()
-            ]
+            parts: list[str] = []
+            for shape in slide.shapes:
+                parts.extend(_shape_text(shape))
+
+            body = normalise_whitespace("\n".join(parts))
+            total_chars += len(body)
             builder.add(
-                normalise_whitespace("\n".join(parts)),
+                body,
                 page=number,
                 label=f"Slide {number}",
                 prefix_label=True,
@@ -210,14 +217,133 @@ class PptxExtractor:
             if slide.has_notes_slide:
                 notes = slide.notes_slide.notes_text_frame
                 if notes is not None and notes.text.strip():
+                    notes_body = normalise_whitespace(notes.text)
+                    total_chars += len(notes_body)
                     builder.add(
-                        normalise_whitespace(notes.text),
+                        notes_body,
                         page=number,
                         label=f"Slide {number} speaker notes",
                         prefix_label=True,
                     )
 
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            size_bytes = 0
+        _warn_if_mostly_pictures(builder, path, total_chars, len(deck.slides), size_bytes)
+
         yield builder.build()
+
+
+def _shape_text(shape: Any) -> list[str]:
+    """Every piece of text a slide shape holds, recursing into groups.
+
+    `slide.shapes` yields **top-level shapes only**, and a group is one opaque
+    shape with no text frame of its own. Reading only `has_text_frame` therefore
+    loses every word inside every group - and grouping is how people build
+    slides. On a deck-heavy corpus that is not an edge case, it is most of the
+    content.
+
+    Tables and charts are the same story in a different shape: a comparison
+    table or a chart's category labels are exactly the text someone searches
+    for, and neither has a text frame.
+    """
+    found: list[str] = []
+
+    # 6 == MSO_SHAPE_TYPE.GROUP. Compared numerically so a python-pptx version
+    # that moves the enum cannot silently turn this back into the old bug.
+    if getattr(shape, "shape_type", None) == 6 or hasattr(shape, "shapes"):
+        for child in getattr(shape, "shapes", ()):
+            found.extend(_shape_text(child))
+        return found
+
+    if getattr(shape, "has_text_frame", False):
+        text = shape.text_frame.text
+        if text.strip():
+            found.append(text)
+
+    if getattr(shape, "has_table", False):
+        try:
+            found.append(_pptx_table_text(shape.table))
+        except Exception:                                 # noqa: BLE001 - one odd table
+            pass
+
+    if getattr(shape, "has_chart", False):
+        try:
+            found.extend(_chart_text(shape.chart))
+        except Exception:                                 # noqa: BLE001 - chart XML varies wildly
+            pass
+
+    return [part for part in found if part and part.strip()]
+
+
+def _pptx_table_text(table: Any) -> str:
+    lines = []
+    for row in table.rows:
+        cells = [" ".join(cell.text.split()) for cell in row.cells]
+        line = "\t".join(cells).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _chart_text(chart: Any) -> list[str]:
+    """Title, category labels and series names - the words, not the numbers."""
+    found: list[str] = []
+    if getattr(chart, "has_title", False) and chart.chart_title.has_text_frame:
+        found.append(chart.chart_title.text_frame.text)
+    for plot in getattr(chart, "plots", ()):
+        categories = [str(c) for c in getattr(plot, "categories", ()) if c is not None]
+        if categories:
+            found.append(" ".join(categories))
+    for series in getattr(chart, "series", ()):
+        name = getattr(series, "name", None)
+        if name:
+            found.append(str(name))
+    return found
+
+
+#: Below this many characters per megabyte, a deck is mostly pictures. Chosen
+#: from real decks: a text-carrying slide runs into the thousands per MB, while
+#: an infographic exported to PowerPoint lands in the low hundreds.
+MIN_PPTX_CHARS_PER_MB = 400
+
+
+def _warn_if_mostly_pictures(
+    builder: DocumentBuilder, path: Path, characters: int, slides: int, size_bytes: int
+) -> None:
+    """Flag a deck whose content is images, the PPTX analogue of a scanned PDF.
+
+    A PDF with no text at all is skipped outright. A deck is rarely *entirely*
+    pictures - there is always a title - so it indexes successfully while most
+    of what it says stays unsearchable. Without this the file looks fine and the
+    absence only shows up as a search that should have matched and didn't.
+    """
+    megabytes = size_bytes / 1_048_576
+    if megabytes < 1 or slides == 0:
+        return
+
+    density = characters / megabytes
+    if density >= MIN_PPTX_CHARS_PER_MB:
+        return
+
+    builder.warn(
+        make_error(
+            "ERR_NO_TEXT_LAYER",
+            "extract.pptx",
+            path=str(path),
+            suggestion=(
+                "Most of this deck's content appears to be images rather than text, so most "
+                "of it will not be findable by searching. That is expected for an exported "
+                "infographic. If it should be searchable, the text has to exist as text on "
+                "the slide - V2 does not read words out of pictures."
+            ),
+            details=(
+                f"{characters:,} characters across {slides} slide(s) in a "
+                f"{megabytes:,.0f} MB file ({density:,.0f} chars/MB). Indexed anyway."
+            ),
+        )
+    )
 
 
 register(DocxExtractor())

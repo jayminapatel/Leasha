@@ -15,10 +15,11 @@ The criteria from BUILD_SPEC_V2.md, verbatim:
      placeholders, and no placeholder is hydrated.
   8. Chunk overlap verified: no text lost at boundaries.
 
-**Criteria 5 and 6 are not covered here.** They need `win32com` and a live
-Outlook, so they belong to the PST pass and are marked `xfail(run=False)` rather
-than quietly omitted - an untested criterion that looks tested is worse than one
-that is visibly outstanding.
+**Criteria 5 and 6** are covered through a fake MAPI session. The COM calls live
+behind `Win32ComSession`; the walk, the conversation grouping and the error
+handling above it are ordinary code and are tested here on any machine. What
+remains untested is that the adapter drives real Outlook - one clearly marked
+`xfail(run=False)`, rather than the whole criterion.
 
 Criterion 7 is covered at the attribute level: `winfs.is_cloud_placeholder`
 accepts injected attribute bits, so placeholder *detection* is proved off
@@ -41,6 +42,7 @@ from app.core.winfs import (
 )
 from app.extract import chunk_document, extract
 from app.extract.chunker import chunk_text
+from app.extract.email_pst import walk_session
 
 HEALTHY_OF_EACH_TYPE = {
     "pdf": "pdf/healthy.pdf",
@@ -164,16 +166,86 @@ def test_locked_file_maps_to_the_locked_error(tmp_path: Path, monkeypatch: pytes
     assert "close" in error.suggestion.lower()
 
 
-# --- 5 and 6: PST. Outstanding, and visibly so. -----------------------------
+# --- 5 and 6 ----------------------------------------------------------------
+#
+# The COM calls live behind `Win32ComSession`; the walk, the grouping and the
+# error handling are ordinary code driven here through a fake implementing the
+# same duck types. That covers the logic on any machine. What it cannot cover is
+# that the adapter drives real Outlook correctly - see the residual xfail below,
+# which is the honest remainder rather than the whole criterion.
 
-@pytest.mark.xfail(run=False, reason="Needs win32com and a live Outlook; PST is its own pass.")
 def test_pst_preserves_conversation_grouping() -> None:
-    raise AssertionError("not implemented")
+    """Criterion 5. A decision is rarely in one message, so replies must group."""
+    from tests.unit.test_email_pst import FakeFolder, FakeSession, FakeStore, message
+
+    inbox = FakeFolder("Inbox", items=[
+        message("m1", "Contract terms", "Proposing 30 days.", conversation="thread-x"),
+        message("m2", "Re: Contract terms", "Agreed.", conversation="thread-x"),
+        message("m3", "Unrelated", "Lunch?", conversation="thread-y"),
+    ])
+    root = FakeFolder("Top", children=[inbox])
+    session = FakeSession(FakeStore("archive", root, file_path=r"D:\a.pst"))
+
+    threads: dict[str, list[str]] = {}
+    for document in walk_session(session):
+        threads.setdefault(document.meta["conversation"], []).append(document.meta["subject"])
+
+    assert sorted(threads["thread-x"]) == ["Contract terms", "Re: Contract terms"]
+    assert threads["thread-y"] == ["Unrelated"]
 
 
-@pytest.mark.xfail(run=False, reason="Needs win32com and a live Outlook; PST is its own pass.")
+def test_live_mailbox_is_enumerated_alongside_archives() -> None:
+    """Criterion 6, first half: the live mailbox is walked *as well as* the
+    .pst stores, not instead of them."""
+    from tests.unit.test_email_pst import FakeFolder, FakeSession, FakeStore, message
+
+    live = FakeStore("Mailbox - Jaymin", FakeFolder("Top", children=[
+        FakeFolder("Inbox", items=[message("live-1", "From the live mailbox")])
+    ]), file_path=r"C:\cache.ost", is_live=True, cached_only=True)
+    archive = FakeStore("2007", FakeFolder("Top", children=[
+        FakeFolder("Inbox", items=[message("arch-1", "From the archive")])
+    ]), file_path=r"D:\2007.pst")
+
+    documents = list(walk_session(FakeSession(live, archive)))
+    assert {d.meta["subject"] for d in documents} == {
+        "From the live mailbox", "From the archive",
+    }
+    cached = {d.meta["store_name"]: d.meta["store_cached_only"] for d in documents}
+    assert cached["Mailbox - Jaymin"] is True, "the cache gap must be recorded, not hidden"
+    assert cached["2007"] is False
+
+
 def test_closing_outlook_mid_run_yields_err_outlook_busy() -> None:
-    raise AssertionError("not implemented")
+    """Criterion 6, second half. Losing a folder must not lose the run - by the
+    time Outlook closes, thousands of messages may already have been read."""
+    from app.extract.email_pst import drain_busy_folders
+    from tests.unit.test_email_pst import FakeFolder, FakeSession, FakeStore, message
+
+    drain_busy_folders()
+    done = FakeFolder("Inbox", items=[message("a"), message("b")])
+    closed = FakeFolder("Archive", items=[message("c")])
+    closed.raises_on_items = True
+    remaining = FakeFolder("Projects", items=[message("d")])
+    root = FakeFolder("Top", children=[done, closed, remaining])
+
+    documents = list(walk_session(FakeSession(FakeStore("s", root, file_path=r"D:\a.pst"))))
+    assert len(documents) == 3, "only the unreachable folder was lost"
+
+    busy = drain_busy_folders()
+    assert [b.code for b in busy] == ["ERR_OUTLOOK_BUSY"]
+    assert busy[0].action_type is ActionType.SKIP_CONTINUE
+    assert "Outlook open" in busy[0].suggestion
+
+
+@pytest.mark.xfail(
+    run=False,
+    reason=(
+        "The residue: that Win32ComSession drives real Outlook correctly. Needs Windows "
+        "with Outlook running and a real .pst. Everything above it is covered."
+    ),
+)
+def test_win32com_adapter_against_real_outlook() -> None:
+    raise AssertionError("run manually: app.cli extract --mailbox")
 
 
 # --- 7 ----------------------------------------------------------------------

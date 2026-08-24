@@ -415,6 +415,74 @@ class SqliteStore:
             return []
         return [dict(row) for row in rows]
 
+    # -- usage logging (schema v2) -------------------------------------------
+
+    def log_search(
+        self,
+        query: str,
+        *,
+        filters: Optional[str] = None,
+        hits: int = 0,
+        elapsed_ms: int = 0,
+        rerank_on: bool = False,
+    ) -> int:
+        """Record one search. Returns its id, for attaching hits and opens.
+
+        Local only, and never on the critical path: a failure to log must never
+        fail a search, which is why the caller wraps this rather than the other
+        way round.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO searches (query, filters, hits, elapsed_ms, rerank_on, searched_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (query, filters, int(hits), int(elapsed_ms), int(rerank_on), int(time.time())),
+            )
+            return int(cursor.lastrowid)
+
+    def log_hits(self, search_id: int, hits: Sequence[dict[str, Any]]) -> None:
+        """Record what came back and in what order. `rank` is 1-based."""
+        if not hits:
+            return
+        with self.write() as conn:
+            conn.executemany(
+                "INSERT INTO search_hits (search_id, chunk_id, rank, sources) VALUES (?, ?, ?, ?)",
+                [
+                    (search_id, int(hit["chunk_id"]), index, str(hit.get("sources", "")))
+                    for index, hit in enumerate(hits, start=1)
+                ],
+            )
+
+    def mark_opened(self, search_id: int, chunk_id: int) -> None:
+        """The single most valuable signal in the system: this one was useful."""
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE search_hits SET opened = 1, opened_at = ? "
+                "WHERE search_id = ? AND chunk_id = ?",
+                (int(time.time()), search_id, chunk_id),
+            )
+
+    def recent_searches(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM searches ORDER BY searched_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def clear_usage_log(self) -> int:
+        """Delete every recorded search. Returns how many were removed.
+
+        Settings needs this: a log of what someone searched on their own machine
+        is theirs to erase, and a system that records it with no way to clear it
+        is not one to trust.
+        """
+        with self.write() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
+            conn.execute("DELETE FROM search_hits")
+            conn.execute("DELETE FROM searches")
+        return int(count)
+
     # -- indexing state ------------------------------------------------------
 
     def set_state(self, key: str, value: str) -> None:
