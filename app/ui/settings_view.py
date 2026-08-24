@@ -16,12 +16,9 @@ erase, and a system that collects it with no way to clear it is not one to trust
 
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,9 +35,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
+from app.ui.presenter import doctor_lines, doctor_report
 
 __all__ = ["SettingsView"]
+
+_log = logger.bind(component="ui.settings")
 
 
 class SettingsView(QWidget):
@@ -56,6 +57,7 @@ class SettingsView(QWidget):
         super().__init__(parent)
         self._settings = settings
         self._store = store
+        self._doctor_running = False
 
         # --- roots
         self.roots = QListWidget()
@@ -148,12 +150,12 @@ class SettingsView(QWidget):
         self.doctor_output = QPlainTextEdit()
         self.doctor_output.setReadOnly(True)
         self.doctor_output.setPlaceholderText("Run doctor to check the environment.")
-        run_doctor = QPushButton("Run doctor")
-        run_doctor.clicked.connect(self._run_doctor)
+        self.run_doctor_button = QPushButton("Run doctor")
+        self.run_doctor_button.clicked.connect(lambda _checked=False: self._run_doctor())
 
         doctor_box = QGroupBox("Environment")
         doctor_layout = QVBoxLayout(doctor_box)
-        doctor_layout.addWidget(run_doctor)
+        doctor_layout.addWidget(self.run_doctor_button)
         doctor_layout.addWidget(self.doctor_output)
 
         layout = QVBoxLayout(self)
@@ -219,45 +221,84 @@ class SettingsView(QWidget):
     # -- history ------------------------------------------------------------
 
     def refresh_history_count(self) -> None:
+        """Count the usage log without reading it.
+
+        This used to be `len(recent_searches(limit=100_000))` - a hundred
+        thousand rows fetched, decoded into dictionaries and thrown away, on the
+        UI thread, to produce one number. `COUNT(*)` answers the same question
+        from an index, and the store now has a method for it.
+        """
         if self._store is None:
             return
         try:
-            count = len(self._store.recent_searches(limit=100_000))
-        except Exception:                        # noqa: BLE001
+            count = self._store.count_searches()
+        except Exception as exc:                 # noqa: BLE001 - a label is not worth failing over
+            _log.debug("search history not counted: {}", exc)
             return
         self.history_label.setText(f"{count:,} searches recorded.")
 
     def _clear_history(self) -> None:
+        """Delete the usage log in a worker.
+
+        A `DELETE` over a large table takes a lock and a moment. On the UI
+        thread that is a window that stops repainting at the exact instant
+        someone has asked for something to be erased - the worst possible time
+        to look like a crash.
+        """
+        from app.ui.workers import CallableWorker, run
+
         if self._store is None:
             return
-        try:
-            removed = self._store.clear_usage_log()
-        except Exception:                        # noqa: BLE001
-            return
+        self.history_label.setText("Clearing…")
+        worker = CallableWorker(self._store.clear_usage_log, component="ui.history")
+        worker.signals.finished.connect(self._history_cleared)
+        worker.signals.failed.connect(
+            lambda error: self.history_label.setText(getattr(error, "message", str(error)))
+        )
+        run(QThreadPool.globalInstance(), worker)
+
+    def _history_cleared(self, removed: int) -> None:
         self.history_label.setText(f"Cleared. {removed:,} searches removed.")
         self.history_cleared.emit(removed)
 
     # -- doctor -------------------------------------------------------------
 
     def _run_doctor(self) -> None:
-        from app.core.config import project_root
+        """Run doctor.py in a worker and render its JSON when it comes back.
 
-        doctor = project_root() / "doctor.py"
+        **This was the frozen window.** It called `subprocess.run(timeout=120)`
+        directly here, on the UI thread. Doctor probes Outlook over COM, opens
+        LanceDB and may load an ONNX model - seconds at best, and the timeout
+        says two minutes is possible. For all of that the event loop is not
+        running, so the window does not repaint, Windows paints "Not Responding"
+        over it, and Ctrl+C in the terminal does nothing because Python never
+        gets a chance to see the signal. End Task is the only way out, and from
+        the outside it is indistinguishable from a crash.
+
+        Nothing about the check needed to be synchronous. It just looked
+        harmless, which is how UI-thread I/O usually gets written.
+        """
+        from app.ui.workers import CallableWorker, run
+
+        if self._doctor_running:
+            return                               # a second click would run it twice
+        self._doctor_running = True
+        self.run_doctor_button.setEnabled(False)
         self.doctor_output.setPlainText("Running…")
-        try:
-            finished = subprocess.run(
-                [sys.executable, str(doctor), "--json", "--quick"],
-                capture_output=True, text=True, timeout=120, check=False,
-            )
-            report = json.loads(finished.stdout)
-        except Exception as exc:                 # noqa: BLE001
-            self.doctor_output.setPlainText(f"Could not run doctor.py: {exc}")
-            return
 
-        lines = ["READY" if report.get("ready") else "NOT READY", ""]
-        for check in report.get("checks", []):
-            mark = "PASS" if check["ok"] else ("WARN" if check.get("optional") else "FAIL")
-            lines.append(f"[{mark}] {check['name']}  {check.get('detail', '')}")
-            if not check["ok"] and check.get("fix"):
-                lines.append(f"       FIX: {check['fix']}")
-        self.doctor_output.setPlainText("\n".join(lines))
+        worker = CallableWorker(doctor_report, component="ui.doctor")
+        worker.signals.finished.connect(self._doctor_done)
+        worker.signals.failed.connect(
+            lambda error: self.doctor_output.setPlainText(
+                f"{getattr(error, 'message', error)}\n\n{getattr(error, 'suggestion', '')}"
+            )
+        )
+        worker.signals.done.connect(self._doctor_finished)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _doctor_finished(self) -> None:
+        self._doctor_running = False
+        self.run_doctor_button.setEnabled(True)
+
+    def _doctor_done(self, report: dict) -> None:
+        self.doctor_output.setPlainText("\n".join(doctor_lines(report)))

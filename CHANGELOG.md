@@ -1,12 +1,117 @@
 # Changelog
 
-**Doc version:** 3.3 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.4 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — file types are configuration, not code
+
+`config/extractors.toml` now decides which extensions are indexed, what reads
+them, and how large a file is worth opening. It is a **three-tier** model, and
+the boundary is the design rather than a limitation:
+
+| Tier | What config may say | Example |
+|---|---|---|
+| 1 | routing and policy | `.log` → plaintext |
+| 2 | run an external converter, then read its output | `.doc` → LibreOffice → txt |
+| 3 | nothing. This is code. | PDF, PST, OCR |
+
+Config stops at tier 2 deliberately. A configuration format expressive enough to
+describe parsing is a programming language with no debugger, no type checker and
+no tests — strictly worse than the Python it set out to replace.
+
+- **`app/core/formats.py`** loads, validates and merges two files: the packaged
+  defaults (tracked in git, never written to) and `<DATA_PATH>\extractors.toml`
+  (this machine's overrides). An upgrade therefore delivers new defaults without
+  discarding anybody's choices, and deleting the user file restores shipped
+  behaviour exactly.
+- **Everything is checked at load.** An unknown key, an extractor name nothing
+  provides, an uppercase extension, a `schema_version` from the future, a
+  converter command written as a string — each is an `ERR_CONFIG_INVALID` naming
+  the offending item, raised while the app is starting rather than three hours
+  into a 100GB run on one file.
+- **`app.cli formats`** prints what is indexed, what is off, and where the two
+  files live. It is the answer to "why was that file not indexed?", which
+  otherwise needs a debugger or a guess.
+- A converter command must be a **list**, never a string. A string has to be
+  split to be run, and the obvious way to split a command line is a shell.
+- Every converter ships **disabled**: the binary may not be installed, and a
+  format that fails on every file is worse than one that says plainly it is off.
+- A **disabled** route is exempt from the extractor-name check, which is what
+  lets config and code ship in separate releases. The check runs the instant the
+  line is enabled.
+
+### Fixed — the window froze and had to be killed from Task Manager
+
+Reported as *"the program crashed when i was clicking around, the thread is
+stuck, ctrl c does not work in powershell and i had to end task"*. Nothing had
+crashed. Four separate pieces of blocking work were running on the UI thread,
+and a frozen window is indistinguishable from a dead one.
+
+- **"Run doctor" ran `subprocess.run(timeout=120)` on the UI thread.** Doctor
+  probes Outlook over COM and opens LanceDB, so this is seconds at best and the
+  timeout says two minutes is possible. For all of it the event loop was
+  stopped. Now a `CallableWorker`, with the subprocess call and the text
+  rendering moved into `presenter.py` where they are tested.
+- **The Graph panel read the store while painting.** `refresh()` was
+  `top_entities(500)` plus `edges_among` over 96,712 edges — on every switch to
+  the Graph tab, and waiting on the SQLite lock whenever an index run held a
+  write. Now read in a worker; the painting method is handed data.
+- **Settings counted searches by fetching them.**
+  `len(recent_searches(limit=100_000))` built a hundred thousand dictionaries to
+  produce one number. `SqliteStore.count_searches()` is a `COUNT(*)`.
+- **Clearing search history deleted on the UI thread**, freezing the window at
+  the exact moment somebody had asked for something to be erased.
+
+### Fixed — Ctrl+C did nothing, so Task Manager was the only way out
+
+Python does not deliver signals from inside C code. Once `application.exec()` is
+running the interpreter never returns from Qt's event loop, so a `SIGINT` sets a
+flag nothing ever looks at. `app/main.py` now installs a handler that quits
+cleanly — closing the window, releasing the single-instance lock, flushing
+SQLite — plus a `QTimer` that does nothing four times a second purely to hand
+control back to Python often enough for the handler to run.
+
+### Fixed — the theme hook multiplied every time the theme changed
+
+`_apply_theme` connected `colorSchemeChanged` to a lambda calling `_apply_theme`,
+from inside `_apply_theme`. Each theme change added another connection, so one
+flick of the system switch re-entered the handler once per change ever made,
+each re-entry connecting again. Qt does not warn about duplicate connections.
+
+### Fixed — Settings could not be scrolled, at any window size
+
+Only the Indexing tab had a scroll area. Settings is six group boxes stacked
+vertically and had none, so its lower half was unreachable on a short window and
+marooned at the top of a maximised one. `app/ui/widgets/scroll.py` holds the
+wrapper — including `setWidgetResizable(True)`, the line whose absence leaves a
+narrow column of content inside a maximised window — and it is applied where
+tabs are added, so it cannot be forgotten for the next view.
+
+A wrapped view is no longer the widget in its tab, which silently breaks both
+`tabs.setCurrentWidget(view)` and `tabs.widget(i) is view`. `MainWindow` now
+keeps a view→index map and a `_show()` helper; a test fails if
+`setCurrentWidget` reappears.
+
+### Fixed — Ollama spent 120 seconds finding out nothing was listening
+
+An enrichment run reported `elapsed_s: 120.09, chunks_processed: 0`. `requests`
+applies a single timeout float to **both** the connect and the read, so the
+two-minute budget meant for a local model composing a paragraph was also being
+spent discovering the socket would not open. Connect now has its own three
+seconds: Ollama is a process on this machine, and it either answers immediately
+or is not going to.
+
+### Fixed — six index runs started in seven seconds
+
+Ordinary clicking. `IndexingView.start` did refuse the extra runs, but silently,
+and only after `MainWindow._start_indexing` had built a `Pipeline` and an
+`Embedder` — loading the ONNX model — purely to discard them. The guard now runs
+first, and says so in the status bar.
 
 **Layers 2, 3, 4, 5 and 6 code-complete.** All of Layer 2's eight acceptance criteria and all of
 Layer 3's eight pass. The one thing no test can

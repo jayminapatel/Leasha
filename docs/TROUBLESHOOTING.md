@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -20,6 +20,50 @@ environment report, both store summaries, the recent logs, the installed package
 your configuration, so nobody has to ask you twenty questions.
 
 In VS Code: **Terminal > Run Task > Diagnose (bundle for troubleshooting)**.
+
+## "That file was not indexed and I do not know why"
+
+```powershell
+venv\Scripts\python.exe -m app.cli formats
+```
+
+It prints every file type the application knows about, which extractor reads it,
+the size limit, and - separately - everything that is **switched off**. A file
+type in the "Off" list is not opened at all, so nothing about it will ever appear
+in a search.
+
+It also names the two configuration files it read:
+
+- `config\extractors.toml` ships with the application and is replaced on
+  upgrade. **Do not edit it**; your changes would be lost.
+- `<your data folder>\extractors.toml` is yours. It is merged over the top, so
+  it only needs the lines you want to change, and **deleting it always restores
+  the shipped behaviour exactly** - which makes it a safe thing to try.
+
+If the command prints an error instead of a list, your file has a mistake in it.
+The message names the exact key, for example:
+
+```
+[ERR_CONFIG_INVALID] Configuration problem with 'extensions..log.extracter':
+  unknown key(s): extracter
+  FIX: Expected only: enabled, extractor, max_bytes, note.
+```
+
+Fix that key, or delete the file and start again.
+
+## The window has gone white / says "Not Responding"
+
+Wait ten seconds before doing anything else. A few operations take real time -
+building the graph over a large index, or the environment check - and while
+Windows may paint the window as unresponsive, the work is still running and the
+window comes back on its own.
+
+If it has not come back after a minute, press **Ctrl+C** in the PowerShell window
+you started it from. That closes the application properly: it releases the lock
+on the index and flushes the database, which ending the task from Task Manager
+does not. Use Task Manager only if Ctrl+C has also had no effect after a few
+seconds, and please say so if you report it - it means something is blocking that
+should not be.
 
 ## What is in the logs folder
 

@@ -977,6 +977,91 @@ def cmd_files(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_formats(args: argparse.Namespace) -> int:
+    """What gets indexed, what reads it, and what is switched off.
+
+    The answer to "why was that file not indexed?" - which otherwise needs a
+    debugger, or a guess. Read-only: it opens no store and touches no file
+    beyond the two configuration files it prints the paths of.
+
+    It also *validates*. Running it after editing `extractors.toml` reports a
+    typo before the next index run finds it, and the error names the offending
+    key rather than the file.
+    """
+    import app.extract  # noqa: F401 - importing the package populates REGISTRY
+
+    from app.core import formats as formats_mod
+    from app.extract import base as extract_base
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    try:
+        rules = formats_mod.load_rules(
+            settings.data_path, known_extractors=extract_base.extractor_names()
+        )
+    except AppErrorException as exc:
+        return _report(exc.error, args.json)
+
+    rows = rules.describe()
+    built_in = sorted(set(extract_base.supported_extensions()) - set(rules.extensions))
+
+    if args.json:
+        print(json.dumps({
+            "sources": [str(p) for p in rules.sources],
+            "user_file": str(formats_mod.user_path(settings.data_path)),
+            "default_max_bytes": rules.default_max_bytes,
+            "configured": rows,
+            "built_in": built_in,
+            "extractors": sorted(extract_base.extractor_names()),
+        }, indent=2))
+        return EXIT_OK
+
+    print("File types")
+    print("=" * 68)
+    for path in rules.sources:
+        print(f"  read: {path}")
+    user_file = formats_mod.user_path(settings.data_path)
+    if user_file not in rules.sources:
+        print(f"  your overrides would go in: {user_file}  (not present)")
+    print()
+
+    if args.all and built_in:
+        print(f"Built into the code ({len(built_in)}):")
+        print("  " + " ".join(built_in))
+        print()
+
+    off = [row for row in rows if not row["enabled"]]
+    on = [row for row in rows if row["enabled"]]
+
+    print(f"Configured and on ({len(on)}):")
+    for row in on:
+        cap = _human_bytes(row["max_bytes"])
+        note = f"   {row['note']}" if row["note"] else ""
+        print(f"  {row['extension']:<12} {row['extractor']:<22} <= {cap}{note}")
+
+    if off:
+        print()
+        print(f"Off ({len(off)}) - nothing with these extensions is opened at all:")
+        for row in off:
+            why = f" via {row['converter']}" if row["converter"] else ""
+            note = f"   {row['note']}" if row["note"] else ""
+            print(f"  {row['extension']:<12} {row['extractor']}{why}{note}")
+
+    print()
+    print(f"Extractors available: {', '.join(sorted(extract_base.extractor_names()))}")
+    print(f"Default size limit: {_human_bytes(rules.default_max_bytes)}")
+    return EXIT_OK
+
+
+def _human_bytes(count: int) -> str:
+    for unit, size in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
+        if count >= size:
+            value = count / size
+            return f"{value:.0f}{unit}" if value >= 10 else f"{value:.1f}{unit}"
+    return f"{count}B"
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     """Search the index. Layer 4's entry point.
 
@@ -1192,6 +1277,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_formats = sub.add_parser(
+        "formats", parents=[common],
+        help="what file types are indexed, what reads them, and what is off")
+    p_formats.add_argument("--all", action="store_true",
+                           help="also list the extensions built into the code")
+    p_formats.set_defaults(func=cmd_formats)
 
     p_search = sub.add_parser("search", parents=[common], help="search the index")
     p_search.add_argument("query", nargs="*",

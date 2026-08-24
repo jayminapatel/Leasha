@@ -1,0 +1,224 @@
+# Which file types are indexed, and what reads them.
+#
+# **This file is the packaged default and is tracked in git. Never edited at
+# runtime.** Your machine's overrides live in `<DATA_PATH>\extractors.toml`,
+# which is not tracked, is written by Settings, and is merged over the top of
+# this one. So an upgrade brings new defaults without discarding your choices,
+# and deleting your file restores the shipped behaviour exactly.
+#
+# ---------------------------------------------------------------------------
+# The three tiers, and why the boundary is where it is
+# ---------------------------------------------------------------------------
+#
+#   1. Config only     routing and policy - which extensions are on, which
+#                      registered extractor handles them, size caps.
+#   2. Converter       an external command turns the file into something an
+#                      existing extractor already reads. Unlimited formats,
+#                      no new Python.
+#   3. Code            anything needing real parsing: PDF, PST, OCR, ODF.
+#
+# **Config stops at tier 2, deliberately.** A configuration format that can
+# express arbitrary parsing is a programming language with no debugger, no type
+# checker and no tests - strictly worse than the Python it replaced.
+#
+# ---------------------------------------------------------------------------
+
+schema_version = 1
+
+[defaults]
+# Files larger than this are skipped. Per-format overrides below; OCR and
+# converters get much smaller caps because their cost is per-byte and high.
+max_bytes = 104857600            # 100MB
+enabled = true
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 - extension -> a registered extractor, by name
+#
+# Only extensions that need to differ from the extractor's own defaults need an
+# entry. Everything an extractor already claims in code keeps working untouched.
+# ---------------------------------------------------------------------------
+
+[extensions]
+
+# NOTE ON `enabled = false` BELOW
+#
+# The `odf`, `cloudstub` and `ocr` extractors are being built now and are not in
+# this release yet. Their routes ship here, switched off, so the file documents
+# where those formats will go and so each one can be turned on by the release
+# that delivers it - a single line, no new configuration to invent.
+#
+# A disabled route is not validated against the extractor registry, for exactly
+# this reason: if it were, adding a format would mean changing config and code in
+# the same commit or the application would refuse to start. The check runs the
+# moment the line is enabled, which is when the answer starts to matter.
+
+# --- OpenDocument, read natively (zipfile + ElementTree, no dependency) ------
+".odt" = { extractor = "odf", enabled = false }
+".ods" = { extractor = "odf", enabled = false }
+".odp" = { extractor = "odf", enabled = false }
+".ott" = { extractor = "odf", enabled = false }
+".ots" = { extractor = "odf", enabled = false }
+".otp" = { extractor = "odf", enabled = false }
+
+# --- Google Workspace pointers ----------------------------------------------
+# These hold no document content - only a URL and an id. Indexed so the pointer
+# is findable, and flagged so "I searched for text I know is in that doc" has an
+# answer. See app/extract/cloudstub.py.
+".gdoc"    = { extractor = "cloudstub", enabled = false }
+".gsheet"  = { extractor = "cloudstub", enabled = false }
+".gslides" = { extractor = "cloudstub", enabled = false }
+".gdraw"   = { extractor = "cloudstub", enabled = false }
+".gform"   = { extractor = "cloudstub", enabled = false }
+".gjam"    = { extractor = "cloudstub", enabled = false }
+".gsite"   = { extractor = "cloudstub", enabled = false }
+
+# --- Images, read by OCR ----------------------------------------------------
+# TO BE ON BY DEFAULT, by the project owner's explicit choice, made knowing that
+# on a corpus with many images this can dominate an entire index run. The
+# indexing view will report OCR'd counts and time separately so the cost is
+# visible rather than mysterious. 25MB cap: a larger image is a scan nobody will
+# read anyway, and OCR cost scales with pixels.
+#
+# `enabled = false` here says only "the extractor does not exist yet". These
+# flip to true in the release that ships app/extract/ocr.py.
+".png"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".jpg"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".jpeg" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".tif"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".tiff" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".bmp"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".webp" = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+".gif"  = { extractor = "ocr", max_bytes = 26214400, enabled = false }
+
+# --- Text-ish files that are plain text by any other name -------------------
+".conf"       = { extractor = "plaintext" }
+".env"        = { extractor = "plaintext" }
+".properties" = { extractor = "plaintext" }
+".tex"        = { extractor = "plaintext" }
+".bib"        = { extractor = "plaintext" }
+".adoc"       = { extractor = "plaintext" }
+".org"        = { extractor = "plaintext" }
+".srt"        = { extractor = "plaintext" }
+".vtt"        = { extractor = "plaintext" }
+".ics"        = { extractor = "plaintext" }
+".vcf"        = { extractor = "plaintext" }
+".jsonl"      = { extractor = "plaintext" }
+".ndjson"     = { extractor = "plaintext" }
+
+# --- Code -------------------------------------------------------------------
+".kt"         = { extractor = "plaintext" }
+".swift"      = { extractor = "plaintext" }
+".scala"      = { extractor = "plaintext" }
+".r"          = { extractor = "plaintext" }
+".m"          = { extractor = "plaintext" }
+".pl"         = { extractor = "plaintext" }
+".lua"        = { extractor = "plaintext" }
+".dart"       = { extractor = "plaintext" }
+".vb"         = { extractor = "plaintext" }
+".asm"        = { extractor = "plaintext" }
+".make"       = { extractor = "plaintext" }
+".dockerfile" = { extractor = "plaintext" }
+".gradle"     = { extractor = "plaintext" }
+".tf"         = { extractor = "plaintext" }
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 - external converters
+#
+# `{input}`, `{outdir}` and `{stem}` are substituted. `produces` names the file
+# the command is expected to leave in `{outdir}`; `then` is the registered
+# extractor that reads it.
+#
+# **Every converter ships disabled.** The binary may not be installed, and a
+# format that silently fails on every file is worse than one that says it is
+# off. `doctor.py` reports which binaries were found; Settings offers to enable
+# exactly those.
+#
+# The executable must be on the allow-list in `app/extract/converter.py`, which
+# lives in code and not here - a config file that can name any executable is a
+# way to run anything.
+# ---------------------------------------------------------------------------
+
+[converters]
+
+[converters.".doc"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+[converters.".xls"]
+command   = ["soffice", "--headless", "--convert-to", "csv", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.csv"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+[converters.".ppt"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+[converters.".rtf"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 120
+enabled   = false
+
+[converters.".pages"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+[converters.".numbers"]
+command   = ["soffice", "--headless", "--convert-to", "csv", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.csv"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+[converters.".key"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 180
+enabled   = false
+
+# Conversion quality for these two is poor even when it works. Shipped off, with
+# an honest status rather than a promise the output will not keep.
+[converters.".wpd"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 120
+enabled   = false
+note      = "WordPerfect conversion is unreliable; expect missing formatting and some lost text."
+
+[converters.".pub"]
+command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 120
+enabled   = false
+note      = "Publisher conversion is unreliable; layout-heavy files often yield little text."
+
+[converters.".epub"]
+command   = ["pandoc", "--to", "plain", "--output", "{outdir}/{stem}.txt", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 120
+enabled   = false
+
+[converters.".fb2"]
+command   = ["pandoc", "--to", "plain", "--output", "{outdir}/{stem}.txt", "{input}"]
+produces  = "{stem}.txt"
+then      = "plaintext"
+timeout_s = 120
+enabled   = false

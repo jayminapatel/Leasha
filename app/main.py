@@ -47,6 +47,49 @@ def _fatal(error: AppError) -> int:
     return 1
 
 
+#: How often the interpreter is allowed to run while Qt owns the loop. Short
+#: enough that Ctrl+C feels instant, long enough that the timer costs nothing.
+_SIGINT_POLL_MS = 200
+
+
+def _make_ctrl_c_work(application: object) -> None:
+    """Let Ctrl+C in the terminal close the window.
+
+    Python does not deliver signals from C code. Once `application.exec()` is
+    running, the interpreter is inside Qt's C++ event loop and does not come back
+    out, so a Ctrl+C sets a flag that is never looked at - the handler runs only
+    when Python next executes a bytecode, which is never. From the terminal the
+    application appears to ignore the key entirely, and if the window has also
+    stopped repainting, End Task is the only remaining option. That is a bad
+    place to be for a background indexer people are asked to trust with 100GB.
+
+    Two pieces, and both are needed. The default `SIGINT` handler is replaced
+    with one that quits the application cleanly - closing the window, releasing
+    the single-instance lock and flushing SQLite - and a `QTimer` that does
+    nothing at all fires four times a second purely to hand control back to
+    Python often enough for the handler to be noticed.
+
+    Wrapped, because `signal.signal` only works on the main thread and this must
+    never be the reason the app fails to start.
+    """
+    import signal
+
+    from PyQt6.QtCore import QTimer
+
+    try:
+        signal.signal(signal.SIGINT, lambda _sig, _frame: application.quit())
+    except (ValueError, OSError, AttributeError):     # not the main thread, or no SIGINT
+        return
+
+    timer = QTimer()
+    timer.start(_SIGINT_POLL_MS)
+    timer.timeout.connect(lambda: None)
+    # Parented to the application so it is not collected the moment this
+    # function returns - a timer nobody holds stops firing immediately, and the
+    # symptom is Ctrl+C working in tests and not in the built app.
+    timer.setParent(application)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     from app.core.config import load_settings
     from app.core.single_instance import SingleInstance
@@ -78,6 +121,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     application = QApplication(list(argv or sys.argv))
     application.setApplicationName("Local Knowledge Graph")
+    _make_ctrl_c_work(application)
 
     try:
         with SingleInstance(), \

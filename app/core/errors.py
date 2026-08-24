@@ -124,6 +124,69 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.AUTO_FIX,
         action_payload="ollama serve",
     ),
+    # --- file types, converters and OCR -----------------------------------
+    "ERR_CLOUD_STUB": _Spec(
+        message="'{path}' is a link to a Google Docs file, not the document itself.",
+        suggestion=(
+            "There is no text in it to index - Drive for Desktop stores only a pointer for "
+            "anything created in Google Workspace. To make it searchable, open it in Drive "
+            "and choose File > Download > Microsoft Word (.docx) or OpenDocument, or set "
+            "Drive for Desktop to sync Workspace files as Office formats."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_CONVERTER_MISSING": _Spec(
+        message="'{binary}' is needed to read {ext} files and was not found.",
+        suggestion=(
+            "Install it and it will be picked up automatically - nothing else needs changing. "
+            "Until then these files are indexed by name only."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload="winget install --id TheDocumentFoundation.LibreOffice -e",
+    ),
+    "ERR_CONVERTER_FAILED": _Spec(
+        message="Converting '{path}' did not work.",
+        suggestion=(
+            "This file is skipped and indexing continues. If it happens to every file of "
+            "this type, the converter is probably misconfigured; if it happens to one, that "
+            "file is likely damaged."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_CONVERTER_BLOCKED": _Spec(
+        message="'{binary}' is not an allowed converter, so it was not run.",
+        suggestion=(
+            "Converters may only run programs on a fixed list held in the application's own "
+            "code - a configuration file that could name any executable would be a way to "
+            "run anything. Edit the converter to use one of: {allowed}."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_OCR_UNAVAILABLE": _Spec(
+        message="Reading text from images is switched on, but the OCR engine is not available.",
+        suggestion=(
+            "Images are indexed by name only until it is installed. Everything else is "
+            "unaffected."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload=r"venv\Scripts\python.exe -m pip install rapidocr-onnxruntime",
+    ),
+    "ERR_OCR_FAILED": _Spec(
+        message="Could not read any text from '{path}'.",
+        suggestion=(
+            "The image is skipped and indexing continues. Photographs, logos and diagrams "
+            "with no writing in them are the usual reason."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_OCR_LOW_CONFIDENCE": _Spec(
+        message="The text read from '{path}' may be unreliable.",
+        suggestion=(
+            "It has been indexed anyway and is marked as read by OCR, so searches can still "
+            "find it - but expect mistakes, particularly in numbers and names."
+        ),
+        action_type=ActionType.AUTO_FIX,
+    ),
     "ERR_FILE_CORRUPT": _Spec(
         message="Cannot read '{path}' - it is encrypted or damaged.",
         suggestion="Repair it (scanpst.exe for PST files) or leave it skipped. Indexing continues either way.",

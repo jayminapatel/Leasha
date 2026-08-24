@@ -40,6 +40,8 @@ __all__ = [
     "SourceKind",
     "register",
     "extractor_for",
+    "extractor_by_name",
+    "extractor_names",
     "supported_extensions",
     "extract",
     "normalise_whitespace",
@@ -268,6 +270,31 @@ def register(extractor: Extractor) -> Extractor:
 def extractor_for(path: Path) -> Optional[Extractor]:
     """The extractor for this path, or None if the type is unsupported."""
     return REGISTRY.get(path.suffix.lower())
+
+
+def extractor_names() -> frozenset[str]:
+    """Every registered extractor's `name`, for validating configuration.
+
+    Config names an extractor by name rather than by import path, so a typo is
+    caught while the app is starting rather than on one file three hours into a
+    run. This is the set that check is made against.
+    """
+    return frozenset(
+        name for name in (getattr(e, "name", "") for e in REGISTRY.values()) if name
+    )
+
+
+def extractor_by_name(name: str) -> Optional[Extractor]:
+    """Look an extractor up by name. The reverse of the registry's own key.
+
+    Deliberately derived from `REGISTRY` on each call rather than kept as a
+    second dictionary: two structures describing the same set is how an
+    extractor ends up findable by name but not by extension.
+    """
+    for extractor in REGISTRY.values():
+        if getattr(extractor, "name", None) == name:
+            return extractor
+    return None
 
 
 def supported_extensions() -> frozenset[str]:

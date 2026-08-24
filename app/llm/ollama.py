@@ -39,6 +39,20 @@ log = logger.bind(component="llm.ollama")
 #: within a few seconds rather than needing a restart of the app.
 HEALTH_CACHE_S = 10.0
 
+#: How long to wait for the TCP connection itself, as opposed to the model's
+#: reply. These are different questions and were previously answered with one
+#: number.
+#:
+#: A generate call needs a long *read* timeout - a local model on a busy machine
+#: genuinely takes a minute to produce a paragraph. It needs no connect timeout
+#: at all: Ollama is a process on this machine, so the socket either opens in
+#: milliseconds or is not going to open. `requests` applies a single float to
+#: both, so the 120-second read budget was also being spent on the connect, and
+#: a host that drops packets rather than refusing them burned the whole two
+#: minutes before reporting that Ollama was down. A graph enrichment run in the
+#: window did exactly that: 120.09 seconds, zero chunks.
+CONNECT_TIMEOUT_S = 3.0
+
 
 @dataclass(frozen=True, slots=True)
 class OllamaResponse:
@@ -77,11 +91,13 @@ class OllamaClient:
         model: str = "mistral",
         *,
         timeout: float = 120.0,
+        connect_timeout: float = CONNECT_TIMEOUT_S,
         transport: Optional[Callable[..., Any]] = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.connect_timeout = connect_timeout
         self._transport = transport
         self._healthy_until = 0.0
         self._last_health = False
@@ -93,7 +109,9 @@ class OllamaClient:
             return self._transport("POST", self.url + path, payload, timeout)
         import requests  # noqa: PLC0415 - lazy so importing this module is free
 
-        response = requests.post(self.url + path, json=payload, timeout=timeout)
+        response = requests.post(
+            self.url + path, json=payload, timeout=self._budget(timeout)
+        )
         response.raise_for_status()
         return response.json()
 
@@ -102,9 +120,18 @@ class OllamaClient:
             return self._transport("GET", self.url + path, None, timeout)
         import requests  # noqa: PLC0415
 
-        response = requests.get(self.url + path, timeout=timeout)
+        response = requests.get(self.url + path, timeout=self._budget(timeout))
         response.raise_for_status()
         return response.json()
+
+    def _budget(self, read_timeout: float) -> tuple[float, float]:
+        """`(connect, read)` - the pair `requests` accepts, never one number.
+
+        Given a single float, `requests` uses it for both phases. That is the
+        difference between "the model is thinking, give it two minutes" and
+        "nothing is listening, wait two minutes to find out".
+        """
+        return (min(self.connect_timeout, read_timeout), read_timeout)
 
     # -- public --------------------------------------------------------------
 

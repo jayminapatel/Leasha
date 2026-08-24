@@ -41,6 +41,7 @@ from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
 from app.ui.theme import detect_scheme, stylesheet
+from app.ui.widgets.scroll import wrap_if_needed
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -74,7 +75,24 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Local Knowledge Graph")
         self.resize(1100, 760)
+        # A floor, not the opening size. Without one Qt will happily shrink the
+        # window until the tab bar is the only thing left, and a view with no
+        # scroll area then has controls that cannot be reached at all.
+        self.setMinimumSize(720, 480)
         self.setAcceptDrops(True)
+
+        #: view -> tab index. A wrapped view is not the widget in the tab, so
+        #: `tabs.widget(i) is self.settings_view` is False and
+        #: `setCurrentWidget(self.settings_view)` silently does nothing. Both
+        #: fail quietly, which is how a scroll area breaks navigation without
+        #: anybody noticing. This map is the single answer to "which tab is that".
+        self._tab_index: dict[QWidget, int] = {}
+
+        # Read once here rather than on every repaint: `_apply_theme` runs on
+        # each system colour change, and a database read on the UI thread is
+        # exactly what this session's freeze turned out to be.
+        self._theme_preference = self._read_state("ui:theme", "system")
+        self._theme_hooked = False
 
         self.search_view = SearchView(engine)
         self.search_view.result_opened.connect(self._open_result)
@@ -114,11 +132,27 @@ class MainWindow(QMainWindow):
         self.graph_view.search_requested.connect(self._search_for)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.search_view, "Search")
-        self.tabs.addTab(self.files_view, "Files")
-        self.tabs.addTab(self.indexing_view, "Indexing")
-        self.tabs.addTab(self.graph_view, "Graph")
-        self.tabs.addTab(self.settings_view, "Settings")
+        # (view, title, wrap in a scroll area?)
+        #
+        # Only stacked forms are wrapped. Search, Files, Graph and Indexing are
+        # each built around a table, list or splitter that already fills the
+        # window and scrolls its own contents - nesting a second scroll area
+        # around one of those makes the two fight over the wheel, and the outer
+        # one usually wins, which feels broken and is very hard to report.
+        #
+        # Settings is the opposite: six group boxes stacked vertically, growing
+        # every time an option is added. It had no scrollbar at all, so the
+        # bottom of it was simply unreachable on a short window.
+        for view, title, scroll in (
+            (self.search_view, "Search", False),
+            (self.files_view, "Files", False),
+            (self.indexing_view, "Indexing", False),
+            (self.graph_view, "Graph", False),
+            (self.settings_view, "Settings", True),
+        ):
+            self._tab_index[view] = self.tabs.addTab(
+                wrap_if_needed(view, scroll=scroll), title
+            )
         # Reload the graph panel when it comes forward rather than on a timer:
         # an index run between visits changes what it should show, and polling
         # a table nobody is looking at is work for nothing.
@@ -146,9 +180,9 @@ class MainWindow(QMainWindow):
 
         bind("Ctrl+K", self._focus_search)
         bind("Ctrl+F", self._focus_search)
-        bind("Ctrl+,", lambda: self.tabs.setCurrentWidget(self.settings_view))
-        bind("Ctrl+I", lambda: self.tabs.setCurrentWidget(self.indexing_view))
-        bind("Ctrl+G", lambda: self.tabs.setCurrentWidget(self.graph_view))
+        bind("Ctrl+,", lambda: self._show(self.settings_view))
+        bind("Ctrl+I", lambda: self._show(self.indexing_view))
+        bind("Ctrl+G", lambda: self._show(self.graph_view))
         bind("Ctrl+P", self._focus_files)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
@@ -207,6 +241,19 @@ class MainWindow(QMainWindow):
             self._store.set_state(f"ui:{key}", str(value))
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
 
+    def _read_state(self, key: str, default: str = "") -> str:
+        """One small key, defaulted rather than raised.
+
+        Every `get_state` call in the window went through its own try/except, or
+        through none at all - and the ones with none turn a locked database into
+        a window that will not open.
+        """
+        try:
+            return self._store.get_state(key, default) or default
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("could not read {}: {}", key, exc)
+            return default
+
     def _load_last_index_time(self) -> Optional[datetime]:
         raw = self._store.get_state("index:last_run")
         if not raw:
@@ -223,10 +270,11 @@ class MainWindow(QMainWindow):
 
     def _focus_files(self) -> None:
         """Ctrl+P, the shortcut every editor uses for "go to file"."""
-        self.tabs.setCurrentWidget(self.files_view)
+        self._show(self.files_view)
         self.files_view.focus()
 
     def _theme_changed(self, preference: str) -> None:
+        self._theme_preference = preference
         self._store.set_state("ui:theme", preference)
         self._apply_theme()
 
@@ -240,26 +288,46 @@ class MainWindow(QMainWindow):
         """
         from PyQt6.QtGui import QGuiApplication
 
-        preference = self._store.get_state("ui:theme", "system") or "system"
+        preference = self._theme_preference
         detected = detect_scheme(QGuiApplication.instance())
         self.setStyleSheet(stylesheet(preference, detected=detected))
 
         # Qt 6.5+ emits this when the system switch is flipped, so the window
         # follows without a restart.
-        try:
-            QGuiApplication.instance().styleHints().colorSchemeChanged.connect(
-                lambda _scheme: self._apply_theme()
-            )
-        except Exception:                    # noqa: BLE001 - older Qt, or no hints
-            pass
+        #
+        # **Connected exactly once.** This used to be connected here, inside the
+        # function it calls back into - so every theme change added another
+        # connection, and one flick of the system switch then re-ran the handler
+        # once per change the person had ever made, each re-entering and
+        # connecting again. Signal connections are not idempotent, and Qt gives
+        # no warning: it looks fine until the machine changes theme, and then the
+        # window locks up rebuilding its stylesheet exponentially.
+        if not self._theme_hooked:
+            self._theme_hooked = True
+            try:
+                QGuiApplication.instance().styleHints().colorSchemeChanged.connect(
+                    lambda _scheme: self._apply_theme()
+                )
+            except Exception:                # noqa: BLE001 - older Qt, or no hints
+                pass
+
+    def _show(self, view: QWidget) -> None:
+        """Bring a view's tab forward, wrapped or not.
+
+        Always use this instead of `tabs.setCurrentWidget(view)`, which does
+        nothing at all for a view inside a scroll area - no error, no exception,
+        the tab simply does not change.
+        """
+        index = self._tab_index.get(view)
+        if index is not None:
+            self.tabs.setCurrentIndex(index)
 
     def _tab_changed(self, index: int) -> None:
-        widget = self.tabs.widget(index)
-        if widget is self.graph_view:
+        if index == self._tab_index.get(self.graph_view):
             self.graph_view.refresh()
-        elif widget is self.indexing_view:
+        elif index == self._tab_index.get(self.indexing_view):
             self.indexing_view.refresh_totals(self._store)
-        elif widget is self.files_view:
+        elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
             self.files_view.focus()
 
@@ -272,13 +340,13 @@ class MainWindow(QMainWindow):
         """
         if not term:
             return
-        self.tabs.setCurrentWidget(self.search_view)
+        self._show(self.search_view)
         self.search_view.input.setText(f'"{term}"')
         self.search_view.search_now()
         self.search_view.focus()
 
     def _focus_search(self) -> None:
-        self.tabs.setCurrentWidget(self.search_view)
+        self._show(self.search_view)
         self.search_view.focus()
 
     def _clear_search(self) -> None:
@@ -312,7 +380,7 @@ class MainWindow(QMainWindow):
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)
-        self.tabs.setCurrentWidget(self.indexing_view)
+        self._show(self.indexing_view)
         self._start_indexing(roots=[folder])
 
     def _load_roots(self) -> list[str]:
@@ -383,9 +451,20 @@ class MainWindow(QMainWindow):
         from app.index.pipeline import Pipeline, PipelineConfig
         from app.index.walker import WalkConfig
 
+        # Checked *before* anything is built. `IndexingView.start` already
+        # refuses a second run, but it refused silently and only after this
+        # method had constructed a Pipeline and an Embedder - which loads the
+        # ONNX model - purely to throw them away. Six starts in seven seconds
+        # appeared in the log from ordinary clicking, and each one paid that
+        # cost. Saying so is also better than appearing to ignore the button.
+        if self.indexing_view.is_running():
+            self._show(self.indexing_view)
+            self.statusBar().showMessage("An index run is already in progress.", 5_000)
+            return
+
         chosen = roots or self.settings_view.current_roots()
         if not chosen:
-            self.tabs.setCurrentWidget(self.settings_view)
+            self._show(self.settings_view)
             self.statusBar().showMessage(
                 "Add at least one folder to index in Settings.", 8_000
             )
@@ -434,7 +513,7 @@ class MainWindow(QMainWindow):
         ]
         folders = [p if Path(p).is_dir() else str(Path(p).parent) for p in paths]
         if folders:
-            self.tabs.setCurrentWidget(self.indexing_view)
+            self._show(self.indexing_view)
             self._start_indexing(roots=sorted(set(folders)))
         event.acceptProposedAction()
 

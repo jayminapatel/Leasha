@@ -48,6 +48,8 @@ __all__ = [
     "graph_phase_line",
     "FileRow",
     "file_rows",
+    "doctor_report",
+    "doctor_lines",
     "format_size",
     "format_when",
     "SNIPPET_CHARS",
@@ -598,3 +600,76 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
             note=note,
         ))
     return out
+
+
+# ---------------------------------------------------------------------------
+# doctor.py, run and rendered
+#
+# Here rather than in `settings_view.py` for the reason this module exists: a
+# subprocess call and a text formatter are logic, and logic in a Qt widget can
+# only be checked by a person clicking a button. The view is left with two
+# lines - start a worker, put the result in a text box.
+# ---------------------------------------------------------------------------
+
+#: doctor.py probes Outlook over COM and opens LanceDB, so it is slow by nature
+#: rather than by accident. Generous, because this now runs in a worker and a
+#: timeout that fires early turns a slow answer into no answer.
+DOCTOR_TIMEOUT_S = 180
+
+
+def doctor_report(timeout_s: int = DOCTOR_TIMEOUT_S) -> dict:
+    """Run `doctor.py --json --quick` and parse the result.
+
+    **Never call this on the UI thread.** It was called there, and a check that
+    can take two minutes with the event loop stopped is a window Windows paints
+    "Not Responding" over - indistinguishable from a crash, and unkillable with
+    Ctrl+C because Qt never lets the interpreter run to see the signal.
+
+    `CREATE_NO_WINDOW` stops a console flashing up on Windows when the app was
+    launched from a shortcut: `pythonw.exe` has no console, so the child would
+    otherwise create one of its own.
+    """
+    import json
+    import subprocess
+    import sys
+
+    from app.core.config import project_root
+    from app.core.errors import AppErrorException, make_error
+
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    finished = subprocess.run(
+        [sys.executable, str(project_root() / "doctor.py"), "--json", "--quick"],
+        capture_output=True, text=True, timeout=timeout_s, check=False,
+        creationflags=flags,
+    )
+    try:
+        return json.loads(finished.stdout)
+    except ValueError:
+        # Doctor's diagnostics are worth most at exactly the moment it fails to
+        # produce JSON, so stderr is surfaced rather than swallowed.
+        detail = (finished.stderr or finished.stdout or "").strip()[:2000]
+        raise AppErrorException(make_error(
+            "ERR_UNEXPECTED", "ui.doctor",
+            details=f"doctor.py exited {finished.returncode} without valid JSON:\n{detail}",
+            suggestion=(
+                "Run it yourself to see the whole output: "
+                r"venv\Scripts\python.exe doctor.py"
+            ),
+        )) from None
+
+
+def doctor_lines(report: Mapping[str, Any]) -> list[str]:
+    """Render a doctor report as plain text for the Settings panel.
+
+    Tolerant of a malformed report on purpose: this is the diagnostics view, and
+    a formatter that raises on a missing key hides the very output somebody
+    opened it to read.
+    """
+    lines = ["READY" if report.get("ready") else "NOT READY", ""]
+    for check in report.get("checks") or ():
+        ok = bool(check.get("ok"))
+        mark = "PASS" if ok else ("WARN" if check.get("optional") else "FAIL")
+        lines.append(f"[{mark}] {check.get('name', '?')}  {check.get('detail', '')}".rstrip())
+        if not ok and check.get("fix"):
+            lines.append(f"       FIX: {check['fix']}")
+    return lines

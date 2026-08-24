@@ -56,6 +56,7 @@ class GraphView(QWidget):
         self._store = store
         self._settings = settings
         self._worker: Optional[GraphWorker] = None
+        self._refreshing = False
         self._edges: list[dict] = []
         self._labels: dict[int, str] = {}
 
@@ -142,15 +143,54 @@ class GraphView(QWidget):
     # -- data ----------------------------------------------------------------
 
     def refresh(self) -> None:
-        """Reload from the store. Cheap enough to call on every tab switch."""
-        try:
-            stats = self._store.graph_stats()
-            entities = self._store.top_entities(500)
-            self._labels = {int(row["id"]): str(row["display"]) for row in entities}
-            self._edges = self._store.edges_among(list(self._labels))
-        except Exception as exc:                 # noqa: BLE001 - a panel is not worth crashing over
-            self.headline.setText(f"Could not read the graph: {exc}")
+        """Reload from the store, off the UI thread.
+
+        The comment here used to read "cheap enough to call on every tab
+        switch", and on a fixture-sized graph it was. On the first real corpus
+        it is `top_entities(500)` plus `edges_among` over 96,712 edges, and it
+        ran on the UI thread every time the Graph tab came forward - including
+        while an index run held a write transaction, in which case it also waited
+        on the SQLite lock. The window stopped repainting and had to be killed.
+
+        Reading in a worker changes the failure from a frozen window into a
+        panel that fills in a moment later.
+        """
+        if self._refreshing:
+            # A second read while one is in flight would be two queries for one
+            # answer, and whichever finished last would win. Tab switches are
+            # easy to produce faster than the query returns.
             return
+        self._refreshing = True
+
+        def read() -> dict:
+            entities = self._store.top_entities(500)
+            labels = {int(row["id"]): str(row["display"]) for row in entities}
+            return {
+                "stats": self._store.graph_stats(),
+                "entities": entities,
+                "labels": labels,
+                "edges": self._store.edges_among(list(labels)),
+            }
+
+        worker = CallableWorker(read, component="ui.graph.refresh")
+        worker.signals.finished.connect(self._refreshed)
+        worker.signals.failed.connect(
+            lambda error: self.headline.setText(
+                f"Could not read the graph: {getattr(error, 'message', error)}"
+            )
+        )
+        worker.signals.done.connect(self._refresh_done)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _refresh_done(self) -> None:
+        self._refreshing = False
+
+    def _refreshed(self, data: dict) -> None:
+        """Paint what the worker read. UI thread, no I/O."""
+        stats = data["stats"]
+        entities = data["entities"]
+        self._labels = data["labels"]
+        self._edges = data["edges"]
 
         self.headline.setText(graph_headline(stats))
         self.open_button.setEnabled(int(stats.get("entities", 0)) > 0)

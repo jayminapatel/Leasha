@@ -1,0 +1,290 @@
+"""The window must never stop answering. Regression tests for the day it did.
+
+Layer: L5
+
+Reported from a real session: *"the program crashed when i was clicking around,
+the thread is stuck, ctrl c does not work in powershell and i had to end task"*.
+Nothing had crashed. The UI thread was inside `subprocess.run(timeout=120)`,
+which is indistinguishable from a crash from the outside - and Ctrl+C could not
+end it either, because Qt's event loop never returns to Python long enough for a
+signal handler to run.
+
+None of this can be tested by opening a window: Qt needs a display, and a test
+that hangs for two minutes to prove something hangs for two minutes is not a
+test anybody will keep. So the checks here are of two kinds.
+
+**Static**: read the view modules as text and assert that no blocking call sits
+in a UI-thread method. Crude, and it catches exactly the class of mistake that
+caused this - each of these was written because it looked harmless.
+
+**Behavioural**: the logic that was moved out of the widgets is now plain
+functions, and those are tested directly.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+UI = Path(__file__).resolve().parents[2] / "app" / "ui"
+
+
+def source(name: str) -> str:
+    return (UI / name).read_text(encoding="utf-8")
+
+
+def tree(name: str) -> ast.Module:
+    return ast.parse(source(name))
+
+
+# ---------------------------------------------------------------------------
+# Nothing blocking on the UI thread
+# ---------------------------------------------------------------------------
+
+def _calls_in(node: ast.AST) -> set[str]:
+    """Every dotted call name inside a node, e.g. `subprocess.run`."""
+    found: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Attribute):
+            base = func.value
+            prefix = base.id if isinstance(base, ast.Name) else ""
+            found.add(f"{prefix}.{func.attr}" if prefix else func.attr)
+        elif isinstance(func, ast.Name):
+            found.add(func.id)
+    return found
+
+
+def _worker_bodies(module: ast.Module) -> set[int]:
+    """Line numbers inside nested functions - a worker's closure, not the UI."""
+    inner: set[int] = set()
+    for node in ast.walk(module):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for deep in ast.walk(child):
+                    if hasattr(deep, "lineno"):
+                        inner.add(deep.lineno)
+    return inner
+
+
+@pytest.mark.parametrize("name", sorted(p.name for p in UI.glob("*_view.py")))
+def test_no_view_runs_a_subprocess_on_the_ui_thread(name: str) -> None:
+    """`subprocess.run` blocks until the child exits. On the UI thread that is a
+    window that stops repainting - which is what happened, for up to two minutes,
+    every time somebody pressed "Run doctor"."""
+    calls = _calls_in(tree(name))
+    assert "subprocess.run" not in calls, (
+        f"{name} calls subprocess.run directly. Move it into a plain function "
+        f"and run it through CallableWorker."
+    )
+    assert "check_output" not in calls and "subprocess.check_output" not in calls
+
+
+@pytest.mark.parametrize("name", sorted(p.name for p in UI.glob("*_view.py")))
+def test_no_view_sleeps(name: str) -> None:
+    """A sleep on the UI thread is a freeze with a timer on it."""
+    assert "time.sleep" not in _calls_in(tree(name)), f"{name} sleeps on the UI thread"
+
+
+def test_the_graph_panel_does_not_read_the_store_while_painting() -> None:
+    """`refresh()` was `top_entities(500)` plus `edges_among` over 96,712 edges,
+    on the UI thread, on every switch to the Graph tab - and it also waited on
+    the SQLite lock whenever an index run held a write.
+
+    The reads now happen in a worker closure; the method that paints must not
+    touch the store itself.
+    """
+    module = tree("graph_view.py")
+    painter = next(
+        node for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef) and node.name == "_refreshed"
+    )
+    assert not any(
+        call.startswith("_store.") or call in {"top_entities", "edges_among", "graph_stats"}
+        for call in _calls_in(painter)
+    ), "_refreshed paints; it must be handed data, not fetch it"
+
+
+def test_settings_counts_the_usage_log_without_reading_it() -> None:
+    """It was `len(recent_searches(limit=100_000))`: a hundred thousand rows
+    fetched, turned into dictionaries and discarded, to produce one number."""
+    # Against the calls, not the text - the docstring explaining the fix names
+    # the old method, and a test that reads prose is a test that fails on a
+    # comment.
+    calls = _calls_in(tree("settings_view.py"))
+    assert not any(call.endswith("recent_searches") for call in calls), (
+        "use count_searches(), which is a COUNT(*) rather than 100,000 rows"
+    )
+    assert any(call.endswith("count_searches") for call in calls)
+
+
+# ---------------------------------------------------------------------------
+# The doctor logic, now that it is out of the widget
+# ---------------------------------------------------------------------------
+
+def test_a_healthy_report_reads_as_ready() -> None:
+    from app.ui.presenter import doctor_lines
+
+    lines = doctor_lines({"ready": True, "checks": [
+        {"name": "Python", "ok": True, "detail": "3.12.4"},
+    ]})
+    assert lines[0] == "READY"
+    assert any("PASS" in line and "Python" in line for line in lines)
+
+
+def test_a_failure_carries_its_fix() -> None:
+    """Every AppError in this project states what to do. A diagnostics panel
+    that shows the failure and hides the fix wastes the work of writing it."""
+    from app.ui.presenter import doctor_lines
+
+    lines = doctor_lines({"ready": False, "checks": [
+        {"name": "FTS5", "ok": False, "detail": "missing", "fix": "reinstall Python"},
+    ]})
+    assert lines[0] == "NOT READY"
+    assert any("FIX: reinstall Python" in line for line in lines)
+
+
+def test_an_optional_failure_is_a_warning_not_a_failure() -> None:
+    """pywin32 missing means no Outlook mailbox. Everything else still works,
+    and calling it FAIL sends people chasing a problem they do not have."""
+    from app.ui.presenter import doctor_lines
+
+    lines = doctor_lines({"ready": True, "checks": [
+        {"name": "pywin32", "ok": False, "optional": True, "detail": "not installed"},
+    ]})
+    assert any("[WARN]" in line for line in lines)
+    assert not any("[FAIL]" in line for line in lines)
+
+
+def test_a_malformed_report_still_renders() -> None:
+    """This is the diagnostics view. A formatter that raises on a missing key
+    hides the very output somebody opened it to read."""
+    from app.ui.presenter import doctor_lines
+
+    assert doctor_lines({})[0] == "NOT READY"
+    assert doctor_lines({"checks": [{}]})
+
+
+# ---------------------------------------------------------------------------
+# Ollama: the 120 seconds that produced nothing
+# ---------------------------------------------------------------------------
+
+def test_connect_and_read_timeouts_are_separate() -> None:
+    """`requests` applies a single float to both phases. So the 120-second budget
+    meant for the model's reply was also spent finding out that nothing was
+    listening: one enrichment run sat for 120.09s and processed zero chunks.
+
+    Ollama is a process on this machine. The socket opens in milliseconds or it
+    is not going to open.
+    """
+    from app.llm.ollama import OllamaClient
+
+    connect, read = OllamaClient(timeout=120.0)._budget(120.0)
+    assert read == 120.0, "the model still gets its full time to answer"
+    assert connect <= 5.0, "but not to answer the phone"
+
+
+def test_the_connect_timeout_never_exceeds_the_read_budget() -> None:
+    """A caller asking for a one-second answer must not wait three to connect."""
+    from app.llm.ollama import OllamaClient
+
+    connect, read = OllamaClient()._budget(1.0)
+    assert connect <= read
+
+
+# ---------------------------------------------------------------------------
+# Scrolling
+# ---------------------------------------------------------------------------
+
+def test_the_scroll_helper_resizes_its_widget() -> None:
+    """`setWidgetResizable(True)` is the line everybody misses. Without it the
+    inner widget keeps its sizeHint forever, so a maximised window shows a
+    narrow column of content with a horizontal scrollbar under it."""
+    text = (UI / "widgets" / "scroll.py").read_text(encoding="utf-8")
+    assert "setWidgetResizable(True)" in text
+
+
+def test_the_window_maps_views_to_tab_indexes() -> None:
+    """A view inside a scroll area is not the widget in the tab, so
+    `setCurrentWidget(view)` silently does nothing and
+    `tabs.widget(i) is view` is silently False. Both fail without an error,
+    which is how adding a scrollbar breaks navigation unnoticed.
+    """
+    text = source("shell.py")
+    assert "_tab_index" in text
+    assert "self.tabs.setCurrentWidget(" not in text, (
+        "use self._show(view), which works whether or not the view is wrapped"
+    )
+
+
+def test_the_window_has_a_minimum_size() -> None:
+    """Without one Qt shrinks the window until only the tab bar is left, and a
+    view with no scroll area then has controls that cannot be reached at all."""
+    assert "setMinimumSize(" in source("shell.py")
+
+
+# ---------------------------------------------------------------------------
+# Signals connected once
+# ---------------------------------------------------------------------------
+
+def test_the_theme_hook_is_connected_once() -> None:
+    """`_apply_theme` connected `colorSchemeChanged` to a lambda that calls
+    `_apply_theme`. Every theme change added another connection, so one flick of
+    the system switch re-entered the handler once per change ever made - each
+    one connecting again. Qt gives no warning for a duplicate connection."""
+    text = source("shell.py")
+    assert "_theme_hooked" in text, "guard the connection with a flag"
+
+    module = tree("shell.py")
+    apply_theme = next(
+        node for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_theme"
+    )
+    guarded = [
+        node for node in ast.walk(apply_theme)
+        if isinstance(node, ast.If) and "_theme_hooked" in ast.dump(node)
+    ]
+    assert guarded, "the connect must sit behind the flag, not beside it"
+
+
+def test_a_second_index_run_is_refused_before_anything_is_built() -> None:
+    """Six index runs appeared in seven seconds of ordinary clicking. Each one
+    built a Pipeline and an Embedder - loading the ONNX model - only for
+    `IndexingView.start` to discard them silently."""
+    module = tree("shell.py")
+    start = next(
+        node for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef) and node.name == "_start_indexing"
+    )
+    # By line number, and against the *call* rather than the import - the local
+    # `from app.index.pipeline import Pipeline` sits at the top of the method
+    # and costs nothing; constructing one is what loads the model.
+    guard = min(
+        (node.lineno for node in ast.walk(start)
+         if isinstance(node, ast.Call) and "is_running" in ast.dump(node.func)),
+        default=None,
+    )
+    built = min(
+        (node.lineno for node in ast.walk(start)
+         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+         and node.func.id in {"Pipeline", "Embedder"}),
+        default=None,
+    )
+    assert guard is not None, "_start_indexing must check whether a run is in flight"
+    assert built is not None, "this test is watching the wrong names"
+    assert guard < built, "and must check before building anything expensive"
+
+
+def test_ctrl_c_is_wired_up() -> None:
+    """Python does not deliver signals from inside C code. Without a timer
+    handing control back to the interpreter, Ctrl+C in the terminal does nothing
+    at all and End Task is the only way to stop the application."""
+    text = (UI.parent / "main.py").read_text(encoding="utf-8")
+    assert "SIGINT" in text
+    assert "QTimer" in text, "a signal handler alone never runs while Qt owns the loop"

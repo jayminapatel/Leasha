@@ -606,6 +606,15 @@ class SqliteStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def count_searches(self) -> int:
+        """How many searches are recorded. One row out, not all of them.
+
+        Settings displays this number. It was previously obtained by fetching a
+        hundred thousand rows and calling `len()` on the list - on the UI thread,
+        every time the panel was built.
+        """
+        return int(self.conn.execute("SELECT COUNT(*) FROM searches").fetchone()[0])
+
     def clear_usage_log(self) -> int:
         """Delete every recorded search. Returns how many were removed.
 
