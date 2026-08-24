@@ -1,6 +1,6 @@
 # Local Knowledge Graph Search + Office Suite — V2 (Windows, Single User)
 
-**Doc version:** 2.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 **Project Type:** Windows desktop app, embedded single-process architecture
 **Target OS:** Windows 10/11 only, single user
@@ -35,7 +35,7 @@ V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAP
 | FastAPI + HTTP + 2nd venv | **Engine runs in QThread/worker process inside the app** | No ports, no network timeouts, no client-server friction |
 | Ollama Mistral 7B for embeddings + rerank | **FastEmbed (ONNX, in-process) for embeddings; small cross-encoder for rerank; Ollama optional for RAG answers only** | Ollama crash no longer kills search; 7B rerank could never hit <2s on CPU |
 | pdfplumber | **PyMuPDF (fitz)** | C-based, 10–20× faster — matters at 100GB. (AGPL: fine for personal use) |
-| pypff for PST | **win32com Outlook MAPI (primary) / XstReader CLI (fallback)** | pypff has no reliable Windows wheels and fails to build. NOTE: extract-msg reads only .msg files, NOT .pst archives — do not use it for PST |
+| pypff for PST | **libpff (default, optional install) / win32com Outlook MAPI (fallback, and always for .ost)** | Revised 2026-08-24: pypff is not on PyPI, but `libpff-python` compiles and works. It needs Build Tools for VS, so it stays optional and unpinned and every import is guarded — but "no wheel" was being read as "impossible", and it is not. NOTE: extract-msg reads only .msg files, NOT .pst archives — do not use it for PST |
 | Chocolatey bootstrap in admin PowerShell | **winget** (built into Windows 10/11) | No third-party bootstrap, no execution-policy gymnastics |
 
 ---
@@ -345,7 +345,10 @@ Fallbacks, unchanged:
 
 - **No Outlook installed:** XstReader or `readpst` to convert `.pst` -> EML, then index the
   EML folder with the stdlib `email` module.
-- **Never:** `pypff` (no reliable Windows wheels), `extract-msg` for `.pst` (it reads `.msg`
+- **Optional:** `libpff-python` — reads `.pst` with no Outlook, no COM and no file lock, and is
+  the only PST route testable off Windows. Not pinned: it compiles at install. See
+  `app/extract/pst_libpff.py`.
+- **Never:** `extract-msg` for `.pst` (it reads `.msg`
   files only - fine for standalone messages, wrong for archives).
 
 Email features retained: thread grouping, conversation view, sender and date filters,

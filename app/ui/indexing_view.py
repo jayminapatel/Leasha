@@ -30,8 +30,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.presenter import format_count, format_eta, group_skips
-from app.ui.workers import IndexWorker
+from app.ui.presenter import format_count, format_eta, format_when, group_skips
+from app.ui.workers import IndexWorker, run
 
 __all__ = ["IndexingView"]
 
@@ -52,9 +52,17 @@ class IndexingView(QWidget):
         self.headline = QLabel("Nothing indexed yet.")
         self.headline.setObjectName("indexHeadline")
 
+        # What is in the index right now, independent of any run. The page
+        # previously showed nothing at all until an index was started, so
+        # opening it answered none of "is there an index, how big, how old" -
+        # which is the whole reason somebody opens it.
+        self.totals = QLabel("")
+        self.totals.setObjectName("indexTotals")
+
         self.bar = QProgressBar()
         self.bar.setTextVisible(True)
-        self.bar.setRange(0, 0)          # indeterminate until a total is known
+        self.bar.setRange(0, 1)
+        self.bar.setValue(0)
 
         self.detail = QLabel("")
         self.detail.setObjectName("indexDetail")
@@ -80,20 +88,70 @@ class IndexingView(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self._skips_box)
 
+        # `scroll` takes the stretch, and the skipped box inside it is hidden
+        # until there is something to show. Maximised, that left an enormous
+        # empty panel with the controls squashed at the top - so it only claims
+        # space once it has content, and a spacer absorbs the rest.
+        self._scroll = scroll
+        scroll.setVisible(False)
+
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
         layout.addWidget(self.headline)
+        layout.addWidget(self.totals)
         layout.addWidget(self.bar)
         layout.addWidget(self.detail)
         layout.addLayout(controls)
         layout.addWidget(scroll, stretch=1)
+        layout.addStretch(1)
 
     # -- running ------------------------------------------------------------
+
+    def is_running(self) -> bool:
+        """Is an index run in flight?
+
+        The scheduler asks before starting one. Two runs writing into the same
+        SQLite file is exactly the corruption the single-instance lock prevents
+        between processes, and nothing prevented it inside one.
+        """
+        return self._worker is not None
+
+    def refresh_totals(self, store: Any) -> None:
+        """Show what is already indexed. Cheap enough for every tab switch."""
+        try:
+            stats = store.stats()
+            last = store.get_state("index:last_run")
+        except Exception:                    # noqa: BLE001 - a label is not worth crashing over
+            return
+
+        documents = int(stats.get("files_total", 0))
+        chunks = int(stats.get("chunks_total", 0))
+        if not documents:
+            self.totals.setText("Nothing indexed yet.")
+            return
+
+        when = ""
+        if last:
+            try:
+                from datetime import datetime
+
+                moment = datetime.fromisoformat(last)
+                when = f"  ·  last run {format_when(int(moment.timestamp() * 1e9))}"
+            except ValueError:
+                when = ""
+        self.totals.setText(
+            f"{documents:,} documents  ·  {chunks:,} searchable chunks{when}"
+        )
 
     def start(self, pipeline: Any, *, total_estimate: int = 0) -> None:
         if self._worker is not None:
             return
         self._total_estimate = total_estimate
-        self.bar.setRange(0, total_estimate or 0)
+        # A determinate bar with no total is a barber pole that spins forever,
+        # which reads as "stuck" - and the caller never had a total to give,
+        # because the walker discovers files as it goes. So it starts at zero
+        # and grows its own denominator from `seen` on the first progress tick.
+        self.bar.setRange(0, max(1, total_estimate))
         self.bar.setValue(0)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -105,7 +163,7 @@ class IndexingView(QWidget):
         worker.signals.failed.connect(self._on_failed)
         worker.signals.done.connect(self._on_done)
         self._worker = worker
-        self._pool.start(worker)
+        run(self._pool, worker)
 
     def stop(self) -> None:
         if self._worker is not None:
@@ -114,21 +172,29 @@ class IndexingView(QWidget):
             self.stop_button.setEnabled(False)
 
     def _on_progress(self, stats: Any) -> None:
-        done = stats.indexed + stats.unchanged + stats.skipped
-        if self._total_estimate:
-            self.bar.setValue(min(done, self._total_estimate))
+        done = stats.unchanged + stats.skipped
+        # The denominator is what the walker has *found so far*, which grows as
+        # it goes. Honest, and it moves - unlike a fixed total nobody can know
+        # before the walk finishes, or an indeterminate bar that never resolves.
+        total = max(self._total_estimate, stats.seen, done, 1)
+        self.bar.setRange(0, total)
+        self.bar.setValue(min(done, total))
 
         remaining = max(0, self._total_estimate - done) if self._total_estimate else 0
         eta = format_eta(remaining, files_per_minute=stats.files_per_minute)
 
         self.headline.setText(
-            f"{format_count(stats.indexed)} indexed  ·  "
-            f"{format_count(stats.unchanged)} unchanged  ·  "
+            f"{format_count(stats.indexed)} documents  ·  "
+            f"{format_count(stats.seen)} files seen  ·  "
             f"{format_count(stats.skipped)} skipped"
         )
+        current = getattr(stats, "current", "")
+        reading = f"  ·  reading {current}" if current else ""
+        if current and getattr(stats, "current_item", 0):
+            reading += f" [{stats.current_item:,}]"
         self.detail.setText(
             f"{format_count(stats.chunks)} chunks  ·  "
-            f"{stats.files_per_minute:,.0f} files/min  ·  {eta}"
+            f"{stats.files_per_minute:,.0f} files/min  ·  {eta}{reading}"
         )
         self.show_skips(stats.skipped_by_code)
 
@@ -173,6 +239,9 @@ class IndexingView(QWidget):
 
         groups = group_skips(summary or {})
         self._skips_box.setVisible(bool(groups))
+        # The scroll area only claims layout space when it has something in it.
+        # Left permanently visible it swallowed the whole window when maximised.
+        self._scroll.setVisible(bool(groups))
         if not groups:
             return
 

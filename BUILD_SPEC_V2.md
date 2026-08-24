@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -629,12 +629,46 @@ layer where that is unavoidable.
 - `render.py` — networkx for layout and metrics, pyvis for the interactive view.
   Node click → filtered search on that entity.
 
-**Acceptance**
+**Acceptance** — all four pass; see `tests/integration/test_layer6_acceptance.py`,
+where each has a test named after it.
 
-- [ ] Graph renders from the co-occurrence baseline with Ollama stopped.
-- [ ] Starting Ollama and running enrichment visibly improves entity quality.
-- [ ] Killing Ollama mid-enrichment: job pauses with `ERR_OLLAMA_DOWN`, resumes later, no data loss.
-- [ ] Graph stays interactive at 5k nodes (cap and cluster beyond that).
+- [x] Graph renders from the co-occurrence baseline with Ollama stopped.
+- [x] Starting Ollama and running enrichment visibly improves entity quality.
+- [x] Killing Ollama mid-enrichment: job pauses with `ERR_OLLAMA_DOWN`, resumes later, no data loss.
+- [x] Graph stays interactive at 5k nodes (cap and cluster beyond that).
+
+**Decisions taken during the build, worth not relitigating**
+
+- **Schema v3 adds `entities`, `entity_mentions`, `entity_edges`** and nothing else.
+  Additive, like v2: the graph is derived entirely from `chunks`, so it is built at
+  leisure on an existing index without re-reading one file, and `--rebuild` is always safe.
+- **`key` is identity, `display` is what you show.** Casefolded and whitespace-collapsed,
+  so "Acme Ltd", "ACME LTD" and a name line-wrapped by a PDF are one node. Without it the
+  biggest nodes in the graph are duplicates of each other.
+- **Normalised PMI, not raw PMI or raw counts.** Raw counts give a hairball centred on
+  the commonest word. Raw PMI's ceiling depends on how rare a pair is, so a threshold
+  chosen today stops filtering as the corpus grows; npmi is bounded to [-1, 1] and a
+  cutoff keeps meaning. Defaults: `min_weight=2`, `min_npmi=0.0`.
+- **The build is two passes.** An edge's score depends on corpus-wide totals that do not
+  exist until the last chunk is read, so scoring during the walk would judge early edges
+  against a corpus that had not happened yet.
+- **The cursor is committed in the same transaction as the batch it describes.** Edge
+  weights accumulate, so a replayed batch double-counts silently - no error, no way to
+  detect it afterwards. One transaction makes it impossible rather than unlikely.
+- **`MAX_ENTITIES_PER_CHUNK = 24`.** Pairs are quadratic, and one contact list or email
+  footer would otherwise contribute 20,000 edges on its own.
+- **The picture opens in a browser, not in a tab.** Embedding it needs `PyQt6-WebEngine`:
+  ~150MB, a second Chromium beside the ONNX runtime, and a known packaging problem. The
+  *interactive* half - click an entity, see neighbours, see the passages, search it - is
+  ordinary Qt widgets in the Graph tab, which is faster for the thing people repeat.
+- **pyvis emits two CDN tags even with `cdn_resources="in_line"`.** They are stripped from
+  the written file and an acceptance test greps for `https://`. Found by rendering and
+  checking, not by reading the docs: on a connected machine the page looks perfect.
+- **The LLM pass only adds and refines.** It never deletes a co-occurrence entity and never
+  rewrites edges, so the deterministic graph stays intact and enrichment stays reversible.
+- **Two cursors, not one.** `graph:cursor` and `graph:llm_cursor` walk the same chunks at
+  completely different speeds; sharing one means whichever ran last dictates where the
+  other resumes.
 
 ---
 

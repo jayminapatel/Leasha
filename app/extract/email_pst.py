@@ -15,9 +15,13 @@ drive a `FakeSession`, so the walk, the threading, the dedup and every error pat
 are verified on any machine. What stays unverified until it runs on Windows is
 one thin adapter - which is the smallest honest surface this can have.
 
-**Never `pypff`** (no reliable Windows wheels) and **never `extract-msg` for a
-`.pst`** - it reads single `.msg` items only. Both are named in
-LOCAL_KNOWLEDGE_GRAPH_V2.md because both have been tried and both failed.
+**On the alternatives.** `extract-msg` reads single `.msg` items only and is never
+a route into a `.pst`. `pypff` is different: the architecture doc rules it out for
+having no Windows wheel, and that is true - but "no wheel" means it compiles at
+install time, not that it cannot be used. Tested directly, `libpff-python` builds
+and works, so it now lives in `pst_libpff.py` as the optional direct backend and
+`choose_backend()` decides between the two. `.ost` still comes here regardless:
+it is Outlook's own cache and libpff reads it poorly.
 
 **Attachments** are extracted through the normal registry and deduplicated by
 content hash: a 30GB archive set contains the same deck mailed round the team
@@ -41,11 +45,14 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional, Protocol, Sequence
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
+from app.core.logging import logger
 from app.extract.base import Document, SourceKind, register
 from app.extract.email_files import build_email_document
 
 __all__ = [
     "PstExtractor",
+    "PstBackend",
+    "choose_backend",
     "MailItem",
     "MapiSession",
     "walk_session",
@@ -54,6 +61,8 @@ __all__ = [
     "DEFAULT_SKIP_FOLDERS",
     "MAX_ATTACHMENT_BYTES",
 ]
+
+_log = logger.bind(component="extract.pst")
 
 OUTLOOK_EXTENSIONS = frozenset({".pst", ".ost"})
 
@@ -606,6 +615,38 @@ def iter_mailbox_documents(
             active.close()
 
 
+#: How to read a `.pst`. Settings exposes this; `auto` is what almost everyone
+#: should use.
+class PstBackend:
+    #: libpff if it is installed, otherwise Outlook. Prefers libpff because it
+    #: needs no Outlook, takes no file lock, does not touch the user's mail
+    #: profile, and works from any thread.
+    AUTO = "auto"
+    #: Force Outlook/MAPI. The only route for `.ost` and the live mailbox.
+    OUTLOOK = "outlook"
+    #: Force direct file reading. Fails clearly if libpff is absent.
+    LIBPFF = "libpff"
+
+    ALL = (AUTO, OUTLOOK, LIBPFF)
+
+
+def choose_backend(path: Path, preference: str = PstBackend.AUTO) -> str:
+    """Which backend will actually be used for this file, and why.
+
+    `.ost` always goes to Outlook: it is the Cached Exchange Mode file, libpff
+    reads it poorly, and it belongs to a running Outlook anyway.
+    """
+    from app.extract import pst_libpff
+
+    if path.suffix.lower() == ".ost":
+        return PstBackend.OUTLOOK
+    if preference == PstBackend.LIBPFF:
+        return PstBackend.LIBPFF
+    if preference == PstBackend.OUTLOOK:
+        return PstBackend.OUTLOOK
+    return PstBackend.LIBPFF if pst_libpff.available() else PstBackend.OUTLOOK
+
+
 class PstExtractor:
     """Registered for `.pst` and `.ost`, so an archive is a first-class input."""
 
@@ -620,6 +661,9 @@ class PstExtractor:
     #: Injectable for tests; None means build a real Win32ComSession.
     session_factory: Optional[Callable[[], MapiSession]] = None
 
+    #: Which route to take. Settings writes this; `auto` prefers libpff.
+    backend: str = PstBackend.AUTO
+
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
 
@@ -628,6 +672,29 @@ class PstExtractor:
             session = self.session_factory()
             yield from walk_session(session, include_live=False, only_paths=[str(path)])
             return
+
+        if choose_backend(path, self.backend) == PstBackend.LIBPFF:
+            from app.extract import pst_libpff
+
+            try:
+                yield from pst_libpff.read_archive(path)
+                return
+            except pst_libpff.LibpffUnavailable as exc:
+                if self.backend == PstBackend.LIBPFF:
+                    raise_error(
+                        "ERR_OUTLOOK_MISSING", "extract.pst", path=str(path),
+                        suggestion=(
+                            "The PST backend is set to 'libpff' but libpff is not installed. "
+                            "Either install it (needs Visual Studio Build Tools on Windows: "
+                            "pip install libpff-python) or set the backend to 'auto' in "
+                            "Settings to fall back to Outlook."
+                        ),
+                        details=str(exc),
+                    )
+                    return
+                # auto: libpff vanished between the check and the read. Fall
+                # through to Outlook rather than failing the file.
+                _log.warning("libpff unavailable, falling back to Outlook: {}", exc)
 
         session = Win32ComSession()
         try:

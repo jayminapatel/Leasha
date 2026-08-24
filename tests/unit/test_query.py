@@ -230,3 +230,49 @@ def test_intra_word_punctuation_survives() -> None:
 def test_parse_is_deterministic() -> None:
     raw = 'type:pdf after:2024 "site survey" -draft northern'
     assert parse_query(raw, today=TODAY) == parse_query(raw, today=TODAY)
+
+
+# ---------------------------------------------------------------------------
+# Scope: the chips beside the search box.
+#
+# A filter, not a mode. You should never have to decide whether a thing was an
+# email or a document *before* typing, because the usual answer is "I do not
+# remember, that is why I am searching".
+# ---------------------------------------------------------------------------
+
+def test_the_default_scope_is_everything():
+    assert parse_query("barnsley").scope == "all"
+
+
+def test_scoping_returns_a_copy_rather_than_mutating():
+    """`ParsedQuery` is frozen so it can be a cache key. A scope changed in
+    place would leave the cache serving one scope's results under another's
+    name - the same shape of bug as a stale generation."""
+    original = parse_query("barnsley")
+    scoped = original.scoped("mail")
+
+    assert original.scope == "all"
+    assert scoped.scope == "mail"
+    assert scoped is not original
+    assert scoped.raw == original.raw
+
+
+def test_an_unknown_scope_falls_back_to_everything():
+    """A stored setting from a future version must not silently return nothing."""
+    assert parse_query("x").scoped("nonsense").scope == "all"
+    assert parse_query("x").scoped("").scope == "all"
+
+
+def test_a_scope_counts_as_a_filter():
+    """"mail" with no search terms is a legitimate browse, and `has_filters` is
+    what stops the engine treating it as an empty query."""
+    assert not parse_query("").scoped("all").has_filters
+    assert parse_query("").scoped("mail").has_filters
+
+
+def test_scoping_preserves_every_other_operator():
+    parsed = parse_query('type:pdf after:2024 from:jen@acme.co.uk "site survey"').scoped("mail")
+    assert parsed.ext == ("pdf",)
+    assert parsed.senders == ("jen@acme.co.uk",)
+    assert parsed.phrases == ("site survey",)
+    assert parsed.scope == "mail"

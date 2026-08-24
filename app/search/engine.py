@@ -166,7 +166,7 @@ class SearchEngine:
 
     # -- the two tiers ------------------------------------------------------
 
-    def interim(self, raw: str, *, limit: int = INTERIM_LIMIT) -> SearchResponse:
+    def interim(self, raw: str, *, limit: int = INTERIM_LIMIT, scope: str = "all") -> SearchResponse:
         """Keyword only, no model, no ANN. What runs while someone is typing.
 
         Never cached and never logged: it is not a search anybody made, it is a
@@ -174,7 +174,7 @@ class SearchEngine:
         very data Layer 10 depends on.
         """
         started = time.perf_counter()
-        parsed = parse_query(raw)
+        parsed = parse_query(raw).scoped(scope)
         if not parsed.has_text and not parsed.has_filters:
             return SearchResponse(parsed=parsed, interim=True)
 
@@ -195,13 +195,14 @@ class SearchEngine:
         limit: int = FUSED_LIMIT,
         rerank: Optional[bool] = None,
         use_cache: bool = True,
+        scope: str = "all",
     ) -> SearchResponse:
         """The full pipeline. What runs when someone stops typing or presses Enter."""
         started = time.perf_counter()
         timings: dict[str, float] = {}
 
         mark = time.perf_counter()
-        parsed = parse_query(raw)
+        parsed = parse_query(raw).scoped(scope)
         timings["parse"] = (time.perf_counter() - mark) * 1000
 
         if not parsed.has_text and not parsed.has_filters:
@@ -297,6 +298,10 @@ class SearchEngine:
         in the cache, and the user gets hits on text they have just deleted.
         """
         try:
+            if not getattr(self.store, "is_open", True):
+                # The window is closing and a search is still in flight. Not an
+                # error, and not worth a log line per keystroke.
+                return "closed"
             generation = self.store.generation      # a property, not a method
         except Exception as exc:        # noqa: BLE001 - a cache key is not worth failing over
             # Loud, because the silent version of this shipped: `generation()`
@@ -308,10 +313,14 @@ class SearchEngine:
                 "index generation unreadable, so the search cache cannot be invalidated: {}", exc
             )
             generation = -1
+        # The scope is part of the key. Without it "All" and "Mail" share an
+        # entry for the same typed text, and whichever ran first answers for
+        # both - the same class of bug as the generation being wrong, and just
+        # as invisible.
         return "|".join([
-            "v1", str(generation), raw.strip().lower(),
+            "v2", str(generation), raw.strip().lower(),
             repr(parsed.ext), repr(parsed.after), repr(parsed.before),
-            repr(parsed.paths), repr(parsed.senders),
+            repr(parsed.paths), repr(parsed.senders), parsed.scope,
             "r" if rerank else "-", str(limit),
         ])
 

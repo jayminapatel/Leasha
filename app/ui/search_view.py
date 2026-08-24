@@ -23,6 +23,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -32,7 +33,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui.presenter import IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, tier_for
 from app.ui.results_view import ResultsView
-from app.ui.workers import SearchWorker
+from app.ui.workers import SearchWorker, run
 
 __all__ = ["SearchView"]
 
@@ -63,6 +64,19 @@ class SearchView(QWidget):
         self.input.textChanged.connect(self._on_text_changed)
         self.input.returnPressed.connect(self._on_submitted)
 
+        # Scope chips. A filter, not a mode: you should never have to decide
+        # whether a thing was an email or a document *before* typing, because
+        # the usual answer is "I do not remember, that is why I am searching".
+        self.scope = QComboBox()
+        self.scope.addItem("Everything", "all")
+        self.scope.addItem("Mail only", "mail")
+        self.scope.addItem("Documents only", "documents")
+        self.scope.setToolTip(
+            "Narrow the search to mail or to files on disk.\n"
+            "Mail results show who sent it and when instead of a file path."
+        )
+        self.scope.currentIndexChanged.connect(self._on_scope_changed)
+
         self.rerank_toggle = QCheckBox("Rerank")
         self.rerank_toggle.setToolTip(
             "Slower but more precise ordering. Turning it off does not need a restart."
@@ -81,6 +95,7 @@ class SearchView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
+        top.addWidget(self.scope)
         top.addWidget(self.rerank_toggle)
 
         layout = QVBoxLayout(self)
@@ -104,6 +119,27 @@ class SearchView(QWidget):
         self.input.selectAll()
 
     # -- dispatch -----------------------------------------------------------
+
+    def current_scope(self) -> str:
+        return str(self.scope.currentData() or "all")
+
+    def _on_scope_changed(self, _index: int) -> None:
+        """Re-run immediately rather than waiting for the next keystroke.
+
+        Changing the scope is an explicit instruction about results already on
+        screen. Leaving them there until something else is typed makes the
+        control look broken.
+        """
+        if self.input.text().strip():
+            self._dispatch(Tier.FULL)
+
+    def search_now(self) -> None:
+        """Run the full search immediately, as if Enter had been pressed.
+
+        Exists for the graph panel: clicking an entity is an explicit choice, so
+        it should not wait out a debounce meant for someone still typing.
+        """
+        self._dispatch(Tier.FULL)
 
     def _on_text_changed(self, _text: str) -> None:
         self._last_keystroke = time.monotonic()
@@ -129,7 +165,7 @@ class SearchView(QWidget):
             return
 
         self._generation += 1
-        options: dict[str, Any] = {}
+        options: dict[str, Any] = {"scope": self.current_scope()}
         if tier == Tier.FULL:
             options["rerank"] = self.rerank_toggle.isChecked()
 
@@ -138,7 +174,7 @@ class SearchView(QWidget):
         )
         worker.signals.finished.connect(self._on_results)
         worker.signals.failed.connect(self.error)
-        self._pool.start(worker)
+        run(self._pool, worker)
 
     # -- results ------------------------------------------------------------
 

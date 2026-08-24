@@ -346,16 +346,22 @@ def test_an_unexpected_worker_exception_becomes_a_skip(stores, corpus: Path) -> 
     """A bug in one extractor must cost that file, not the run."""
     store, _vectors = stores
     pipeline = build(stores, corpus)
-    original = pipeline._extract_one
+    original = pipeline._extract_stream
     calls = {"n": 0}
 
     def sometimes_explode(candidate, digest):
+        """Extraction is a generator now, so the failure has to happen *inside* it.
+
+        Raising before the first `yield` would never run at all - a generator
+        function does nothing until it is iterated - and the test would pass
+        while proving nothing.
+        """
         calls["n"] += 1
         if calls["n"] == 3:
             raise RuntimeError("a parser bug nobody anticipated")
-        return original(candidate, digest)
+        yield from original(candidate, digest)
 
-    pipeline._extract_one = sometimes_explode     # type: ignore[method-assign]
+    pipeline._extract_stream = sometimes_explode     # type: ignore[method-assign]
     stats = pipeline.run()
 
     assert stats.indexed == 11
@@ -376,7 +382,10 @@ def test_low_disk_stops_the_run_without_corrupting_it(stores, corpus: Path, monk
         total = free = used = 1  # 1 byte free
 
     monkeypatch.setattr(shutil_module, "disk_usage", lambda _p: Tiny)
-    monkeypatch.setattr("app.index.pipeline.shutil.disk_usage", lambda _p: Tiny)
+    # The disk check now lives in the resource governor rather than in the
+    # pipeline: it is one of four ceilings, not a special case. Same behaviour,
+    # different seam.
+    monkeypatch.setattr("app.index.resources.shutil.disk_usage", lambda _p: Tiny)
 
     stats = pipeline.run()
 
@@ -395,7 +404,10 @@ def test_the_run_resumes_after_space_is_freed(stores, corpus: Path, monkeypatch)
         total = free = used = 1
 
     monkeypatch.setattr(shutil_module, "disk_usage", lambda _p: Tiny)
-    monkeypatch.setattr("app.index.pipeline.shutil.disk_usage", lambda _p: Tiny)
+    # The disk check now lives in the resource governor rather than in the
+    # pipeline: it is one of four ceilings, not a special case. Same behaviour,
+    # different seam.
+    monkeypatch.setattr("app.index.resources.shutil.disk_usage", lambda _p: Tiny)
     build(stores, corpus, checkpoint_every=2, min_free_gb=100).run()
 
     monkeypatch.undo()
@@ -410,7 +422,7 @@ def test_an_unreadable_disk_check_does_not_stop_the_run(stores, corpus: Path, mo
     def refuse(_path):
         raise OSError("no such device")
 
-    monkeypatch.setattr("app.index.pipeline.shutil.disk_usage", refuse)
+    monkeypatch.setattr("app.index.resources.shutil.disk_usage", refuse)
     stats = build(stores, corpus, checkpoint_every=2).run()
     assert stats.indexed == 12
     assert stats.stopped_early is None

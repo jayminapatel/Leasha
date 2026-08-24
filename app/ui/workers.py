@@ -23,9 +23,60 @@ from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
 from app.core.errors import AppError, to_app_error
 from app.core.logging import logger
 
-__all__ = ["WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker"]
+__all__ = [
+    "WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker",
+    "GraphWorker", "run",
+]
 
 _log = logger.bind(component="ui.workers")
+
+#: Every worker handed to a QThreadPool, until it reports itself done.
+#:
+#: **Without this the application crashes.** `QThreadPool.start()` takes
+#: ownership of the `QRunnable` on the C++ side, but nothing on the Python side
+#: holds the `WorkerSignals` QObject it carries. As soon as the local variable
+#: at the call site goes out of scope, Python collects it, sip deletes the
+#: underlying C++ object, and the worker - still running on its thread - dies
+#: emitting into a corpse:
+#:
+#:     RuntimeError: wrapped C/C++ object of type WorkerSignals has been deleted
+#:
+#: It only bites when a search outlives the function that started it, which is
+#: exactly what happens when the machine is busy - so it looks intermittent and
+#: unrelated to anything.
+_IN_FLIGHT: set[Any] = set()
+
+
+def _retain(worker: Any) -> Any:
+    """Hold a worker alive for as long as its thread might still touch it."""
+    _IN_FLIGHT.add(worker)
+    worker.signals.done.connect(lambda: _IN_FLIGHT.discard(worker))
+    return worker
+
+
+def run(pool: Any, worker: Any) -> Any:
+    """Start a worker on `pool`, keeping it alive until it finishes.
+
+    Always use this rather than `pool.start(worker)` directly.
+    """
+    _retain(worker)
+    pool.start(worker)
+    return worker
+
+
+def _emit(signal: Any, *args: Any) -> None:
+    """Emit, unless Qt has already torn the receiving object down.
+
+    At shutdown the C++ side goes first and a thread still finishing its work
+    emits into nothing. That is not an error worth a traceback - the window is
+    closing and nobody is listening - but an unhandled `RuntimeError` inside a
+    `QRunnable` produces three nested tracebacks in the console and looks like a
+    crash.
+    """
+    try:
+        signal.emit(*args)
+    except RuntimeError:
+        pass
 
 
 class WorkerSignals(QObject):
@@ -50,13 +101,13 @@ class CallableWorker(QRunnable):
 
     def run(self) -> None:                       # noqa: D102 - Qt's entry point
         try:
-            self.signals.finished.emit(self._work(*self._args, **self._kwargs))
+            _emit(self.signals.finished, self._work(*self._args, **self._kwargs))
         except Exception as exc:                 # noqa: BLE001 - the boundary; see module docstring
             error = to_app_error(exc, self._component)
             _log.bind(error_code=error.code).error("{}", error.render())
-            self.signals.failed.emit(error)
+            _emit(self.signals.failed, error)
         finally:
-            self.signals.done.emit()
+            _emit(self.signals.done)
 
 
 class SearchWorker(QRunnable):
@@ -81,16 +132,20 @@ class SearchWorker(QRunnable):
     def run(self) -> None:                       # noqa: D102
         try:
             if self._tier == "interim":
-                response = self._engine.interim(self._query)
+                # The interim tier takes a scope too but not a rerank flag, so
+                # the options cannot simply be forwarded whole.
+                response = self._engine.interim(
+                    self._query, scope=self._options.get("scope", "all")
+                )
             else:
                 response = self._engine.search(self._query, **self._options)
-            self.signals.finished.emit((self.generation, response))
+            _emit(self.signals.finished, (self.generation, response))
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.search")
             _log.bind(error_code=error.code).error("{}", error.render())
-            self.signals.failed.emit(error)
+            _emit(self.signals.failed, error)
         finally:
-            self.signals.done.emit()
+            _emit(self.signals.done)
 
 
 class IndexWorker(QRunnable):
@@ -110,14 +165,68 @@ class IndexWorker(QRunnable):
 
     def run(self) -> None:                       # noqa: D102
         try:
-            stats = self.pipeline.run(on_progress=self.signals.progress.emit)
-            self.signals.finished.emit(stats)
+            stats = self.pipeline.run(
+                on_progress=lambda payload: _emit(self.signals.progress, payload)
+            )
+            _emit(self.signals.finished, stats)
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.index")
             _log.bind(error_code=error.code).error("{}", error.render())
-            self.signals.failed.emit(error)
+            _emit(self.signals.failed, error)
         finally:
-            self.signals.done.emit()
+            _emit(self.signals.done)
+
+
+class GraphWorker(QRunnable):
+    """Build the knowledge graph, optionally enriching it, off the UI thread.
+
+    Ollama being unavailable is reported through `finished`, not `failed`. It is
+    not an error: the co-occurrence graph is complete without it, and routing it
+    to the error path would put a red banner in front of someone whose graph
+    built perfectly. The `EnrichResult` carries the `AppError` for the panel to
+    show as a note.
+    """
+
+    def __init__(self, store: Any, settings: Any, *, rebuild: bool = False, enrich: bool = False):
+        super().__init__()
+        self._store = store
+        self._settings = settings
+        self._rebuild = rebuild
+        self._enrich = enrich
+        self._builder: Any = None
+        self._enricher: Any = None
+        self.signals = WorkerSignals()
+
+    def stop(self) -> None:
+        for job in (self._builder, self._enricher):
+            if job is not None:
+                job.request_stop()
+
+    def run(self) -> None:                       # noqa: D102
+        from app.graph.builder import GraphBuilder
+
+        try:
+            total = int(self._store.stats().get("chunks_total", 0))
+            self._builder = GraphBuilder(self._store, on_progress=self.signals.progress.emit)
+            result = self._builder.build(rebuild=self._rebuild, chunks_total=total)
+
+            if self._enrich and not result.interrupted:
+                from app.graph.entities_llm import EntityEnricher
+                from app.llm.ollama import OllamaClient
+
+                self._enricher = EntityEnricher(
+                    self._store,
+                    OllamaClient(self._settings.ollama_url, self._settings.ollama_model),
+                )
+                self._enricher.run(chunks_total=total)
+
+            _emit(self.signals.finished, result)
+        except Exception as exc:                 # noqa: BLE001
+            error = to_app_error(exc, "ui.graph")
+            _log.bind(error_code=error.code).error("{}", error.render())
+            _emit(self.signals.failed, error)
+        finally:
+            _emit(self.signals.done)
 
 
 def open_in_explorer(path: str, *, select: bool = True) -> Optional[AppError]:

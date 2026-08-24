@@ -289,20 +289,27 @@ def test_env_works_after_the_subcommand(temp_env: Path, fixture_root: Path) -> N
 
 # --- Outlook archives -------------------------------------------------------
 
-def test_pst_without_outlook_names_outlook(
+def test_a_pst_is_always_reported_with_a_reason(
     capsys: pytest.CaptureFixture[str], env: list[str], tmp_path: Path
 ) -> None:
-    """`.pst` is registered, so an archive is always reported - never filtered
-    out of a folder walk like a `.dll`. Without Outlook the reason says exactly
-    that and offers the XstReader route, rather than leaving a 4GB archive
-    unexplained."""
+    """`.pst` is registered, so an archive is always named - never filtered out
+    of a folder walk like a `.dll`.
+
+    Which reason it gets depends on the machine, and the test must not care:
+    without Outlook it is `ERR_OUTLOOK_MISSING` and points at XstReader; with
+    Outlook it is `ERR_FILE_CORRUPT`, because Outlook was asked to open eighteen
+    bytes of nonsense and rightly refused. Asserting one of them made the suite
+    pass on a machine without Outlook and fail on the machine this is built for
+    - which is precisely backwards.
+    """
     archive = tmp_path / "mail.pst"
     archive.write_bytes(b"not a real archive")
 
     code, out, _ = run(capsys, *env, "extract", str(archive))
     assert code == 1
-    assert "ERR_OUTLOOK_MISSING" in out
-    assert "XstReader" in out
+    assert "mail.pst" in out, "the archive is named, not silently filtered out"
+    assert "ERR_OUTLOOK_MISSING" in out or "ERR_FILE_CORRUPT" in out
+    assert "FIX:" in out, "and whichever reason it is, it comes with a fix"
 
 
 def test_pst_appears_in_a_folder_walk(

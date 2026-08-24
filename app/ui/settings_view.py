@@ -24,6 +24,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -37,12 +38,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.indexing_settings import IndexingSettings
+
 __all__ = ["SettingsView"]
 
 
 class SettingsView(QWidget):
     roots_changed = pyqtSignal(list)
+    pst_backend_changed = pyqtSignal(str)
+    convert_pst_requested = pyqtSignal(str, str)   # archive, destination
     rerank_toggled = pyqtSignal(bool)
+
     cloud_toggled = pyqtSignal(bool)
     history_cleared = pyqtSignal(int)
 
@@ -86,6 +92,37 @@ class SettingsView(QWidget):
         self.ollama_url = QLineEdit(str(getattr(settings, "ollama_url", "")))
         self.ollama_url.setReadOnly(True)
 
+        # --- Outlook archives
+        self.pst_backend = QComboBox()
+        self.pst_backend.addItem("Automatic - direct if possible, else Outlook", "auto")
+        self.pst_backend.addItem("Direct file reading (no Outlook needed)", "libpff")
+        self.pst_backend.addItem("Through Outlook (MAPI)", "outlook")
+        self.pst_backend.setToolTip(
+            "Reading an archive directly needs no Outlook, takes no file lock, and does not "
+            "attach anything to your mail profile. Outlook is still used for the live mailbox, "
+            "which only it can read."
+        )
+        self.pst_backend.currentIndexChanged.connect(
+            lambda _i: self.pst_backend_changed.emit(self.pst_backend.currentData())
+        )
+
+        self.pst_status = QLabel("")
+        convert = QPushButton("Convert a .pst to .eml files…")
+        convert.setToolTip(
+            "Exports an archive to a folder of .eml files. Afterwards the mail needs neither "
+            "Outlook nor libpff - it is just files, which any mail client can open."
+        )
+        convert.clicked.connect(self._convert_pst)
+
+        pst_box = QGroupBox("Outlook archives (.pst)")
+        pst_layout = QVBoxLayout(pst_box)
+        pst_layout.addWidget(QLabel("How to read archives:"))
+        pst_layout.addWidget(self.pst_backend)
+        pst_layout.addWidget(self.pst_status)
+        pst_layout.addWidget(convert)
+
+        self.indexing = IndexingSettings()
+
         behaviour = QGroupBox("Behaviour")
         form = QFormLayout(behaviour)
         form.addRow(self.rerank)
@@ -121,11 +158,14 @@ class SettingsView(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(roots_box)
+        layout.addWidget(self.indexing)
+        layout.addWidget(pst_box)
         layout.addWidget(behaviour)
         layout.addWidget(privacy)
         layout.addWidget(doctor_box, stretch=1)
 
         self.refresh_history_count()
+        self.refresh_pst_status()
 
     # -- roots --------------------------------------------------------------
 
@@ -146,6 +186,35 @@ class SettingsView(QWidget):
         for item in self.roots.selectedItems():
             self.roots.takeItem(self.roots.row(item))
         self.roots_changed.emit(self.current_roots())
+
+    # -- Outlook archives ---------------------------------------------------
+
+    def refresh_pst_status(self) -> None:
+        """Say plainly which route is available, and what it would cost to add
+        the other - a greyed-out option with no explanation is a dead end."""
+        from app.extract import pst_libpff
+
+        if pst_libpff.available():
+            self.pst_status.setText(
+                "Direct reading is available - archives can be indexed without Outlook."
+            )
+        else:
+            self.pst_status.setText(
+                "Direct reading is not installed, so archives go through Outlook. "
+                "To read them without it: pip install libpff-python "
+                "(needs Build Tools for Visual Studio on Windows)."
+            )
+        self.pst_status.setWordWrap(True)
+
+    def _convert_pst(self) -> None:
+        archive, _filter = QFileDialog.getOpenFileName(
+            self, "Choose an Outlook archive", "", "Outlook archives (*.pst)"
+        )
+        if not archive:
+            return
+        destination = QFileDialog.getExistingDirectory(self, "Where should the .eml files go?")
+        if destination:
+            self.convert_pst_requested.emit(archive, destination)
 
     # -- history ------------------------------------------------------------
 

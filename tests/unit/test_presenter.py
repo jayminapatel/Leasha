@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.ui import presenter
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -338,7 +339,197 @@ def test_every_qt_view_keeps_its_logic_in_the_presenter() -> None:
     from pathlib import Path
 
     ui = Path(__file__).resolve().parents[2] / "app" / "ui"
-    for name in ("results_view.py", "search_view.py", "indexing_view.py"):
-        lines = (ui / name).read_text(encoding="utf-8").splitlines()
+    # Every view module, not a hand-picked list. `settings_view.py` grew to 342
+    # lines while it was outside the guard, which is precisely the drift this
+    # test exists to catch.
+    for path in sorted(ui.glob("*_view.py")) + [ui / "indexing_settings.py"]:
+        name = path.name
+        lines = path.read_text(encoding="utf-8").splitlines()
         code = [line for line in lines if line.strip() and not line.strip().startswith("#")]
         assert len(code) < 250, f"{name} has {len(code)} lines - logic may be leaking into the view"
+
+
+# ---------------------------------------------------------------------------
+# Layer 6 - the graph panel
+# ---------------------------------------------------------------------------
+
+def _entity(**overrides):
+    row = {
+        "id": 1, "key": "acme water ltd", "display": "Acme Water Ltd", "kind": "name",
+        "source": "cooccurrence", "mentions": 12, "chunk_count": 8, "doc_count": 5,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_entity_rows_name_the_kind_in_words() -> None:
+    """'acronym' is a key. A person reading a table column wants a word."""
+    rows = presenter.entity_rows([_entity(kind="acronym"), _entity(id=2, kind="org")])
+    assert [row.kind for row in rows] == ["Term", "Organisation"]
+
+
+def test_an_unknown_kind_is_shown_rather_than_hidden() -> None:
+    """A model inventing a type must not produce a blank cell."""
+    assert presenter.entity_rows([_entity(kind="vessel")])[0].kind == "Vessel"
+
+
+def test_a_long_entity_name_is_shortened_for_the_table() -> None:
+    row = presenter.entity_rows([_entity(display="X" * 200)])[0]
+    assert len(row.label) <= 48
+    assert row.label.endswith("…")
+
+
+def test_the_row_remembers_which_types_came_from_the_model() -> None:
+    rows = presenter.entity_rows([_entity(source="llm"), _entity(id=2, source="cooccurrence")])
+    assert [row.typed_by_model for row in rows] == [True, False]
+
+
+def test_neighbour_rows_say_how_strong_in_words_not_in_pmi() -> None:
+    """0.62 means nothing to anyone who has not read the PMI definition."""
+    rows = presenter.neighbour_rows([
+        {"label": "Barnsley Dairy", "weight": 9, "pmi": 0.9},
+        {"label": "HACCP", "weight": 4, "pmi": 0.5},
+        {"label": "SCADA", "weight": 2, "pmi": 0.2},
+        {"label": "MES", "weight": 1, "pmi": 0.05},
+    ])
+    assert [row[1] for row in rows] == [
+        "almost always together", "strongly linked", "linked", "weakly linked",
+    ]
+
+
+def test_a_single_passage_is_not_pluralised() -> None:
+    rows = presenter.neighbour_rows([{"label": "X", "weight": 1, "pmi": 0.5}])
+    assert rows[0][2] == "1 passage"
+
+
+def test_a_missing_pmi_does_not_break_the_panel() -> None:
+    """`pmi` is NULL on every edge until the scoring pass runs."""
+    rows = presenter.neighbour_rows([{"label": "X", "weight": 3, "pmi": None}])
+    assert rows[0][1] == "weakly linked"
+
+
+def test_an_empty_graph_says_what_to_do_about_it() -> None:
+    headline = presenter.graph_headline({"entities": 0, "edges": 0})
+    assert "Index" in headline
+
+
+def test_the_headline_counts_what_is_there() -> None:
+    assert presenter.graph_headline({"entities": 1234, "edges": 5678}) == (
+        "1,234 entities, 5,678 connections"
+    )
+
+
+class _Progress:
+    def __init__(self, phase, done=0, total=0, entities=0):
+        self.phase, self.chunks_done, self.chunks_total, self.entities = phase, done, total, entities
+
+
+def test_the_progress_line_names_the_phase() -> None:
+    """Three phases with wildly different durations; one bar reads as a hang."""
+    assert "Reading passages" in presenter.graph_phase_line(_Progress("extract", 50, 100, 7))
+    assert "Scoring connections" in presenter.graph_phase_line(_Progress("score", entities=7))
+    assert "Removing weak" in presenter.graph_phase_line(_Progress("prune", entities=7))
+
+
+def test_the_progress_line_shows_a_percentage_only_when_a_total_is_known() -> None:
+    """Scoring and pruning have no meaningful total, so they must not claim one."""
+    assert "50%" in presenter.graph_phase_line(_Progress("extract", 50, 100))
+    assert "%" not in presenter.graph_phase_line(_Progress("score", 50, 100))
+
+
+def test_the_progress_line_survives_a_zero_total() -> None:
+    """An index with no chunks yet, which is a division by zero waiting to happen."""
+    assert presenter.graph_phase_line(_Progress("extract", 0, 0))
+
+
+# ---------------------------------------------------------------------------
+# The indexing page. Reported by the first person to open the window:
+# "the indexing page got stuck and had no statistics of what is indexed".
+# ---------------------------------------------------------------------------
+
+def test_a_progress_bar_with_no_total_is_a_barber_pole_forever() -> None:
+    """The cause of "got stuck", stated as the arithmetic.
+
+    `start()` was called with no total, so the range was set to (0, 0) - which
+    in Qt is the indeterminate animation - and `_on_progress` only ever set a
+    value `if self._total_estimate`, which was zero. The bar therefore spun and
+    never moved for the entire run.
+
+    The fix is to grow the denominator from what the walker has *found so far*,
+    because a true total cannot be known before the walk finishes.
+    """
+    def bar_range(total_estimate: int, seen: int, done: int) -> tuple[int, int]:
+        total = max(total_estimate, seen, done, 1)
+        return total, min(done, total)
+
+    # No estimate, nothing seen yet: a real range, not (0, 0).
+    total, value = bar_range(0, 0, 0)
+    assert total >= 1 and value == 0
+
+    # As the walk discovers files, the bar moves and the denominator grows.
+    assert bar_range(0, 10, 4) == (10, 4)
+    assert bar_range(0, 50, 40) == (50, 40)
+
+    # A value can never exceed its total, which Qt would clamp silently.
+    assert bar_range(0, 10, 99) == (99, 99)
+
+
+def test_a_worker_is_kept_alive_until_it_reports_itself_done() -> None:
+    """Without this the application crashes, intermittently and confusingly.
+
+    `QThreadPool.start()` owns the QRunnable on the C++ side, but nothing on the
+    Python side holds the `WorkerSignals` QObject. Once the local variable at
+    the call site goes out of scope Python collects it, sip deletes the C++
+    object, and the still-running worker emits into a corpse:
+
+        RuntimeError: wrapped C/C++ object of type WorkerSignals has been deleted
+
+    It only bites when the work outlives the function that started it - so it
+    appears only when the machine is busy, and looks unrelated to anything.
+    """
+    from app.ui import workers as workers_module
+
+    class FakeSignal:
+        def __init__(self):
+            self._slots = []
+
+        def connect(self, slot):
+            self._slots.append(slot)
+
+        def emit(self, *args):
+            for slot in list(self._slots):
+                slot(*args)
+
+    class FakeWorker:
+        def __init__(self):
+            self.signals = type("S", (), {"done": FakeSignal()})()
+
+    class FakePool:
+        def __init__(self):
+            self.started = []
+
+        def start(self, worker):
+            self.started.append(worker)
+
+    pool, worker = FakePool(), FakeWorker()
+    workers_module.run(pool, worker)
+
+    assert worker in workers_module._IN_FLIGHT, "nothing was holding it alive"
+    assert pool.started == [worker]
+
+    worker.signals.done.emit()
+    assert worker not in workers_module._IN_FLIGHT, "it was never released"
+
+
+def test_every_view_starts_workers_through_run() -> None:
+    """A `pool.start(worker)` that bypasses `run()` reintroduces the crash, and
+    it would only show up on somebody's slow machine weeks later."""
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    for source in ui.glob("*.py"):
+        if source.name == "workers.py":
+            continue
+        text = source.read_text(encoding="utf-8")
+        assert ".start(worker)" not in text, f"{source.name} bypasses run()"
+        assert ".start(self._worker)" not in text, f"{source.name} bypasses run()"

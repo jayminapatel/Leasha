@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 1.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -37,7 +37,7 @@ entirely rebuildable from your documents, so deleting it is always safe.
 
 ## 3. Current state
 
-**Version 0.3.2. Layers 0-5 code-complete. 634 tests passing, 1 xfailed (real-Outlook COM, deliberately).**
+**Version 0.3.2. Layers 0-6 code-complete. 938 tests passing, 1 xfailed (real-Outlook COM, deliberately).**
 
 | Layer | What it is | State |
 |---|---|---|
@@ -46,9 +46,9 @@ entirely rebuildable from your documents, so deleting it is always safe.
 | L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
 | L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - needs a real-scale run |
 | L4 | Search: BM25 + ANN, RRF fusion, rerank | **Code-complete** - p95 needs the real corpus |
-| L5 | PyQt6 UI shell | **Code-complete** - needs a human to run it |
-| L6 | Knowledge graph | **Next** |
-| L7 | Office document builder | Not started |
+| L5 | PyQt6 UI shell | **Code-complete** - opened once; five bugs found and fixed |
+| L6 | Knowledge graph | **Code-complete** - all four acceptance criteria pass |
+| L7 | Office document builder | **Next** |
 | L8 | Optional RAG answers | Not started |
 | L9 | Hardening and packaging | Not started |
 | L10 | Adaptive tuning (self-tuning / learning) | Not started - deliberately last |
@@ -97,8 +97,49 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
 - **Nothing reaches past the Cached Exchange Mode cache.** Coverage is whatever Outlook already
   holds locally, and `store_cached_only` is recorded on every document so the gap is visible.
 
-**Known gap:** loose `.eml` files on disk still record attachment *names* only; their contents
-are not extracted. PST attachments are. Worth closing when it matters.
+### Two ways to read a .pst, and when each applies
+
+| | libpff (direct) | Outlook (MAPI) |
+|---|---|---|
+| Needs Outlook installed | no | **yes, classic** |
+| Locks the archive | no | **yes** |
+| Touches your mail profile | no | **attaches the store** |
+| Works from any thread | yes | needs `CoInitialize` |
+| Testable off Windows | **yes** | no |
+| Reads `.ost` (live mailbox) | poorly | **yes** |
+| Install cost | Build Tools for VS | none |
+
+`auto` (the default) prefers libpff and falls back to Outlook. `.ost` always goes to Outlook.
+Change it in Settings; the choice persists in `index_state`.
+
+**Not installed by default.** `libpff-python` compiles on Windows and needs Build Tools for
+Visual Studio, which breaks the "every pin ships a wheel" rule - so it is optional, every import
+is guarded, and `doctor.py` tells you which route you have.
+
+**The third option is conversion.** `app.cli convert "D:\SearchData\2007.pst"`, or the button
+in Settings, writes the archive out as `.eml` files. After that the mail needs neither Outlook
+nor libpff ever again, and the folder is added as an index root automatically.
+
+**Read the run summary carefully: `seen` is files, `indexed` is documents.** A
+`.pst` is one file and thousands of messages. `unchanged` counts files the walker
+skipped whole; `unchanged_documents` counts messages inside an archive it did
+read but whose text had not moved - that second number is per-message indexing
+paying for itself, and conflating the two made a healthy run look broken.
+
+**Indexing an archive is per-message, and that is load-bearing.** `_extract_stream`
+yields one document at a time; each message becomes its own `files` row keyed by its
+`virtual_path`, and the archive gets a marker row carrying its own size and mtime so the
+walker can skip it whole next time. Change detection inside an archive hashes the message
+*text*, never the file's bytes - a `.pst` looks modified whenever Outlook opens it.
+
+**If you write an extractor that yields more than one document per file, set
+`virtual_path` on every one.** Without it they all share the file's path and overwrite
+each other into a single row. The pipeline makes duplicate keys unique and logs the
+extractor by name rather than losing the data, but that is a safety net, not a design.
+
+**Known gaps:** loose `.eml` files on disk record attachment *names* only. The libpff backend
+does the same; only the Outlook backend extracts attachment *contents*, because reading
+attachment bytes through libpff means walking MAPI record sets and is a job of its own.
 
 **Fixtures are generated, not committed** - `tests/fixtures/generate.py`, called automatically
 by a session fixture in `conftest.py`. Binary test files in git cannot be reviewed in a diff,
@@ -128,7 +169,7 @@ venv\Scripts\python.exe -m app.cli stats      # resolved config + both store sum
 venv\Scripts\python.exe -m app.cli init       # create/migrate both stores, safe to re-run
 venv\Scripts\python.exe -m app.cli doctor     # environment verification
 venv\Scripts\python.exe -m app.cli diagnose   # troubleshooting bundle -> logs\diagnostics\
-venv\Scripts\python.exe -m pytest tests -q    # 634 passed, 1 xfailed (~5 min)
+venv\Scripts\python.exe -m pytest tests -q    # 938 passed, 1 xfailed (~5 min)
 venv\Scripts\python.exe -m pytest tests -q -m "not slow"   # fast loop, skips Layer 3 acceptance
 ```
 
@@ -171,6 +212,91 @@ agreeing, which is the strongest signal the pipeline produces.
 Every search and every result is recorded in `searches` / `search_hits`, and opening a result
 marks it. That data is what Layer 10's tuning is derived from, it is local and clearable, and
 it is collected now because it cannot be reconstructed later.
+
+### Visio and Project: what reads what
+
+| format | out of the box | with the optional extra |
+|---|---|---|
+| `.vsdx` `.vsdm` | **full shape text** (built-in ZIP reader) | same, via `vsdx` |
+| `.vsd` | name + title/author/subject | *nothing more exists* - no open spec |
+| `.mpp` `.mpt` | name + title/author/subject | **full task list**, via `mpxj` + `jpype1` + a JRE |
+
+`pip install olefile` is the only one that is close to required - without it
+`.vsd` and `.mpp` are indexed by name alone. `mpxj` bundles 32 JARs and needs
+Java, which is why it is not a dependency. **`doctor.py` says which are active.**
+
+mpxj's Java package moved from `net.sf.mpxj` to `org.mpxj` at version 14 and
+both are tried. Assuming one is how the first version of this silently read
+nothing on every modern install.
+
+**Formats we cannot fully read are indexed anyway.** `.vsd` and `.mpp` have no
+open specification for their contents, so they produce a document of the filename
+plus OLE summary properties, carrying a warning that says why. A plan indexed by
+name comes back when you search for its project; one the app has never heard of
+does not exist. `.vsdx` is read properly - it is a ZIP of XML - and needs no COM.
+
+**At 200,000 messages, anything that iterates all of `files` is a bug.** Two were
+found and fixed: `_prune_missing` built a `FileRecord` for every message to
+discard 98% of them, and `merge_contained_entities` compared entities
+all-against-all. Both were invisible at test scale. Filter in SQL, and bucket
+before comparing.
+
+**Three kinds of search, and they are genuinely different:**
+
+| | what it answers | how |
+|---|---|---|
+| Search tab | what documents *say* | BM25 + ANN + rerank, scope chips for Mail / Documents |
+| Files tab (`Ctrl+P`) | what files are *called* | one trigram FTS5 lookup, no model, instant |
+| Graph tab (`Ctrl+G`) | what things appear *together* | co-occurrence + PMI |
+
+The Files tab exists because until schema v4 **nothing indexed filenames at all**
+- a file named `Invoice 2024.pdf` whose contents never said those words was
+unfindable. Trigram tokenisation means "voice" matches "Invoice"; a word
+tokeniser cannot, and the feature feels broken without it.
+
+The scope chips are a filter on `source_kind`, not a separate search path - and
+the scope is part of the search cache key, or "All" and "Mail" collide.
+
+**Layer 6's entry point - the knowledge graph:**
+
+```powershell
+venv\Scripts\python.exe -m app.cli graph                          # build it, list what it found
+venv\Scripts\python.exe -m app.cli graph --entity "Acme Water Ltd"  # connections + the documents
+venv\Scripts\python.exe -m app.cli graph --html D:\graph.html       # a self-contained page
+venv\Scripts\python.exe -m app.cli graph --enrich                  # typed entities, needs Ollama
+```
+
+Or the **Graph** tab in the app (`Ctrl+G`): build, browse, and click through to a search.
+
+Three things about it that are easy to get wrong later:
+
+- **The graph is derived from `chunks` and nothing else.** `--rebuild` is always safe and
+  costs no re-reading of files. Nothing in Layer 4 reads these tables, so a build can run
+  for an hour while someone searches.
+- **Edge weights accumulate**, so the cursor is committed in the *same transaction* as the
+  batch. Splitting them would double-count a replayed batch silently - no error, and
+  nothing that could detect it after the fact.
+- **A pair seen in one passage, or no more often than chance predicts, is dropped.** That
+  is `min_weight=2` and `min_npmi=0.0`, and on a small test corpus it can legitimately
+  empty the graph: if every entity appears in every chunk, there is by definition no
+  information in it. That is correct, and it has already confused one test.
+
+**`cooccurrence.COMMON_WORDS` is a judgement call, and it is meant to be argued with.**
+The first run against real slide decks returned "Connect", "Enterprise", "System",
+"DATA", "CLOUD", "DESIGN" as the most important things in the corpus. They are all
+capitalised English words. The blocklist rejects them **as single-word entities only** -
+"PI System" and "Customer FIRST" are untouched. The cost is real: a company genuinely
+called "Connect" is invisible as a one-word node. If the corpus changes character, this
+list is the first thing to revisit, and every entry has a test somewhere.
+
+**Two rules do more work than the blocklist, and are worth understanding before
+changing anything here.** First, *a lone Title-Case word that only ever opens a sentence
+is discarded* - a slide bullet is its own sentence, so "Provide real-time insight"
+otherwise contributes the entity "Provide", and no list of verbs is ever complete. A real
+name survives because it is mentioned mid-sentence somewhere. Second,
+`merge_contained_entities` folds "AVEVA Group" into "AVEVA Group Limited" **only when
+every chunk mentioning the short form also mentions the long one**. A plain prefix test
+would have deleted "AVEVA" itself.
 
 ## 4. Resuming from cold
 
@@ -218,6 +344,55 @@ Reopening these without new evidence wastes time. The reasoning matters more tha
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**Every Qt worker must go through `workers.run()`, never `pool.start()`.** The
+pool owns the runnable on the C++ side but nothing owns the Python-side signals
+object; without a reference it is collected mid-flight and the worker emits into
+a deleted object. A test fails if any view bypasses it.
+
+**The memory ceiling is on growth above a baseline, not on absolute RSS.** The
+GUI starts above 1.2GB before reading anything. An absolute cap made indexing
+from the window impossible - it paused on the first check and never resumed.
+
+**Backpressure belongs at the intake, never at the drain.** The resource
+governor originally paused the pipeline's *consumer* - the only thread draining
+the results queue. While it waited, workers blocked holding every chunk they had
+parsed, so memory never fell and the memory pause never cleared. The run hung
+permanently while looking merely slow. Any future throttle goes in `_produce`,
+which holds nothing; the consumer may check for a hard stop but must never wait.
+
+**A background job must never treat its own load as a reason to yield.** The CPU
+governor counted the indexer's own four workers as "the machine is busy" and
+throttled itself to a crawl on an idle machine. `Snapshot.other_cpu_percent`
+subtracts our own share. Below-normal priority was already doing the real work.
+
+**A sentinel must never share a value with a real answer.** `_classify` returned
+`None` for "unchanged" and `None` for "changed, but no hash" - and the second is
+what every `.pst` returns. Every archive was therefore skipped on its first ever
+run, counted as `unchanged` rather than `skipped`, with no error and a report of
+complete success. It survived two rounds of "the PST did not index" because
+every number the run printed said it had worked. If a function returns
+`Optional[X]` and also needs a "no result" answer, make the sentinel an object
+with a name.
+
+**Never call `open()`, `write_text()` or `read_text()` without `encoding=`.** Python on
+Windows defaults to the *process locale* encoding - cp1252 on a UK install - not UTF-8.
+This has already broken one feature completely: `pyvis.write_html` opens the file with no
+encoding, and the graph page carries `’ — · …` from entity names, tooltips and the inlined
+vis-network library. Every `--html` render on Windows raised `UnicodeEncodeError` after
+building the entire 264KB document. It passed on Linux and macOS, whose default is already
+UTF-8, so nothing in development came close to catching it.
+
+Two rules follow. Always pass `encoding="utf-8"` explicitly, including to third-party code
+that writes files - if a library will not take one, generate the string and write it here.
+And when a test asserts on a written file, **assert on the bytes**: `read_bytes().decode
+("utf-8")` fails loudly on a locale-encoded file, where `read_text()` on the machine that
+wrote it succeeds and proves nothing.
+
+**More generally: a green suite on Linux says nothing about Windows.** Path semantics,
+file locking, ACLs, COM, mtime granularity and now text encoding have each produced a
+failure that only the real machine could show. Every layer so far has had at least one.
+Treat a sandbox run as necessary, never as sufficient.
 
 **PowerShell file encoding.** Covered above. `scripts\parse-check.ps1` enforces it and
 `run-install.cmd` runs that check before the installer. VS Code is configured to save `.ps1`

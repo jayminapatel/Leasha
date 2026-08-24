@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 1.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.3 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -8,10 +8,507 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
-**Layers 2, 3, 4 and 5 code-complete.** All of Layer 2's eight acceptance criteria and all of
+**Layers 2, 3, 4, 5 and 6 code-complete.** All of Layer 2's eight acceptance criteria and all of
 Layer 3's eight pass. The one thing no test can
 reach - that `Win32ComSession` drives real Outlook - is a single `xfail(run=False)` plus a
 manual `app.cli extract --mailbox`. `VERSION` stays at 0.3.2 until that has been run once.
+
+### Fixed — CRITICAL: every PST was silently skipped, always
+
+**`_classify` used `None` to mean two different things.** It was the "this file
+has not changed, skip it" answer. It was *also* the perfectly ordinary "changed,
+but there is no content hash" answer - which is what every file read through
+another application returns, because its bytes are not what gets parsed and it
+may be held open. Every `.pst` and every `.ost`, therefore, was classified as
+**unchanged on the very first run, before it had ever been indexed**, and never
+indexed at all.
+
+It counted as `unchanged`, not `skipped`. No error appeared anywhere, nothing was
+written to the skip ledger, and the run reported complete success. The symptom
+was `{'seen': 7, 'indexed': 0, 'unchanged': 6, 'skipped': 0}` and a user saying
+"I am not sure I have ever seen the PST extract work" - which was exactly right.
+
+The sentinel is now a distinct object with a name. `tests/unit/test_index_freshness.py`
+pins it from both directions: an archive is indexed the first time it is seen,
+and an untouched archive is never opened again.
+
+### Fixed — five bugs from the first time a human opened the window
+
+Every one of these was invisible to 900 passing tests, because every one needed
+a display, a light-mode machine, or a maximised window.
+
+- **Indexing from the GUI was impossible.** The memory ceiling was absolute, and
+  the GUI starts above 1.2GB before reading a file - Qt, the ONNX runtime and
+  both stores are already resident where the CLI starts at ~200MB. So it paused
+  on its first check at 1,597MB and never resumed: `seen: 1, indexed: 0` after 96
+  seconds of nothing. **The ceiling now applies to growth above a baseline taken
+  when the run starts**, which is also the number that was always meant: not
+  "how big is this process" but "is indexing running away". An unknown baseline
+  falls back to the absolute figure, which is the safe direction.
+- **`RuntimeError: wrapped C/C++ object of type WorkerSignals has been deleted`.**
+  `QThreadPool.start()` owns the runnable on the C++ side, but nothing on the
+  Python side held the signals object; once the local variable went out of scope
+  Python collected it and the still-running worker emitted into a corpse. Every
+  worker now goes through `workers.run()`, which retains it until it reports
+  itself done, and a test fails if any view calls `pool.start()` directly. It
+  only bit when work outlived the function that started it, so it looked
+  intermittent and unrelated to anything.
+- **The indexing progress bar spun forever.** `start()` was called with no total,
+  so the range was set to `(0, 0)` - Qt's indeterminate animation - and the value
+  was only ever set `if self._total_estimate`, which was zero. It now grows its
+  denominator from what the walker has found so far, because a true total cannot
+  be known before the walk finishes.
+- **The indexing page showed nothing about the index.** Opening it answered none
+  of "is there an index, how big, how old", which is the only reason to open it.
+  It now carries a totals line, refreshed on every visit and after every run.
+- **Maximising broke the layout.** The skipped-files scroll area took all the
+  stretch while its contents were hidden, so a maximised window was mostly empty
+  panel with the controls squashed at the top. It now claims space only when it
+  has something to show.
+
+### Fixed — the app was dark on a light-mode machine
+
+Hardcoding a dark palette is not a style choice, it is a bug: the application
+looked like it belonged to a different operating system, and on a bright screen
+it is harder to read rather than easier.
+
+`app/ui/theme.py` holds two palettes with identical token sets - a test fails if
+they drift - and the sheet is written against tokens, since Qt stylesheets have
+no variables. The OS preference comes from `QStyleHints.colorScheme()` and is
+followed live, so flipping the Windows switch changes the window without a
+restart. Settings offers Follow Windows / Always light / Always dark.
+
+The `highlight` token needed genuinely different values rather than one shared
+colour: search-term yellow on white is nearly invisible, which is the whole
+reason these are two palettes and not one with a flag.
+
+### Fixed — noise on top of a real failure
+
+At 12GB the machine was swapping and SQLite came back with nulls, which produced
+`int() argument must be ... not 'NoneType'` and three `ERR_UNEXPECTED` reports
+**per keystroke** about a store that was closing. `generation` returns 0 for a
+missing or NULL value, and the search engine checks `store.is_open` before
+reading - a background search outliving the window is expected, not a bug worth
+a traceback.
+
+### Fixed — the progress line stopped updating whenever anything was logged
+
+Reported as "it stopped printing or giving indication it is working", with a
+warning about an unreadable `.vsd` immediately above.
+
+A `\r` progress line and a logger writing to the same console destroy each
+other: the warning lands on top of the line, the next carriage return overwrites
+the warning, and what remains is a mangled line that never changes again. From
+the outside that is indistinguishable from a hung process, which is exactly the
+thing the heartbeat was added to prevent.
+
+`ProgressLine` now owns the console. Anything logged goes through a sink that
+wipes the line, lets the message land on its own row, and repaints - the same
+discipline `pip` and `apt` use. No curses and no ANSI cursor codes: one carriage
+return and some spaces, which behaves the same in a plain console, in Windows
+Terminal, and when piped to a file (where it disables itself entirely).
+
+Two traps, both found by shipping it and looking at the output:
+
+- `setup_logging` clears every handler, so the progress sink has to be added
+  *after* it. The other way round removes the sink silently and the warnings
+  disappear altogether - worse than the mangled line.
+- **`setup_logging` is also idempotent**, because both the CLI and the UI call
+  it, so reconfiguring for the progress line needs `force=True`. Without it the
+  original INFO console sink survives, the progress sink is added on top, and
+  every line prints **twice** - once by the handler that respects the progress
+  line and once by the handler that walks straight over it. Which is exactly
+  what the first attempt did.
+
+- **Java's log4j complaint is quietened.** mpxj ships log4j-api with no binding,
+  so the JVM printed `main ERROR Log4j API could not find a logging provider`
+  straight to stderr the first time it read a `.mpp`. Harmless, and it appears
+  mid-run looking exactly like a failure. Three `-D` properties are passed on JVM
+  start; an unrecognising JVM ignores them rather than refusing to start. Not
+  verifiable here without a real `.mpp`, so it is best-effort by design.
+
+### Fixed — the run summary was reporting two different units as one number
+
+From a real run: `seen: 8, indexed: 17, unchanged: 335`. Every number is
+correct and the line is unreadable, because a `.pst` is one **file** and
+hundreds of **documents** and both were being called the same thing.
+
+- `seen` counts files; `indexed` counts documents. Said so now.
+- **`unchanged_documents` split out from `unchanged`.** "335 unchanged messages
+  inside one changed archive, 17 rewritten" is a completely different story from
+  "335 unchanged files", and only one of them was true. The new number is also
+  the one that shows per-message indexing paying for itself.
+- **`bytes_read` reported 0.0 MB for a 64-second run over 100MB.** Bytes were
+  credited when a file's first document was *written*, so an archive whose first
+  message happened to be unchanged reported nothing for the entire file. They
+  are credited on arrival now, written or skipped.
+
+### Added — Visio and Project, without COM
+
+Three formats, three honestly different answers, because pretending otherwise
+would be worse than the gap:
+
+| | what it is | what we get |
+|---|---|---|
+| `.vsdx` / `.vsdm` | a ZIP of XML, like every modern Office format | **all shape text, per page** |
+| `.vsd` | a 2003 OLE compound binary | title, author, subject - and the name |
+| `.mpp` / `.mpt` | proprietary, no open specification | title, author, subject - and the name |
+
+- **No COM, and it was not needed.** `.vsdx` is a documented OPC package; the OLE
+  summary stream in `.vsd` and `.mpp` is a documented structure `olefile` reads
+  in pure Python. COM would additionally have required Visio and Project to be
+  *installed*, which on an indexing machine they generally are not.
+- **The `vsdx` package is optional.** When it is absent the page XML is read
+  straight out of the ZIP - a diagram is mostly labels, and losing them to a
+  missing optional dependency would be a poor trade. That fallback is not
+  theoretical: it fired on the first test fixture and is what made it pass.
+- Labels split across styled runs are rejoined with `itertext()`. Visio splits a
+  label the moment any of it is bold, and reading `element.text` alone truncates
+  at exactly the tag number somebody would search for.
+- **A file we cannot read is still worth indexing.** `.vsd` and `.mpp` produce a
+  document of their filename plus summary properties, carrying a warning that
+  says *why* nothing inside is searchable and, for `.vsd`, that re-saving as
+  `.vsdx` fixes it. A plan indexed by name comes back when you search for the
+  project; one the app has never heard of does not exist.
+- **`.mpp` contents are reachable at a price.** `mpxj` reads them properly but
+  bundles 32 JARs and needs a JVM and JPype - against this application's whole
+  premise. The hook is present and guarded; `pip install mpxj jpype1` turns it on.
+- A test asserts `diagrams.py` imports no `win32com`, `pythoncom` or `comtypes`.
+- **`doctor.py` reports what each format can actually do here** - "full shape
+  text", "full task list (mpxj)", "name + document properties" - because the
+  difference is invisible until somebody searches for text they know is in a
+  diagram and finds nothing. It flags only states naming something installable:
+  `.vsd: name + document properties` is the *best achievable* outcome for a
+  format with no open specification, and reporting it as a problem would send
+  somebody installing a package that changes nothing.
+- **The mpxj integration was wrong and is now verified.** The first version
+  imported `net.sf.mpxj.reader`; mpxj moved to `org.mpxj` around version 14, so
+  it would have failed on every modern install - silently, behind a broad
+  `except`, reporting the plan as merely unreadable. Both packages are tried,
+  and it was tested against mpxj 16.7.0 with a real JVM rather than assumed.
+
+### Fixed — two things that would not have survived 200,000 emails
+
+Prompted by "my PSTs have possibly 200K+ mails". Both are invisible at test
+scale and fatal at real scale.
+
+- **`_prune_missing` materialised every row** - all 200,000 `FileRecord` objects -
+  to filter down to the few thousand real files, at the end of every run.
+  `iter_files(source_kind=...)` filters in SQL now, and only the ids to delete
+  are held. Deleting while iterating a cursor over the same table was also
+  quietly unsafe; the ids are collected first.
+- **`merge_contained_entities` was O(n²) with a query per pair.** On a corpus
+  that size the entity table runs to tens of thousands of rows - billions of
+  comparisons - and the symptom is an index run that appears to hang at the very
+  end, which is the hardest kind of failure to diagnose. Entities are bucketed
+  by first word, which is where containment that matters actually lives
+  ("AVEVA Group" inside "AVEVA Group Limited"), with a cap for any word that
+  begins thousands of names.
+
+### Added — finding a file by its NAME (schema v4)
+
+`chunks_fts` indexes what documents *say*. **Nothing indexed what they are
+called**, so a file named `Invoice 2024.pdf` whose contents never used those
+words could not be found at all - which is how most people look for most files.
+No existing test could have caught it: every one of them asked about content.
+
+- **`files_fts`, tokenised with `trigram`**, so "voice" finds "Invoice". Filename
+  search *is* substring search - people type the middle of a name and expect a
+  hit - and a word tokeniser cannot do that at any price. Falls back to
+  `unicode61` with prefix indexes if trigram is somehow unavailable.
+- **A Files tab** (`Ctrl+P`) and **`app.cli files`**. No embedding, no reranking,
+  no snippets: one FTS5 lookup over a table of filenames, fast enough to run on
+  every keystroke. Rows show size and age, because "yesterday" answers "is this
+  the one I was working on" and a timestamp requires arithmetic.
+- **Mail is deliberately absent.** A message's key is synthetic and mail would
+  outnumber documents ten to one; mail is searched from the search tab.
+- A file indexed **by name only** - a scanned PDF, something locked - says so in
+  its row rather than being hidden. "I can see it but cannot search inside it"
+  is real and useful, and hiding it invites the same fruitless search twice.
+- The migration backfills from the existing index, so no re-index is needed, and
+  it is safe to re-run: an FTS5 table rejects a rowid it already holds, so a
+  plain INSERT would fail and leave the database stuck between versions.
+
+### Added — scope chips: Everything / Mail only / Documents only
+
+A *filter*, not a mode. You should never have to decide whether a thing was an
+email or a document **before** typing, because the usual answer is "I do not
+remember, that is why I am searching".
+
+`source_kind` was already a column and `from:` was already an operator, so this
+is a WHERE clause rather than a second search path. `ParsedQuery.scoped()`
+returns a copy - the class is frozen so it can be a cache key - and **the scope
+is part of that key**: without it "All" and "Mail" share an entry for the same
+typed text and whichever ran first answers for both. Loose `.eml` files count as
+mail, because that is what they are to the person searching.
+
+### Fixed — per-message indexing had made embedding much slower
+
+Reported from a real run: "this method is very slow compared to the other".
+Correct, and a regression from the streaming change. Embedding happened once per
+document, so an email meant a batch of about three chunks - the size at which
+ONNX spends its time on per-call overhead rather than on matrix work.
+
+Embedding now batches **across** documents (`EMBED_BATCH = 256`) in the consumer.
+A file is marked INDEXED only after its vectors are written, never before: the
+reverse leaves it invisible to semantic search and never retried. A test counts
+embedding calls rather than measuring elapsed time - flaky, and it would not say
+why.
+
+### Changed — extraction streams, and the unit of work is a document not a file
+
+Found because a 100MB `.pst` took six minutes and showed nothing. `app.cli extract`
+returned in seconds, which located the cost precisely: reading the archive was
+never the problem.
+
+```python
+documents = list(extract(candidate.path))   # the ENTIRE archive, in memory
+```
+
+Every message and every attachment's extracted text was materialised before a
+single chunk was made - then all the chunks, then **all the embeddings in one
+call**. Nothing written, nothing committed and nothing on screen until the whole
+archive finished. A 3GB archive would have exhausted memory rather than finishing
+slowly.
+
+`_extract_stream` is a generator yielding one `_Extracted` per document, so:
+
+- **memory is flat** - one message at a time rather than a whole archive;
+- **work commits as it goes** - an interrupted archive keeps what it read;
+- **progress is visible** - `current_item` counts messages, so the screen shows
+  `reading 2007.pst [1,284] 94s` instead of nothing;
+- **a search result names the email**, not the `.pst` it lives in;
+- **re-indexing a changed archive re-reads only what changed** - by a hash of the
+  message *text*, because an archive's bytes move whenever Outlook opens it while
+  a fifteen-year-old email does not change at all. One new message in 30GB now
+  costs one embedding.
+
+Three bugs caught while making it work, each by a test written to fail first:
+
+- **The archive lost its own `files` row**, so the walker had nothing to compare
+  against and would have re-read the whole thing on **every run, forever** -
+  destroying the exact property incremental indexing exists for. Streams now
+  close with a marker row carrying the container's size and mtime.
+- **An extractor that forgets `virtual_path` silently overwrote every message
+  onto one row**, leaving the archive as a single entry holding only its last
+  email, with no error anywhere. Duplicate keys are now made unique and logged
+  by name - losing mail to an extractor bug is far worse than an ugly key.
+- `stats.bytes_read` counted the archive's size once per message, making the
+  throughput figure meaningless.
+
+### Fixed — the resource governor could deadlock the run it was protecting
+
+Found while a real 100MB PST refused to finish. Both bugs were introduced by the
+governor added earlier the same day, and both present identically: an index run
+that never ends and looks merely slow.
+
+- **The pause happened in the consumer - the only thread that drains the results
+  queue.** While it waited, the extraction workers blocked handing over results
+  they were still holding in memory. So memory never fell, so the memory pause
+  never cleared, and the run hung permanently. **Backpressure belongs at the
+  intake, never at the drain**: the waiting moved to `_produce`, which holds
+  nothing but a path, so pausing it starves the workers of new work while
+  everything already in flight keeps draining - which is what actually brings
+  memory down. Three tests drive the governor permanently over its ceilings and
+  assert the run still finishes.
+- **The indexer counted its own CPU as a reason to stop.** Four workers on a
+  four-core laptop saturate the processor by themselves, so it paused, watched
+  CPU fall, resumed, spiked and paused again - throttling itself to a crawl on a
+  completely idle machine. `Snapshot.other_cpu_percent` subtracts this process's
+  own share first (dividing by the core count, because `Process.cpu_percent` is
+  per-core while `cpu_percent` is already averaged). Its own load was always
+  handled better by below-normal priority anyway.
+- **A third bug, caught by the test written for the second:** with the wait moved
+  to the producer, a full disk ended the run *silently* - complete success, zero
+  files indexed, no error. The same shape as the sentinel bug from earlier the
+  same day, which is why it was worth writing the test that could only fail.
+
+### Fixed — a run over few large files showed nothing at all
+
+- **Progress fired every 50 files.** A folder of ten documents plus one 100MB mail
+  archive never reaches fifty, so the callback fired exactly once, at the end. The
+  screen stayed blank for the whole run, which is indistinguishable from a hang -
+  and the correct response to a hang is to kill it. Now checkpoints on **two
+  seconds or fifty files, whichever comes first**.
+- **A 100MB archive is a single file**, so nothing reaches the consumer until the
+  whole thing is parsed and even a time-based tick showed nothing during the
+  slowest part. `IndexStats.current` now carries the file being read and how long
+  it has been on it, redrawn in place rather than scrolling.
+
+### Added — the indexer is now configurable and stays out of the way
+
+Prompted by "this is designed to run on a working machine". An indexer that makes
+Excel stutter gets switched off and never switched back on, and then none of the
+rest of this matters.
+
+- **`app/index/resources.py`** - four ceilings, every one configurable, every one
+  a ceiling rather than a target. **Memory** pauses and drains rather than
+  aborting; **CPU** pauses while the machine is busy, with hysteresis so a
+  transient spike does not stall the run; **battery** pauses until mains;
+  **disk** is the only one that stops, because it is the only failure that
+  damages something outside this application and does not resolve itself while
+  the indexer keeps writing. The whole decision is a pure function of a
+  `Snapshot`, so every threshold and recovery path is tested with invented
+  numbers - no test has to exhaust a real machine's memory.
+- **Below-normal CPU and background I/O priority**, applied before the first file
+  is read. The cheapest courtesy available and the most effective.
+- **Default workers is now half the cores, capped at four** - not `cores - 1`,
+  which on an 8-core laptop handed seven cores to a background task and left one
+  for the person. Past four the disk is the wall anyway.
+- **`app/index/schedule.py`** - manual / on launch / every N hours / daily at a
+  time. Pure arithmetic on two timestamps, because scheduling bugs are the ones
+  that never reproduce: a laptop opened after a fortnight away indexes **once**,
+  not fourteen times, and a clock moved backwards does not trigger a second run.
+  A `MIN_GAP_S` backstop means a bug here cannot become a machine that never idles.
+- **`app/ui/scheduler.py`** - a one-minute `QTimer` and one guard: a scheduled run
+  never starts on top of a run already going. The single-instance lock protects
+  the database from a second *process*; nothing protected it from this
+  application starting a second run over its own, which is the mistake a timer
+  makes at 02:00 with nobody watching.
+- **An Indexing panel in Settings** and `--memory-mb`, `--cpu-percent`,
+  `--full-speed` on `app.cli index`. `--full-speed` is named for what it costs.
+- `IndexStats` now reports `paused_seconds` and `pauses`, because a four-hour run
+  that was mostly *waiting* looks identical to one that was slow, and the fix is
+  the opposite in each case.
+- `psutil==7.1.3` pinned - verified to publish a `cp37-abi3-win_amd64` wheel, so
+  no compiler. Every import is guarded: without it the disk guard and worker cap
+  still apply, and `doctor.py` reports the ceilings as INACTIVE rather than
+  letting somebody believe in a limit that is doing nothing.
+- **`app/ui/indexing_settings.py`** extracted, because `settings_view.py` had
+  reached 342 lines. The view-length guard now globs every view module instead of
+  checking a hand-written list - that drift is exactly what it exists to catch.
+
+### Added — Layer 6, the knowledge graph
+- **Schema v3**: `entities`, `entity_mentions`, `entity_edges`. Additive, like v2, and for
+  the same reason - the graph is derived entirely from `chunks`, so it is built at leisure
+  on an existing index without re-reading a single file, and `--rebuild` is always safe.
+- **`app/graph/cooccurrence.py`** - the default, and deliberately not an LLM. Emails,
+  filenames, acronyms and capitalised n-grams, with edges weighted by **normalised PMI**.
+  Raw co-occurrence produces a hairball centred on the commonest word in the corpus; PMI
+  asks whether two things appear together *more than chance predicts*, which is the
+  question someone drawing the diagram by hand would ask. Normalised because raw PMI's
+  ceiling depends on how rare a pair is, so a threshold chosen today silently stops
+  filtering as the index grows.
+  Pure functions throughout, so the part that decides what counts as a thing is tested
+  with literal strings on any machine.
+- **`app/graph/builder.py`** - resumable two-pass build. Two passes because an edge's score
+  depends on corpus-wide totals that do not exist until the last chunk has been read.
+  **The cursor is committed in the same transaction as the batch it describes**, which is
+  not tidiness: edge weights accumulate, so a replayed batch double-counts with no error
+  and no way to detect it afterwards.
+- **`app/graph/render.py`** - networkx metrics (centrality, sampled betweenness, community
+  detection) and a self-contained pyvis page. Capped at 5,000 nodes, and the page **says**
+  it is capped - a missing node otherwise reads as evidence that nothing connects there.
+- **`app/graph/entities_llm.py`** and **`app/llm/ollama.py`** - optional typed extraction.
+  It only ever adds and refines, never deletes, so the deterministic graph stays intact and
+  enrichment stays reversible. Ollama stopping mid-run is treated as normal rather than
+  exceptional: checkpoint, pause with `ERR_OLLAMA_DOWN`, resume exactly there next time.
+- **A Graph tab**: entity table, what each connects to, the passages behind it, and
+  "search for this entity". The strength of a link is shown in words - "strongly linked" -
+  because `0.62` means nothing to anyone who has not read the PMI definition.
+- **`app.cli graph`** with `--rebuild`, `--enrich`, `--entity`, `--html`, `--top`.
+
+### Fixed — found by running Layer 6 on Windows, against a real corpus
+
+Two classes of failure, and neither could have been found in development. The first
+needed Windows; the second needed documents nobody wrote for a test.
+
+- **THE CRASH: the graph page could not be written on Windows at all.**
+  `pyvis.write_html` calls `open(path, "w+")` with no `encoding`, so the file is written
+  in the **process locale encoding** - cp1252 on a UK Windows install. The page carries
+  `’ — · …` from entity names, from tooltips and from the inlined vis-network library;
+  cp1252 can encode none of them, so the render raised `UnicodeEncodeError` after
+  building the entire 264KB document. Every `--html` render and four tests died on it.
+  Invisible on Linux and macOS, whose default is already UTF-8.
+  Fixed by generating the HTML and writing it here with an explicit encoding, which also
+  removed a redundant read-modify-write. A test now asserts on the *bytes*. The rest of
+  `app/` was audited for the same pattern; this was the only instance.
+
+- **The graph's top 25 entities on a real corpus were English words.** "Connect",
+  "Enterprise", "System", "Optimize", "Access", "Learn", "Use", "How", "Customers",
+  "Ability", "Slide" - and, because a slide heading is set in capitals, the "acronyms"
+  `DATA`, `CLOUD` and `DESIGN`. 442 entities, and the ones that mattered were buried.
+  Four separate causes, each fixed and each pinned by a test named for the wrong output:
+  - **ALL-CAPS words broke name runs**, so "AVEVA System Platform" fragmented into an
+    acronym and a leftover "System". They now join a run; a *lone* capitalised word is
+    still an acronym. This one fix removed most of the noise, because most of it was
+    debris from a shattered product name.
+  - **A `COMMON_WORDS` blocklist** for single-word entities, and for runs made entirely
+    of ordinary words. "PI System" and "Customer FIRST" survive - the rule is about what
+    a run is *made of*, not about any word appearing in it.
+  - **"and" welded separate names together**: "SCADA and MES" became one entity. A
+    connector now joins only when the word beside it is Title Case, which is what
+    distinguishes "Work and Pensions" from a conjunction between two acronyms.
+  - **Possessives made duplicate nodes.** "AVEVA’s" and "AVEVA" sat side by side with
+    the same visible label. Both apostrophes are stripped, because a Word document and a
+    PDF disagree about which one they use.
+  - An imperative opening a sentence ("Discover AVEVA Insight") no longer joins the name.
+  - A run of initials no longer forms an entity - a regression the ALL-CAPS change
+    introduced and a test caught: "A B C" briefly became the entity "B C".
+
+- **Second pass over the same corpus.** With the ordinary nouns gone, what surfaced
+  underneath was slide-bullet grammar: "Provide", "Accelerate", "Ideal", "Operational",
+  "Flexible", plus heading numbering ("II") and ALL-CAPS adjectives ("OPEN", "HYBRID").
+  - **A lone Title-Case word that only ever opens a sentence is no longer an entity.**
+    Its capital is grammar, and a slide bullet is its own sentence. This is evidential
+    rather than another blocklist entry, because no list keeps up with the supply of
+    verbs - and it costs nothing for a real name, which is mentioned mid-sentence
+    somewhere and still collected there.
+  - Roman numerals break a name run instead of joining it, so "OPEN HYBRID II" can no
+    longer slip past the all-ordinary-words check on the strength of its "II".
+  - **`entities.merge_contained_entities()`**: "AVEVA Group" and "AVEVA Group Limited"
+    were two nodes joined to each other and to all the same neighbours. A short name is
+    now folded into a longer one **only when every chunk mentioning the short one also
+    mentions the long one** - the evidence that it is never used on its own. A textual
+    prefix test would have destroyed "AVEVA", which is a prefix of the same string and a
+    more important entity in its own right; word boundaries stop "PI" being read as part
+    of "PIPELINE". It runs before scoring, so the survivor's PMI reflects the merged
+    evidence rather than half of it.
+
+### Fixed — found while building the graph
+- **The rendered graph page called out to a CDN.** pyvis emits two jsdelivr tags for
+  Bootstrap *even with* `cdn_resources="in_line"`. On a machine with no internet those
+  requests hang and fail, on a page whose entire premise is that nothing leaves the
+  machine - and it renders perfectly on a connected developer machine, which is how this
+  would have shipped. Stripped now, with an acceptance test that greps for `https://`.
+- **Filenames swallowed whole clauses.** A space-tolerant filename pattern has no
+  left-hand delimiter inside prose, so it walked backwards and produced the entity
+  "about the HACCP review and attached Pasteuriser Report.docx".
+- **The calendar leaked in one full stop at a time.** "Tuesday." is not in the stopword
+  list; "Tuesday" is.
+- **Connectors counted against the name-length cap**, so "Department for Work and
+  Pensions" was rejected as a heading.
+- **`_names` closed over its loop variable.** It worked, but by timing - the generator was
+  always drained before the variable was rebound. Rewritten as a plain function taking the
+  run as an argument.
+- **`--strict-markers` was declared twice in `pyproject.toml`**, one block silently
+  overwriting the other.
+
+### Added — reading .pst without Outlook
+Reassessed after a direct test rather than from the architecture doc's assumption. `pypff` is
+not on PyPI, but **`libpff-python` builds and imports**, and the capability is real. The doc was
+right about wheels and was being read as "cannot be done".
+
+- **`app/extract/pst_libpff.py`** - reads archives from the file. No Outlook, no COM, no file
+  lock, no changes to the user's mail profile - and, uniquely among the approaches tried here,
+  **testable on any machine**, which finally puts a floor under the largest untested surface in
+  the project. 26 tests drive a fake `pypff`; one more pins the real library's API so a version
+  bump that renames an accessor fails in a second rather than inside a 30GB archive.
+- **`PstBackend` with `auto` / `libpff` / `outlook`.** `auto` prefers direct reading and falls
+  back to Outlook. `.ost` always goes to Outlook whatever is asked: it *is* the Cached Exchange
+  Mode file, libpff reads it poorly, and the live mailbox is Outlook's own business. The
+  division is libpff for offline archives, Outlook for live mail - each doing what it is
+  actually good at.
+- **`app.cli convert` and a Settings button** - export an archive to a folder of `.eml`. The
+  permanent escape hatch: afterwards the mail needs neither Outlook nor libpff, any mail client
+  can open it, and the folder is added as an index root automatically rather than leaving one
+  more step to remember.
+- **`libpff-python` is deliberately NOT pinned.** It has no Windows wheel and compiles during
+  install, which is exactly what the rule at the top of `requirements.txt` exists to prevent.
+  Every import is guarded, so its absence changes nothing; `doctor.py` reports which route is
+  available and what the other would cost.
+- Filenames from message subjects are sanitised - a subject is attacker-controlled text that
+  becomes a path, and a test asserts `../../etc/passwd` cannot escape the destination folder.
 
 ### Added — Layer 5, the desktop app
 - **`app/ui/presenter.py`** - every UI decision that is not drawing, and **it imports no Qt**.
@@ -174,6 +671,13 @@ manual `app.cli extract --mailbox`. `VERSION` stays at 0.3.2 until that has been
 - `ERR_PST_NOT_BUILT`. It existed for one afternoon to make the gap visible; PST is built, so
   a `.pst` now either indexes or fails for a real reason. A code nothing raises is a lie in the
   registry.
+
+### Fixed — caught while building the libpff backend
+- **Every PST message would have had no recipients.** `To` and `Cc` header values were joined
+  with a space before parsing. `email.utils.getaddresses` was hardened against malformed input
+  (CVE-2023-27043) and now returns *nothing at all* rather than doing its best - so the whole
+  recipient list came back empty, silently, for every message in every archive. Joined with a
+  comma now, and a test asserts three addresses across two headers.
 
 ### Fixed — found by indexing a real folder containing a real .pst
 The GUI reported `seen: 7, indexed: 0, unchanged: 6, skipped: 0` and success. The seventh file

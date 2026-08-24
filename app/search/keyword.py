@@ -25,7 +25,7 @@ import sqlite3
 from typing import Any, Optional
 
 from app.core.logging import logger
-from app.search.query import ParsedQuery
+from app.search.query import MAIL_KINDS, ParsedQuery
 
 __all__ = ["search", "KEYWORD_LIMIT"]
 
@@ -58,6 +58,17 @@ def _filter_sql(parsed: ParsedQuery) -> tuple[str, list[Any]]:
     for folder in parsed.paths:
         clauses.append("LOWER(f.path) LIKE ?")
         params.append(f"%{folder.lower()}%")
+
+    # Mail or documents, from the scope chips. `source_kind` is on `files` and
+    # already indexed, so this costs nothing.
+    if parsed.scope == "mail":
+        placeholders = ", ".join("?" for _ in MAIL_KINDS)
+        clauses.append(f"f.source_kind IN ({placeholders})")
+        params.extend(MAIL_KINDS)
+    elif parsed.scope == "documents":
+        placeholders = ", ".join("?" for _ in MAIL_KINDS)
+        clauses.append(f"f.source_kind NOT IN ({placeholders})")
+        params.extend(MAIL_KINDS)
 
     if parsed.senders:
         placeholders = ", ".join("?" for _ in parsed.senders)

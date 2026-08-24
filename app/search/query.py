@@ -90,6 +90,15 @@ _SPAN_DAYS = {"d": 1, "day": 1, "days": 1, "w": 7, "week": 7, "weeks": 7,
               "m": 31, "month": 31, "months": 31, "y": 365, "year": 365, "years": 365}
 
 
+#: The scopes the UI offers. "documents" means everything that is not mail -
+#: files on disk - rather than a specific set of extensions, so a new extractor
+#: never has to be added here.
+SCOPES = ("all", "mail", "documents")
+
+#: `files.source_kind` values that count as mail.
+MAIL_KINDS = ("pst_message", "eml")
+
+
 @dataclass(frozen=True)
 class ParsedQuery:
     """One user query, decomposed. `raw` is always preserved for the cache key."""
@@ -104,11 +113,30 @@ class ParsedQuery:
     before: Optional[date] = None
     paths: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
+    #: "all" | "mail" | "documents". Not typed by the user - set by the scope
+    #: chips beside the search box, and folded in here so it travels with the
+    #: query through fusion, the cache key and the usage log rather than being
+    #: a second argument every layer has to remember to pass on.
+    scope: str = "all"
     unknown_operators: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def has_filters(self) -> bool:
-        return bool(self.ext or self.after or self.before or self.paths or self.senders)
+        return bool(
+            self.ext or self.after or self.before or self.paths
+            or self.senders or self.scope != "all"
+        )
+
+    def scoped(self, scope: str) -> "ParsedQuery":
+        """The same query restricted to mail or to documents.
+
+        A copy rather than a mutation: `ParsedQuery` is frozen so it can be a
+        cache key, and a scope that changed in place would leave the cache
+        serving one scope's results under another's name.
+        """
+        from dataclasses import replace as _replace
+
+        return _replace(self, scope=scope if scope in SCOPES else "all")
 
     @property
     def has_text(self) -> bool:

@@ -110,6 +110,32 @@ class Settings(BaseModel):
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "mistral"
 
+    # --- indexing: how hard this is allowed to work ------------------------
+    #
+    # Every one of these is a ceiling, not a target. The defaults assume the
+    # machine belongs to somebody who is using it. See app/index/resources.py.
+    #
+    #: 0 -> half the cores, capped at four. Not `cores - 1`: on an 8-core laptop
+    #: that hands seven to a background job and leaves one for the person.
+    index_workers: int = 0
+    #: Resident memory ceiling in MB. Above it the run pauses and drains rather
+    #: than aborting - a pause costs minutes and loses nothing.
+    index_memory_mb: int = 1500
+    #: Pause while system-wide CPU is above this. 0 disables the check.
+    index_cpu_percent: int = 80
+    #: Pause on battery, resume on mains.
+    index_pause_on_battery: bool = True
+    #: Run below normal CPU and I/O priority.
+    index_low_priority: bool = True
+
+    # --- indexing: when it runs --------------------------------------------
+    #: manual | startup | interval | daily
+    index_schedule: str = "manual"
+    #: Hours between runs when `index_schedule` is "interval".
+    index_interval_hours: int = 6
+    #: Local time of day, HH:MM, when `index_schedule` is "daily".
+    index_daily_at: str = "02:00"
+
     # --- guards -------------------------------------------------------------
     min_free_gb: int = 5
     required_free_gb: int = 150
@@ -200,6 +226,17 @@ def load_settings(
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
+            index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),
+            index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "1500")),
+            index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
+            index_pause_on_battery=_as_bool(
+                "INDEX_PAUSE_ON_BATTERY", values.get("INDEX_PAUSE_ON_BATTERY", "true")),
+            index_low_priority=_as_bool(
+                "INDEX_LOW_PRIORITY", values.get("INDEX_LOW_PRIORITY", "true")),
+            index_schedule=(values.get("INDEX_SCHEDULE") or "manual").strip().lower(),
+            index_interval_hours=_as_int(
+                "INDEX_INTERVAL_HOURS", values.get("INDEX_INTERVAL_HOURS", "6")),
+            index_daily_at=(values.get("INDEX_DAILY_AT") or "02:00").strip(),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "150")),
             env_file=path,
@@ -225,8 +262,99 @@ def load_settings(
             key="OLLAMA_URL", reason=f"must start with http:// or https://, got '{settings.ollama_url}'",
         ))
 
+    _validate_indexing(settings)
     _validate_paths(settings, create_dirs=create_dirs, check_writable=check_writable)
     return settings
+
+
+SCHEDULES = ("manual", "startup", "interval", "daily")
+
+
+def _validate_indexing(settings: Settings) -> None:
+    """Reject an unusable indexing configuration at load, naming the key.
+
+    Every message here says what to type. A setting that is silently corrected
+    to a default is worse than one that fails: the person believes the machine
+    is protected by a 500MB memory cap that was quietly ignored.
+    """
+    if settings.index_schedule not in SCHEDULES:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_SCHEDULE",
+            reason=f"'{settings.index_schedule}' is not one of {', '.join(SCHEDULES)}",
+            suggestion=(
+                "manual  - only when you ask\n"
+                "startup - once, shortly after the app opens\n"
+                "interval - every INDEX_INTERVAL_HOURS hours\n"
+                "daily   - once a day at INDEX_DAILY_AT"
+            ),
+        ))
+
+    if settings.index_workers < 0:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_WORKERS",
+            reason=f"cannot be negative, got {settings.index_workers}",
+            suggestion="Use 0 to let the app choose (half your cores, capped at four).",
+        ))
+
+    # 256MB is below what the ONNX runtime alone needs, so a cap under it means
+    # an indexer that pauses immediately and never does anything - a hang, from
+    # the outside, with no error.
+    if settings.index_memory_mb < 256:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_MEMORY_MB",
+            reason=f"{settings.index_memory_mb}MB is below the 256MB floor",
+            suggestion=(
+                "The embedding model alone needs more than that, so the indexer "
+                "would pause immediately and never resume. 1500 is the default; "
+                "800 is about as low as is useful."
+            ),
+        ))
+
+    if not 0 <= settings.index_cpu_percent <= 100:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_CPU_PERCENT",
+            reason=f"must be between 0 and 100, got {settings.index_cpu_percent}",
+            suggestion="0 disables the check entirely. 80 is the default.",
+        ))
+
+    if settings.index_interval_hours < 1:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_INTERVAL_HOURS",
+            reason=f"must be at least 1, got {settings.index_interval_hours}",
+        ))
+
+    if parse_daily_at(settings.index_daily_at) is None:
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="INDEX_DAILY_AT",
+            reason=f"'{settings.index_daily_at}' is not a time of day",
+            suggestion="Use 24-hour HH:MM, for example 02:00 or 18:30.",
+        ))
+
+
+def parse_daily_at(value: str) -> Optional[tuple[int, int]]:
+    """`"02:00"` -> `(2, 0)`, or None if it is not a valid time of day.
+
+    Returned rather than raised so both the validator and the scheduler can use
+    it, and so the settings panel can grey out a Save button without catching
+    an exception to decide.
+    """
+    text = (value or "").strip()
+    if ":" not in text:
+        return None
+    hour, _, minute = text.partition(":")
+    try:
+        hours, minutes = int(hour), int(minute)
+    except ValueError:
+        return None
+    if 0 <= hours <= 23 and 0 <= minutes <= 59:
+        return (hours, minutes)
+    return None
 
 
 def _validate_paths(settings: Settings, *, create_dirs: bool, check_writable: bool) -> None:

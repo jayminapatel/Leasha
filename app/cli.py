@@ -35,17 +35,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from app.core.errors import AppError, AppErrorException, make_error
 from app.core.config import Settings, load_settings, project_root
+from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import setup_logging, log_app_error, logger
 from app.core.single_instance import SingleInstance
 from app.core.version import build_info
+from app.index.resources import limits_from_settings
 
 __all__ = ["main", "build_parser"]
 
@@ -550,6 +553,112 @@ def _extract_mailbox(args: argparse.Namespace, log: Any) -> int:
     return EXIT_OK if total else EXIT_ERROR
 
 
+def cmd_convert(args: argparse.Namespace) -> int:
+    """Export a `.pst` to a folder of `.eml` files.
+
+    The permanent escape hatch. Once an archive is EML on disk it needs neither
+    Outlook nor libpff ever again - it is a folder of files the ordinary `.eml`
+    extractor already handles, and any mail client can open.
+    """
+    from app.extract import pst_libpff
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    source = Path(args.archive).expanduser()
+    if not source.is_file():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.convert",
+            key="archive", reason=f"not found: {source}",
+            suggestion="Give the path to a .pst file.",
+        ), args.json)
+
+    if not pst_libpff.available():
+        return _report(make_error(
+            "ERR_OUTLOOK_MISSING", "cli.convert",
+            suggestion=(
+                "Converting a .pst without Outlook needs libpff, which is not installed. "
+                "On Windows it compiles during install and needs Build Tools for Visual "
+                "Studio: pip install libpff-python. Alternatively use XstReader, or index "
+                "the archive through Outlook with: app.cli index"
+            ),
+            details="libpff-python is not importable.",
+        ), args.json)
+
+    destination = Path(args.out).expanduser() if args.out else source.with_suffix("")
+    print(f"Exporting {source.name} -> {destination}")
+
+    def tick(count: int) -> None:
+        if not args.quiet:
+            print(f"  {count:,} messages…", flush=True)
+
+    written = pst_libpff.export_to_eml(source, destination, on_progress=tick)
+
+    if args.json:
+        print(json.dumps({"archive": str(source), "destination": str(destination),
+                          "messages": written}, indent=2))
+        return EXIT_OK if written else EXIT_ERROR
+
+    print()
+    print(f"Wrote {written:,} message(s) to {destination}")
+    print(f"  Index them with:  app.cli index \"{destination}\"")
+    print("  They need no Outlook and no libpff from here on.")
+    return EXIT_OK if written else EXIT_ERROR
+
+
+class ProgressLine:
+    """A single console line that redraws in place, and yields to log output.
+
+    **The problem this solves.** A `\r` progress line and a logger writing to the
+    same console fight each other: a warning lands on top of the progress line,
+    the carriage return then overwrites the warning, and the result is a mangled
+    line that stops updating - which reads exactly like "it stopped working".
+    That was the report.
+
+    So anything that writes to the console goes through `interrupt()`, which
+    wipes the line first, lets the message land on its own, and repaints. It is
+    the same discipline `pip` and `apt` use for the same reason.
+
+    Not a curses dependency and not ANSI cursor codes: one carriage return and
+    some spaces, which behaves identically in a plain console, in Windows
+    Terminal, and when the output is piped to a file.
+    """
+
+    def __init__(self, enabled: bool = True, width: int = 118) -> None:
+        self.enabled = enabled and sys.stdout.isatty()
+        self.width = width
+        self._text = ""
+
+    def update(self, text: str) -> None:
+        if not self.enabled:
+            return
+        self._text = text[: self.width]
+        print("\r" + self._text.ljust(self.width), end="", flush=True)
+
+    def clear(self) -> None:
+        """Wipe the line so something else can print on it."""
+        if self.enabled and self._text:
+            print("\r" + " " * self.width + "\r", end="", flush=True)
+
+    def repaint(self) -> None:
+        if self.enabled and self._text:
+            print("\r" + self._text.ljust(self.width), end="", flush=True)
+
+    def finish(self) -> None:
+        self.clear()
+        self._text = ""
+
+
+def _console_sink(progress: ProgressLine):
+    """A loguru sink that never lands on top of the progress line."""
+    def write(message: Any) -> None:
+        progress.clear()
+        print(str(message).rstrip(), file=sys.stderr, flush=True)
+        progress.repaint()
+
+    return write
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build or update the index. Layer 3's entry point.
 
@@ -585,13 +694,29 @@ def cmd_index(args: argparse.Namespace) -> int:
                        "exactly like a folder that was deleted.",
         ), args.json)
 
+    limits = limits_from_settings(settings)
+    if args.workers:
+        limits = replace(limits, workers=args.workers)
+    if args.memory_mb:
+        limits = replace(limits, memory_mb=args.memory_mb)
+    if args.cpu_percent is not None:
+        limits = replace(limits, cpu_percent=args.cpu_percent)
+    if args.full_speed:
+        # An explicit opt-out for a machine nobody is using. Named for what it
+        # costs rather than what it gives: this is the setting that makes the
+        # computer unusable while it runs.
+        limits = replace(
+            limits, cpu_percent=0, pause_on_battery=False, low_priority=False,
+            workers=args.workers or max(1, (os.cpu_count() or 2) - 1),
+        )
+
     config = PipelineConfig(
         walk=WalkConfig(
             roots=roots,
             priority_roots=[Path(p).expanduser() for p in (args.first or [])],
             include_cloud=args.include_cloud,
         ),
-        workers=args.workers or 0,
+        limits=limits,
         min_free_gb=settings.min_free_gb,
         verify_hash=not args.fast,
         prune_missing=not args.no_prune,
@@ -601,10 +726,43 @@ def cmd_index(args: argparse.Namespace) -> int:
         settings.embed_model, dim=settings.embed_dim, cache_dir=str(settings.model_cache)
     )
 
+    progress = ProgressLine(enabled=not args.quiet and not args.json)
+
+    # Route console logging through the progress line, so a warning about one
+    # unreadable file cannot leave the heartbeat mangled and apparently frozen.
+    if progress.enabled:
+        # Order matters: `setup_logging` clears every handler, so the progress
+        # sink has to be added *after* it, not before. Doing it the other way
+        # round silently removes the sink and the warnings vanish entirely -
+        # which is worse than the mangled line it was meant to fix.
+        # `force=True` matters. `setup_logging` is idempotent by design - both
+        # the CLI and the UI call it - so without it this second call returns
+        # immediately, the original INFO console sink survives, and every line
+        # gets printed twice: once by the sink that respects the progress line
+        # and once by the sink that walks straight over it.
+        setup_logging(settings.log_path, console_level="CRITICAL", force=True)
+        logger.add(
+            _console_sink(progress), level="INFO",
+            format="{time:HH:mm:ss} {level: <7} {message}",
+        )
+
     def show(stats) -> None:
-        if not args.json:
-            print(f"  {stats.indexed:>7,} indexed  {stats.unchanged:>7,} unchanged  "
-                  f"{stats.skipped:>5,} skipped  {stats.chunks:>8,} chunks", flush=True)
+        if args.json:
+            return
+        line = (f"  {stats.indexed:>7,} docs  {stats.unchanged:>6,} unchanged  "
+                f"{stats.unchanged_documents:>7,} already current  "
+                f"{stats.chunks:>8,} chunks")
+        if stats.current:
+            # Naming the file being read is what separates "working on a big
+            # archive" from "hung". A 100MB .pst is one file and can hold the
+            # line for minutes.
+            waited = time.monotonic() - (stats.current_since or time.monotonic())
+            line += f"  | {stats.current[:34]}"
+            if stats.current_item:
+                line += f" [{stats.current_item:,}]"
+            if waited > 5:
+                line += f" {waited:,.0f}s"
+        progress.update(line)
 
     with SingleInstance(), \
             SqliteStore(settings.fts_db) as store, \
@@ -617,10 +775,23 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return EXIT_ERROR if stats.stopped_early else EXIT_OK
 
+    progress.finish()
     print()
-    print(f"Indexed   {stats.indexed:,} file(s) -> {stats.chunks:,} chunks")
-    print(f"Unchanged {stats.unchanged:,}   Skipped {stats.skipped:,}   Deleted {stats.deleted:,}")
+    # Documents, not files. A .pst is one file and thousands of messages, and
+    # calling them all "files" produced summaries like "seen 8, indexed 17"
+    # where the two numbers were different units.
+    print(f"Indexed   {stats.indexed:,} document(s) -> {stats.chunks:,} chunks")
+    print(f"Files     {stats.seen:,} seen, {stats.unchanged:,} unchanged")
+    if stats.unchanged_documents:
+        print(f"          {stats.unchanged_documents:,} document(s) inside them were "
+              f"already up to date")
+    print(f"Skipped   {stats.skipped:,}   Deleted {stats.deleted:,}")
     print(f"Read      {stats.bytes_read / 1_048_576:,.1f} MB in {stats.elapsed_s:,.1f}s")
+    if stats.pauses:
+        # Said plainly, because a four-hour run that was mostly waiting looks
+        # identical to a four-hour run that was slow - and the fix is opposite.
+        print(f"Waited    {stats.paused_seconds / 60:,.1f} min across {stats.pauses} "
+              f"pause(s) to stay out of the way")
     print(f"          {stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min")
     if stats.skipped_by_code:
         print(f"Skipped by cause: {stats.skipped_by_code}")
@@ -632,6 +803,177 @@ def cmd_index(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     log.info("index complete: {}", payload)
+    return EXIT_OK
+
+
+def cmd_graph(args: argparse.Namespace) -> int:
+    """Build, enrich, inspect or draw the knowledge graph. Layer 6's entry point.
+
+    Takes the single-instance lock: it writes, and two builds accumulating edge
+    weights into one database would double every count between them.
+
+    `--enrich` is the only part that needs Ollama, and it is the only part that
+    can be skipped entirely without losing the feature.
+    """
+    from app.graph import render
+    from app.graph.builder import GraphBuilder
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    log = logger.bind(component="cli.graph")
+
+    with SingleInstance(), SqliteStore(settings.fts_db) as store:
+        payload: dict[str, Any] = {}
+
+        if not args.show_only:
+            def tick(progress) -> None:
+                if not args.quiet:
+                    print(
+                        f"  {progress.phase:<8} {progress.chunks_done:>8,} chunks  "
+                        f"{progress.entities:>7,} entities  {progress.edges:>8,} connections",
+                        flush=True,
+                    )
+
+            total = int(store.stats().get("chunks_total", 0))
+            builder = GraphBuilder(
+                store,
+                min_weight=args.min_weight,
+                min_npmi=args.min_pmi,
+                on_progress=None if args.quiet else tick,
+            )
+            result = builder.build(rebuild=args.rebuild, chunks_total=total)
+            payload["build"] = result.as_dict()
+
+        if args.enrich:
+            from app.graph.entities_llm import EntityEnricher
+            from app.llm.ollama import OllamaClient
+
+            client = OllamaClient(settings.ollama_url, settings.ollama_model)
+            enricher = EntityEnricher(store, client)
+            enriched = enricher.run(chunks_total=int(store.stats().get("chunks_total", 0)))
+            payload["enrich"] = enriched.as_dict()
+            if enriched.error is not None and not args.json:
+                print()
+                print(enriched.error.render())
+
+        stats = store.graph_stats()
+        payload["graph"] = stats
+
+        entities = store.top_entities(max(args.top, render.MAX_RENDER_NODES if args.html else args.top))
+        view = render.select_top(
+            entities, store.edges_among, limit=render.MAX_RENDER_NODES if args.html else args.top
+        )
+
+        if args.html:
+            out = Path(args.html).expanduser()
+            try:
+                render.render_html(view, out, title=f"Knowledge graph - {settings.fts_db.parent.name}")
+                payload["html"] = str(out)
+            except AppErrorException as exc:
+                # The picture is optional; the numbers below are not. Report and
+                # carry on rather than failing a command that mostly succeeded.
+                return _report(exc.error, args.json)
+
+        if args.json:
+            print(json.dumps(payload, indent=2, default=str))
+            return EXIT_OK
+
+        print()
+        print(f"Entities  {stats['entities']:,}   Connections {stats['edges']:,}")
+        if stats["by_kind"]:
+            print("By kind:  " + "  ".join(f"{k}={v:,}" for k, v in sorted(stats["by_kind"].items())))
+        if stats["entities"] == 0:
+            print()
+            print("Nothing yet. Index some documents first, then run this again:")
+            print(r'  venv\Scripts\python.exe -m app.cli index "D:\SearchData"')
+            return EXIT_OK
+
+        print()
+        print(f"Most connected ({min(args.top, len(view.nodes))} of {stats['entities']:,}):")
+        labels = {int(node["id"]): str(node["display"]) for node in view.nodes}
+        for node in view.nodes[: args.top]:
+            print(f"  {str(node['display'])[:44]:<44} {node['kind']:<9} {node['doc_count']:>6,} docs")
+
+        if args.entity:
+            wanted = args.entity.casefold()
+            match = next((i for i, label in labels.items() if label.casefold() == wanted), None)
+            print()
+            if match is None:
+                print(f"No entity named '{args.entity}'. Names above are exact.")
+            else:
+                print(f"'{labels[match]}' is connected to:")
+                for row in render.neighbourhood(match, view.edges, labels):
+                    print(f"  {row['label'][:40]:<40} {row['weight']:>4} passages  npmi {row['pmi']:.2f}")
+                print()
+                print("Seen in:")
+                for row in store.chunks_mentioning(match, 5):
+                    print(f"  {row['path']}")
+
+        if args.html:
+            print()
+            print(f"Interactive graph written to {payload['html']}")
+            print("  Open it in a browser. It is fully self-contained and works offline.")
+
+        log.info("graph command complete: {}", payload.get("graph"))
+        return EXIT_OK
+
+
+def cmd_files(args: argparse.Namespace) -> int:
+    """Find a file by its NAME. Not a content search.
+
+    Deliberately a separate command rather than a flag on `search`, because it
+    answers a different question against a different index: `search` finds what
+    documents *say*, this finds what they are *called*. A file named
+    "Invoice 2024.pdf" whose contents never use those words is invisible to one
+    and the first result of the other.
+
+    Read-only, so no lock. It never embeds and never reranks, which is why it
+    returns instantly.
+    """
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.presenter import file_rows
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    text = " ".join(args.name).strip()
+    if not text:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.files",
+            key="name", reason="give something to look for",
+            suggestion=r'Part of a filename is enough: app.cli files invoice',
+        ), args.json)
+
+    with SqliteStore(settings.fts_db) as store:
+        hits = store.search_files_by_name(
+            text, limit=args.limit, ext=args.type.split(",") if args.type else None
+        )
+        total = store.count_named_files()
+
+    if args.json:
+        print(json.dumps({"query": text, "matches": hits, "indexed_files": total}, indent=2))
+        return EXIT_OK
+
+    if not hits:
+        print(f"No file name contains '{text}'.")
+        if total == 0:
+            print()
+            print("No filenames are indexed yet. Run:")
+            print(r'  venv\Scripts\python.exe -m app.cli index "D:\SearchData"')
+        else:
+            print(f"  ({total:,} filenames indexed. Matching is on any part of the name.)")
+        return EXIT_OK
+
+    rows = file_rows(hits)
+    width = max(len(row.name) for row in rows)
+    for row in rows:
+        line = f"  {row.name.ljust(width)}  {row.size:>10}  {row.modified:>13}  {row.folder}"
+        print(line)
+        if row.note:
+            print(f"  {' ' * width}  {row.note}")
+    print()
+    print(f"{len(rows):,} of {total:,} indexed filenames")
     return EXIT_OK
 
 
@@ -791,15 +1133,65 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument("--first", action="append", metavar="PATH",
                          help="index this folder before the others; repeatable, in order")
     p_index.add_argument("--workers", type=int, metavar="N",
-                         help="extraction workers (default: CPU count - 1)")
+                         help="files read at once (default: half your cores, capped at 4)")
     p_index.add_argument("--fast", action="store_true",
                          help="trust mtime and size without re-hashing changed files")
     p_index.add_argument("--no-prune", action="store_true",
                          help="keep rows for files that have disappeared")
     p_index.add_argument("--include-cloud", action="store_true",
                          help="index OneDrive placeholders too, downloading them")
+    p_index.add_argument("--memory-mb", type=int, metavar="MB",
+                         help="pause above this much memory (default from .env, 1500)")
+    p_index.add_argument("--cpu-percent", type=int, metavar="PCT",
+                         help="pause while the machine is busier than this; 0 disables")
+    p_index.add_argument("--full-speed", action="store_true",
+                         help="no CPU, battery or priority limits - for a machine "
+                              "nobody is using. Will make this one feel slow.")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
     p_index.set_defaults(func=cmd_index)
+
+    p_convert = sub.add_parser(
+        "convert", parents=[common],
+        help="export a .pst to a folder of .eml files (no Outlook needed)")
+    p_convert.add_argument("archive", help="the .pst file to export")
+    p_convert.add_argument("--out", metavar="PATH",
+                           help="destination folder (default: alongside the archive)")
+    p_convert.add_argument("--quiet", action="store_true", help="no progress lines")
+    p_convert.set_defaults(func=cmd_convert)
+
+    p_graph = sub.add_parser(
+        "graph", parents=[common],
+        help="build and inspect the knowledge graph over the indexed chunks")
+    p_graph.add_argument("--rebuild", action="store_true",
+                         help="discard the existing graph and start over "
+                              "(safe: it is derived from the index)")
+    p_graph.add_argument("--show-only", action="store_true",
+                         help="report what is already stored without building")
+    p_graph.add_argument("--enrich", action="store_true",
+                         help="also run typed entity extraction through Ollama, "
+                              "resuming where the last run stopped")
+    p_graph.add_argument("--top", type=int, default=25, metavar="N",
+                         help="entities to list (default 25)")
+    p_graph.add_argument("--entity", metavar="NAME",
+                         help="show what one entity connects to, and where it appears")
+    p_graph.add_argument("--html", metavar="PATH",
+                         help="also write a self-contained interactive page")
+    p_graph.add_argument("--min-weight", type=int, default=2, metavar="N",
+                         help="drop connections seen in fewer than N passages (default 2)")
+    p_graph.add_argument("--min-pmi", type=float, default=0.0, metavar="X",
+                         help="drop connections at or below this normalised PMI (default 0.0)")
+    p_graph.add_argument("--quiet", action="store_true", help="no progress lines")
+    p_graph.set_defaults(func=cmd_graph)
+
+    p_files = sub.add_parser(
+        "files", parents=[common],
+        help="find a file by NAME (not by contents) - matches any part of the name")
+    p_files.add_argument("name", nargs="*", help="part of a filename, or a folder name")
+    p_files.add_argument("--limit", type=int, default=50, metavar="N",
+                         help="results to return (default 50)")
+    p_files.add_argument("--type", metavar="EXT",
+                         help="restrict to these extensions, comma separated: pdf,docx")
+    p_files.set_defaults(func=cmd_files)
 
     p_search = sub.add_parser("search", parents=[common], help="search the index")
     p_search.add_argument("query", nargs="*",

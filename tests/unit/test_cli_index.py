@@ -8,6 +8,7 @@ and the fact that this command, unlike `extract`, *writes*.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -126,3 +127,111 @@ def test_progress_lines_can_be_silenced(capsys, env: list[str], corpus: Path) ->
     _code, noisy, _ = run(capsys, *env, "index", str(corpus))
     run(capsys, *env, "index", str(corpus), "--quiet")
     assert "Indexed" in noisy
+
+
+# ---------------------------------------------------------------------------
+# The progress line, and why it stopped being visible.
+# ---------------------------------------------------------------------------
+
+def test_the_progress_line_yields_to_log_output():
+    """A `\\r` line and a logger sharing a console destroy each other.
+
+    A warning lands on top of the progress line, the next carriage return
+    overwrites the warning, and what is left is a mangled line that stops
+    updating - which reads exactly like "it stopped working". That was the
+    report from a real run, and it is why anything writing to the console has to
+    clear the line first.
+    """
+    from app.cli import ProgressLine, _console_sink
+
+    progress = ProgressLine(enabled=True)
+    progress.enabled = True                 # not a tty under pytest
+    written: list[str] = []
+
+    class Capture:
+        def write(self, text):
+            written.append(text)
+
+        def flush(self):
+            pass
+
+    import sys
+    original = sys.stdout
+    sys.stdout = Capture()
+    try:
+        progress.update("42 docs indexed")
+        sink = _console_sink(progress)
+        sys.stderr_original, sys.stderr = sys.stderr, Capture()
+        try:
+            sink("a warning about one file")
+        finally:
+            sys.stderr = sys.stderr_original
+    finally:
+        sys.stdout = original
+
+    joined = "".join(written)
+    # Cleared before the message, and repainted after it.
+    assert joined.count("42 docs indexed") == 2, joined
+
+
+def test_the_progress_line_is_silent_when_output_is_piped():
+    """Carriage returns in a log file or a pipe are noise, not progress."""
+    from app.cli import ProgressLine
+
+    progress = ProgressLine(enabled=True)
+    if sys.stdout.isatty():                 # pragma: no cover - depends on the runner
+        pytest.skip("stdout is a tty here")
+    assert not progress.enabled
+
+
+def test_quiet_disables_the_progress_line_entirely():
+    from app.cli import ProgressLine
+
+    assert not ProgressLine(enabled=False).enabled
+
+
+def test_the_jvm_is_started_quietly():
+    """mpxj ships log4j-api with no binding, so the JVM prints
+    "main ERROR Log4j API could not find a logging provider" to stderr the first
+    time it reads a file - mid-run, looking exactly like a failure."""
+    from app.extract.diagrams import _JVM_QUIET_ARGS
+
+    assert any("log4j" in arg.lower() for arg in _JVM_QUIET_ARGS)
+    assert all(arg.startswith("-D") for arg in _JVM_QUIET_ARGS), (
+        "only -D system properties, which an unrecognising JVM ignores rather "
+        "than refusing to start"
+    )
+
+
+def test_the_progress_sink_does_not_double_every_log_line(tmp_path):
+    """`setup_logging` is idempotent by design, which is a trap here.
+
+    Both the CLI and the UI call it, so it returns early when already
+    configured. Reconfiguring it for the progress line therefore needs
+    `force=True` - without it the original INFO console sink survives, the
+    progress sink is added on top, and every line prints twice: once by the
+    handler that respects the progress line and once by the handler that walks
+    straight over it.
+    """
+    import io
+
+    from app.cli import ProgressLine, _console_sink
+    from app.core.logging import logger, setup_logging
+
+    setup_logging(tmp_path, console_level="INFO", force=True)
+
+    progress = ProgressLine(enabled=False)
+    progress.enabled = True
+    setup_logging(tmp_path, console_level="CRITICAL", force=True)
+    logger.add(_console_sink(progress), level="INFO", format="{message}")
+
+    out, err = io.StringIO(), io.StringIO()
+    original = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        logger.info("one message")
+    finally:
+        sys.stdout, sys.stderr = original
+        setup_logging(tmp_path, force=True)      # leave logging as it was
+
+    assert err.getvalue().count("one message") == 1

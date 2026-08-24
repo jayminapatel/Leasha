@@ -26,7 +26,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # Output encoding: when stdout is redirected (as it is under the installer's
@@ -328,6 +328,68 @@ def check_rerank_model(quick: bool = False) -> Check:
         )
 
 
+def check_resources() -> Check:
+    """Is the resource governor actually able to govern?
+
+    Without psutil the disk guard and the worker cap still apply, but the
+    memory, CPU and battery ceilings silently do nothing - and a limit that
+    silently does nothing is worse than no limit, because it is believed.
+    """
+    from app.index.resources import default_workers, psutil_available
+
+    active = psutil_available()
+    return Check(
+        name="resource governor",
+        ok=active,
+        optional=True,
+        detail=(
+            f"active - memory, CPU and battery ceilings apply; "
+            f"default workers {default_workers()}"
+            if active else
+            "psutil is missing, so the memory, CPU and battery ceilings are INACTIVE. "
+            "Disk space and the worker cap still apply."
+        ),
+        fix="" if active else r"venv\Scripts\python.exe -m pip install psutil",
+    )
+
+
+def check_diagram_readers() -> Check:
+    """What Visio and Project files can actually be read on this machine.
+
+    Every one of these readers is optional, and the difference between "the
+    diagram is searchable" and "only its name is" is invisible until somebody
+    searches for text they know is in it and finds nothing. Reported rather
+    than assumed.
+    """
+    from app.extract.diagrams import readers_available
+
+    found = readers_available()
+    detail = "  ".join(f"{ext}: {state}" for ext, state in found.items())
+
+    # Only states that name something installable are a finding. ".vsd: name +
+    # document properties" is the *best achievable* outcome for a format with no
+    # open specification for its contents - reporting it as needing a fix would
+    # send somebody installing a package that changes nothing, and teach them to
+    # ignore this check.
+    improvable = [ext for ext, state in found.items() if "install" in state]
+
+    fix = ""
+    if improvable:
+        wanted = set()
+        if any("olefile" in found[ext] for ext in improvable):
+            wanted.add("olefile")
+        if any(ext == ".vsdx" for ext in improvable):
+            wanted.add("vsdx")
+        fix = r"venv\Scripts\python.exe -m pip install " + " ".join(sorted(wanted))
+    return Check(
+        name="Visio / Project readers",
+        ok=not improvable,
+        optional=True,
+        detail=detail,
+        fix=fix,
+    )
+
+
 def check_git() -> Check:
     """Git on PATH, which the release process assumes and nothing else checks.
 
@@ -382,6 +444,30 @@ def new_outlook_present() -> bool:
     if local and Path(local, "Microsoft", "WindowsApps", "olk.exe").exists():
         return True
     return shutil.which("olk") is not None
+
+
+def check_pst_direct() -> Check:
+    """Whether archives can be read without Outlook.
+
+    Optional either way - between this and Outlook, at least one route usually
+    exists - but which one you have changes what the app can do, so it is worth
+    stating plainly rather than discovering mid-index.
+    """
+    try:
+        import pypff
+
+        return Check("Direct .pst reading (libpff)", True,
+                     f"pypff {pypff.get_version()}", optional=True)
+    except ImportError:
+        return Check(
+            "Direct .pst reading (libpff)", False, "not installed",
+            fix=("OPTIONAL. Without it, .pst archives are read through classic Outlook, which "
+                 "must be installed and holds a lock on the file while reading. To read "
+                 "archives directly instead: pip install libpff-python - on Windows this "
+                 "compiles and needs Build Tools for Visual Studio. The live mailbox (.ost) "
+                 "needs Outlook either way."),
+            optional=True,
+        )
 
 
 def check_outlook() -> Check:
@@ -465,6 +551,9 @@ def run_all(quick: bool = False) -> list[Check]:
         check_embedding_model(quick),
         check_rerank_model(quick),
         check_git(),
+        check_resources(),
+        check_diagram_readers(),
+        check_pst_direct(),
         check_outlook(),
         check_ollama(),
     ]
@@ -493,11 +582,11 @@ def main() -> int:
     width = max(len(c.name) for c in checks) + 2
     for c in checks:
         if c.ok:
-            mark, colour = "PASS", ""
+            mark = "PASS"
         elif c.optional:
-            mark, colour = "WARN", ""
+            mark = "WARN"
         else:
-            mark, colour = "FAIL", ""
+            mark = "FAIL"
         line = f"[{mark}] {c.name.ljust(width)}"
         if c.detail:
             line += f" {c.detail}"
@@ -509,17 +598,31 @@ def main() -> int:
     if hard_failures:
         print(f"NOT READY - {len(hard_failures)} required check(s) failed.")
         for c in hard_failures:
-            print(f"  - {c.name}")
+            print(f"  \u00b7 {c.name}")
         print("Apply the FIX lines above, then re-run doctor.py.")
         return 1
 
+    # Bullets are written with a middle dot rather than a hyphen. Terminal
+    # output gets pasted back into the shell far more often than anyone admits,
+    # and a line starting with "-" is a PowerShell parse error about a unary
+    # operator - which reads as a crash in this program rather than a paste
+    # accident. The dot is inert.
     if soft_failures:
         print(f"READY - with {len(soft_failures)} optional component(s) unavailable:")
         for c in soft_failures:
-            print(f"  - {c.name}")
-        print("These degrade features, not core search. Start the app.")
+            print(f"  \u00b7 {c.name}")
+            if c.fix:
+                print(f"      to enable: {c.fix}")
+        print("These degrade features, not core search.")
     else:
-        print("READY - everything verified, including optional components. Start the app.")
+        print("READY - everything verified, including optional components.")
+
+    # Say what to type. "Start the app" leaves the reader to guess, and the
+    # guess is usually to paste this message back into the prompt.
+    print()
+    print("Start it with:")
+    print(r"  venv\Scripts\python.exe -m app.main        (the window)")
+    print(r"  venv\Scripts\python.exe -m app.cli --help  (the command line)")
     return 0
 
 
