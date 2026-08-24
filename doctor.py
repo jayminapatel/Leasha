@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-doctor.py — Local Knowledge Graph V2 environment verification.
+doctor.py - Local Knowledge Graph V2 environment verification.
 
 Every check that fails states WHAT failed, WHY, and HOW to fix it.
 Optional components (rerank model, Outlook, Ollama) can fail without
-blocking readiness — only hard requirements gate the app.
+blocking readiness - only hard requirements gate the app.
 
 Usage:
     venv\\Scripts\\python.exe doctor.py
@@ -12,8 +12,8 @@ Usage:
     venv\\Scripts\\python.exe doctor.py --quick     # skip model load (fast)
 
 Exit codes:
-    0  READY      — all required checks passed
-    1  NOT READY  — at least one required check failed
+    0  READY      - all required checks passed
+    1  NOT READY  - at least one required check failed
 """
 
 from __future__ import annotations
@@ -28,6 +28,15 @@ import sys
 import tempfile
 from dataclasses import dataclass, asdict
 from pathlib import Path
+
+# Output encoding: when stdout is redirected (as it is under the installer's
+# transcript) Python falls back to the ANSI codepage, and any non-ASCII byte
+# raises UnicodeEncodeError mid-report. Never let the report die on a dash.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_FILE = PROJECT_ROOT / ".env"
@@ -50,7 +59,7 @@ class Check:
 
 
 # ---------------------------------------------------------------------------
-# .env loading — stdlib only, so doctor works before pip install runs
+# .env loading - stdlib only, so doctor works before pip install runs
 # ---------------------------------------------------------------------------
 
 def load_env() -> dict[str, str]:
@@ -74,7 +83,7 @@ def env_path(key: str, default: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
-# Checks — required
+# Checks - required
 # ---------------------------------------------------------------------------
 
 def check_env_file() -> Check:
@@ -83,7 +92,7 @@ def check_env_file() -> Check:
     return Check(
         ".env present with DATA_PATH", False,
         f"not found or incomplete at {ENV_FILE}",
-        fix="Re-run install.ps1 from this folder — it writes .env. "
+        fix="Re-run install.ps1 from this folder - it writes .env. "
             "Or create it by hand with DATA_PATH=<your index location>.",
     )
 
@@ -111,7 +120,7 @@ def check_platform() -> Check:
     ok = sys.platform == "win32"
     return Check(
         "Windows platform", ok, sys.platform,
-        fix="This build targets Windows 10/11 only — PST ingestion via Outlook MAPI has no cross-platform equivalent.",
+        fix="This build targets Windows 10/11 only - PST ingestion via Outlook MAPI has no cross-platform equivalent.",
     )
 
 
@@ -156,7 +165,7 @@ def check_pywin32() -> Check:
     except Exception as exc:
         return Check(
             "import win32com (pywin32)", False, f"{type(exc).__name__}: {exc}",
-            fix=(rf'OPTIONAL — only needed for PST email indexing. '
+            fix=(rf'OPTIONAL - only needed for PST email indexing. '
                  rf'"{sys.executable}" -m pip install pywin32 '
                  rf'&& "{sys.executable}" Scripts\pywin32_postinstall.py -install'),
             optional=True,
@@ -191,7 +200,7 @@ def check_sqlite_wal() -> Check:
         ok = str(mode).lower() == "wal"
         return Check("SQLite WAL mode", ok, f"journal_mode={mode}",
                      fix="WAL is required for concurrent index writes + searches. "
-                         "If this fails the temp drive may be a network share — set TEMP to a local disk.")
+                         "If this fails the temp drive may be a network share - set TEMP to a local disk.")
     except Exception as exc:
         return Check("SQLite WAL mode", False, f"{type(exc).__name__}: {exc}",
                      fix="Check that %TEMP% points at a writable local drive.")
@@ -203,7 +212,7 @@ def check_data_paths() -> list[Check]:
     if not data_path:
         out.append(Check("Index folders exist and are writable", False,
                          "DATA_PATH is not set",
-                         fix="Re-run install.ps1 — it writes DATA_PATH into .env."))
+                         fix="Re-run install.ps1 - it writes DATA_PATH into .env."))
         return out
 
     for sub in ("vectors", "fts", "cache", "models", "state"):
@@ -296,7 +305,7 @@ def check_embedding_model(quick: bool = False) -> Check:
 
 
 # ---------------------------------------------------------------------------
-# Checks — optional
+# Checks - optional
 # ---------------------------------------------------------------------------
 
 def check_rerank_model(quick: bool = False) -> Check:
@@ -313,7 +322,7 @@ def check_rerank_model(quick: bool = False) -> Check:
     except Exception as exc:
         return Check(
             "Rerank model", False, f"{type(exc).__name__}: {exc}",
-            fix="OPTIONAL — reranking is a quality toggle in Settings and search works without it. "
+            fix="OPTIONAL - reranking is a quality toggle in Settings and search works without it. "
                 "Re-run install.ps1 to download it (~1.1GB).",
             optional=True,
         )
@@ -322,7 +331,7 @@ def check_rerank_model(quick: bool = False) -> Check:
 def check_outlook() -> Check:
     if sys.platform != "win32":
         return Check("Outlook MAPI (PST)", False, "not Windows",
-                     fix="OPTIONAL — PST indexing is Windows-only.", optional=True)
+                     fix="OPTIONAL - PST indexing is Windows-only.", optional=True)
     try:
         import win32com.client
         win32com.client.Dispatch("Outlook.Application")
@@ -330,7 +339,7 @@ def check_outlook() -> Check:
     except Exception as exc:
         return Check(
             "Outlook MAPI (PST ingestion)", False, f"{type(exc).__name__}: {exc}",
-            fix="OPTIONAL — needed only to index .pst archives; every other file type indexes normally. "
+            fix="OPTIONAL - needed only to index .pst archives; every other file type indexes normally. "
                 "Either install Outlook, or convert PST to EML with XstReader and index the EML folder. "
                 "Do NOT substitute extract-msg: it reads .msg files only, not .pst.",
             optional=True,
@@ -350,14 +359,14 @@ def check_ollama() -> Check:
             return Check(
                 f"Ollama reachable but '{want}' not pulled", False,
                 f"installed: {', '.join(models) if models else 'none'}",
-                fix=f"OPTIONAL — search works without it. Run: ollama pull {want}",
+                fix=f"OPTIONAL - search works without it. Run: ollama pull {want}",
                 optional=True,
             )
         return Check("Ollama reachable with model", True, ", ".join(models), optional=True)
     except Exception as exc:
         return Check(
             "Ollama (AI answers, entity extraction)", False, f"not reachable at {url} ({type(exc).__name__})",
-            fix="OPTIONAL — search never calls the LLM, so this only disables AI answers and "
+            fix="OPTIONAL - search never calls the LLM, so this only disables AI answers and "
                 "LLM entity extraction (the graph falls back to co-occurrence). "
                 "To enable: winget install --id Ollama.Ollama -e, make sure the Ollama service is running, "
                 "then: ollama pull mistral",
@@ -430,19 +439,19 @@ def main() -> int:
 
     print()
     if hard_failures:
-        print(f"NOT READY — {len(hard_failures)} required check(s) failed.")
+        print(f"NOT READY - {len(hard_failures)} required check(s) failed.")
         for c in hard_failures:
             print(f"  - {c.name}")
         print("Apply the FIX lines above, then re-run doctor.py.")
         return 1
 
     if soft_failures:
-        print(f"READY — with {len(soft_failures)} optional component(s) unavailable:")
+        print(f"READY - with {len(soft_failures)} optional component(s) unavailable:")
         for c in soft_failures:
             print(f"  - {c.name}")
         print("These degrade features, not core search. Start the app.")
     else:
-        print("READY — everything verified, including optional components. Start the app.")
+        print("READY - everything verified, including optional components. Start the app.")
     return 0
 
 

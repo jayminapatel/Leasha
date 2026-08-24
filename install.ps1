@@ -1,5 +1,5 @@
-<#
-    install.ps1 — Local Knowledge Graph V2 installer (Windows 10/11)
+﻿<#
+    install.ps1 - Local Knowledge Graph V2 installer (Windows 10/11)
 
     Run from a NORMAL PowerShell window (admin not required):
 
@@ -122,7 +122,7 @@ function Update-SessionPath {
       -Fix       exact command or action that resolves the failure
       -Optional  failure will not block readiness
       -Verify    optional scriptblock returning $true if the step's goal is
-                 already satisfied — used to treat "already installed, no
+                 already satisfied - used to treat "already installed, no
                  upgrade available" as success rather than an error
 #>
 function Invoke-Step {
@@ -152,13 +152,13 @@ function Invoke-Step {
             $failure = $_.Exception.Message
         }
 
-        # A step can "fail" noisily and still have achieved its goal — the
+        # A step can "fail" noisily and still have achieved its goal - the
         # classic case being winget returning a non-zero code because the
         # package is already installed and current.
         if ($failure -and $Verify) {
             try {
                 if (& $Verify) {
-                    Write-Host "    OK (already satisfied — ignoring: $failure)" -ForegroundColor Green
+                    Write-Host "    OK (already satisfied - ignoring: $failure)" -ForegroundColor Green
                     return
                 }
             } catch { }
@@ -175,10 +175,10 @@ function Invoke-Step {
         $decision = $OnError
         if ($decision -eq "Ask") {
             if ($Optional) {
-                Write-Host "    This component is OPTIONAL — the app works without it." -ForegroundColor DarkGray
+                Write-Host "    This component is OPTIONAL - the app works without it." -ForegroundColor DarkGray
                 $default = "C"
             } else {
-                Write-Host "    This component is REQUIRED — the app will not start without it." -ForegroundColor DarkGray
+                Write-Host "    This component is REQUIRED - the app will not start without it." -ForegroundColor DarkGray
                 $default = "A"
             }
             $answer = Read-Host "    [R]etry after applying the fix / [C]ontinue anyway / [A]bort  (Enter = $default)"
@@ -186,7 +186,7 @@ function Invoke-Step {
             $key = $answer.Trim().ToUpper().Substring(0, 1)
 
             # NOTE: 'continue' inside a switch continues the SWITCH, not the
-            # enclosing while loop — so branch with if/else instead.
+            # enclosing while loop - so branch with if/else instead.
             if ($key -eq "R") {
                 Write-Host "    Retrying..." -ForegroundColor DarkGray
                 continue
@@ -200,7 +200,7 @@ function Invoke-Step {
         if ($decision -eq "Abort") {
             Write-Host ""
             Write-Host "ABORTED at step: $Name" -ForegroundColor Red
-            Write-Host "Apply the FIX above, then re-run this script — completed steps are skipped." -ForegroundColor Yellow
+            Write-Host "Apply the FIX above, then re-run this script - completed steps are skipped." -ForegroundColor Yellow
             Exit-Installer 1
         }
 
@@ -210,7 +210,7 @@ function Invoke-Step {
 }
 
 # ---------------------------------------------------------------------------
-# Resolve the project location — NEVER the caller's current directory
+# Resolve the project location - NEVER the caller's current directory
 # ---------------------------------------------------------------------------
 
 if (-not $ProjectPath) {
@@ -239,7 +239,7 @@ try {
     $script:LogFile = $null
 }
 
-Write-Title "Local Knowledge Graph V2 — installer"
+Write-Title "Local Knowledge Graph V2 - installer"
 Write-Host "  Project location : $ProjectPath" -ForegroundColor Gray
 Write-Host "  On error         : $OnError" -ForegroundColor Gray
 Write-Host "  PowerShell       : $($PSVersionTable.PSVersion) on $([Environment]::OSVersion.VersionString)" -ForegroundColor Gray
@@ -247,11 +247,11 @@ if ($script:LogFile) {
     Write-Host "  Logging to       : $script:LogFile" -ForegroundColor Gray
 }
 if ($Preflight) {
-    Write-Host "  Mode             : PREFLIGHT — checks only, nothing will be installed" -ForegroundColor Yellow
+    Write-Host "  Mode             : PREFLIGHT - checks only, nothing will be installed" -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------
-# Preflight — the things that cannot be auto-fixed
+# Preflight - the things that cannot be auto-fixed
 # ---------------------------------------------------------------------------
 
 Invoke-Step -Name "Locate requirements.txt and doctor.py" `
@@ -300,18 +300,18 @@ Invoke-Step -Name "Validate index location: $DataPath" `
         Remove-Item -LiteralPath $probe -Force
 
         # Space check on the CHOSEN drive, not the app drive.
-        # $root looks like "E:\" — take the letter; TrimEnd overloads are
+        # $root looks like "E:\" - take the letter; TrimEnd overloads are
         # unreliable on Windows PowerShell 5.1.
         $letter = $root.Substring(0, 1)
         $free   = (Get-PSDrive -Name $letter).Free / 1GB
         if ($free -lt $RequiredFreeGB) {
-            throw ("Only {0:N0}GB free on $root — need ${RequiredFreeGB}GB for a 100GB corpus" -f $free)
+            throw ("Only {0:N0}GB free on $root - need ${RequiredFreeGB}GB for a 100GB corpus" -f $free)
         }
         Write-Host ("    {0:N0}GB free on $root" -f $free) -ForegroundColor DarkGray
     }
 
 # ---------------------------------------------------------------------------
-# Preflight stop — everything above is cheap and local. Everything below
+# Preflight stop - everything above is cheap and local. Everything below
 # installs software or downloads gigabytes. This is the natural place to stop
 # and confirm the setup is sane before committing to that.
 # ---------------------------------------------------------------------------
@@ -332,10 +332,10 @@ if ($Preflight) {
     }
     Write-Host ""
     if ($script:Failures.Count -gt 0) {
-        Write-Host "  PREFLIGHT FAILED — fix the items above before a real run." -ForegroundColor Red
+        Write-Host "  PREFLIGHT FAILED - fix the items above before a real run." -ForegroundColor Red
         Exit-Installer 1
     }
-    Write-Host "  PREFLIGHT PASSED — re-run without -Preflight to install." -ForegroundColor Green
+    Write-Host "  PREFLIGHT PASSED - re-run without -Preflight to install." -ForegroundColor Green
     Exit-Installer 0
 }
 
@@ -381,7 +381,7 @@ Update-SessionPath
 # ---------------------------------------------------------------------------
 
 Invoke-Step -Name "Create project folders and virtual environment" `
-    -Fix "Confirm Python works: py -3.12 --version   — then delete the venv folder and re-run." `
+    -Fix "Confirm Python works: py -3.12 --version   - then delete the venv folder and re-run." `
     -Action {
         foreach ($d in @("app", "logs")) {
             New-Item -ItemType Directory -Force -Path (Join-Path $ProjectPath $d) | Out-Null
@@ -399,14 +399,14 @@ Invoke-Step -Name "Create project folders and virtual environment" `
                 Pop-Location
             }
         } else {
-            Write-Host "    venv already exists — reusing" -ForegroundColor DarkGray
+            Write-Host "    venv already exists - reusing" -ForegroundColor DarkGray
         }
 
-        if (-not (Test-Path -LiteralPath $Python)) { throw "venv creation failed — $Python not found" }
+        if (-not (Test-Path -LiteralPath $Python)) { throw "venv creation failed - $Python not found" }
 
         $ver = & $Python -c "import sys; print('%d.%d' % sys.version_info[:2])"
         Write-Host "    venv Python $ver" -ForegroundColor DarkGray
-        if ([version]$ver -lt [version]"3.12") { throw "venv is Python $ver — 3.12+ required" }
+        if ([version]$ver -lt [version]"3.12") { throw "venv is Python $ver - 3.12+ required" }
     }
 
 Invoke-Step -Name "Write .env with the chosen index location" `
@@ -438,7 +438,7 @@ REQUIRED_FREE_GB=$RequiredFreeGB
     }
 
 Invoke-Step -Name "Install Python packages" `
-    -Fix "Run it verbosely to see which package failed: `"$Python`" -m pip install -r `"$ReqFile`" --verbose   — every pin ships a Windows wheel, so no compiler is needed." `
+    -Fix "Run it verbosely to see which package failed: `"$Python`" -m pip install -r `"$ReqFile`" --verbose   - every pin ships a Windows wheel, so no compiler is needed." `
     -Action {
         & $Python -m pip install --upgrade pip --quiet
         if ($LASTEXITCODE -ne 0) { throw "pip self-upgrade failed with code $LASTEXITCODE" }
@@ -447,11 +447,11 @@ Invoke-Step -Name "Install Python packages" `
     }
 
 # ---------------------------------------------------------------------------
-# Models — required search model first, optional rerank second
+# Models - required search model first, optional rerank second
 # ---------------------------------------------------------------------------
 
 Invoke-Step -Name "Download embedding model bge-small-en-v1.5 (~130MB)" `
-    -Fix "Needs internet once; the app is fully offline afterwards. Check connectivity or your proxy, then re-run — completed steps are skipped." `
+    -Fix "Needs internet once; the app is fully offline afterwards. Check connectivity or your proxy, then re-run - completed steps are skipped." `
     -Action {
         $code = @"
 import os
@@ -480,7 +480,7 @@ print('rerank scores:', list(m.rerank('warmup query', ['warmup document'])))
     }
 
 # ---------------------------------------------------------------------------
-# Optional: Ollama (RAG answers + entity extraction only — never in search)
+# Optional: Ollama (RAG answers + entity extraction only - never in search)
 # ---------------------------------------------------------------------------
 
 Invoke-Step -Name "Install Ollama" -Optional `
@@ -499,7 +499,7 @@ Invoke-Step -Name "Install Ollama" -Optional `
 Invoke-Step -Name "Download LLM model: mistral (~4.1GB)" -Optional `
     -Fix "The previous run stalled at 'pulling manifest', which almost always means the Ollama background service was not up yet. Start it (run 'ollama serve' in another window, or launch the Ollama tray app) and then run: ollama pull mistral" `
     -Action {
-        if (-not (Test-CommandExists "ollama")) { throw "Ollama is not installed — nothing to pull" }
+        if (-not (Test-CommandExists "ollama")) { throw "Ollama is not installed - nothing to pull" }
 
         # A freshly installed Ollama has no service listening yet, so the pull
         # hangs on 'pulling manifest' and dies. Wait for the API first.
@@ -540,7 +540,7 @@ if (Test-Path -LiteralPath $Doctor) {
         Pop-Location
     }
 } else {
-    Write-Host "  doctor.py missing — cannot verify." -ForegroundColor Red
+    Write-Host "  doctor.py missing - cannot verify." -ForegroundColor Red
     $doctorExit = 1
 }
 
@@ -573,7 +573,7 @@ if ($doctorExit -ne 0) {
 }
 
 Write-Host ""
-Write-Host "  ALL STEPS SUCCEEDED — environment verified." -ForegroundColor Green
+Write-Host "  ALL STEPS SUCCEEDED - environment verified." -ForegroundColor Green
 Write-Host "  Next: open a new chat, paste LOCAL_KNOWLEDGE_GRAPH_V2.md and BUILD_SPEC_V2.md," -ForegroundColor Green
 Write-Host "        and say: 'Environment verified by doctor.py. Start Layer 0.'" -ForegroundColor Green
 Exit-Installer 0

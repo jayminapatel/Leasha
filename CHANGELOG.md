@@ -12,6 +12,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Installer transcript logging to `logs\install-<timestamp>.log`, started before anything
   can fail, so a failed run always leaves a readable record
 
+### Fixed
+- **`install.ps1` failed at parse time and produced no output whatsoever** - no log, no venv,
+  no `.env`. The file was UTF-8 without a BOM, and Windows PowerShell 5.1 decodes a BOM-less
+  file with the ANSI codepage: each of the 28 em dashes (`E2 80 94`) had its third byte read
+  as cp1252 `0x94` = U+201D, a smart quote that PowerShell treats as a string delimiter.
+  Every `.ps1` is now ASCII-only *and* saved UTF-8 with a BOM.
+- `doctor.py` made ASCII-only, and stdout/stderr reconfigured to UTF-8 with
+  `errors="replace"` - under the installer's transcript, output is redirected and Python
+  falls back to the ANSI codepage, where one non-ASCII character would raise
+  `UnicodeEncodeError` mid-report.
+- `run-install.cmd` given CRLF line endings; an LF-only batch file can break `goto` labels.
+
+### Added
+- `run-install.cmd` - bypasses the execution policy for one process, parse-checks before
+  running, keeps the window open, passes arguments through
+- `scripts/parse-check.ps1` - real PowerShell parser check plus a BOM/ASCII encoding audit,
+  logged to `logs\parse-check.log`
+
 ### Planned
 - Layer 0 — foundation: config, `AppError`, logging, single-instance, CLI skeleton
 

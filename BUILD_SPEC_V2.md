@@ -21,6 +21,9 @@ The V1 layers assumed FastAPI, PostgreSQL and Qdrant and are void. These replace
 6. **The UI thread never does I/O.** All work happens in a `QThreadPool` worker; results
    return via Qt signals.
 7. **Every layer ships a CLI entry point** before it ships UI, so it can be tested headless.
+8. **Every `.ps1` is ASCII-only or saved UTF-8 with a BOM.** Windows PowerShell 5.1 decodes a
+   BOM-less file using the ANSI codepage, so a stray em dash becomes a smart quote and the
+   script dies at parse time with no output at all. `scripts\parse-check.ps1` enforces this.
 
 ---
 

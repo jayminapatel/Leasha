@@ -13,10 +13,13 @@ and is never called by search.
 
 ## Install
 
-```powershell
-cd D:\SearchProject
-.\install.ps1
 ```
+cd D:\SearchProject
+run-install.cmd
+```
+
+`run-install.cmd` bypasses the execution policy, parse-checks the scripts before running
+them, and keeps the window open. Add `-Preflight` to check without installing anything.
 
 One question: where to build the index. Then:
 
@@ -62,6 +65,8 @@ These are design constraints, not preferences. They are the reason V2 exists.
 - **Everything long-running is resumable.** The cursor is persisted before it is needed.
 - **The UI thread never does I/O.**
 - **SQLite is the authority.** LanceDB is derived and can always be rebuilt from it.
+- **Every `.ps1` is ASCII-only or UTF-8 with a BOM.** PowerShell 5.1 reads a BOM-less file as
+  the ANSI codepage; one em dash is enough to kill the script at parse time, silently.
 
 ## Targets
 
