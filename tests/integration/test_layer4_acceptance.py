@@ -87,6 +87,18 @@ CORPUS = {
 }
 
 
+def _age(root: Path, *, seconds: int = 3600) -> None:
+    """Backdate the corpus past the walker's recent-edit window, so incremental
+    behaviour is exercised rather than the hot-file path."""
+    import os
+    import time
+
+    when = time.time() - seconds
+    for path in root.rglob("*"):
+        if path.is_file():
+            os.utime(path, (when, when))
+
+
 @pytest.fixture()
 def indexed(tmp_path: Path):
     """A real index over a real corpus."""
@@ -94,6 +106,7 @@ def indexed(tmp_path: Path):
     root.mkdir()
     for name, body in CORPUS.items():
         (root / name).write_text(body, encoding="utf-8")
+    _age(root)
 
     store = SqliteStore(tmp_path / "index.db").connect()
     vectors = VectorStore(tmp_path / "vectors", dim=DIM).connect()
@@ -294,6 +307,7 @@ def test_the_cache_is_invalidated_by_indexing(indexed) -> None:
         (root / "misc.txt").write_text(
             "Scaffolding permits for the tank farm inspection.", encoding="utf-8"
         )
+        _age(root)
         Pipeline(store, vectors, embedder, PipelineConfig(
             walk=WalkConfig(roots=[root], extensions=frozenset({".txt"})), workers=1,
         )).run()

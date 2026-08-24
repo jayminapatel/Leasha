@@ -245,10 +245,21 @@ def test_a_new_file_is_changed_and_gets_hashed(tmp_path: Path) -> None:
 
 def test_unchanged_file_is_not_read_at_all(tmp_path: Path, monkeypatch) -> None:
     """The whole point: an unchanged 100GB corpus costs a directory walk, not a
-    read of every byte."""
+    read of every byte.
+
+    The file is aged deliberately. A file written moments ago is inside the
+    timestamp-resolution window and *is* hashed on purpose - see
+    `test_a_just_written_file_is_always_hashed` - so testing the settled case
+    with a brand-new file would be testing the wrong thing.
+    """
     target = tmp_path / "same.txt"
     target.write_text("hello", encoding="utf-8")
-    candidate = candidate_for(target)
+    fresh = candidate_for(target)
+    settled = Candidate(
+        path=target,
+        size_bytes=fresh.size_bytes,
+        mtime_ns=fresh.mtime_ns - 3600 * 1_000_000_000,   # an hour old
+    )
 
     def explode(*_args, **_kwargs):
         raise AssertionError("an unchanged file must not be opened")
@@ -256,9 +267,9 @@ def test_unchanged_file_is_not_read_at_all(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "open", explode)
 
     changed, digest = has_changed(
-        candidate,
-        known_mtime_ns=candidate.mtime_ns,
-        known_size=candidate.size_bytes,
+        settled,
+        known_mtime_ns=settled.mtime_ns,
+        known_size=settled.size_bytes,
         known_hash="stored",
     )
     assert not changed
@@ -314,16 +325,63 @@ def test_same_size_different_content_is_caught(tmp_path: Path) -> None:
     original = candidate_for(target)
     digest = content_hash(target)
 
-    os.utime(target, ns=(original.mtime_ns + 1_000_000_000,) * 2)
     target.write_text("bbbb", encoding="utf-8")
+    os.utime(target, ns=(original.mtime_ns + 5_000_000_000,) * 2)
     edited = candidate_for(target)
     assert edited.size_bytes == original.size_bytes
+    assert edited.mtime_ns != original.mtime_ns
 
     changed, _ = has_changed(
         edited, known_mtime_ns=original.mtime_ns, known_size=original.size_bytes,
         known_hash=digest,
     )
     assert changed
+
+
+def test_a_just_written_file_is_always_hashed(tmp_path: Path) -> None:
+    """The window Windows found and Linux hid.
+
+    Two writes inside one filesystem timestamp tick produce identical mtimes. If
+    the edit also preserves the size, the cheap tier says "unchanged" and the new
+    contents never reach the index - silently, permanently. So a file touched in
+    the last couple of seconds is hashed regardless of what its stat says.
+    """
+    target = tmp_path / "hot.txt"
+    target.write_text("aaaa", encoding="utf-8")
+    stale_digest = content_hash(target)
+
+    target.write_text("bbbb", encoding="utf-8")     # same size, same tick
+    candidate = candidate_for(target)
+
+    changed, digest = has_changed(
+        candidate,
+        known_mtime_ns=candidate.mtime_ns,          # identical stat
+        known_size=candidate.size_bytes,
+        known_hash=stale_digest,
+    )
+    assert changed, "a file written moments ago must be hashed, not trusted"
+    assert digest != stale_digest
+
+
+def test_an_old_unchanged_file_is_still_not_read(tmp_path: Path, monkeypatch) -> None:
+    """The guard must not undo the optimisation it sits beside: a settled corpus
+    is old, so none of it qualifies as recently modified."""
+    target = tmp_path / "settled.txt"
+    target.write_text("stable content", encoding="utf-8")
+    candidate = candidate_for(target)
+    digest = content_hash(target)
+
+    old = candidate.mtime_ns - 60 * 1_000_000_000
+    aged = Candidate(path=target, size_bytes=candidate.size_bytes, mtime_ns=old)
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("a settled file must not be opened")
+
+    monkeypatch.setattr(Path, "open", explode)
+    changed, _ = has_changed(
+        aged, known_mtime_ns=old, known_size=aged.size_bytes, known_hash=digest,
+    )
+    assert not changed
 
 
 def test_fast_mode_trusts_the_cheap_tier(tmp_path: Path) -> None:

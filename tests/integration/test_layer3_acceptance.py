@@ -49,6 +49,17 @@ def fake_encoder(texts):
 
 @pytest.fixture()
 def corpus(tmp_path: Path) -> Path:
+    """A corpus that is not brand new.
+
+    Files written moments ago sit inside the walker's timestamp-resolution
+    window and are hashed on every pass by design (see `RECENT_EDIT_WINDOW_S`).
+    A real corpus is hours or years old, so the fixture is aged to match -
+    otherwise the incremental tests measure the hot-file path and quietly stop
+    testing the thing they are named after.
+    """
+    import os
+    import time
+
     root = tmp_path / "corpus"
     root.mkdir()
     for i in range(12):
@@ -57,7 +68,19 @@ def corpus(tmp_path: Path) -> Path:
             f"Flow rates were measured at three points across manifold {i}.",
             encoding="utf-8",
         )
+    age(root)
     return root
+
+
+def age(root: Path, *, seconds: int = 3600) -> None:
+    """Backdate every file, so it is outside the recent-edit window."""
+    import os
+    import time
+
+    when = time.time() - seconds
+    for path in root.rglob("*"):
+        if path.is_file():
+            os.utime(path, (when, when))
 
 
 @pytest.fixture()
@@ -199,6 +222,7 @@ def test_touching_one_file_reindexes_only_that_file(stores, corpus: Path) -> Non
 
     edited = corpus / "doc005.txt"
     edited.write_text("Completely different content about valve replacement.", encoding="utf-8")
+    age(corpus)
 
     second = build(stores, corpus).run()
     assert second.indexed == 1
@@ -213,6 +237,7 @@ def test_the_edit_is_what_becomes_searchable(stores, corpus: Path) -> None:
 
     edited = corpus / "doc005.txt"
     edited.write_text("Valve replacement scheduled for the autumn shutdown.", encoding="utf-8")
+    age(corpus)
     build(stores, corpus).run()
 
     file_id = store.get_file(str(edited)).id

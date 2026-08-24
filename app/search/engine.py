@@ -178,7 +178,7 @@ class SearchEngine:
         if not parsed.has_text and not parsed.has_filters:
             return SearchResponse(parsed=parsed, interim=True)
 
-        hits = keyword.search(self.store, parsed, limit=limit)
+        hits = keyword.search(self.store, parsed, limit=limit, prefix_last=True)
         results = [
             self._to_result(hit, rank, (0,), float(-hit.get("score", 0.0)))
             for rank, hit in enumerate(hits, start=1)
@@ -297,8 +297,16 @@ class SearchEngine:
         in the cache, and the user gets hits on text they have just deleted.
         """
         try:
-            generation = self.store.generation()
-        except Exception:               # noqa: BLE001 - a cache key is not worth failing over
+            generation = self.store.generation      # a property, not a method
+        except Exception as exc:        # noqa: BLE001 - a cache key is not worth failing over
+            # Loud, because the silent version of this shipped: `generation()`
+            # raised TypeError, the except swallowed it, and every search keyed
+            # on -1 - so the cache never invalidated and stale results would be
+            # served forever. A cache that cannot tell it is stale is a lie, and
+            # this fallback must announce itself rather than hide.
+            _log.error(
+                "index generation unreadable, so the search cache cannot be invalidated: {}", exc
+            )
             generation = -1
         return "|".join([
             "v1", str(generation), raw.strip().lower(),

@@ -124,9 +124,9 @@ class ParsedQuery:
         """What to hand the embedding model. Operators are noise to a dense model."""
         return " ".join([*self.phrases, *self.terms]).strip()
 
-    def fts_match(self) -> str:
+    def fts_match(self, *, prefix_last: bool = False) -> str:
         """FTS5 MATCH expression. Guaranteed parseable or empty."""
-        return to_fts_match(self)
+        return to_fts_match(self, prefix_last=prefix_last)
 
 
 def _norm_ext(value: str) -> tuple[str, ...]:
@@ -273,18 +273,31 @@ def _fts_quote(value: str) -> str:
     return f'"{body}"' + ("*" if prefix else "")
 
 
-def to_fts_match(parsed: ParsedQuery) -> str:
+def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
     """Build a MATCH expression that SQLite will always parse.
 
     Returns "" when there is nothing searchable, which the caller must treat as
     'skip BM25', not as 'search for nothing'.
+
+    `prefix_last=True` treats the final term as a prefix, which is what
+    as-you-type needs and what the interim tier uses. Without it, someone typing
+    "pump st" searches for the literal word "st", which matches nothing - so the
+    live results stay empty until the exact moment they finish a word, and the
+    tier that exists to feel instant instead feels broken.
+
+    Only the *last* term, and only when the caller asks: turning every term into
+    a prefix would make "cat" match "catastrophe" in a committed search, which is
+    not what anyone means when they press Enter.
     """
     clauses: list[str] = []
     for phrase in parsed.phrases:
         tokens = [t for t in (_fts_quote(t) for t in _TERM.findall(phrase)) if t]
         if tokens:
             clauses.append(f"({' + '.join(tokens)})")     # + is FTS5 phrase adjacency
-    for term in parsed.terms:
+    for index, term in enumerate(parsed.terms):
+        is_last = index == len(parsed.terms) - 1
+        if prefix_last and is_last and not term.endswith("*"):
+            term = term + "*"
         quoted = _fts_quote(term)
         if quoted:
             clauses.append(quoted)

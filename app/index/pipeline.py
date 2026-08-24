@@ -264,9 +264,20 @@ class Pipeline:
                 work.put((10_000, sequence + 1, _STOP, None))
 
     def _candidates(self) -> Iterator[Candidate]:
-        yield from walk(self.config.walk)
-        if self.config.retry_locked:
-            yield from self._locked_candidates()
+        # Snapshotted BEFORE the walk, deliberately. Read lazily afterwards, the
+        # query would pick up files this very run had just marked locked and
+        # queue them a second time - doubling the work, double-counting the
+        # skips, and retrying a file whose lock is by definition still held.
+        retry = list(self._locked_candidates()) if self.config.retry_locked else []
+        walked: set[str] = set()
+
+        for candidate in walk(self.config.walk):
+            walked.add(str(candidate.path).lower())
+            yield candidate
+
+        for candidate in retry:
+            if str(candidate.path).lower() not in walked:
+                yield candidate
 
     def _locked_candidates(self) -> Iterator[Candidate]:
         """Files skipped as locked last time. The program holding them may have

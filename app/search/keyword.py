@@ -82,6 +82,7 @@ def search(
     parsed: ParsedQuery,
     *,
     limit: int = KEYWORD_LIMIT,
+    prefix_last: bool = False,
 ) -> list[dict[str, Any]]:
     """BM25 hits for a parsed query, best first.
 
@@ -89,7 +90,7 @@ def search(
     whose every token was punctuation. That is not an error: the caller decides
     whether a filter-only query should list matching files instead.
     """
-    expression = parsed.fts_match()
+    expression = parsed.fts_match(prefix_last=prefix_last)
     where, params = _filter_sql(parsed)
 
     if not expression:

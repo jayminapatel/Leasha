@@ -34,6 +34,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
@@ -75,6 +76,22 @@ DEFAULT_EXCLUDE_GLOBS = (
 #: Read size for hashing. Large enough that a 5GB PST is not a million syscalls,
 #: small enough not to hold a meaningful buffer per worker.
 HASH_CHUNK_BYTES = 1024 * 1024
+
+#: A file modified within this many seconds of now is always hashed, whatever
+#: its mtime and size say.
+#:
+#: Filesystem timestamps are not infinitely precise, and two writes inside one
+#: tick produce identical mtimes. If such an edit also preserves the file's size
+#: - an overtype, a corrected figure, a swapped word - the cheap tier reports
+#: "unchanged" and the new contents never reach the index. Nothing errors and
+#: nothing warns; the document simply stops matching what it now says.
+#:
+#: Windows found this and Linux did not, which is the point: NTFS and the local
+#: clock are coarser than ext4's, so the window is real on the target platform
+#: and invisible on the development one. Two seconds covers FAT's notorious
+#: granularity as well, and the cost is hashing only files touched in the last
+#: two seconds - which during an index run is approximately none of them.
+RECENT_EDIT_WINDOW_S = 2.0
 
 
 @dataclass(frozen=True)
@@ -244,6 +261,12 @@ def content_hash(path: Path, *, chunk_bytes: int = HASH_CHUNK_BYTES) -> str:
     return digest.hexdigest()
 
 
+def _modified_recently(candidate: Candidate, *, now: Optional[float] = None) -> bool:
+    """True if the file was written within the timestamp resolution window."""
+    current = now if now is not None else time.time()
+    return (current - candidate.mtime_ns / 1_000_000_000) < RECENT_EDIT_WINDOW_S
+
+
 def has_changed(
     candidate: Candidate,
     *,
@@ -272,6 +295,16 @@ def has_changed(
         return True, (content_hash(candidate.path) if verify_hash else None)
 
     if candidate.mtime_ns == known_mtime_ns and candidate.size_bytes == known_size:
+        if _modified_recently(candidate):
+            # Too new to trust the cheap tier - see RECENT_EDIT_WINDOW_S. Pay
+            # for the hash rather than risk missing an edit permanently.
+            if not verify_hash:
+                return True, None
+            try:
+                fresh = content_hash(candidate.path)
+            except OSError:
+                return True, None
+            return fresh != known_hash, fresh
         return False, known_hash
 
     if not verify_hash or known_hash is None:

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 1.6 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -240,6 +240,16 @@ alongside it, every time, or search will keep returning rows whose source no lon
 
 **Outlook must stay open** during an email index run, and Cached Exchange Mode means older
 mail is not local. Read the email section of `LOCAL_KNOWLEDGE_GRAPH_V2.md` before Layer 2.
+
+**Filesystem timestamps have a resolution, and Windows' is coarse.** Two writes inside one tick
+share an mtime; if the edit preserves the file's size, no cheap check can see it. The walker
+hashes anything modified in the last two seconds for exactly this reason
+(`RECENT_EDIT_WINDOW_S`). Do not "optimise" that away - it was found by a real Windows run
+after passing on Linux, and the failure it prevents is silent and permanent.
+
+**Test corpora must be aged.** A fixture written moments before the test is inside that window,
+so incremental tests would exercise the hot-file path instead of the thing they are named
+after. `age()` in the Layer 3 and 4 acceptance files backdates them by an hour.
 
 **Porter stemming is narrower than you expect.** It relates `approve`/`approved`, but *not*
 `reconcile`/`reconciliation`. A test assertion about stemming cost an hour once - the test was

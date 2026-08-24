@@ -4,6 +4,10 @@
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# pytest still walks the rootdir looking for conftest files, and basetemp lives
+# there - so without this it tries to collect its own scratch directory, and on
+# Windows fails on the permissions of a folder it created itself.
+norecursedirs = [".pytest_tmp", ".git", "venv", "logs", "build", "dist", "__pycache__"]
 # Makes `import app` work regardless of where pytest is invoked from, so the
 # VS Code Test Explorer and a bare `pytest` behave identically.
 pythonpath = ["."]

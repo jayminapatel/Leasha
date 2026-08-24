@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 1.7 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.8 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -174,6 +174,34 @@ manual `app.cli extract --mailbox`. `VERSION` stays at 0.3.2 until that has been
 - `ERR_PST_NOT_BUILT`. It existed for one afternoon to make the gap visible; PST is built, so
   a `.pst` now either indexes or fails for a real reason. A code nothing raises is a lie in the
   registry.
+
+### Fixed — found by the first run on real Windows
+Four failures that Linux hid. Three were real bugs; the platform difference is the point.
+
+- **The search cache never invalidated.** `generation` is a `@property`, and the engine called
+  it as `generation()`. The `TypeError` landed in a broad `except` that fell back to `-1`, so
+  every search keyed on the same value and **stale results would have been served forever** -
+  including hits on text that had just been deleted. The exact failure the test was written to
+  catch, hidden by the exception handler meant to make the cache robust. The fallback now logs
+  loudly: a cache that cannot tell it is stale is a lie, and it must say so.
+- **Locked files re-queued themselves mid-run.** `_candidates()` yielded the walk, then queried
+  the store for previously-locked files - lazily, so by the time it ran, files *this run* had
+  just marked locked were already in the results. Each was retried immediately, while its lock
+  was by definition still held: double the work, double-counted skips. The retry list is now
+  snapshotted before the walk begins.
+- **As-you-type could not match the word being typed.** Every term was quoted exactly, so
+  someone typing "pump st" searched for the literal word "st" and got nothing. The interim tier
+  - the one whose entire purpose is to feel instant - stayed empty until the moment a word was
+  finished. The last term is now a prefix, but only for that tier: turning every term into a
+  prefix would make "cat" match "catastrophe" in a committed search.
+- **An edit inside the filesystem's timestamp resolution was invisible.** Two writes in one tick
+  produce identical mtimes; if the edit also preserves the size - an overtype, a corrected
+  figure - the cheap tier said "unchanged" and the new contents never reached the index.
+  Silently, permanently. NTFS and the Windows clock are coarser than ext4's, so the window is
+  real on the target platform and absent on the development one. Files modified within two
+  seconds are now always hashed, which during an index run is approximately none of them.
+- `pytest`'s `--basetemp` sits inside the project, so pytest tried to collect its own scratch
+  directory. `norecursedirs` now excludes it.
 
 ### Fixed
 - Three wiring bugs found by reading the UI back rather than running it: `clicked` and
