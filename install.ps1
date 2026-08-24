@@ -35,6 +35,10 @@ param(
     # Skip the optional components (rerank model, Ollama, mistral).
     [switch]$SkipOptional,
 
+    # Run only the cheap checks (paths, disk, winget, required files) and stop.
+    # Nothing is installed and nothing is downloaded. Takes seconds.
+    [switch]$Preflight,
+
     # Minimum free GB required on the index drive.
     [int]$RequiredFreeGB = 150
 )
@@ -45,12 +49,31 @@ Set-StrictMode -Version 2.0
 # Braille spinners from winget/ollama need a UTF-8 console or they render as mojibake.
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-$script:Failures = @()
-$script:Skipped  = @()
+$script:Failures     = @()
+$script:Skipped      = @()
+$script:LogFile      = $null
+$script:Transcribing = $false
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+function Stop-Logging {
+    if ($script:Transcribing) {
+        try { Stop-Transcript | Out-Null } catch { }
+        $script:Transcribing = $false
+    }
+}
+
+function Exit-Installer {
+    param([int]$Code)
+    if ($script:LogFile) {
+        Write-Host ""
+        Write-Host "  Full log: $script:LogFile" -ForegroundColor Gray
+    }
+    Stop-Logging
+    exit $Code
+}
 
 function Write-Title($text) {
     Write-Host ""
@@ -178,7 +201,7 @@ function Invoke-Step {
             Write-Host ""
             Write-Host "ABORTED at step: $Name" -ForegroundColor Red
             Write-Host "Apply the FIX above, then re-run this script — completed steps are skipped." -ForegroundColor Yellow
-            exit 1
+            Exit-Installer 1
         }
 
         $script:Failures += $Name
@@ -204,9 +227,28 @@ $Python  = $script:Python
 $ReqFile = Join-Path $ProjectPath "requirements.txt"
 $Doctor  = Join-Path $ProjectPath "doctor.py"
 
+# Start logging before anything can fail, so a failed run always leaves evidence.
+$logDir = Join-Path $ProjectPath "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$script:LogFile = Join-Path $logDir ("install-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+try {
+    Start-Transcript -Path $script:LogFile -Force | Out-Null
+    $script:Transcribing = $true
+} catch {
+    Write-Host "  (Could not start a transcript: $($_.Exception.Message))" -ForegroundColor DarkYellow
+    $script:LogFile = $null
+}
+
 Write-Title "Local Knowledge Graph V2 — installer"
 Write-Host "  Project location : $ProjectPath" -ForegroundColor Gray
 Write-Host "  On error         : $OnError" -ForegroundColor Gray
+Write-Host "  PowerShell       : $($PSVersionTable.PSVersion) on $([Environment]::OSVersion.VersionString)" -ForegroundColor Gray
+if ($script:LogFile) {
+    Write-Host "  Logging to       : $script:LogFile" -ForegroundColor Gray
+}
+if ($Preflight) {
+    Write-Host "  Mode             : PREFLIGHT — checks only, nothing will be installed" -ForegroundColor Yellow
+}
 
 # ---------------------------------------------------------------------------
 # Preflight — the things that cannot be auto-fixed
@@ -267,6 +309,35 @@ Invoke-Step -Name "Validate index location: $DataPath" `
         }
         Write-Host ("    {0:N0}GB free on $root" -f $free) -ForegroundColor DarkGray
     }
+
+# ---------------------------------------------------------------------------
+# Preflight stop — everything above is cheap and local. Everything below
+# installs software or downloads gigabytes. This is the natural place to stop
+# and confirm the setup is sane before committing to that.
+# ---------------------------------------------------------------------------
+
+if ($Preflight) {
+    Write-Title "Preflight report"
+    $checks = @(
+        @{ Name = "winget";            Value = (Test-CommandExists "winget") },
+        @{ Name = "Python launcher";   Value = (Test-CommandExists "py") },
+        @{ Name = "git";               Value = (Test-CommandExists "git") },
+        @{ Name = "ollama (optional)"; Value = (Test-CommandExists "ollama") },
+        @{ Name = "venv already built"; Value = (Test-Path -LiteralPath $Python) },
+        @{ Name = ".env already written"; Value = (Test-Path -LiteralPath (Join-Path $ProjectPath ".env")) }
+    )
+    foreach ($c in $checks) {
+        $mark = if ($c.Value) { "yes" } else { "no " }
+        Write-Host ("    {0,-22} {1}" -f $c.Name, $mark) -ForegroundColor Gray
+    }
+    Write-Host ""
+    if ($script:Failures.Count -gt 0) {
+        Write-Host "  PREFLIGHT FAILED — fix the items above before a real run." -ForegroundColor Red
+        Exit-Installer 1
+    }
+    Write-Host "  PREFLIGHT PASSED — re-run without -Preflight to install." -ForegroundColor Green
+    Exit-Installer 0
+}
 
 # ---------------------------------------------------------------------------
 # Runtime installs
@@ -491,18 +562,18 @@ if ($script:Failures.Count -gt 0) {
     Write-Host "  COMPLETED WITH $($script:Failures.Count) FAILURE(S):" -ForegroundColor Red
     $script:Failures | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
     Write-Host "  Apply the FIX lines above, then re-run this script." -ForegroundColor Yellow
-    exit 1
+    Exit-Installer 1
 }
 
 if ($doctorExit -ne 0) {
     Write-Host ""
     Write-Host "  Every install step succeeded, but doctor.py reports the environment is NOT READY." -ForegroundColor Yellow
     Write-Host "  Apply the FIX lines it printed, then re-run: `"$Python`" doctor.py" -ForegroundColor Yellow
-    exit 1
+    Exit-Installer 1
 }
 
 Write-Host ""
 Write-Host "  ALL STEPS SUCCEEDED — environment verified." -ForegroundColor Green
 Write-Host "  Next: open a new chat, paste LOCAL_KNOWLEDGE_GRAPH_V2.md and BUILD_SPEC_V2.md," -ForegroundColor Green
 Write-Host "        and say: 'Environment verified by doctor.py. Start Layer 0.'" -ForegroundColor Green
-exit 0
+Exit-Installer 0

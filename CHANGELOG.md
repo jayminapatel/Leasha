@@ -6,6 +6,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+- `install.ps1 -Preflight` — runs only the cheap local checks (paths, disk, winget,
+  required files) and stops at the boundary before anything is installed or downloaded
+- Installer transcript logging to `logs\install-<timestamp>.log`, started before anything
+  can fail, so a failed run always leaves a readable record
+
 ### Planned
 - Layer 0 — foundation: config, `AppError`, logging, single-instance, CLI skeleton
 

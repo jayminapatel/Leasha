@@ -98,12 +98,25 @@ run launched from `C:\Windows\system32` created the project there and then could
 | `-OnError Abort` | Unattended: stop at the first failure. |
 | `-SkipOptional` | Skip the rerank model, Ollama and mistral. |
 | `-RequiredFreeGB 150` | Free-space threshold on the index drive. |
+| `-Preflight` | Run only the cheap checks and stop. Nothing is installed or downloaded. |
 
 Zero-touch example:
 
 ```powershell
 .\install.ps1 -DataPath "E:\KnowledgeGraphData" -OnError Continue -SkipOptional
 ```
+
+**Check before you commit to the downloads.** Everything up to the disk check is local and
+takes seconds; everything after it installs software or pulls gigabytes. `-Preflight` stops
+at exactly that boundary and reports what it found:
+
+```powershell
+.\install.ps1 -Preflight
+```
+
+**Every run is logged.** A transcript is written to `logs\install-<timestamp>.log` before
+anything can fail, so a failed run always leaves evidence — no copying console output, and
+no losing it when the window scrolls. The log path is printed on exit.
 
 ## Error handling in the installer
 
