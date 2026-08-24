@@ -1,0 +1,37 @@
+# Local Knowledge Graph V2 — Python dependencies
+# Verified 2026-08-24: every pin below publishes a cp312 win_amd64 wheel
+# (or a py3-none-any wheel). No C++ build tools required.
+#
+# Re-verify with:  venv\Scripts\python.exe -m pip install -r requirements.txt --dry-run
+
+# --- GUI -------------------------------------------------------------------
+PyQt6==6.11.0
+
+# --- Storage (embedded — no services) --------------------------------------
+lancedb==0.37.1
+diskcache==5.6.3
+# SQLite + FTS5 ship inside Python's stdlib (sqlite3) — nothing to install
+
+# --- Embeddings + rerank (in-process ONNX, CPU-friendly) -------------------
+fastembed==0.8.0
+# embed  : BAAI/bge-small-en-v1.5  (384-dim, ~130MB)
+# rerank : BAAI/bge-reranker-base  (~1.1GB, optional)
+# Both cached under <DATA_PATH>\models — offline after the first download.
+
+# --- Parsing ---------------------------------------------------------------
+pymupdf==1.28.2
+python-docx==1.2.0
+openpyxl==3.1.5
+python-pptx==1.0.2
+pywin32==312          # Outlook MAPI for PST ingestion (Windows only)
+
+# --- Graph -----------------------------------------------------------------
+networkx==3.6.1
+pyvis==0.3.2
+
+# --- Utils -----------------------------------------------------------------
+pydantic==2.13.4
+python-dotenv==1.2.3
+loguru==0.7.3
+tqdm==4.70.0
+requests==2.34.2      # only used for optional Ollama calls

@@ -1,0 +1,54 @@
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Virtual environment (recreated by install.ps1) ------------------------
+venv/
+.venv/
+
+# --- Local configuration: machine-specific paths, never shared -------------
+.env
+.env.*
+!.env.example
+
+# --- Runtime output --------------------------------------------------------
+logs/
+*.log
+
+# --- Index data ------------------------------------------------------------
+# The real index lives at DATA_PATH (a different drive) and is never committed.
+# These guard against an index accidentally created inside the project folder.
+KnowledgeGraphData/
+index_data/
+vectors/
+fts/
+cache/
+models/
+state/
+*.db
+*.db-wal
+*.db-shm
+*.lance/
+
+# --- Test artefacts --------------------------------------------------------
+tests/fixtures/**/generated/
+tests/output/
+
+# --- Editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# --- Windows / build -------------------------------------------------------
+build/
+dist/
+*.spec
