@@ -11,6 +11,7 @@ installed - this is a repo-hygiene check, not an application test.
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -28,16 +29,27 @@ HEADER = re.compile(
     re.MULTILINE,  # the anchors must bind to the header line, not the whole file
 )
 
-# Directories that are not ours to version.
-EXCLUDED = {"venv", ".git", "node_modules", ".pytest_cache", "__pycache__"}
+# Directories that are not ours to version. Pruned during the walk, not filtered
+# afterwards: `rglob` descends into venv/Lib/site-packages first and only then
+# discards the result, which on a mounted drive takes long enough to look like a
+# hang. Never walk a tree you are going to throw away.
+EXCLUDED = {
+    "venv", ".venv", ".git", "node_modules", ".pytest_cache", "__pycache__",
+    "logs", "build", "dist", ".mypy_cache", ".ruff_cache",
+}
 
 
 def _tracked_markdown() -> list[Path]:
-    return sorted(
-        path
-        for path in PROJECT_ROOT.rglob("*.md")
-        if not EXCLUDED.intersection(path.relative_to(PROJECT_ROOT).parts)
-    )
+    found: list[Path] = []
+    for directory, subdirectories, filenames in os.walk(PROJECT_ROOT):
+        subdirectories[:] = [
+            name for name in subdirectories
+            if name not in EXCLUDED and not name.startswith(("D:", "E:"))
+        ]
+        found.extend(
+            Path(directory) / name for name in filenames if name.lower().endswith(".md")
+        )
+    return sorted(found)
 
 
 def _ids(paths: list[Path]) -> list[str]:

@@ -152,6 +152,13 @@ def _email(folder: Path) -> None:
     # Headers with no body and no subject: nothing worth indexing.
     _write_if_missing(folder / "empty_body.eml", b"X-Nothing: here\r\n\r\n")
 
+    # A .msg that is not an OLE compound file. A genuine .msg cannot be
+    # synthesised here - writing the OLE container is a project in itself - so
+    # the happy path for .msg is deliberately untested and recorded as such in
+    # CHANGELOG.md. What this fixture does prove is that a file claiming to be a
+    # .msg and failing to open is skipped rather than crashing the run.
+    _write_if_missing(folder / "broken.msg", b"Definitely not an OLE2 compound document.")
+
 
 # --- pdf --------------------------------------------------------------------
 
@@ -225,7 +232,7 @@ def _docx(path: Path) -> None:
     table = document.add_table(rows=0, cols=3)
     for row in DOCX_TABLE:
         cells = table.add_row().cells
-        for cell, value in zip(cells, row):
+        for cell, value in zip(cells, row, strict=False):
             cell.text = value
     # A paragraph *after* the table, so a reader that splits paragraphs from
     # tables will visibly reorder the document and the test will catch it.

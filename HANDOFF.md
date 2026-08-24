@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -37,14 +37,15 @@ entirely rebuildable from your documents, so deleting it is always safe.
 
 ## 3. Current state
 
-**Version 0.3.2. Layers 0 and 1 complete. 147 tests passing.**
+**Version 0.3.2. Layers 0 and 1 complete, Layer 2 complete except Outlook. 358 tests passing,
+2 xfailed (PST, deliberately).**
 
 | Layer | What it is | State |
 |---|---|---|
 | L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - v0.2.0 |
 | L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - v0.3.0 |
-| L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Next** |
-| L3 | Indexing pipeline: walker, workers, resumable cursor | Not started |
+| L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Files done; PST outstanding** - see below |
+| L3 | Indexing pipeline: walker, workers, resumable cursor | **Next** |
 | L4 | Search: BM25 + ANN, RRF fusion, rerank | **Partially built ahead of order** - see below |
 | L5 | PyQt6 UI shell | Not started |
 | L6 | Knowledge graph | Not started |
@@ -63,6 +64,33 @@ Do not read this as permission to skip ahead generally. It worked because those 
 take plain data in and return plain data out. Anything touching storage, extraction or the
 pipeline must respect the order.
 
+### Layer 2: what is done and what is not
+
+Done and tested: `base.py` (the `Document`/`Segment` contract and the extractor registry),
+`chunker.py`, `pdf.py`, `office.py`, `plaintext.py`, `email_files.py` (`.eml` and `.msg`).
+Six of the eight acceptance criteria pass.
+
+**Not done: `email_pst.py`.** It needs `win32com` against a live Outlook, which cannot be
+verified on any machine without one, so it was left as its own pass rather than shipped as
+untested code that looks finished. Acceptance criteria 5 and 6 are marked `xfail(run=False)`
+in `tests/integration/test_layer2_acceptance.py` - visibly outstanding rather than quietly
+missing. **Layer 2 is not complete and `VERSION` has not moved to 0.4.0.**
+
+Attachment recursion lands with the PST pass. Today `.eml` records attachment *names* in
+`meta` and sets `has_attach`, but does not extract their contents.
+
+Two smaller gaps, both recorded in `CHANGELOG.md`: the `.msg` happy path is untested (a valid
+`.msg` is an OLE compound document and cannot be synthesised in a fixture generator - a real
+Outlook-saved sample would close it), and `extract-msg` pulls in `red-black-tree-mod`, which
+publishes no wheel. It is pure Python so no compiler is needed, but it breaks the
+"every pin ships a wheel" rule at the top of `requirements.txt`, and the reason is written
+there.
+
+**Fixtures are generated, not committed** - `tests/fixtures/generate.py`, called automatically
+by a session fixture in `conftest.py`. Binary test files in git cannot be reviewed in a diff,
+and an editor that opens and re-saves one silently destroys the corruption it was testing.
+Delete the fixture folders freely; the next test run rebuilds them.
+
 ### What works right now
 
 ```powershell
@@ -71,7 +99,7 @@ venv\Scripts\python.exe -m app.cli stats      # resolved config + both store sum
 venv\Scripts\python.exe -m app.cli init       # create/migrate both stores, safe to re-run
 venv\Scripts\python.exe -m app.cli doctor     # environment verification
 venv\Scripts\python.exe -m app.cli diagnose   # troubleshooting bundle -> logs\diagnostics\
-venv\Scripts\python.exe -m pytest tests -q    # 147 tests
+venv\Scripts\python.exe -m pytest tests -q    # 358 passed, 2 xfailed
 ```
 
 `app.cli index` and `app.cli search` exist but return `ERR_NOT_IMPLEMENTED` naming the layer
@@ -113,6 +141,9 @@ Reopening these without new evidence wastes time. The reasoning matters more tha
 | RRF fusion, not score normalisation | BM25 scores and cosine distances are not comparable; RRF throws the scores away and fuses on rank, so there is nothing to calibrate or drift | Measured recall showing weighted normalisation beats it |
 | ANN index only past 100k rows | A flat scan beats a badly trained IVF_PQ index below that | Benchmarks on the real corpus |
 | Cloud placeholders skipped by default | Reading a OneDrive placeholder downloads the whole file; a naive walk would hydrate an entire library | Nothing - it is opt-in, which is the correct default |
+| Token count estimated, not tokenized | Loading the real tokenizer would drag the embedding model into extraction, which must run with no model present. `token_cost` is biased high because guessing low means silent truncation at embed time, while guessing high only means slightly smaller chunks | Measured recall showing the estimate costs real results |
+| Test fixtures generated, not committed | A binary fixture in git cannot be reviewed in a diff, and an editor that opens and re-saves one silently destroys the corruption it was testing | Nothing - a generator is strictly better |
+| A skip is a value, not an exception | A corrupt file in a 100GB run is Tuesday, not an emergency. Extractors raise a precise `AppError` the caller records and moves past; non-fatal problems ride along in `Document.warnings` so a degraded file is still indexed | Nothing - this is non-negotiable #4 |
 | `win32com` MAPI for email, never `pypff` | `pypff` has no reliable Windows wheels. `extract-msg` reads `.msg` only, not `.pst` | A maintained PST library with Windows wheels |
 | Every `.ps1` ASCII-only **and** UTF-8 with BOM | PowerShell 5.1 decodes a BOM-less file as ANSI; one em dash became a smart quote and killed the installer at parse time, silently | Dropping Windows PowerShell 5.1 support |
 | pydantic, not pydantic-settings | It is a separate distribution and is not installed. A dependency to save a dozen lines is a bad trade | Adding it to `requirements.txt` for a real reason |

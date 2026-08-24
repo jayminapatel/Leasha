@@ -18,7 +18,7 @@ module is stdlib.
 
 from __future__ import annotations
 
-from typing import Any, Hashable, Iterable, Mapping, Optional, Sequence
+from typing import Any, Hashable, Mapping, Optional, Sequence
 
 __all__ = ["RRF_K", "rrf", "fuse_hits"]
 

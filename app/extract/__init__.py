@@ -13,6 +13,12 @@ them.
 
 from __future__ import annotations
 
+from app.extract import email_files as email_files  # noqa: F401,E402
+from app.extract import office as office  # noqa: F401,E402
+from app.extract import pdf as pdf  # noqa: F401,E402
+
+# Registration side-effects. Order is irrelevant; duplicate claims raise.
+from app.extract import plaintext as plaintext  # noqa: F401,E402
 from app.extract.base import (  # noqa: F401
     Document,
     DocumentBuilder,
@@ -25,12 +31,6 @@ from app.extract.base import (  # noqa: F401
     supported_extensions,
 )
 from app.extract.chunker import Chunk, chunk_document, chunk_text  # noqa: F401
-
-# Registration side-effects. Order is irrelevant; duplicate claims raise.
-from app.extract import plaintext as plaintext  # noqa: F401,E402
-from app.extract import pdf as pdf  # noqa: F401,E402
-from app.extract import office as office  # noqa: F401,E402
-from app.extract import email_files as email_files  # noqa: F401,E402
 
 try:  # pragma: no cover - Windows + Outlook only
     from app.extract import email_pst as email_pst  # noqa: F401,E402

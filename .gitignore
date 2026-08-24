@@ -60,3 +60,19 @@ $RECYCLE.BIN/
 build/
 dist/
 *.spec
+
+# --- Generated test fixtures -----------------------------------------------
+# Built by tests/fixtures/generate.py, never committed. Binary fixtures in git
+# rot: nobody can review a .docx diff, and an editor that opens and re-saves one
+# silently destroys the corruption it was meant to test.
+tests/fixtures/pdf/*.pdf
+tests/fixtures/office/*.docx
+tests/fixtures/office/*.xlsx
+tests/fixtures/office/*.pptx
+tests/fixtures/email/*.eml
+tests/fixtures/email/*.msg
+tests/fixtures/plaintext/*.txt
+tests/fixtures/plaintext/*.csv
+tests/fixtures/plaintext/*.log
+tests/fixtures/corrupt/*
+!tests/fixtures/**/.gitkeep

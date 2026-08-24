@@ -97,16 +97,20 @@ class Document:
         return not self.text.strip()
 
     def page_for_offset(self, offset: int) -> Optional[int]:
-        """The page containing `offset`, for stamping a chunk with its page.
+        """The page of the last segment starting at or before `offset`.
 
-        Segments are ordered and non-overlapping, so a linear scan is correct;
-        callers doing this per chunk over a long document should use
-        `page_lookup()` instead.
+        Defined by *start*, not containment, because the separators written
+        between segments belong to no segment at all - and an offset landing in
+        one must resolve to the page it follows, not to the last page of the
+        document. `page_lookup()` is the same function with a binary search, for
+        callers mapping many chunks at once; the two must agree.
         """
+        page: Optional[int] = None
         for segment in self.segments:
-            if segment.char_start <= offset < segment.char_end:
-                return segment.page
-        return self.segments[-1].page if self.segments else None
+            if segment.char_start > offset:
+                break
+            page = segment.page
+        return page
 
     def page_lookup(self) -> Callable[[int], Optional[int]]:
         """A binary-search page lookup, for mapping many chunks at once."""
@@ -134,15 +138,17 @@ def normalise_whitespace(text: str) -> str:
     """
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     out: list[str] = []
-    blanks = 0
+    blank_run = False
     for line in lines:
         if line:
-            blanks = 0
+            blank_run = False
             out.append(line)
-        else:
-            blanks += 1
-            if blanks <= 2:  # one blank line separates paragraphs; two is a section break
-                out.append(line)
+        elif not blank_run:
+            # One blank line is a paragraph break, which the chunker splits on.
+            # More than one carries no extra meaning and only makes the text
+            # longer, so any run collapses to exactly one.
+            blank_run = True
+            out.append(line)
     return "\n".join(out).strip()
 
 

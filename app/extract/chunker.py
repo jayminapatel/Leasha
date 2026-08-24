@@ -21,11 +21,16 @@ sentence break otherwise - the boundary preference the spec asks for, without a
 second pass over the text.
 
 **Counting tokens without a tokenizer.** Loading the real one would drag the
-embedding model into extraction, which must run with no model present. So tokens
-are estimated from word count at 1.35 tokens/word - deliberately an over-estimate
-for English prose, because the failure mode of guessing low (silent truncation)
-is much worse than guessing high (slightly smaller chunks). Layer 3 can pass a
-real `count_tokens` if exactness ever matters.
+embedding model into extraction, which must run with no model present. So a word
+costs `max(1.35, len/4)` tokens: 1.35 is a deliberate over-estimate for English
+prose, and the length term catches the words that are not words at all - a
+base64 blob or a minified bundle, where one "word" can be thousands of tokens.
+The bias points high on purpose, because guessing low means silent truncation at
+embed time while guessing high only means slightly smaller chunks.
+
+`token_cost` is the single definition, and `estimate_tokens` is its sum, so the
+budget the chunker spends and the size it reports cannot drift apart. Layer 3 can
+pass a real per-word `count_tokens` if exactness ever matters.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ __all__ = [
     "chunk_text",
     "chunk_document",
     "estimate_tokens",
+    "token_cost",
     "TARGET_TOKENS",
     "OVERLAP_TOKENS",
     "MIN_CHUNK_CHARS",
@@ -63,12 +69,34 @@ _BREAK_SENTENCE = 1
 _BREAK_PARAGRAPH = 2
 
 
+#: Rough bytes-per-token for a word with no spaces in it - a hash, a base64
+#: blob, a minified bundle. Without this a 200k-character "word" would be
+#: costed as 1.35 tokens and blow through any budget.
+CHARS_PER_TOKEN = 4.0
+
+
+def token_cost(word: str) -> float:
+    """Estimated tokens for one whitespace-delimited word.
+
+    This is the single definition of cost. `estimate_tokens` sums it and the
+    chunker's budget spends it, so the two can never disagree - which they did:
+    costing each word at 1 token while estimating a whole chunk at 1.35 per word
+    let every chunk run ~35% over budget, and straight past the model's limit.
+    """
+    return max(TOKENS_PER_WORD, len(word) / CHARS_PER_TOKEN)
+
+
 def estimate_tokens(text: str) -> int:
-    """Approximate token count. Biased high; see the module docstring."""
-    words = len(text.split())
-    if words == 0:
+    """Approximate token count. Biased high; see the module docstring.
+
+    Exactly the sum of `token_cost` over the words, rounded up.
+    """
+    import math
+
+    words = text.split()
+    if not words:
         return 0
-    return max(1, int(words * TOKENS_PER_WORD + 0.5))
+    return max(1, math.ceil(sum(token_cost(word) for word in words)))
 
 
 @dataclass(frozen=True)
@@ -92,11 +120,11 @@ class _Atom:
 
     start: int
     end: int
-    tokens: int
+    tokens: float
     break_level: int
 
 
-def _atomise(text: str, count_tokens: Callable[[str], int]) -> list[_Atom]:
+def _atomise(text: str, count_tokens: Callable[[str], float]) -> list[_Atom]:
     """Split into words with spans, tagging the boundary that precedes each."""
     paragraph_starts: set[int] = {0}
     for match in _PARAGRAPH_BREAK.finditer(text):
@@ -117,7 +145,7 @@ def _atomise(text: str, count_tokens: Callable[[str], int]) -> list[_Atom]:
         else:
             level = _BREAK_NONE
 
-        atoms.append(_Atom(start=start, end=end, tokens=max(1, count_tokens(word)), break_level=level))
+        atoms.append(_Atom(start=start, end=end, tokens=max(1.0, float(count_tokens(word))), break_level=level))
         previous_word = word
         previous_end = end
 
@@ -150,7 +178,7 @@ def _find_break(
     return end
 
 
-def _overlap_start(atoms: Sequence[_Atom], chunk_start: int, chunk_end: int, overlap: int) -> int:
+def _overlap_start(atoms: Sequence[_Atom], chunk_start: int, chunk_end: int, overlap: float) -> int:
     """Where the next chunk begins, backing up ~`overlap` tokens from the end.
 
     Snapped forward to a sentence start when one falls inside the overlap window,
@@ -160,7 +188,7 @@ def _overlap_start(atoms: Sequence[_Atom], chunk_start: int, chunk_end: int, ove
     if overlap <= 0:
         return chunk_end
 
-    budget = overlap
+    budget = float(overlap)
     position = chunk_end
     while position > chunk_start + 1 and budget > 0:
         position -= 1
@@ -180,7 +208,7 @@ def chunk_text(
     target_tokens: int = TARGET_TOKENS,
     overlap_tokens: int = OVERLAP_TOKENS,
     page_lookup: Optional[Callable[[int], Optional[int]]] = None,
-    count_tokens: Callable[[str], int] = estimate_tokens,
+    count_tokens: Callable[[str], float] = token_cost,
     min_chunk_chars: int = MIN_CHUNK_CHARS,
 ) -> list[Chunk]:
     """Split `text` into overlapping chunks on natural boundaries.
@@ -207,7 +235,7 @@ def chunk_text(
     ordinal = 0
 
     while cursor < len(atoms):
-        budget = target_tokens
+        budget = float(target_tokens)
         end = cursor
         while end < len(atoms) and budget - atoms[end].tokens >= 0:
             budget -= atoms[end].tokens
@@ -261,7 +289,7 @@ def chunk_document(
     *,
     target_tokens: int = TARGET_TOKENS,
     overlap_tokens: int = OVERLAP_TOKENS,
-    count_tokens: Callable[[str], int] = estimate_tokens,
+    count_tokens: Callable[[str], float] = token_cost,
 ) -> list[Chunk]:
     """`chunk_text` over a `Document`, stamping each chunk with its page.
 

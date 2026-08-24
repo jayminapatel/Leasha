@@ -1,6 +1,6 @@
 # Test fixtures
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Layer 2 acceptance requires **one healthy and one deliberately corrupt file of each type**.
 

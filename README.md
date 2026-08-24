@@ -1,6 +1,6 @@
 # Local Knowledge Graph Search + Office Suite
 
-**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.3 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Hybrid semantic + keyword search over ~100GB of local files and PST email archives, with a
 knowledge graph and Office document generation. Windows 10/11, single user, fully local.
@@ -9,7 +9,8 @@ knowledge graph and Office document generation. Windows 10/11, single user, full
 ONNX for embeddings — all embedded. No services, no ports, no passwords. Ollama is optional
 and is never called by search.
 
-**Version:** see `VERSION` | **Status:** Layers 0-1 complete (foundation, storage), Layer 2 next
+**Version:** see `VERSION` | **Status:** Layers 0-1 complete; Layer 2 (extraction) complete
+except Outlook/PST; Layer 3 next
 
 ---
 

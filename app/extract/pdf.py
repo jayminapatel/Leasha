@@ -21,6 +21,7 @@ the pages that have text and warns about the ones that do not.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Iterable
 
@@ -43,7 +44,14 @@ class PdfExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
-        import pymupdf                                   # imported lazily: ~40MB of C library
+        import pymupdf  # imported lazily: ~40MB of C library
+
+        # MuPDF writes its own diagnostics straight to stderr from C. Across a
+        # 100GB run that is thousands of lines nobody asked for, interleaved with
+        # the progress output and absent from the log file. Our AppError already
+        # reports the same failures, with a fix attached.
+        with contextlib.suppress(Exception):               # a nicety, never fatal
+            pymupdf.TOOLS.mupdf_display_errors(False)
 
         try:
             document = pymupdf.open(path)
@@ -103,7 +111,8 @@ class PdfExtractor:
                 return
 
             if empty_pages:
-                result.warnings = result.warnings + (
+                result.warnings = (
+                    *result.warnings,
                     make_error(
                         "ERR_NO_TEXT_LAYER",
                         "extract.pdf",

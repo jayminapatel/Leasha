@@ -30,7 +30,7 @@ from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from app.core.errors import make_error, raise_error
+from app.core.errors import raise_error
 from app.extract.base import (
     Document,
     DocumentBuilder,

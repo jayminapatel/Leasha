@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 1.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -8,8 +8,74 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+**Layer 2, files complete; Outlook outstanding.** Six of the eight acceptance criteria pass.
+PST needs `win32com` against a live Outlook and cannot be verified anywhere else, so it is a
+separate pass rather than untested code that looks finished. Layer 2 is **not done** and
+`VERSION` is deliberately not bumped to 0.4.0.
+
+### Added
+- `app/extract/base.py` - the extraction contract. `Document` holds one flat `text`, and every
+  `Segment` carries the exact range it occupies within it, so
+  `text[s.char_start:s.char_end] == s.text` always. That invariant is what lets Layer 5
+  highlight a hit inside the original instead of guessing; `DocumentBuilder` appends text and
+  records offsets in one operation so no extractor can let the two drift. The registry refuses
+  a duplicate extension claim rather than letting whichever module imported last win.
+- `app/extract/chunker.py` - ~512-token chunks, ~64 overlap, paragraph then sentence
+  boundaries, never mid-word. Text is atomised once into words-with-spans tagged by the
+  boundary preceding them; a chunk is a contiguous range of atoms, which makes exact offsets
+  and whole-word boundaries true by construction rather than by care.
+- `app/extract/pdf.py` - PyMuPDF, page numbers retained. A PDF with no text on any page is
+  skipped as `ERR_NO_TEXT_LAYER` and counted, rather than indexed as an empty success - a scan
+  that "indexes cleanly" with no text is unfindable forever while appearing to have worked.
+- `app/extract/office.py` - DOCX (document order, tables included), XLSX (`data_only`, sheet
+  names in the text, 5,000-row cap), PPTX (slides plus speaker notes).
+- `app/extract/plaintext.py` - UTF-8 → cp1252 → latin-1 with the BOM stripped, and NUL-byte
+  detection so a binary file with a `.log` extension does not fill the FTS index with garbage.
+- `app/extract/email_files.py` - `.eml` via the stdlib, `.msg` via extract-msg. Thread grouping
+  from `References[0]`, so every reply in a conversation shares a key.
+- `ERR_NO_TEXT_LAYER` and `ERR_UNSUPPORTED_TYPE` in the error registry. The spec referenced the
+  first by name and Layer 0 never registered it.
+- `tests/fixtures/generate.py` - the fixture corpus, **generated rather than committed**.
+  Binary fixtures in git rot: nobody can review a `.docx` diff, nobody remembers which byte was
+  corrupted on purpose, and an editor that opens and re-saves one silently destroys the property
+  it was testing. Every corruption is now a reviewable line of code.
+- 98 Layer 2 tests plus `tests/integration/test_layer2_acceptance.py`, numbered to the spec's
+  checklist. The overlap criterion is asserted as a property - every word of every healthy
+  fixture must survive into at least one chunk - because a word lost between two chunks is
+  unfindable and nothing in the system would ever report it.
+- `extract-msg==0.56.1` in `requirements.txt`.
+
+### Fixed
+- **Chunks ran ~35% over budget.** The chunker costed each word at 1 token while
+  `estimate_tokens` valued a chunk at 1.35 tokens/word, so a chunk built to a 512-token budget
+  measured 690 and bge-small truncated the tail in silence - the worst kind of bug, because
+  nothing fails and search just gets quietly worse. `token_cost` is now the single definition
+  and `estimate_tokens` is its sum, so the two cannot disagree. A length term was added for
+  words that are not words: a base64 blob costed at 1.35 tokens would have blown any budget.
+- `Document.page_for_offset` and `page_lookup` disagreed for an offset landing in the separator
+  written between segments. The linear scan returned the document's last page; the binary search
+  returned the correct one. Both now resolve by segment *start*.
+- `test_docs_versioned.py` hung: `rglob` descends into `venv/Lib/site-packages` before filtering
+  it out, which on a mounted drive takes long enough to look like a crash. It now prunes during
+  the walk. 0.9s.
+
+### Known gaps
+- **`.msg` happy path is untested.** A valid `.msg` is an OLE compound document and cannot be
+  synthesised in a fixture generator; only the corrupt and missing-library paths are covered.
+  A real Outlook-saved sample would close this.
+- **`extract-msg` breaks the wheel rule** at the top of `requirements.txt`. The package itself
+  is a `py3-none-any` wheel, but its dependency `red-black-tree-mod` publishes no wheel at all.
+  It is two pure-Python files with no C sources, so pip builds it locally in seconds and no
+  compiler is needed - but `pip download --only-binary :all:` now fails on this tree, and a
+  fully offline install needs the sdist cached. `.msg` support is optional and the import is
+  guarded, so removing the pin degrades `.msg` to "unsupported" rather than breaking the app.
+
 ### Planned
-- Layer 2 - extraction: PDF/Office/plaintext/Outlook parsers and chunking
+- `app/extract/email_pst.py` - Outlook MAPI: stores, folders, conversation grouping, attachment
+  recursion through the registry, and `ERR_OUTLOOK_BUSY` when Outlook closes mid-run.
+  Attachment recursion for `.eml` lands with it; today attachment names are recorded but their
+  contents are not extracted.
+- Layer 3 - the indexing pipeline: walker, resumable queue, embedder.
 
 ---
 

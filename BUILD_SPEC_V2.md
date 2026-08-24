@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -219,35 +219,82 @@ CREATE TABLE schema_version (version INTEGER NOT NULL);
 
 **Build**
 
-- `base.py` — `Extractor` protocol: `supports(path) -> bool`, `extract(path) -> Iterable[Document]`.
-  A registry maps extension → extractor.
-- `pdf.py` — PyMuPDF. Per-page text with page numbers retained. Detect image-only pages
-  and mark `ERR_NO_TEXT_LAYER` rather than indexing an empty string (OCR is out of scope for V2).
-- `office.py` — DOCX paragraphs + tables; XLSX per-sheet cell text with sheet names;
-  PPTX per-slide shape text plus speaker notes.
-- `plaintext.py` — encoding detection (UTF-8 → UTF-8-sig → cp1252 → latin-1), emitting
-  `ERR_ENCODING` as an `AUTO_FIX` when it falls back to replacement characters.
+- `base.py` — **[BUILT]** `Extractor` protocol: `supports(path) -> bool`,
+  `extract(path) -> Iterable[Document]`. A registry maps extension → extractor, and refuses a
+  duplicate claim rather than letting whichever module imported last win.
+  **The offset invariant:** a `Document` holds one flat `text`, and every `Segment` carries the
+  exact `[char_start, char_end)` it occupies within it, so `text[s.char_start:s.char_end] == s.text`
+  always. `DocumentBuilder` appends text and records offsets in one operation, so no extractor
+  can let the two drift. Failure is a value: extractors raise `AppErrorException` for a file
+  that cannot be read, and attach non-fatal problems to `Document.warnings` — a file that
+  decoded with replacement characters is still worth indexing.
+- `pdf.py` — **[BUILT]** PyMuPDF. Per-page text with page numbers retained. A PDF with no text
+  on any page is `ERR_NO_TEXT_LAYER`, not an empty success: a scan that indexes "cleanly" with
+  no text is permanently unfindable while appearing to have worked, and counting it is what
+  turns an invisible failure into evidence for whether OCR is worth adding. A partly-scanned
+  document indexes the pages that have text and warns about the rest. Password-protected files
+  are `ERR_FILE_CORRUPT` with "password" in the detail. MuPDF's own stderr chatter is silenced —
+  across 100GB it is thousands of lines nobody asked for, absent from the log file.
+- `office.py` — **[BUILT]** DOCX paragraphs + tables **walked in document order** (the separate
+  `paragraphs` and `tables` collections would put every table after every paragraph, moving a
+  contract's obligations after its signature block); XLSX per-sheet cell text with sheet names
+  written into the indexed text, opened `data_only` so a formula contributes its cached *value*
+  rather than the string `=VLOOKUP(...)`; PPTX per-slide shape text plus speaker notes, which
+  is usually where the sentences are. Sheets are capped at 5,000 rows with a loud warning, so
+  one spreadsheet-as-database cannot dominate the index and the embedding queue.
+- `plaintext.py` — **[BUILT]** encoding detection (UTF-8 → cp1252 → latin-1, BOM stripped),
+  emitting `ERR_ENCODING` as an `AUTO_FIX` when it falls through to latin-1. Files with a text
+  extension and NUL bytes — a `.log` that is really a database — are `ERR_NO_TEXT_LAYER` rather
+  than pages of garbage in the FTS index.
 - `email_pst.py` — `win32com.client` Outlook MAPI. Walk stores → folders → items.
   Capture subject, sender, recipients, sent time, conversation ID, body, and recurse into
   attachments through the normal extractor registry. **Never `pypff`. Never `extract-msg`
   for `.pst`** — it reads `.msg` only.
-- `email_files.py` — stdlib `email` for `.eml`; `extract-msg` is acceptable here and only here.
-- `chunker.py` — ~512-token chunks with ~64-token overlap, split on paragraph then sentence
-  boundaries; never mid-word. Chunk boundaries carry `char_start`/`char_end` so results can
-  highlight in the original.
+- `email_files.py` — **[BUILT]** stdlib `email` for `.eml`; `extract-msg` is acceptable here and
+  only here. `conversation` comes from `References[0]`, falling back to `In-Reply-To` then
+  `Message-ID`, so every reply in a thread lands on the same key — a decision is rarely in one
+  message. Headers are written into the indexed text as well as into `meta`, because "the email
+  from Priya about the survey" only works if both are text the retriever sees. HTML-only bodies
+  are stripped without a parser dependency.
+- `chunker.py` — **[BUILT]** ~512-token chunks with ~64-token overlap, split on paragraph then
+  sentence boundaries; never mid-word. Text is atomised once into words-with-spans tagged by the
+  boundary preceding them, and a chunk is a contiguous range of atoms — which is what makes
+  `text[c.char_start:c.char_end] == c.text` true by construction rather than by care.
+  `token_cost` is the single definition of size and `estimate_tokens` is its sum, so the budget
+  spent and the size reported cannot disagree. They did, once: costing a word at 1 token while
+  estimating a chunk at 1.35/word let every chunk run 35% over and straight past the model's
+  512-token limit, where bge-small truncates in silence.
 
 **Acceptance**
 
-- [ ] A fixtures folder with one healthy and one deliberately corrupt file of each type.
-- [ ] Every healthy fixture yields non-empty text and plausible chunk counts.
-- [ ] Every corrupt fixture yields `ERR_FILE_CORRUPT` with `SKIP_CONTINUE` — and the run continues.
-- [ ] A password-protected PDF and a locked-open XLSX both skip cleanly.
+Tests in `tests/integration/test_layer2_acceptance.py`, numbered to match.
+
+- [x] A fixtures folder with one healthy and one deliberately corrupt file of each type.
+      Fixtures are **generated by `tests/fixtures/generate.py`, not committed**: binary test
+      files in git cannot be reviewed in a diff, and an editor that opens and re-saves one
+      silently destroys the corruption it was testing.
+- [x] Every healthy fixture yields non-empty text and plausible chunk counts.
+- [x] Every corrupt fixture yields `ERR_FILE_CORRUPT` with `SKIP_CONTINUE` — and the run continues.
+- [x] A password-protected PDF and a locked-open XLSX both skip cleanly. The lock is proved as
+      a *mapping* off Windows: `PermissionError` → `ERR_FILE_LOCKED` ("close the program holding
+      it"), never `ERR_FILE_CORRUPT` — sending someone to repair a perfectly good file is the
+      failure that guards against.
 - [ ] PST extraction over a small test archive preserves conversation grouping.
 - [ ] The live Outlook mailbox is enumerated alongside `.pst` stores, and closing Outlook
       mid-run yields `ERR_OUTLOOK_BUSY` rather than failing the run.
-- [ ] A OneDrive folder with Files On-Demand indexes pinned files and skips placeholders,
-      and no placeholder is hydrated (verified by watching the sync client, not assumed).
-- [ ] Chunk overlap verified: no text lost at boundaries.
+- [~] A OneDrive folder with Files On-Demand indexes pinned files and skips placeholders,
+      and no placeholder is hydrated. **Detection** is proved off Windows, because
+      `winfs.is_cloud_placeholder` accepts injected attribute bits and never opens the file.
+      **Non-hydration** still needs confirming by watching the sync client on a real machine,
+      exactly as written — it cannot be asserted in a test.
+- [x] Chunk overlap verified: no text lost at boundaries. Asserted as a property over every
+      healthy fixture at a chunk size small enough to force many boundaries: every word of the
+      source must appear in at least one chunk.
+
+**Outstanding: `email_pst.py`.** PST needs `win32com` against a live Outlook and cannot be
+verified anywhere else, so it is a separate pass rather than untested code that looks finished.
+Criteria 5 and 6 are marked `xfail(run=False)` in the acceptance file — visibly outstanding
+rather than quietly missing. Layer 2 is **not complete** until they run and pass.
 
 ---
 

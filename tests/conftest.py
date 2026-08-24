@@ -60,3 +60,15 @@ def temp_env(tmp_path: Path) -> Iterator[Path]:
 @pytest.fixture()
 def project_root() -> Path:
     return PROJECT_ROOT
+
+
+@pytest.fixture(scope="session")
+def fixture_root() -> Path:
+    """The Layer 2 fixture corpus, generated on demand.
+
+    Fixtures are built rather than committed - see `tests/fixtures/generate.py`
+    for why. Generation is idempotent, so this costs nothing after the first run.
+    """
+    from tests.fixtures.generate import ensure_fixtures
+
+    return ensure_fixtures()
