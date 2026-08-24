@@ -259,7 +259,9 @@ $ReqFile = Join-Path $ProjectPath "requirements.txt"
 $Doctor  = Join-Path $ProjectPath "doctor.py"
 
 # Start logging before anything can fail, so a failed run always leaves evidence.
-$logDir = Join-Path $ProjectPath "logs"
+# Transcripts live in logs\install\ alongside the app's own structured logs.
+# See docs/TROUBLESHOOTING.md for what lives where.
+$logDir = Join-Path $ProjectPath "logs\install"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $script:LogFile = Join-Path $logDir ("install-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
 try {

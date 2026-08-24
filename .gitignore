@@ -18,7 +18,11 @@ venv/
 !.env.example
 
 # --- Runtime output --------------------------------------------------------
-logs/
+# The logs/ structure is tracked (via .gitkeep) so a fresh clone has somewhere
+# to write; the contents are not.
+logs/**/*
+!logs/**/.gitkeep
+!logs/README.txt
 *.log
 
 # --- Index data ------------------------------------------------------------

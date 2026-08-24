@@ -40,6 +40,15 @@ venv\Scripts\python.exe -m pytest tests -q
 venv\Scripts\python.exe -m app.cli stats
 ```
 
+## When something breaks
+
+```powershell
+venv\Scripts\python.exe -m app.cli diagnose
+```
+
+Writes a zip to `logs\diagnostics\` with everything needed to work out what went wrong.
+See `docs/TROUBLESHOOTING.md`.
+
 ## Documents
 
 | File | What it is |
@@ -48,6 +57,7 @@ venv\Scripts\python.exe -m app.cli stats
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9), schemas, acceptance tests, performance budget |
 | `docs/VERSIONING.md` | Version scheme, git conventions, release checklist |
 | `docs/VSCODE.md` | Opening and working on the project in VS Code |
+| `docs/TROUBLESHOOTING.md` | Where the logs are, what errors mean, common fixes |
 | `CHANGELOG.md` | What changed and why |
 
 ## Layout

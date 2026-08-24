@@ -171,16 +171,53 @@ def test_logging_writes_a_file_and_survives_double_setup(tmp_path: Path) -> None
     setup_logging(log_dir, force=True)
     setup_logging(log_dir)  # idempotent: must not duplicate sinks
 
-    from app.core.logging import log_app_error
     from app.core.errors import make_error
+    from app.core.logging import log_app_error
 
     log_app_error(make_error("ERR_FILE_CORRUPT", "indexer.pdf", path="broken.pdf"))
 
     from loguru import logger
     logger.complete()
 
-    written = list(log_dir.glob("app_*.log"))
-    assert written, "no log file was created"
+    written = list((log_dir / "app").glob("app_*.log"))
+    assert written, "no application log file was created"
     content = written[0].read_text(encoding="utf-8")
     assert "ERR_FILE_CORRUPT" in content
     assert content.count("broken.pdf") == 1, "sink was registered twice"
+
+
+def test_errors_go_to_a_machine_readable_sink(tmp_path: Path) -> None:
+    """One JSON object per line, so 400 identical failures can be counted."""
+    import json
+
+    log_dir = tmp_path / "logs"
+    setup_logging(log_dir, force=True)
+
+    from app.core.errors import make_error
+    from app.core.logging import log_app_error, logger
+
+    log_app_error(make_error("ERR_FILE_LOCKED", "indexer.office", path="book.xlsx"))
+    logger.complete()
+
+    files = list((log_dir / "errors").glob("errors_*.jsonl"))
+    assert files, "no errors.jsonl was written"
+
+    records = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line]
+    assert records
+    record = records[0]
+    assert record["record"]["extra"]["error_code"] == "ERR_FILE_LOCKED"
+    assert record["record"]["extra"]["component"] == "indexer.office"
+
+
+def test_info_messages_do_not_reach_the_errors_sink(tmp_path: Path) -> None:
+    """The errors file must stay signal, not a copy of everything."""
+    log_dir = tmp_path / "logs"
+    setup_logging(log_dir, force=True)
+
+    from app.core.logging import logger
+    logger.bind(component="test").info("routine progress message")
+    logger.complete()
+
+    files = list((log_dir / "errors").glob("errors_*.jsonl"))
+    content = files[0].read_text(encoding="utf-8") if files else ""
+    assert "routine progress" not in content

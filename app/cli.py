@@ -9,8 +9,9 @@ them, rather than pretending or crashing.
 
     python -m app.cli stats
     python -m app.cli stats --json
+    python -m app.cli init
     python -m app.cli doctor
-    python -m app.cli lock --hold 5
+    python -m app.cli diagnose        # troubleshooting bundle
 
 Exit codes:
     0  success
@@ -160,6 +161,32 @@ def cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_diagnose(args: argparse.Namespace) -> int:
+    """Collect everything needed to troubleshoot into a single zip.
+
+    This is the "something is wrong, here is the evidence" command.
+    """
+    from app.core.diagnostics import build_bundle
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    out = Path(args.out) if args.out else None
+    bundle = build_bundle(settings, project_root(), out_path=out)
+    size_kb = bundle.stat().st_size / 1024
+
+    if args.json:
+        print(json.dumps({"bundle": str(bundle), "size_kb": round(size_kb, 1)}, indent=2))
+        return EXIT_OK
+
+    print(f"Diagnostic bundle written: {bundle}")
+    print(f"  {size_kb:.0f} KB - contains report.json, summary.txt, recent logs and .env")
+    print()
+    print("  Send this file when asking for help. Open summary.txt first: it")
+    print("  names anything already known to be wrong.")
+    return EXIT_OK
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run doctor.py and pass its exit code through."""
     doctor = project_root() / "doctor.py"
@@ -237,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor = sub.add_parser("doctor", help="verify the environment")
     p_doctor.add_argument("--quick", action="store_true", help="skip model loading")
     p_doctor.set_defaults(func=cmd_doctor)
+
+    p_diagnose = sub.add_parser(
+        "diagnose", help="bundle logs, config and environment into one zip for troubleshooting")
+    p_diagnose.add_argument("--out", help="write the bundle here instead of logs/diagnostics/")
+    p_diagnose.set_defaults(func=cmd_diagnose)
 
     p_lock = sub.add_parser("lock", help="hold the single-instance lock (diagnostic)")
     p_lock.add_argument("--hold", type=float, default=2.0, help="seconds to hold the lock")

@@ -39,6 +39,51 @@ _FILE_FORMAT = (
 _configured = False
 
 
+#: Everything under logs/ has a fixed home, so troubleshooting is a matter of
+#: knowing which folder to look in rather than sifting one flat directory.
+LOG_SUBDIRS = {
+    "app": "Application logs, one file per day. Start here.",
+    "errors": "Errors only, one JSON object per line. Machine-readable.",
+    "install": "Installer transcripts, one per run.",
+    "crash": "Unhandled crash reports.",
+    "diagnostics": "Diagnostic bundles produced by 'app.cli diagnose'.",
+}
+
+
+def ensure_log_dirs(log_dir: Path) -> dict[str, Path]:
+    """Create the log folder structure and return the paths by name."""
+    made: dict[str, Path] = {}
+    for name in LOG_SUBDIRS:
+        target = Path(log_dir) / name
+        target.mkdir(parents=True, exist_ok=True)
+        made[name] = target
+
+    readme = Path(log_dir) / "README.txt"
+    if not readme.exists():
+        lines = [
+            "Log folders",
+            "===========",
+            "",
+        ]
+        width = max(len(n) for n in LOG_SUBDIRS)
+        for name, description in LOG_SUBDIRS.items():
+            lines.append(f"  {name.ljust(width)}  {description}")
+        lines += [
+            "",
+            "If something goes wrong, run this and send the resulting zip:",
+            "",
+            "    venv\\Scripts\\python.exe -m app.cli diagnose",
+            "",
+            "It gathers the environment report, both store summaries, recent",
+            "logs and the installed package versions into one file.",
+            "",
+            "See docs/TROUBLESHOOTING.md for what each file means.",
+            "",
+        ]
+        readme.write_text("\n".join(lines), encoding="utf-8")
+    return made
+
+
 def setup_logging(
     log_dir: Path,
     *,
@@ -48,14 +93,14 @@ def setup_logging(
     rotation: str = "10 MB",
     force: bool = False,
 ) -> Path:
-    """Configure both sinks. Returns the log file pattern in use.
+    """Configure the sinks. Returns the application log file pattern.
 
     Idempotent: calling it twice does not double every line, which matters
     because both the CLI and the UI entry point call it.
     """
     global _configured
     if _configured and not force:
-        return log_dir / "app_{time}.log"
+        return Path(log_dir) / "app" / "app_{time}.log"
 
     logger.remove()
 
@@ -72,8 +117,9 @@ def setup_logging(
         diagnose=False,    # never print local variables to a console: they leak file contents
     )
 
-    log_dir.mkdir(parents=True, exist_ok=True)
-    pattern = log_dir / "app_{time:YYYY-MM-DD}.log"
+    dirs = ensure_log_dirs(log_dir)
+
+    pattern = dirs["app"] / "app_{time:YYYY-MM-DD}.log"
     logger.add(
         str(pattern),
         level=file_level,
@@ -83,6 +129,22 @@ def setup_logging(
         encoding="utf-8",
         enqueue=True,      # safe when several worker threads log at once
         backtrace=True,
+        diagnose=False,
+    )
+
+    # A separate errors-only sink in JSON Lines. One object per line means it
+    # can be filtered, counted and grouped without parsing prose - which is how
+    # you find "the same failure 400 times" in a 100GB run.
+    logger.add(
+        str(dirs["errors"] / "errors_{time:YYYY-MM-DD}.jsonl"),
+        level="WARNING",
+        format="{message}",
+        serialize=True,
+        rotation=rotation,
+        retention=retention,
+        encoding="utf-8",
+        enqueue=True,
+        backtrace=False,
         diagnose=False,
     )
 

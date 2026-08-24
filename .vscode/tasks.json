@@ -17,6 +17,14 @@
       "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
+      "label": "Diagnose (bundle for troubleshooting)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "app.cli", "diagnose"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
       "label": "Doctor",
       "type": "shell",
       "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",

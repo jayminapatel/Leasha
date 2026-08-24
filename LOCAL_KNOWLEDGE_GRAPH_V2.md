@@ -304,13 +304,88 @@ class AppError(BaseModel):
 
 ---
 
-## PST STRATEGY (corrected)
+## EMAIL STRATEGY (PST *and* the live mailbox)
 
-1. **Primary:** `win32com.client` → Outlook MAPI. Reads PST in place, handles all formats Outlook handles, no compilation. Requires Outlook installed (near-certain for a user who has PSTs).
-2. **Fallback (no Outlook):** XstReader (open-source) or `readpst` to convert PST → EML folder, then index EML with stdlib `email`.
-3. **Never:** `pypff` (no reliable Windows wheels), `extract-msg` (reads .msg only — NOT .pst).
+The V1 framing of "PST indexing" was too narrow. `win32com` drives Outlook's MAPI layer, and
+MAPI enumerates **every store Outlook currently has open** - which includes the live Exchange
+or Microsoft 365 mailbox, not only `.pst` archives.
 
-Email features retained: thread grouping, conversation view, sender/date filters, attachment indexing.
+`Outlook.Application` -> `GetNamespace("MAPI")` -> `.Stores` returns each store; each store
+exposes its folder tree; each folder exposes its items. A `.pst` file is simply one kind of
+store. So the same code path indexes:
+
+| Source | Works | Notes |
+|---|---|---|
+| `.pst` archive files | Yes | Attached in Outlook, or opened on demand |
+| Live Exchange / M365 mailbox | Yes | Inbox, Sent, custom folders, the lot |
+| Additional mailboxes | Yes | Any account configured in the Outlook profile |
+| Shared / delegate mailboxes | Yes, if open in Outlook | Whatever the profile can already see |
+| Public folders | Usually | Depends on the Exchange configuration |
+| Live mail with Outlook closed | **No** | MAPI needs Outlook running |
+
+Three constraints that shape the design:
+
+1. **Cached Exchange Mode governs what is local.** Outlook keeps a local `.ost` of the
+   mailbox, but by default only a sliding window - often 12 months. Older mail is fetched from
+   the server on access. Indexing it is possible but turns a local operation into thousands of
+   network round trips. The UI must show the cached window and let the user decide, rather
+   than silently pulling years of mail over the network.
+2. **Outlook must stay open** during an email index run. If it closes mid-run the store
+   handles die; that surfaces as `ERR_OUTLOOK_BUSY` (`SKIP_CONTINUE`) and the remaining
+   folders are retried on the next pass rather than failing the run.
+3. **Read-only, always.** The indexer opens items and reads properties. It never marks as
+   read, never moves, never deletes.
+
+Ordering: **archives first, live mailbox second.** A `.pst` is static and entirely local, so
+it indexes fast and predictably. The live mailbox is the part that can involve the network.
+
+Fallbacks, unchanged:
+
+- **No Outlook installed:** XstReader or `readpst` to convert `.pst` -> EML, then index the
+  EML folder with the stdlib `email` module.
+- **Never:** `pypff` (no reliable Windows wheels), `extract-msg` for `.pst` (it reads `.msg`
+  files only - fine for standalone messages, wrong for archives).
+
+Email features retained: thread grouping, conversation view, sender and date filters,
+attachment indexing through the normal extractor registry.
+
+---
+
+## ONEDRIVE AND SHAREPOINT
+
+Both are supported, with one significant caveat that shapes the walker.
+
+**How.** The OneDrive sync client presents OneDrive and any synced SharePoint document
+library as ordinary local folders (`C:\Users\<you>\OneDrive - <Org>\...`). Add that path as
+an index root and it works like any other folder - no API, no tokens, no cloud calls, and the
+"fully local" promise is intact.
+
+**The caveat: Files On-Demand.** By default the sync client stores most files as
+*placeholders*. The name, size and modified date are on disk; the contents are not. **Reading
+a placeholder downloads the entire file.** Pointing an indexer at a 500GB SharePoint library
+with this enabled would quietly hydrate the whole library: filling the disk, saturating the
+connection, and running for days.
+
+So placeholders are detected and skipped by default. `app/core/winfs.py` checks three
+attributes:
+
+| Attribute | Value | Meaning |
+|---|---|---|
+| `FILE_ATTRIBUTE_OFFLINE` | `0x00001000` | Content is not local |
+| `FILE_ATTRIBUTE_RECALL_ON_OPEN` | `0x00040000` | Opening triggers a fetch |
+| `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` | `0x00400000` | Reading triggers a fetch |
+
+Any of them set means skip, with `ERR_CLOUD_ONLY` (`SKIP_CONTINUE`) recording the reason so
+the review panel can report "3,412 files skipped: stored online only" and offer the fix.
+A file pinned with **Always keep on this device** has none of these bits and indexes normally.
+
+The Settings toggle *Index cloud-only files* opts in, with a blunt warning about disk and
+bandwidth. Default off: silently downloading half a terabyte is not a reasonable default.
+
+**What is deliberately not built:** talking to SharePoint or Graph over the network. That
+would mean OAuth, tokens, tenant permissions and an app registration - and it would break the
+core promise that this thing works entirely offline. Sync the library locally and point the
+indexer at it.
 
 ---
 

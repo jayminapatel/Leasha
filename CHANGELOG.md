@@ -11,6 +11,39 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ---
 
+## [0.3.1] - 2026-08-24
+
+Troubleshooting infrastructure, and two scope questions answered in the spec.
+
+### Added
+- **Structured log folders.** `logs/app` (daily narrative), `logs/errors`
+  (warnings and errors as JSON Lines), `logs/install` (installer transcripts),
+  `logs/crash`, `logs/diagnostics`. A generated `logs/README.txt` explains each.
+  The JSONL sink exists so 3,000 failures in a 100GB run can be *counted and grouped*
+  rather than read.
+- **`app.cli diagnose`** - one command producing a zip with the environment report, both
+  store summaries, config, disk space, package versions, git state and recent logs. Every
+  section is collected inside its own guard: a diagnostic that fails when things are broken
+  would be worse than useless, so a broken section records its own failure and the bundle is
+  still produced. Large logs contribute their tail rather than being dropped or bloating the zip.
+- `docs/TROUBLESHOOTING.md` - written for a hobby programmer: what each log means, how to
+  read an error line, and the common failures with their fixes.
+- `app/core/winfs.py` - cloud placeholder detection for OneDrive and SharePoint sync folders.
+- `ERR_CLOUD_ONLY` and `ERR_OUTLOOK_BUSY` error codes, both `SKIP_CONTINUE`.
+- VS Code task: **Diagnose (bundle for troubleshooting)**.
+
+### Changed
+- **Email scope corrected in the spec.** "PST indexing" was too narrow. MAPI enumerates every
+  store Outlook has open, so the same code path indexes the **live Exchange/M365 mailbox** as
+  well as `.pst` archives. Documented with its real constraints: Outlook must stay running,
+  Cached Exchange Mode governs what is local, and the indexer is strictly read-only.
+- **OneDrive and SharePoint documented, with the trap named.** Both sync to ordinary local
+  folders, so indexing them needs no API. But Files On-Demand placeholders download in full
+  when read, so a naive walk would hydrate an entire cloud library. Placeholders are skipped
+  by default; pinned files index normally.
+- Installer transcripts moved to `logs/install/`.
+
+---
 ## [0.3.0] - 2026-08-24
 
 **Layer 1 complete.** All five acceptance criteria pass; 70 tests green.

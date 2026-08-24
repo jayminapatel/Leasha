@@ -161,6 +161,25 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Indexed using replacement characters. The original file is untouched.",
         action_type=ActionType.AUTO_FIX,
     ),
+    "ERR_CLOUD_ONLY": _Spec(
+        message="'{path}' is stored online only and has no local copy.",
+        suggestion=(
+            "Skipped so indexing does not force a download. OneDrive and SharePoint 'Files "
+            "On-Demand' keep placeholders on disk; reading one downloads the whole file. "
+            "To include them, right-click the folder and choose 'Always keep on this device', "
+            "or enable 'Index cloud-only files' in Settings and make sure you have the disk "
+            "space and bandwidth for it."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_OUTLOOK_BUSY": _Spec(
+        message="Outlook is busy or was closed while reading '{folder}'.",
+        suggestion=(
+            "Email indexing talks to a running Outlook. Leave Outlook open during the first "
+            "index run; the remaining folders are retried on the next pass."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     # --- Layer 0 additions --------------------------------------------------
     "ERR_CONFIG_INVALID": _Spec(
         message="Configuration problem with '{key}': {reason}",

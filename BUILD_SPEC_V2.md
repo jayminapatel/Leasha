@@ -241,6 +241,10 @@ CREATE TABLE schema_version (version INTEGER NOT NULL);
 - [ ] Every corrupt fixture yields `ERR_FILE_CORRUPT` with `SKIP_CONTINUE` — and the run continues.
 - [ ] A password-protected PDF and a locked-open XLSX both skip cleanly.
 - [ ] PST extraction over a small test archive preserves conversation grouping.
+- [ ] The live Outlook mailbox is enumerated alongside `.pst` stores, and closing Outlook
+      mid-run yields `ERR_OUTLOOK_BUSY` rather than failing the run.
+- [ ] A OneDrive folder with Files On-Demand indexes pinned files and skips placeholders,
+      and no placeholder is hydrated (verified by watching the sync client, not assumed).
 - [ ] Chunk overlap verified: no text lost at boundaries.
 
 ---
