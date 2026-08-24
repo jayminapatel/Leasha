@@ -77,9 +77,7 @@ def inspect_model(cache_dir: Path, result: BenchResult) -> BenchResult:
     two-to-four-times speed-up on the table.
     """
     try:
-        candidates = sorted(
-            Path(cache_dir).rglob("*.onnx"), key=lambda p: p.stat().st_size, reverse=True
-        )
+        candidates = list(Path(cache_dir).rglob("*.onnx"))
     except OSError as exc:
         result.error = f"could not read the model cache: {exc}"
         return result
@@ -91,18 +89,46 @@ def inspect_model(cache_dir: Path, result: BenchResult) -> BenchResult:
         )
         return result
 
-    path = candidates[0]
+    # **Matched to the model being timed, not simply the largest file.**
+    #
+    # The first version took the biggest `.onnx` under the cache, and the cache
+    # also holds the *reranker* - a 109M-parameter model beside a 33M one. So it
+    # confidently reported "model.onnx 1112MB" for an embedder whose fp32 build
+    # is 133MB, and then timed a completely different file. A diagnostic that
+    # measures one thing and describes another is worse than no diagnostic,
+    # because it is believed.
+    slug = result.model_name.split("/")[-1].lower().replace("-", "").replace("_", "")
+    matched = [
+        p for p in candidates
+        if slug in str(p.parent).lower().replace("-", "").replace("_", "")
+    ]
+    if not matched:
+        result.error = (
+            f"found {len(candidates)} model file(s) under {cache_dir}, but none in a "
+            f"folder naming {result.model_name}. Sizes are not comparable across "
+            "models, so nothing is reported rather than reporting the wrong one."
+        )
+        return result
+
+    # Within the right model's folder, the weights are the largest file.
+    path = max(matched, key=lambda p: p.stat().st_size)
     result.model_file = str(path)
     result.model_mb = path.stat().st_size / 1e6
+
+    # Size against the known parameter count answers the question well enough
+    # without a dependency: fp32 is four bytes per weight, int8 is one. The
+    # dtypes below are exact when `onnx` happens to be installed, but the
+    # inference is what makes this useful on a machine where it is not - and
+    # "should I switch to a quantised model" is a question worth answering
+    # without asking anybody to install anything.
+    result.quantised = _infer_quantised(result.model_name, result.model_mb)
 
     try:
         import collections
 
         import onnx
     except ImportError:
-        result.error = ("onnx is not installed, so the weight types cannot be read. "
-                        "The size above is still a strong hint: fp32 bge-small is ~133MB.")
-        return result
+        return result                            # the inference above stands
 
     try:
         model = onnx.load(str(path), load_external_data=False)
@@ -129,6 +155,39 @@ def inspect_model(cache_dir: Path, result: BenchResult) -> BenchResult:
     if quantised_values or float_values:
         result.quantised = quantised_values > float_values
     return result
+
+
+#: Parameter counts for the models this application ships with, so a file size
+#: can be read as a precision. Written out rather than derived, because deriving
+#: it needs the model config, which needs the model loaded, which is the cost
+#: this avoids.
+_PARAMS_M = {
+    "bge-small-en-v1.5": 33,
+    "bge-small-en": 33,
+    "bge-base-en-v1.5": 109,
+    "bge-base-en": 109,
+    "bge-reranker-base": 109,
+}
+
+
+def _infer_quantised(model_name: str, size_mb: float) -> Optional[bool]:
+    """Read a file size as a precision. None when the model is not known.
+
+    Four bytes per weight is fp32, two is fp16, one is int8. The bands below are
+    generous because an ONNX file carries a graph and some metadata as well as
+    weights - but the gap between 133MB and 33MB is wide enough that no
+    reasonable overhead confuses them.
+    """
+    key = model_name.split("/")[-1].lower()
+    params_m = _PARAMS_M.get(key)
+    if not params_m or size_mb <= 0:
+        return None
+    bytes_per_weight = size_mb / params_m
+    if bytes_per_weight >= 3.0:
+        return False                             # fp32
+    if bytes_per_weight <= 1.6:
+        return True                              # int8, or mostly so
+    return None                                  # fp16, or something in between
 
 
 def providers(result: BenchResult) -> BenchResult:

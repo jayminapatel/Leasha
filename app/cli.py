@@ -1091,11 +1091,26 @@ def cmd_reembed(args: argparse.Namespace) -> int:
                             cache_dir=str(settings.model_cache))
         done = 0
         started = time.time()
+        # Split three ways, because the totals lie. `embed-bench` measured 4.4
+        # passages/second on this machine and the loop ran at 1.5 - so roughly
+        # two thirds of the time was going somewhere other than the model, and
+        # no amount of choosing a faster model would have touched it. A rate
+        # without a breakdown behind it sends people optimising the wrong thing.
+        spent = {"read": 0.0, "embed": 0.0, "write": 0.0}
+
+        mark = time.perf_counter()
         for batch in store.iter_unembedded(batch_size=256):
+            spent["read"] += time.perf_counter() - mark
+
+            mark = time.perf_counter()
+            embedded = embedder.embed([chunk.text for chunk in batch])
+            spent["embed"] += time.perf_counter() - mark
+
+            mark = time.perf_counter()
             written = vectors.add(
                 chunk_ids=[chunk.id for chunk in batch],
                 file_ids=[chunk.file_id for chunk in batch],
-                vectors=embedder.embed([chunk.text for chunk in batch]),
+                vectors=embedded,
             )
             # Marked only after the vectors are safely written. The other order
             # loses passages silently: a crash between the two would leave rows
@@ -1103,14 +1118,32 @@ def cmd_reembed(args: argparse.Namespace) -> int:
             # pick them up again.
             if written:
                 store.mark_embedded([chunk.id for chunk in batch])
+            spent["write"] += time.perf_counter() - mark
+
             done += len(batch)
             if not args.quiet:
-                rate = done / max(time.time() - started, 0.001) * 60
-                print(f"  embedded {done:,} passages  ({rate:,.0f}/min)", flush=True)
+                elapsed = max(time.time() - started, 0.001)
+                share = " ".join(
+                    f"{name} {value / elapsed:.0%}" for name, value in spent.items()
+                )
+                print(f"  embedded {done:,}  ({done / elapsed * 60:,.0f}/min)   {share}",
+                      flush=True)
+            mark = time.perf_counter()
 
         rows = vectors.count()
+        elapsed = max(time.time() - started, 0.001)
         print()
-        print(f"Done. {rows:,} vectors for {total:,} passages.")
+        print(f"Done. {rows:,} vectors for {total:,} passages in {elapsed/60:.1f} min.")
+        if done:
+            print(f"  reading SQLite   {spent['read']:>7.1f}s  {spent['read']/elapsed:>5.0%}")
+            print(f"  embedding        {spent['embed']:>7.1f}s  {spent['embed']/elapsed:>5.0%}"
+                  f"   ({done/max(spent['embed'], 0.001):.1f}/sec while running)")
+            print(f"  writing vectors  {spent['write']:>7.1f}s  {spent['write']/elapsed:>5.0%}")
+            slowest = max(spent, key=spent.get)
+            if slowest != "embed":
+                print()
+                print(f"  Most of the time is going to {slowest}, not the model.")
+                print("  A faster or smaller model would not help this run.")
         if rows < total:
             print(f"  {total - rows:,} passages still have no vector - see the log.")
         return EXIT_OK
