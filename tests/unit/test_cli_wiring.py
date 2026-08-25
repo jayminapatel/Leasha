@@ -567,3 +567,76 @@ def test_gitsearch_rejects_depths_that_are_not_numbers(tmp_path, capsys):
     ])
     assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
     assert "depths" in capsys.readouterr().err.lower() + capsys.readouterr().out.lower()
+
+
+# ---------------------------------------------------------------------------
+# `repos --scan`: answering "are there any" without a full index run
+# ---------------------------------------------------------------------------
+
+def test_scan_finds_repositories_without_indexing_anything(tmp_path, capsys):
+    """`app.cli repos` lists what the last run attributed, which cannot answer
+    "are there any git repositories in my search folders" - it needs a full run
+    first, and on a fresh index it is empty and indistinguishable from none."""
+    (tmp_path / "code" / "leasha" / ".git").mkdir(parents=True)
+    (tmp_path / "code" / "tools" / ".git").mkdir(parents=True)
+
+    assert cli._scan_for_repos([tmp_path / "code"]) == cli.EXIT_OK
+
+    out = capsys.readouterr().out
+    assert "leasha" in out and "tools" in out
+    assert "2 git repositories" in out
+
+
+def test_scan_says_none_rather_than_printing_nothing(tmp_path, capsys):
+    """Most folders have none, and an empty result must not read as a failure."""
+    (tmp_path / "docs").mkdir()
+
+    assert cli._scan_for_repos([tmp_path / "docs"]) == cli.EXIT_OK
+
+    out = capsys.readouterr().out
+    assert "No git repositories found" in out
+    assert "Nothing is wrong" in out
+
+
+def test_scan_reports_a_repository_the_indexed_folder_sits_inside(tmp_path, capsys):
+    """The case a downward walk cannot see.
+
+    `D:\\Project\\app` has no `.git` beneath it and every file under it is
+    still in a repository.
+    """
+    (tmp_path / "project" / ".git").mkdir(parents=True)
+    (tmp_path / "project" / "app").mkdir()
+
+    cli._scan_for_repos([tmp_path / "project" / "app"])
+
+    out = capsys.readouterr().out
+    assert "contains the indexed folder" in out
+
+
+def test_scan_names_a_folder_that_does_not_exist(tmp_path, capsys):
+    """A typo must not read as "you have no repositories"."""
+    cli._scan_for_repos([tmp_path / "nope"])
+
+    assert "does not exist" in capsys.readouterr().out
+
+
+def test_scan_writes_nothing(tmp_path):
+    """Read-only. It must never create an index as a side effect."""
+    (tmp_path / "code" / "r" / ".git").mkdir(parents=True)
+    before = {p for p in tmp_path.rglob("*")}
+
+    cli._scan_for_repos([tmp_path / "code"])
+
+    assert {p for p in tmp_path.rglob("*")} == before
+
+
+def test_scan_json_is_machine_readable(tmp_path, capsys):
+    import json as _json
+
+    (tmp_path / "r" / ".git").mkdir(parents=True)
+
+    cli._scan_for_repos([tmp_path], as_json=True)
+
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["repositories"][0]["kind"] == "work"

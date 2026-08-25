@@ -572,6 +572,21 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Added — `app.cli repos --scan`, to answer "are there any" in seconds
+
+`app.cli repos` lists what the last index run attributed, which cannot answer
+the question somebody actually has: *are there git repositories in my search
+folders at all?* That needs a full run first, and on a fresh v6 index the
+answer is an empty list — indistinguishable from "none".
+
+`--scan` runs the detection half of the walk on its own. Read-only: nothing is
+written, nothing is embedded, and no file is opened except a `.git` pointer.
+It reports repositories found beneath each folder **and** any repository the
+folder itself sits inside, which is the case a downward walk cannot see.
+
+An empty result says so in words and adds that nothing is wrong — most folders
+have none, and silence there reads as a failure.
+
 ### Added — `app.cli gitsearch`, and the answer to whether history search can exist
 
 Work order §14 and `HANDOFF-ui-to-backend.md` B4 ask the same question from

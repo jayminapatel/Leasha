@@ -891,6 +891,82 @@ def cmd_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
+    """Which repositories a walk *would* find, without indexing anything.
+
+    `app.cli repos` lists what the last index run attributed, which is a poor
+    way to answer "are there any git repositories in my search folders" - it
+    requires a full run first, and on a fresh v6 index it is empty and
+    indistinguishable from "none".
+
+    Read-only: nothing is written, nothing is embedded, no file is opened
+    except a `.git` pointer file. It is the detection half of the walk, run on
+    its own.
+    """
+    from app.index.walker import WalkConfig, enclosing_repo, repo_kind_at, walk
+
+    found: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+
+    for root in roots:
+        if not root.exists():
+            missing.append(str(root))
+            continue
+
+        # A root may sit *below* a repository root, in which case nothing
+        # beneath it has a `.git` and a downward walk finds nothing.
+        above = enclosing_repo(root)
+        if above is not None:
+            found.setdefault(str(above), {
+                "root_path": str(above), "kind": repo_kind_at(above) or "work",
+                "encloses": str(root),
+            })
+
+        sink: dict[str, str] = {}
+        # `extensions` is a frozenset with one impossible member rather than
+        # empty: empty means "every registered extractor's extensions", which
+        # would stat every file in the tree for no reason. Detection does not
+        # look at files.
+        list(walk(WalkConfig(roots=[root],
+                             extensions=frozenset({".__none__"}),
+                             repo_sink=sink)))
+        for path, kind in sink.items():
+            found.setdefault(path, {"root_path": path, "kind": kind})
+
+    rows = sorted(found.values(), key=lambda r: r["root_path"].lower())
+
+    if as_json:
+        print(json.dumps({"scanned": [str(r) for r in roots],
+                          "not_found": missing,
+                          "repositories": rows, "count": len(rows)}, indent=2))
+        return EXIT_OK
+
+    for path in missing:
+        print(f"  ! {path} does not exist.")
+
+    if not rows:
+        print("No git repositories found under:")
+        for root in roots:
+            print(f"    {root}")
+        print()
+        print("  Nothing is wrong - most folders have none. `repo:` and the Code")
+        print("  tab will simply have nothing to show for these.")
+        return EXIT_OK
+
+    width = max(len(r["kind"]) for r in rows)
+    print(f"Found {len(rows)} git repositor{'y' if len(rows) == 1 else 'ies'}:")
+    print()
+    for row in rows:
+        note = ""
+        if row.get("encloses"):
+            note = f"   (contains the indexed folder {row['encloses']})"
+        print(f"  {row['kind']:<{width}}  {row['root_path']}{note}")
+    print()
+    print("  These are detected during a normal index run - nothing extra to do.")
+    print("  Afterwards: app.cli repos, or `repo:<name>` in a search.")
+    return EXIT_OK
+
+
 def cmd_gitsearch(args: argparse.Namespace) -> int:
     """Time git history search. **A measurement, not a feature.**
 
@@ -982,6 +1058,10 @@ def cmd_repos(args: argparse.Namespace) -> int:
 
     settings = _load(args)
     setup_logging(settings.log_path)
+
+    if args.scan:
+        return _scan_for_repos([Path(p).expanduser() for p in args.scan],
+                               as_json=args.json)
 
     with SqliteStore(settings.fts_db) as store:
         repos = store.repos_list()
@@ -2117,6 +2197,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_repos = sub.add_parser(
         "repos", parents=[common],
         help="list the code repositories found under the indexed folders")
+    p_repos.add_argument(
+        "--scan", nargs="+", metavar="PATH",
+        help="look for repositories under these folders without indexing "
+             "anything, and report what a run would find")
     p_repos.set_defaults(func=cmd_repos)
 
     p_eval = sub.add_parser(
