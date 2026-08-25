@@ -51,9 +51,6 @@ __all__ = ["ModelBox", "TEST_SENTENCE"]
 class ModelBox(QGroupBox):
     """The Interpret model, its budget, and a button that proves both."""
 
-    #: (model, timeout_s). One signal for both, because they are one decision:
-    #: changing the model without changing the budget is how a large model looks
-    #: broken instead of slow.
     #: (enabled, model, timeout_s). One signal for all three, because they are
     #: one decision: a model without a budget that fits it looks broken rather
     #: than slow, and either without the switch does nothing at all.

@@ -254,3 +254,55 @@ def test_there_are_exactly_two_densities_and_compact_is_one():
     preference to the default."""
     names = {name for name, _label, _mult in DENSITIES}
     assert names == {Density.COMPACT, Density.NORMAL}
+
+
+# ---------------------------------------------------------------------------
+# Grouping and scores (work order §5)
+# ---------------------------------------------------------------------------
+
+def test_grouping_is_on_by_default():
+    """Chunk-level rows are the complaint this answers: a long PDF matching in
+    five places took five of the top ten rows."""
+    assert ViewPreferences().group_by_document is True
+
+
+def test_scores_are_off_by_default():
+    """"Why is this here" is where trust comes from and must stay reachable -
+    but it does not need to be the second thing the eye lands on, on every row,
+    forever. It moved to the tooltip and the menu."""
+    assert ViewPreferences().show_scores is False
+
+
+def test_the_flat_list_is_still_available():
+    """Somebody comparing two passages of the same document wants them side by
+    side. Taking that away would be a different complaint."""
+    assert ViewPreferences(group_by_document=False).group_by_document is False
+
+
+def test_both_survive_a_round_trip():
+    prefs = ViewPreferences(("a",), Density.COMPACT, 12,
+                            group_by_document=False, show_scores=True)
+    assert parse_prefs(prefs_to_state(prefs, "ui:results"), "ui:results") == prefs
+
+
+@pytest.mark.parametrize(("stored", "expected"), [
+    ("on", True), ("true", True), ("1", True), ("yes", True),
+    ("off", False), ("false", False), ("0", False), ("no", False),
+])
+def test_a_flag_reads_the_spellings_people_write(stored, expected):
+    """These are hand-editable rows in a settings table. Accepting only one
+    spelling turns a reasonable edit into a silent revert to the default."""
+    assert parse_prefs({"ui:x:scores": stored}, "ui:x").show_scores is expected
+
+
+def test_a_nonsense_flag_falls_back_to_the_default_rather_than_off():
+    """`False` is a real setting, not an error value - so a corrupt row must
+    restore the *default*, which for grouping is on."""
+    assert parse_prefs({"ui:x:group": "banana"}, "ui:x").group_by_document is True
+
+
+def test_toggling_a_column_leaves_grouping_and_scores_alone():
+    prefs = ViewPreferences(group_by_document=False, show_scores=True)
+    result = prefs.with_column("size", False, order=["name", "size"])
+    assert result.group_by_document is False
+    assert result.show_scores is True

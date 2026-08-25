@@ -60,6 +60,9 @@ __all__ = [
     "search_shape",
     "status_line",
     "results_message",
+    "mail_details",
+    "file_query",
+    "interpret_message",
     "progress_for",
     "progress_text",
     "finished_text",
@@ -691,6 +694,59 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
 # caught it: a bar that moves too slowly still moves, and "the progress does not
 # feel right" is the only symptom anybody can report.
 # ---------------------------------------------------------------------------
+
+def interpret_message(translation: Any) -> tuple[Optional[str], str]:
+    """`(new box text or None, status line)` for a finished interpretation.
+
+    `None` for the box means leave what the person typed alone. A translation
+    that changed nothing must not overwrite the box with an identical string -
+    it would move the cursor and clear the selection for no reason, which reads
+    as the button having done something destructive.
+    """
+    if getattr(translation, "changed", False):
+        return str(translation.query), str(getattr(translation, "note", "") or "")
+    return None, str(getattr(translation, "note", "") or "")
+
+
+def file_query(raw: str) -> tuple[str, list[str]]:
+    """A Files-tab query as `(name text, extensions)`.
+
+    **The `/` commands are parsed, not merely offered.** The dropdown arrived
+    here as a copy of the search box's, so `/type pdf` was inserted as
+    `type:pdf` and then handed to a trigram index as a literal string - matching
+    nothing, with a dropdown cheerfully suggesting it. An offer the application
+    does not honour is worse than no offer at all.
+
+    Only the filters this tab can apply survive: `type:` becomes the `ext`
+    argument the store already takes. Everything else in the parse is about
+    document *contents*, which this tab never reads.
+    """
+    from app.search.commands import expand_slashes
+    from app.search.query import parse_query
+
+    parsed = parse_query(expand_slashes((raw or "").strip()))
+    text = " ".join((*parsed.terms, *parsed.names)).strip() or (parsed.text or "").strip()
+    return text, list(parsed.ext)
+
+
+def mail_details(store: Any, results: Any) -> dict:
+    """Subjects and senders for the messages on one page of results.
+
+    **One query for the page, never one per row.** At the fetch depth grouping
+    needs, a per-row lookup is fifty queries per keystroke - the shape of
+    slowness that gets blamed on the search itself.
+
+    Never raises. A missing subtitle is a cosmetic loss; failing the search that
+    produced it is not, and a store that has been closed underneath a worker is
+    a normal condition during shutdown rather than an error.
+    """
+    if store is None or not hasattr(store, "messages_for"):
+        return {}
+    try:
+        return store.messages_for([getattr(r, "file_id", 0) for r in results or ()])
+    except Exception:                            # noqa: BLE001 - see docstring
+        return {}
+
 
 def results_message(response: Any) -> tuple[str, str]:
     """`(summary, status)` for a completed search.

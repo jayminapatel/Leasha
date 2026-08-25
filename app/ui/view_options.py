@@ -27,7 +27,7 @@ the rules can be tested without a display.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
@@ -71,6 +71,20 @@ class ViewPreferences:
     density: str = Density.NORMAL
     #: 0 to follow the system font. An explicit number overrides it.
     font_pt: int = DEFAULT_FONT_PT
+    #: One row per document rather than one per matching chunk.
+    #:
+    #: On by default, because chunk-level rows are the complaint this answers -
+    #: a long PDF matching in five places took five of the top ten rows. Off is
+    #: still offered: somebody comparing two passages of the same document wants
+    #: to see them side by side, and taking that away would be a different
+    #: complaint.
+    group_by_document: bool = True
+    #: Show the match explanation and score inline on every row.
+    #:
+    #: Off by default and moved to the tooltip. "Why is this here" is where
+    #: trust comes from and must stay reachable - but it does not need to be the
+    #: second thing the eye lands on, on every row, forever.
+    show_scores: bool = False
 
     def with_column(self, key: str, shown: bool, *, order: Sequence[str]) -> "ViewPreferences":
         """Turn one column on or off, keeping the canonical column order.
@@ -88,11 +102,8 @@ class ViewPreferences:
         # broken one, and there is no way back from it through the same menu.
         if not current:
             current = {order[0]}
-        return ViewPreferences(
-            columns=tuple(key for key in order if key in current),
-            density=self.density,
-            font_pt=self.font_pt,
-        )
+        return replace(
+            self, columns=tuple(key for key in order if key in current))
 
 
 def available_columns(
@@ -177,7 +188,19 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
     if font_pt and not (FONT_RANGE[0] <= font_pt <= FONT_RANGE[1]):
         font_pt = DEFAULT_FONT_PT
 
-    return ViewPreferences(columns=columns, density=density, font_pt=font_pt)
+    def flag(key: str, default: bool) -> bool:
+        raw = str(state.get(f"{prefix}:{key}", "") or "").strip().lower()
+        if raw in ("on", "true", "1", "yes"):
+            return True
+        if raw in ("off", "false", "0", "no"):
+            return False
+        return default
+
+    return ViewPreferences(
+        columns=columns, density=density, font_pt=font_pt,
+        group_by_document=flag("group", True),
+        show_scores=flag("scores", False),
+    )
 
 
 def prefs_to_state(prefs: ViewPreferences, prefix: str) -> dict[str, str]:
@@ -186,6 +209,8 @@ def prefs_to_state(prefs: ViewPreferences, prefix: str) -> dict[str, str]:
         f"{prefix}:columns": ",".join(prefs.columns),
         f"{prefix}:density": prefs.density,
         f"{prefix}:font_pt": str(int(prefs.font_pt)),
+        f"{prefix}:group": "on" if prefs.group_by_document else "off",
+        f"{prefix}:scores": "on" if prefs.show_scores else "off",
     }
 
 
@@ -226,6 +251,7 @@ def build_menu(
     columns: Sequence[tuple[str, str]],
     available: Sequence[str],
     on_change: Any,
+    grouping: bool = False,
 ) -> Any:
     """The "View" menu: which columns, how tight, how big.
 
@@ -269,6 +295,31 @@ def build_menu(
         )
         menu.addAction(action)
 
+    if grouping:
+        # Only where grouping means anything. A table of files has one row per
+        # file already, and offering to "group" it would be offering nothing.
+        menu.addSection("Results")
+        group = QAction("One row per document", menu)
+        group.setCheckable(True)
+        group.setChecked(prefs.group_by_document)
+        group.setToolTip(
+            "A long document matching in five places takes five rows without this."
+        )
+        group.toggled.connect(
+            lambda checked: on_change(replace(prefs, group_by_document=checked)))
+        menu.addAction(group)
+
+        scores = QAction("Show why each result matched", menu)
+        scores.setCheckable(True)
+        scores.setChecked(prefs.show_scores)
+        scores.setToolTip(
+            "The match reason and score, on every row.\n"
+            "They are always in the tooltip and the right-click menu."
+        )
+        scores.toggled.connect(
+            lambda checked: on_change(replace(prefs, show_scores=checked)))
+        menu.addAction(scores)
+
     menu.addSection("Text size")
     box = QWidget(menu)
     row = QHBoxLayout(box)
@@ -300,6 +351,7 @@ def button(
     *,
     columns: Sequence[tuple[str, str]] = (),
     on_change: Any = None,
+    grouping: bool = False,
 ) -> Any:
     """A "View" button that owns its own preferences, menu and persistence.
 
@@ -335,7 +387,7 @@ def button(
     def show(at: Any = None) -> None:
         menu = build_menu(
             widget, widget.prefs, columns=columns,
-            available=widget.available, on_change=changed,
+            available=widget.available, on_change=changed, grouping=grouping,
         )
         menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
 

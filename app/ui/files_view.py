@@ -38,9 +38,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.search.commands import expand_slashes
-from app.search.query import parse_query
-from app.ui.presenter import file_rows
+from app.ui.presenter import file_query, file_rows
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -71,6 +69,10 @@ _log = logger.bind(component="ui.files")
 #: no vectors to probe - one FTS5 lookup over a table of filenames - so the only
 #: reason to wait at all is to avoid a query per keystroke on a fast typist.
 NAME_DEBOUNCE_MS = 80
+
+#: Below this, a name query matches nearly everything and the answer is not
+#: useful. The *list* is not cleared while typing towards it - see `_run`.
+MIN_NAME_CHARS = 2
 
 
 class FilesView(QWidget):
@@ -196,26 +198,33 @@ class FilesView(QWidget):
         self._timer.start()
 
     def _run(self) -> None:
-        # **The `/` commands are parsed, not merely offered.**
-        #
-        # The dropdown existed here first as a copy of the search box's, which
-        # meant `/type pdf` was inserted as `type:pdf` and then handed to a
-        # trigram index as a literal string - matching nothing, with a dropdown
-        # cheerfully suggesting it. An offer the application does not honour is
-        # worse than no offer at all.
-        #
-        # Only the filters this tab can actually apply are used. `type:` becomes
-        # the `ext` argument the store already takes; everything else in the
-        # parse is about document *contents*, which this tab does not read.
-        parsed = parse_query(expand_slashes(self.input.text().strip()))
-        text = " ".join((*parsed.terms, *parsed.names)).strip() or (parsed.text or "").strip()
-        ext = list(parsed.ext)
+        text, ext = file_query(self.input.text())
 
-        # A filter on its own is a complete request: `/type pdf` means "every
-        # PDF", and demanding two characters of name as well would refuse it.
-        if len(text) < 2 and not ext:
+        # **Only an empty box clears the list.**
+        #
+        # Reported as "the mail tab searches as you type, this one is not the
+        # same". Mail never blanks: it keeps what it has until something
+        # replaces it. This wiped the table on the way *to* a query - typing
+        # `in` on the way to `invoice` emptied the screen and then refilled it,
+        # which reads as the tab losing your results rather than working.
+        #
+        # A filter on its own is also a complete request: `/type pdf` means
+        # "every PDF", and demanding characters of name as well would refuse it.
+        if not text and not ext:
             self.results.setRowCount(0)
             self.refresh_summary()
+            return
+        if len(text) < MIN_NAME_CHARS and not ext:
+            # Too short to be meaningful - one character matches nearly every
+            # file - but the previous results stay on screen rather than the
+            # table going blank mid-word.
+            self.summary.setText(
+                f"Keep typing — {MIN_NAME_CHARS} characters or more, "
+                f"or use / for a filter."
+            )
+            # Returns without querying and without clearing: the rows from the
+            # last complete query stay put, which is the whole point.
+            return
             return
 
         # Generation-tagged, like the main search box: a lookup that lands after

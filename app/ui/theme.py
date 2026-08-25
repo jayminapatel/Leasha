@@ -128,6 +128,17 @@ QComboBox, QSpinBox, QTimeEdit {{
 }}
 
 #resultPath {{ font-weight: 600; color: {accent}; }}
+/* The name is the headline now - a browser result, not a printed report. It
+   reads as primary text rather than as a link, because it is the thing being
+   named and not the thing being navigated to. */
+#resultName {{ font-weight: 600; color: {text}; font-size: 15px; }}
+/* A short text tag rather than an icon font: text survives dark mode, high-DPI
+   and a missing font file, none of which is worth paying for yet. */
+#resultKind {{
+    color: {text_faint}; font-size: 10px; font-weight: 700;
+    border: 1px solid {text_faint}; border-radius: 3px;
+    padding: 1px 4px; margin-right: 6px;
+}}
 #resultMeta {{ color: {text_faint}; font-size: 11px; }}
 #resultMissing {{ color: {warning}; font-size: 11px; }}
 #resultSnippet {{ color: {text}; }}

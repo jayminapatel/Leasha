@@ -25,13 +25,14 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
+    interpret_message,
+    mail_details,
     results_message,
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -41,8 +42,9 @@ from app.ui.presenter import (
 )
 from app.ui.results_view import ResultsView
 from app.ui.view_options import button as view_button
-from app.ui.widgets.search_bar import build_interpret, build_rerank, build_scope
-from app.ui.widgets.command_popup import attach_to
+from app.ui.widgets.search_bar import (
+    build_input, build_interpret, build_rerank, build_scope,
+)
 from app.ui.workers import CallableWorker, SearchWorker, run
 
 __all__ = ["SearchView"]
@@ -80,20 +82,15 @@ class SearchView(QWidget):
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._shown_generation = -1
+        #: Whether this session has ever drawn a result. Until it has, an empty
+        #: answer is genuinely empty and should say so; afterwards, blanking a
+        #: list somebody is reading is the worse of the two mistakes.
+        self._shown_anything = False
         self._last_keystroke = time.monotonic()
         self._last_search_id: Optional[int] = None
 
-        self.input = QLineEdit()
-        self.input.setPlaceholderText("Search…    press / for filters")
-        self.input.setClearButtonEnabled(True)
-        self.input.textChanged.connect(self._on_text_changed)
-        self.input.returnPressed.connect(self._on_submitted)
-
-        # Typing `/` lists the filters. They all worked already; nothing in the
-        # app had ever mentioned them, so the box was in practice a bag of words.
-        # The placeholder now advertises the doorway rather than trying to fit
-        # five operators into it, which nobody read.
-        self.commands = attach_to(self.input)
+        self.input, self.commands = build_input(
+            self, self._on_text_changed, self._on_submitted)
 
         # Scope chips. A filter, not a mode: you should never have to decide
         # whether a thing was an email or a document *before* typing, because
@@ -114,7 +111,7 @@ class SearchView(QWidget):
         # No columns: a result is not a table. The same widget as the Files and
         # Mail menus, so all three read identically.
         self.view_button = view_button(
-            self, None, "", on_change=self._view_changed)
+            self, None, "", on_change=self._view_changed, grouping=True)
 
         self.status = QLabel("")
         self.status.setObjectName("searchStatus")
@@ -234,6 +231,7 @@ class SearchView(QWidget):
         # and nothing in the parser - has to know slashes exist.
         query = expand_slashes(self.input.text().strip())
         if not query:
+            self._shown_anything = False
             self.results.clear()
             self.status.setText("")
             return
@@ -262,11 +260,22 @@ class SearchView(QWidget):
         self._shown_generation = generation
 
         self._last_search_id = response.search_id
+        self._shown_anything = self._shown_anything or bool(response.results)
         terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
         summary, status = results_message(response)
 
         if response.results:
-            self.results.show_results(response.results, terms, summary=summary)
+            self.results.show_results(
+                response.results, terms, summary=summary,
+                details=mail_details(getattr(self._engine, "store", None), response.results),
+            )
+        elif self._shown_anything:
+            # **Keep what is on screen.** Mail feels better than this tab
+            # because it never blanks, and a search that momentarily finds
+            # nothing - mid-word, or while the interim tier is still running -
+            # should not empty a list somebody is reading. The summary says
+            # what happened; the results stay until something replaces them.
+            self.status.setText(summary)
         else:
             self.results.clear(summary)
         self.status.setText(status)
@@ -319,10 +328,10 @@ class SearchView(QWidget):
         run(self._pool, worker)
 
     def _interpreted(self, translation: Any) -> None:
-        if translation.changed:
-            # Into the box, so it is visible and editable.
-            self.input.setText(translation.query)
-        self.status.setText(translation.note)
+        query, note = interpret_message(translation)
+        if query is not None:
+            self.input.setText(query)      # visible and editable, never hidden
+        self.status.setText(note)
         self.interpreted.emit(translation)
         self._dispatch(Tier.FULL)
 

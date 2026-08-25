@@ -20,7 +20,32 @@ from typing import Any, Optional
 
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QPushButton, QWidget
 
-__all__ = ["build_scope", "build_interpret", "build_rerank", "SCOPES"]
+__all__ = ["build_input", "build_scope", "build_interpret", "build_rerank", "SCOPES"]
+
+
+def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any) -> Any:
+    """The search box, with the `/` filter dropdown attached.
+
+    Returns `(line_edit, completer)`. The completer must be kept alive by the
+    caller: a `QCompleter` that is garbage collected stops completing, silently,
+    and the dropdown would simply never appear again.
+
+    **The placeholder advertises the doorway, not the grammar.** Every filter
+    worked since Layer 4 and nothing in the application had ever mentioned them,
+    so the box was in practice a bag of words. Five operators do not fit in a
+    placeholder and nobody read them when they were there; `/` does fit, and it
+    is the convention every chat tool has already taught people.
+    """
+    from PyQt6.QtWidgets import QLineEdit
+
+    from app.ui.widgets.command_popup import attach_to
+
+    box = QLineEdit(parent)
+    box.setPlaceholderText("Search…    press / for filters")
+    box.setClearButtonEnabled(True)
+    box.textChanged.connect(on_typed)
+    box.returnPressed.connect(on_submit)
+    return box, attach_to(box)
 
 #: (label, value). Value travels into `ParsedQuery.scope`.
 #:

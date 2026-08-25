@@ -1,12 +1,60 @@
 # Changelog
 
-**Doc version:** 3.18 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.19 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — results are grouped by document, and the row leads with the name
+
+The work order's steps 1-6. **One row per document, not one per matching
+chunk.** A long PDF matching in five places took five of the top ten rows, so
+the person saw three documents where they should have seen ten. Grouping lives
+in `presenter.py` and never in the engine — the §3b measurement was taken
+against chunk-level ranking, and grouping inside the engine would change what
+"rank 1" means and make every future measurement incomparable with that one,
+silently. `SearchEngine` returns exactly what it returned before.
+
+A group is ranked by its **best** chunk, never the mean: averaging punishes a
+long document that matches strongly in one place, which is the common case in an
+archive and precisely the document being looked for. The fetch is four times the
+display count, because grouping shrinks the list.
+
+The row now reads like a browser result: **name first**, a `Archive > 2019 >
+Leeds` breadcrumb small underneath, date right-aligned, a short kind tag. The old
+layout led with a path elided in the *middle* — which is exactly where the
+distinguishing part of a long archive path lives. A multi-match row says
+"3 matches" and expands to the individual passages, each openable at its page.
+
+`explain` and the score **moved, they were not deleted**: tooltip, a "Why this
+result?" menu item, and inline for anyone who ticks the box. Being able to ask is
+where trust comes from; it just does not need to be the second thing the eye
+lands on, forever.
+
+`ext` and `mtime_ns` now reach the UI. Both retrievers had been selecting them
+since Layer 4 and `_to_result` dropped them on the floor — so the date, which in
+a fifteen-year archive is frequently the *only* thing telling two results apart,
+cost one line and no new query. `format_when(0)` returned "01 Jan 1970"; that is
+not a fallback but a false claim, and it now returns nothing.
+
+Mail metadata for a page of results is **one query**, not one per row — at the
+fetch depth grouping needs, a per-row lookup is fifty queries per keystroke.
+
+### Fixed — Search and Files no longer blank while you type
+
+Reported as *"the mail tab searches as you type, this is good; the other two are
+not the same"*. Mail feels better for one reason: **it never blanks.** Files
+wiped its table on the way *to* a query — typing `in` en route to `invoice`
+emptied the screen and refilled it — and Search cleared the pane whenever an
+interim pass momentarily found nothing. Both now keep what is on screen until
+something replaces it. Only an empty box clears.
+
+The scroll position also survives a redraw, so expanding a row or changing a
+preference no longer throws you back to the top.
+
 
 ### Fixed — a prompt with no examples, and a correction to yesterday's diagnosis
 
