@@ -1,12 +1,49 @@
 # Changelog
 
-**Doc version:** 3.17 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.18 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — a prompt with no examples, and a correction to yesterday's diagnosis
+
+`qwen2.5:1.5b` answered in 5.1 seconds and handed the sentence back completely
+unchanged. `emails from chris about buying a licence` should become
+`from:chris licence`; it returned the sentence verbatim.
+
+The prompt was rules with no examples. A 1.5B model pattern-matches far better
+than it reasons, and rules-only prompts are precisely where small models echo.
+**The prompt now carries five worked examples** — a sender, a date range, a file
+type, an exclusion, and one sentence with no constraints at all, so the model
+learns that bare words are a correct answer rather than a failure to find an
+operator.
+
+They were paid for, not added on top: the prompt went from 1,901 to 1,486
+characters. The operator *value hints* are for the dropdown, where a person
+needs to remember what a value looks like; the model never did, and they were
+1,400 of those characters charged on every translation.
+
+A test asserts every example parses cleanly, that every operator is still
+named, and that no example is the sentence the Test button uses — a model handed
+the answer in its own prompt copies it, and the test would then pass for a model
+that cannot do the job.
+
+**And a correction.** Capping generation at 64 tokens was described here as the
+root cause of mistral's thirty-second answer. It was not: with the cap in place
+mistral still timed out at thirty seconds, so its cost is prompt *evaluation*,
+not generation. The cap is still right — it bounds the worst case and stops the
+app paying for text `clean_output` discards — but it was not the fix it was
+claimed to be. The shorter prompt is the change that addresses mistral.
+
+**"Nothing to interpret" was a false claim.** It is a statement about the
+*sentence*, and it was made about one that plainly says "from chris". When the
+model returns the sentence unchanged the message now names the model and says a
+different one may do better — because the fix is a different model, not
+different wording.
+
 
 ### Added — choose the Interpret model from what Ollama actually has
 

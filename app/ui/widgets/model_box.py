@@ -41,14 +41,10 @@ from PyQt6.QtWidgets import (
 )
 
 from app.llm.models import TIMEOUT_RANGE, choose, rank, suggested_timeout_s
+from app.search.translate import TEST_SENTENCE
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ModelBox", "TEST_SENTENCE"]
-
-#: Deliberately a real one, with a filter and a name in it, so the answer shows
-#: whether the model can produce the operator syntax rather than only whether it
-#: can produce text.
-TEST_SENTENCE = "emails from chris about buying a licence last year"
 
 
 class ModelBox(QGroupBox):

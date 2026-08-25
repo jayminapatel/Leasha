@@ -46,7 +46,7 @@ from typing import Any, Optional, Sequence
 from app.core.branding import SHORT_DESCRIPTION, banner
 from app.core.config import Settings, load_settings, project_root
 from app.core.errors import AppError, AppErrorException, make_error
-from app.core.logging import setup_logging, log_app_error, logger
+from app.core.logging import log_app_error, logger, setup_logging
 from app.core.single_instance import SingleInstance
 from app.core.version import build_info
 from app.index.resources import limits_from_settings
@@ -1453,9 +1453,7 @@ def cmd_ollama(args: argparse.Namespace) -> int:
     # like it worked. This runs the real path and prints what came back.
     sentence = getattr(args, "translate", None)
     if sentence:
-        from app.search.translate import QueryTranslator
-
-        from app.search.translate import TRANSLATE_TIMEOUT_S
+        from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
 
         budget = float(getattr(args, "timeout", 0) or TRANSLATE_TIMEOUT_S)
         print()
@@ -1504,7 +1502,6 @@ def cmd_formats(args: argparse.Namespace) -> int:
     key rather than the file.
     """
     import app.extract  # noqa: F401 - importing the package populates REGISTRY
-
     from app.core import formats as formats_mod
     from app.extract import base as extract_base
 

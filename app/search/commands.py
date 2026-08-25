@@ -43,6 +43,8 @@ __all__ = [
     "expand_slashes",
     "help_lines",
     "grammar_for_model",
+    "examples_for_model",
+    "EXAMPLES",
 ]
 
 
@@ -256,15 +258,49 @@ def grammar_for_model() -> str:
     plausible-but-wrong operator produces queries that match nothing and give no
     hint why - which is exactly the failure that makes AI search untrustworthy.
     """
-    lines = ["Available operators (use only these):"]
+    # **The hints are for the dropdown, not for the model.** They exist to help
+    # a person remember what a value looks like, and they made this prompt 1,900
+    # characters - most of it explanation the model does not need, and all of it
+    # paid for on every single translation. The examples below teach the format
+    # far better than prose does, and they cost a fraction of the tokens.
+    lines = ["Operators (use only these):"]
     for command in COMMANDS:
-        lines.append(f"  {command.name}:<value>   {command.summary}. Value: {command.value_hint}")
+        lines.append(f"  {command.name}:<value>  {command.summary}")
     lines += [
-        '  "quoted phrase"   words in this exact order',
-        "  -word             exclude anything containing this word",
-        "  A OR B            either one; must be capitals",
+        '  "quoted phrase"  exact order',
+        "  -word  exclude it",
+        "  A OR B  either (capitals)",
         "",
-        "Dates must be written as YYYY-MM-DD.",
-        "Anything not covered by an operator stays as plain search words.",
+        "Dates as YYYY-MM-DD. Anything with no operator stays as plain words.",
     ]
+    return "\n".join(lines)
+
+
+#: Worked examples for the translation prompt.
+#:
+#: **A small model needs these far more than it needs rules.** With rules only,
+#: qwen2.5:1.5b echoed the sentence back unchanged - which the application then
+#: reported as "nothing to interpret", about a sentence that plainly said "from
+#: chris". Rules describe the format; examples demonstrate it, and a 1.5B model
+#: pattern-matches much better than it reasons.
+#:
+#: Chosen to cover one case each: a sender, a date and a file type, an
+#: exclusion, and - the one most often missed - a sentence with no constraints
+#: at all, so the model learns that returning bare words is a correct answer
+#: rather than a failure to find an operator.
+EXAMPLES: tuple[tuple[str, str], ...] = (
+    ("emails from dave about the contract renewal", "from:dave contract renewal"),
+    ("the pdf about pump maintenance from last March", "type:pdf pump maintenance after:2025-03-01 before:2025-04-01"),
+    ("spreadsheets Priya sent me with attachments", "type:xlsx from:priya has:attachment"),
+    ("notes on the leeds site but not the survey", "leeds site -survey"),
+    ("quarterly revenue figures", "quarterly revenue figures"),
+)
+
+
+def examples_for_model() -> str:
+    """The worked examples, formatted like the real request that follows them."""
+    lines = ["Examples:"]
+    for sentence, query in EXAMPLES:
+        lines.append(f"Sentence: {sentence}")
+        lines.append(f"Query: {query}")
     return "\n".join(lines)

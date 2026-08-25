@@ -32,11 +32,18 @@ __all__ = ["search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS"]
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 VECTOR_LIMIT = 100
 
-#: Above this many eligible file ids, the prefilter is dropped and filtering
-#: falls back to post-hoc. An `IN (...)` list of 50,000 ids is slower to build
-#: and parse than the search it was meant to narrow, and a filter that matches
-#: most of the corpus is not narrowing anything.
+#: Above this many eligible file ids, the pushed-down prefilter is skipped on
+#: the first attempt. An `IN (...)` list of 50,000 ids is slower to build and
+#: parse than the search it was meant to narrow - but skipping it must never
+#: change *which* results come back, so the large-filter path over-fetches and
+#: escalates until the eligible top-k is guaranteed (see `search`).
 MAX_PREFILTER_IDS = 2_000
+
+#: Escalation ladder for the large-filter path: fetch `limit * factor` global
+#: candidates and post-filter. A filter big enough to skip the prefilter
+#: usually matches most of the corpus, so the first rung nearly always fills
+#: the page in one query.
+OVERFETCH_FACTORS = (4, 16)
 
 _log = logger.bind(component="search.vector")
 
@@ -71,32 +78,63 @@ def search(
         _log.error("query embedding failed: {}", exc)
         return []
 
-    where = _prefilter(allowed_file_ids)
     try:
-        rows = vectors.search(query_vector, k=limit, where=where)
+        if allowed_file_ids is None or len(allowed_file_ids) <= MAX_PREFILTER_IDS:
+            # Fast path: no filter, or one small enough to push down whole.
+            rows = vectors.search(
+                query_vector, k=limit, where=_id_clause(allowed_file_ids)
+            )
+            return [_normalise(row) for row in rows]
+        return _search_large_filter(vectors, query_vector, limit, allowed_file_ids)
     except AppErrorException:
         raise
     except Exception as exc:           # noqa: BLE001 - a vector-store hiccup must not
         _log.error("ANN search failed, continuing with keyword results only: {}", exc)
         return []
 
-    results = [_normalise(row) for row in rows]
 
-    # Post-hoc filtering only when the prefilter was skipped for being too
-    # large. Correct but weaker, and logged so the difference is visible.
-    if allowed_file_ids is not None and where is None:
-        results = [row for row in results if row["file_id"] in allowed_file_ids]
+def _search_large_filter(
+    vectors: Any,
+    query_vector: Sequence[float],
+    limit: int,
+    allowed_file_ids: set[int],
+) -> list[dict[str, Any]]:
+    """The eligible top-`limit` when the id list is too big to push down cheaply.
 
-    return results
+    Fetching the global top-`limit` and discarding ineligible rows would lose
+    every eligible hit ranked past `limit` globally - `type:pdf` on a large
+    mixed corpus could return nothing while thousands of PDFs match. So:
+    over-fetch, post-filter, escalate, and if the ladder runs out, push the
+    full id list down anyway. Slower on the last rung, never wrong.
+    """
+    for factor in OVERFETCH_FACTORS:
+        k = limit * factor
+        rows = vectors.search(query_vector, k=k)
+        results = [
+            row for row in (_normalise(r) for r in rows)
+            if row["file_id"] in allowed_file_ids
+        ]
+        if len(results) >= limit or len(rows) < k:
+            # A full page of eligible hits, or the table itself is exhausted:
+            # either way the eligible top-k is complete.
+            return results[:limit]
+        _log.debug(
+            "over-fetch k={} found only {} of {} eligible hits; escalating",
+            k, len(results), limit,
+        )
+
+    # Last rung: the exact prefilter, however large. This is the query the cap
+    # exists to avoid, paid only when the cheap attempts could not fill a page.
+    _log.debug(
+        "over-fetch exhausted; pushing down full {}-id prefilter",
+        len(allowed_file_ids),
+    )
+    rows = vectors.search(query_vector, k=limit, where=_id_clause(allowed_file_ids))
+    return [_normalise(row) for row in rows]
 
 
-def _prefilter(allowed_file_ids: Optional[set[int]]) -> Optional[str]:
-    if allowed_file_ids is None or len(allowed_file_ids) > MAX_PREFILTER_IDS:
-        if allowed_file_ids is not None:
-            _log.debug(
-                "{} eligible files exceeds the prefilter cap; filtering after the search",
-                len(allowed_file_ids),
-            )
+def _id_clause(allowed_file_ids: Optional[set[int]]) -> Optional[str]:
+    if allowed_file_ids is None:
         return None
     ids = ", ".join(str(int(fid)) for fid in sorted(allowed_file_ids))
     return f"file_id IN ({ids})"

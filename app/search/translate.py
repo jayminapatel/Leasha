@@ -52,7 +52,7 @@ from typing import Any, Optional, Protocol
 
 from app.core.errors import AppError, AppErrorException
 from app.core.logging import logger
-from app.search.commands import COMMANDS, grammar_for_model
+from app.search.commands import COMMANDS, examples_for_model, grammar_for_model
 from app.search.query import parse_query
 
 __all__ = [
@@ -62,6 +62,7 @@ __all__ = [
     "clean_output",
     "TRANSLATE_TIMEOUT_S",
     "MAX_QUERY_TOKENS",
+    "TEST_SENTENCE",
     "MAX_OUTPUT_CHARS",
 ]
 
@@ -92,6 +93,19 @@ TRANSLATE_TIMEOUT_S = 30.0
 #: seconds to produce ten tokens of useful output. 64 is generous for a query
 #: and still bounds the worst case tightly.
 MAX_QUERY_TOKENS = 64
+
+#: The sentence the Test button and `app.cli ollama --translate` use.
+#:
+#: Here rather than in the widget so it can be checked without a display - and
+#: because it has one hard requirement that is easy to break by accident: **it
+#: must not appear among the prompt's own examples.** A model handed the answer
+#: in its own prompt copies it, and the test then reports success for a model
+#: that cannot do the job. A test enforces this.
+#:
+#: It has a sender, a subject word and a date, so the answer shows whether the
+#: model can produce operator syntax rather than only whether it can produce
+#: text.
+TEST_SENTENCE = "emails from chris about buying a licence last year"
 
 #: Stop as soon as the line is finished. The prompt asks for one line and
 #: `clean_output` keeps only the first, so anything after the newline is waste
@@ -173,16 +187,41 @@ def build_prompt(sentence: str, *, today: Optional[date] = None) -> str:
     return (
         "Rewrite the user's sentence as a search query.\n\n"
         f"{grammar_for_model()}\n\n"
-        f"Today is {now.isoformat()}. Resolve relative dates against it: "
-        f"'last March' and 'a couple of years ago' become YYYY-MM-DD.\n\n"
-        "Rules:\n"
-        "- Reply with the query and nothing else. No explanation, no code fence.\n"
-        "- Keep the meaningful words. Drop filler like 'find me' and 'the email about'.\n"
-        "- Use an operator only when the sentence clearly states that constraint.\n"
-        "- If the sentence states no constraints, reply with just the key words.\n\n"
+        f"Today is {now.isoformat()}. Write relative dates as YYYY-MM-DD.\n\n"
+        "Reply with the query only - no explanation, no code fence.\n"
+        "Use an operator only where the sentence states that constraint; "
+        "keep everything else as plain words.\n\n"
+        # **Examples, not more rules.** A 1.5B model given rules alone echoed
+        # the sentence straight back, and the application reported that as
+        # "nothing to interpret" about a sentence that plainly said "from
+        # chris". Rules describe the format; examples demonstrate it, and a
+        # small model pattern-matches far better than it reasons.
+        f"{examples_for_model()}\n\n"
         f"Sentence: {sentence}\n"
         "Query:"
     )
+
+
+#: Words that signal a constraint the parser could express. Used only to tell
+#: "the sentence had nothing to interpret" apart from "the model did nothing
+#: with it" - never to decide what to search for, which stays the parser's job.
+_CONSTRAINT_WORDS = frozenset("""
+from to sent subject about attachment attachments pdf pdfs doc docs docx
+spreadsheet spreadsheets xlsx email emails mail before after since during
+last yesterday today week month year years bigger smaller larger than mb kb gb
+folder path named called except without not
+""".split())
+
+
+def _has_nothing_to_interpret(sentence: str) -> bool:
+    """Is a sentence genuinely free of anything an operator could capture?
+
+    Deliberately generous about what counts as a constraint: claiming a sentence
+    is plain when it is not is the mistake being fixed here, and the cost of the
+    opposite is only a slightly less specific message.
+    """
+    words = {word.strip(".,;:!?'\"").lower() for word in (sentence or "").split()}
+    return not (words & _CONSTRAINT_WORDS)
 
 
 def clean_output(text: str) -> str:
@@ -325,6 +364,10 @@ class QueryTranslator:
         # fails: it is a different model, and that is news rather than noise.
         self._warned = False
 
+    def client_name(self) -> str:
+        """The model's name, for a message that has to name it. Never raises."""
+        return str(getattr(self.client, "model", "") or "The model")
+
     def available(self) -> bool:
         """Whether the button should offer to do anything. Never raises."""
         if self.client is None:
@@ -402,9 +445,22 @@ class QueryTranslator:
             raw=raw, query=query, changed=query.strip() != raw, elapsed_s=elapsed,
         )
         if not result.changed:
+            # **Two different things, and they were reported identically.**
+            #
+            # "Nothing to interpret" is a claim about the *sentence*, and it was
+            # made about 'emails from chris about buying a licence' - which
+            # plainly has something to interpret. What actually happened is that
+            # the model handed the sentence straight back, which is a failure of
+            # the model and should read as one, because the fix is a different
+            # model rather than a different sentence.
             result = Translation(
                 raw=raw, query=query, changed=False, elapsed_s=elapsed,
-                note="Nothing to interpret - searched for as typed.",
+                note=(
+                    "Nothing to interpret - searched for as typed."
+                    if _has_nothing_to_interpret(raw)
+                    else f"{self.client_name()} returned the sentence unchanged. "
+                         "A different model may do better; searched for as typed."
+                ),
             )
         self._cache[raw] = result
         log.info("translated in {:.2f}s: {!r} -> {!r}", elapsed, raw[:80], query[:80])
