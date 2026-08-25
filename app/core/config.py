@@ -118,8 +118,15 @@ class Settings(BaseModel):
     #: It is the better *ranker* - that is what the extra 960MB buys - but an
     #: ordering nobody waits for is worth nothing, and 6 seconds is nobody.
     #:
-    #: `app.cli evaluate` measures whether the ordering is still good enough on
-    #: a particular corpus; `RERANK_MODEL` in `.env` puts the old one back.
+    #: **And the quality was then measured, not assumed.** Both models, full
+    #: pipeline, recall at 1 over the built-in corpus: 80% overall, 88% topic,
+    #: 75% constrained, the same four misses. Identical ordering at rank 1 for
+    #: a ninth of the time.
+    #:
+    #: Recall at 1 over 20 questions cannot see reordering below the top result,
+    #: so this is not proof that the two rank identically - only that the swap
+    #: costs nothing visible on the measurement available. `RERANK_MODEL` in
+    #: `.env` puts the old one back, and `--rerank-model` compares without one.
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     rerank_enabled: bool = True
     #: Candidates scored, and characters of each shown to the cross-encoder.

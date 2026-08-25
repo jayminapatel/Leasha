@@ -1,12 +1,40 @@
 # Changelog
 
-**Doc version:** 3.22 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.23 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Measured — the reranker swap costs nothing on the built-in corpus
+
+Both models, full pipeline, recall at 1 over 20 sentences:
+
+| | bge-reranker-base | MiniLM-L-6 |
+|---|---|---|
+| overall | 80% | **80%** |
+| topic only | 88% | **88%** |
+| with a constraint | 75% | **75%** |
+| misses | 4 | **the same 4** |
+| wall clock, 20 queries | ~17s | **~4s** |
+
+Identical ordering at rank 1, 9.2× faster per search. The wall-clock difference
+is the evidence that both reranked rather than both being no-ops — a trap worth
+naming, because identical numbers meant "nothing was measured" twice already in
+this work.
+
+**What this does not prove.** Recall at 1 over 20 questions on a 21-document
+corpus cannot see reordering below the top result, and the note printed under
+every run is right that these numbers are optimistic. `--k 3` is the sharper
+instrument if the question comes back.
+
+**The four misses are identical between models, so they are not ranking
+failures** — a reranker can only reorder what retrieval already found. Three of
+the four want a document about a *licence*, and `attachment` sits at 0% and
+`sender` at 50%. That is a retrieval question, and the next one worth asking.
+
 
 ### Changed — the reranker, on a measurement
 
