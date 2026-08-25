@@ -40,7 +40,10 @@ from app.search.fusion import RRF_K, fuse_hits
 from app.search.query import ParsedQuery, parse_query
 from app.search.rerank import Reranker
 
-__all__ = ["SearchEngine", "SearchResult", "SearchResponse"]
+__all__ = [
+    "SearchEngine", "SearchResult", "SearchResponse", "Notice",
+    "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
+]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
 FUSED_LIMIT = 50
@@ -107,6 +110,33 @@ class SearchResult:
         }
 
 
+#: Codes for `Notice`. Stable, because the UI branches on them and a renamed
+#: code is a silently-dropped notice.
+NOTICE_NO_VECTORS = "NOTICE_NO_VECTORS"
+NOTICE_UNMATCHED_TERMS = "NOTICE_UNMATCHED_TERMS"
+NOTICE_RERANK_UNAVAILABLE = "NOTICE_RERANK_UNAVAILABLE"
+
+
+@dataclass(frozen=True)
+class Notice:
+    """Something the person should be told, which is not an error.
+
+    **Not an `AppError`.** Nothing failed and nothing needs retrying - the
+    search returned results. What happened is that it returned *worse* results
+    than it should have, and saying so is the difference between a person
+    trusting the answer and a person being quietly misled.
+
+    `code` is what callers branch on; `message` is already worded for a human
+    and is free to change without breaking anything.
+    """
+
+    code: str
+    message: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {"code": self.code, "message": self.message}
+
+
 @dataclass
 class SearchResponse:
     results: list[SearchResult] = field(default_factory=list)
@@ -137,6 +167,19 @@ class SearchResponse:
     #: confident, irrelevant results with nothing to say why.
     unmatched: tuple[str, ...] = ()
 
+    #: Degradations the person should be told about, already worded.
+    #:
+    #: **A search that quietly returns worse results is the worst failure this
+    #: application has**, because it looks exactly like a search that worked.
+    #: `keyword_count` and `vector_count` were added to make that visible, and
+    #: they did - to anyone who knew the rule and was reading a log file. In
+    #: the window there was nothing at all.
+    #:
+    #: So the *judgement* lives here rather than in each caller. Every notice
+    #: carries a `code`, because the contract is that the UI never parses a
+    #: message string to decide anything.
+    notices: tuple[Notice, ...] = ()
+
     def __len__(self) -> int:
         return len(self.results)
 
@@ -151,6 +194,9 @@ class SearchResponse:
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
             "unmatched_terms": list(self.unmatched),
+            # Before `results`, deliberately. A degradation buried under twenty
+            # result objects has been reported, and read by nobody.
+            "notices": [notice.as_dict() for notice in self.notices],
             "results": [result.as_dict() for result in self.results],
         }
 
@@ -320,6 +366,13 @@ class SearchEngine:
         )
         if unmatched:
             _log.info("no document contains: {}", ", ".join(unmatched))
+        notices: list[Notice] = []
+        if unmatched:
+            notices.append(Notice(
+                NOTICE_UNMATCHED_TERMS,
+                "Not in the index: " + ", ".join(unmatched)
+                + ". Results match the remaining words only.",
+            ))
         if keyword_hits and not vector_hits:
             # Worth a line in the log every time. Meaning-based search returning
             # nothing while keyword search returns plenty is not a normal state -
@@ -331,6 +384,24 @@ class SearchEngine:
                 "meaning-based search may not be working. Check: app.cli stats",
                 len(keyword_hits),
             )
+            # **And say so where somebody will actually see it.** The log line
+            # above has existed all along; it is visible to a person running
+            # from a console and to nobody else. A degraded search that looks
+            # identical to a working one is the worst failure this application
+            # has, because it is the one nobody reports.
+            notices.append(Notice(
+                NOTICE_NO_VECTORS,
+                "Meaning-based search returned nothing, so these are "
+                "keyword matches only. Run `app.cli stats` to check the "
+                "vector store, and `app.cli reembed` to rebuild it.",
+            ))
+        if want_rerank and not reranked and self.reranker is not None:
+            notices.append(Notice(
+                NOTICE_RERANK_UNAVAILABLE,
+                "Results were not reranked, so their order is weaker than "
+                "usual. Search is otherwise unaffected.",
+            ))
+        response.notices = tuple(notices)
 
         if use_cache and self.cache is not None:
             self._cache_set(cache_key, response)

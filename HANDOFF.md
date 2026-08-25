@@ -60,6 +60,47 @@ entirely rebuildable from your documents, so deleting it is always safe.
 | L9 | Hardening and packaging | Not started |
 | ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
 
+### Standing rule: nothing fails silently
+
+From the owner, 2026-08-25, and it applies everywhere rather than to the one
+case that produced it:
+
+> For all things it should not fail silently it should notify in some way.
+
+The case: a search returned sixty keyword hits and zero vector hits. There
+*was* a warning — `no vector hits ... meaning-based search may not be working`
+— and it went to the log. Visible to somebody running from a console, and to
+nobody else. In the window the search looked like it had worked.
+
+**A degraded result that is indistinguishable from a good one is the failure
+nobody ever reports.** It is worse than a crash, because a crash gets fixed.
+
+What this means in practice, and what has been done about it so far:
+
+- **A log line is not a notification.** `SearchResponse.notices` carries
+  degradations out to whoever is asking — `Notice(code, message)`, because the
+  contract is that the UI never parses a message string to decide anything.
+  `app.cli search` prints them above the results; `--json` lists them before
+  `results`, because a degradation buried under twenty result objects has been
+  reported and read by nobody.
+- **The judgement lives in one place.** `keyword_count` and `vector_count` were
+  already on the response for exactly this and were not enough: raw numbers
+  mean every caller has to know the rule that turns them into a conclusion.
+- **Say what still works, and name the remedy.** A warning without an action is
+  a warning somebody has to research. Every notice says which half of search is
+  unaffected and which command fixes it.
+- **Confirm success too.** `app.cli stats` says *"all 3,355 passages have a
+  vector"* when the stores agree — silence on success is indistinguishable from
+  the check not running.
+- **Three diagnostics this session could not see the problem they existed
+  for**: `doctor` reported its own hardcoded defaults rather than the
+  application's, `leasha --help` crashed for everyone, and `stats` printed both
+  halves of the embedding gap in different sections and left the reader to
+  notice. Assume a diagnostic is lying until it has been run.
+
+**Still to do:** the window does not draw `notices` yet. Backend emits them and
+the CLI shows them; `app/ui/` is the other thread's, and the task is filed.
+
 ### Repository awareness, phase 1 (schema v6)
 
 The request behind this was a 56-flag specification for a git search platform.

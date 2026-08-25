@@ -1908,6 +1908,14 @@ def cmd_search(args: argparse.Namespace) -> int:
         if response.parsed and response.parsed.unknown_operators:
             print(f"  (ignored: {', '.join(response.parsed.unknown_operators)})")
 
+        # **Before the results, and on the way out too.** A search that quietly
+        # returned worse results is the failure nobody reports, because it
+        # looks exactly like one that worked.
+        for notice in response.notices:
+            print(f"  ! {notice.message}")
+        if response.notices:
+            print()
+
         if not response.results:
             print(f"No results for {raw!r}.")
             if response.parsed and response.parsed.has_filters:

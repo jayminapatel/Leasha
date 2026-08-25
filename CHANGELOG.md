@@ -8,6 +8,57 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added — the Code tab shows the files, not just the folder
+
+A list of repository names told you a repository existed and nothing about what
+was in it, so the obvious next click — open it and look — had no answer. Each
+repository now expands into the files indexed under it, in the same five
+columns: a repository's `Files` column holds a count, a file's holds a size, and
+column three is a kind either way. Two tables stacked would have needed two
+headers to say the same thing.
+
+**Children load when a row is opened and not before.** Counting files is cheap —
+`repos_list` does it in the same query — but *listing* them is not, and most
+repositories in the list are not the one being looked for. Building 48,000 items
+for every repository on the chance one gets expanded is the difference between a
+tab that opens instantly and one that appears to hang. Past 500 files the tree
+stops and says so, pointing at the search box, which is one tab away, takes
+`repo:` and was built for the question "which file says this". A tree is for
+looking at what is there.
+
+The files come from `files.repo_id` where the store offers an accessor for it,
+and from a path-prefix walk where it does not — correct either way, only the
+speed differs. **The dedicated accessor is the one thing outstanding for the
+backend thread**: `repo_files(repo_id, limit)`, one query on an indexed column.
+
+Enter and double-click now do the obvious thing for the row you are on: search
+inside a repository, open a file. `Ctrl`-free, one key, because "the obvious next
+thing" differs by level rather than by modifier.
+
+### Changed — the `/` menu offers what each tab can actually honour
+
+**The generic search is the union; the focused tabs are subsets of it.** Search
+is where you type before you know which tab you want, so it offers every command
+there is. A focused tab now offers only what it can honour: Files takes `type:`
+and `name:`, Mail takes precisely the columns the `messages` table has, Code
+takes `repo:`, `type:` and `name:`.
+
+Both halves of that were wrong before. Files and Mail offered the whole
+catalogue, so `/from` in the Files tab inserted a filter the tab then dropped —
+an offer nothing kept, discovered one disappointment at a time. Code offered
+nothing at all, because a list of repositories could not answer most of them;
+now that it lists files, it can, and it does.
+
+`test_command_subsets.py` asserts the relationship rather than the lists: every
+offered command must reach the field its tab's query function consumes, and a
+command added to the catalogue and to no tab fails the build. The rule that
+makes this checkable is that the subsets live in `presenter.py`, which imports
+no Qt — the union rule is about the grammar, not about widgets.
+
+An operator a tab cannot answer is still **named** in the summary rather than
+silently dropped, because filtering to nothing without explanation reads as the
+tab being broken.
+
 ### Added — the Code tab, which is a browser and not a second search
 
 `WORKORDER-git-search-ui.md`. The request was a git search tab; what the audit
@@ -420,6 +471,47 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Added — search says when it has quietly done a worse job
+
+Standing rule from the owner: **nothing fails silently.**
+
+The case that produced it: a search returned sixty keyword hits and zero vector
+hits. There *was* a warning — `no vector hits ... meaning-based search may not
+be working` — and it went to the log. Visible to somebody running from a
+console, and to nobody else. In the window the search looked like it had
+worked.
+
+A degraded result that is indistinguishable from a good one is the failure
+nobody ever reports. It is worse than a crash, because a crash gets fixed.
+
+`SearchResponse.notices` now carries degradations out to whoever asked, as
+`Notice(code, message)` — a code because the contract is that the UI never
+parses a message string to decide anything, and a message because the wording
+should be free to change without breaking a caller. Three so far:
+`NOTICE_NO_VECTORS`, `NOTICE_UNMATCHED_TERMS`, `NOTICE_RERANK_UNAVAILABLE`.
+
+- **The judgement lives in one place.** `keyword_count` and `vector_count` were
+  already on the response for exactly this and were not enough: raw numbers
+  mean every caller has to know the rule that turns them into a conclusion.
+- **`app.cli search` prints them above the results**, and `--json` lists them
+  before `results` — a degradation buried under twenty result objects has been
+  reported and read by nobody.
+- **Each says what still works and names the remedy.** A warning without an
+  action is a warning somebody has to research.
+- **Not reported when it is not a degradation.** Zero vector hits on a query
+  that matched nothing anyway means nothing, and reporting it there would train
+  people to ignore the message that matters.
+
+Nine tests, against a real store with a deliberately empty vector store — the
+reported state. The first version of them asserted the *condition* rather than
+the engine, recomputing `keyword and not vector` in the test and passing
+whatever the engine did; that is the same shape as the `--help` test that could
+not see the bug it was written for, and it is why these go through
+`SearchEngine.search`.
+
+**The window does not draw them yet** — `app/ui/` is the other thread's, and
+the task is filed. Backend emits, CLI shows.
 
 ### Fixed — `app.cli stats` could not answer the warning that sends people to it
 
