@@ -1,12 +1,45 @@
 # Changelog
 
-**Doc version:** 3.16 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.17 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — choose the Interpret model from what Ollama actually has
+
+Typing a model name into `.env` and hoping is not a choice, it is a guess, and
+the guess was wrong on the owner's machine in three separate ways. Settings now
+has a **Model** dropdown listing what `ollama list` reports, each row saying what
+that model will cost — `qwen2.5:1.5b — small and fast, ample for rewriting a
+query` against `gpt-oss:20b — large, expect to wait`. A **Test** button runs one
+real interpretation and reports the seconds, because the choice is a speed
+decision and a speed decision needs a measurement.
+
+Choosing a model sets a budget that fits it, and both apply immediately rather
+than on restart. Saved in `index_state`, not written back into `.env`. Embedding
+models are listed but greyed out with the reason — hiding `nomic-embed-text`
+invites hunting for a model `ollama list` plainly shows.
+
+The probe runs off the UI thread, and **a failed probe never changes the
+configured model** — an empty list means Ollama was not answering at that
+moment, not that the choice was wrong.
+
+`app.cli ollama` gained `--model NAME` to try one before committing to it.
+
+### Fixed — nothing capped how much the model generated
+
+`num_predict` is unlimited for Ollama's `/api/generate`, so a model asked for a
+one-line query was free to write paragraphs explaining itself — and
+`clean_output` discarded everything after the first line. **The wait was for
+text that was thrown away.** That is why mistral took over thirty seconds to
+produce roughly ten tokens of useful output.
+
+Generation is now capped at 64 tokens and stops at the first newline. The prompt
+always asked for one line; now something enforces it.
+
 
 ### Fixed — four UI bugs that were doing real damage
 

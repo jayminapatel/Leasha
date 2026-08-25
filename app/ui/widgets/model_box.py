@@ -1,0 +1,287 @@
+"""Choose which Ollama model Interpret uses, from the ones actually installed.
+
+Layer: L5
+
+Typing a model name into `.env` and hoping is not a choice, it is a guess — and
+this session showed what the guess costs. The default was `mistral` with a
+five-second budget; the prompt is 1,900 characters; the feature failed every
+time on a machine with five perfectly good models installed, one of them small
+enough to have answered instantly.
+
+So the list comes from Ollama, each row says what that model will cost, and
+**Test** runs a real translation and reports the seconds. The whole point is to
+turn a guess into a measurement, because the measurement is the thing that was
+missing.
+
+**Nothing here touches the network on the UI thread.** Probing a dead Ollama
+costs the connect timeout, and a window that stops repainting for three seconds
+is indistinguishable from a crashed one. Both the refresh and the test go
+through `workers.run()`.
+
+**The configured model survives a failed probe.** If Ollama is not answering the
+list is empty, and dropping the saved value because of that would silently
+change a setting the person chose. The box says why the list is short and keeps
+what it had.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from PyQt6.QtCore import QThreadPool, pyqtSignal
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QWidget,
+)
+
+from app.llm.models import TIMEOUT_RANGE, choose, rank, suggested_timeout_s
+from app.ui.workers import CallableWorker, run
+
+__all__ = ["ModelBox", "TEST_SENTENCE"]
+
+#: Deliberately a real one, with a filter and a name in it, so the answer shows
+#: whether the model can produce the operator syntax rather than only whether it
+#: can produce text.
+TEST_SENTENCE = "emails from chris about buying a licence last year"
+
+
+class ModelBox(QGroupBox):
+    """The Interpret model, its budget, and a button that proves both."""
+
+    #: (model, timeout_s). One signal for both, because they are one decision:
+    #: changing the model without changing the budget is how a large model looks
+    #: broken instead of slow.
+    changed = pyqtSignal(str, int)
+
+    def __init__(self, client_factory: Any, parent: Optional[QWidget] = None) -> None:
+        super().__init__("AI query interpretation (optional)", parent)
+        #: Called with no arguments to get a fresh OllamaClient. A factory
+        #: rather than a client, so the box can build one against whatever URL
+        #: and model are current without owning that knowledge.
+        self._client_factory = client_factory
+        self._configured = ""
+        self._loading = False
+
+        self.model = QComboBox()
+        self.model.setToolTip(
+            "Which model rewrites a sentence into a search query.\n\n"
+            "Smaller is usually better here: the job is to turn one sentence into\n"
+            "a short query, and a 1.5B model does that as well as a 7B one in a\n"
+            "fraction of the time. Search never uses this - only the Interpret\n"
+            "button does."
+        )
+        self.model.currentIndexChanged.connect(self._on_model_chosen)
+
+        self.timeout = QSpinBox()
+        self.timeout.setRange(*TIMEOUT_RANGE)
+        self.timeout.setSuffix(" s")
+        self.timeout.setKeyboardTracking(False)
+        self.timeout.setToolTip(
+            "How long to let the model think before giving up.\n\n"
+            "This was five seconds against a job that takes thirty, so Interpret\n"
+            "failed every time and blamed Ollama for not answering. Choosing a\n"
+            "model sets a sensible budget for it; adjust only if you see timeouts."
+        )
+        self.timeout.valueChanged.connect(lambda _v: self._emit())
+
+        self.refresh_button = QPushButton("Refresh list")
+        self.refresh_button.setToolTip("Ask Ollama which models are installed")
+        self.refresh_button.clicked.connect(lambda _c=False: self.refresh())
+
+        self.test_button = QPushButton("Test")
+        self.test_button.setToolTip(
+            "Run one real interpretation and show what came back, and how long\n"
+            "it took. The only way to know whether a model is fast enough."
+        )
+        self.test_button.clicked.connect(lambda _c=False: self.test())
+
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setObjectName("resultsSummary")
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.refresh_button)
+        buttons.addWidget(self.test_button)
+        buttons.addStretch(1)
+
+        form = QFormLayout(self)
+        form.addRow("Model", self.model)
+        form.addRow("Give it up to", self.timeout)
+        form.addRow(buttons)
+        form.addRow(self.status)
+
+    # -- loading ---------------------------------------------------------------
+
+    def load(self, model: str, timeout_s: int) -> None:
+        """Show the saved settings, then go and ask Ollama what exists.
+
+        In that order deliberately: the saved model appears immediately even if
+        Ollama is slow or absent, so the panel is never briefly blank or briefly
+        wrong.
+        """
+        self._configured = (model or "").strip()
+        with _quiet(self.timeout):
+            self.timeout.setValue(int(timeout_s or suggested_timeout_s(None)))
+        self._show_models([])
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Ask Ollama for its model list, off the UI thread."""
+        if self._loading:
+            return
+        self._loading = True
+        self.refresh_button.setEnabled(False)
+        self.status.setText("Asking Ollama which models are installed…")
+
+        worker = CallableWorker(self._list_models, component="ui.models")
+        worker.signals.finished.connect(self._show_models)
+        worker.signals.failed.connect(lambda _e: self._show_models([]))
+        worker.signals.done.connect(self._loaded)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _list_models(self) -> list[str]:
+        """Worker thread. `available_models` never raises; it returns []."""
+        try:
+            return list(self._client_factory().available_models())
+        except Exception:                        # noqa: BLE001 - a probe, not a search
+            return []
+
+    def _loaded(self) -> None:
+        self._loading = False
+        self.refresh_button.setEnabled(True)
+
+    def _show_models(self, installed: Any) -> None:
+        """Fill the dropdown. UI thread, no I/O."""
+        names = [str(name) for name in (installed or [])]
+        selected, note = choose(self._configured, names)
+
+        with _quiet(self.model):
+            self.model.clear()
+            for choice in rank(names):
+                self.model.addItem(choice.label, choice.name)
+                if not choice.selectable:
+                    # Shown but not choosable, with the reason in the label.
+                    # Hiding it invites hunting for a model that `ollama list`
+                    # plainly shows.
+                    index = self.model.count() - 1
+                    item = self.model.model().item(index)
+                    if item is not None:
+                        item.setEnabled(False)
+
+            # The configured model always appears, even when the probe found
+            # nothing and even when it is not installed. Dropping it would
+            # silently change a setting somebody chose.
+            if selected and self.model.findData(selected) < 0:
+                self.model.insertItem(0, selected, selected)
+            position = self.model.findData(selected)
+            self.model.setCurrentIndex(max(0, position))
+
+        self.status.setText(note or self._speed_note(names, selected))
+
+    def _speed_note(self, installed: list[str], selected: str) -> str:
+        smaller = [
+            choice for choice in rank(installed)
+            if choice.selectable and choice.billions is not None and choice.billions <= 2
+            and choice.name != selected
+        ]
+        if smaller:
+            return (
+                f"{len(installed)} models installed. Interpret only rewrites one "
+                f"sentence, so {smaller[0].name} would likely do the same job faster."
+            )
+        return f"{len(installed)} models installed." if installed else ""
+
+    # -- changing --------------------------------------------------------------
+
+    def _on_model_chosen(self, _index: int) -> None:
+        chosen = str(self.model.currentData() or "")
+        if not chosen or chosen == self._configured:
+            return
+        self._configured = chosen
+        # A new model gets a budget that fits it. Changing the model without
+        # the budget is how a large model looks broken rather than slow - which
+        # is exactly what happened with a 7B model and five seconds.
+        from app.llm.models import parameter_billions
+
+        with _quiet(self.timeout):
+            self.timeout.setValue(suggested_timeout_s(parameter_billions(chosen)))
+        self.status.setText(f"Using {chosen}. Press Test to see how fast it is.")
+        self._emit()
+
+    def _emit(self) -> None:
+        model = str(self.model.currentData() or self._configured or "")
+        if model:
+            self.changed.emit(model, int(self.timeout.value()))
+
+    # -- testing ---------------------------------------------------------------
+
+    def test(self) -> None:
+        """One real interpretation, off the UI thread, reported with its time."""
+        model = str(self.model.currentData() or self._configured or "")
+        if not model:
+            self.status.setText("Choose a model first.")
+            return
+
+        self.test_button.setEnabled(False)
+        self.status.setText(f"Asking {model} to interpret a sentence…")
+
+        budget = int(self.timeout.value())
+        worker = CallableWorker(self._translate, model, budget, component="ui.models")
+        worker.signals.finished.connect(self._show_test)
+        worker.signals.failed.connect(
+            lambda error: self.status.setText(f"[{error.code}] {error.message}"))
+        worker.signals.done.connect(lambda: self.test_button.setEnabled(True))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _translate(self, model: str, budget: int) -> Any:
+        """Worker thread. Uses the real translator, so this tests what runs."""
+        from app.search.translate import QueryTranslator
+
+        client = self._client_factory()
+        client.model = model
+        return QueryTranslator(client, timeout_s=float(budget)).translate(TEST_SENTENCE)
+
+    def _show_test(self, result: Any) -> None:
+        seconds = getattr(result, "elapsed_s", 0.0)
+        if getattr(result, "changed", False):
+            self.status.setText(
+                f"Worked in {seconds:.1f}s.  \"{TEST_SENTENCE}\"  became  "
+                f"\"{result.query}\""
+            )
+            return
+
+        error = getattr(result, "error", None)
+        if error is not None and getattr(error, "code", "") == "ERR_OLLAMA_TIMEOUT":
+            # The specific failure this panel exists to prevent, so it gets the
+            # specific fix rather than a generic one.
+            self.status.setText(
+                f"Gave up after {seconds:.0f}s. Either raise the budget above, or "
+                f"choose a smaller model - Interpret only has to rewrite a sentence."
+            )
+            return
+        self.status.setText(getattr(result, "note", "") or "No usable query came back.")
+
+
+class _quiet:
+    """Set a widget's value without its signals firing.
+
+    Without it, filling the dropdown emits `currentIndexChanged` for every item
+    added, each one read as the person choosing a model - so loading the panel
+    would save a different model than the one that was saved.
+    """
+
+    def __init__(self, widget: Any) -> None:
+        self._widget = widget
+
+    def __enter__(self) -> Any:
+        self._widget.blockSignals(True)
+        return self._widget
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._widget.blockSignals(False)

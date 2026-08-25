@@ -61,6 +61,7 @@ __all__ = [
     "build_prompt",
     "clean_output",
     "TRANSLATE_TIMEOUT_S",
+    "MAX_QUERY_TOKENS",
     "MAX_OUTPUT_CHARS",
 ]
 
@@ -80,6 +81,26 @@ log = logger.bind(component="search.translate")
 #: also pays for loading the model into memory. A budget shorter than the work
 #: is not responsiveness, it is a feature that never runs.
 TRANSLATE_TIMEOUT_S = 30.0
+
+#: Tokens the model may generate. A query is a handful of words - `from:chris
+#: licence` is four tokens - and `clean_output` discards everything after the
+#: first line anyway.
+#:
+#: **Ollama generates without limit unless told otherwise**, so a chatty model
+#: was free to write paragraphs of explanation that were then thrown away, while
+#: the caller waited for every token. That is what made mistral take over thirty
+#: seconds to produce ten tokens of useful output. 64 is generous for a query
+#: and still bounds the worst case tightly.
+MAX_QUERY_TOKENS = 64
+
+#: Stop as soon as the line is finished. The prompt asks for one line and
+#: `clean_output` keeps only the first, so anything after the newline is waste
+#: by definition. Stopping is cheaper than generating and truncating.
+#:
+#: A leading newline would end generation instantly and yield nothing - but that
+#: is a rejected-and-fall-back outcome, which is exactly what an empty answer
+#: should be, rather than a crash or a wrong query.
+STOP_SEQUENCES = ["\n"]
 
 #: A reply longer than this is prose, not a query, whatever it says. Guards
 #: against a model that decides to explain itself at length.
@@ -112,7 +133,8 @@ class _Client(Protocol):
     def health(self, *, force: bool = ...) -> bool: ...
     def has_model(self) -> bool: ...
     def generate(self, prompt: str, *, json_mode: bool = ..., temperature: float = ...,
-                 timeout: Optional[float] = ...) -> Any: ...
+                 timeout: Optional[float] = ..., max_tokens: Optional[int] = ...,
+                 stop: Optional[list[str]] = ...) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +307,24 @@ class QueryTranslator:
         self._cache: dict[str, Translation] = {}
         self._warned = False
 
+    def reconfigure(self, *, model: Optional[str] = None,
+                    timeout_s: Optional[float] = None) -> None:
+        """Change the model or its budget without a restart.
+
+        **The cache is emptied.** Every entry in it was produced by the previous
+        model, so keeping them would make a newly-chosen model appear to do
+        nothing at all on any sentence tried before - and trying the same
+        sentence again is the first thing anybody does after switching.
+        """
+        if timeout_s is not None:
+            self.timeout_s = float(timeout_s)
+        if model and self.client is not None and hasattr(self.client, "set_model"):
+            self.client.set_model(model)
+        self._cache.clear()
+        # So the "unavailable" line is logged again if the new model also
+        # fails: it is a different model, and that is news rather than noise.
+        self._warned = False
+
     def available(self) -> bool:
         """Whether the button should offer to do anything. Never raises."""
         if self.client is None:
@@ -320,6 +360,8 @@ class QueryTranslator:
                 build_prompt(raw, today=self.today),
                 temperature=0.0,
                 timeout=self.timeout_s,
+                max_tokens=MAX_QUERY_TOKENS,
+                stop=STOP_SEQUENCES,
             )
             text = getattr(response, "text", "") or ""
         except AppErrorException as exc:

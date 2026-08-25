@@ -35,7 +35,7 @@ from app.core.branding import window_title
 from app.core.logging import logger
 from app.index.resources import limits_from_settings
 from app.llm.ollama import OllamaClient
-from app.search.translate import QueryTranslator
+from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
 from app.index.schedule import SchedulePolicy
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
@@ -133,9 +133,19 @@ class MainWindow(QMainWindow):
         # Optional, and never on the retrieval path: `Interpret` spends a
         # second on a model to build a query, which then goes into the box for
         # the person to read and edit. Plain Enter never touches it.
+        #
+        # The model and its budget come from `index_state` when they are there,
+        # falling back to `.env`. Same rule as every other setting in this
+        # window: the application never edits a file the user maintains by
+        # hand, so a choice made in Settings is stored beside the index.
+        model = self._read_state("ui:ollama_model", "") or settings.ollama_model
+        budget = self._read_state("ui:ollama_timeout_s", "")
+        self._ollama = OllamaClient(settings.ollama_url, model)
         translator = QueryTranslator(
-            OllamaClient(settings.ollama_url, settings.ollama_model)
+            self._ollama,
+            timeout_s=float(budget) if budget.isdigit() else TRANSLATE_TIMEOUT_S,
         )
+        self._translator = translator
         self.search_view = SearchView(engine, translator)
         self.search_view.result_opened.connect(self._open_result)
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
@@ -167,6 +177,8 @@ class MainWindow(QMainWindow):
         self.settings_view.set_roots(self._load_roots())
         self.settings_view.roots_changed.connect(self._save_roots)
         self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
+        self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
+        self.settings_view.models.load(model, int(translator.timeout_s))
         self.settings_view.convert_pst_requested.connect(self._convert_pst)
         self.settings_view.indexing.load_indexing(settings)
         self.settings_view.indexing.schedule_changed.connect(self._schedule_changed)
@@ -401,6 +413,26 @@ class MainWindow(QMainWindow):
         # fsyncs on the UI thread for one change nobody thinks of as five.
         self._store.set_states({f"ui:{key}": str(value) for key, value in values.items()})
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
+
+    def _ollama_model_changed(self, model: str, timeout_s: int) -> None:
+        """Apply a model choice immediately, and persist it.
+
+        **Live, not on restart.** The client and the translator are mutated in
+        place rather than rebuilt, so the choice takes effect on the very next
+        press of Interpret - which matters because the natural next thing to do
+        after choosing a model is to try it.
+
+        The health cache is cleared: it was answered about the *old* model, and
+        a stale "yes" would let a generate call proceed against a model that is
+        not installed, failing several seconds later for no visible reason.
+        """
+        self._translator.reconfigure(model=model, timeout_s=float(timeout_s))
+        self._store.set_states({
+            "ui:ollama_model": model,
+            "ui:ollama_timeout_s": str(int(timeout_s)),
+        })
+        self.statusBar().showMessage(
+            f"Interpret will use {model}, with up to {timeout_s}s.", 8_000)
 
     def _read_state(self, key: str, default: str = "") -> str:
         """One small key, defaulted rather than raised.

@@ -160,6 +160,18 @@ class OllamaClient:
         self._healthy_until = now + HEALTH_CACHE_S
         return self._last_health
 
+    def set_model(self, name: str) -> None:
+        """Point this client at a different model, now.
+
+        **The health cache must go with it.** `health()` caches for
+        HEALTH_CACHE_S, and that answer was about the *old* model. A stale "yes"
+        lets `generate` proceed against a model that is not installed, so the
+        failure arrives seconds later from a call that had already been told
+        everything was fine.
+        """
+        self.model = (name or "").strip() or self.model
+        self._healthy_until = 0.0
+
     def available_models(self) -> list[str]:
         try:
             payload = self._get("/api/tags", timeout=min(self.timeout, 5.0))
@@ -231,6 +243,8 @@ class OllamaClient:
         json_mode: bool = False,
         temperature: float = 0.0,
         timeout: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[list[str]] = None,
     ) -> OllamaResponse:
         """One completion. Raises `AppErrorException(ERR_OLLAMA_DOWN)` on anything.
 
@@ -248,6 +262,21 @@ class OllamaClient:
             "stream": False,
             "options": {"temperature": temperature},
         }
+        if max_tokens:
+            # **Ollama generates without limit by default.** `num_predict` is -1
+            # for /api/generate, so a model asked for a one-line answer is free
+            # to write three paragraphs explaining itself - and every token of
+            # that is paid for at the caller's timeout.
+            #
+            # This was not theoretical: mistral took over thirty seconds on a
+            # prompt whose useful answer is about ten tokens, and `clean_output`
+            # then discarded everything after the first line. The wait was for
+            # text that was thrown away.
+            payload["options"]["num_predict"] = int(max_tokens)
+        if stop:
+            # Cheaper still: stop the moment the answer is complete rather than
+            # generating up to the cap and truncating afterwards.
+            payload["options"]["stop"] = list(stop)
         if json_mode:
             payload["format"] = "json"
 

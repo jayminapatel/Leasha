@@ -158,3 +158,115 @@ def test_a_missing_client_is_still_not_re_probed():
     first = translator.translate("find the invoice")
     second = translator.translate("find the invoice")
     assert first.query == second.query == "find the invoice"
+
+
+# ---------------------------------------------------------------------------
+# Four: the generation was never bounded
+# ---------------------------------------------------------------------------
+
+class Recorder:
+    """Captures the options a translation asks for."""
+
+    def __init__(self):
+        self.kwargs = {}
+
+    def health(self, *, force: bool = False) -> bool:
+        return True
+
+    def has_model(self) -> bool:
+        return True
+
+    def generate(self, prompt, **kwargs):
+        self.kwargs = kwargs
+
+        class Reply:
+            text = "from:chris licence"
+        return Reply()
+
+
+def test_generation_is_capped():
+    """**The root cause of a thirty-second wait for a ten-token answer.**
+
+    Ollama's `num_predict` is unlimited for /api/generate, so a model asked for
+    one line was free to write paragraphs of explanation - and `clean_output`
+    then discarded everything after the first line. The caller waited for text
+    that was thrown away.
+    """
+    from app.search.translate import MAX_QUERY_TOKENS
+
+    client = Recorder()
+    QueryTranslator(client).translate("emails from chris about a licence")
+    assert client.kwargs.get("max_tokens") == MAX_QUERY_TOKENS
+
+
+def test_the_cap_is_generous_for_a_query_but_still_a_cap():
+    """`from:chris licence` is four tokens. The cap only has to stop an essay."""
+    from app.search.translate import MAX_QUERY_TOKENS
+
+    assert 16 <= MAX_QUERY_TOKENS <= 128
+
+
+def test_generation_stops_at_the_end_of_the_line():
+    """Cheaper than generating to the cap and truncating: the prompt asks for
+    one line and only the first is kept, so everything after it is waste by
+    definition."""
+    client = Recorder()
+    QueryTranslator(client).translate("emails from chris about a licence")
+    assert client.kwargs.get("stop") == ["\n"]
+
+
+def test_the_budget_still_travels_with_the_request():
+    client = Recorder()
+    QueryTranslator(client, timeout_s=17.0).translate("find the invoice")
+    assert client.kwargs.get("timeout") == 17.0
+
+
+def test_reconfiguring_changes_the_budget_and_forgets_the_old_answers():
+    """A cached translation was produced by the *previous* model. Keeping it
+    would make a newly-chosen model appear to do nothing on any sentence tried
+    before - and trying the same sentence again is the first thing anybody does
+    after switching."""
+    client = Recorder()
+    translator = QueryTranslator(client, timeout_s=5.0)
+    translator.translate("find the invoice")
+
+    translator.reconfigure(timeout_s=45.0)
+    translator.translate("find the invoice")
+
+    assert translator.timeout_s == 45.0
+    assert client.kwargs.get("timeout") == 45.0, "the second call must not be a cache hit"
+
+
+def test_reconfiguring_points_the_client_at_the_new_model():
+    class WithModel(Recorder):
+        model = "mistral"
+
+        def set_model(self, name):
+            self.model = name
+
+    client = WithModel()
+    QueryTranslator(client).reconfigure(model="qwen2.5:1.5b")
+    assert client.model == "qwen2.5:1.5b"
+
+
+def test_changing_the_model_clears_the_health_cache():
+    """`health()` caches for ten seconds, and that answer was about the old
+    model. A stale yes lets generate proceed against a model that is not
+    installed, so the failure arrives seconds later from a call that had already
+    been told everything was fine."""
+    from app.llm.ollama import OllamaClient
+
+    client = OllamaClient(transport=lambda *_a, **_k: {"models": []})
+    client.health()
+    client.set_model("qwen2.5:1.5b")
+    assert client._healthy_until == 0.0
+    assert client.model == "qwen2.5:1.5b"
+
+
+def test_setting_an_empty_model_keeps_the_current_one():
+    """A blank from a half-loaded dropdown must not wipe a working setting."""
+    from app.llm.ollama import OllamaClient
+
+    client = OllamaClient(model="mistral")
+    client.set_model("")
+    assert client.model == "mistral"

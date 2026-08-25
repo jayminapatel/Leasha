@@ -40,6 +40,7 @@ from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
+from app.ui.widgets.model_box import ModelBox
 
 __all__ = ["SettingsView"]
 
@@ -49,6 +50,8 @@ _log = logger.bind(component="ui.settings")
 class SettingsView(QWidget):
     roots_changed = pyqtSignal(list)
     pst_backend_changed = pyqtSignal(str)
+    #: (model, timeout_s) for the Interpret button.
+    ollama_model_changed = pyqtSignal(str, int)
     convert_pst_requested = pyqtSignal(str, str)   # archive, destination
     rerank_toggled = pyqtSignal(bool)
 
@@ -153,6 +156,13 @@ class SettingsView(QWidget):
         self.file_types = FileTypesEditor(settings)
         self.file_types.error.connect(self.error)
 
+        # --- which Ollama model interprets a sentence (its own widget)
+        #
+        # A factory rather than a client: the URL can change in the box above,
+        # and a client built once at startup would keep asking the old address.
+        self.models = ModelBox(self._make_client)
+        self.models.changed.connect(self.ollama_model_changed)
+
         # --- environment and diagnostics (its own widget; see the module)
         self.environment = EnvironmentBox(settings)
         self.environment.recording_toggled.connect(self.debug_recording_toggled)
@@ -163,6 +173,7 @@ class SettingsView(QWidget):
         layout.addWidget(pst_box)
         layout.addWidget(behaviour)
         layout.addWidget(privacy)
+        layout.addWidget(self.models)
         layout.addWidget(self.file_types)
         layout.addWidget(self.environment, stretch=1)
 
@@ -174,6 +185,18 @@ class SettingsView(QWidget):
     def set_roots(self, roots: list[str]) -> None:
         self.roots.clear()
         self.roots.addItems(roots)
+
+    def _make_client(self):
+        """A fresh OllamaClient against whatever URL is currently in the box.
+
+        Built per call so editing the URL above takes effect without a restart,
+        and so a probe never holds a reference to a client the rest of the app
+        is also using.
+        """
+        from app.llm.ollama import OllamaClient
+
+        url = self.ollama_url.text().strip() or self._settings.ollama_url
+        return OllamaClient(url, self._settings.ollama_model)
 
     def current_roots(self) -> list[str]:
         return [self.roots.item(i).text() for i in range(self.roots.count())]

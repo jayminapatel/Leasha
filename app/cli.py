@@ -1392,7 +1392,11 @@ def cmd_ollama(args: argparse.Namespace) -> int:
     settings = _load(args)
     setup_logging(settings.log_path)
 
-    client = OllamaClient(settings.ollama_url, settings.ollama_model)
+    # `--model` overrides without editing .env, so a model can be tried before
+    # it is committed to. The whole point of the flag: the choice is a speed
+    # decision, and a speed decision needs a measurement rather than a guess.
+    wanted = getattr(args, "model", None) or settings.ollama_model
+    client = OllamaClient(settings.ollama_url, wanted)
     report = client.diagnose()
 
     if args.json:
@@ -1806,6 +1810,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ollama.add_argument(
         "--translate", metavar="SENTENCE",
         help="also run one real translation end to end, and show what came back")
+    p_ollama.add_argument(
+        "--model", metavar="NAME",
+        help="check this model instead of OLLAMA_MODEL - try one before committing to it")
     p_ollama.add_argument(
         "--timeout", type=float, metavar="SECONDS",
         help="seconds to allow the model for --translate (default: %(default)s)"
