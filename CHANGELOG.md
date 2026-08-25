@@ -421,6 +421,28 @@ per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
 
+### Fixed — `app.cli stats` could not answer the warning that sends people to it
+
+    no vector hits for a query with 60 keyword hits - meaning-based search
+    may not be working. Check: app.cli stats
+
+`stats` printed SQLite's chunk count and LanceDB's row count in **different
+sections** and left the reader to notice they disagreed. That difference is the
+whole failure: SQLite marks a chunk `embedded = 1` when its vector is written,
+and if the write did not survive - an interrupted run, a rebuilt vector store -
+the mark stays and nothing anywhere compares the two.
+
+Same shape as `doctor` reporting its own defaults: a diagnostic that cannot see
+the problem it exists for. It now reconciles the stores, says which way they
+disagree, notes that keyword search is unaffected, and names `app.cli reembed`
+as the remedy - a number without an action is a number somebody has to research.
+
+It also confirms when they *agree*, because silence on success is
+indistinguishable from the check not running.
+
+Verified that the batching in the previous entry did not cause this: a full
+pipeline run writes 25 chunks, marks 25 embedded and leaves 25 rows in LanceDB.
+
 ### Fixed — indexing paused and resumed for ten minutes without getting anywhere
 
 Reported from a real run against the project folder:

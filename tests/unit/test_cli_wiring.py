@@ -390,3 +390,81 @@ def test_repos_lists_what_the_store_holds(tmp_path, capsys):
     # A repository with no attributed files still appears - LEFT JOIN, not JOIN.
     assert "empty" in out
     assert "worktree" in out
+
+
+# ---------------------------------------------------------------------------
+# The embedding gap, which is what "no vector hits" actually means
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("chunks, claimed, rows, expect_gap", [
+    (3355, 3355, 3355, False),   # healthy
+    (3355, 3355, 154, True),     # the reported failure: SQLite lies, vectors gone
+    (3355, 3355, 0, True),       # vector store empty or rebuilt
+    (3355, 154, 154, True),      # honest, but incomplete
+    (0, 0, 0, None),             # nothing indexed: nothing to say
+])
+def test_the_embedding_gap_is_detected(chunks, claimed, rows, expect_gap):
+    """`stats` printed both numbers in different sections and left the reader
+    to notice the difference.
+
+    The warning that sends people here - "no vector hits for a query with 60
+    keyword hits - Check: app.cli stats" - could not be answered by the command
+    it names. Same shape as `doctor` reporting its own defaults: a diagnostic
+    that cannot see the problem it exists for.
+    """
+    info = {
+        "sqlite": {"chunks_total": chunks, "chunks_embedded": claimed},
+        "vectors": {"rows": rows},
+    }
+
+    gap = cli.embedding_gap(info)
+
+    if expect_gap is None:
+        assert gap is None
+        return
+    assert gap is not None
+    assert (gap["missing"] > 0 or gap["claimed"] > gap["rows"]) is expect_gap
+
+
+def test_a_missing_vector_store_is_a_gap_not_a_crash():
+    """`stats` omits the section entirely when the table does not exist."""
+    info = {"sqlite": {"chunks_total": 500, "chunks_embedded": 500}}
+
+    gap = cli.embedding_gap(info)
+
+    assert gap is not None
+    assert gap["rows"] == 0
+    assert gap["missing"] == 500
+
+
+def test_stats_says_which_and_names_the_remedy(capsys):
+    """A number without an action is a number somebody has to research."""
+    cli._report_embedding_gap({
+        "sqlite": {"chunks_total": 3355, "chunks_embedded": 3355},
+        "vectors": {"rows": 154},
+    })
+
+    out = capsys.readouterr().out
+    assert "154" in out and "3,355" in out
+    assert "reembed" in out, "it did not say how to fix it"
+    assert "Keyword search is unaffected" in out
+
+
+def test_stats_confirms_when_the_stores_agree(capsys):
+    """Silence on success is indistinguishable from the check not running."""
+    cli._report_embedding_gap({
+        "sqlite": {"chunks_total": 500, "chunks_embedded": 500},
+        "vectors": {"rows": 500},
+    })
+
+    assert "ready" in capsys.readouterr().out
+
+
+def test_stats_runs_end_to_end_on_an_empty_index(tmp_path, capsys):
+    """The whole command, because a NameError here is found by running it."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_stats(parser_for(["stats", "--env", env])) == cli.EXIT_OK
+    assert "Vector store" in capsys.readouterr().out
