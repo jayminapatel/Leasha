@@ -178,6 +178,21 @@ class WalkConfig:
             str(Path(p)).rstrip("\\/").lower() for p in self.exclude_paths
         )
 
+    def resolved_names(self) -> frozenset[str]:
+        """Whole filenames worth indexing - `Makefile`, `Dockerfile`, dotfiles.
+
+        **A second question, asked separately on purpose.** The walk filters on
+        `path.suffix`, and every one of these has none: `Path("Makefile").suffix`
+        is `""`, and so is `Path(".gitignore").suffix`, because Python reads a
+        leading dot as the start of the stem. Folding them into the extension
+        set would mean comparing `""` against a set containing `""`, which
+        admits every extensionless file on the disk - a `.tmp` scratch file, a
+        Unix binary, a lock file.
+        """
+        from app.extract.base import supported_names
+
+        return supported_names()
+
     def resolved_extensions(self) -> frozenset[str]:
         r"""Every extension the application can index, from all three tiers.
 
@@ -380,6 +395,7 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
     matter are raised where they can be attributed to a file.
     """
     extensions = config.resolved_extensions()
+    names = config.resolved_names()
     # Normalised once for the whole walk, not per directory entry.
     blocked = config.excluded_paths_lower()
     seen: set[str] = set()
@@ -438,7 +454,8 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
                     continue
 
                 path = Path(directory) / filename
-                if path.suffix.lower() not in extensions:
+                if (path.suffix.lower() not in extensions
+                        and filename.lower() not in names):
                     continue
 
                 key = str(path).lower()

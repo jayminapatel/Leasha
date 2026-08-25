@@ -28,18 +28,24 @@ from typing import Iterable
 
 from app.core.errors import make_error, raise_error
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
+from app.extract.source_types import ALL_SOURCE_EXTENSIONS, NAMED_FILES
 
-__all__ = ["PlainTextExtractor", "decode_bytes", "looks_binary", "TEXT_EXTENSIONS"]
+__all__ = [
+    "PlainTextExtractor", "decode_bytes", "looks_binary", "TEXT_EXTENSIONS",
+    "NAMED_FILES",
+]
 
-TEXT_EXTENSIONS = frozenset(
-    {
-        ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv",
-        ".json", ".yaml", ".yml", ".xml", ".ini", ".cfg", ".toml",
-        ".py", ".js", ".ts", ".sql", ".ps1", ".bat", ".cmd", ".sh",
-        ".c", ".h", ".cpp", ".cs", ".java", ".go", ".rs", ".rb", ".php",
-        ".html", ".htm", ".css",
-    }
-)
+#: Every extension read as plain text.
+#:
+#: **The list lives in `source_types.py`, grouped by ecosystem.** It was
+#: thirty-four extensions here - the languages somebody happened to think of -
+#: and a repository of PL/SQL packages, COBOL copybooks or SSIS packages was
+#: silently three-quarters unindexed, with nothing to say so. Asked for
+#: directly: *"add all types of code files from microsoft, oracle etc"*.
+#:
+#: A flat set is unreviewable, which is why the groups are next door: somebody
+#: who knows Oracle can read twenty lines and say whether `.pkb` is there.
+TEXT_EXTENSIONS = ALL_SOURCE_EXTENSIONS
 
 #: Read for the binary sniff. Enough to catch a header without reading a 2GB log.
 SNIFF_BYTES = 8192
@@ -93,9 +99,21 @@ class PlainTextExtractor:
 
     name = "plaintext"
     extensions = TEXT_EXTENSIONS
+    #: Whole filenames, for the build and configuration files that have no
+    #: extension at all. `register` reads this into `base.NAME_REGISTRY`.
+    names = NAMED_FILES
 
     def supports(self, path: Path) -> bool:
-        return path.suffix.lower() in self.extensions
+        """By extension, or by whole name for the files that have none.
+
+        `Path("Makefile").suffix` is `""`, and so is `Path(".gitignore").suffix`
+        - Python reads a leading dot as the start of the stem, not as a
+        separator. So neither can be routed by extension at all, and a rule
+        listing `".gitignore"` as one would never match anything while looking
+        entirely correct. Both are matched on the whole name instead.
+        """
+        return (path.suffix.lower() in self.extensions
+                or path.name.lower() in NAMED_FILES)
 
     def extract(self, path: Path) -> Iterable[Document]:
         try:

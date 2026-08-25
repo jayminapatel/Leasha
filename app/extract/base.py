@@ -248,8 +248,19 @@ class Extractor(Protocol):
 REGISTRY: dict[str, Extractor] = {}
 
 
+#: Whole filenames an extractor claims, lower-cased: `makefile`, `.gitignore`.
+#:
+#: **A second registry, and it has to be.** `Path("Makefile").suffix` is `""`
+#: and so is `Path(".gitignore").suffix` - Python reads a leading dot as the
+#: start of the stem, not as a separator. Neither can be a key in an
+#: extension-keyed map, so a build file and every dotfile in a repository were
+#: invisible to the walk. Filled by `register` from an extractor's optional
+#: `names`, which keeps one source of truth per extractor.
+NAME_REGISTRY: "dict[str, Extractor]" = {}
+
+
 def register(extractor: Extractor) -> Extractor:
-    """Register an extractor for each of its extensions.
+    """Register an extractor for each of its extensions, and any whole names.
 
     Registering the same extension twice is a programming error and says so:
     silently overwriting would mean a file type is parsed by whichever module
@@ -264,12 +275,23 @@ def register(extractor: Extractor) -> Extractor:
                 f"{extractor.name!r} cannot also claim it"
             )
         REGISTRY[key] = extractor
+
+    for name in getattr(extractor, "names", ()) or ():
+        NAME_REGISTRY[str(name).lower()] = extractor
     return extractor
 
 
 def extractor_for(path: Path) -> Optional[Extractor]:
-    """The extractor for this path, or None if the type is unsupported."""
-    return REGISTRY.get(path.suffix.lower())
+    """The extractor for this path, or None if the type is unsupported.
+
+    Extension first, then the whole name. The order matters only in that the
+    common case stays one dictionary lookup: a file with a suffix never touches
+    the name map.
+    """
+    found = REGISTRY.get(path.suffix.lower())
+    if found is not None:
+        return found
+    return NAME_REGISTRY.get(path.name.lower())
 
 
 def extractor_names() -> frozenset[str]:
@@ -299,6 +321,17 @@ def extractor_by_name(name: str) -> Optional[Extractor]:
 
 def supported_extensions() -> frozenset[str]:
     return frozenset(REGISTRY)
+
+
+def supported_names() -> frozenset[str]:
+    """Whole filenames that are indexed - `makefile`, `dockerfile`, dotfiles.
+
+    Separate from `supported_extensions` because the walk filters on suffix and
+    has to ask this second question explicitly. Folding them into one set would
+    mean the walker comparing `""` against a set that contains `""`, which
+    admits every extensionless file on the disk.
+    """
+    return frozenset(NAME_REGISTRY)
 
 
 def reads_externally(path: Path) -> bool:

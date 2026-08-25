@@ -987,6 +987,17 @@ def cmd_index(args: argparse.Namespace) -> int:
         line = (f"  {stats.indexed:>7,} docs  {stats.unchanged:>6,} unchanged  "
                 f"{stats.unchanged_documents:>7,} already current  "
                 f"{stats.chunks:>8,} chunks")
+
+        if getattr(stats, "paused", False):
+            # **A pause with nothing said is a hang, as far as anyone watching
+            # is concerned.** The window was given this earlier today; the
+            # command line builds its own line and was not, so a real run sat
+            # on an unchanging line for minutes while the governor waited for
+            # memory to settle - and was reported as stuck. It was working.
+            reason = getattr(stats, "pause_reason", "") or "waiting for resources"
+            progress.update(f"{line}  | PAUSED - {reason[:70]}")
+            return
+
         if stats.current:
             # Naming the file being read is what separates "working on a big
             # archive" from "hung". A 100MB .pst is one file and can hold the
@@ -2185,6 +2196,50 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _formats_by_group(args: argparse.Namespace) -> int:
+    """The source types, by ecosystem.
+
+    **The flat list is unreviewable and that is the point of this view.** Four
+    hundred extensions in one alphabetical run tells nobody whether Oracle
+    packages are covered; twenty lines under "Oracle PL/SQL" can be read by
+    somebody who knows Oracle, in a minute, and corrected.
+    """
+    from app.extract.source_types import (
+        ALL_SOURCE_EXTENSIONS, BY_ECOSYSTEM, NAMED_FILES,
+    )
+
+    if args.json:
+        print(json.dumps({
+            "total": len(ALL_SOURCE_EXTENSIONS),
+            "groups": {name: sorted(group)
+                       for name, group in BY_ECOSYSTEM.items()},
+            "named_files": sorted(NAMED_FILES),
+        }, indent=2))
+        return EXIT_OK
+
+    print(f"Source and code types - {len(ALL_SOURCE_EXTENSIONS)} extensions, "
+          f"all read as plain text, all on")
+    print("=" * 70)
+    for name, group in BY_ECOSYSTEM.items():
+        print(f"\n{name}  ({len(group)})")
+        line = "  "
+        for extension in sorted(group):
+            if len(line) + len(extension) > 76:
+                print(line)
+                line = "  "
+            line += extension + " "
+        if line.strip():
+            print(line)
+
+    print(f"\nMatched by whole name, having no extension  ({len(NAMED_FILES)})")
+    print("  " + " ".join(sorted(NAMED_FILES)))
+    print()
+    print("  Every one of these is read by the plain-text reader, so adding a")
+    print("  type costs a line and no dependency. Switch any of them off in")
+    print("  Settings, or with `enabled = false` in extractors.toml.")
+    return EXIT_OK
+
+
 def cmd_formats(args: argparse.Namespace) -> int:
     """What gets indexed, what reads it, and what is switched off.
 
@@ -2196,6 +2251,9 @@ def cmd_formats(args: argparse.Namespace) -> int:
     typo before the next index run finds it, and the error names the offending
     key rather than the file.
     """
+    if getattr(args, "groups", False):
+        return _formats_by_group(args)
+
     import app.extract  # noqa: F401 - importing the package populates REGISTRY
     from app.core import formats as formats_mod
     from app.extract import base as extract_base
@@ -2634,6 +2692,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="what file types are indexed, what reads them, and what is off")
     p_formats.add_argument("--all", action="store_true",
                            help="also list the extensions built into the code")
+    p_formats.add_argument(
+        "--groups", action="store_true",
+        help="the source and code types by ecosystem - Microsoft, Oracle, IBM, "
+             "industrial control - which is the form worth reviewing")
     p_formats.set_defaults(func=cmd_formats)
 
     p_search = sub.add_parser("search", parents=[common], help="search the index")

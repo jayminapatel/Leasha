@@ -100,6 +100,7 @@
     <Compile Include="app\extract\pst_libpff.py" />
     <Compile Include="app\extract\quoting.py" />
     <Compile Include="app\extract\rtf.py" />
+    <Compile Include="app\extract\source_types.py" />
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
     <Compile Include="app\index\embed_bench.py" />
@@ -209,6 +210,7 @@
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
     <Compile Include="tests\unit\test_converter.py" />
+    <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
     <Compile Include="tests\unit\test_diagnostics.py" />
@@ -234,6 +236,7 @@
     <Compile Include="tests\unit\test_grammars.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_index_flows.py" />
+    <Compile Include="tests\unit\test_index_force.py" />
     <Compile Include="tests\unit\test_index_freshness.py" />
     <Compile Include="tests\unit\test_index_move.py" />
     <Compile Include="tests\unit\test_index_panel.py" />
@@ -249,6 +252,7 @@
     <Compile Include="tests\unit\test_notice_line.py" />
     <Compile Include="tests\unit\test_ocr.py" />
     <Compile Include="tests\unit\test_odf.py" />
+    <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
     <Compile Include="tests\unit\test_preview_loader.py" />
@@ -294,6 +298,7 @@
     <Compile Include="tests\unit\test_view_options.py" />
     <Compile Include="tests\unit\test_vs_project.py" />
     <Compile Include="tests\unit\test_walker.py" />
+    <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
     <Compile Include="tests\unit\test_winfs.py" />
     <Compile Include="tests\unit\test_worker_calls.py" />
     <Compile Include="tests\unit\test_write_batching.py" />

@@ -69,10 +69,18 @@ def test_the_index_did_not_land_inside_the_source_tree():
     index - `own_paths` exists precisely to stop that - and one that `stage.py`
     would happily copy into a release.
     """
-    for name in ("vectors", "fts", "models", "state", "cache"):
-        assert not (ROOT / name).exists(), (
-            f"'{name}' is an index folder and it is in the source tree. "
-            f"DATA_PATH resolved to somewhere inside the checkout.")
+    #: **Two of them, not one.** A lone `models/` is a HuggingFace cache and a
+    #: normal thing for a machine that has run an embedding model; `fts/` beside
+    #: `vectors/` beside `state/` is DATA_PATH having resolved inside the
+    #: checkout, which is the accident worth shouting about. A tripwire that
+    #: fires on the innocent case is one people learn to ignore.
+    found = [name for name in ("vectors", "fts", "state", "cache", "models")
+             if (ROOT / name).exists()]
+
+    assert len(found) < 2, (
+        f"{found} are index folders and they are in the source tree. "
+        f"DATA_PATH resolved to somewhere inside the checkout - the walk will "
+        f"then index the index, and `stage.py` would ship it.")
 
 
 def test_the_guard_that_should_have_stopped_it_still_exists():

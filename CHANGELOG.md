@@ -1,12 +1,61 @@
 # Changelog
 
-**Doc version:** 3.37 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.38 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — 389 source and code types, from 34, all on by default
+
+Asked for: *"do the research and add all types of code files from microsoft,
+oracle etc, and others which are stored and configure them and select by
+default"*. The plain-text reader claimed thirty-four extensions — the languages
+somebody happened to think of — so a repository of PL/SQL packages, COBOL
+copybooks or SSIS packages was largely unindexed with nothing to say so.
+
+**All of these are plain text, which is the whole reason the list can be this
+long.** No parser, no dependency: a `.pkb` and a `.csproj` and an `.rpgle` are
+read exactly as a `.txt` is, so the cost of one more is a line in a set.
+
+The ones worth naming, because they are the ones a general list misses:
+
+* **Oracle** — `.pks` and `.pkb`. A package's specification and body are
+  separate files, so a shop that keeps them that way had *none* of its stored
+  procedure code indexed while only `.sql` was read. Plus `.prc`, `.fnc`,
+  `.trg`, `.tps`, SQL*Loader `.ctl`, FNDLOAD `.ldt`/`.lct`, and `.ora`.
+* **Microsoft** — not just `.cs` and `.vb` but the project system: `.csproj`,
+  `.props`, `.targets`, `.sln`, `.resx`, `.xaml`, `.config`. And the BI stack:
+  `.dtsx` holds an SSIS package's connection strings and SQL, `.rdl` an SSRS
+  report's — "which package writes that table" is otherwise unanswerable
+  without opening each one in Visual Studio.
+* **IBM** — `.cbl`, `.rpgle`, `.sqlrpgle`, `.jcl`, `.pli`, and `.cpy`, the
+  copybooks where the record layouts live.
+* **Industrial control** — `.st`, `.scl`, `.awl`, `.l5x`. Included because of
+  what this application is for: a plant's logic lives in these, they are plain
+  text, and no general-purpose indexer would think to include them.
+
+**Grouped by ecosystem, because a flat set of four hundred is unreviewable** —
+nobody can tell from it whether `.pkb` is missing. `app.cli formats --groups`
+prints them under sixteen headings, so somebody who knows Oracle can read
+twenty lines and correct them.
+
+**Files with no extension are now indexed too.** `Path("Makefile").suffix` is
+`""`, and so is `Path(".gitignore").suffix` — Python reads a leading dot as the
+start of the stem — so neither could be routed by extension at all, and a rule
+listing `".gitignore"` as one would never have matched anything while looking
+entirely correct. They are matched on the whole name instead: `Makefile`,
+`Dockerfile`, `CMakeLists.txt`, `Jenkinsfile`, `go.mod` and the common dotfiles.
+
+**What is deliberately absent** is documented beside the list: anything usually
+binary (the NUL sniff catches a mistake, but a type that is *usually* binary
+would make that honest report the common case), generated output (`.map`,
+`.lock`, `.sum` — real text, enormous, nothing anybody searches for), and three
+entries removed during review that could never have worked or were simply wrong:
+`.dacpac.xml` is not a suffix, `.spv` is SPSS *output* and binary, and GX Works
+project files are binary rather than text exports.
 
 ### Fixed — staging to a real folder no longer deletes what is living in it
 
