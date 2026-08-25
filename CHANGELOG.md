@@ -8,6 +8,140 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Fixed — a click on a result was never recorded, for the life of the feature
+
+Not in the review; found by reading beside it. `record_open(engine, search_id,
+chunk_id)` takes three arguments and was being handed four, with
+`search_options` in front of them. Every click raised `TypeError` inside the
+worker.
+
+**Two correct safety nets in a row turned a wrong call into silence.** The
+worker catches everything, as it must, or a failed background task takes the
+window with it; and `record_open` swallows failures too, because a click is
+never worth blocking on. So nothing surfaced anywhere, and the table everything
+in Layer 10 is meant to learn from was empty by construction.
+
+Neither net should be removed. What was missing was any check that the call was
+ever plausible, which the interpreter cannot do for a callable passed by
+reference. `test_worker_calls.py` now matches every `CallableWorker(fn, *args)`
+against the signature of `fn`; it fails on the original bug and passes on the
+fix.
+
+### Fixed — shutdown stopped no timers at all (U1)
+
+`search_view.shutdown()` asked `stop_timers` for `_typing_timer`, `_idle_timer`
+and `_timer`. Its timers are called `_interim_timer` and `_full_timer`. Every
+name missed, `getattr(view, name, None)` returned `None` three times, and the
+call did nothing whatsoever — while looking correct at both ends.
+
+That is the shutdown race the function exists to prevent: debounce timers
+running on into teardown, starting a search against a store being closed.
+Timers are found by suffix now, so a rename cannot silently disarm it, and the
+window drains its workers with user input excluded (U9) rather than pumping
+every event while views are being destroyed.
+
+### Fixed — the View menu reset preferences nobody touched (U5)
+
+`ViewPreferences(prefs.columns, n, prefs.font_pt)` enumerates fields by
+position, so everything after the third was silently dropped: **changing the row
+height turned grouping back on** and discarded "show why each result matched".
+
+`replace()` was already imported and used correctly two lines away. The test
+added is written over `dataclasses.fields`, so a field added later is covered
+without anybody remembering to extend it.
+
+### Fixed — mail sorted on what it displayed (U4)
+
+The real values were stored in a custom role and never read: `QTableWidgetItem`
+compares `DisplayRole` and nothing else, so "10 KB" sorted before "3 KB" and
+dates sorted alphabetically — the exact failures the comment above the code
+claimed to prevent. `SortableItem` compares the stored value.
+
+Mail also had **no keyboard route at all** (U6): double-click was the only way
+in, in a project whose specification requires keyboard-only operation end to
+end. Enter opens the selected message, which means searching inside it — a
+message has no file to open, only a synthetic path.
+
+### Fixed — results could be unreadable, and matches were invisible (U3)
+
+The results delegate painted with `option.palette.text()`. Nothing in this
+application ever sets a palette — theming is a stylesheet — so that colour is
+the operating system's. Forcing dark mode on a light-mode Windows painted
+near-black text on `#1e1f22`, and only the results list was affected, because
+only the results list paints itself.
+
+It reads the same tokens the stylesheet is built from now, so the two cannot
+drift. `QListView` is styled at all (it stopped being a `QListWidget` when rows
+became data and the rule was never updated), `#statWarn` has a rule — a figure
+the code had decided was worth warning about rendered identically to one that
+was fine — and matched words in a snippet are drawn in the highlight colour
+rather than bold alone. `#resultSnippet b` was never going to work: no
+stylesheet rule reaches a `QPainter`.
+
+### Fixed — four controls that did nothing (U6)
+
+`rerank_toggled` and `cloud_toggled` were emitted into nothing. The rerank
+switch looked like it worked and changed no behaviour; the cloud switch was read
+live when a run started, so it worked for that run and reset to off at the next
+launch — the harder of the two to notice. Both are wired and persisted, and
+rerank applies live, because a quality setting that needs a restart is one
+people conclude does nothing.
+
+`ui:tray_minimise` and `ui:tray_close` were read at startup and **written by
+nothing**, so the entire tray feature was unreachable. Off by default is still
+right; "off by default" and "no way to turn it on" are different things.
+
+`set_next_run` existed, said what it was for, and was never called — so the one
+line answering "will this run on its own, and when" was permanently blank on the
+page whose job is to answer it.
+
+### Fixed — widget churn during indexing, and Interpret searching twice
+
+U8: every skip row — three or four labels and a button — was destroyed and
+rebuilt on **every progress tick**, for the hours a 100GB index takes, usually
+to show numbers that had not changed. An identical tally now does nothing; the
+same reasons with new counts update in place.
+
+U10: writing the interpreted query into the search box fires `textChanged`,
+which restarts both debounce timers exactly as typing does — and then the code
+dispatched immediately. Every interpretation ran the full pipeline twice.
+
+### Fixed — a new search kept the old scroll position (U11)
+
+`_rebuild` preserves scroll on purpose, so toggling a preference does not throw
+away somebody's place. A new query went through the same path, landing them
+mid-list with the best hits scrolled off screen — which reads as the search
+having returned something worse than it did.
+
+### Added — the index location and meaning model are flows, not fields
+
+Work order §6. Both change what the index *is*, and both were unreachable: the
+location was a read-only box, and the model had no control at all.
+
+Typing a path does not move an index; it points at a different, probably empty
+one. The flow offers the three things somebody could mean — move it, adopt the
+index already there, start empty — enables each only where it means something,
+and states the consequence before it is chosen. Changing the meaning model
+states its cost in chunks and hours, and refuses to offer the button when the
+model has not actually changed.
+
+Neither moves a byte while the application is running: the stores are open, and
+copying a database from underneath an open connection is how a half-copied index
+becomes the only index.
+
+### Added — accessible names, and a rule that keeps them
+
+The review found none anywhere in `app/ui`. The concrete case is the per-row
+checkbox in the file-types table: sixty identical "check box, not checked"
+announcements, with the only thing distinguishing them available visually and
+nowhere else.
+
+`test_accessible_names.py` enforces the two shapes of control that can never
+label themselves — a `QLineEdit` has no text, ever, and a `QCheckBox()` with no
+string has nothing to announce. A tooltip is deliberately not accepted as a
+label: not every screen reader reads one, and on some platforms no keyboard can
+reach it.
+
 ### Fixed — the vector index got permanently slower every run (P4)
 
 **The hardest scalability cliff in the review, and it was unrecoverable.**
@@ -142,6 +276,48 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Changed — indexing one message cost six commits, now about one (P7)
+
+Counted by tracing `COMMIT` statements rather than by reading call sites — the
+estimate from reading was four. The six were `upsert_file`, `replace_chunks`,
+`set_message`, **two** `set_state` calls for the checkpoint, and `mark_indexed`.
+
+A commit costs about **fourteen times** the same statement inside an open
+transaction — 35.2µs against 2.6µs, WAL with `synchronous = NORMAL`. Six per
+document across twenty million messages is roughly **1.2 hours** of a run spent
+committing; at one it is 0.2.
+
+- **`SqliteStore.batch()`** groups writes into one transaction. `write()` joins
+  an open batch rather than nesting inside it — SQLite has no nested
+  transactions, so a `write()` that started its own would commit the batch
+  early and turn the grouping into a lie that never failed. The depth counter
+  is per-thread, so indexing can never quietly strip the transaction from a
+  write on another thread.
+- **`_write_one`** wraps its three SQLite writes in one batch: 3 → 1. The
+  LanceDB delete moved *outside* the block deliberately — a batch holds the
+  write lock, and putting a vector-store call inside would trade commit
+  overhead for making every other thread wait on LanceDB. It does not change
+  what a crash leaves behind: the file is `PENDING` either way, so it is redone.
+- **`mark_indexed_many()`** marks a whole embed batch in one transaction rather
+  than one per file.
+- **The checkpoint** now uses `set_states`, which already existed for exactly
+  this and which the checkpoint simply was not calling: 2 → 1.
+- `_write_marker` and `_record_skip` batch their two writes each.
+
+Fourteen tests. Most are not about speed but about atomicity not changing shape
+underneath code that relies on it: a failure rolls the whole group back, a
+nested batch commits once at the outermost, a failed batch does not leave the
+store believing one is still open, and the commit counts themselves are
+asserted so a regression shows up as a number rather than as a slow run.
+
+**Writes are still serialised, and a batch holds the write lock for its
+duration.** That is the existing model rather than something new, but it is now
+load-bearing: slow work inside a batch would block every other thread's writes
+for as long as it took. One test pins this by holding a batch open and checking
+that another thread's write waits, then completes once the batch closes. (The
+first version of that test asserted the other thread finished promptly, and
+hung for ten seconds — the test was wrong, not the code.)
 
 ### Measured — the reranker swap costs nothing on the built-in corpus
 

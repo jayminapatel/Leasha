@@ -749,15 +749,16 @@ class Pipeline:
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
         candidate = item.candidate
-        file_id = self.store.upsert_file(
-            item.row_key,
-            size_bytes=candidate.size_bytes,
-            mtime_ns=candidate.mtime_ns,
-            content_hash=item.content_hash,
-            status=FileStatus.PENDING,
-            source_kind=item.source_kind,
-        )
-        self.store.mark_indexed(file_id)
+        with self.store.batch():
+            file_id = self.store.upsert_file(
+                item.row_key,
+                size_bytes=candidate.size_bytes,
+                mtime_ns=candidate.mtime_ns,
+                content_hash=item.content_hash,
+                status=FileStatus.PENDING,
+                source_kind=item.source_kind,
+            )
+            self.store.mark_indexed(file_id)
 
     def _already_current(self, item: _Extracted) -> bool:
         """Has this exact document already been indexed, unchanged?
@@ -785,36 +786,54 @@ class Pipeline:
         search, and never retried by anything.
         """
         candidate = item.candidate
-        file_id = self.store.upsert_file(
-            item.row_key,
-            size_bytes=candidate.size_bytes,
-            mtime_ns=candidate.mtime_ns,
-            content_hash=(
-                _text_digest(item.chunks) if item.source_kind != "file" else item.content_hash
-            ),
-            status=FileStatus.PENDING,
-            source_kind=item.source_kind,
-            # A message key is `<archive>#<EntryID>`, so its parent directory
-            # must come from the archive rather than from splitting a path that
-            # is not one. Without this, `path:` filters stop matching mail.
-            parent_dir=str(candidate.path.parent),
-            ext=candidate.path.suffix.lower().lstrip("."),
-        )
+        # **One transaction for the three writes, not three.**
+        #
+        # `upsert_file`, `replace_chunks` and `set_message` each committed
+        # separately, so one mail message cost three commits here and six over
+        # the whole loop. A commit is roughly fourteen times the cost of the
+        # same statement inside an open transaction.
+        #
+        # The LanceDB delete is deliberately *outside* the block: it is slow
+        # relative to a SQLite statement, and the write lock is held for the
+        # whole batch. Putting it in would trade commit overhead for making
+        # every other thread's writes wait on a vector store.
+        with self.store.batch():
+            file_id = self.store.upsert_file(
+                item.row_key,
+                size_bytes=candidate.size_bytes,
+                mtime_ns=candidate.mtime_ns,
+                content_hash=(
+                    _text_digest(item.chunks) if item.source_kind != "file" else item.content_hash
+                ),
+                status=FileStatus.PENDING,
+                source_kind=item.source_kind,
+                # A message key is `<archive>#<EntryID>`, so its parent directory
+                # must come from the archive rather than from splitting a path that
+                # is not one. Without this, `path:` filters stop matching mail.
+                parent_dir=str(candidate.path.parent),
+                ext=candidate.path.suffix.lower().lstrip("."),
+            )
 
-        chunk_ids = self.store.replace_chunks(file_id, item.chunks)
+            chunk_ids = self.store.replace_chunks(file_id, item.chunks)
+
+            if item.meta:
+                self._store_message_meta(file_id, item.meta)
+
         # A re-index must not leave the old vectors behind. `delete_by_file_ids`
         # now returns immediately when the table is empty, which is the whole of
         # a first index - a hundred thousand documents used to mean a hundred
         # thousand dataset versions created to delete nothing at all.
+        #
+        # **After the SQLite writes rather than between them**, which does not
+        # change what a crash leaves behind: the file is PENDING either way, so
+        # it is redone, and redoing replaces the chunks and deletes the vectors
+        # again.
         #
         # A *new* file added to an *existing* index still costs one no-op
         # version. Knowing it is new would mean changing what `replace_chunks`
         # returns for every caller, to save a version that periodic compaction
         # now collects anyway. Recorded rather than done.
         self.vectors.delete_by_file_ids([file_id])
-
-        if item.meta:
-            self._store_message_meta(file_id, item.meta)
 
         for warning in item.warnings:
             self._log.warning("{} | {}", warning.message, warning.suggestion)
@@ -872,29 +891,37 @@ class Pipeline:
             file_ids=[fid for _c, fid, _t in pending],
             vectors=vectors,
         )
-        self.store.mark_embedded(cid for cid, _fid, _t in pending)
-        for file_id in dict.fromkeys(fid for _c, fid, _t in pending):
-            self.store.mark_indexed(file_id)
+        # One transaction for the whole batch. This was a commit per chunk-set
+        # plus a commit per file - dozens of them, for one logical step.
+        with self.store.batch():
+            self.store.mark_embedded(cid for cid, _fid, _t in pending)
+            self.store.mark_indexed_many(
+                dict.fromkeys(fid for _c, fid, _t in pending))
         pending.clear()
 
     def _record_skip(self, item: _Extracted) -> None:
         assert item.error is not None
         candidate = item.candidate
-        file_id = self.store.upsert_file(
-            str(candidate.path),
-            size_bytes=candidate.size_bytes,
-            mtime_ns=candidate.mtime_ns,
-            content_hash=item.content_hash,
-            status=FileStatus.PENDING,
-        )
-        self.store.mark_skipped(file_id, item.error)
+        with self.store.batch():
+            file_id = self.store.upsert_file(
+                str(candidate.path),
+                size_bytes=candidate.size_bytes,
+                mtime_ns=candidate.mtime_ns,
+                content_hash=item.content_hash,
+                status=FileStatus.PENDING,
+            )
+            self.store.mark_skipped(file_id, item.error)
 
     # -- guards and bookkeeping ---------------------------------------------
 
     def _checkpoint(self, candidate: Candidate, stats: IndexStats) -> None:
         """Progress for the UI. The `files` table is what actually resumes."""
-        self.store.set_state("cursor:last_path", str(candidate.path))
-        self.store.set_state("cursor:indexed", str(stats.indexed))
+        # Two keys, one commit. `set_states` already existed for exactly this
+        # and the checkpoint simply was not using it.
+        self.store.set_states({
+            "cursor:last_path": str(candidate.path),
+            "cursor:indexed": str(stats.indexed),
+        })
 
     def _disk_ok(self, stats: IndexStats) -> bool:
         """The only resource check the consumer makes, and it never blocks.

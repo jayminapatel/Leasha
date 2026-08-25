@@ -307,7 +307,17 @@ class SqliteStore:
 
     @contextmanager
     def write(self) -> Iterator[sqlite3.Connection]:
-        """One serialised write transaction. Rolls back on any exception."""
+        """One serialised write transaction. Rolls back on any exception.
+
+        **Joins an open `batch()` rather than nesting inside it.** SQLite has
+        no nested transactions, so a `write()` called while a batch is open on
+        this thread would otherwise commit the batch early - turning the
+        grouping into a lie without failing.
+        """
+        if getattr(self._local, "batch_depth", 0):
+            yield self.conn
+            return
+
         with self._write_lock:
             conn = self.conn
             conn.execute("BEGIN IMMEDIATE")
@@ -318,6 +328,52 @@ class SqliteStore:
                 raise
             else:
                 conn.execute("COMMIT")
+
+    @contextmanager
+    def batch(self) -> Iterator[sqlite3.Connection]:
+        """Group many writes into one transaction. All of them, or none.
+
+            with store.batch():
+                store.upsert_file(...)
+                store.replace_chunks(...)
+
+        Indexing one mail message cost **six** commits - `upsert_file`,
+        `replace_chunks`, `set_message`, two `set_state` calls for the
+        checkpoint, and `mark_indexed`. At twenty million messages that is
+        rather over an hour of the run spent committing, for work that is one
+        step as far as anyone reading the code is concerned.
+
+        **Keep slow work out of the block.** The write lock is held for the
+        whole batch, so anything inside it delays every other thread's writes.
+        Embedding, extraction and LanceDB calls belong outside; only the SQLite
+        statements belong in.
+
+        The depth counter is per-thread, so a batch on the indexing thread
+        never quietly strips the transaction from a write on the UI thread.
+        """
+        if getattr(self._local, "batch_depth", 0):
+            # Already inside one. Re-entering must not start a second
+            # transaction, and must not commit the outer one on the way out.
+            self._local.batch_depth += 1
+            try:
+                yield self.conn
+            finally:
+                self._local.batch_depth -= 1
+            return
+
+        with self._write_lock:
+            conn = self.conn
+            conn.execute("BEGIN IMMEDIATE")
+            self._local.batch_depth = 1
+            try:
+                yield conn
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            else:
+                conn.execute("COMMIT")
+            finally:
+                self._local.batch_depth = 0
 
     # -- files ---------------------------------------------------------------
 
@@ -392,11 +448,26 @@ class SqliteStore:
         return FileRecord.from_row(row) if row else None
 
     def mark_indexed(self, file_id: int) -> None:
+        self.mark_indexed_many((file_id,))
+
+    def mark_indexed_many(self, file_ids: Iterable[int]) -> None:
+        """Every file in one transaction, not one transaction each.
+
+        `_embed_pending` finishes a batch of a few hundred chunks and then has
+        to mark every file they came from - dozens of files, and dozens of
+        commits, for one logical step. A commit is roughly fourteen times the
+        cost of the same write inside an open transaction, so this is the
+        difference on its own.
+        """
+        ids = [(int(file_id),) for file_id in file_ids]
+        if not ids:
+            return
+        now = int(time.time())
         with self.write() as conn:
-            conn.execute(
+            conn.executemany(
                 "UPDATE files SET status = ?, indexed_at = ?, skip_code = NULL, "
                 "skip_detail = NULL WHERE id = ?",
-                (FileStatus.INDEXED, int(time.time()), file_id),
+                [(FileStatus.INDEXED, now, file_id) for (file_id,) in ids],
             )
 
     def mark_skipped(self, file_id: int, error: AppError) -> None:
