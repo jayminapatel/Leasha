@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.widgets.debounce import Debounced
+from app.ui.widgets.long_run_box import LongRunBox
 
 __all__ = ["IndexingSettings"]
 
@@ -114,6 +115,13 @@ class IndexingSettings(QGroupBox):
             "budget for the index."
         )
 
+        # Both live in their own group: they are the two settings that only
+        # matter at scale, and this panel is under the 250-line guard.
+        self.long_run = LongRunBox()
+        self.long_run.changed.connect(self._limits_changed)
+        self.ocr_mode = self.long_run.ocr_mode
+        self.archive_recheck_days = self.long_run.archive_recheck_days
+
         self.pause_on_battery = QCheckBox("Pause while on battery")
         self.pause_on_battery.setObjectName("INDEX_PAUSE_ON_BATTERY")
         self.theme = QComboBox()
@@ -171,6 +179,7 @@ class IndexingSettings(QGroupBox):
         index_form.addRow("Memory ceiling", self.memory_mb)
         index_form.addRow("Pause above", self.cpu_percent)
         index_form.addRow("Stop below", self.min_free_gb)
+        index_form.addRow(self.long_run)
         index_form.addRow(self.pause_on_battery)
         index_form.addRow(self.low_priority)
         index_form.addRow("Appearance", self.theme)
@@ -201,7 +210,8 @@ class IndexingSettings(QGroupBox):
             self.daily_at.setTime(QTime(hour, minute))
             self.workers.setValue(int(getattr(settings, "index_workers", 0)))
             self.min_free_gb.setValue(int(getattr(settings, "min_free_gb", 5)))
-            self.memory_mb.setValue(int(getattr(settings, "index_memory_mb", 1500)))
+            self.long_run.load(settings)
+            self.memory_mb.setValue(int(getattr(settings, "index_memory_mb", 4000)))
             self.cpu_percent.setValue(int(getattr(settings, "index_cpu_percent", 80)))
             self.pause_on_battery.setChecked(bool(getattr(settings, "index_pause_on_battery", True)))
             self.low_priority.setChecked(bool(getattr(settings, "index_low_priority", True)))
@@ -235,6 +245,7 @@ class IndexingSettings(QGroupBox):
             "index_pause_on_battery": bool(self.pause_on_battery.isChecked()),
             "index_low_priority": bool(self.low_priority.isChecked()),
             "min_free_gb": int(self.min_free_gb.value()),
+            **self.long_run.values(),
         }
 
     def _sync_schedule_rows(self) -> None:

@@ -170,7 +170,12 @@ def test_a_row_says_what_the_switch_expects(qapp):
     first = popup._model.item(0).text()
 
     assert "/type" in first
-    assert "pdf" in first, f"the row does not say what it expects: {first!r}"
+    # **The wording is not pinned, only that there is some.** The hint was
+    # "pdf, docx, xlsx, ..." and is now "an extension, or a kind: excel, ...";
+    # both answer the question, and asserting the literal made an improvement
+    # to the hint look like a regression.
+    hint = first.split("<", 1)[-1].split(">", 1)[0]
+    assert len(hint.split()) >= 3, f"the row does not say what it expects: {first!r}"
 
 
 def test_a_switch_that_takes_no_value_says_so(qapp):
@@ -186,7 +191,9 @@ def test_a_long_hint_is_cut_at_a_comma_rather_than_mid_word(qapp):
     hint = _hint(command_for("type"))
 
     assert hint.endswith("…>")
-    assert "docx" in hint
+    # Cut at a separator, not mid-word: the character before the ellipsis is a
+    # space following a comma or a colon, never half of "powerpoin…".
+    assert hint[:-2].rstrip().endswith((",", ":")), hint
 
 
 def test_every_row_still_carries_its_description(qapp):

@@ -117,7 +117,7 @@ SETTINGS: tuple[Setting, ...] = (
              "indexing is slow and the machine is otherwise idle.",
     ),
     Setting(
-        key="INDEX_MEMORY_MB", label="Memory ceiling", kind="int", default=1500,
+        key="INDEX_MEMORY_MB", label="Memory ceiling", kind="int", default=4000,
         group="Indexing", surface="settings.indexing", minimum=256, maximum=16384,
         unit="MB",
         help="Indexing pauses rather than exceeding this.",
@@ -154,6 +154,25 @@ SETTINGS: tuple[Setting, ...] = (
         key="INDEX_DAILY_AT", label="Index daily at", kind="text",
         default="02:00", group="Indexing", surface="settings.indexing",
         help="24-hour time. Used when the schedule is set to daily.",
+    ),
+    Setting(
+        key="INDEX_OCR_MODE", label="Images and scans", kind="choice",
+        default="both", group="Indexing", surface="settings.indexing",
+        choices=("both", "text", "images"),
+        help="Reading text out of an image takes about 3.6 seconds a page - "
+             "roughly eight times what everything else costs - so on a large "
+             "corpus it decides how long a run takes. Text first means search "
+             "becomes useful in a day or two rather than a fortnight, with the "
+             "images filled in afterwards.",
+    ),
+    Setting(
+        key="ARCHIVE_RECHECK_DAYS", label="Re-check archived folders every",
+        kind="int", default=30, group="Indexing", surface="settings.indexing",
+        minimum=0, maximum=365, unit="days",
+        help="A folder marked as an archive is walked once and then left alone. "
+             "It is still re-walked when the folder itself changes, when you "
+             "ask for a rescan, and after this many days. 0 means only the "
+             "first two.",
     ),
     Setting(
         key="MIN_FREE_GB", label="Stop if free space drops below", kind="int",
@@ -219,7 +238,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="REQUIRED_FREE_GB", label="Free space needed to index", kind="int",
-        default=150, group="Storage", surface="settings.storage",
+        default=300, group="Storage", surface="settings.storage",
         minimum=1, maximum=10000, unit="GB",
         help="Checked before a run starts, on the index drive.",
     ),

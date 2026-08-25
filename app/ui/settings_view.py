@@ -42,6 +42,7 @@ from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
 from app.ui.widgets.model_box import ModelBox
+from app.ui.widgets.roots_box import RootsBox
 from app.ui.widgets.search_box import SearchBox
 from app.ui.widgets.storage_box import StorageBox
 from app.ui.widgets.window_box import WindowBox
@@ -53,6 +54,12 @@ _log = logger.bind(component="ui.settings")
 
 class SettingsView(QWidget):
     roots_changed = pyqtSignal(list)
+    #: `{normalised root: "live"|"archive"}` - which folders never change.
+    #: See `app/index/archives.py`; the saving this buys on a settled corpus is
+    #: hours per incremental run.
+    root_modes_changed = pyqtSignal(dict)
+    #: "Rescan archived folders now" - one full walk, not a change of policy.
+    rescan_archives_requested = pyqtSignal()
     pst_backend_changed = pyqtSignal(str)
     #: (enabled, model, timeout_s) for the Interpret button.
     ollama_model_changed = pyqtSignal(bool, str, int)
@@ -81,21 +88,13 @@ class SettingsView(QWidget):
         self._store = store
 
         # --- roots
-        self.roots = QListWidget()
-        add = QPushButton("Add folder…")
-        add.clicked.connect(self._add_root)
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_root)
-
-        root_buttons = QHBoxLayout()
-        root_buttons.addWidget(add)
-        root_buttons.addWidget(remove)
-        root_buttons.addStretch(1)
-
-        roots_box = QGroupBox("Folders to index")
-        roots_layout = QVBoxLayout(roots_box)
-        roots_layout.addWidget(self.roots)
-        roots_layout.addLayout(root_buttons)
+        # Its own widget now that each folder carries a Live/Archive mode: two
+        # columns, a combo per row and a rescan button is more than a view
+        # should hold, and this file is already at the 250-line guard.
+        self.roots_box = RootsBox()
+        self.roots_box.roots_changed.connect(self.roots_changed)
+        self.roots_box.modes_changed.connect(self.root_modes_changed)
+        self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
 
         # --- behaviour
         # The Search group lives in its own widget: this file crossed the
@@ -218,7 +217,7 @@ class SettingsView(QWidget):
         attach_resets(self, lambda values: self.settings_changed.emit(values))
 
         layout = QVBoxLayout(self)
-        layout.addWidget(roots_box)
+        layout.addWidget(self.roots_box)
         layout.addWidget(self.indexing)
         layout.addWidget(pst_box)
         layout.addWidget(self.search_box)
@@ -236,9 +235,14 @@ class SettingsView(QWidget):
 
     # -- roots --------------------------------------------------------------
 
-    def set_roots(self, roots: list[str]) -> None:
-        self.roots.clear()
-        self.roots.addItems(roots)
+    def set_roots(self, roots: list[str], modes: Optional[dict] = None) -> None:
+        self.roots_box.set_roots(roots, modes)
+
+    def add_root(self, folder: str) -> bool:
+        return self.roots_box.add_root(folder)
+
+    def current_modes(self) -> dict:
+        return self.roots_box.current_modes()
 
     def _make_client(self):
         """A fresh OllamaClient against whatever URL is currently in the box.
@@ -253,18 +257,7 @@ class SettingsView(QWidget):
         return OllamaClient(url, self._settings.ollama_model)
 
     def current_roots(self) -> list[str]:
-        return [self.roots.item(i).text() for i in range(self.roots.count())]
-
-    def _add_root(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose a folder to index")
-        if folder and folder not in self.current_roots():
-            self.roots.addItem(folder)
-            self.roots_changed.emit(self.current_roots())
-
-    def _remove_root(self) -> None:
-        for item in self.roots.selectedItems():
-            self.roots.takeItem(self.roots.row(item))
-        self.roots_changed.emit(self.current_roots())
+        return self.roots_box.current_roots()
 
     # -- Outlook archives ---------------------------------------------------
 

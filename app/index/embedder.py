@@ -40,8 +40,21 @@ from app.core.errors import AppErrorException, make_error
 
 __all__ = ["Embedder", "EMBED_BATCH", "l2_normalise"]
 
-#: Chunks per `embed()` call. From BUILD_SPEC_V2.md's Layer 3 section.
-EMBED_BATCH = 64
+#: Chunks per `embed()` call, and **the only definition of that number**.
+#:
+#: It was 64 here and 256 in `pipeline.py`, and the pipeline's was the one
+#: nobody could act on: `_embed_pending` gathered 256 chunks, handed them to
+#: `embed_all`, and `embed_all` re-split them into four calls of 64. So the
+#: constant documented as "the single biggest throughput lever in the whole
+#: pipeline" reached the model as a quarter of itself, and raising it did
+#: nothing at all - the exact silent re-split the terabyte review asked to be
+#: verified rather than assumed.
+#:
+#: 256 chunks is roughly 400KB of text, which is nothing against the memory
+#: ceiling, and large enough that ONNX spends its time on matrix work rather
+#: than on per-call overhead. `Pipeline` imports this rather than declaring a
+#: second one, and aligns the embedder it is given - see `Pipeline.__init__`.
+EMBED_BATCH = 256
 
 #: How far a vector's magnitude may drift from 1.0 before it is renormalised.
 #: Floating point noise lands around 1e-7; anything past this is a real signal

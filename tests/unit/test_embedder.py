@@ -59,8 +59,41 @@ def test_empty_input_does_not_touch_the_model() -> None:
 
 
 def test_spec_batch_size() -> None:
-    assert EMBED_BATCH == 64
-    assert Embedder(encoder=encoder_for()).batch_size == 64
+    """**Raised from 64 to 256, and the reason is that 256 was already there.**
+
+    `pipeline.EMBED_BATCH` was 256 and documented as "the single biggest
+    throughput lever in the whole pipeline" - and `embed_all` re-split every
+    gathered batch back down to this module's 64, so the lever reached the
+    model as a quarter of itself. Two constants for one number, disagreeing
+    silently, which is exactly what `docs/WORKORDER-terabyte-scale.md` §4 asked
+    to be *verified rather than assumed*.
+
+    There is now one definition and the pipeline imports it.
+    """
+    from app.index.pipeline import EMBED_BATCH as PIPELINE_BATCH
+
+    assert EMBED_BATCH == 256
+    assert PIPELINE_BATCH == EMBED_BATCH, "two constants for one number, again"
+    assert Embedder(encoder=encoder_for()).batch_size == 256
+
+
+def test_the_pipelines_batch_actually_reaches_the_model() -> None:
+    """The check the constants alone cannot make.
+
+    A caller who sets `PipelineConfig(embed_batch=...)` means the embedding
+    batch. Before this, they got a different number of store writes and no
+    change at all to the size of an ONNX call.
+    """
+    from app.index.pipeline import Pipeline, PipelineConfig
+    from app.index.walker import WalkConfig
+
+    embedder = Embedder(encoder=encoder_for(), batch_size=64)
+    Pipeline(
+        store=object(), vectors=object(), embedder=embedder,
+        config=PipelineConfig(walk=WalkConfig(roots=[]), embed_batch=512),
+    )
+
+    assert embedder.batch_size == 512
 
 
 def test_invalid_batch_size_is_rejected() -> None:

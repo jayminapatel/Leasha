@@ -23,7 +23,7 @@ from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 
 __all__ = [
-    "VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS",
+    "VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS", "MAX_PARTITIONS",
     "COMPACT_EVERY_ROWS", "KEEP_VERSIONS_HOURS",
 ]
 
@@ -33,6 +33,16 @@ TABLE_NAME = "chunks"
 
 #: Below this many rows a brute-force scan is faster than a trained index.
 INDEX_MIN_ROWS = 100_000
+
+#: The most IVF partitions this build will ask for.
+#:
+#: `sqrt(rows)` is the standard heuristic, so this cap starts to bind at about
+#: **16.8 million vectors** (`4096**2`) - which a 1.5TB corpus reaches. Past
+#: that, partitions grow instead of multiplying and search slows, or loses
+#: recall, in proportion. `_partitions_for` says so in the log the first time it
+#: happens; moving the number needs the latency and recall measurements that
+#: `docs/WORKORDER-terabyte-scale.md` section 6 asks for, not a guess.
+MAX_PARTITIONS = 4096
 
 #: Rows appended between compactions.
 #:
@@ -68,6 +78,8 @@ class VectorStore:
         self._db: Any = None
         self._table: Any = None
         self._indexed_at_rows = 0
+        #: Said once per store, not once per rebuild - see `_partitions_for`.
+        self._warned_partitions = False
         #: Rows this session has written, and the running total. Counting beats
         #: asking: `count_rows()` on the write path is a scan per batch.
         self._rows_added = 0
@@ -381,10 +393,10 @@ class VectorStore:
         if not force:
             if rows < INDEX_MIN_ROWS:
                 return False
-            if self._indexed_at_rows and rows < self._indexed_at_rows * 2:
+            if self._indexed_at_rows and rows < self._indexed_at_rows * self._growth_needed(rows):
                 return False
 
-        partitions = max(1, min(4096, int(math.sqrt(rows))))
+        partitions = self._partitions_for(rows)
         try:
             self._table.create_index(
                 metric="cosine",
@@ -397,6 +409,61 @@ class VectorStore:
 
         self._indexed_at_rows = rows
         return True
+
+    def _partitions_for(self, rows: int) -> int:
+        r"""`sqrt(rows)`, capped - and it says when the cap starts to bind.
+
+        **The cap is a real limit, not a formality.** `sqrt(rows)` is the
+        standard IVF heuristic and it holds until 4096 partitions, which is
+        `4096**2` = about **16.8 million vectors**. Past that the partitions
+        simply grow: at 20M each one holds ~4,900 vectors instead of ~4,500, at
+        50M ~12,000, and search either slows in proportion or loses recall
+        because `nprobe` covers a smaller share of the space.
+
+        The cap is not moved here, and deliberately: `docs/WORKORDER-terabyte-
+        scale.md` §6 asks for query latency and recall to be *measured* at 5M,
+        10M and 20M rows first, and this project has learned what happens to
+        numbers chosen without measuring. What it does instead is say so, once
+        per build, so the moment the heuristic stops being followed is a line in
+        the log rather than a slow search nobody can explain.
+        """
+        wanted = int(math.sqrt(rows))
+        if wanted > MAX_PARTITIONS and not self._warned_partitions:
+            self._warned_partitions = True
+            _log.warning(
+                "{:,} vectors would want {:,} IVF partitions but the cap is "
+                "{:,}, so each partition now holds about {:,.0f} vectors "
+                "instead of the {:,.0f} the heuristic asks for. Search stays "
+                "correct; it gets slower, or loses recall, in proportion. "
+                "Measure latency and recall before raising the cap - see "
+                "docs/WORKORDER-terabyte-scale.md section 6.",
+                rows, wanted, MAX_PARTITIONS,
+                rows / MAX_PARTITIONS, rows / max(1, wanted),
+            )
+        return max(1, min(MAX_PARTITIONS, wanted))
+
+    def _growth_needed(self, rows: int) -> int:
+        r"""How much the table must grow before the index is rebuilt.
+
+        **Doubling, until the cap binds - then four times.**
+
+        "Retrain when rows double" means a rebuild at 100k, 200k, 400k ... 12.8M,
+        and each one is expensive and lands *during* indexing, when the machine
+        is already busy. That is the right trade while the index is genuinely
+        getting better: below the cap, doubling the rows means `sqrt` asks for
+        41% more partitions, so the rebuild changes the index's shape.
+
+        Above the cap it does not. The partition count is pinned at
+        `MAX_PARTITIONS` however many rows arrive, so a rebuild only reassigns
+        vectors to the same number of centroids - worth doing as the data
+        drifts, but not at every doubling, and least of all at the sizes where
+        a rebuild costs the most.
+
+        Four is not measured, and is not pretending to be: it is half as often,
+        chosen because the thing the rebuild used to buy has stopped being
+        bought. The measurement §6 asks for is the one that should replace it.
+        """
+        return 2 if math.sqrt(rows) <= MAX_PARTITIONS else 4
 
     # -- reading -------------------------------------------------------------
 

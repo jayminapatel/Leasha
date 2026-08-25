@@ -94,7 +94,7 @@ class ResourceLimits:
     #:
     #: Growth is also the number that actually matters: the question is not "how
     #: big is this process" but "is indexing running away".
-    memory_mb: int = 1500
+    memory_mb: int = 4000
 
     #: Pause while *system-wide* CPU is above this. Measured across all cores,
     #: so 80 still leaves the indexer plenty of room on an idle machine and

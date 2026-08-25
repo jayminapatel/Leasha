@@ -952,9 +952,17 @@ def cmd_index(args: argparse.Namespace) -> int:
         ),
         limits=limits,
         min_free_gb=settings.min_free_gb,
+        required_free_gb=settings.required_free_gb,
         verify_hash=not args.fast,
         prune_missing=not args.no_prune,
         force=bool(getattr(args, "force", False)),
+        # A folder marked as an archive is walked once and then checked
+        # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
+        # hatch that ignores the modes entirely without touching the records.
+        ocr_mode=_ocr_mode(args, settings),
+        archives=not bool(getattr(args, "all_roots", False)),
+        recheck_archives=bool(getattr(args, "recheck_archives", False)),
+        recheck_days=settings.archive_recheck_days,
     )
 
     embedder = Embedder(
@@ -998,6 +1006,13 @@ def cmd_index(args: argparse.Namespace) -> int:
             progress.update(f"{line}  | PAUSED - {reason[:70]}")
             return
 
+        recent = getattr(stats, "recent_files_per_minute", None)
+        if recent is not None:
+            # **The last fifteen minutes, not the lifetime average.** On a run
+            # of days the average stops moving, so a run that has slowed to a
+            # crawl reports the rate it managed on the first morning.
+            line += f"  | {recent:,.0f}/min"
+
         if stats.current:
             # Naming the file being read is what separates "working on a big
             # archive" from "hung". A 100MB .pst is one file and can hold the
@@ -1031,6 +1046,25 @@ def cmd_index(args: argparse.Namespace) -> int:
     if stats.unchanged_documents:
         print(f"          {stats.unchanged_documents:,} document(s) inside them were "
               f"already up to date")
+    for notice in getattr(stats, "notices", ()):
+        print()
+        print(f"Note      {notice}")
+    if stats.skipped_roots:
+        # **Said before the totals, not after.** A run that indexed 40 files
+        # because three of its four folders were skipped needs to say so where
+        # somebody reading the numbers cannot miss it.
+        print()
+        print(f"Archives  {len(stats.skipped_roots)} folder(s) were not walked at all:")
+        for row in stats.skipped_roots:
+            when = (
+                time.strftime("%Y-%m-%d", time.localtime(row["archived_at"]))
+                if row.get("archived_at") else "an unknown date"
+            )
+            print(f"  {row['root']}")
+            print(f"    {row['reason']} - {row.get('files', 0):,} file(s), "
+                  f"fully indexed on {when}")
+        print("    Use --recheck-archives to walk them in full now.")
+        print()
     print(f"Skipped   {stats.skipped:,}   Deleted {stats.deleted:,}")
     print(f"Read      {stats.bytes_read / 1_048_576:,.1f} MB in {stats.elapsed_s:,.1f}s")
     if stats.pauses:
@@ -1039,6 +1073,15 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(f"Waited    {stats.paused_seconds / 60:,.1f} min across {stats.pauses} "
               f"pause(s) to stay out of the way")
     print(f"          {stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min")
+    held = stats.skipped_by_code.get("ERR_OCR_HELD", 0)
+    if held:
+        # **Named separately from the failures, because it is not one.** A
+        # queue of 40,000 images reported inside "skipped by cause" reads as
+        # 40,000 things that went wrong.
+        print()
+        print(f"Held      {held:,} image(s) are queued for the images pass -")
+        print("          nothing is wrong with them and nothing was lost.")
+        print("          Run: app.cli index --only-ocr")
     if stats.skipped_by_code:
         print(f"Skipped by cause: {stats.skipped_by_code}")
         print("  Run `app.cli stats` to see the totals, or check logs\\errors for the detail.")
@@ -1050,6 +1093,147 @@ def cmd_index(args: argparse.Namespace) -> int:
 
     log.info("index complete: {}", payload)
     return EXIT_OK
+
+
+def _ocr_mode(args: argparse.Namespace, settings: Settings) -> str:
+    """Which pass this run is: `both`, `text` or `images`.
+
+    A flag on the command line wins over the setting, because naming one is an
+    instruction. Without a flag the setting decides, so the choice made once in
+    Settings applies to the scheduled runs as well - which is the whole reason
+    it is a setting and not only a flag.
+    """
+    if getattr(args, "only_ocr", False):
+        return "images"
+    if getattr(args, "skip_ocr", False):
+        return "text"
+    stored = str(getattr(settings, "index_ocr_mode", "both") or "both").strip().lower()
+    from app.index.pipeline import OCR_MODES
+
+    return stored if stored in OCR_MODES else "both"
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    r"""Count the corpus without indexing it. Reads no document, writes no index.
+
+    **The command that has to run before any of the others are worth planning.**
+    Every estimate about a long run - days, index size, whether OCR dominates -
+    comes from the mix of file types, and until this existed nobody had counted
+    the mix. A 600GB corpus was projected at five days from a 97-second sample;
+    it is three days or fifteen depending on how much of it is scanned images,
+    and that is not a detail to discover on day four.
+
+    It only `stat()`s, so it finishes in minutes on 600GB. The single exception
+    is a sample of PDFs, opened to read the text layer of their first two pages,
+    because "how much of this is photographs?" cannot be answered any other way
+    and it is the most expensive fact about the corpus.
+
+    The total is saved, so the *next* index run has a real percentage from its
+    first tick rather than a bar that spins for a week.
+    """
+    from app.index.scan import SCAN_STATE_KEY, ScanConfig, format_report, scan
+    from app.index.walker import own_paths
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    roots = [Path(root).expanduser() for root in (args.roots or [])]
+    from_settings = False
+    if not roots:
+        # Same fallback as `index`, and for the same reason: a measurement of a
+        # folder nobody indexes is a measurement of the wrong thing.
+        roots = [Path(root).expanduser() for root in _saved_roots(settings)]
+        from_settings = bool(roots)
+
+    if not roots:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.scan",
+            key="roots", reason="no folders to scan",
+            suggestion=r'Name them here - app.cli scan "D:\SearchData" - or set '
+                       r'them once on the Settings page, under "Folders to '
+                       r'index", and run this with no arguments.',
+        ), args.json)
+
+    if from_settings and not args.json:
+        print("Scanning the folders saved in Settings:")
+        for root in roots:
+            print(f"  {root}")
+        print()
+
+    config = ScanConfig(
+        roots=roots,
+        exclude_paths=own_paths(settings),
+        include_excluded=bool(args.all),
+        sample_pdfs=0 if args.no_sample else int(args.sample_pdfs),
+    )
+
+    progress = ProgressLine(enabled=not args.quiet and not args.json)
+
+    def show(result) -> None:
+        from app.index.scan import human_bytes
+
+        progress.update(
+            f"  {result.total.files:>12,} files  "
+            f"{human_bytes(result.total.bytes):>12}  "
+            f"{result.elapsed_s:,.0f}s"
+        )
+
+    result = scan(config, on_progress=None if args.quiet else show)
+    progress.finish()
+
+    # **Saved even when the scan is printed as JSON.** The number exists to make
+    # the *next* run's progress bar honest, and a person who scans with --json
+    # for a report has the same week-long run ahead of them as anybody else.
+    saved = _save_scan_total(settings, result)
+
+    if args.json:
+        payload = result.as_dict()
+        payload["saved_for_progress"] = saved
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    print()
+    for line in format_report(result, mb_per_minute=float(args.mb_per_minute or 0)):
+        print(line)
+    print()
+    if saved:
+        print(f"  Saved as {SCAN_STATE_KEY}, so the next index run shows a real")
+        print("  percentage from its first tick instead of an endless bar.")
+    else:
+        print("  Not saved - there is no index database yet. Run `app.cli init`")
+        print("  first if you want the next run's progress bar to use this total.")
+    return EXIT_OK
+
+
+def _save_scan_total(settings: Settings, result: Any) -> bool:
+    """Record the scan so `progress_for` has a denominator. Never fatal.
+
+    A failure here costs a progress bar, not a measurement - and the whole
+    point of `scan` is that it can be run on a machine whose index has not been
+    created yet.
+    """
+    from app.index.scan import SCAN_STATE_KEY
+
+    if not Path(settings.fts_db).is_file():
+        return False
+    try:
+        from app.storage.sqlite_store import SqliteStore
+
+        with SqliteStore(settings.fts_db) as store:
+            store.set_states({
+                SCAN_STATE_KEY: json.dumps({
+                    "at": int(time.time()),
+                    "roots": list(result.roots),
+                    "files": result.indexable.files,
+                    "bytes": result.indexable.bytes,
+                }),
+            })
+        return True
+    except Exception as exc:                         # noqa: BLE001 - see the docstring
+        logger.bind(component="cli.scan").warning(
+            "the scan total was not saved, so the next run's progress bar will "
+            "grow its own denominator: {}", exc)
+        return False
 
 
 def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
@@ -2529,6 +2713,36 @@ def build_parser() -> argparse.ArgumentParser:
                            help="read OneDrive placeholders too, downloading them (off by default)")
     p_extract.set_defaults(func=cmd_extract)
 
+    p_scan = sub.add_parser(
+        "scan", parents=[common],
+        help="count the corpus without indexing it - run this before a long index",
+        description=(
+            "Walk the folders and report what is there: total files and bytes, a "
+            "breakdown by file type biggest first, which reader would handle each, "
+            "how much is inside .git, and how much is scanned images. Opens no "
+            "document, writes no index, and finishes in minutes on 600GB because "
+            "it only stats - except for a sample of PDFs, which are opened to see "
+            "whether they have a text layer."
+        ))
+    p_scan.add_argument("roots", nargs="*",
+                        help="folders to scan (default: the ones saved in Settings)")
+    p_scan.add_argument("--all", action="store_true",
+                        help="descend into excluded folders too (node_modules, "
+                             "AppData, build) - slower, and answers 'what is on "
+                             "this disk' rather than 'what would be indexed'")
+    p_scan.add_argument("--sample-pdfs", type=int, default=400, metavar="N",
+                        help="PDFs opened to estimate how many are scanned "
+                             "(default 400; they are chosen at random)")
+    p_scan.add_argument("--no-sample", action="store_true",
+                        help="open nothing at all - then how much is scanned is "
+                             "reported as unknown rather than as zero")
+    p_scan.add_argument("--mb-per-minute", type=float, metavar="RATE",
+                        help="your measured indexing throughput, to turn the "
+                             "byte count into hours. Without it no time is "
+                             "estimated, because a guessed rate is worse than none")
+    p_scan.add_argument("--quiet", action="store_true", help="no progress lines")
+    p_scan.set_defaults(func=cmd_scan)
+
     p_index = sub.add_parser("index", parents=[common], help="build or update the index")
     p_index.add_argument("roots", nargs="*", help="folders to index")
     p_index.add_argument("--first", action="append", metavar="PATH",
@@ -2551,6 +2765,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument(
         "--force", action="store_true",
         help="index every file found, ignoring change detection. Use when the\nindex says a file is up to date but its content is missing.")
+    # **The two passes.** Mutually exclusive so `--skip-ocr --only-ocr` is
+    # refused with a sentence rather than silently resolved to one of them.
+    ocr_group = p_index.add_mutually_exclusive_group()
+    ocr_group.add_argument(
+        "--skip-ocr", "--no-ocr", dest="skip_ocr", action="store_true",
+        help="index everything readable without OCR, and queue the images.\n"
+             "Search becomes useful in a day or two instead of a fortnight;\n"
+             "the queued files are held, not failed.")
+    ocr_group.add_argument(
+        "--only-ocr", dest="only_ocr", action="store_true",
+        help="read only the images, and only walk the image types. This is\n"
+             "the second pass - run it behind the first.")
+    p_index.add_argument(
+        "--recheck-archives", action="store_true",
+        help="walk every folder marked as an archive in full, and record a new\n"
+             "pass. Use when something has plainly changed inside one.")
+    p_index.add_argument(
+        "--all-roots", action="store_true",
+        help="ignore the Live/Archive modes for this run only, without\n"
+             "updating any archive's record")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
     p_index.set_defaults(func=cmd_index)
 

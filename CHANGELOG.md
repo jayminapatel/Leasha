@@ -1,12 +1,136 @@
 # Changelog
 
-**Doc version:** 3.38 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.39 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the terabyte work order: measure it, then do less of it
+
+`docs/WORKORDER-terabyte-scale.md`, in full. The corpus this was designed for
+was 100GB; it is 600GB today and 1.5TB expected. **The design scales and the
+schedule does not** — IVF_PQ, compaction, the file indexes and resumability are
+all present and correct, and 600GB is still roughly five days.
+
+So none of this makes indexing faster. All of it either does less work, or says
+honestly how much work is left.
+
+**`app.cli scan ROOT...` — count the corpus before indexing it.** Every estimate
+about a long run comes from the mix of file types, and nobody had counted the
+mix; the five-day figure came from one 97-second sample. It reports total files
+and bytes, a breakdown by type biggest-first, which of the four readers would
+take each one, how much is inside `.git`, and how much is scanned images. It
+only `stat`s, so it finishes in minutes on 600GB — the one exception is a random
+sample of PDFs, opened to read the text layer of their first two pages, because
+"how much of this is photographs?" cannot be answered any other way and it is
+the most expensive fact about the corpus. `--mb-per-minute` turns the byte count
+into hours; **without it no time is estimated at all**, because a guessed rate is
+how a five-day estimate becomes fifteen. The result is saved, so the next index
+run has a real percentage from its first tick instead of a bar that spins for a
+week.
+
+**Archival roots — the highest-value item in the order.** The corpus is
+historic, so indexing it is paid once and *re-walking* it is paid for ever:
+millions of `stat()` calls that discover, again, that a fifteen-year archive is
+still fifteen years old, plus a prune pass that stats every row in the database
+to confirm no file has been deleted. Each folder in Settings is now **Live** or
+**Archive** — per folder, never globally, because a corpus is nearly always both.
+An archive is walked once and then checked with **one `stat` on the folder
+itself**: creating, renaming or deleting anything at the top level moves that
+directory's mtime, which catches the ordinary case for a single syscall.
+`ARCHIVE_RECHECK_DAYS` (30) is the backstop for a change no cheap check can see,
+and "Rescan archived folders now" forces a full walk. Rows under a skipped
+archive are not pruned *and not stat'd*, which is most of the saving.
+
+**Skip cheaply, never silently.** A skipped root reports itself on the Indexing
+page and on the command line with its file count and the date of its last full
+pass, because a folder deliberately left alone is otherwise indistinguishable
+from one that was never indexed — and somebody who reaches that conclusion
+deletes their index and starts a fortnight over.
+
+**OCR is now a separate pass**, because at 3.6 seconds a page it is not a
+feature of an index run, it is the schedule: 100,000 scanned pages is 100 hours
+on its own. `index --skip-ocr` indexes everything readable without OCR and
+*queues* the images; `--only-ocr` picks up exactly that queue, walking only the
+image types rather than the whole corpus again. Settings has the same as a
+three-way choice. The held files carry `ERR_OCR_HELD` — "held for the images
+pass", a `SKIPPED` row rather than a `FAILED` one — so 40,000 of them read as a
+queue rather than as 40,000 broken files. The point is that **search becomes
+useful after the first pass**, in a day or two rather than a fortnight.
+
+**Reporting built for days rather than minutes.** Throughput is now reported
+over the **last fifteen minutes** as well as since the start: a lifetime average
+barely moves after seventy hours, so a run that has slowed to a crawl still
+reports the number it managed on the first morning. The ETA is allowed to say
+*"time remaining unknown — run `app.cli scan` for a real estimate"*. A long run
+writes one summary line a day to the run log — files, bytes, skips by cause,
+hours, windowed rate — so a week-long run can be reviewed in under a minute
+rather than by reading a million progress lines. Resume-after-kill was verified
+by actually killing one, not by reading the code.
+
+### Fixed — four settings that were adjustable, saved, and inert
+
+Each of these had a control, a default, a tooltip and no effect. All four were
+found by working through §4 of the order, which asks for the numbers to be
+*verified rather than assumed*.
+
+* **The indexing ceilings never reached the indexer.** Memory, workers, CPU and
+  the free-space floor were written to `index_state` under `ui:index_memory_mb`
+  and friends — keys nothing anywhere read. `limits_from_settings` reads
+  `Settings`, which is built from `.env`. Six controls with real consequences,
+  none of which had any: somebody who raised the memory ceiling and saw no
+  change would reasonably conclude the governor was broken. They now go through
+  `.env` like every other setting, and the in-memory `Settings` is updated too,
+  so the next run in the same session uses them.
+* **`EMBED_BATCH` was 256 in the pipeline and 64 in the embedder**, and
+  `embed_all` re-split every gathered batch down to its own number — so the
+  constant documented as "the single biggest throughput lever in the whole
+  pipeline" reached the model as a quarter of itself, and raising it did
+  nothing. One definition now, at 256, and the pipeline aligns the embedder it
+  is given.
+* **`REQUIRED_FREE_GB` was read by no code at all**, while its help text said it
+  was "checked before a run starts". It now produces a notice at minute one of a
+  run rather than a surprise at hour sixty — advisory, not a refusal, because
+  nobody knows what an index for a given corpus costs until it is built and a
+  refusal would be enforcing a guess. `MIN_FREE_GB` remains the floor that
+  actually stops a run.
+* **FTS5's own index has never been merged.** `PRAGMA optimize` is called on
+  close and is the query planner's statistics — a different thing. FTS5 keeps a
+  segment per batch of inserts and every query touches all of them, so keyword
+  search over a week-long run gets slower in proportion, permanently, with
+  nothing to explain it. Merged now after any run that added 10,000 chunks.
+
+Defaults changed with them: `INDEX_MEMORY_MB` 1500 → **4000** (the models are
+~1GB resident before any work, so the old ceiling was nearly all baseline and
+the governor oscillated), `REQUIRED_FREE_GB` 150 → **300**.
+
+### Fixed — `log_dir_for` created `D:\SearchProject\logs` as a folder name
+
+The fourth time this family of mistake has been found here, and caught by
+`test_no_stray_paths` — the outcome tripwire written after the third, precisely
+because guarding one door is never enough. `load_settings` refuses a Windows
+`LOG_PATH` off Windows, but the run log is opened *before* it, by design, so
+that a configuration failure still gets logged. That path had no guard, so every
+single command created a directory whose *name* was a drive letter and
+backslashes.
+
+### Changed — the IVF cap and the retrain rule now say what they are doing
+
+`num_partitions` is `sqrt(rows)` capped at 4096, so the cap starts to bind at
+about **16.8 million vectors** — which 1.5TB reaches. Past that, partitions grow
+instead of multiplying and search slows, or loses recall, in proportion. The cap
+is **not moved**: §6 asks for latency and recall to be measured at 5M, 10M and
+20M rows first. What changed is that it stops being silent — one line in the log
+the first time the heuristic is no longer being followed.
+
+The retrain rule ("when rows double") now slows to **four times** above the cap,
+for a reason rather than a preference: below the cap a rebuild changes the
+index's shape, above it the partition count is pinned and a rebuild only
+reassigns vectors to the same centroids — at the sizes where a rebuild costs the
+most and lands mid-run.
 
 ### Added — 389 source and code types, from 34, all on by default
 

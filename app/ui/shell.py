@@ -188,6 +188,7 @@ class MainWindow(QMainWindow):
         self.indexing_view.reset_requested.connect(self._reset_index)
         self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
         self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
+        self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -200,8 +201,10 @@ class MainWindow(QMainWindow):
         self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
 
         self.settings_view = SettingsView(settings, store)
-        self.settings_view.set_roots(self._load_roots())
+        self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
         self.settings_view.roots_changed.connect(self._save_roots)
+        self.settings_view.root_modes_changed.connect(self._save_root_modes)
+        self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
         self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
         self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
         self.settings_view.models.load(
@@ -708,15 +711,41 @@ class MainWindow(QMainWindow):
         self._store.set_state("ui:index_cloud", "on" if enabled else "off")
 
     def _limits_changed(self, values: dict) -> None:
-        """Persist the resource ceilings. They take effect on the next run.
+        r"""Persist the resource ceilings. They take effect on the next run.
 
         Not on the run in flight: changing the worker count mid-run would mean
         stopping and restarting threads that are holding files open, and the
         gain is a few minutes on a job measured in hours.
+
+        **These were written to the wrong place, and so they did nothing.**
+        Every ceiling here landed in `index_state` under `ui:index_memory_mb`
+        and friends - and nothing anywhere read those keys. `limits_from_
+        settings` reads `Settings`, which is built from `.env`, so the memory
+        ceiling, the worker count, the CPU cap and the free-space floor were all
+        adjustable, saved, reported as saved, and inert. Six controls with real
+        consequences, none of which had any.
+
+        It matters more at a terabyte than it did at 100GB: raising the memory
+        ceiling is the difference between a run that pauses constantly and one
+        that does not, and somebody who raised it and saw no change would
+        reasonably conclude the governor is broken rather than that the setting
+        never arrived.
+
+        So it goes through `.env` like every other setting - non-negotiable 11 -
+        and the in-memory `Settings` is updated too, so the *next run in this
+        session* uses it rather than requiring a restart.
         """
-        # One transaction for the five keys, not five. Five commits is five
-        # fsyncs on the UI thread for one change nobody thinks of as five.
-        self._store.set_states({f"ui:{key}": str(value) for key, value in values.items()})
+        if not values:
+            return
+        # `current_limits` keys are `Settings` field names, and the `.env` key
+        # is the same name upper-cased - which is not a coincidence, it is how
+        # `config.load_settings` reads them. Asserted by `test_settings_registry`.
+        self._settings_changed({key.upper(): value for key, value in values.items()})
+        for key, value in values.items():
+            try:
+                setattr(self._settings, key, value)
+            except Exception as exc:                 # noqa: BLE001 - never fatal
+                _log.debug("could not apply {} to the live settings: {}", key, exc)
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
 
     def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
@@ -994,6 +1023,33 @@ class MainWindow(QMainWindow):
             return []
         return [root for root in (stored or "").split("|") if root]
 
+    def _load_root_modes(self) -> dict:
+        """Which folders the owner has declared static. See `index/archives.py`."""
+        from app.index.archives import MODE_STATE_KEY, load_modes
+
+        try:
+            return load_modes(self._store.get_state(MODE_STATE_KEY, "") or "")
+        except Exception as exc:                     # noqa: BLE001
+            _log.debug("index root modes not read: {}", exc)
+            return {}
+
+    def _save_root_modes(self, modes: dict) -> None:
+        from app.index.archives import MODE_STATE_KEY, dump_modes
+
+        try:
+            self._store.set_state(MODE_STATE_KEY, dump_modes(modes))
+        except Exception as exc:                     # noqa: BLE001
+            # **Said out loud.** A mode that silently failed to save looks like
+            # it worked until the next run walks 1.5TB anyway, and by then
+            # nobody connects the two.
+            _log.warning("index root modes not saved: {}", exc)
+            self.statusBar().showMessage(
+                "That folder's Live/Archive setting was not saved.", 8_000)
+
+    def _rescan_archives(self) -> None:
+        """One full walk of every archival folder, now. Not a policy change."""
+        self._start_indexing(recheck_archives=True)
+
     def _save_pst_backend(self, backend: str) -> None:
         try:
             self._store.set_state("ui:pst_backend", backend)
@@ -1035,8 +1091,7 @@ class MainWindow(QMainWindow):
         if str(target) not in roots:
             # Offer it as an index root immediately - converting and then having
             # to remember to add the folder is a step nobody should have to take.
-            self.settings_view.roots.addItem(str(target))
-            self._save_roots(self.settings_view.current_roots())
+            self.settings_view.add_root(str(target))
 
     def _save_roots(self, roots: list[str]) -> None:
         try:
@@ -1049,7 +1104,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001
             _log.warning("index roots not saved: {}", exc)
 
-    def _start_indexing(self, *, roots: Optional[list[str]] = None) -> None:
+    def _start_indexing(self, *, roots: Optional[list[str]] = None,
+                        recheck_archives: bool = False) -> None:
         from app.index.embedder import Embedder
         from app.index.pipeline import Pipeline, PipelineConfig
         from app.index.walker import WalkConfig
@@ -1087,10 +1143,38 @@ class MainWindow(QMainWindow):
                 # actually doing, and gets switched off for good.
                 limits=limits_from_settings(self._settings),
                 min_free_gb=self._settings.min_free_gb,
+                required_free_gb=int(getattr(self._settings, "required_free_gb", 0)),
+                ocr_mode=str(getattr(self._settings, "index_ocr_mode", "both")),
                 prune_missing=roots is None,     # a folder-scoped run must not prune the rest
+                # A folder marked as an archive is walked once and then checked
+                # with one `stat` - the largest single saving available on a
+                # settled corpus. `recheck_archives` is the "Rescan archived
+                # folders now" button, which walks them all in full this once.
+                recheck_archives=recheck_archives,
+                recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
             ),
         )
-        self.indexing_view.start(pipeline)
+        self.indexing_view.start(pipeline, total_estimate=self._scan_total(chosen))
+
+    def _scan_total(self, roots: list[str]) -> int:
+        """How many files `app.cli scan` counted, if it counted these folders.
+
+        **Without it a week-long run has no percentage at all.** The bar grows
+        its own denominator from what the walker has found so far, which is
+        honest but reads as 97% within the first minute - the work queue is
+        bounded, so `seen` is never far ahead of `done`. A scan is the only
+        thing that knows the real total, and this is where it gets used.
+
+        Zero for no scan or a scan of different folders, which `progress_for`
+        already reads as "no estimate".
+        """
+        from app.index.scan import SCAN_STATE_KEY, saved_total
+
+        try:
+            return saved_total(self._store.get_state(SCAN_STATE_KEY, "") or "", roots)
+        except Exception as exc:                     # noqa: BLE001 - a bar, not a run
+            _log.debug("no scan total available: {}", exc)
+            return 0
 
     def _search_inside(self, path: str) -> None:
         """Found it by name; now find what is in it.

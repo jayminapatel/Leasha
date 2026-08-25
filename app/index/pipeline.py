@@ -47,6 +47,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract.base import reads_externally
+from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
 from app.index.walker import (
@@ -101,13 +102,51 @@ VECTOR_BATCH = 1000
 
 #: Chunks per embedding call. The single biggest throughput lever in the whole
 #: pipeline: ONNX is efficient on large batches and spends its time on call
-#: overhead on small ones. 256 chunks is roughly 400KB of text - nothing next to
-#: the memory ceiling - and it keeps a crash's cost to a few seconds of work.
-EMBED_BATCH = 256
+#: overhead on small ones.
+#:
+#: **Imported, not declared.** This was 256 here and 64 in `embedder.py`, and
+#: `embed_all` re-split every gathered batch down to its own number - so the
+#: lever was connected to nothing. One constant, in the module that uses it.
+EMBED_BATCH = _EMBED_BATCH
 
 #: Files between free-space checks. `shutil.disk_usage` is a syscall, so this is
 #: cheap, but not free enough to do per file.
 DISK_CHECK_EVERY = 200
+
+#: The three passes, and the words the CLI and Settings both use.
+#:
+#: `both` is what every run did before this existed, and remains the default -
+#: it is right up to about 100GB. `text` and `images` are the split that makes a
+#: terabyte tractable: the first pass makes search useful in a day or two and
+#: the second fills in the images behind it, with nobody waiting.
+OCR_MODES = ("both", "text", "images")
+
+#: New chunks in one run above which the FTS5 index is merged afterwards.
+#:
+#: The merge rewrites the whole keyword index - minutes at ten million chunks -
+#: so it is pure waste after an incremental pass that added four, and necessary
+#: after a first pass that added four million. 10,000 is the line between the
+#: two: a run that added that many has written enough segments for the merge to
+#: pay for itself, and is long enough that a few extra seconds at the end is not
+#: noticed.
+FTS_OPTIMIZE_AFTER_CHUNKS = 10_000
+
+#: The window the reported throughput covers, in seconds.
+#:
+#: **A rate averaged since the start is useless on a run of days.** After
+#: seventy hours the lifetime average barely moves, so a run that has slowed to
+#: a crawl - or stopped making progress entirely - still reports the number it
+#: was managing on day one. Fifteen minutes is long enough not to jump about
+#: while one large archive is parsed, and short enough to notice a change on
+#: the day it happens.
+RATE_WINDOW_S = 15 * 60
+
+#: Seconds between the summary lines written to the run log on a long run.
+#:
+#: A week-long run produces millions of progress lines and nobody reads them.
+#: One line a day - files, bytes, skips by cause, hours - is a run somebody can
+#: review afterwards in under a minute.
+SUMMARY_EVERY_S = 24 * 60 * 60
 
 
 @dataclass
@@ -161,6 +200,25 @@ class IndexStats:
     current_item: int = 0
     stopped_early: Optional[AppError] = None
     skipped_by_code: dict[str, int] = field(default_factory=dict)
+    #: Archival roots this run did not walk, as `RootPlan.as_dict()`. Reported
+    #: rather than merely acted on: *"skip cheaply, but never silently"*. A root
+    #: skipped in silence is indistinguishable from one that was never indexed,
+    #: and the person who concludes the second will delete their index.
+    skipped_roots: list[dict[str, Any]] = field(default_factory=list)
+    #: Files seen per archival root this run, keyed as `archives.normalise`
+    #: gives them. Written by the walker thread, read once at the end.
+    root_counts: dict[str, int] = field(default_factory=dict)
+    #: Things worth saying before or during the run that are not failures.
+    #: Shown by the CLI and by the Indexing panel. A run that is going to take a
+    #: week should say what it can see coming at the start of it, not at hour
+    #: sixty when the disk fills.
+    notices: list[str] = field(default_factory=list)
+
+    #: `(monotonic, indexed, bytes_read)` samples, for the windowed rates.
+    #: Bounded by time rather than by count in `sample`, so the memory cost is
+    #: one small tuple every couple of seconds for fifteen minutes - about 450
+    #: of them - however long the run lasts.
+    recent: list[tuple[float, int, int]] = field(default_factory=list)
 
     @property
     def files_per_minute(self) -> float:
@@ -169,6 +227,57 @@ class IndexStats:
     @property
     def mb_per_minute(self) -> float:
         return (self.bytes_read / 1_048_576 / self.elapsed_s * 60) if self.elapsed_s > 0 else 0.0
+
+    def sample(self, *, now: Optional[float] = None) -> None:
+        """Record a point for the windowed rates, and drop what has aged out.
+
+        Called at every checkpoint - about every two seconds - which is often
+        enough for the window to be meaningful and rare enough to cost nothing.
+        """
+        current = now if now is not None else time.monotonic()
+        self.recent.append((current, self.indexed, self.bytes_read))
+        cutoff = current - RATE_WINDOW_S
+        # Keep one sample from before the cutoff: it is the *start* of the
+        # window, and dropping it leaves the first tick after a trim comparing
+        # a point with itself and reporting a rate of zero.
+        keep = 0
+        for index, (stamp, _files, _bytes) in enumerate(self.recent):
+            if stamp >= cutoff:
+                keep = max(0, index - 1)
+                break
+        else:
+            keep = max(0, len(self.recent) - 1)
+        if keep:
+            del self.recent[:keep]
+
+    def _window(self) -> Optional[tuple[float, int, int]]:
+        """`(seconds, files, bytes)` covered by the window, or None."""
+        if len(self.recent) < 2:
+            return None
+        first, last = self.recent[0], self.recent[-1]
+        seconds = last[0] - first[0]
+        if seconds <= 0:
+            return None
+        return seconds, last[1] - first[1], last[2] - first[2]
+
+    @property
+    def recent_files_per_minute(self) -> Optional[float]:
+        r"""Throughput over the last `RATE_WINDOW_S`, or None while unknown.
+
+        **An average over four days says nothing about whether it is still
+        moving.** A run that indexed 400,000 files in three days and then hit a
+        folder of scanned PDFs still reports a healthy lifetime average while
+        doing almost nothing - which is precisely the moment somebody needs to
+        know. `None` rather than 0 until there are two samples, because "no
+        measurement yet" and "stopped" must not print the same.
+        """
+        window = self._window()
+        return None if window is None else window[1] / window[0] * 60
+
+    @property
+    def recent_mb_per_minute(self) -> Optional[float]:
+        window = self._window()
+        return None if window is None else window[2] / 1_048_576 / window[0] * 60
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -182,6 +291,8 @@ class IndexStats:
             "files_per_minute": round(self.files_per_minute, 1),
             "mb_per_minute": round(self.mb_per_minute, 2),
             "skipped_by_code": dict(self.skipped_by_code),
+            "skipped_roots": list(self.skipped_roots),
+            "notices": list(self.notices),
             "stopped_early": self.stopped_early.code if self.stopped_early else None,
         }
 
@@ -215,6 +326,35 @@ class PipelineConfig:
     #: Retry files previously skipped as locked - the program holding them may
     #: well have closed since.
     retry_locked: bool = True
+    #: Which pass this is. See `OCR_MODES` and `_ocr_gate`.
+    #:
+    #: **OCR is the schedule, not a feature.** At 3.6 seconds a page, 100,000
+    #: scanned pages is 100 hours on its own - so a single pass that reads text
+    #: and images together means nothing is searchable until everything is.
+    #: `text` indexes everything readable without OCR and *queues* the images;
+    #: `images` picks up exactly that queue. Search becomes useful after the
+    #: first, in a day or two rather than a fortnight.
+    ocr_mode: str = "both"
+    #: Honour the Live/Archive mode on each root. Off for a run that must see
+    #: everything whatever the modes say - `--recheck-archives` sets `recheck`
+    #: instead, which walks the archives *and* refreshes their records.
+    archives: bool = True
+    #: Walk every archival root in full this once, and record a new pass.
+    recheck_archives: bool = False
+    #: Days an archive is trusted without evidence. From `ARCHIVE_RECHECK_DAYS`.
+    recheck_days: int = 30
+    #: Seconds between summary lines in the run log. See `SUMMARY_EVERY_S`.
+    summary_every_s: float = SUMMARY_EVERY_S
+    #: Free space this run would like to see before starting, in GB. Advisory:
+    #: it produces a notice, never a refusal. `min_free_gb` is the floor that
+    #: actually stops a run, and it stops it *when space runs out* rather than
+    #: guessing beforehand.
+    #:
+    #: **It used to be neither.** `REQUIRED_FREE_GB` had a control, a default
+    #: and a tooltip saying it was "checked before a run starts", and no code
+    #: anywhere read it. At 100GB that was a harmless untruth; before a week-long
+    #: run over 1.5TB, "you have 40GB free" is worth knowing at minute one.
+    required_free_gb: int = 0
     #: Index every file found, whatever the change detector says.
     #:
     #: **The escape hatch that was missing.** Change detection decided a file
@@ -304,6 +444,24 @@ class Pipeline:
         self.vectors = vectors
         self.embedder = embedder
         self.config = config
+        # **The batch the config asks for is the batch the model gets.**
+        #
+        # `_embed_pending` gathers `config.embed_batch` chunks and hands them to
+        # `embed_all`, which splits by the *embedder's* own `batch_size`. With
+        # the two set differently the config's number was decoration: it decided
+        # how often the store was written, never how large an ONNX call was.
+        #
+        # Aligned rather than asserted, because the caller who set
+        # `PipelineConfig(embed_batch=...)` plainly meant the embedding batch.
+        # A caller who deliberately wants a smaller ONNX batch than the gather
+        # size can still set it afterwards.
+        if getattr(embedder, "batch_size", None) != config.embed_batch:
+            try:
+                embedder.batch_size = config.embed_batch
+            except Exception as exc:                # noqa: BLE001 - a fake, or frozen
+                logger.bind(component="index.pipeline").debug(
+                    "embedder batch size not aligned to {}: {}",
+                    config.embed_batch, exc)
         # Injected in tests with a fake probe, so every pause and resume path is
         # exercised without needing a machine that is actually short of memory.
         self.governor = governor or ResourceGovernor(
@@ -325,6 +483,12 @@ class Pipeline:
         #: The sink's keys, longest first. Rebuilt only when the sink grows.
         self._repo_order: list[str] = []
         self._throttle: Optional[Verdict] = None
+        #: What `_plan_roots` decided this run. Read again at the end, to record
+        #: a pass for every archival root that was walked in full.
+        self._plans: tuple[Any, ...] = ()
+        #: Monotonic marks for the daily summary line. Set in `run`.
+        self._run_started = 0.0
+        self._last_summary = 0.0
         self._stats_ref = IndexStats()
         # Two different meanings, and conflating them cost a silent bug: the
         # prune step never ran, because run()'s cleanup sets the event and the
@@ -360,6 +524,7 @@ class Pipeline:
         stats = IndexStats()
         self._stats_ref = stats          # workers announce the file they are on
         started = time.perf_counter()
+        self._run_started = self._last_summary = time.monotonic()
         self._stop.clear()
         self._interrupted = False
 
@@ -370,6 +535,14 @@ class Pipeline:
             self._log.debug("running at below-normal priority")
 
         self.vectors.ensure_table()
+        # Before anything else: an archival root that is being skipped must not
+        # have its own stores protected, its repositories seeded or its rows
+        # pruned, because none of those should look at it at all.
+        self._preflight_disk(stats)
+        self._plan_roots(stats)
+        # The images pass walks only the image types. Before the producer, or
+        # it walks the whole corpus and throws almost all of it away.
+        self._narrow_to_images()
         # Before the producer starts, so the sink is attached to the config the
         # walk is about to read and the enclosing roots are already in it.
         self._repo_roots.clear()
@@ -408,10 +581,21 @@ class Pipeline:
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
         # yet" and pruning would delete perfectly good rows.
-        if self.config.prune_missing and not self._interrupted:
+        # **Never after an images-only pass.** That walk saw only the pictures,
+        # so "missing" would mean "not an image" for every document in the
+        # corpus - and while `exists()` would save them, it would do so at the
+        # cost of one syscall per row for nothing. Same reasoning as a run
+        # restricted to one root, which has always been excluded.
+        if (self.config.prune_missing and not self._interrupted
+                and self.config.ocr_mode != "images"):
             stats.deleted = self._prune_missing(seen_paths)
 
         self._record_repos()
+        # Only after a run that finished. Recording a pass that stopped a third
+        # of the way through would mark an archive as fully indexed when two
+        # thirds of it has never been read, and nothing would look at it again.
+        if not self._interrupted and stats.stopped_early is None:
+            self._record_archive_pass(stats)
 
         stats.elapsed_s = time.perf_counter() - started
         self.store.set_state("last_run", str(int(time.time())))
@@ -422,8 +606,32 @@ class Pipeline:
         # nightly incremental index is exactly that shape - a small run, every
         # day, each one leaving fragments behind forever.
         self.vectors.maybe_compact(force=True)
+        self._optimise_keyword_index(stats)
         self._log.info("index run: {}", stats.as_dict())
         return stats
+
+    def _optimise_keyword_index(self, stats: IndexStats) -> None:
+        r"""Merge the FTS5 segments, after a run that wrote enough to matter.
+
+        **Never run before this existed.** FTS5 writes a segment per batch of
+        inserts and queries touch all of them, so an index built over a
+        week-long run accumulates thousands and keyword search gets slower in
+        proportion - permanently, and with nothing on any screen to say why.
+
+        Guarded on the chunk count rather than done every time: the merge
+        rewrites the entire index, which is minutes at ten million chunks and
+        pure waste after an incremental pass that added four.
+        """
+        if stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
+            return
+        optimise = getattr(self.store, "optimize_fts", None)
+        if optimise is None:
+            return
+        started = time.perf_counter()
+        if optimise():
+            self._log.info(
+                "merged the keyword index after {:,} new chunks ({:.1f}s)",
+                stats.chunks, time.perf_counter() - started)
 
     # -- stage 1: walk ------------------------------------------------------
 
@@ -433,13 +641,24 @@ class Pipeline:
         The unchanged decision happens *here*, before anything is queued, so an
         incremental pass over a settled corpus never wakes a worker at all.
         """
+        from app.index.archives import files_under
+
         sequence = 0
+        # Snapshotted: `walk.roots` is not written during a run, and asking for
+        # it per file would be a list build a million times over.
+        roots = list(self.config.walk.roots)
         try:
             for candidate in self._candidates():
                 if self._stop.is_set():
                     break
                 seen.add(str(candidate.path).lower())
                 stats.seen += 1
+
+                # Per-root file counts, so a skipped archive can say how many
+                # files it holds. A string prefix test per file; no I/O.
+                owner = files_under(candidate.path, roots)
+                if owner is not None:
+                    stats.root_counts[owner] = stats.root_counts.get(owner, 0) + 1
 
                 # Wait here, not in the consumer. This thread holds nothing but
                 # one candidate path, so pausing it starves the workers of new
@@ -497,6 +716,178 @@ class Pipeline:
             stats.walk_complete = True
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
+
+    def _preflight_disk(self, stats: IndexStats) -> None:
+        """Say at minute one what the disk looks like. Never stops the run.
+
+        **A notice, not a refusal.** `min_free_gb` is the floor that stops a
+        run, and it does so when space actually runs out - which is correct,
+        because everything indexed by then is kept and the run resumes after
+        somebody frees space. This is the other half: before a run measured in
+        days, a person is entitled to know that the drive has 40GB on it.
+
+        Refusing here would be worse than useless: nobody knows what the index
+        for a given corpus costs until it is built, so a refusal would be
+        enforcing a guess.
+        """
+        wanted = int(self.config.required_free_gb or 0)
+        if wanted <= 0:
+            return
+        target = getattr(self.vectors, "uri", None) or getattr(self.store, "db_path", None)
+        if not target:
+            return
+        try:
+            import shutil
+
+            free_gb = shutil.disk_usage(str(Path(target).parent)).free / 1_073_741_824
+        except Exception as exc:                    # noqa: BLE001 - a notice, not a run
+            self._log.debug("free space not checked: {}", exc)
+            return
+        if free_gb >= wanted:
+            return
+        notice = (
+            f"{free_gb:,.0f}GB free on the index drive, below the {wanted}GB "
+            f"this is set to expect. Indexing will still run and will stop "
+            f"cleanly at the {self.config.min_free_gb}GB floor if it runs out - "
+            f"nothing indexed is lost - but on a corpus this size it is worth "
+            f"freeing space before starting rather than at hour sixty."
+        )
+        stats.notices.append(notice)
+        self._log.warning("{}", notice)
+
+    # -- the two passes ------------------------------------------------------
+
+    def _ocr_gate(self, candidate: Candidate) -> Optional[AppError]:
+        """`ERR_OCR_HELD` if this file belongs to the *other* pass, else None.
+
+        **The skip is a queue, and it has to look like one.** A held file gets
+        an ordinary `files` row with a skip code, exactly like a failure - which
+        is what makes it findable later - so the code and its wording are the
+        only thing separating "40,000 images waiting" from "40,000 broken
+        files" on the skipped-files panel. Hence `ERR_OCR_HELD` rather than
+        reusing `ERR_NO_TEXT_LAYER`.
+
+        Asked once per file, in the extraction worker, after the change check
+        has already decided the file is worth looking at.
+        """
+        if self.config.ocr_mode not in ("text", "images"):
+            return None
+
+        from app.extract.base import reads_by_ocr
+
+        is_image = reads_by_ocr(candidate.path)
+        if self.config.ocr_mode == "text" and is_image:
+            return make_error(
+                "ERR_OCR_HELD", "index.pipeline", path=str(candidate.path))
+        # In `images` mode the walk is already narrowed to the image types, so
+        # this is a belt-and-braces guard rather than the mechanism - see
+        # `_narrow_to_images`. Nothing is written for a non-image, because
+        # writing a skip row would mark files the *text* pass indexed perfectly
+        # well as failures.
+        return None
+
+    def _narrow_to_images(self) -> None:
+        """Restrict the walk to what OCR reads, for the images pass.
+
+        **Narrowing the walk rather than filtering the results is the whole
+        saving.** The images pass over a 1.5TB corpus otherwise `stat`s every
+        one of its millions of files to discard all but the pictures - which is
+        the same fruitless walk archival roots exist to avoid, paid a second
+        time.
+        """
+        if self.config.ocr_mode != "images":
+            return
+        from app.extract.ocr import OcrExtractor
+
+        wanted = frozenset(OcrExtractor.extensions)
+        current = self.config.walk.extensions
+        # An explicit set from the caller is narrowed, never widened: a run
+        # restricted to `.png` must not become a run over every image type.
+        self.config.walk.extensions = (
+            wanted if current is None else frozenset(current) & wanted
+        )
+
+    # -- archival roots ------------------------------------------------------
+
+    def _plan_roots(self, stats: IndexStats) -> None:
+        r"""Narrow the walk to the roots this run should actually look at.
+
+        **Here rather than in the two callers.** `app.cli index` and the window
+        each build their own `WalkConfig`, and a saving this large implemented
+        in one of them would apply to whichever way the person happened to
+        start the run - which is the shape of bug that gets reported as "it is
+        fast from the command line and slow from the app". The standing rule is
+        that a feature added for one entry point is added for the others.
+
+        Never raises: a failure to read the archive records means every root is
+        walked, which is the slow answer and never the wrong one.
+        """
+        self._plans = ()
+        if not self.config.archives:
+            return
+        try:
+            from app.index.archives import (
+                MODE_STATE_KEY,
+                RECORD_STATE_KEY,
+                load_modes,
+                load_records,
+                plan_roots,
+            )
+
+            plans = plan_roots(
+                list(self.config.walk.roots),
+                modes=load_modes(self.store.get_state(MODE_STATE_KEY, "") or ""),
+                records=load_records(self.store.get_state(RECORD_STATE_KEY, "") or ""),
+                recheck=self.config.recheck_archives,
+                recheck_days=self.config.recheck_days,
+            )
+        except Exception as exc:                    # noqa: BLE001 - see the docstring
+            self._log.warning(
+                "archival roots could not be read, so every folder will be "
+                "walked in full: {}", exc)
+            return
+
+        self._plans = plans
+        skipped = [plan for plan in plans if not plan.walk]
+        if not skipped:
+            return
+
+        self.config.walk.roots = [plan.root for plan in plans if plan.walk]
+        stats.skipped_roots = [plan.as_dict() for plan in skipped]
+        for plan in skipped:
+            # INFO, not DEBUG. This is the one line that tells somebody their
+            # archive was deliberately not looked at, and it carries the count
+            # and the date so it cannot be mistaken for an empty folder.
+            self._log.info("{}", plan.describe())
+
+    def _archive_roots(self) -> list[str]:
+        """Roots being skipped, for the prune guard. Normalised."""
+        from app.index.archives import normalise
+
+        return [normalise(row["root"]) for row in self._stats_ref.skipped_roots]
+
+    def _record_archive_pass(self, stats: IndexStats) -> None:
+        """Store what this run saw, for the archival roots it walked in full."""
+        plans = getattr(self, "_plans", ())
+        if not any(plan.walk and plan.mode == "archive" for plan in plans):
+            return
+        try:
+            from app.index.archives import (
+                RECORD_STATE_KEY,
+                dump_records,
+                load_records,
+                record_pass,
+            )
+
+            records = load_records(self.store.get_state(RECORD_STATE_KEY, "") or "")
+            self.store.set_state(
+                RECORD_STATE_KEY,
+                dump_records(record_pass(records, plans, stats.root_counts)),
+            )
+        except Exception as exc:                    # noqa: BLE001
+            # Losing the record costs one more full walk next time. Failing the
+            # run would cost the whole run.
+            self._log.warning("the archive record was not saved: {}", exc)
 
     # -- repository attribution ---------------------------------------------
 
@@ -738,6 +1129,11 @@ class Pipeline:
                     exc, "index.pipeline", code="ERR_FILE_LOCKED", path=str(candidate.path)))
                 return
 
+        held = self._ocr_gate(candidate)
+        if held is not None:
+            yield _Extracted(candidate, digest, error=held)
+            return
+
         produced = 0
         seen_keys: set[str] = set()
         try:
@@ -818,6 +1214,8 @@ class Pipeline:
         finished = 0
         since_checkpoint = 0
         last_checkpoint = time.monotonic()
+        self._last_summary = last_checkpoint
+        stats.sample(now=last_checkpoint)          # the window's first point
         pending_vectors: list[tuple[int, int, str]] = []
 
         while finished < len(workers):
@@ -891,6 +1289,8 @@ class Pipeline:
                 since_checkpoint = 0
                 last_checkpoint = now
                 self._checkpoint(item.candidate, stats)
+                stats.sample(now=now)
+                self._maybe_summarise(stats, now=now)
                 if on_progress is not None:
                     on_progress(stats)
                 if not self._disk_ok(stats):
@@ -899,6 +1299,35 @@ class Pipeline:
         self._embed_pending(pending_vectors)
         if on_progress is not None:
             on_progress(stats)
+
+    def _maybe_summarise(self, stats: IndexStats, *, now: float) -> None:
+        r"""One line a day in the run log, on a run measured in days.
+
+        **A week-long run produces millions of progress lines and nobody reads
+        them.** Reviewing what happened afterwards - did it slow down, when did
+        the scanned PDFs start, was it pausing all Tuesday - means finding a
+        handful of facts in a file of that size, which nobody does. One line a
+        day, carrying the counts, the throughput over the last window and the
+        skips by cause, is a run somebody reviews in under a minute.
+
+        Costs nothing on a short run: the interval never elapses.
+        """
+        interval = self.config.summary_every_s
+        if interval <= 0 or (now - self._last_summary) < interval:
+            return
+        self._last_summary = now
+        hours = (now - self._run_started) / 3600
+        recent = stats.recent_files_per_minute
+        self._log.info(
+            "day {:.0f} of this run: {:,} document(s), {:,} file(s) seen, "
+            "{:,.1f}GB read, {:,} skipped, {:.1f} hours elapsed, {} in the "
+            "last {:.0f} minutes, {:,.0f} min paused. Skips by cause: {}",
+            hours / 24 + 1, stats.indexed, stats.seen,
+            stats.bytes_read / 1_073_741_824, stats.skipped, hours,
+            f"{recent:,.0f} files/min" if recent is not None else "no measurement",
+            RATE_WINDOW_S / 60, stats.paused_seconds / 60,
+            dict(stats.skipped_by_code) or "none",
+        )
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
@@ -1152,6 +1581,19 @@ class Pipeline:
         Only over paths this walk covered: a run restricted to one root must not
         conclude that everything under the others has been deleted.
         """
+        # **Rows under a skipped archive are left alone without being stat'd.**
+        #
+        # The `exists()` test below would keep them anyway - they are still on
+        # disk - but it is one syscall per row, and on a 1.5TB archive that is
+        # several million syscalls at the end of every incremental run, to
+        # confirm that a folder nobody has touched in twelve years still
+        # contains what it contained. That cost is precisely what marking a
+        # root as an archive is meant to remove; skipping the walk and then
+        # paying it here would have saved almost nothing.
+        from app.index.archives import files_under
+
+        archived = self._archive_roots()
+
         # Narrowed in SQL, and only the ids to delete are held. An archive of
         # 200,000 emails is 200,000 rows: materialising every one of them as a
         # FileRecord just to discard the mail is minutes and hundreds of
@@ -1163,7 +1605,9 @@ class Pipeline:
         doomed = [
             record.id
             for record in self.store.iter_files(source_kind="file")
-            if str(record.path).lower() not in seen and not Path(record.path).exists()
+            if str(record.path).lower() not in seen
+            and (not archived or files_under(record.path, archived) is None)
+            and not Path(record.path).exists()
         ]
         for file_id in doomed:
             self.vectors.delete_by_file_ids([file_id])

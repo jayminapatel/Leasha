@@ -79,7 +79,7 @@ class StorageBox(QGroupBox):
         self.required_free_gb.setObjectName("REQUIRED_FREE_GB")
         self.required_free_gb.setRange(1, 10_000)
         self.required_free_gb.setSuffix(" GB")
-        self.required_free_gb.setValue(int(getattr(settings, "required_free_gb", 150)))
+        self.required_free_gb.setValue(int(getattr(settings, "required_free_gb", 300)))
         self.required_free_gb.setToolTip(
             "Checked on the index drive before a run starts.\n"
             "A 100GB corpus needs roughly 150GB once the vectors, the database\n"

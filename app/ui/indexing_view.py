@@ -20,20 +20,16 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core.logging import logger
 from app.ui.presenter import (
-    format_count,
-    group_skips,
     finished_text,
     index_summary,
     progress_for,
@@ -41,8 +37,9 @@ from app.ui.presenter import (
     read_index_summary,
     when_text,
 )
+from app.ui.widgets.archived_roots import ArchivedRoots
 from app.ui.widgets.index_stats import IndexStats
-from app.ui.widgets.skip_row import SkipRow
+from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.workers import CallableWorker, IndexWorker, run
 
 __all__ = ["IndexingView"]
@@ -62,6 +59,9 @@ class IndexingView(QWidget):
     finished = pyqtSignal(object)        # IndexStats
     error = pyqtSignal(object)
     retry_requested = pyqtSignal(str)    # an error code to retry
+    #: "Rescan these folders now" on the archived-folders panel. One full walk,
+    #: not a change of policy - the modes stay as they are.
+    rescan_archives_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -90,11 +90,6 @@ class IndexingView(QWidget):
         self._stopping = False
         self._next_run_text = ""
         self._total_estimate = 0
-        #: The tally the panel is currently showing, and the rows showing it.
-        #: Both exist so a progress tick that changes nothing costs nothing -
-        #: see `show_skips`.
-        self._shown_skips: dict[str, int] = {}
-        self._skip_rows: dict[str, Any] = {}
 
         self.headline = QLabel("Nothing indexed yet.")
         self.headline.setObjectName("indexHeadline")
@@ -121,6 +116,14 @@ class IndexingView(QWidget):
 
         self.detail = QLabel("")
         self.detail.setObjectName("indexDetail")
+
+        # Things that are not failures but are worth knowing before a run that
+        # takes days - "40GB free on the index drive" at minute one rather than
+        # at hour sixty. Hidden until there is one, so it costs no space.
+        self.notices = QLabel("")
+        self.notices.setObjectName("indexNotices")
+        self.notices.setWordWrap(True)
+        self.notices.setVisible(False)
 
         self.start_button = QPushButton("Start indexing")
         # **"Stop", not "Pause".** It said Pause and there is no resume: the
@@ -152,20 +155,15 @@ class IndexingView(QWidget):
         controls.addStretch(1)
         controls.addWidget(self.reset_button)
 
-        self._skips_box = QGroupBox("Skipped files")
-        self._skips_layout = QVBoxLayout(self._skips_box)
-        self._skips_box.setVisible(False)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self._skips_box)
-
-        # `scroll` takes the stretch, and the skipped box inside it is hidden
-        # until there is something to show. Maximised, that left an enormous
-        # empty panel with the controls squashed at the top - so it only claims
-        # space once it has content, and a spacer absorbs the rest.
-        self._scroll = scroll
-        scroll.setVisible(False)
+        # Both panels are their own widgets: this view had reached the 250-line
+        # guard, and the guard is right - a view that keeps growing is a view
+        # where logic starts to live.
+        self.skips = SkipsPanel(self.retry_requested)
+        # *"Skip cheaply, but never silently."* A folder deliberately not walked
+        # must say so, with its count and the date of its last full pass, or it
+        # is indistinguishable from one that was never indexed.
+        self.archives = ArchivedRoots()
+        self.archives.rescan_requested.connect(self.rescan_archives_requested)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -174,8 +172,10 @@ class IndexingView(QWidget):
         layout.addWidget(self.stats_box)
         layout.addWidget(self.bar)
         layout.addWidget(self.detail)
+        layout.addWidget(self.notices)
         layout.addLayout(controls)
-        layout.addWidget(scroll, stretch=1)
+        layout.addWidget(self.archives)
+        layout.addWidget(self.skips, stretch=1)
         layout.addStretch(1)
 
     # -- running ------------------------------------------------------------
@@ -283,7 +283,9 @@ class IndexingView(QWidget):
         )
         self.headline.setText(headline)
         self.detail.setText(detail)
-        self.show_skips(stats.skipped_by_code)
+        self.skips.show_skips(stats.skipped_by_code)
+        self.archives.show_roots(getattr(stats, "skipped_roots", ()))
+        self.show_notices(getattr(stats, "notices", ()))
 
     def _on_finished(self, stats: Any) -> None:
         self.bar.setRange(0, 1)
@@ -291,7 +293,9 @@ class IndexingView(QWidget):
         headline, detail = finished_text(stats)
         self.headline.setText(headline)
         self.detail.setText(detail)
-        self.show_skips(stats.skipped_by_code)
+        self.skips.show_skips(stats.skipped_by_code)
+        self.archives.show_roots(getattr(stats, "skipped_roots", ()))
+        self.show_notices(getattr(stats, "notices", ()))
         self.finished.emit(stats)
 
     def _on_failed(self, error: Any) -> None:
@@ -310,57 +314,14 @@ class IndexingView(QWidget):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
 
-    # -- the skipped panel --------------------------------------------------
+    # -- the panels below the bar -------------------------------------------
 
     def show_skips(self, summary: dict[str, int]) -> None:
-        """Update the skip panel, rebuilding it only when it has to.
+        """Kept as a method because the window and the tests both call it."""
+        self.skips.show_skips(summary)
 
-        **This ran on every progress tick, for hours.** A 100GB index reports
-        progress constantly, and each report destroyed every `SkipRow` - three
-        or four labels and a button apiece - and built them again, to show
-        numbers that had usually not changed. Widget churn at that rate is the
-        kind of cost that never appears in a profile of one operation and
-        dominates an afternoon.
-
-        Two cheap checks in order: an identical tally does nothing at all, and a
-        tally with the same reasons but different counts updates the labels in
-        place. Only a genuinely new reason rebuilds, which happens a handful of
-        times in a run.
-        """
-        summary = summary or {}
-        if summary == self._shown_skips:
-            return
-
-        groups = group_skips(summary)
-        if {g.code for g in groups} == set(self._skip_rows) and groups:
-            # Same reasons, new numbers.
-            for group in groups:
-                self._skip_rows[group.code].update_count(group)
-            self._skips_box.setTitle(
-                f"{format_count(sum(g.count for g in groups))} files skipped — review"
-            )
-            self._shown_skips = dict(summary)
-            return
-
-        while self._skips_layout.count():
-            item = self._skips_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._skip_rows.clear()
-        self._shown_skips = dict(summary)
-        self._skips_box.setVisible(bool(groups))
-        # The scroll area only claims layout space when it has something in it.
-        # Left permanently visible it swallowed the whole window when maximised.
-        self._scroll.setVisible(bool(groups))
-        if not groups:
-            return
-
-        total = sum(group.count for group in groups)
-        self._skips_box.setTitle(f"{format_count(total)} files skipped — review")
-
-        for group in groups:
-            row = SkipRow(group, self.retry_requested)
-            self._skip_rows[group.code] = row
-            self._skips_layout.addWidget(row)
-        self._skips_layout.addStretch(1)
+    def show_notices(self, notices: Any) -> None:
+        """Draw the run's notices, or hide the label when there are none."""
+        lines = [str(line) for line in (notices or ()) if str(line).strip()]
+        self.notices.setVisible(bool(lines))
+        self.notices.setText("\n".join(lines))

@@ -200,6 +200,30 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.RUN_COMMAND,
         action_payload=r"venv\Scripts\python.exe -m pip install rapidocr-onnxruntime",
     ),
+    # **A queue, not a failure**, and the wording has to carry that or 40,000
+    # of these read as 40,000 broken files.
+    #
+    # At a terabyte, OCR at 3.6 seconds a page dominates everything else: a
+    # single pass that reads text and images together means nothing is
+    # searchable until everything is. Two passes make search useful in a day
+    # or two rather than a fortnight, and this is what the first pass leaves
+    # behind for the second.
+    "ERR_OCR_HELD": _Spec(
+        message="Held for the images pass: '{path}' is a picture of text.",
+        suggestion=(
+            "Nothing is wrong with it and nothing has been lost - this run was "
+            "asked to index text only, so images are queued rather than read. "
+            "Run the images pass to fill them in; they are picked up exactly "
+            "where they are."
+        ),
+        # **SKIP_CONTINUE, and the status it produces is the point.**
+        # `mark_skipped` writes FAILED for anything `is_fatal`, and a queue of
+        # 40,000 files recorded as FAILED is a corpus that looks broken - to a
+        # person reading the panel, and to every query that counts failures.
+        # The command is still carried, for the button that offers to run it.
+        action_type=ActionType.SKIP_CONTINUE,
+        action_payload=r"venv\Scripts\python.exe -m app.cli index --only-ocr",
+    ),
     "ERR_OCR_FAILED": _Spec(
         message="Could not read any text from '{path}'.",
         suggestion=(

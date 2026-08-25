@@ -45,6 +45,7 @@ __all__ = [
     "supported_extensions",
     "extract",
     "normalise_whitespace",
+    "reads_by_ocr",
     "REGISTRY",
 ]
 
@@ -342,6 +343,24 @@ def reads_externally(path: Path) -> bool:
     """
     extractor = extractor_for(path)
     return bool(getattr(extractor, "reads_externally", False))
+
+
+def reads_by_ocr(path: Path) -> bool:
+    """True if the only way to read this file is to look at it.
+
+    **The tier whose cost is measured in seconds per page rather than
+    milliseconds.** Measured here at 3.6 seconds a page, roughly eight times
+    what embedding a passage costs - so at a terabyte OCR is not a feature of
+    an index run, it *is* the schedule. The pipeline asks this to hold images
+    back for a second pass, and `app.cli scan` asks it to say how many days
+    that pass will take.
+
+    Asked of the resolved extractor rather than of a hard-coded extension list,
+    so a route added in `extractors.toml` that lands on the OCR reader is
+    counted with the rest.
+    """
+    extractor = extractor_for(path)
+    return str(getattr(extractor, "name", "")) == "ocr"
 
 
 def _try_converter(path: Path) -> Optional[Iterator[Document]]:

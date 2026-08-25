@@ -78,6 +78,7 @@ __all__ = [
     "read_index_summary",
     "folder_size",
     "when_text",
+    "archive_summary",
     "doctor_report",
     "doctor_lines",
     "install_package",
@@ -109,6 +110,11 @@ __all__ = [
     "SNIPPET_CHARS",
     "TYPING_DEBOUNCE_MS",
     "IDLE_DEBOUNCE_MS",
+    "value_suggestions",
+    "enabled_extensions",
+    "clear_format_catalogue",
+    "VALUE_LIMIT",
+    "VALUE_LIMITS",
 ]
 
 #: Milliseconds of stillness before the interim (keyword-only) tier runs.
@@ -1095,8 +1101,26 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
         )
 
     done, _total = progress_for(stats, total_estimate=total_estimate)
-    remaining = max(0, total_estimate - done) if total_estimate else 0
-    eta = format_eta(remaining, files_per_minute=getattr(stats, "files_per_minute", 0) or 0)
+
+    # **The rate over the last quarter of an hour, not since the start.**
+    #
+    # An average over four days barely moves, so a run that has slowed to a
+    # crawl still reports the number it managed on day one - and that is
+    # exactly the moment somebody needs to know. `None` while there is no
+    # measurement yet, which `format_eta` turns into "estimating…" rather than
+    # into a confident zero.
+    recent = getattr(stats, "recent_files_per_minute", None)
+    rate = recent if recent is not None else (
+        getattr(stats, "files_per_minute", 0) or 0)
+
+    # **An ETA that is allowed to say it does not know.** Without a `scan` there
+    # is no total, so the only honest answer to "how much longer" is that
+    # nothing here can tell - and no number is better than a wrong one on a job
+    # measured in days.
+    if total_estimate:
+        eta = format_eta(max(0, total_estimate - done), files_per_minute=rate)
+    else:
+        eta = "time remaining unknown - run `app.cli scan` for a real estimate"
 
     headline = (
         f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
@@ -1109,9 +1133,13 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
     if current and getattr(stats, "current_item", 0):
         reading += f" [{stats.current_item:,}]"
 
+    measured = (
+        f"{rate:,.0f} files/min (last 15 min)" if recent is not None
+        else f"{rate:,.0f} files/min"
+    )
     detail = (
         f"{format_count(getattr(stats, 'chunks', 0))} chunks  ·  "
-        f"{getattr(stats, 'files_per_minute', 0) or 0:,.0f} files/min  ·  {eta}{reading}"
+        f"{measured}  ·  {eta}{reading}"
     )
     return headline, detail
 
@@ -1700,6 +1728,41 @@ def when_text(iso: str) -> str:
     return format_when(int(moment.timestamp() * 1e9))
 
 
+def archive_summary(rows: Any) -> tuple[str, list[str]]:
+    r"""`(title, lines)` for the folders a run deliberately did not walk.
+
+    **The counts and the dates are the point.** An archival root is skipped for
+    the best of reasons - it turns an incremental pass over a settled 1.5TB
+    corpus from hours of fruitless `stat()`ing into seconds - but a folder
+    skipped in silence looks exactly like one that was never indexed, and the
+    person who reaches that conclusion deletes their index and starts a
+    fortnight over.
+
+    So every line says how many files the folder holds and when it was last
+    read in full. `("", [])` when nothing was skipped, which the panel reads as
+    "hide yourself".
+    """
+    entries = list(rows or [])
+    if not entries:
+        return "", []
+
+    lines: list[str] = []
+    for row in entries:
+        stamp = int(row.get("archived_at", 0) or 0)
+        when = format_when(stamp * 1_000_000_000) if stamp else "an unknown date"
+        files = int(row.get("files", 0) or 0)
+        lines.append(
+            f"{row.get('root', '?')} — not walked: {row.get('reason', 'archived')}. "
+            f"{format_count(files)} files, last fully indexed {when}."
+        )
+    lines.append(
+        "These are indexed and searchable. They are re-walked when the folder "
+        "itself changes, when the interval in Settings elapses, or when you ask."
+    )
+    plural = "" if len(entries) == 1 else "s"
+    return f"{len(entries)} archived folder{plural} skipped", lines
+
+
 # ---------------------------------------------------------------------------
 # Repositories, for the Code tab
 # ---------------------------------------------------------------------------
@@ -2076,6 +2139,70 @@ def code_route(text: str) -> CodeRoute:
 #: still something you scan rather than search.
 VALUE_LIMIT = 40
 
+#: Per-source ceilings, where the general one is wrong.
+#:
+#: **`ext` is the only bounded source.** A machine has perhaps eighty file
+#: types and never more; senders and folders have no ceiling at all, which is
+#: what the general limit is protecting against. Applying one number to both
+#: meant the safe cap for an unbounded column was silently truncating a list
+#: that fits on a screen - and truncating it by frequency, so the types
+#: somebody had just switched on were the first to be cut.
+VALUE_LIMITS: dict[str, int] = {"ext": 120}
+
+#: Parsed once. `load_rules` reads and validates two TOML files, and this is
+#: reached from a keystroke - see `enabled_extensions`.
+_CATALOGUE: tuple[str, ...] | None = None
+
+
+def clear_format_catalogue() -> None:
+    """Forget the cached format list, so the next menu rebuilds it.
+
+    Called when the file-types editor saves. Without it a format switched on
+    stays missing from `/type` until the window is restarted, which is the same
+    complaint this fixed one layer down.
+    """
+    global _CATALOGUE
+    _CATALOGUE = None
+
+
+def enabled_extensions() -> tuple[str, ...]:
+    """Every file type currently switched on, without dots, alphabetically.
+
+    The registry is the authority on what can be read and configuration is an
+    override on top of it - so this asks `FormatRules.describe(REGISTRY)`, which
+    is the same answer `app.cli formats` prints. A second list built from either
+    half alone would disagree with that command, and a filter menu that
+    disagrees with the format report is worse than one that is merely short.
+
+    Imported inside the function: `app.extract` pulls in a registry that imports
+    optional libraries, and `presenter` is on the window's startup path. Same
+    trade as `preview_loader._extractable`.
+
+    Never raises. A missing or invalid config file costs the extra suggestions
+    and nothing else - the index-backed ones are unaffected.
+    """
+    global _CATALOGUE
+    if _CATALOGUE is not None:
+        return _CATALOGUE
+
+    found: list[str] = []
+    try:
+        from app.core.config import load_settings
+        from app.core.formats import load_rules
+        from app.extract.base import REGISTRY
+
+        rules = load_rules(data_path=load_settings().data_path)
+        found = sorted(
+            str(row["extension"]).lstrip(".").lower()
+            for row in rules.describe(REGISTRY)
+            if row.get("enabled") and str(row.get("extension") or "").strip(".")
+        )
+    except Exception:                           # broad by design - see the docstring
+        found = []
+
+    _CATALOGUE = tuple(found)
+    return _CATALOGUE
+
 
 def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
     """Read the word being typed: `(head, mode, partial)`.
@@ -2127,7 +2254,7 @@ def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
 
 def value_suggestions(store: Any, name: str, prefix: str = "",
                       limit: int = VALUE_LIMIT, resolve: Any = None,
-                      lookup: Any = None) -> list[str]:
+                      lookup: Any = None, catalogue: Any = None) -> list[str]:
     """What to offer after `/type `, `/from `, `/repo `, `/after `…
 
     **The half of the `/` menu that was missing.** The menu said which filters
@@ -2135,13 +2262,19 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     returns nothing, which is indistinguishable from a filter that does not
     work. Offering what is actually in the index closes that gap.
 
-    Two sources, in this order:
+    Three sources, in this order:
 
-    * `command.values` - fixed by the grammar. `/has` has exactly two answers,
-      and a date has a handful of spellings easier to pick than to recall.
     * `command.source` - read from the index, commonest first, through
       `distinct_values`, which is bounded and index-backed because this is
       reached from a keystroke.
+    * `command.values` - fixed by the grammar. `/has` has exactly two answers,
+      `/type` has the kind words (`excel`, `code`, `mail`) that `_EXT_GROUPS`
+      expands, and a date has a handful of spellings easier to pick than to
+      recall.
+    * `catalogue` - for `/type` only: every format currently switched on,
+      whether or not one has been indexed yet. Defaults to
+      `enabled_extensions()`; injectable so the merge can be tested without a
+      config file on disk.
 
     Qt-free and here rather than in the widget, so the rule about *what* is
     offered can be tested without a display - which is the same reason
@@ -2158,8 +2291,24 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
         return []
 
     wanted = str(prefix or "").strip().lower()
-    found = [value for value in command.values
-             if not wanted or wanted in value.lower()]
+    # **Only when the caller left the default.** The per-source ceiling raises
+    # a general cap that is too low for `ext`; it must never override a limit
+    # somebody asked for, and `max()` on its own did exactly that - a caller
+    # asking for seven got a hundred and twenty, and the query it was trying to
+    # keep small was pushed down to the database at the larger size.
+    if int(limit or 0) == VALUE_LIMIT:
+        limit = VALUE_LIMITS.get(command.source, VALUE_LIMIT)
+    limit = max(int(limit or 0), 1)
+    found: list[str] = []
+
+    def offer(values: Any) -> None:
+        """Add what matches the prefix, keeping the first spelling seen."""
+        for value in values or ():
+            text = str(value).strip()
+            if not text or (wanted and wanted not in text.lower()):
+                continue
+            if text not in found:
+                found.append(text)
 
     # **Both readers, in order, not one or the other.** The Code tab is a
     # single box over two engines, so its switches are sourced from two places:
@@ -2174,14 +2323,49 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
         readers.append(lambda kind, prefix, limit: store.distinct_values(
             kind, prefix=prefix, limit=limit))
 
+    # 1. What is actually indexed, commonest first. Still first, because the
+    #    extension somebody wants is nearly always one of the three they have
+    #    thousands of.
     for reader in readers if command.source else ():
         try:
-            found += [value for value in reader(command.source, wanted, limit)
-                      if value not in found]
+            offer(reader(command.source, wanted, limit))
         except Exception as exc:                # noqa: BLE001 - see the docstring
             _log.debug("no {} suggestions: {}", command.source, exc)
         if len(found) >= limit:
             break
+
+    # 2. The grammar's own values. **After the index, not before**, which is
+    #    the one ordering change here: `type:excel` is a real filter and it
+    #    should not outrank `pdf` when there are four thousand PDFs. Commands
+    #    with no `source` are unaffected - `/has` and `/size` reach this first
+    #    and behave exactly as they did.
+    offer(command.values)
+
+    # 3. Configured but not yet indexed.
+    #
+    #    **The gap this whole function existed to close, reopened at the other
+    #    end.** `distinct_values` reads `files.ext`, so it can only ever offer a
+    #    type somebody has already indexed - and a format switched on in the
+    #    file-types editor is invisible in `/type` until the next index run
+    #    finds one. Switching a format on and finding no trace of it in the
+    #    filter menu reads as the setting not having worked.
+    #
+    #    Deliberately last. These may return nothing, and the original argument
+    #    against offering them stands: a value that matches nothing is how a
+    #    working filter looks broken. Ordering answers it - what is in the index
+    #    is what is at the top - without going back to pretending the type does
+    #    not exist.
+    #    **Gated on there being a store, which is not about the store.** The
+    #    menu is built twice: once instantly on the interface thread with no
+    #    store, and again on a worker once the index has answered. Reading two
+    #    TOML files is I/O, and the interface thread does not do I/O - so the
+    #    catalogue rides with the pass that is already on a worker. An explicit
+    #    `catalogue` overrides the gate, which is what the tests pass.
+    if command.source == "ext" and (catalogue is not None or store is not None):
+        try:
+            offer(catalogue() if catalogue is not None else enabled_extensions())
+        except Exception as exc:                # broad by design - see the docstring
+            _log.debug("no format catalogue: {}", exc)
 
     return found[:limit]
 

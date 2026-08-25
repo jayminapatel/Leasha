@@ -40,7 +40,11 @@ UI = PROJECT_ROOT / "app" / "ui"
 #: knowledge of the UI - it is a declaration of intent, not a wiring diagram.
 SURFACE_MODULES = {
     "settings.search": ("settings_view.py", "widgets/search_box.py"),
-    "settings.indexing": ("indexing_settings.py",),
+    # `long_run_box` too: the two settings that only matter at a terabyte -
+    # which pass to run, and how long an archive is trusted - are their own
+    # group inside the Indexing panel, because `indexing_settings.py` is under
+    # the 250-line guard and because neither is worth a thought at 100GB.
+    "settings.indexing": ("indexing_settings.py", "widgets/long_run_box.py"),
     "settings.reading": ("settings_view.py", "widgets/file_types.py"),
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.
