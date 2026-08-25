@@ -22,12 +22,13 @@ from typing import Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 
-__all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS"]
+__all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
+           "trigram_available"]
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 7
+CURRENT_VERSION = 9
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -337,6 +338,116 @@ def _v7_identifier_tokens(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
 
 
+#: The mail-header index, and the one place it is defined.
+#:
+#: **Created from Python rather than from `schema.sql`, because it may not be
+#: creatable.** `tokenize='trigram'` needs SQLite 3.34, and while the bundled
+#: Python is far newer, the version a user's Python happens to ship is not
+#: something this should depend on - `browse_messages` already says so about a
+#: different feature. A `CREATE` inside `schema.sql` that fails takes the whole
+#: schema with it, so the guard has to be here, where a failure can mean
+#: "carry on without it".
+_MESSAGES_FTS = """
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    subject, sender, recipients,
+    content='messages', content_rowid='file_id', tokenize='trigram');
+
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, subject, sender, recipients)
+  VALUES (new.file_id, new.subject, new.sender, new.recipients);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
+  VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
+  VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
+  INSERT INTO messages_fts(rowid, subject, sender, recipients)
+  VALUES (new.file_id, new.subject, new.sender, new.recipients);
+END;
+"""
+
+
+def trigram_available(conn: sqlite3.Connection) -> bool:
+    """Can this SQLite build a trigram FTS5 index? Never raises.
+
+    Asked rather than inferred from `sqlite_version`, because a build can be
+    new enough and still be compiled without FTS5.
+    """
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE temp.__trigram_probe USING fts5(a, tokenize='trigram')")
+        conn.execute("DROP TABLE temp.__trigram_probe")
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def _v8_mail_header_index(conn: sqlite3.Connection) -> None:
+    r"""Index the mail headers, so `from:` and `subject:` stop scanning.
+
+    **Every keystroke on the Mail tab read every message.** `browse_messages`
+    filters with `sender LIKE '%dave%'`, and a leading wildcard cannot use an
+    index however many are declared - `idx_messages_sender` has never once been
+    used by that query. On a 200,000-message archive that is a full scan per
+    keystroke, and the Mail tab is a live filter.
+
+    **Trigram, so the results do not change.** The obvious FTS choice tokenises
+    on word boundaries, which would quietly narrow the meaning: `from:ave` would
+    stop finding `dave.smith@acme.com`, and `browse_messages` documents
+    substring matching as deliberate - *"exact `IN` matching was a real bug here
+    once, and it made the filter look broken to anybody who did not know the
+    full address by heart"*. A trigram index answers `LIKE '%x%'` exactly, mid-
+    token and punctuation included, so this is the same filter with an index
+    under it rather than a different filter that is faster.
+
+    Its one limit is arithmetic: a trigram index cannot answer a term shorter
+    than three characters, because there is no trigram to look up. Those fall
+    back to the scan, which is what they did before and which is cheap to
+    describe - see `SqliteStore.browse_messages`.
+
+    Skipped, not failed, where trigram is unavailable. The application then
+    behaves exactly as it did, which is the correct outcome for an index that
+    is an optimisation.
+    """
+    if not trigram_available(conn):
+        return
+    conn.executescript(_MESSAGES_FTS)
+    # Existing rows predate the triggers. `rebuild` reads them straight from
+    # `messages` - no file is re-read and no mail is re-parsed, which matters
+    # when the alternative is re-indexing a 30GB archive for a lookup table.
+    conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+
+
+def _v9_forget_dragged_column_widths(conn: sqlite3.Connection) -> None:
+    r"""Clear every saved column width, once.
+
+    Asked for directly: *"can you reset all column width as with the new cap
+    that should not happen"* - after a column on the Files tab was dragged so
+    wide it was unusable, and stayed that way across restarts.
+
+    **A width saved before the cap existed outlives the cap.** `_apply_widths`
+    caps what it restores, so the table on screen is right, but the stored
+    preference stays as wide as it ever was - and it is what "Reset widths"
+    reports and what any later change restores from. The cap stops new ones
+    being created; this clears the ones that already were.
+
+    **A migration rather than a startup step in the window**, for two reasons.
+    It runs before a single view exists, so no list can restore a width between
+    the clear and the redraw. And `test_no_store_call_outside_a_worker` is right
+    to refuse a store write on the interface thread - that guard caught this
+    when it was in `MainWindow.__init__`, which is exactly the kind of small
+    "it is only one write at startup" that freezes a window on a network share.
+
+    Once, by construction: a migration runs at its version and never again, so a
+    width set deliberately after this survives every later start. That is the
+    property a state-key guard would have had to imitate.
+    """
+    conn.execute(
+        "DELETE FROM index_state WHERE key LIKE 'ui:%:widths'")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -344,6 +455,8 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     5: _v5_missing_indexes,
     6: _v6_repositories,
     7: _v7_identifier_tokens,
+    8: _v8_mail_header_index,
+    9: _v9_forget_dragged_column_widths,
 }
 
 

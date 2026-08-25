@@ -159,6 +159,9 @@ class SqliteStore:
         self._open: dict[int, sqlite3.Connection] = {}
         self._closed = False
         self._migrated = False
+        #: Whether `messages_fts` exists, once asked. None means "not asked".
+        #: A property of the file, so one answer serves every connection.
+        self._message_index: Optional[bool] = None
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -493,6 +496,46 @@ class SqliteStore:
                 (status, error.code, error.message, file_id),
             )
 
+    #: A trigram index holds no trigram for a shorter term, so it cannot answer
+    #: one. Two characters fall back to the scan, which is what they did before.
+    TRIGRAM_MIN_CHARS = 3
+
+    def _header_match(self, column: str, value: str) -> Optional[str]:
+        r"""An FTS5 query for `column LIKE '%value%'`, or None to scan instead.
+
+        None for three reasons, all of them "the index cannot answer this":
+        the term is shorter than a trigram, the table is not there (an index
+        built before v8, or a SQLite without trigram support), or the value is
+        empty.
+
+        **The term is quoted as a phrase**, which is not decoration: an address
+        or a subject line is full of characters FTS5 reads as operators, and
+        `MATCH acme.com` is a syntax error rather than a search. Doubling any
+        embedded quote is what stops a subject line ending the phrase early -
+        the same reasoning as escaping `%` in the LIKE path below.
+        """
+        text = (value or "").strip()
+        if len(text) < self.TRIGRAM_MIN_CHARS or not self._has_message_index():
+            return None
+        phrase = '"' + text.replace('"', '""') + '"'
+        return f"{column} : {phrase}"
+
+    def _has_message_index(self) -> bool:
+        """Is `messages_fts` present? Asked once, then remembered.
+
+        A property of the database file rather than of a connection, so one
+        answer serves every thread - and two threads racing to compute it both
+        arrive at the same one. This is on the query path of a tab that filters
+        live; `sqlite_master` is a query like any other and does not want asking
+        per keystroke.
+        """
+        if self._message_index is None:
+            row = self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages_fts'"
+            ).fetchone()
+            self._message_index = row is not None
+        return bool(self._message_index)
+
     def optimize_fts(self) -> bool:
         r"""Merge the FTS5 index's b-tree segments into one. Never raises.
 
@@ -570,12 +613,34 @@ class SqliteStore:
             clauses.append(f"{column} LIKE ? ESCAPE '\\'")
             params.append(f"%{escaped}%")
 
+        # **The index, when it can answer; the scan, when it cannot.**
+        #
+        # `LIKE '%dave%'` cannot use an index however many are declared - a
+        # leading wildcard defeats every one - so this filtered by reading every
+        # message, on every keystroke, on a tab that filters live.
+        # `idx_messages_sender` has never once been used by this query.
+        #
+        # `messages_fts` is a **trigram** index, which answers `LIKE '%x%'`
+        # exactly: mid-token, punctuation and all. So this is the same filter
+        # with an index under it, not a narrower filter that is faster - which
+        # matters, because substring matching here is deliberate and was a
+        # reported bug once. See `migrations._v8_mail_header_index`.
+        def narrow(column: str, value: str) -> None:
+            match = self._header_match(column, value)
+            if match is None:
+                contains(f"m.{column}", value)
+                return
+            clauses.append(
+                "m.file_id IN (SELECT rowid FROM messages_fts "
+                "WHERE messages_fts MATCH ?)")
+            params.append(match)
+
         if sender:
-            contains("m.sender", sender.strip())
+            narrow("sender", sender.strip())
         if recipient:
-            contains("m.recipients", recipient.strip())
+            narrow("recipients", recipient.strip())
         if subject:
-            contains("m.subject", subject.strip())
+            narrow("subject", subject.strip())
         if has_attachment is not None:
             clauses.append("m.has_attach = ?")
             params.append(1 if has_attachment else 0)
