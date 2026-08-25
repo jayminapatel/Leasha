@@ -48,12 +48,23 @@ def find_env_file(explicit: Optional[Path] = None) -> Path:
 
 
 def log_dir_for(env_file: Optional[Path] = None) -> Path:
-    """Where logs go, resolved without validating anything else.
+    r"""Where logs go, resolved without validating anything else.
 
     `load_settings` is the authority, but it refuses a bad `.env` - and a run
     that failed at configuration is precisely one worth having a log of. This
     answers the single question "which folder", guesses the default when it
     cannot tell, and never raises.
+
+    **It also has to refuse a foreign path, because it runs *before* the
+    guard that does.** `load_settings` raises `ERR_CONFIG_INVALID` on a Windows
+    `LOG_PATH` read off Windows - but the run log is opened first, by design,
+    so that the failure itself gets logged. So this bypassed the guard entirely
+    and created a directory literally named `D:\SearchProject\logs` in whatever
+    folder happened to be current, on every single command.
+
+    That is the third time this family of mistake has been found here, and it
+    was caught by `test_no_stray_paths` - an outcome tripwire written after the
+    second, precisely because guarding one door is never enough.
     """
     values: dict[str, str] = {}
     try:
@@ -63,7 +74,14 @@ def log_dir_for(env_file: Optional[Path] = None) -> Path:
     except Exception:  # noqa: BLE001 - a fallback that can fail is not one
         values = {}
     raw = (os.environ.get("LOG_PATH") or values.get("LOG_PATH") or "").strip()
-    return Path(raw) if raw else project_root() / "logs"
+    if not raw:
+        return project_root() / "logs"
+    if sys.platform != "win32" and _WINDOWS_PATH.match(raw):
+        # The default, not an exception: this is the fallback path, and a
+        # fallback that raises is not one. `load_settings` reports it properly a
+        # moment later, with the key named and a fix attached.
+        return project_root() / "logs"
+    return Path(raw)
 
 
 def _read_env_file(path: Path) -> dict[str, str]:
@@ -168,7 +186,7 @@ class Settings(BaseModel):
     index_workers: int = 0
     #: Resident memory ceiling in MB. Above it the run pauses and drains rather
     #: than aborting - a pause costs minutes and loses nothing.
-    index_memory_mb: int = 1500
+    index_memory_mb: int = 4000
     #: Pause while system-wide CPU is above this. 0 disables the check.
     index_cpu_percent: int = 80
     #: Pause on battery, resume on mains.
@@ -183,10 +201,19 @@ class Settings(BaseModel):
     index_interval_hours: int = 6
     #: Local time of day, HH:MM, when `index_schedule` is "daily".
     index_daily_at: str = "02:00"
+    #: both | text | images. Which pass an index run is. See `pipeline.
+    #: OCR_MODES`: OCR costs about 3.6 seconds a page, so at a terabyte a
+    #: single pass means nothing is searchable until everything is.
+    index_ocr_mode: str = "both"
+    #: How long a folder marked as an archive is trusted without evidence.
+    #: 0 means "only when the folder itself changes, or when asked".
+    #: See `app/index/archives.py` - the mtime tripwire is what actually
+    #: catches change; this is the backstop for a change it cannot see.
+    archive_recheck_days: int = 30
 
     # --- guards -------------------------------------------------------------
     min_free_gb: int = 5
-    required_free_gb: int = 150
+    required_free_gb: int = 300
 
     # --- provenance ---------------------------------------------------------
     env_file: Optional[Path] = None
@@ -277,7 +304,7 @@ def load_settings(
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),
-            index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "1500")),
+            index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
                 "INDEX_PAUSE_ON_BATTERY", values.get("INDEX_PAUSE_ON_BATTERY", "true")),
@@ -287,8 +314,11 @@ def load_settings(
             index_interval_hours=_as_int(
                 "INDEX_INTERVAL_HOURS", values.get("INDEX_INTERVAL_HOURS", "6")),
             index_daily_at=(values.get("INDEX_DAILY_AT") or "02:00").strip(),
+            index_ocr_mode=(values.get("INDEX_OCR_MODE") or "both").strip().lower(),
+            archive_recheck_days=_as_int(
+                "ARCHIVE_RECHECK_DAYS", values.get("ARCHIVE_RECHECK_DAYS", "30")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
-            required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "150")),
+            required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,
         )
     except ValidationError as exc:
@@ -358,7 +388,7 @@ def _validate_indexing(settings: Settings) -> None:
             reason=f"{settings.index_memory_mb}MB is below the 256MB floor",
             suggestion=(
                 "The embedding model alone needs more than that, so the indexer "
-                "would pause immediately and never resume. 1500 is the default; "
+                "would pause immediately and never resume. 4000 is the default; "
                 "800 is about as low as is useful."
             ),
         ))
