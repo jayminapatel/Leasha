@@ -31,7 +31,18 @@ def _fatal(error: AppError) -> int:
 
     A GUI that dies with a traceback into a console nobody opened has, from the
     user's point of view, simply failed to start.
+
+    **It is written to the run log first, and that was missing.** Every failure
+    here went to a dialog and nowhere else, so a window that would not open left
+    a log ending mid-startup with no reason in it - five identical runs, no
+    error, nothing to go on. The dialog is for the person at the screen; the log
+    is for working out afterwards what they saw. Both, always.
     """
+    try:
+        log_app_error(error)
+    except Exception:                            # noqa: BLE001 - logging must never mask the failure
+        pass
+
     try:
         from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -179,10 +190,16 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # used to leave an index orphaned. Settings are reloaded afterwards so the
     # window opens against the new location rather than the one on this object.
     try:
-        settings = _apply_pending_move(settings)
+        moved_to = _apply_pending_move(settings)
     except AppErrorException as exc:
         return _fatal(exc.error)
-    run.settings(settings)
+    if moved_to is not settings:
+        # Only re-record when a move actually happened. Calling this
+        # unconditionally printed the whole settings block twice into every run
+        # log, which is noise in the one file somebody reads when the window
+        # will not open - and it made a normal start look like a repeat.
+        settings = moved_to
+        run.settings(settings)
 
     try:
         from PyQt6.QtWidgets import QApplication
@@ -213,22 +230,45 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
 
+    # **A breadcrumb before each stage that can block.**
+    #
+    # A window that would not open left a run log ending after the settings
+    # block with nothing after it: no error, no footer, five identical runs. A
+    # missing footer means the process never came back from here, so it was
+    # hanging rather than failing - and there was no way to tell *where*.
+    #
+    # The expensive stages are the two model loads. `fastembed` downloads about
+    # 130MB on first use and writes it into MODEL_CACHE, so anything that empties
+    # that folder - moving the index, re-staging over it - turns the next start
+    # into a silent download with no window and no progress. One line each turns
+    # that from "it does not open" into "it stopped at the embedding model".
+    from app.core.logging import logger
+
+    log = logger.bind(component="main")
+
     try:
+        log.info("startup: acquiring the single-instance lock")
         with SingleInstance(), \
                 SqliteStore(settings.fts_db) as store, \
                 VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-            engine = SearchEngine(
-                store, vectors,
-                Embedder(settings.embed_model, dim=settings.embed_dim,
-                         cache_dir=str(settings.model_cache)),
-                reranker=Reranker(settings.rerank_model,
-                                  cache_dir=str(settings.model_cache),
-                                  enabled=settings.rerank_enabled,
-                                  top_n=settings.rerank_top_n,
-                                  window_chars=settings.rerank_window_chars),
-            )
+            log.info("startup: stores open, loading the embedding model",
+                     model=settings.embed_model, cache=str(settings.model_cache))
+            embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
+                                cache_dir=str(settings.model_cache))
+
+            log.info("startup: loading the reranker",
+                     model=settings.rerank_model, enabled=settings.rerank_enabled)
+            reranker = Reranker(settings.rerank_model,
+                                cache_dir=str(settings.model_cache),
+                                enabled=settings.rerank_enabled,
+                                top_n=settings.rerank_top_n,
+                                window_chars=settings.rerank_window_chars)
+
+            log.info("startup: building the window")
+            engine = SearchEngine(store, vectors, embedder, reranker=reranker)
             window = MainWindow(settings, store, vectors, engine, debug=debug)
             window.show()
+            log.info("startup: window shown")
             return application.exec()
     except AppErrorException as exc:
         log_app_error(exc.error)
