@@ -1,12 +1,73 @@
 # Changelog
 
-**Doc version:** 3.27 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.28 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — repository search: `GitSearch.txt`'s switches, in the `/` grammar
+
+The owner attached an 853-line functional specification and asked for *"all the
+functionality in this … as switches … the / style we have in the app"*.
+Thirty-four switches now cover its search modes, methods, file/branch/commit/
+author/date filters and history intelligence:
+
+```
+CustomerId /history /extension cs /exclude-path node_modules
+/class OrderService /branch develop
+ApiKey /history /removed-only
+notice_line /introduced
+/file-history src/Order.cs
+```
+
+Available headless (`app.cli gitsearch --repo … "query"`, per non-negotiable 8),
+listed by `app.cli commands --git`, and in the window as a panel under the
+repository tree on the Code tab — searching whichever repository is selected.
+
+**Two facts shaped it, and both are on record.**
+
+*It is a second search domain, not a filter on the first.* The `/` menu until
+now narrowed the index: rows describing files read once, at index time. History
+is not in the index and cannot be — it is thousands of versions of files that no
+longer exist, and reaching it means running git. So the grammar is shared and
+the engine is not, and a test asserts that nothing running on a keystroke can
+reach git.
+
+*It is slow.* `git log -S` over 200 commits of this repository takes 2.26s;
+`git grep` over one revision takes 0.33s. That is why the panel searches on
+Enter and never as you type, why every history plan carries `--max-count`, and
+why `GitPlan.slow` exists for the interface to read.
+
+**What it builds is a command, not a result.** `gitquery` produces the exact
+`git` argument list and runs nothing, so all thirty-four switches are checked by
+asserting on that command — without git, without a repository, without waiting.
+Three faults surfaced that way before anything ran:
+
+* **`/api/orders` parsed as a switch.** `api` is an alias of `endpoint`, so a
+  route — the single most likely thing to type on a tab about source code —
+  silently became a different search. Switch names now cannot contain a slash.
+* **Asking who or when was silently dropped.** `/author` and `/since` are
+  properties of a commit and `git grep` has nowhere to put them, so a query
+  carrying them planned as a grep answered a wider question with no symptom but
+  too many results. They now make it a history search.
+* **`--max-count=1 --reverse` returns nothing at all.** Measured, not assumed:
+  `git log -Snotice_line --reverse --max-count=1` on this repository prints
+  nothing where the same command without the count prints the commit that
+  introduced it. `/introduced` keeps one row itself; the obvious spelling would
+  have shipped a switch that silently found nothing.
+
+**Only switches that run are offered.** `--compare`, `--branch-timeline`,
+`--references`, `--team`, `--fuzzy` and the security-artifact scanners are real
+work rather than oversights, and each is absent with its reason and its cost in
+`docs/WORKORDER-git-search-ui.md`. A menu full of commands that quietly fail is
+worse than a shorter menu: it is discovered one disappointment at a time.
+
+**Stop abandons the answer; it does not kill git.** Said on the button rather
+than implied. Killing it properly needs `Popen` and a process group — recorded
+as the next thing worth doing here.
 
 ### Added — the `/` menu offers values, not just filter names
 

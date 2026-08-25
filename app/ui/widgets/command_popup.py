@@ -92,8 +92,15 @@ class CommandPopup(QCompleter):
     chosen = pyqtSignal(str)
 
     def __init__(self, parent: Optional[Any] = None,
-                 only: Optional[Sequence[str]] = None) -> None:
+                 only: Optional[Sequence[str]] = None,
+                 catalogue: Optional[Sequence[Any]] = None,
+                 matcher: Any = None) -> None:
         super().__init__(parent)
+        #: Which set of switches this box offers. The Code tab's repository
+        #: search has its own - a different engine over a different store - and
+        #: mixing the two would offer `/history` in a box that cannot answer it.
+        self._catalogue = tuple(catalogue) if catalogue is not None else COMMANDS
+        self._matcher = matcher or matching
         #: Command names this box actually honours, or None for all of them.
         #:
         #: **A list is not an affordance if half of it does nothing.** Every
@@ -123,7 +130,7 @@ class CommandPopup(QCompleter):
         # list that hides a third of itself on the keystroke meant to reveal it
         # defeats the whole feature. Sized to what this box offers, so adding a
         # command to the catalogue never quietly hides another one.
-        self.setMaxVisibleItems(max(len(COMMANDS), 1))
+        self.setMaxVisibleItems(max(len(self._catalogue), 1))
         self.show_all()
 
     # -- command mode --------------------------------------------------------
@@ -135,7 +142,7 @@ class CommandPopup(QCompleter):
         """Narrow the list to commands matching what has been typed after `/`."""
         self.value_of = ""
         self._matches = [
-            command for command in matching(prefix)
+            command for command in self._matcher(prefix)
             if self._only is None or command.name in self._only
         ]
         self._fill([
@@ -223,7 +230,11 @@ class _TabAccepts(QObject):
 
 def attach_to(line_edit: QLineEdit,
               only: Optional[Sequence[str]] = None,
-              store: Any = None) -> CommandPopup:
+              store: Any = None,
+              catalogue: Optional[Sequence[Any]] = None,
+              matcher: Any = None,
+              resolve: Any = None,
+              lookup: Any = None) -> CommandPopup:
     """Wire a `CommandPopup` to a search box. Returns it, for tests and teardown.
 
     Kept as a function rather than a subclass of `QLineEdit` so the search view
@@ -235,8 +246,13 @@ def attach_to(line_edit: QLineEdit,
     grammar's own values are still offered, which is all `/has`, `/after` and
     `/size` ever had. A box with no store is not a box with a broken menu.
     """
-    popup = CommandPopup(line_edit, only=only)
+    popup = CommandPopup(line_edit, only=only, catalogue=catalogue,
+                         matcher=matcher)
     popup.setWidget(line_edit)
+
+    def suggest(name: str, partial: str, use_store: bool = True) -> list:
+        return value_suggestions(store if use_store else None, name, partial,
+                                 resolve=resolve, lookup=lookup if use_store else None)
 
     # **Tab has to pick the highlighted command.**
     #
@@ -258,20 +274,20 @@ def attach_to(line_edit: QLineEdit,
 
     def offer_values(name: str, partial: str) -> None:
         """Show what the grammar knows now, and what the index knows shortly."""
-        popup.set_values(name, value_suggestions(None, name, partial))
+        popup.set_values(name, suggest(name, partial, use_store=False))
 
         cached = cache.get(name)
         if cached is not None and time.monotonic() - cached[0] < SUGGEST_TTL_S:
             _deliver(name, partial, cached[1])
             return
-        if store is None:
+        if store is None and lookup is None:
             _show_or_hide()
             return
 
         from app.ui.workers import CallableWorker, run
 
         worker = CallableWorker(
-            value_suggestions, store, name, component="ui.commands")
+            suggest, name, "", component="ui.commands")
         worker.signals.finished.connect(
             lambda found, n=name, p=partial: _fetched(n, p, found))
         # A menu is a convenience. A store that is mid-index or closed costs
@@ -289,13 +305,13 @@ def attach_to(line_edit: QLineEdit,
         # arriving after somebody has typed on is the stale-result problem every
         # other worker in this application guards against, and here it would
         # replace the menu under their fingers.
-        _head, mode, now = slash_context(line_edit.text())
+        _head, mode, now = slash_context(line_edit.text(), resolve)
         if mode != "value" or popup.value_of != name:
             return
         wanted = now.strip().lower()
         popup.set_values(name, [
             value for value in values if not wanted or wanted in value.lower()
-        ] or value_suggestions(None, name, now))
+        ] or suggest(name, now, use_store=False))
         _show_or_hide()
 
     def _show_or_hide() -> None:
@@ -305,7 +321,7 @@ def attach_to(line_edit: QLineEdit,
             popup.popup().hide()
 
     def on_text(text: str) -> None:
-        _head, mode, partial = slash_context(text)
+        _head, mode, partial = slash_context(text, resolve)
         if mode == "command":
             popup.set_prefix(partial)
             _show_or_hide()
@@ -331,7 +347,7 @@ def attach_to(line_edit: QLineEdit,
             return
 
         name = row_text.split()[0].lstrip("/")
-        command = next((c for c in COMMANDS if c.name == name), None)
+        command = next((c for c in popup._catalogue if c.name == name), None)
         if command is None:
             return
         line_edit.setText(f"{head}{command.name}:")

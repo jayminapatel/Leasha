@@ -1918,7 +1918,7 @@ CODE_COMMANDS = ("repo", "type", "name")
 VALUE_LIMIT = 40
 
 
-def slash_context(text: str) -> tuple[str, str, str]:
+def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
     """Read the word being typed: `(head, mode, partial)`.
 
     `mode` is:
@@ -1940,7 +1940,12 @@ def slash_context(text: str) -> tuple[str, str, str]:
     Qt-free and here rather than in the widget, so both can be checked without
     a display.
     """
-    from app.search.commands import command_for
+    # `resolve` is how the Code tab reads its own catalogue with this same
+    # function: repository search has different switches over a different
+    # engine, and one of them - `/api` for `endpoint` - collides with a path in
+    # a way the index's catalogue never does.
+    if resolve is None:
+        from app.search.commands import command_for as resolve
 
     if not text or text.endswith(" "):
         return "", "", ""
@@ -1952,7 +1957,7 @@ def slash_context(text: str) -> tuple[str, str, str]:
         name, _sep, partial = word.partition(":")
         # A colon that is not one of ours - `D:/docs`, `http://…`, `12:30` -
         # is somebody's text and is left alone.
-        if command_for(name) is not None:
+        if resolve(name) is not None:
             return head, "value", partial
         return "", "", ""
 
@@ -1962,7 +1967,8 @@ def slash_context(text: str) -> tuple[str, str, str]:
 
 
 def value_suggestions(store: Any, name: str, prefix: str = "",
-                      limit: int = VALUE_LIMIT) -> list[str]:
+                      limit: int = VALUE_LIMIT, resolve: Any = None,
+                      lookup: Any = None) -> list[str]:
     """What to offer after `/type `, `/from `, `/repo `, `/after `…
 
     **The half of the `/` menu that was missing.** The menu said which filters
@@ -1985,9 +1991,10 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     Never raises. A suggestion list is a convenience; a store that is mid-index,
     locked or closed must cost the suggestions and nothing else.
     """
-    from app.search.commands import command_for
+    if resolve is None:
+        from app.search.commands import command_for as resolve
 
-    command = command_for(name)
+    command = resolve(name)
     if command is None:
         return []
 
@@ -1995,11 +2002,17 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     found = [value for value in command.values
              if not wanted or wanted in value.lower()]
 
-    if command.source and store is not None:
+    # `lookup` is the Code tab's: repository values come from git, not from
+    # the index, and the shape of the question - "what values does this switch
+    # have here" - is the same one.
+    reader = lookup or (
+        (lambda kind, prefix, limit: store.distinct_values(
+            kind, prefix=prefix, limit=limit))
+        if store is not None else None)
+
+    if command.source and reader is not None:
         try:
-            found += [value for value in
-                      store.distinct_values(command.source, prefix=wanted,
-                                            limit=limit)
+            found += [value for value in reader(command.source, wanted, limit)
                       if value not in found]
         except Exception as exc:                # noqa: BLE001 - see the docstring
             _log.debug("no {} suggestions: {}", command.source, exc)

@@ -1038,6 +1038,105 @@ def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
 
 
 def cmd_gitsearch(args: argparse.Namespace) -> int:
+    """Search a repository - its files, its branches, its whole history.
+
+    The switches are `GitSearch.txt`'s, in the `/` grammar the rest of this
+    application already uses:
+
+        app.cli gitsearch --repo D:\Project "CustomerId /history /extension cs"
+        app.cli gitsearch --repo D:\Project "/class OrderService /branch develop"
+        app.cli gitsearch --repo D:\Project "ApiKey /history /removed-only"
+
+    **This ships before the UI**, per non-negotiable 8: every switch can be
+    checked headless, and the window has something to compare against when it
+    disagrees.
+
+    `--measure` is the other thing this command does - see `cmd_gitmeasure`.
+    """
+    if getattr(args, "measure", False):
+        return cmd_gitmeasure(args)
+
+    from app.search.gitquery import build, parse_git_query
+    from app.search.gitsearch import (
+        DEFAULT_ROW_LIMIT, SEARCH_TIMEOUT_S, git_version, is_repository,
+        run_query,
+    )
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    repo = Path(args.repo).expanduser()
+    if not repo.is_dir():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="repo", reason=f"'{repo}' is not a folder",
+            suggestion=r'Point it at a git checkout: app.cli gitsearch --repo "D:\Project" "pattern"',
+        ), args.json)
+
+    if git_version() is None:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="git", reason="git was not found on PATH",
+            suggestion="Install git, or add it to PATH, and run this again.",
+        ), args.json)
+
+    if not is_repository(repo):
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="repo", reason=f"'{repo}' is not a git repository",
+            suggestion="Run `app.cli repos --scan <folder>` to see which folders are.",
+        ), args.json)
+
+    query = parse_git_query(args.pattern, depth=args.depth)
+    plan = build(query)
+
+    if not args.json and plan.slow:
+        # Said before it starts, not after. `git log -S` diffs every commit it
+        # walks, so a history search is seconds to minutes, and a command that
+        # goes quiet for two minutes reads as one that has hung.
+        print(f"Searching {plan.explain}.")
+        print("  This reads history, so it is the slow one - git diffs every "
+              "commit it walks.", flush=True)
+
+    found = run_query(repo, query, limit=args.limit or DEFAULT_ROW_LIMIT,
+                      timeout=args.timeout or SEARCH_TIMEOUT_S)
+
+    if args.json:
+        print(json.dumps(found.as_dict(), indent=2))
+        return EXIT_OK if found.ok else EXIT_ERROR
+
+    if not found.ok:
+        print(f"git could not run that search: {found.error}", file=sys.stderr)
+        print(f"  command: {' '.join(found.command)}", file=sys.stderr)
+        return EXIT_ERROR
+
+    for row in found.rows:
+        if row.kind == "commit":
+            print(f"  {row.commit[:8]}  {row.date}  {row.author[:20]:<20}  {row.subject}")
+        elif row.kind == "change":
+            print(f"  {row.commit[:8]}  {row.status}  {row.path}"
+                  + (f"   ({row.text})" if row.text else ""))
+        elif row.status in ("+", "-"):
+            print(f"  {row.status} {row.commit[:8]}  {row.path}: {row.text.strip()}")
+        else:
+            where = f"{row.commit}:" if row.commit else ""
+            print(f"  {where}{row.path}:{row.line_no}: {row.text.strip()}")
+
+    print()
+    print(f"  {len(found.rows):,} result{'s' if len(found.rows) != 1 else ''} "
+          f"{found.explain}, in {found.elapsed_s:.2f}s")
+    if found.truncated:
+        # **Never a quiet truncation.** A capped list that does not say so is a
+        # wrong answer, and this one is capped precisely because a common word
+        # can match half a repository.
+        print(f"  Stopped at {args.limit or DEFAULT_ROW_LIMIT:,} results - "
+              f"narrow it with /path, /extension or /depth to see the rest.")
+    if not found.rows:
+        print(f"  Nothing matched. The command was: {' '.join(found.command)}")
+    return EXIT_OK
+
+
+def cmd_gitmeasure(args: argparse.Namespace) -> int:
     """Time git history search. **A measurement, not a feature.**
 
     `WORKORDER-git-search-backend.md` §14 makes phase 2 conditional on these
@@ -1729,12 +1828,34 @@ def cmd_commands(args: argparse.Namespace) -> int:
     """
     from app.search.commands import COMMANDS, help_lines
 
+    catalogue = COMMANDS
+    if getattr(args, "git", False):
+        from app.search.gitquery import GIT_COMMANDS
+
+        catalogue = GIT_COMMANDS
+
     if args.json:
         print(json.dumps([
             {"name": c.name, "aliases": list(c.aliases), "summary": c.summary,
-             "example": c.example, "value": c.value_hint}
-            for c in COMMANDS
+             "example": c.example, "value": c.value_hint, "icon": c.icon}
+            for c in catalogue
         ], indent=2))
+        return EXIT_OK
+
+    if getattr(args, "git", False):
+        # **A second catalogue, printed the same way.** Repository search is a
+        # different engine over a different store, and mixing its switches into
+        # the index's list would offer `/history` in a box that cannot answer
+        # it - the failure the per-tab restriction exists to prevent.
+        print("Repository search filters — app.cli gitsearch, and the Code tab")
+        print("=" * 70)
+        width = max(len(c.name) for c in catalogue) + 2
+        for command in catalogue:
+            spellings = ", ".join(command.aliases)
+            print(f"  {command.icon} /{command.name.ljust(width)}{command.summary}")
+            print(f"      {command.example:<28} {command.value_hint}")
+            if spellings:
+                print(f"      also: {spellings}")
         return EXIT_OK
 
     for line in help_lines():
@@ -2262,16 +2383,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_git = sub.add_parser(
         "gitsearch", parents=[common],
-        help="time git history search - a measurement, never part of a search")
-    p_git.add_argument("pattern", help="the string to look for in the history")
+        help="search a repository: its files, its branches, its whole history")
+    p_git.add_argument(
+        "pattern",
+        help='what to look for, with / switches: '
+             '"CustomerId /history /extension cs". Run `app.cli commands --git` '
+             'for the full list')
     p_git.add_argument("--repo", required=True, metavar="PATH",
-                       help="the git checkout to measure against")
-    p_git.add_argument("--rev", default="HEAD", metavar="EXPR",
-                       help="revision or range to search (default: HEAD)")
-    p_git.add_argument("--depths", metavar="N,N",
-                       help="commit depths to time at (default: 1000,10000,50000)")
+                       help="the git checkout to search")
+    p_git.add_argument("--depth", type=int, default=2000, metavar="N",
+                       help="how many commits back to look (default: 2000)")
+    p_git.add_argument("--limit", type=int, metavar="N",
+                       help="stop after this many results (default: 2000)")
     p_git.add_argument("--timeout", type=float, metavar="S",
-                       help="give up on one search after this long (default: 600)")
+                       help="give up after this long (default: 120)")
+    p_git.add_argument("--measure", action="store_true",
+                       help="time history search at several depths instead of "
+                            "searching - the diagnostic that decided this could exist")
+    p_git.add_argument("--rev", default="HEAD", metavar="EXPR",
+                       help="--measure only: revision to measure against")
+    p_git.add_argument("--depths", metavar="N,N",
+                       help="--measure only: commit depths to time at")
     p_git.set_defaults(func=cmd_gitsearch)
 
     p_repos = sub.add_parser(
@@ -2323,6 +2455,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_commands = sub.add_parser(
         "commands", parents=[common],
         help="list the search filters you can type (/type, /from, /after ...)")
+    p_commands.add_argument(
+        "--git", action="store_true",
+        help="the repository search switches instead (/history, /branch, "
+             "/introduced ...) - a different engine over a different store")
     p_commands.set_defaults(func=cmd_commands)
 
     p_ollama = sub.add_parser(

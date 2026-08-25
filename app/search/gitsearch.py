@@ -45,6 +45,11 @@ from app.core.logging import logger
 
 __all__ = [
     "DEFAULT_DEPTHS",
+    "DEFAULT_ROW_LIMIT",
+    "GitRow",
+    "GitSearchResult",
+    "SEARCH_TIMEOUT_S",
+    "run_query",
     "DEFAULT_TIMEOUT_S",
     "GitResult",
     "Measurement",
@@ -289,4 +294,301 @@ def measure(
             f"This repository has {found.commits_total:,} commits, so rows "
             f"asking for more than that searched the whole history and are "
             f"not representative of a deeper one.")
+    return found
+
+
+# ---------------------------------------------------------------------------
+# The search itself
+#
+# Everything above this line is the measurement that decided whether this could
+# exist. Everything below is what it decided: a repository search that runs one
+# git command, reads its output, and is bounded at both ends.
+# ---------------------------------------------------------------------------
+
+#: A row is capped so a pattern matching half the repository cannot fill memory
+#: or the window. The number is "more than anybody reads, fewer than hurts".
+DEFAULT_ROW_LIMIT = 2000
+
+#: What a history search is allowed to take before it is cut off. Far shorter
+#: than the measurement's ten minutes: this one has somebody waiting.
+SEARCH_TIMEOUT_S = 120.0
+
+
+@dataclass(frozen=True)
+class GitRow:
+    """One hit. Which fields are filled depends on what was asked."""
+
+    #: "content" for a line of a file, "commit" for a commit, "change" for a
+    #: file's status in a commit.
+    kind: str = "content"
+    commit: str = ""
+    date: str = ""
+    author: str = ""
+    subject: str = ""
+    path: str = ""
+    line_no: int = 0
+    text: str = ""
+    #: "A" added, "M" modified, "D" deleted, "R" renamed - from --name-status,
+    #: and from the +/- of a patch.
+    status: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind, "commit": self.commit, "date": self.date,
+            "author": self.author, "subject": self.subject, "path": self.path,
+            "line": self.line_no, "text": self.text, "status": self.status,
+        }
+
+
+@dataclass
+class GitSearchResult:
+    """What a repository search found, and what it was allowed to look at."""
+
+    ok: bool = True
+    rows: list[GitRow] = field(default_factory=list)
+    elapsed_s: float = 0.0
+    #: The sentence from `GitPlan.explain`. **Carried into the result, not left
+    #: at the call site**: "no matches" means nothing until you know whether it
+    #: looked at one commit or nine thousand, and the answer has to travel with
+    #: the answer.
+    explain: str = ""
+    command: tuple[str, ...] = ()
+    error: str = ""
+    #: True when the row cap cut the output. Said out loud, because a truncated
+    #: list that does not say so is a wrong answer.
+    truncated: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok, "matches": len(self.rows),
+            "elapsed_s": round(self.elapsed_s, 3), "explain": self.explain,
+            "command": " ".join(self.command), "error": self.error,
+            "truncated": self.truncated,
+            "rows": [row.as_dict() for row in self.rows],
+        }
+
+
+def _header(line: str) -> Optional[tuple[str, str, str, str]]:
+    """A `%H\\t%ad\\t%an\\t%s` line, or None.
+
+    Tab-separated because a commit subject may contain anything except a
+    newline - a separator that can appear in the data is a parser that is right
+    on your repository and wrong on somebody else's.
+    """
+    parts = line.split("\t")
+    if len(parts) >= 4 and len(parts[0]) >= 7 and " " not in parts[0]:
+        return parts[0], parts[1], parts[2], "\t".join(parts[3:])
+    return None
+
+
+def _read_grep(lines: Sequence[str], limit: int) -> list[GitRow]:
+    """`[rev:]path:line:text`.
+
+    **The revision prefix is present only when one was named**, and splitting
+    on a fixed field count gets it wrong the other way round. Counting from the
+    right instead: the last field is the text, the one before it the line
+    number - and a path containing a colon then costs nothing.
+    """
+    rows: list[GitRow] = []
+    for line in lines:
+        if len(rows) >= limit:
+            break
+        head, _sep, text = line.partition(":")
+        if not _sep:
+            continue
+        # `head` is now `path` or `rev:path`, and what follows may still start
+        # with the line number.
+        middle, _sep2, rest = text.partition(":")
+        if middle.isdigit():
+            rows.append(GitRow(kind="content", path=head,
+                               line_no=int(middle), text=rest))
+            continue
+        # Two colons: the first was a revision.
+        number, _sep3, body = rest.partition(":")
+        if number.isdigit():
+            rows.append(GitRow(kind="content", commit=head, path=middle,
+                               line_no=int(number), text=body))
+    return rows
+
+
+def _read_log(lines: Sequence[str], limit: int) -> list[GitRow]:
+    """One row per commit."""
+    rows: list[GitRow] = []
+    for line in lines:
+        if len(rows) >= limit:
+            break
+        found = _header(line)
+        if found is not None:
+            commit, date, author, subject = found
+            rows.append(GitRow(kind="commit", commit=commit, date=date,
+                               author=author, subject=subject))
+    return rows
+
+
+def _read_name_status(lines: Sequence[str], limit: int) -> list[GitRow]:
+    """A file's life: one row per change, carrying the commit it happened in."""
+    rows: list[GitRow] = []
+    commit = date = author = subject = ""
+    for line in lines:
+        if len(rows) >= limit:
+            break
+        found = _header(line)
+        if found is not None:
+            commit, date, author, subject = found
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[0][:1] in "AMDRCT":
+            # `R100  old  new` - the new name is the one worth showing, and the
+            # old one is the whole point of tracking renames, so both go in.
+            path = parts[-1]
+            text = f"renamed from {parts[1]}" if parts[0].startswith("R") else ""
+            rows.append(GitRow(kind="change", commit=commit, date=date,
+                               author=author, subject=subject, path=path,
+                               status=parts[0][:1], text=text))
+    return rows
+
+
+def _read_patch(lines: Sequence[str], limit: int, keep: str = "") -> list[GitRow]:
+    """Changed lines, attributed to the commit and file they changed in.
+
+    `keep` is "+", "-" or "": git has no switch for "only the deleted lines"
+    (`--diff-filter` selects files, not lines), so it is done here - and it is
+    done here rather than in the caller so that "removed only" cannot end up
+    showing added lines under a heading that says removed.
+    """
+    rows: list[GitRow] = []
+    commit = date = author = subject = ""
+    path = ""
+    for line in lines:
+        if len(rows) >= limit:
+            break
+        found = _header(line)
+        if found is not None:
+            commit, date, author, subject = found
+            path = ""
+            continue
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            continue
+        if line.startswith(("--- ", "+++ ", "diff --git", "index ", "@@",
+                            "new file", "deleted file", "similarity ",
+                            "rename ", "old mode", "new mode")):
+            continue
+        if line[:1] in ("+", "-"):
+            if keep and line[0] != keep:
+                continue
+            rows.append(GitRow(kind="content", commit=commit, date=date,
+                               author=author, subject=subject, path=path,
+                               text=line[1:], status=line[0]))
+    return rows
+
+
+def run_query(
+    repo: Path,
+    query: Any,
+    *,
+    limit: int = DEFAULT_ROW_LIMIT,
+    timeout: float = SEARCH_TIMEOUT_S,
+    runner: Runner = _run,
+) -> GitSearchResult:
+    """Run one `GitQuery` against `repo` and read what came back.
+
+    The plan comes from `gitquery.build`, which is where every decision about
+    *what* to run lives; this runs it and parses it. Splitting them that way is
+    what lets the whole switch catalogue be tested without git installed.
+
+    **Never raises.** A repository that has been moved, a bad revision, a
+    pattern git rejects - all of them are a result carrying an error, because
+    this is reached from a button and a traceback there is a bug report about
+    something that is not a bug.
+    """
+    from app.search.gitquery import (
+        KIND_GREP, KIND_NAME_STATUS, KIND_PATCH, build,
+    )
+
+    plan = build(query)
+    started = time.perf_counter()
+    code, out, err = runner(plan.argv, Path(repo), timeout)
+    elapsed = time.perf_counter() - started
+
+    # Exit code 1 is "found nothing" for both grep and log. See the note on
+    # `search_history`: treating it as failure reports every unsuccessful
+    # search as a broken tool.
+    if code not in (0, 1):
+        _log.warning("git search failed ({}): {}", code, err.strip()[:200])
+        return GitSearchResult(
+            ok=False, elapsed_s=elapsed, explain=plan.explain,
+            command=tuple(plan.argv), error=err.strip() or f"git exited {code}")
+
+    lines = out.splitlines()
+    wanted = 1 if plan.first_only else limit
+    if plan.kind == KIND_GREP:
+        rows = _read_grep(lines, wanted)
+    elif plan.kind == KIND_PATCH:
+        rows = _read_patch(lines, wanted, keep=plan.line_filter)
+    elif plan.kind == KIND_NAME_STATUS:
+        rows = _read_name_status(lines, wanted)
+    else:
+        rows = _read_log(lines, wanted)
+
+    return GitSearchResult(
+        ok=True, rows=rows, elapsed_s=elapsed, explain=plan.explain,
+        command=tuple(plan.argv),
+        # A single-row answer by design is not a truncated one, and saying it
+        # was would put "showing the first 1 of many" under `/introduced`.
+        truncated=not plan.first_only and len(rows) >= limit,
+    )
+
+
+#: What `/branch`, `/tag`, `/author` and `/commit` offer once they are chosen.
+#: Read from the repository, for the same reason the index's menu reads the
+#: index: a value typed from a guess returns nothing, and a filter that returns
+#: nothing is indistinguishable from a filter that does not work.
+#:
+#: Every one is a single bounded command. `--count` and `-n` are not decoration
+#: - this is reached from a keystroke, and a repository can have thousands of
+#: refs.
+_VALUE_COMMANDS: dict[str, list[str]] = {
+    "branch": ["git", "for-each-ref", "--sort=-committerdate", "--count=200",
+               "--format=%(refname:short)", "refs/heads", "refs/remotes"],
+    "tag": ["git", "for-each-ref", "--sort=-creatordate", "--count=200",
+            "--format=%(refname:short)", "refs/tags"],
+    "author": ["git", "log", "-n", "500", "--pretty=format:%an"],
+    "commit": ["git", "log", "-n", "50", "--pretty=format:%h  %s"],
+}
+
+
+def repo_values(repo: Path, kind: str, *, prefix: str = "", limit: int = 40,
+                runner: Runner = _run) -> list[str]:
+    """Branch, tag, author and commit names actually present in `repo`.
+
+    The `lookup` the Code tab's `/` menu is given. **Never raises**: a folder
+    that is not a repository, a git that is not installed, a repository being
+    rewritten - all of them are an empty list, because a suggestion list is a
+    convenience and must never be the reason a menu fails to open.
+
+    Deduplicated in order, so `/author` shows each person once with the most
+    recent first rather than five hundred rows of the same three names.
+    """
+    command = _VALUE_COMMANDS.get(str(kind))
+    if command is None:
+        return []
+    try:
+        code, out, _err = runner(command, Path(repo), 20.0)
+    except Exception:                        # noqa: BLE001 - see the docstring
+        return []
+    if code != 0:
+        return []
+
+    wanted = str(prefix or "").strip().lower()
+    found: list[str] = []
+    for line in out.splitlines():
+        value = line.strip()
+        if not value or value in found:
+            continue
+        if wanted and wanted not in value.lower():
+            continue
+        found.append(value)
+        if len(found) >= max(1, int(limit)):
+            break
     return found

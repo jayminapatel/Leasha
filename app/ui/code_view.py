@@ -41,6 +41,7 @@ from app.ui.view_options import (
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.git_search import GitSearchPanel, attach_below
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.repo_tree import COLUMNS, RepoTree
 from app.ui.widgets.table_filter import build_filter
@@ -133,15 +134,28 @@ class CodeView(QWidget):
             self.error.emit,
         )
 
+        # **The repository search, under the tree that chooses what it searches.**
+        # `GitSearch.txt`'s switches, in the same `/` grammar - but a different
+        # engine over a different store, so it has its own box, its own button
+        # and its own catalogue. It runs on Enter and never on a keystroke:
+        # `git log -S` diffs every commit it walks.
+        self.git = GitSearchPanel(self)
+        self.git.error.connect(self.error)
+        self.git.open_requested.connect(self.open_requested)
+        self.results.selected.connect(
+            lambda _row: self.git.set_repository(self._selected_root()))
+
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.view_button)
+
+        self.panes = attach_below(self.split, self.git)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
         layout.addWidget(self.empty)
-        layout.addWidget(self.split, 1)
+        layout.addWidget(self.panes, 1)
         self._apply_prefs()
 
     # -- lifecycle -----------------------------------------------------------
@@ -152,6 +166,7 @@ class CodeView(QWidget):
 
         stop_timers(self)
         self.preview.shutdown()
+        self.git.shutdown()
 
     def focus(self) -> None:
         """The filter box, like Files and Mail."""
@@ -230,14 +245,14 @@ class CodeView(QWidget):
             # The summary is `_apply_filter`'s to write - it is the only one
             # that knows whether a filter is narrowing the count.
             self.empty.setVisible(False)
-            self.split.setVisible(True)
+            self.panes.setVisible(True)
             self.input.setVisible(True)
             return
         self.input.setVisible(False)     # nothing to narrow
-        # The splitter, not the tree: hiding the tree alone would leave the
-        # preview pane floating beside nothing, above a message explaining that
-        # there is nothing.
-        self.split.setVisible(False)
+        # The whole pane, not the tree: hiding the tree alone would leave the
+        # preview and the repository search floating beside nothing, above a
+        # message explaining that there is nothing.
+        self.panes.setVisible(False)
         self.empty.setVisible(True)
         self.summary.setText("")
         self.empty.setText(repo_empty_state(self._anything_indexed()))
@@ -263,6 +278,20 @@ class CodeView(QWidget):
         self._apply_prefs()
 
     # -- acting on a row -----------------------------------------------------
+
+    def _selected_root(self) -> str:
+        """The folder of the repository the selection belongs to.
+
+        The repository search needs a path on disk; `selected_repo` returns a
+        *name*, which is what the search box and the menu want. Two questions,
+        two answers - conflating them put a repository name where git expected
+        a directory and failed with a message about neither.
+        """
+        name = self.results.selected_repo()
+        for row in self._rows:
+            if row.name == name:
+                return getattr(row, "root", "")
+        return ""
 
     def selected_repo(self) -> str:
         """The repository the selection belongs to, whichever level it is on."""

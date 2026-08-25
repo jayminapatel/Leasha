@@ -1,6 +1,6 @@
 # Work order (UI): the Code tab
 
-**Doc version:** 1.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 **Thread:** UI
 
@@ -338,3 +338,71 @@ about latency is the reason.
 Leave room for it below the table. Do not add a disabled button, a greyed-out control or a
 "coming soon" - `search_bar.py:85` records what this project thinks of those, and it is right:
 a greyed-out button is a permanent question with no answer visible on the screen it appears on.
+
+---
+
+## Addendum, 2026-08-25: repository search, and what GitSearch.txt did not get
+
+The owner attached `GitSearch.txt` — a 853-line functional specification for a
+repository intelligence platform — with the instruction: *"all the functionality
+in this should be available as switches and should be searchable for git … the
+style should be the / style we have in the app"*.
+
+### What was built
+
+`app/search/gitquery.py` (the catalogue, the parser and the argv builder — no
+git, no Qt, so every switch is asserted on the command it produces),
+`app/search/gitsearch.run_query` (running it and reading four different output
+formats), `app.cli gitsearch` (headless first, per non-negotiable 8) and
+`app/ui/widgets/git_search.py` (the panel under the repository tree).
+
+Thirty-four switches, covering the specification's search modes (§4), methods
+(§5), file filters (§6), branch filters (§7), commit filters (§8), author
+filters (§9), date filters (§10) and history intelligence (§11).
+
+### What was deliberately left out, and why
+
+**The project's own rule is that a list is not an affordance if half of it does
+nothing.** A menu full of switches that quietly fail is worse than a shorter
+menu, because it is discovered one disappointment at a time. Each of these is
+real work rather than an oversight:
+
+| Switch | Why not | What it needs |
+|---|---|---|
+| `--compare main develop` (§13) | Two searches and a set difference, not one git command | A second plan kind that runs both and diffs the row sets |
+| `--branches` / `--branch-origin` (§13) | `git branch --contains <sha>` per matched commit — one subprocess per result | Batching, or accepting N invocations behind a progress bar |
+| `--branch-timeline` (§13) | A visualisation, not a search | A drawing surface; the graph work was cancelled in the V2 scope change |
+| `--references` (§15) | Dependency analysis needs a parser per language | Out of scope until symbol indexing exists |
+| `--team` (§9) | Needs a team roster the application has never been given | A place to define one, which is a settings feature |
+| Security artifacts (§3) | Secret scanning is a rules engine, not a grep | Its own module, its own rule set, its own false-positive problem |
+| `--fuzzy` (§5) | `CustomerId` matching `customer_id` needs an identifier-aware matcher | A tokeniser; `/regex` covers the cases people actually type |
+
+`--wildcard` (§5) is absent as a switch because `/regex` and git's pathspecs
+already do it and a third spelling of "match loosely" is a menu that has to be
+explained.
+
+### The two facts that shaped it
+
+**It is a second search domain, not a filter on the first.** The `/` menu until
+now narrowed the index — rows describing files read once, at index time. History
+is not in the index and cannot be. So the grammar is shared and the engine is
+not, and `test_gitsearch.py` asserts that nothing running on a keystroke can
+reach git.
+
+**It is slow, and the number is on record.** `git log -S` over 200 commits of
+this repository: 2.26s. `git grep` over one revision: 0.33s. That is why the
+panel searches on Enter and never on a keystroke, why every history plan carries
+`--max-count`, and why `GitPlan.slow` exists for the UI to read.
+
+### Next, in order
+
+1. **Cancellation that actually kills git.** Stop currently abandons the answer
+   and lets the subprocess finish or time out — stated on the button rather than
+   implied. Doing it properly needs `Popen` and a process group, which changes
+   the `runner` seam every test in `test_gitquery.py` and
+   `test_gitsearch_reading.py` depends on. Worth doing; not worth doing quietly.
+2. **`--compare`**, which is the most-asked-for of the absent switches and is
+   two runs and a set difference.
+3. **Streaming results.** A history search returning 2,000 rows currently draws
+   them all at once, at the end. `git log` produces them steadily and the table
+   could fill as they arrive.

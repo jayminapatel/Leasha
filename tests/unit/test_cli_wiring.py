@@ -534,7 +534,7 @@ def test_gitsearch_on_a_folder_that_is_not_a_repository(tmp_path, capsys):
 
     args = parser_for([
         "gitsearch", "pattern", "--repo", str(tmp_path), "--env", env,
-        "--depths", "5", "--json",
+        "--measure", "--depths", "5", "--json",
     ])
     cli.cmd_gitsearch(args)
 
@@ -542,6 +542,27 @@ def test_gitsearch_on_a_folder_that_is_not_a_repository(tmp_path, capsys):
     payload = _json.loads(capsys.readouterr().out)
     assert payload["rows"] == []
     assert payload["notes"], "it produced no rows and said nothing about why"
+
+
+def test_searching_a_folder_that_is_not_a_repository_says_which_folder(
+        tmp_path, capsys):
+    """The same rule for the search as for the measurement.
+
+    An empty result table over a folder that is not a checkout reads as "this
+    repository has nothing in it", which is a different and much more
+    misleading statement than "that is not a repository".
+    """
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    args = parser_for([
+        "gitsearch", "pattern", "--repo", str(tmp_path), "--env", env,
+    ])
+
+    assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
+    printed = capsys.readouterr()
+    assert "repository" in (printed.out + printed.err).lower()
 
 
 def test_gitsearch_rejects_a_missing_folder(tmp_path, capsys):
@@ -563,7 +584,7 @@ def test_gitsearch_rejects_depths_that_are_not_numbers(tmp_path, capsys):
 
     args = parser_for([
         "gitsearch", "x", "--repo", str(tmp_path), "--env", env,
-        "--depths", "1k,10k",
+        "--measure", "--depths", "1k,10k",
     ])
     assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
     assert "depths" in capsys.readouterr().err.lower() + capsys.readouterr().out.lower()

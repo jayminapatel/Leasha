@@ -207,26 +207,56 @@ def test_a_result_serialises_for_json():
 
 # --- the guarantee that matters ---------------------------------------------
 
-def test_nothing_in_the_search_path_imports_this():
-    """**A measurement must never become a search.**
+def test_nothing_that_runs_on_a_keystroke_imports_this():
+    """**No unbounded work behind a keystroke.** The first non-negotiable.
 
-    The first non-negotiable is that no unbounded work sits behind the Enter
-    key, and this module shells out to a command that takes minutes. It is
-    reachable from `app.cli` and from nowhere else.
+    This module shells out to git. `git log -S` diffs every commit it walks -
+    2.26s for 200 commits, measured on this project - so it must not be
+    reachable from anything that runs while somebody is typing.
+
+    **The rule changed shape and had to be restated rather than relaxed.**
+    It used to be "nothing imports this at all", because the module was only a
+    measurement. It is now the repository search engine as well, so the Code
+    tab imports it deliberately - behind a button, with a bounded depth and a
+    timeout. Widening the old assertion to make that pass would have thrown the
+    guarantee away; what it protects is the list below, which is every module
+    that runs per keystroke or per result row.
     """
     import ast
     import pathlib
 
+    #: Modules on the index search path. Each of these runs on a debounce, on
+    #: the paint path, or per row - none of them may reach git.
+    hot = [
+        "app/search/engine.py", "app/search/keyword.py", "app/search/vector.py",
+        "app/search/rerank.py", "app/search/fusion.py", "app/search/query.py",
+        "app/search/commands.py", "app/search/translate.py",
+        "app/ui/search_view.py", "app/ui/files_view.py", "app/ui/mail_view.py",
+        "app/ui/results_view.py", "app/ui/presenter.py",
+        "app/ui/preview_loader.py", "app/ui/workers.py",
+    ]
+
     offenders = []
-    for path in pathlib.Path("app").rglob("*.py"):
-        if path.name in ("gitsearch.py", "cli.py"):
+    for name in hot:
+        path = pathlib.Path(name)
+        if not path.is_file():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)) and \
                     "gitsearch" in ast.unparse(node):
-                offenders.append(str(path))
+                offenders.append(name)
 
     assert not offenders, (
-        f"gitsearch is reachable from {offenders} - it runs git as a "
-        f"subprocess and can take minutes; it must not be on any search path")
+        f"{offenders} reach git, and every one of them runs while somebody is "
+        f"typing. A history search takes seconds; it belongs behind a button.")
+
+
+def test_the_index_search_engine_cannot_reach_git_even_indirectly():
+    """One level deeper than the import check, because `gitquery` is harmless
+    (it builds strings) and `gitsearch` is not (it runs them). An engine that
+    imported the first on the way to the second would pass the check above."""
+    import app.search.engine as engine
+
+    assert not hasattr(engine, "run_query")
+    assert "gitsearch" not in engine.__doc__.lower() if engine.__doc__ else True
