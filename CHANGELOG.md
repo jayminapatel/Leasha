@@ -88,6 +88,7 @@ linear. At 20M that is seconds. The fix is an FTS index over the message
 headers, which is a schema change and its own piece of work, not part of adding
 two indexes.
 
+
 Twenty tests in `test_query_plans.py`, asserting `EXPLAIN QUERY PLAN` output
 against the **real** query builder rather than a hand-written approximation of
 it — an approximation is what first suggested the partial index was being used.
@@ -98,6 +99,49 @@ fixture. One test pins the `LIKE` folding assumption itself, so if
 `case_sensitive_like` is ever switched on it fails with an explanation instead
 of five filters quietly returning nothing.
 
+
+### Fixed — a search during indexing could return a document that was never indexed (A1)
+
+**Filed as a scalability finding. It was a correctness one.**
+
+`SqliteStore` held one connection shared between threads, with
+`check_same_thread=False` and a comment explaining that writes were serialised
+by a lock. Serialising the writes was never the problem. Two threads on one
+connection share its *transaction state*, so a search running during indexing
+read **inside** the indexing transaction — and when that transaction rolled
+back, the search had already returned a result for a document that never
+entered the index. A user clicking it opens nothing.
+
+Reproduced before changing anything: a reader on a second thread saw
+`/DIRTY.pdf` mid-write and the row was gone afterwards.
+
+Each thread now gets its own connection, opened lazily on first use — Qt hands
+work to threads this code never sees created, so requiring every worker to call
+`connect()` would mean each one either remembering to or quietly sharing the
+main thread's connection again. A registry keeps every connection handed out,
+because `threading.local` cannot be enumerated and `close()` must still close
+all of them; a connection left open holds a file handle, and on Windows that is
+what stops the index directory from being moved afterwards.
+
+WAL is what makes this cheap rather than a trade: separate connections each get
+a consistent snapshot of committed data, readers never block the writer, and
+the writer never blocks them.
+
+**The first version of the fix reintroduced the blocking it was removing.** One
+lock was guarding two unrelated things — serialising writes, and protecting the
+connection registry — so a reader opening its *first* connection waited for
+whatever write was in flight. The test hung rather than failed, which is how it
+was found. There are now two locks, always taken in the order write → conns,
+and `close()` takes both in that order so an in-flight write finishes rather
+than having its connection closed underneath it.
+
+Thirteen tests. Three of them fail on the old code — the dirty read, the
+blocking, and connection identity — which is the only reason to trust the other
+ten. The rest guard what per-thread connections newly make possible to get
+wrong: pragmas set on the first connection but not the next (`foreign_keys` is
+per-connection, and the cascade deletes that keep chunks with their file depend
+on it), a worker that never called `connect()`, a closed store quietly
+reopening itself, and migrations running once however many threads arrive.
 
 ### Measured — the reranker swap costs nothing on the built-in corpus
 

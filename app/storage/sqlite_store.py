@@ -5,11 +5,17 @@ Layer: L1
 SQLite is the AUTHORITY. LanceDB is derived from it and can always be rebuilt
 from `chunks`. Never the reverse.
 
-Concurrency model: one connection, one write lock. SQLite in WAL mode allows
-many concurrent readers alongside a single writer, which is exactly the shape of
-this application - a pool of extraction workers reading, one writer committing.
-Serialising writes in the process avoids `database is locked` entirely rather
-than retrying around it.
+Concurrency model: **one connection per thread**, one write lock. SQLite in WAL
+mode allows many concurrent readers alongside a single writer, which is exactly
+the shape of this application - a pool of extraction workers reading, one writer
+committing. Serialising writes in the process avoids `database is locked`
+entirely rather than retrying around it.
+
+This said "one connection" until it was tested. Threads sharing a connection
+share its *transaction*, so a search running during indexing read uncommitted
+rows and could return a result for a document whose transaction then rolled
+back. Per-thread connections are what make the WAL sentence above true rather
+than aspirational.
 """
 
 from __future__ import annotations
@@ -119,15 +125,44 @@ class SqliteStore:
     def __init__(self, db_path: Path, *, timeout: float = 30.0):
         self.db_path = Path(db_path)
         self._timeout = timeout
-        self._lock = threading.RLock()
-        self._conn: Optional[sqlite3.Connection] = None
+        # **Two locks, because they guard two unrelated things.**
+        #
+        # They were one, and a reader opening its first connection then had to
+        # wait for whatever write was in flight - so the very blocking this
+        # change exists to remove came back through the registry. Caught by
+        # `test_a_reader_is_not_blocked_by_a_write_in_flight`, which hung.
+        #
+        # Lock order is always write -> conns, never the reverse: `write()`
+        # takes the write lock and may then open a connection, and `close()`
+        # takes both in that same order. Nothing takes them the other way
+        # round, which is what keeps this deadlock-free.
+        self._write_lock = threading.RLock()
+        self._conns_lock = threading.RLock()
+        # **One connection per thread**, not one shared between them.
+        #
+        # A single connection with `check_same_thread=False` was not merely
+        # slow, it was wrong. A reader on the shared connection reads *inside*
+        # whatever transaction another thread has open on it, so during
+        # indexing a search saw uncommitted rows - and when the indexing
+        # transaction rolled back, the user was left holding a result for a
+        # document that had never entered the index. Reproduced, and now
+        # pinned by `test_connection_per_thread.py`.
+        #
+        # WAL is what makes the fix cheap: separate connections each get a
+        # consistent snapshot of *committed* data, readers never block the
+        # writer, and the writer never blocks them.
+        self._local = threading.local()
+        #: Every connection handed out, so `close()` can close all of them.
+        #: `threading.local` cannot be enumerated, and a connection left open
+        #: holds a file handle and its share of the WAL.
+        self._open: dict[int, sqlite3.Connection] = {}
+        self._closed = False
+        self._migrated = False
 
     # -- lifecycle -----------------------------------------------------------
 
-    def connect(self) -> "SqliteStore":
-        if self._conn is not None:
-            return self
-
+    def _new_connection(self) -> sqlite3.Connection:
+        """One configured connection. Caller holds `self._conns_lock`."""
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -141,7 +176,12 @@ class SqliteStore:
             conn = sqlite3.connect(
                 str(self.db_path),
                 timeout=self._timeout,
-                check_same_thread=False,   # writes are serialised by self._lock
+                # Still False, but for a different reason than it used to be:
+                # not so that threads may share a connection - they no longer
+                # do - but so that `close()` can close every thread's
+                # connection from whichever thread is doing the closing. A
+                # worker that has already exited cannot close its own.
+                check_same_thread=False,
                 isolation_level=None,      # explicit transactions only
             )
         except sqlite3.Error as exc:
@@ -151,24 +191,50 @@ class SqliteStore:
             )) from exc
 
         conn.row_factory = sqlite3.Row
+        # WAL is a property of the file, not the connection, so setting it
+        # repeatedly is harmless. The rest are per-connection and must be set
+        # on every one of them - a worker thread with `foreign_keys` off would
+        # silently skip the cascade deletes that keep chunks with their file.
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
 
-        self._conn = conn
-        apply_migrations(conn)
+        self._open[threading.get_ident()] = conn
+        return conn
+
+    def connect(self) -> "SqliteStore":
+        with self._conns_lock:
+            self._closed = False
+            conn = getattr(self._local, "conn", None)
+            if conn is None:
+                conn = self._new_connection()
+                self._local.conn = conn
+            if not self._migrated:
+                # Once per store, not once per connection. Under the lock, so
+                # a worker thread opening its first connection cannot race the
+                # schema into existence twice.
+                apply_migrations(conn)
+                self._migrated = True
         return self
 
     def close(self) -> None:
-        with self._lock:
-            if self._conn is not None:
+        # Both, in the lock order set out in `__init__`: wait for an in-flight
+        # write to finish rather than closing the connection underneath it.
+        with self._write_lock, self._conns_lock:
+            self._closed = True
+            for conn in self._open.values():
                 try:
-                    self._conn.execute("PRAGMA optimize")
+                    conn.execute("PRAGMA optimize")
                 except sqlite3.Error:
                     pass
-                self._conn.close()
-                self._conn = None
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+            self._open.clear()
+            self._local = threading.local()
+            self._migrated = False
 
     def __enter__(self) -> "SqliteStore":
         return self.connect()
@@ -190,11 +256,18 @@ class SqliteStore:
         alternative, which was three ERR_UNEXPECTED reports per keystroke about
         a database nobody is using any more.
         """
-        return self._conn is not None
+        return not self._closed and self._migrated
 
     @property
     def conn(self) -> sqlite3.Connection:
-        if self._conn is None:
+        """This thread's connection, opened on first use.
+
+        **Opening lazily is the point.** Qt hands work to threads this code
+        never sees created, so requiring each one to call `connect()` would
+        mean every worker either remembering to, or quietly sharing the main
+        thread's connection again - which is the bug this replaced.
+        """
+        if self._closed:
             raise AppErrorException(make_error(
                 "ERR_UNEXPECTED", "storage.sqlite",
                 details="SqliteStore used before connect(), or after close().",
@@ -203,7 +276,30 @@ class SqliteStore:
                     "search outlived the store and the message is harmless."
                 ),
             ))
-        return self._conn
+
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            return conn
+
+        with self._conns_lock:
+            if self._closed:                       # closed while we waited
+                raise AppErrorException(make_error(
+                    "ERR_UNEXPECTED", "storage.sqlite",
+                    details="SqliteStore was closed while a worker was using it.",
+                    suggestion=(
+                        "If this appeared while closing the window, a background "
+                        "search outlived the store and the message is harmless."
+                    ),
+                ))
+            if not self._migrated:
+                raise AppErrorException(make_error(
+                    "ERR_UNEXPECTED", "storage.sqlite",
+                    details="SqliteStore used before connect().",
+                    suggestion="Open the store with `with SqliteStore(path) as store:`.",
+                ))
+            conn = self._new_connection()
+            self._local.conn = conn
+            return conn
 
     @property
     def schema_version(self) -> int:
@@ -212,7 +308,7 @@ class SqliteStore:
     @contextmanager
     def write(self) -> Iterator[sqlite3.Connection]:
         """One serialised write transaction. Rolls back on any exception."""
-        with self._lock:
+        with self._write_lock:
             conn = self.conn
             conn.execute("BEGIN IMMEDIATE")
             try:
