@@ -45,7 +45,16 @@ __all__ = [
     "grammar_for_model",
     "examples_for_model",
     "EXAMPLES",
+    "RELATIVE_DATES",
 ]
+
+
+#: Date spellings worth offering, because they are easier to pick than to
+#: remember. `query.py` accepts all of these; the list is short on purpose -
+#: a dropdown of thirty ways to say "recently" is not a shortcut.
+RELATIVE_DATES: tuple[str, ...] = (
+    "today", "yesterday", "7d", "30d", "90d", "last month", "1y",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +73,24 @@ class Command:
     value_hint: str
     #: True when the value is a date, which has its own forgiving syntax.
     is_date: bool = False
+    #: A one-character glyph for the dropdown, so the list can be scanned by
+    #: shape rather than read line by line. **A character, not an image**: no
+    #: asset to ship, no second copy to redraw for dark mode, and it is painted
+    #: in the palette's own colour by the widget - see `widgets/command_icon.py`.
+    icon: str = "•"
+    #: Values worth offering that are fixed by the grammar rather than found in
+    #: anybody's index. `/has` has exactly two; a date has a handful of useful
+    #: spellings that are easier to pick than to remember.
+    values: tuple[str, ...] = ()
+    #: Where *real* values come from, when they can be read from the index.
+    #: One of the keys `SqliteStore.distinct_values` accepts, or "" for none.
+    #:
+    #: **The point of the whole feature.** `/type <type>` tells you a filter
+    #: exists; `/type` offering `pdf`, `docx`, `msg` tells you what is actually
+    #: in there - and the difference is between a filter you can use and one you
+    #: have to guess at. A value that returns nothing is the commonest way a
+    #: working filter looks broken.
+    source: str = ""
 
     @property
     def spellings(self) -> tuple[str, ...]:
@@ -83,6 +110,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only this kind of file",
         example="/type pdf",
         value_hint="pdf, docx, xlsx, email, code - or several: pdf,docx",
+        icon="▤",
+        source="ext",
     ),
     Command(
         name="from",
@@ -90,6 +119,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only email from this person",
         example="/from dave",
         value_hint="part of a name or address; dave matches dave.smith@acme.com",
+        icon="✉",
+        source="sender",
     ),
     Command(
         name="to",
@@ -97,6 +128,7 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only email sent to this person",
         example="/to priya",
         value_hint="part of a name or address; matches the To and Cc lines",
+        icon="✉",
     ),
     Command(
         name="subject",
@@ -104,6 +136,7 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only email whose subject contains this",
         example="/subject licence",
         value_hint='any part of the subject; quote it for several words: "licence renewal"',
+        icon="≡",
     ),
     Command(
         name="has",
@@ -111,6 +144,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only email with (or without) an attachment",
         example="/has attachment",
         value_hint="attachment, or no-attachment",
+        icon="↧",
+        values=("attachment", "no-attachment"),
     ),
     Command(
         name="after",
@@ -119,6 +154,8 @@ COMMANDS: tuple[Command, ...] = (
         example="/after 2024-06-01",
         value_hint="2024-06-01, 2024, last month, 30d",
         is_date=True,
+        icon="◷",
+        values=RELATIVE_DATES,
     ),
     Command(
         name="before",
@@ -127,6 +164,8 @@ COMMANDS: tuple[Command, ...] = (
         example="/before 2025-03-01",
         value_hint="2025-03-01, 2025, yesterday, 2y",
         is_date=True,
+        icon="◶",
+        values=RELATIVE_DATES,
     ),
     Command(
         name="path",
@@ -134,6 +173,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only inside folders whose path contains this",
         example="/path projects/leeds",
         value_hint="any part of a folder path",
+        icon="▸",
+        source="folder",
     ),
     Command(
         name="repo",
@@ -141,6 +182,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only files in this code repository",
         example="/repo leasha",
         value_hint="a repository name, as shown in the Code tab - or several: leasha,tools",
+        icon="⌥",
+        source="repo",
     ),
     Command(
         name="name",
@@ -148,6 +191,7 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only files whose NAME contains this",
         example="/name invoice",
         value_hint="part of a filename - not the folder, which is /path",
+        icon="▫",
     ),
     Command(
         name="size",
@@ -155,6 +199,8 @@ COMMANDS: tuple[Command, ...] = (
         summary="Only files above or below a size",
         example="/size >1mb",
         value_hint=">1mb, <500kb, >=10mb; a bare 1mb means at least that",
+        icon="⚖",
+        values=(">1mb", ">10mb", ">100mb", "<100kb", "<1mb"),
     ),
 )
 

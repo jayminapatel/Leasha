@@ -111,7 +111,7 @@ class MailView(QWidget):
         self.input.setClearButtonEnabled(True)
         self.input.textChanged.connect(lambda _t: self._timer.start())
         # Only what this tab honours - see `command_popup.MAIL_COMMANDS`.
-        self._popup = attach_to(self.input, only=MAIL_COMMANDS)
+        self._popup = attach_to(self.input, only=MAIL_COMMANDS, store=store)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")

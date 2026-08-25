@@ -92,7 +92,7 @@ class CodeView(QWidget):
         )
         # `/` opens a menu here as it does in every other box - but only the
         # commands a repository tree can answer. See `command_popup`.
-        self._popup = attach_to(self.input, only=CODE_COMMANDS)
+        self._popup = attach_to(self.input, only=CODE_COMMANDS, store=store)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")

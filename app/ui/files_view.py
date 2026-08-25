@@ -103,7 +103,7 @@ class FilesView(QWidget):
         # - see `_run`. Offering a filter the tab then ignores would be worse
         # than not offering it at all.
         # Only what this tab honours - see `command_popup.FILES_COMMANDS`.
-        self._popup = attach_to(self.input, only=FILES_COMMANDS)
+        self._popup = attach_to(self.input, only=FILES_COMMANDS, store=store)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")

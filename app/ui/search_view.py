@@ -97,7 +97,12 @@ class SearchView(QWidget):
         self._last_search_id: int | None = None
 
         self.input, self.commands = build_input(
-            self, self._on_text_changed, self._on_submitted)
+            self, self._on_text_changed, self._on_submitted,
+            # Through the engine, which is what this view is given. Only the
+            # *value* half of the `/` menu uses it, and `getattr` because an
+            # engine without one is a menu offering the grammar's own values
+            # rather than a view that fails to build.
+            store=getattr(engine, "store", None))
 
         # Scope chips. A filter, not a mode: you should never have to decide
         # whether a thing was an email or a document *before* typing, because

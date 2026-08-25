@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import QCheckBox, QComboBox, QPushButton, QWidget
 __all__ = ["build_input", "build_scope", "build_interpret", "build_rerank", "SCOPES"]
 
 
-def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any) -> Any:
+def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
+                store: Any = None) -> Any:
     """The search box, with the `/` filter dropdown attached.
 
     Returns `(line_edit, completer)`. The completer must be kept alive by the
@@ -45,7 +46,11 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any) -> Any
     box.setClearButtonEnabled(True)
     box.textChanged.connect(on_typed)
     box.returnPressed.connect(on_submit)
-    return box, attach_to(box)
+    # `store` only makes the *value* half of the menu better - which extensions
+    # exist, who has sent mail, which repositories were found. Without it the
+    # grammar's own values are still offered, so a box with no store is not a
+    # box with a broken menu.
+    return box, attach_to(box, store=store)
 
 #: (label, value). Value travels into `ParsedQuery.scope`.
 #:

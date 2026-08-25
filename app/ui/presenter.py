@@ -30,6 +30,13 @@ import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from app.core.logging import logger
+
+#: Only ever used to record something being swallowed. Nothing in this module
+#: logs on a success path: it runs per result row and per keystroke, and a log
+#: line there is a log nobody can read.
+_log = logger.bind(component="ui.presenter")
+
 __all__ = [
     "notice_line",
     "Tier",
@@ -1349,7 +1356,12 @@ def install_package(package: str, version: str = "", timeout_s: int = 600) -> di
     command to run by hand - an install that fails quietly leaves a reader that
     can never work and nobody knowing why.
     """
+    # **`sys` as well as `subprocess`.** This module imports neither at the
+    # top, and the reference to `sys.executable` below was a `NameError`
+    # waiting on the one path nobody runs in a test - the button that installs
+    # a missing reader. "Never raises" was written above it and was not true.
     import subprocess
+    import sys
 
     target = f"{package}=={version}" if version else package
     fix = f"venv\\Scripts\\pip install {target}"
@@ -1898,6 +1910,101 @@ MAIL_COMMANDS = ("from", "to", "subject", "has", "after", "before")
 #: Code. `repo:` picks the repository; `type:` and `name:` narrow the files
 #: underneath it. Before the tree listed files, this was `repo` alone.
 CODE_COMMANDS = ("repo", "type", "name")
+
+
+#: How many values a dropdown offers. Enough to cover a real corpus's file
+#: types and a person's regular correspondents; few enough that the list is
+#: still something you scan rather than search.
+VALUE_LIMIT = 40
+
+
+def slash_context(text: str) -> tuple[str, str, str]:
+    """Read the word being typed: `(head, mode, partial)`.
+
+    `mode` is:
+
+    * ``"command"`` while a `/name` is being typed - offer the filters;
+    * ``"value"`` once a `name:` has been settled on - offer its values;
+    * ``""`` when neither applies - close the menu.
+
+    `head` is everything before the word, so a caller can rewrite the word
+    without touching what was typed before it.
+
+    **One reader for both menus.** The alternative - a pattern per menu, each
+    with its own idea of where a word begins - is how `12/03` and `D:/docs`
+    end up opening a dropdown over a date and a path. Those are the cases worth
+    remembering: a search box that silently rewrites what somebody typed is a
+    search box they stop trusting, and this is the function that decides
+    whether it is about to.
+
+    Qt-free and here rather than in the widget, so both can be checked without
+    a display.
+    """
+    from app.search.commands import command_for
+
+    if not text or text.endswith(" "):
+        return "", "", ""
+
+    word = text.rpartition(" ")[2]
+    head = text[: len(text) - len(word)]
+
+    if ":" in word:
+        name, _sep, partial = word.partition(":")
+        # A colon that is not one of ours - `D:/docs`, `http://…`, `12:30` -
+        # is somebody's text and is left alone.
+        if command_for(name) is not None:
+            return head, "value", partial
+        return "", "", ""
+
+    if word.startswith("/"):
+        return head, "command", word[1:]
+    return "", "", ""
+
+
+def value_suggestions(store: Any, name: str, prefix: str = "",
+                      limit: int = VALUE_LIMIT) -> list[str]:
+    """What to offer after `/type `, `/from `, `/repo `, `/after `…
+
+    **The half of the `/` menu that was missing.** The menu said which filters
+    exist and then left somebody to guess a value - and a value guessed wrong
+    returns nothing, which is indistinguishable from a filter that does not
+    work. Offering what is actually in the index closes that gap.
+
+    Two sources, in this order:
+
+    * `command.values` - fixed by the grammar. `/has` has exactly two answers,
+      and a date has a handful of spellings easier to pick than to recall.
+    * `command.source` - read from the index, commonest first, through
+      `distinct_values`, which is bounded and index-backed because this is
+      reached from a keystroke.
+
+    Qt-free and here rather than in the widget, so the rule about *what* is
+    offered can be tested without a display - which is the same reason
+    `FILES_COMMANDS` and its siblings live in this file.
+
+    Never raises. A suggestion list is a convenience; a store that is mid-index,
+    locked or closed must cost the suggestions and nothing else.
+    """
+    from app.search.commands import command_for
+
+    command = command_for(name)
+    if command is None:
+        return []
+
+    wanted = str(prefix or "").strip().lower()
+    found = [value for value in command.values
+             if not wanted or wanted in value.lower()]
+
+    if command.source and store is not None:
+        try:
+            found += [value for value in
+                      store.distinct_values(command.source, prefix=wanted,
+                                            limit=limit)
+                      if value not in found]
+        except Exception as exc:                # noqa: BLE001 - see the docstring
+            _log.debug("no {} suggestions: {}", command.source, exc)
+
+    return found[:limit]
 
 
 @dataclass(frozen=True, slots=True)

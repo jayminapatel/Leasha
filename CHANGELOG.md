@@ -1,12 +1,49 @@
 # Changelog
 
-**Doc version:** 3.26 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.27 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the `/` menu offers values, not just filter names
+
+The menu answered "which filters exist" and stopped at the colon. The harder
+question is the next one — *what do I put here* — and it was left to guesswork.
+A guessed value returns nothing, and **a filter that returns nothing is
+indistinguishable from a filter that does not work**, so the menu was quietly
+teaching people the feature was broken.
+
+Choosing `/type` now keeps the list open and offers the extensions actually in
+the index, commonest first; `/from` offers the people who have actually sent
+mail; `/repo` the repositories actually found; `/has`, `/after` and `/size` the
+values the grammar fixes. Every box that has a `/` menu gets it — search, Files,
+Mail and Code — each still restricted to the filters its own tab honours.
+
+**Nothing unbounded behind a keystroke.** `distinct_values` is one query per
+kind, every one index-backed (`ext`, `parent_dir`, `sender`, `repos.name` all
+have an index), `LIMIT` pushed into SQL rather than applied afterwards, and the
+`kind` looked up in a table rather than interpolated. It runs on a worker and is
+cached for two minutes, so arrowing through a menu costs one query rather than
+one per keystroke. The grammar's own values appear instantly; the index's arrive
+when they arrive.
+
+### Added — icons in the `/` menu
+
+Asked for: *"i want the / command to show icons too similar to claude / command"*.
+Each filter carries a glyph in `app/search/commands.py` — a character painted
+into a pixmap in the palette's own colour, not a shipped image. Nothing to
+package, nothing to redraw for dark mode, and a command that gains an icon gains
+one character in the catalogue rather than a file.
+
+### Fixed — `install_package` would have raised `NameError`
+
+`presenter.py` imports neither `sys` nor `subprocess` at the top; the function
+imported `subprocess` locally and then referenced `sys.executable`. "Never
+raises" was written directly above it and was not true. The path is the button
+that installs a missing reader — the one nobody runs in a test.
 
 ### Added — the preview pane, on every list
 

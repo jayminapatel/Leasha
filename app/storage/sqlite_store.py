@@ -1456,6 +1456,54 @@ class SqliteStore:
         """).fetchall()
         return [dict(row) for row in rows]
 
+    def distinct_values(self, kind: str, *, prefix: str = "",
+                        limit: int = 40) -> list[str]:
+        """Values actually present in the index, commonest first.
+
+        What `/type`, `/from`, `/path` and `/repo` offer once somebody has
+        chosen the filter. **The difference between a filter you can use and one
+        you have to guess at**: `/type <type>` says a filter exists, `/type`
+        offering `pdf`, `docx`, `msg` says what is in there - and a filter typed
+        from a guess that matches nothing is the commonest way a working feature
+        looks broken.
+
+        **Every query here is index-backed and bounded.** This runs behind a
+        keystroke, and the first non-negotiable is that no unbounded work sits
+        in that path: `ext`, `parent_dir`, `sender` and `repos.name` all have an
+        index, `LIMIT` is applied in SQL rather than in Python, and `kind` is
+        looked up in a table rather than interpolated - so a caller cannot ask
+        for a column, or a scan, that was not planned for.
+
+        Ordered by frequency, not alphabetically. The extension somebody wants
+        is nearly always one of the three they have thousands of.
+        """
+        table = {
+            "ext": ("SELECT ext AS v, COUNT(*) AS n FROM files "
+                    "WHERE ext <> '' AND ext LIKE ? ESCAPE '\\' "
+                    "GROUP BY ext ORDER BY n DESC, v LIMIT ?"),
+            "folder": ("SELECT parent_dir AS v, COUNT(*) AS n FROM files "
+                       "WHERE parent_dir <> '' AND parent_dir LIKE ? ESCAPE '\\' "
+                       "GROUP BY parent_dir ORDER BY n DESC, v LIMIT ?"),
+            "sender": ("SELECT sender AS v, COUNT(*) AS n FROM messages "
+                       "WHERE sender IS NOT NULL AND sender <> '' "
+                       "AND sender LIKE ? ESCAPE '\\' "
+                       "GROUP BY sender ORDER BY n DESC, v LIMIT ?"),
+            "repo": ("SELECT r.name AS v, COUNT(f.id) AS n FROM repos r "
+                     "LEFT JOIN files f ON f.repo_id = r.id "
+                     "WHERE r.name <> '' AND r.name LIKE ? ESCAPE '\\' "
+                     "GROUP BY r.id, r.name ORDER BY n DESC, v LIMIT ?"),
+        }.get(str(kind))
+        if table is None:
+            return []
+
+        # Escaped, never interpolated: `%` and `_` typed by a person mean those
+        # characters. The same rule `browse_messages` follows, for the same
+        # reason - a person searching for a literal underscore should find it.
+        escaped = (str(prefix or "").replace("\\", "\\\\")
+                   .replace("%", "\\%").replace("_", "\\_"))
+        rows = self.conn.execute(table, (f"%{escaped}%", max(1, int(limit))))
+        return [str(row["v"]) for row in rows]
+
     # -- indexing state ------------------------------------------------------
 
     def set_state(self, key: str, value: str) -> None:
