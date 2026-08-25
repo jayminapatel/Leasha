@@ -326,17 +326,48 @@ class MainWindow(QMainWindow):
                 f"{getattr(stats, 'indexed', 0):,} indexed"))
 
         self.setStatusBar(QStatusBar())
-        self.indexing_view.refresh_totals(store, settings)
-        self._refresh_status()
         self._build_shortcuts()
-        self._start_scheduler()
-        # Last, and on a worker: nothing about the window waits for it.
-        self._warm_translator()
         self._wire_recorder()
 
         self._apply_theme()
         self.search_view.focus()
-        self._warm_models()
+
+        # **Nothing runs on a background thread until construction is over.**
+        #
+        # `refresh_totals`, `_warm_translator` and `_warm_models` each start a
+        # worker, and they used to start here - part way through `__init__`,
+        # with `_apply_theme()` still to come. That put a thread opening SQLite
+        # connections and reading the schema alongside a main thread applying a
+        # stylesheet, which re-polishes every widget in the tree.
+        #
+        # The result was an access violation during `MainWindow.__init__`: no
+        # Python exception, no traceback, no window. The faulthandler dump named
+        # `_apply_theme` on the main thread and `read_index_summary ->
+        # SqliteStore.stats -> _new_connection` on another, which is the whole
+        # story - two threads inside a half-built window.
+        #
+        # A zero-delay timer starts them on the next turn of the event loop,
+        # when the widget tree is complete and Qt is idle. Nothing about the
+        # window waits for any of them, so the only visible difference is that
+        # the file counts appear a frame later.
+        from PyQt6.QtCore import QTimer
+
+        QTimer.singleShot(0, lambda: self._start_background_work(store, settings))
+
+    def _start_background_work(self, store: Any, settings: Any) -> None:
+        """Everything that touches a thread or the store. See `__init__`.
+
+        Guarded as a whole: a window that opens with no file count is a small
+        problem, and one that refuses to open is a total one.
+        """
+        try:
+            self.indexing_view.refresh_totals(store, settings)
+            self._refresh_status()
+            self._start_scheduler()
+            self._warm_translator()
+            self._warm_models()
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("background start-up work failed: {}", exc)
 
     # -- the debug recorder --------------------------------------------------
 
