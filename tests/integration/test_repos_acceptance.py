@@ -487,3 +487,93 @@ def test_t11_detection_adds_no_io_when_there_is_no_dot_git(tmp_path, monkeypatch
     assert sink == {}
     assert not [p for p in opened if p.endswith(".git")], (
         f"detection opened a .git that does not exist: {opened}")
+
+
+# --- hidden files: `.git` is hidden on Windows -------------------------------
+
+def _hide(path: Path) -> bool:
+    """Set FILE_ATTRIBUTE_HIDDEN. True if it took effect."""
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    hidden_attribute = 0x02
+    return bool(ctypes.windll.kernel32.SetFileAttributesW(
+        str(path), hidden_attribute))
+
+
+def test_the_walker_never_consults_the_hidden_attribute(stores, tmp_path):
+    """**Hidden files are indexed, deliberately.**
+
+    `.git` is created with FILE_ATTRIBUTE_HIDDEN by git on Windows, so a walker
+    that skipped hidden entries would find no repositories at all on the only
+    platform this ships to - and the whole feature would pass every test here
+    and do nothing on a real machine.
+
+    It would also lose real content: `.env`, dotfiles, and anything a user has
+    hidden are still theirs and still worth finding.
+
+    Asserted structurally as well as behaviourally, because the behavioural
+    half cannot run off Windows: nothing in the walk path reads the hidden bit.
+    """
+    from app.index import walker as walker_module
+
+    source = Path(walker_module.__file__).read_text(encoding="utf-8")
+    assert "HIDDEN" not in source.upper().replace("FILE_ATTRIBUTE_HIDDEN_", ""), (
+        "the walker started consulting the hidden attribute")
+
+    # No blanket dotfile exclusion either - that is the POSIX equivalent and
+    # would hide `.git` just as effectively.
+    assert ".*" not in walker_module.DEFAULT_EXCLUDE_GLOBS
+    assert "*" not in walker_module.DEFAULT_EXCLUDE_GLOBS
+
+
+def test_a_hidden_file_is_still_indexed(stores, tmp_path):
+    """A dot-prefixed file with no directory involved."""
+    root = tmp_path / "corpus"
+    root.mkdir()
+    hidden = root / ".hidden_notes.txt"
+    hidden.write_text("the connection string is here\n", encoding="utf-8")
+    (root / "plain.txt").write_text("ordinary\n", encoding="utf-8")
+    _hide(hidden)
+    age(root)
+
+    index(stores, root)
+    store, _ = stores
+
+    assert set(attribution(store)) == {".hidden_notes.txt", "plain.txt"}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="FILE_ATTRIBUTE_HIDDEN is Windows-only")
+def test_a_hidden_git_directory_is_still_detected(stores, tmp_path):
+    """The real shape on the target platform: git marks `.git` hidden."""
+    root = tmp_path / "corpus"
+    git_dir = root / "repo" / ".git"
+    git_dir.mkdir(parents=True)
+    (root / "repo" / "a.py").write_text("value = 1\n", encoding="utf-8")
+    assert _hide(git_dir), "could not set the hidden attribute"
+    age(root)
+
+    index(stores, root)
+    store, _ = stores
+
+    assert [r["kind"] for r in store.repos_list()] == ["work"]
+    assert attribution(store)["a.py"] == "repo"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="FILE_ATTRIBUTE_HIDDEN is Windows-only")
+def test_a_hidden_git_file_is_still_detected(stores, tmp_path):
+    """And the submodule form, which is a hidden *file* rather than a folder."""
+    root = tmp_path / "corpus"
+    (root / "lib").mkdir(parents=True)
+    marker = root / "lib" / ".git"
+    marker.write_text("gitdir: ../.git/modules/lib", encoding="utf-8")
+    (root / "lib" / "code.py").write_text("value = 2\n", encoding="utf-8")
+    assert _hide(marker), "could not set the hidden attribute"
+    age(root)
+
+    index(stores, root)
+    store, _ = stores
+
+    assert [r["kind"] for r in store.repos_list()] == ["submodule"]
+    assert attribution(store)["code.py"] == "lib"

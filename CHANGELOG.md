@@ -425,6 +425,14 @@ anywhere costs nothing: this work is only justified while it is free, so it is
 asserted twice — against the same walk with detection off, and by proving no
 file is opened at all.
 
+**Hidden files are indexed, and that is what makes this work at all.** `.git`
+is created with `FILE_ATTRIBUTE_HIDDEN` by git on Windows, so a walker that
+skipped hidden entries would find no repositories on the only platform this
+ships to - passing every test here and doing nothing on a real machine. Checked
+rather than assumed: nothing in the walk path reads the hidden bit, there is no
+blanket dotfile exclusion, and a dot-prefixed file indexes normally. Two
+Windows-only tests set the attribute for real and are skipped elsewhere.
+
 **Phase 2, history search, is not built and not authorised.** It is gated on a
 measurement: searching a full history is O(commits x changed files), which on a
 50,000-commit repository is minutes against a contract of p95 under 300ms warm.
