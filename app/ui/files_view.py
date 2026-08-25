@@ -38,11 +38,32 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
+from app.search.commands import expand_slashes
+from app.search.query import parse_query
 from app.ui.presenter import file_rows
-from app.ui.widgets.file_menu import FileActions, show_for
+from app.ui.view_options import (
+    apply_to_table, available_columns, button as view_button,
+)
+from app.ui.widgets.command_popup import attach_to
+from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
-__all__ = ["FilesView", "NAME_DEBOUNCE_MS"]
+__all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
+
+#: (key, heading, attribute on FileRow, right-aligned?)
+COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
+    ("name", "Name", "name", False),
+    ("size", "Size", "size", True),
+    ("modified", "Modified", "modified", True),
+    ("type", "Type", "kind", False),
+    ("folder", "Folder", "folder", False),
+)
+
+#: A file list without a name is not a file list.
+ALWAYS_OFFERED = ("name",)
+
+#: Namespace for this list's view preferences in `index_state`.
+PREFS_KEY = "ui:files"
 
 _log = logger.bind(component="ui.files")
 
@@ -66,19 +87,25 @@ class FilesView(QWidget):
         super().__init__(parent)
         self._store = store
         self._generation = 0
+        self._available: tuple[str, ...] = tuple(key for key, *_ in COLUMNS)
 
         self.input = QLineEdit()
         self.input.setPlaceholderText(
-            "Part of a file name — 'voice' finds 'Invoice 2024.pdf'"
+            "Part of a file name — 'voice' finds 'Invoice 2024.pdf'.  "
+            "Or / for filters: /type pdf"
         )
         self.input.setClearButtonEnabled(True)
         self.input.textChanged.connect(self._on_typed)
+        # The same dropdown as the search box. It is wired to a parser here too
+        # - see `_run`. Offering a filter the tab then ignores would be worse
+        # than not offering it at all.
+        self._popup = attach_to(self.input)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")
 
-        self.results = QTableWidget(0, 5)
-        self.results.setHorizontalHeaderLabels(["Name", "Size", "Modified", "Type", "Folder"])
+        self.results = QTableWidget(0, len(COLUMNS))
+        self.results.setHorizontalHeaderLabels([h for _k, h, _a, _r in COLUMNS])
         self.results.verticalHeader().hide()
         self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -93,6 +120,18 @@ class FilesView(QWidget):
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(self._on_context_menu)
         self.results.installEventFilter(self)
+        # Right-click the header for columns, density and text size. On the
+        # header rather than in Settings, because it is a preference about this
+        # table and the table is where people look for it.
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(
+            lambda point: self.view_button.show_menu(header.mapToGlobal(point)))
+
+        self.view_button = view_button(
+            self, store, PREFS_KEY,
+            columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
+            on_change=self._prefs_changed,
+        )
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -101,13 +140,28 @@ class FilesView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
+        top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
         layout.addWidget(self.results, 1)
 
+        self._apply_prefs()
         self.refresh_summary()
+
+    # -- how it looks ----------------------------------------------------------
+
+    def _apply_prefs(self) -> None:
+        apply_to_table(
+            self.results, self.view_button.prefs,
+            columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
+            available=self._available,
+        )
+
+    def _prefs_changed(self, _prefs: Any) -> None:
+        """The button owns the preferences and has already saved them."""
+        self._apply_prefs()
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -130,8 +184,24 @@ class FilesView(QWidget):
         self._timer.start()
 
     def _run(self) -> None:
-        text = self.input.text().strip()
-        if len(text) < 2:
+        # **The `/` commands are parsed, not merely offered.**
+        #
+        # The dropdown existed here first as a copy of the search box's, which
+        # meant `/type pdf` was inserted as `type:pdf` and then handed to a
+        # trigram index as a literal string - matching nothing, with a dropdown
+        # cheerfully suggesting it. An offer the application does not honour is
+        # worse than no offer at all.
+        #
+        # Only the filters this tab can actually apply are used. `type:` becomes
+        # the `ext` argument the store already takes; everything else in the
+        # parse is about document *contents*, which this tab does not read.
+        parsed = parse_query(expand_slashes(self.input.text().strip()))
+        text = " ".join((*parsed.terms, *parsed.names)).strip() or (parsed.text or "").strip()
+        ext = list(parsed.ext)
+
+        # A filter on its own is a complete request: `/type pdf` means "every
+        # PDF", and demanding two characters of name as well would refuse it.
+        if len(text) < 2 and not ext:
             self.results.setRowCount(0)
             self.refresh_summary()
             return
@@ -144,7 +214,8 @@ class FilesView(QWidget):
         generation = self._generation
 
         worker = CallableWorker(
-            self._store.search_files_by_name, text, limit=200, component="ui.files"
+            self._store.search_files_by_name, text, limit=200, ext=ext or None,
+            component="ui.files",
         )
         worker.signals.finished.connect(
             lambda rows, g=generation: self._show(rows, g, text)
@@ -159,19 +230,24 @@ class FilesView(QWidget):
         display = file_rows(rows)
         self.results.setRowCount(len(display))
         for index, row in enumerate(display):
-            name = QTableWidgetItem(row.name)
-            name.setData(Qt.ItemDataRole.UserRole, row.file_id)
-            if row.note:
-                name.setToolTip(row.note)
-            for column, value in enumerate(
-                (name, row.size, row.modified, row.kind, row.folder)
-            ):
-                item = value if isinstance(value, QTableWidgetItem) else QTableWidgetItem(value)
-                if column in (1, 2):
+            for column, (_key, _heading, attribute, right) in enumerate(COLUMNS):
+                item = QTableWidgetItem(getattr(row, attribute))
+                if right:
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                     )
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
+                    if row.note:
+                        item.setToolTip(row.note)
                 self.results.setItem(index, column, item)
+
+        # Offered when the data can fill it, disabled when it cannot.
+        self.view_button.available = self._available = available_columns(
+            display, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
+            always=ALWAYS_OFFERED,
+        )
+        self._apply_prefs()
 
         self.summary.setText(
             f"{len(display):,} file name{'s' if len(display) != 1 else ''} contain '{text}'"
@@ -236,10 +312,18 @@ class FilesView(QWidget):
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu the search results use - see widgets/file_menu.py."""
-        row = self.results.rowAt(point.y())
-        if row < 0:
-            return
-        self.results.selectRow(row)
+        # **Viewport coordinates, not widget coordinates.** The signal gives a
+        # point relative to the table; `rowAt` wants one relative to the
+        # viewport, and the header sits between them. Without this the menu
+        # acted on the row below the one clicked, and on the last row found no
+        # row at all and silently did nothing.
+        row = self.results.rowAt(viewport_point(self.results, point).y())
+        if row >= 0:
+            self.results.selectRow(row)
+        # Right-clicking below the last row, or pressing the Menu key, lands on
+        # no row. Falling back to the selection means both still work, rather
+        # than the menu appearing to be broken in exactly the places people
+        # reach for it.
         path = self.selected_path()
         if path is None:
             return

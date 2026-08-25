@@ -26,6 +26,7 @@ Nothing here imports Qt.
 from __future__ import annotations
 
 import re
+import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -51,6 +52,13 @@ __all__ = [
     "doctor_report",
     "doctor_lines",
     "search_shape",
+    "status_line",
+    "progress_for",
+    "progress_text",
+    "finished_text",
+    "mail_rows",
+    "mail_filters",
+    "MailRow",
     "semantic_health",
     "format_size",
     "format_when",
@@ -433,8 +441,6 @@ def format_when(mtime_ns: int, *, now: Optional[float] = None) -> str:
     instantly; "2026-08-03 14:22:07" requires arithmetic. Beyond a year the
     date is more useful than the age, so it switches over.
     """
-    import time as _time
-
     seconds = (now if now is not None else _time.time()) - (mtime_ns / 1_000_000_000)
     if seconds < 0:
         return "just now"          # a clock skew, or a file from the future
@@ -485,6 +491,312 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
             note=note,
         ))
     return out
+
+
+# ---------------------------------------------------------------------------
+# The progress bar
+#
+# Its own function because the arithmetic was wrong and nothing could have
+# caught it: a bar that moves too slowly still moves, and "the progress does not
+# feel right" is the only symptom anybody can report.
+# ---------------------------------------------------------------------------
+
+def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
+    """`(value, maximum)` for the bar, given a progress tick.
+
+    **The bug this replaces:** the numerator was `unchanged + skipped`, which
+    leaves out `indexed` - the files the run is actually doing work on. A first
+    index of a fresh corpus has nothing unchanged and little skipped, so the bar
+    sat near zero for hours while the log showed thousands of files done. The
+    one job of a progress bar is to say how far through it is, and it was
+    reporting the opposite of the truth on the run where it matters most.
+
+    Everything the walker has finished with counts, whichever way it finished.
+
+    The denominator is what the walker has found *so far*, which grows as it
+    goes. Honest, and it moves - unlike a fixed total nobody can know before the
+    walk completes, or an indeterminate bar that spins forever and reads as
+    stuck.
+    """
+    done = (
+        int(getattr(stats, "indexed", 0) or 0)
+        + int(getattr(stats, "unchanged", 0) or 0)
+        + int(getattr(stats, "skipped", 0) or 0)
+    )
+    seen = int(getattr(stats, "seen", 0) or 0)
+    total = max(int(total_estimate or 0), seen, done, 1)
+    # Clamped: `seen` can lag `done` by a tick, and a bar drawn past its own
+    # maximum is a Qt warning on the console and a full bar on screen while the
+    # run is plainly still going.
+    return min(done, total), total
+
+
+def status_line(response: Any) -> str:
+    """The line under the search box: how many, how fast, and with what caveats.
+
+    **The caveats are the point.** "12 results" beside a list that is still
+    being reranked is a different claim from "12 results" beside a finished one,
+    and a cached result that looks identical to a fresh one is how somebody
+    concludes the index is not picking up their new files. Each qualifier is
+    there because leaving it out would let the line say something untrue.
+    """
+    bits = [
+        f"{len(getattr(response, 'results', []) or [])} result(s)",
+        f"{getattr(response, 'elapsed_ms', 0) or 0:.0f}ms",
+    ]
+    if getattr(response, "interim", False):
+        bits.append("keyword only, still searching…")
+    if getattr(response, "from_cache", False):
+        bits.append("cached")
+    if getattr(response, "reranked", False):
+        bits.append("reranked")
+    return "  ·  ".join(bits)
+
+
+def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False) -> tuple[str, str]:
+    """`(headline, detail)` for a progress tick.
+
+    Here rather than in the view for the reason this module exists: it is string
+    formatting with three branches, and a branch inside a Qt widget can only be
+    checked by a person watching an index run at the right moment.
+    """
+    if stopping:
+        # Stopping can take a while on a large file, and a dead button with no
+        # explanation reads as a click that was ignored.
+        return (
+            "Stopping after the current file…",
+            f"{format_count(getattr(stats, 'indexed', 0))} indexed so far. "
+            "Everything indexed is kept.",
+        )
+
+    done, _total = progress_for(stats, total_estimate=total_estimate)
+    remaining = max(0, total_estimate - done) if total_estimate else 0
+    eta = format_eta(remaining, files_per_minute=getattr(stats, "files_per_minute", 0) or 0)
+
+    headline = (
+        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
+        f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
+        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
+    )
+
+    current = getattr(stats, "current", "") or ""
+    reading = f"  ·  reading {current}" if current else ""
+    if current and getattr(stats, "current_item", 0):
+        reading += f" [{stats.current_item:,}]"
+
+    detail = (
+        f"{format_count(getattr(stats, 'chunks', 0))} chunks  ·  "
+        f"{getattr(stats, 'files_per_minute', 0) or 0:,.0f} files/min  ·  {eta}{reading}"
+    )
+    return headline, detail
+
+
+def finished_text(stats: Any) -> tuple[str, str]:
+    """`(headline, detail)` for a completed run.
+
+    A run stopped by the resource governor reports *its* message rather than a
+    tally: "Finished: 400 indexed" after a run that gave up at 4% because the
+    disk filled is technically true and completely misleading.
+    """
+    stopped = getattr(stats, "stopped_early", None)
+    if stopped is not None:
+        return str(getattr(stopped, "message", stopped)), str(getattr(stopped, "suggestion", ""))
+
+    headline = (
+        f"Finished: {format_count(getattr(stats, 'indexed', 0))} indexed, "
+        f"{format_count(getattr(stats, 'skipped', 0))} skipped, "
+        f"{format_count(getattr(stats, 'deleted', 0))} removed"
+    )
+    detail = (
+        f"{format_count(getattr(stats, 'chunks', 0))} chunks in "
+        f"{getattr(stats, 'elapsed_s', 0) or 0:,.0f}s  ·  "
+        f"{getattr(stats, 'files_per_minute', 0) or 0:,.0f} files/min, "
+        f"{getattr(stats, 'mb_per_minute', 0) or 0:,.1f} MB/min"
+    )
+    return headline, detail
+
+
+# ---------------------------------------------------------------------------
+# Mail, as a table
+#
+# A third question again. A message has no useful filename and no folder, and
+# ranking a mailbox by relevance puts an eight-year-old thread above this
+# morning's - so mail gets its own columns and its own order.
+#
+# The columns are the ones people scan for: who, to whom, when, what it was
+# called, whether anything was attached, and how big. Everything below is string
+# formatting, which is why it lives here and not in the view.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class MailRow:
+    file_id: int
+    sender: str
+    recipients: str
+    sent: str
+    subject: str
+    attachment: str
+    size: str
+    #: The synthetic path for the message. Not shown - nobody typed it and
+    #: nobody would recognise it - but the menu needs it to act on the row.
+    path: str = ""
+    #: Sortable originals, so the table can sort by real values rather than by
+    #: the formatted strings. "3 KB" and "10 KB" sort the wrong way as text, and
+    #: a date column sorted alphabetically is worse than no sorting at all.
+    sent_at: int = 0
+    size_bytes: int = 0
+    has_attachment: bool = False
+
+
+#: How many recipients to name before summarising. Long enough to recognise a
+#: two-person thread at a glance, short enough that a message to a distribution
+#: list does not push every other column off the screen.
+RECIPIENTS_SHOWN = 2
+
+
+def format_address(value: Any) -> str:
+    """One address, as short as it can be without becoming ambiguous.
+
+    `Dave Smith <dave@acme.com>` becomes `Dave Smith`, because in a column of
+    thirty rows the name is what distinguishes them and the domain is usually
+    the same for all thirty. A bare address is left alone - there is nothing to
+    shorten to.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "<" in text and text.endswith(">"):
+        name = text.split("<", 1)[0].strip().strip('"').strip()
+        if name:
+            return name
+    return text
+
+
+def format_recipients(value: Any, *, shown: int = RECIPIENTS_SHOWN) -> str:
+    """The recipients column, from the JSON array the store holds.
+
+    **Never raises on bad input.** This runs over every row of a mailbox that
+    may hold two hundred thousand messages written by a decade of different
+    clients; one malformed field must cost that row its column, not the table.
+    """
+    import json
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except ValueError:
+                return text          # not JSON after all; show what is there
+        else:
+            return text
+
+    if not isinstance(value, (list, tuple)):
+        return str(value or "")
+
+    names = [format_address(item) for item in value]
+    names = [name for name in names if name]
+    if not names:
+        return ""
+    if len(names) <= shown:
+        return ", ".join(names)
+    return f"{', '.join(names[:shown])} +{len(names) - shown}"
+
+
+def format_sent(sent_at: Any, *, now: Optional[float] = None) -> str:
+    """A date a person can scan a column of.
+
+    Absolute, not "3 days ago". Relative time reads well for a single file but
+    badly down a sorted column, where the eye is looking for a boundary between
+    March and April and finds "5 weeks ago" instead.
+    """
+    try:
+        seconds = int(sent_at)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+
+    reference = now if now is not None else _time.time()
+    stamp = _time.localtime(seconds)
+    # Within the last year, the year is noise - the month and day carry it, and
+    # the time of day is what separates messages sent the same afternoon.
+    if 0 <= reference - seconds < 365 * 86_400:
+        return _time.strftime("%d %b %H:%M", stamp)
+    return _time.strftime("%d %b %Y", stamp)
+
+
+def mail_rows(
+    rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None
+) -> list[MailRow]:
+    """Store rows to display rows for the Mail table."""
+    out: list[MailRow] = []
+    for row in rows:
+        sent_at = row.get("sent_at") or 0
+        try:
+            sent_at = int(sent_at)
+        except (TypeError, ValueError):
+            sent_at = 0
+        size_bytes = int(row.get("size_bytes") or 0)
+        attached = bool(row.get("has_attach"))
+        out.append(MailRow(
+            file_id=int(row.get("file_id") or 0),
+            sender=format_address(row.get("sender")),
+            recipients=format_recipients(row.get("recipients")),
+            sent=format_sent(sent_at, now=now),
+            # An empty subject is common and meaningful. Blank looks like a
+            # rendering fault; saying so does not.
+            subject=str(row.get("subject") or "").strip() or "(no subject)",
+            attachment="Yes" if attached else "",
+            size=format_size(size_bytes),
+            path=str(row.get("path") or ""),
+            sent_at=sent_at,
+            size_bytes=size_bytes,
+            has_attachment=attached,
+        ))
+    return out
+
+
+def mail_filters(parsed: Any) -> dict[str, Any]:
+    """A `ParsedQuery` as keyword arguments for `store.browse_messages`.
+
+    The whole reason the Mail tab can reuse the `/` commands: the parser already
+    produces `senders`, `recipients`, `subjects`, `has_attachment`, `after` and
+    `before`, which is precisely the set of columns `messages` has. Nothing new
+    had to be invented, and a filter that works in the search box works here
+    with the same spelling.
+
+    **Only the first value of each is used.** `from:dave from:priya` is a
+    contradiction on a single column - no message has two senders - and taking
+    the first is more honest than silently ANDing to zero results.
+
+    Free text is deliberately ignored. `browse_messages` reads `messages` and
+    never touches chunk text, so accepting words here would produce an empty
+    table for a query that looks reasonable. The view says so instead.
+    """
+    def first(values: Any) -> Optional[str]:
+        items = tuple(values or ())
+        return str(items[0]) if items else None
+
+    filters: dict[str, Any] = {
+        "sender": first(getattr(parsed, "senders", ())),
+        "recipient": first(getattr(parsed, "recipients", ())),
+        "subject": first(getattr(parsed, "subjects", ())),
+        "has_attachment": getattr(parsed, "has_attachment", None),
+    }
+
+    # Dates arrive as `date` objects and the column holds epoch seconds.
+    # `before` is exclusive in the store, so a `before:2024-06-01` excludes the
+    # whole of that day rather than including part of it - the reading of
+    # "before June" that matches what people mean.
+    for name in ("after", "before"):
+        value = getattr(parsed, name, None)
+        if value is not None:
+            filters[name] = int(
+                _time.mktime((value.year, value.month, value.day, 0, 0, 0, 0, 0, -1))
+            )
+
+    return {key: value for key, value in filters.items() if value is not None}
 
 
 # ---------------------------------------------------------------------------

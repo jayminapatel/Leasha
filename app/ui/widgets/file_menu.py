@@ -44,11 +44,17 @@ class FileActions:
         reveal: Optional[Callable[[], None]] = None,
         search_inside: Optional[Callable[[], None]] = None,
         reindex: Optional[Callable[[], None]] = None,
+        copy: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.open_file = open_file
         self.reveal = reveal
         self.search_inside = search_inside
         self.reindex = reindex
+        #: `(label, text)` pairs to offer alongside "Copy path". For mail:
+        #: subject and sender are what people actually want on the clipboard,
+        #: and a message's "file name" is a synthetic key nobody would
+        #: recognise, let alone want to paste anywhere.
+        self.copy = copy or []
 
 
 def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
@@ -86,9 +92,17 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     copy_path.triggered.connect(lambda: _copy(path))
     menu.addAction(copy_path)
 
-    copy_name = QAction("Copy file name", parent)
-    copy_name.triggered.connect(lambda: _copy(Path(path).name))
-    menu.addAction(copy_name)
+    if actions.copy:
+        # Given explicitly, so a caller that has better things to offer than a
+        # basename can say so. Mail does: subject and sender.
+        for label, text in actions.copy:
+            action = QAction(label, parent)
+            action.triggered.connect(lambda _checked=False, value=text: _copy(value))
+            menu.addAction(action)
+    else:
+        copy_name = QAction("Copy file name", parent)
+        copy_name.triggered.connect(lambda: _copy(Path(path).name))
+        menu.addAction(copy_name)
 
     if not exists and actions.reindex is not None:
         menu.addSeparator()
@@ -115,6 +129,35 @@ def _copy(text: str) -> None:
 
 
 def show_for(widget: Any, point: Any, path: str, actions: FileActions) -> None:
-    """Pop the menu at the cursor. The one line a view needs to call."""
+    """Pop the menu at the cursor. The one line a view needs to call.
+
+    `point` stays widget-relative here - `mapToGlobal` on the view is what
+    places the popup correctly. Only the *row lookup* needs the viewport, which
+    is what `viewport_point` below is for.
+    """
     menu = build_menu(widget, path, actions)
     menu.exec(widget.mapToGlobal(point))
+
+
+def viewport_point(view: Any, point: Any) -> Any:
+    """Convert a `customContextMenuRequested` point into viewport coordinates.
+
+    **This is why right-click appeared not to work.** The signal delivers a
+    point relative to the *widget*; `itemAt`, `rowAt` and `indexAt` all expect
+    the *viewport*. Between them sits the header and the frame - about 25
+    pixels on a table.
+
+    So the lookup was consistently one row low. Right-clicking the first row
+    acted on the second, and right-clicking the last row produced a y past the
+    end of the viewport, `rowAt` returned -1, and the handler returned without
+    showing anything. Reported as "right click menu don't work", and from the
+    outside that is exactly what it looks like: sometimes the wrong thing,
+    sometimes nothing.
+
+    Both symptoms are the same missing line, which is the argument for it being
+    a named function that every view calls rather than a `- 25` somewhere.
+    """
+    viewport = view.viewport()
+    if viewport is None or viewport is view:
+        return point
+    return viewport.mapFrom(view, point)

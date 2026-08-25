@@ -1377,9 +1377,15 @@ def cmd_ollama(args: argparse.Namespace) -> int:
     `/api/tags` answered, and enrichment then spent 200 seconds discovering that
     the model was not installed.
 
-    **Ollama is optional and only types graph entities.** It has nothing to do
-    with search, so this command says so plainly - it is the natural place to
-    look when "search did not work", and the wrong one.
+    **Ollama is optional and has exactly one job: the Interpret button.** It
+    turns a sentence into a query, which then goes into the search box for you
+    to read and edit. Plain Enter never touches it, so search works perfectly
+    with Ollama switched off - and this command says so, because it is the
+    natural place to look when "search did not work" and the wrong one.
+
+    It used to type knowledge-graph entities. The graph was removed, and this
+    docstring said otherwise for a while, which is its own small lesson about
+    diagnostics: a stale one sends people to the wrong place with confidence.
     """
     from app.llm.ollama import OllamaClient
 
@@ -1407,8 +1413,9 @@ def cmd_ollama(args: argparse.Namespace) -> int:
         print("  Start it:      ollama serve")
         print("  Check the URL: OLLAMA_URL in your .env")
         print()
-        print("  Nothing is broken by this. Ollama only adds person/organisation")
-        print("  /place types to the knowledge graph. Search does not use it.")
+        print("  Search still works. Ollama is only used by the Interpret")
+        print("  button, which rewrites a sentence into a query. Typing a")
+        print("  query and pressing Enter never touches it.")
         return EXIT_ERROR
 
     print(f"[{mark(bool(report['models']))}] models installed: "
@@ -1434,6 +1441,34 @@ def cmd_ollama(args: argparse.Namespace) -> int:
 
     print()
     print(f"Working. Reply: {report.get('reply', '')!r}")
+
+    # **The end-to-end check.** Everything above proves Ollama is alive; none of
+    # it proves the one thing the app asks of it. A model can be installed,
+    # responsive, and still return prose where a query was wanted - and the
+    # translator will then quietly fall back to the raw sentence, which looks
+    # like it worked. This runs the real path and prints what came back.
+    sentence = getattr(args, "translate", None)
+    if sentence:
+        from app.search.translate import QueryTranslator
+
+        print()
+        print(f"Interpreting: {sentence!r}")
+        result = QueryTranslator(client).translate(sentence)
+        print(f"  -> {result.query!r}")
+        # `changed`, not `used_model`: the latter is False for a cache hit,
+        # and a cached translation is a working one. What matters here is
+        # whether anything came back that differs from what went in.
+        if result.changed:
+            cached = " (from cache)" if result.from_cache else ""
+            print(f"  [  OK  ] the model produced it{cached}")
+        else:
+            print(f"  [ FAIL ] fell back to the raw sentence: {result.note}")
+            print()
+            print("  The model answered, but not with something usable as a")
+            print("  query. Search is unaffected - Interpret just hands your")
+            print("  sentence through unchanged. Try a different OLLAMA_MODEL.")
+            return EXIT_ERROR
+
     return EXIT_OK
 
 
@@ -1751,7 +1786,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ollama = sub.add_parser(
         "ollama", parents=[common],
-        help="check the Ollama connection (optional; only types graph entities)")
+        help="check the Ollama connection (optional; only the Interpret button uses it)")
+    p_ollama.add_argument(
+        "--translate", metavar="SENTENCE",
+        help="also run one real translation end to end, and show what came back")
     p_ollama.set_defaults(func=cmd_ollama)
 
     p_formats = sub.add_parser(

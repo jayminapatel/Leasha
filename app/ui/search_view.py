@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
+    status_line,
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
     Tier,
@@ -43,6 +44,7 @@ from app.ui.presenter import (
     tier_for,
 )
 from app.ui.results_view import ResultsView
+from app.ui.view_options import button as view_button
 from app.ui.widgets.command_popup import attach_to
 from app.ui.workers import CallableWorker, SearchWorker, run
 
@@ -55,6 +57,8 @@ class SearchView(QWidget):
     result_opened = pyqtSignal(object)
     reveal_requested = pyqtSignal(object)
     reindex_requested = pyqtSignal(object)
+    #: A new text size or spacing for the results pane, for the window to save.
+    view_preferences_changed = pyqtSignal(object)
     error = pyqtSignal(object)
 
     #: One search, described by shape only - never the text of the query. The
@@ -129,6 +133,16 @@ class SearchView(QWidget):
         self.rerank_toggle.setChecked(True)
         self.rerank_toggle.stateChanged.connect(lambda _state: self._dispatch(Tier.FULL))
 
+        # Text size and spacing for the results pane. Results are the one place
+        # in this window people *read* rather than scan, and the size that suits
+        # a paragraph of snippet is not the size that suits a toolbar - so it is
+        # this pane's own setting rather than an application-wide zoom.
+        #
+        # No columns: a result is not a table. The same widget as the Files and
+        # Mail menus, so all three read identically.
+        self.view_button = view_button(
+            self, None, "", on_change=self._view_changed)
+
         self.status = QLabel("")
         self.status.setObjectName("searchStatus")
 
@@ -142,6 +156,7 @@ class SearchView(QWidget):
         top.addWidget(self.interpret_button)
         top.addWidget(self.scope)
         top.addWidget(self.rerank_toggle)
+        top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
@@ -167,6 +182,15 @@ class SearchView(QWidget):
 
     def current_scope(self) -> str:
         return str(self.scope.currentData() or "all")
+
+    def _view_changed(self, prefs: Any) -> None:
+        self.results.set_view_preferences(prefs)
+        self.view_preferences_changed.emit(prefs)
+
+    def set_view_preferences(self, prefs: Any) -> None:
+        """Applied by the window on startup, from what was saved last time."""
+        self.view_button.prefs = prefs
+        self.results.set_view_preferences(prefs)
 
     def _on_scope_changed(self, _index: int) -> None:
         """Re-run immediately rather than waiting for the next keystroke.
@@ -243,11 +267,11 @@ class SearchView(QWidget):
             if response.parsed and response.parsed.has_filters:
                 hint = "  The filters may be excluding everything."
             self.results.clear(f"No results.{hint}")
-            self.status.setText(self._status_line(response))
+            self.status.setText(status_line(response))
             self._announce(response)
             return
 
-        self.results.show_results(response.results, terms, summary=self._status_line(response))
+        self.results.show_results(response.results, terms, summary=status_line(response))
         # Say it when the semantic half returned nothing. Silent degradation is
         # how "search feels worse than it should" goes unreported for weeks.
         self.status.setText(semantic_health(response) or "")
@@ -263,16 +287,6 @@ class SearchView(QWidget):
         self.searched.emit(search_shape(
             response, query_len=len(self.input.text()), scope=self.current_scope()
         ))
-
-    def _status_line(self, response: Any) -> str:
-        bits = [f"{len(response.results)} result(s)", f"{response.elapsed_ms:.0f}ms"]
-        if response.interim:
-            bits.append("keyword only, still searching…")
-        if response.from_cache:
-            bits.append("cached")
-        if response.reranked:
-            bits.append("reranked")
-        return "  ·  ".join(bits)
 
     def _on_opened(self, row: Any) -> None:
         # The click is the label: this result was the useful one. Everything in

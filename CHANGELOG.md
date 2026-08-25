@@ -1,12 +1,91 @@
 # Changelog
 
-**Doc version:** 3.15 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.16 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — four UI bugs that were doing real damage
+
+**Scrolling the Settings page changed the settings.** Qt lets a `QComboBox` or
+`QSpinBox` take a wheel event whether or not it has focus, so scrolling down the
+page altered every control the pointer crossed. On a trackpad this is close to
+guaranteed. The controls in question set the memory ceiling, the CPU limit, the
+worker count and the index schedule — so scrolling past could hand a run four
+workers and a 500MB ceiling with nothing announcing it. That is data loss, not
+clunkiness. `app/ui/widgets/no_scroll.py` now guards every scroll-sensitive
+control in the window in one call at the window level, so a new page gets it for
+free. The wheel still works on a control you have clicked into.
+
+**The up/down buttons were unresponsive because each notch wrote to disk.**
+Every `valueChanged` persisted five settings keys, each in its own SQLite
+transaction, on the UI thread. Spin-box auto-repeat is about ten a second, so
+holding an arrow asked the window for fifty committed transactions a second and
+it stopped repainting between them. The buttons were working perfectly. Two
+fixes: `app/ui/widgets/debounce.py` coalesces the burst into one write once the
+changes stop, and `SqliteStore.set_states` does the five keys in one
+transaction. `setKeyboardTracking(False)` stops typing `1500` emitting four
+times. `flush_pending()` on close means a change made in the last third of a
+second is still saved.
+
+**Right-click did nothing, or acted on the wrong row.**
+`customContextMenuRequested` delivers a point relative to the *widget*;
+`itemAt`, `rowAt` and `indexAt` all want the *viewport*, and the header sits
+between them. The lookup was consistently one row low — right-clicking the first
+row acted on the second, and right-clicking the last row found no row and
+returned silently. One `viewport_point()` helper, called from every list. In the
+search results there was a second cause: each row is a real widget over the list
+item, and it was entitled to swallow the event. It now declares `NoContextMenu`
+so the event reaches the list.
+
+**The progress bar left out the files being indexed.** The numerator was
+`unchanged + skipped`. A first index of a fresh corpus has nothing unchanged and
+little skipped, so the bar sat near zero for hours while the log showed thousands
+of files done — reporting the opposite of the truth on the run where it matters
+most. Nothing could have caught it: a bar that moves too slowly still moves.
+`presenter.progress_for` now counts everything the walker has finished with, and
+is tested.
+
+### Added — a Mail tab, and control over what the lists show
+
+**Mail is now its own tab, as a sortable table.** From, To, Date, Subject,
+Attach and Size, newest first, filtered by the same `/` commands as everywhere
+else — `/from dave`, `/to priya`, `/subject invoice`, `/has attachment`,
+`/after 2024-01-01`. It reads the `messages` table directly and never touches
+chunk text: a mailbox is scanned in columns and read newest first, and ranking
+one by relevance puts an eight-year-old thread above this morning's. It says so
+when free text is typed, rather than returning an empty table. `Ctrl+M`.
+
+**Columns, row density and text size are configurable per list.** A "View"
+button on Files and Mail, and on the search results (text size and spacing only —
+a result is not a table). Columns are offered *only when the data can fill
+them*, because a column of blanks takes width from the ones that matter and
+reads as a broken index; a column comes back on its own when the data does.
+Compact and Normal row heights are derived from the font's own metrics, so
+turning the text up does not clip descenders. Saved per list in `index_state`.
+
+**`/` commands in Files now actually filter.** The dropdown was there and
+`/type pdf` was inserted as `type:pdf` — and then handed to a trigram index as a
+literal string, matching nothing. It is parsed now, and `/type pdf` on its own
+is a complete request rather than being refused for want of two characters of
+name.
+
+### Changed
+
+- The Pause button on the Indexing page now says **Stop**, because that is what
+  it does: there is no resume, and the next Start begins a new run. A button
+  that promises to pause and then stops is one people stop trusting. It keeps
+  reporting progress while it winds down instead of looking frozen.
+- `app.cli ollama` gained `--translate SENTENCE`, which runs one real
+  translation end to end. Everything else the command checks proves Ollama is
+  alive; none of it proved the one thing the app asks of it. Its wording also
+  said Ollama types knowledge-graph entities — the graph was removed two
+  releases ago, and a stale diagnostic sends people to the wrong place with
+  confidence.
+- A failed index run resets the progress bar rather than leaving it at 40%.
 
 ### Fixed — a benchmark that could not fail, and a lever that was not one
 

@@ -1,0 +1,308 @@
+"""Mail, as a table you can scan.
+
+Layer: L5, driving L1
+
+**Why mail is a tab and not a filter.** The search box answers "which document
+says this", and it answers it by relevance. That is the wrong question and the
+wrong order for mail. Somebody looking through a mailbox is scanning columns -
+who sent it, who it went to, when, what it was called - and wants them newest
+first. Ranking a mailbox by BM25 puts an eight-year-old thread above this
+morning's, which no amount of good ranking makes useful.
+
+So this reads `messages` directly and never touches a chunk of text. It is a
+browser, not a search: fast enough to filter on every keystroke because every
+filter is an indexed column, and honest about the fact that it cannot find a
+message by what it *says*. That is still the search tab's job, and the view says
+so rather than returning an empty table.
+
+**The same `/` commands as everywhere else.** `/from`, `/to`, `/subject`,
+`/has`, `/after`, `/before` all parse through `app/search/query.py`, so a filter
+learned in the search box works here with the same spelling. Nothing new was
+invented for this tab, which is the point.
+
+Thin, like every view: the formatting is in `presenter.py`, the query is in
+`sqlite_store.py`, and the menu is in `widgets/file_menu.py`.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.logging import logger
+from app.search.commands import expand_slashes
+from app.search.query import parse_query
+from app.ui.presenter import mail_filters, mail_rows
+from app.ui.view_options import (
+    apply_to_table, available_columns, button as view_button,
+)
+from app.ui.widgets.command_popup import attach_to
+from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.workers import CallableWorker, run
+
+__all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
+
+#: Namespace for this list's view preferences in `index_state`.
+PREFS_KEY = "ui:mail"
+
+_log = logger.bind(component="ui.mail")
+
+#: No model to load and no vectors to probe - one indexed lookup - so this only
+#: needs to be long enough to avoid a query per keystroke on a fast typist.
+MAIL_DEBOUNCE_MS = 120
+
+#: (heading, attribute on MailRow, right-aligned?). The order people scan in:
+#: who, to whom, when, what, whether anything came with it, how big.
+#: (key, heading, attribute, right-aligned?)
+COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
+    ("from", "From", "sender", False),
+    ("to", "To", "recipients", False),
+    ("date", "Date", "sent", False),
+    ("subject", "Subject", "subject", False),
+    ("attach", "Attach", "attachment", False),
+    ("size", "Size", "size", True),
+)
+
+#: Offered whatever the rows say. A mail list with no sender and no subject is
+#: not a mail list, and a mailbox filtered down to one blank-subject message
+#: should not take the column away from the next filter.
+ALWAYS_OFFERED = ("from", "subject", "date")
+
+#: A mailbox can hold two hundred thousand messages. The table is populated
+#: row by row on the UI thread, so this is the number that decides whether
+#: typing stays smooth - not the query, which is indexed and fast either way.
+PAGE_SIZE = 500
+
+
+class MailView(QWidget):
+    """A filterable, sortable table of every indexed message."""
+
+    error = pyqtSignal(object)
+    #: Search the *contents* of one message. The bridge to the search tab, for
+    #: the question this tab deliberately cannot answer.
+    search_inside_requested = pyqtSignal(str)
+    opened = pyqtSignal(int)                 # file_id
+
+    def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._store = store
+        self._generation = 0
+        self._rows: list[Any] = []
+        self._available: tuple[str, ...] = tuple(key for key, *_ in COLUMNS)
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText(
+            "Filter with / commands — /from dave  /to priya  /subject invoice  "
+            "/has attachment  /after 2024-01-01"
+        )
+        self.input.setClearButtonEnabled(True)
+        self.input.textChanged.connect(lambda _t: self._timer.start())
+        self._popup = attach_to(self.input)
+
+        self.summary = QLabel("")
+        self.summary.setObjectName("resultsSummary")
+
+        self.results = QTableWidget(0, len(COLUMNS))
+        self.results.setHorizontalHeaderLabels([h for _k, h, _a, _r in COLUMNS])
+        self.results.verticalHeader().hide()
+        self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.results.setAlternatingRowColors(True)
+        # Sortable, unlike the search results: these rows have no rank to
+        # destroy, and "biggest attachment" and "oldest thread" are real
+        # questions that a click on a header answers for free.
+        self.results.setSortingEnabled(True)
+        header = self.results.horizontalHeader()
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)   # Subject
+        header.setSectionsMovable(True)
+
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.results.customContextMenuRequested.connect(self._on_context_menu)
+        self.results.itemDoubleClicked.connect(lambda _item: self._open_selected())
+        # Right-click the header for the column, density and text-size menu.
+        # On the header rather than in Settings: it is a preference about this
+        # table, and the place people look for it is the table.
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(
+            lambda point: self.view_button.show_menu(header.mapToGlobal(point)))
+
+        self.view_button = view_button(
+            self, store, PREFS_KEY,
+            columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
+            on_change=self._prefs_changed,
+        )
+
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(MAIL_DEBOUNCE_MS)
+        self._timer.timeout.connect(self._run)
+
+        top = QHBoxLayout()
+        top.addWidget(self.input, stretch=1)
+        top.addWidget(self.view_button)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(top)
+        layout.addWidget(self.summary)
+        layout.addWidget(self.results, 1)
+        self._apply_prefs()
+
+    def focus(self) -> None:
+        self.input.setFocus()
+        self.input.selectAll()
+
+    def refresh(self) -> None:
+        """Re-run the current filter. Called when an index run finishes."""
+        self._run()
+
+    # -- querying -------------------------------------------------------------
+
+    def _run(self) -> None:
+        text = expand_slashes(self.input.text().strip())
+        parsed = parse_query(text)
+        filters = mail_filters(parsed)
+
+        # Free text cannot be honoured here - this reads `messages` and never
+        # touches chunk text. Saying so beats returning an empty table for a
+        # query that looks perfectly reasonable.
+        leftover = (parsed.text or "").strip()
+
+        self._generation += 1
+        generation = self._generation
+
+        worker = CallableWorker(
+            self._store.browse_messages, limit=PAGE_SIZE, component="ui.mail", **filters
+        )
+        worker.signals.finished.connect(
+            lambda rows, g=generation: self._show(rows, g, leftover)
+        )
+        worker.signals.failed.connect(self.error.emit)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show(self, rows: Any, generation: int, leftover: str) -> None:
+        if generation != self._generation:
+            return                          # newer typing has overtaken this
+
+        display = mail_rows(rows)
+        self._rows = display
+
+        # Off while filling, on afterwards. Qt re-sorts after every `setItem`
+        # otherwise, which is O(n log n) per cell and turns five hundred rows
+        # into a visible freeze.
+        self.results.setSortingEnabled(False)
+        self.results.setRowCount(len(display))
+        for index, row in enumerate(display):
+            for column, (_key, _heading, attribute, right) in enumerate(COLUMNS):
+                item = QTableWidgetItem(getattr(row, attribute))
+                if right:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    )
+                # Sort on the real value, not the formatted string: "3 KB" and
+                # "10 KB" sort the wrong way as text, and a date column sorted
+                # alphabetically is worse than one that does not sort at all.
+                if attribute == "sent":
+                    item.setData(Qt.ItemDataRole.UserRole + 1, row.sent_at)
+                elif attribute == "size":
+                    item.setData(Qt.ItemDataRole.UserRole + 1, row.size_bytes)
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
+                    item.setToolTip(row.path)
+                self.results.setItem(index, column, item)
+        self.results.setSortingEnabled(True)
+
+        # Recomputed from the rows on screen, so a column is offered when the
+        # data can fill it and disabled when it cannot - see `view_options`.
+        self.view_button.available = self._available = available_columns(
+            display, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
+            always=ALWAYS_OFFERED,
+        )
+        self._apply_prefs()
+
+        self.summary.setText(self._summary_text(len(display), leftover))
+
+    def _summary_text(self, shown: int, leftover: str) -> str:
+        if not shown:
+            try:
+                total = self._store.count_messages()
+            except Exception:                # noqa: BLE001 - a label, not a crash
+                total = 0
+            if not total:
+                return "No mail indexed yet — add a .pst in Settings and run an index."
+            return "No message matches those filters."
+
+        parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
+        if shown >= PAGE_SIZE:
+            parts.append(f"showing the newest {PAGE_SIZE:,} — narrow the filters to see more")
+        if leftover:
+            parts.append(
+                f"'{leftover}' was ignored — this tab filters on the header fields only. "
+                "Use Search to look inside messages."
+            )
+        return "  ·  ".join(parts)
+
+    # -- how it looks ----------------------------------------------------------
+
+    def _apply_prefs(self) -> None:
+        apply_to_table(
+            self.results, self.view_button.prefs,
+            columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
+            available=self._available,
+        )
+
+    def _prefs_changed(self, _prefs: Any) -> None:
+        """The button owns the preferences and has already saved them."""
+        self._apply_prefs()
+
+    def selected_row(self) -> Optional[Any]:
+        """The MailRow under the selection, by file_id.
+
+        By id rather than by position, because the table is sortable: after a
+        click on a header, visual row 3 is not `self._rows[3]`, and acting on
+        the wrong message is the kind of bug nobody reports because they assume
+        they misclicked.
+        """
+        items = self.results.selectedItems()
+        if not items:
+            return None
+        file_id = self.results.item(items[0].row(), 0)
+        if file_id is None:
+            return None
+        wanted = file_id.data(Qt.ItemDataRole.UserRole)
+        return next((row for row in self._rows if row.file_id == wanted), None)
+
+    def _open_selected(self) -> None:
+        row = self.selected_row()
+        if row is not None:
+            self.opened.emit(row.file_id)
+
+    def _on_context_menu(self, point: Any) -> None:
+        """The same menu as the other two lists - see widgets/file_menu.py."""
+        # Viewport coordinates: the signal gives a point relative to the table,
+        # `rowAt` wants one relative to the viewport, and the header sits
+        # between them. Getting this wrong is why right-click looked broken.
+        index = self.results.rowAt(viewport_point(self.results, point).y())
+        if index >= 0:
+            self.results.selectRow(index)
+        row = self.selected_row()
+        if row is None:
+            return
+
+        # No "Open" or "Show in folder": a message lives inside a .pst and has
+        # no file on disk to open. Offering either would be offering something
+        # that fails, which is worse than not offering it.
+        show_for(self.results, point, row.path, FileActions(
+            search_inside=lambda: self.search_inside_requested.emit(row.path),
+            copy=[("Copy subject", row.subject), ("Copy sender", row.sender)],
+        ))

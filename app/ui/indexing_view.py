@@ -33,10 +33,11 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.presenter import (
     format_count,
-    format_eta,
-
     group_skips,
+    finished_text,
     index_summary,
+    progress_for,
+    progress_text,
     read_index_summary,
     when_text,
 )
@@ -66,6 +67,10 @@ class IndexingView(QWidget):
         self._pool = QThreadPool.globalInstance()
         self._worker: Optional[IndexWorker] = None
         self._refreshing = False
+        #: True between clicking Stop and the run ending. Stopping can take a
+        #: while on a large file, and a dead button with no explanation reads
+        #: as a click that was ignored.
+        self._stopping = False
         self._next_run_text = ""
         self._total_estimate = 0
 
@@ -96,10 +101,17 @@ class IndexingView(QWidget):
         self.detail.setObjectName("indexDetail")
 
         self.start_button = QPushButton("Start indexing")
-        self.stop_button = QPushButton("Pause")
+        # **"Stop", not "Pause".** It said Pause and there is no resume: the
+        # run ends, and the next Start begins a new one. It is a cheap end -
+        # everything already indexed is kept and nothing is redone - but a
+        # button that promises to pause and then stops is a button people stop
+        # trusting. The automatic pausing in the status line is a different
+        # thing entirely: that is the resource governor, and it does resume.
+        self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.stop_button.setToolTip(
-            "Stops cleanly. Everything already indexed is kept, and resuming costs nothing."
+            "Stops after the current file. Everything already indexed is kept, "
+            "and starting again picks up where this left off rather than redoing it."
         )
         self.stop_button.clicked.connect(self.stop)
 
@@ -197,6 +209,7 @@ class IndexingView(QWidget):
         if self._worker is not None:
             return
         self._total_estimate = total_estimate
+        self._stopping = False
         # A determinate bar with no total is a barber pole that spins forever,
         # which reads as "stuck" - and the caller never had a total to give,
         # because the walker discovers files as it goes. So it starts at zero
@@ -216,65 +229,57 @@ class IndexingView(QWidget):
         run(self._pool, worker)
 
     def stop(self) -> None:
+        """Ask the run to end after the file it is on.
+
+        Both buttons are disabled while it winds down, which is correct - there
+        is nothing useful to click - but it left the panel looking frozen with
+        no explanation. `_stopping` makes the progress ticks say what is going
+        on instead, and `_on_done` clears it.
+        """
         if self._worker is not None:
+            self._stopping = True
             self._worker.stop()
-            self.headline.setText("Finishing the current file…")
+            self.headline.setText("Stopping after the current file…")
+            self.detail.setText("Everything indexed so far is kept.")
             self.stop_button.setEnabled(False)
 
     def _on_progress(self, stats: Any) -> None:
-        done = stats.unchanged + stats.skipped
-        # The denominator is what the walker has *found so far*, which grows as
-        # it goes. Honest, and it moves - unlike a fixed total nobody can know
-        # before the walk finishes, or an indeterminate bar that never resolves.
-        total = max(self._total_estimate, stats.seen, done, 1)
+        # See `presenter.progress_for`: the numerator used to leave out
+        # `indexed`, so a first index of a fresh corpus sat near zero for hours
+        # while the log showed thousands of files done.
+        value, total = progress_for(stats, total_estimate=self._total_estimate)
         self.bar.setRange(0, total)
-        self.bar.setValue(min(done, total))
+        self.bar.setValue(value)
 
-        remaining = max(0, self._total_estimate - done) if self._total_estimate else 0
-        eta = format_eta(remaining, files_per_minute=stats.files_per_minute)
-
-        self.headline.setText(
-            f"{format_count(stats.indexed)} documents  ·  "
-            f"{format_count(stats.seen)} files seen  ·  "
-            f"{format_count(stats.skipped)} skipped"
+        headline, detail = progress_text(
+            stats, total_estimate=self._total_estimate, stopping=self._stopping
         )
-        current = getattr(stats, "current", "")
-        reading = f"  ·  reading {current}" if current else ""
-        if current and getattr(stats, "current_item", 0):
-            reading += f" [{stats.current_item:,}]"
-        self.detail.setText(
-            f"{format_count(stats.chunks)} chunks  ·  "
-            f"{stats.files_per_minute:,.0f} files/min  ·  {eta}{reading}"
-        )
+        self.headline.setText(headline)
+        self.detail.setText(detail)
         self.show_skips(stats.skipped_by_code)
 
     def _on_finished(self, stats: Any) -> None:
         self.bar.setRange(0, 1)
         self.bar.setValue(1)
-
-        if stats.stopped_early is not None:
-            self.headline.setText(stats.stopped_early.message)
-            self.detail.setText(stats.stopped_early.suggestion)
-        else:
-            self.headline.setText(
-                f"Finished: {format_count(stats.indexed)} indexed, "
-                f"{format_count(stats.skipped)} skipped, "
-                f"{format_count(stats.deleted)} removed"
-            )
-            self.detail.setText(
-                f"{format_count(stats.chunks)} chunks in {stats.elapsed_s:,.0f}s  ·  "
-                f"{stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min"
-            )
+        headline, detail = finished_text(stats)
+        self.headline.setText(headline)
+        self.detail.setText(detail)
         self.show_skips(stats.skipped_by_code)
         self.finished.emit(stats)
 
     def _on_failed(self, error: Any) -> None:
+        # Reset the bar. A run that failed at 40% left the bar at 40%, which
+        # invites the reading that it is still going - and the buttons come
+        # back a moment later, so the panel contradicts itself.
+        self.bar.setRange(0, 1)
+        self.bar.setValue(0)
         self.headline.setText(error.message)
         self.detail.setText(error.suggestion)
         self.error.emit(error)
 
     def _on_done(self) -> None:
         self._worker = None
+        self._stopping = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
 

@@ -27,7 +27,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.widgets.file_menu import FileActions, show_for
+from app.ui.view_options import Density
+from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.presenter import ResultRow, to_rows
 
 __all__ = ["ResultsView"]
@@ -43,6 +44,12 @@ class ResultsView(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._rows: list[ResultRow] = []
+        #: 0 follows the system font. Results are the one pane people read
+        #: rather than scan, and the right size for reading a paragraph of
+        #: snippet is not the right size for a toolbar - which is why this is
+        #: the pane's own setting and not an application-wide zoom.
+        self._font_pt = 0
+        self._density = Density.NORMAL
 
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
@@ -60,6 +67,18 @@ class ResultsView(QWidget):
         layout.addWidget(self._summary)
         layout.addWidget(self._list, stretch=1)
 
+    def set_view_preferences(self, prefs: Any) -> None:
+        """Text size and row spacing for the results pane.
+
+        Re-rendered rather than restyled: each row is a widget built at a fixed
+        size, so `setSizeHint` has to be recomputed or the new font is drawn
+        clipped inside the old row height.
+        """
+        self._font_pt = int(getattr(prefs, "font_pt", 0) or 0)
+        self._density = str(getattr(prefs, "density", Density.NORMAL))
+        if self._rows:
+            self._redraw()
+
     # -- populating ---------------------------------------------------------
 
     def show_results(self, results: Sequence[Any], terms: Sequence[str], summary: str = "") -> None:
@@ -67,10 +86,15 @@ class ResultsView(QWidget):
         self._list.clear()
         self._summary.setText(summary)
 
+        self._redraw()
+
+    def _redraw(self) -> None:
+        """Rebuild the visible rows at the current size and spacing."""
+        self._list.clear()
         for row in self._rows:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, row)
-            widget = _ResultItem(row)
+            widget = _ResultItem(row, font_pt=self._font_pt, density=self._density)
             item.setSizeHint(widget.sizeHint())
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)
@@ -104,7 +128,15 @@ class ResultsView(QWidget):
         built, and the menu item outlived it: a thing you could click that did
         nothing at all, silently.
         """
-        row = self._row_for(self._list.itemAt(point))
+        # Viewport coordinates - see `viewport_point`. A list has only a frame
+        # rather than a header, so the offset is a pixel or two and the bug was
+        # subtler here: it mostly worked, and failed on the bottom row.
+        row = self._row_for(self._list.itemAt(viewport_point(self._list, point)))
+        if row is None:
+            # No item under the cursor: empty space below the results, or the
+            # Menu key. Use whatever is selected rather than doing nothing.
+            selected = self.selected_rows()
+            row = selected[0] if selected else None
         if row is None:
             return
 
@@ -118,9 +150,30 @@ class ResultsView(QWidget):
 class _ResultItem(QWidget):
     """One row: path, location, why it matched, and a highlighted snippet."""
 
-    def __init__(self, row: ResultRow, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        row: ResultRow,
+        parent: Optional[QWidget] = None,
+        *,
+        font_pt: int = 0,
+        density: str = Density.NORMAL,
+    ) -> None:
         super().__init__(parent)
         missing = not Path(row.path).exists()
+
+        # **The other half of "right click doesn't work".**
+        #
+        # Every row here is a real widget sitting on top of the list item, via
+        # `setItemWidget`. The right-click therefore lands on *this* widget, not
+        # on the QListWidget - and a widget with the default policy is entitled
+        # to handle the event itself. `NoContextMenu` says explicitly that it
+        # does not, so the event passes up to the list, where the handler that
+        # builds the menu actually lives.
+        #
+        # Set on the labels too: the snippet is rich text, and a QLabel that
+        # decides its text is selectable grows its own "Copy" menu, which would
+        # shadow the file menu on the one part of the row people aim at most.
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
         heading = QLabel(f"{row.rank}. {row.display_path}")
         heading.setObjectName("resultPath")
@@ -137,9 +190,24 @@ class _ResultItem(QWidget):
         snippet.setWordWrap(True)
         snippet.setTextFormat(Qt.TextFormat.RichText)
 
+        for label in (heading, meta, snippet):
+            label.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+            if font_pt:
+                font = label.font()
+                font.setPointSize(int(font_pt))
+                label.setFont(font)
+
+        # Compact halves the padding rather than shrinking the text: the point
+        # of a compact list is more rows on screen, and text you cannot read is
+        # not more information.
+        compact = density == Density.COMPACT
+        if compact:
+            meta.setVisible(False)      # the least-read line, first to go
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(2)
+        margin = 3 if compact else 6
+        layout.setContentsMargins(8, margin, 8, margin)
+        layout.setSpacing(1 if compact else 2)
         layout.addWidget(heading)
         layout.addWidget(meta)
         layout.addWidget(snippet)

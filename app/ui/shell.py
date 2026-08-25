@@ -39,15 +39,21 @@ from app.search.translate import QueryTranslator
 from app.index.schedule import SchedulePolicy
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
+from app.ui.mail_view import MailView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
 from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
+from app.ui.view_options import load_prefs, save_prefs
+from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.scroll import wrap_if_needed
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
+
+#: Where the results pane's text size and spacing live.
+RESULTS_PREFS_KEY = "ui:results"
 
 _log = logger.bind(component="ui.shell")
 
@@ -135,6 +141,11 @@ class MainWindow(QMainWindow):
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
         self.search_view.reindex_requested.connect(self._reindex_for)
         self.search_view.error.connect(self._show_error)
+        # Restored from last time, then saved whenever it changes. Three keys in
+        # one transaction - see `set_states`.
+        self.search_view.set_view_preferences(load_prefs(store, RESULTS_PREFS_KEY))
+        self.search_view.view_preferences_changed.connect(
+            lambda prefs: save_prefs(self._store, RESULTS_PREFS_KEY, prefs))
 
         self.indexing_view = IndexingView()
         self.indexing_view.error.connect(self._show_error)
@@ -149,6 +160,8 @@ class MainWindow(QMainWindow):
         )
         # A finished index means new filenames, so the Files summary is stale.
         self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
+        # New mail too, for the same reason.
+        self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
 
         self.settings_view = SettingsView(settings, store)
         self.settings_view.set_roots(self._load_roots())
@@ -177,6 +190,13 @@ class MainWindow(QMainWindow):
         self.files_view.error.connect(self._show_error)
         self.files_view.search_inside_requested.connect(self._search_inside)
 
+        # Mail gets its own tab for the reason `mail_view.py` opens with: a
+        # mailbox is scanned in columns and read newest first, and relevance
+        # ranking answers a question nobody asked of it.
+        self.mail_view = MailView(store)
+        self.mail_view.error.connect(self._show_error)
+        self.mail_view.search_inside_requested.connect(self._search_inside)
+
         self.tabs = QTabWidget()
         # (view, title, wrap in a scroll area?)
         #
@@ -192,6 +212,7 @@ class MainWindow(QMainWindow):
         for view, title, scroll in (
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
+            (self.mail_view, "Mail", False),
             (self.indexing_view, "Indexing", False),
             (self.settings_view, "Settings", True),
         ):
@@ -203,6 +224,15 @@ class MainWindow(QMainWindow):
         # table nobody is looking at is work for nothing.
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
+
+        # **Every scroll-sensitive control in the window, in one call.**
+        # Qt lets the wheel change a combo box or spin box that does not have
+        # focus, so scrolling a settings page silently alters the memory
+        # ceiling, the worker count and the schedule on the way past. Doing
+        # this per page would mean the one somebody forgets is the one that
+        # matters; doing it here means a new page gets it for free.
+        guarded = protect_all(self)
+        _log.debug("wheel-guarded {} controls", guarded)
 
         self.setStatusBar(QStatusBar())
         self.indexing_view.refresh_totals(store, settings)
@@ -313,6 +343,7 @@ class MainWindow(QMainWindow):
         bind("Ctrl+,", lambda: self._show(self.settings_view))
         bind("Ctrl+I", lambda: self._show(self.indexing_view))
         bind("Ctrl+P", self._focus_files)
+        bind("Ctrl+M", self._focus_mail)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
         # positional argument. Binding the method directly raises TypeError the
@@ -351,11 +382,11 @@ class MainWindow(QMainWindow):
         that silently rewrites configuration is how hand-written comments and
         overrides disappear. `.env` remains the default; this is the override.
         """
-        self._store.set_state("ui:index_schedule", policy.mode)
-        self._store.set_state("ui:index_interval_hours", str(policy.interval_hours))
-        self._store.set_state(
-            "ui:index_daily_at", f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}"
-        )
+        self._store.set_states({
+            "ui:index_schedule": policy.mode,
+            "ui:index_interval_hours": str(policy.interval_hours),
+            "ui:index_daily_at": f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}",
+        })
         self.scheduler.set_policy(policy)
         self.settings_view.indexing.set_schedule_status(self.scheduler.status())
 
@@ -366,8 +397,9 @@ class MainWindow(QMainWindow):
         stopping and restarting threads that are holding files open, and the
         gain is a few minutes on a job measured in hours.
         """
-        for key, value in values.items():
-            self._store.set_state(f"ui:{key}", str(value))
+        # One transaction for the five keys, not five. Five commits is five
+        # fsyncs on the UI thread for one change nobody thinks of as five.
+        self._store.set_states({f"ui:{key}": str(value) for key, value in values.items()})
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
 
     def _read_state(self, key: str, default: str = "") -> str:
@@ -401,6 +433,11 @@ class MainWindow(QMainWindow):
         """Ctrl+P, the shortcut every editor uses for "go to file"."""
         self._show(self.files_view)
         self.files_view.focus()
+
+    def _focus_mail(self) -> None:
+        """Ctrl+M. Mail is a browser, so this lands in its filter box."""
+        self._show(self.mail_view)
+        self.mail_view.focus()
 
     def _theme_changed(self, preference: str) -> None:
         self._theme_preference = preference
@@ -722,6 +759,13 @@ class MainWindow(QMainWindow):
         shutdown race into an ordinary stop.
         """
         self.recorder.event("closing")
+        # A ceiling changed in the last third of a second is still sitting in a
+        # timer. Closing without this loses it - which would be a worse bug than
+        # the sluggishness the debounce was added to fix.
+        try:
+            self.settings_view.indexing.flush_pending()
+        except Exception:                                # noqa: BLE001
+            pass
         self.indexing_view.stop()
         try:
             self.scheduler.stop()

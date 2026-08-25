@@ -316,6 +316,84 @@ class SqliteStore:
                 (status, error.code, error.message, file_id),
             )
 
+    def browse_messages(
+        self,
+        *,
+        sender: Optional[str] = None,
+        recipient: Optional[str] = None,
+        subject: Optional[str] = None,
+        has_attachment: Optional[bool] = None,
+        after: Optional[int] = None,
+        before: Optional[int] = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Mail as a table: newest first, filtered by its own columns.
+
+        **Not a search.** `search_files_by_name` and the hybrid engine both go
+        through FTS and rank by relevance; this reads `messages` directly and
+        orders by date, because a mail list is something you *browse* and the
+        useful order is chronological. Ranking a mailbox by BM25 puts an
+        eight-year-old thread above this morning's, which is never what somebody
+        scanning a list wants.
+
+        Every filter is a plain LIKE or comparison against an indexed column, so
+        this stays fast without touching a single chunk of text. Searching what
+        the messages *say* is still the search tab's job.
+
+        `sender` and `recipient` match as substrings deliberately: `/from dave`
+        must find `dave.smith@acme.com`. Exact `IN` matching was a real bug here
+        once, and it made the filter look broken to anybody who did not know the
+        full address by heart.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        # LIKE with the value wrapped in wildcards, never interpolated. `%` and
+        # `_` typed by a person are escaped, so searching for a literal
+        # underscore in an address finds it instead of matching any character.
+        def contains(column: str, value: str) -> None:
+            escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            clauses.append(f"{column} LIKE ? ESCAPE '\\'")
+            params.append(f"%{escaped}%")
+
+        if sender:
+            contains("m.sender", sender.strip())
+        if recipient:
+            contains("m.recipients", recipient.strip())
+        if subject:
+            contains("m.subject", subject.strip())
+        if has_attachment is not None:
+            clauses.append("m.has_attach = ?")
+            params.append(1 if has_attachment else 0)
+        if after is not None:
+            clauses.append("m.sent_at >= ?")
+            params.append(int(after))
+        if before is not None:
+            clauses.append("m.sent_at < ?")
+            params.append(int(before))
+
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"""
+            SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
+                   m.has_attach, m.store_path, m.conversation,
+                   f.path, f.size_bytes, f.status
+            FROM messages m
+            JOIN files f ON f.id = m.file_id
+            {where}
+            -- `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
+            -- 3.30. The bundled version is newer, but the version a user's
+            -- Python happens to ship is not something this should depend on,
+            -- and the two forms cost the same.
+            ORDER BY m.sent_at IS NULL, m.sent_at DESC, m.file_id DESC
+            LIMIT ?
+        """
+        params.append(max(1, int(limit)))
+        return [dict(row) for row in self.conn.execute(sql, params)]
+
+    def count_messages(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
+        return int(row["n"]) if row else 0
+
     def search_files_by_name(
         self, text: str, *, limit: int = 100, ext: Optional[Sequence[str]] = None
     ) -> list[dict[str, Any]]:
@@ -335,7 +413,25 @@ class SqliteStore:
         """
         cleaned = (text or "").strip()
         if len(cleaned) < 2:
-            return []
+            # **A filter on its own is a complete request.** `/type pdf` means
+            # "every PDF", and refusing it for want of two characters of name
+            # makes the dropdown look broken on the simplest thing it offers.
+            # Without any filter at all, though, one or two characters match
+            # nearly everything, and a hundred arbitrary rows is worse than an
+            # empty list.
+            if not ext:
+                return []
+            wanted = [e.lower().lstrip(".") for e in ext]
+            return [dict(row) for row in self.conn.execute(
+                f"""SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
+                           source_kind, 0.0 AS score
+                    FROM files
+                    WHERE ext IN ({','.join('?' * len(wanted))})
+                      AND source_kind = 'file'
+                    ORDER BY mtime_ns DESC
+                    LIMIT ?""",
+                [*wanted, max(1, int(limit))],
+            )]
 
         # A trigram index takes the query as a literal string, so the whole
         # thing is quoted and internal quotes are doubled. No user input reaches
@@ -1087,6 +1183,24 @@ class SqliteStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
                 "updated_at = excluded.updated_at",
                 (key, value, int(time.time())),
+            )
+
+    def set_states(self, values: dict[str, str]) -> None:
+        """Several keys, one transaction.
+
+        The settings panel saves five ceilings together. Five calls to
+        `set_state` is five commits - five fsyncs on the UI thread for one
+        change nobody thinks of as five. This is the same work in one.
+        """
+        if not values:
+            return
+        now = int(time.time())
+        with self.write() as conn:
+            conn.executemany(
+                "INSERT INTO index_state (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                [(key, str(value), now) for key, value in values.items()],
             )
 
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:

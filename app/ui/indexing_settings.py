@@ -32,6 +32,8 @@ from PyQt6.QtWidgets import (
     QTimeEdit,
 )
 
+from app.ui.widgets.debounce import Debounced
+
 __all__ = ["IndexingSettings"]
 
 
@@ -115,6 +117,25 @@ class IndexingSettings(QGroupBox):
             "Leave this on unless indexing is the only thing this machine does."
         )
 
+        # **Emit once the person has stopped, not on every notch.**
+        #
+        # Each emission persists five settings keys, so holding an arrow - which
+        # auto-repeats about ten times a second - asked the UI thread for fifty
+        # committed SQLite transactions a second. The window stopped repainting
+        # between them, which is what "the up down buttons are not always
+        # responsive" actually was. The buttons were fine; the handler was not.
+        self._save_limits = Debounced(
+            lambda: self.limits_changed.emit(self.current_limits()), parent=self)
+        self._save_schedule = Debounced(
+            lambda: self.schedule_changed.emit(self.current_policy()), parent=self)
+
+        for widget in (
+            self.workers, self.memory_mb, self.cpu_percent, self.interval_hours,
+        ):
+            # Typing `1500` otherwise emits at 1, 15, 150 and 1500 - four rounds
+            # of writes for one number, three of them values nobody chose.
+            widget.setKeyboardTracking(False)
+
         for widget in (
             self.workers, self.memory_mb, self.cpu_percent,
         ):
@@ -169,6 +190,10 @@ class IndexingSettings(QGroupBox):
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
+        # Anything queued before this load was about the *old* values. Firing it
+        # now would write them straight back over what was just loaded.
+        self._save_limits.cancel()
+        self._save_schedule.cancel()
         self._sync_schedule_rows()
 
     def current_policy(self):
@@ -214,9 +239,22 @@ class IndexingSettings(QGroupBox):
         self.schedule_status.setText(text)
 
     def _schedule_changed(self, *_args) -> None:
+        # The row-showing half is instant: it is a repaint, and delaying it
+        # would make choosing "Once a day" feel broken. Only the persisting
+        # half waits.
         self._sync_schedule_rows()
-        self.schedule_changed.emit(self.current_policy())
+        self._save_schedule()
 
     def _limits_changed(self, *_args) -> None:
-        self.limits_changed.emit(self.current_limits())
+        self._save_limits()
+
+    def flush_pending(self) -> None:
+        """Persist anything still inside the debounce window.
+
+        **Called before the window closes.** Without this, changing a ceiling
+        and immediately closing loses the change - a worse bug than the
+        sluggishness the debounce exists to fix.
+        """
+        self._save_schedule.flush()
+        self._save_limits.flush()
 
