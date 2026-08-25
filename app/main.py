@@ -19,6 +19,7 @@ Startup order matters and is deliberate:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from app.core.branding import NAME
@@ -103,6 +104,44 @@ def _make_ctrl_c_work(application: object) -> None:
     timer.setParent(application)
 
 
+#: Kept alive for the process lifetime. `faulthandler` writes to the file
+#: descriptor it was given, so letting this be garbage collected closes the file
+#: and the crash it was installed to record goes nowhere.
+_CRASH_FILE = None
+
+
+def _catch_native_crashes(log_dir: "Any") -> None:
+    """Turn a Qt access violation into a stack trace instead of silence.
+
+    **Half of this application is C++.** A crash inside PyQt - a widget touched
+    after its C++ side is gone, a null model, a bad pixmap - kills the process
+    where it stands: no Python exception, so no `except` sees it, no traceback,
+    and the run log simply stops mid-line with no footer. From the outside the
+    window "does not open" and there is nothing whatsoever to work from.
+
+    `faulthandler` installs OS-level handlers for SIGSEGV and friends that print
+    the Python stack at the moment of the crash. It costs nothing until
+    something dies, and it is the difference between "it does not open" and a
+    file name and line number.
+
+    Written to a file as well as stderr, because the failure that matters is the
+    one from a double-clicked shortcut, where there is no console to print to.
+    """
+    global _CRASH_FILE
+
+    import faulthandler
+
+    try:
+        faulthandler.enable()                    # stderr, for a console run
+        crash_dir = Path(log_dir)
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        _CRASH_FILE = open(crash_dir / "crash.log", "a", buffering=1, encoding="utf-8")
+        faulthandler.enable(file=_CRASH_FILE, all_threads=True)
+    except Exception:                            # noqa: BLE001
+        # A diagnostic that prevents start-up is worse than no diagnostic.
+        pass
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     from app.core.config import log_dir_for
     from app.core.runlog import start_run
@@ -123,6 +162,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Opened before settings load, because a startup that dies in the "Cannot
     # start" dialog leaves nothing else behind at all.
     run = start_run(log_dir_for(), "window", argv=arguments[1:])
+    _catch_native_crashes(log_dir_for())
     code = 1
     try:
         code = _run_window(run, qt_arguments, debug)
@@ -264,12 +304,19 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                                 top_n=settings.rerank_top_n,
                                 window_chars=settings.rerank_window_chars)
 
-            log.info("startup: building the window")
+            log.info("startup: building the search engine")
             engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+
+            log.info("startup: constructing the window")
             window = MainWindow(settings, store, vectors, engine, debug=debug)
+
+            log.info("startup: showing the window")
             window.show()
-            log.info("startup: window shown")
-            return application.exec()
+
+            log.info("startup: entering the event loop")
+            code = application.exec()
+            log.info("shutdown: the event loop returned", code=code)
+            return code
     except AppErrorException as exc:
         log_app_error(exc.error)
         return _fatal(exc.error)
