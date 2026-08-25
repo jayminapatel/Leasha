@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from app.core.errors import raise_error
+from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
 
@@ -197,6 +198,16 @@ class OcrExtractor:
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif",
     })
     reads_externally = False
+    #: Declared so Settings and `doctor` can say "images are indexed by name
+    #: only because RapidOCR is missing" instead of leaving somebody to work it
+    #: out from an empty result set. `hard`: without it there is no text at all.
+    requires = (
+        Requirement("rapidocr_onnxruntime", "rapidocr-onnxruntime",
+                    provides="text inside images", hard=True),
+        Requirement("PIL", "pillow",
+                    provides="image loading for formats ONNX cannot open",
+                    hard=False),
+    )
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions

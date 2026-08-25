@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Iterable
 
 from app.core.errors import make_error, raise_error
+from app.core.format_health import Requirement
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
 
 __all__ = ["PdfExtractor"]
@@ -39,6 +40,12 @@ MIN_PAGE_CHARS = 8
 class PdfExtractor:
     name = "pdf"
     extensions = frozenset({".pdf"})
+    #: Hard, and pinned in requirements.txt rather than optional - declared here
+    #: so a broken install reports "PDFs cannot be read, install pymupdf"
+    #: rather than failing once per PDF in a 100GB corpus.
+    requires = (
+        Requirement("fitz", "pymupdf", provides="all PDF text", hard=True),
+    )
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions

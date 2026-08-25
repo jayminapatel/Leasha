@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from app.core.errors import make_error, raise_error
+from app.core.format_health import Requirement
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
 
 __all__ = ["DocxExtractor", "XlsxExtractor", "PptxExtractor", "MAX_SHEET_ROWS"]
@@ -63,6 +64,8 @@ def _fail(component: str, path: Path, exc: BaseException) -> None:
 class DocxExtractor:
     name = "docx"
     extensions = frozenset({".docx", ".docm"})
+    requires = (Requirement("docx", "python-docx",
+                            provides="Word document text", hard=True),)
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
@@ -116,6 +119,8 @@ def _table_text(table: Any) -> str:
 class XlsxExtractor:
     name = "xlsx"
     extensions = frozenset({".xlsx", ".xlsm", ".xltx"})
+    requires = (Requirement("openpyxl", "openpyxl",
+                            provides="spreadsheet cell text", hard=True),)
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
@@ -183,6 +188,8 @@ class XlsxExtractor:
 class PptxExtractor:
     name = "pptx"
     extensions = frozenset({".pptx", ".pptm"})
+    requires = (Requirement("pptx", "python-pptx",
+                            provides="slide and notes text", hard=True),)
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions

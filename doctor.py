@@ -351,28 +351,56 @@ def check_resources() -> Check:
     )
 
 
-def check_ocr() -> Check:
-    """Is OCR usable, and does it know what it costs?
+def check_file_formats() -> list[Check]:
+    """One check per file type that cannot currently read its files.
 
-    Optional in the sense that the application runs without it - but it is on by
-    default, so a machine missing the package silently indexes no images at all.
-    Better to say so here than to leave somebody wondering why a folder of scans
-    produced nothing.
+    **Replaces three hand-written probes** (OCR, Visio/Project, converters),
+    each of which had to be written and remembered separately. This is driven by
+    what the extractors themselves declare, so a format added later - with its
+    own library - is reported here and in Settings without either being edited.
+    That is the whole point: adding a file type should be one commit, not four.
+
+    Healthy formats collapse into a single summary line. A list of forty PASS
+    rows is a list nobody reads, and the two that matter hide in it.
     """
-    from app.extract.ocr import available
+    try:
+        from app.core.format_health import BLOCKED, DEGRADED, format_health, summarise
+        from app.core.formats import load_rules
 
-    if available():
-        return Check(
-            "OCR (rapidocr-onnxruntime)", True,
-            detail="images and scanned PDFs will be read (~3.6s per page)",
+        data_path = env_path("DATA_PATH")
+        rules = load_rules(Path(data_path) if data_path else None)
+        statuses = format_health(rules)
+    except Exception as exc:                                  # noqa: BLE001
+        return [Check(
+            "File type health", False, f"{type(exc).__name__}: {exc}",
+            fix="Could not read the file-type configuration. Delete "
+                "extractors.toml in your index folder to restore the shipped "
+                "defaults - nothing else is lost by removing it.",
             optional=True,
-        )
-    return Check(
-        "OCR (rapidocr-onnxruntime)", False,
-        detail="not installed - images and scanned PDFs will not be indexed",
+        )]
+
+    counts = summarise(statuses)
+    checks: list[Check] = [Check(
+        "File types ready", True,
+        detail=(
+            f"{counts['ready']} ready, {counts['degraded']} degraded, "
+            f"{counts['blocked']} blocked, {counts['off']} switched off"
+        ),
         optional=True,
-        fix=rf'"{sys.executable}" -m pip install rapidocr-onnxruntime pillow',
-    )
+    )]
+
+    # Only the ones that need a decision. Blocked first: those read nothing.
+    for status in statuses:
+        if status.state not in (BLOCKED, DEGRADED):
+            continue
+        checks.append(Check(
+            f"  {status.extension} ({status.reader})",
+            ok=False,
+            detail=status.detail,
+            fix=status.fix or "No fix available - this is the best this format can do.",
+            optional=True,
+        ))
+    return sorted(checks, key=lambda c: (c.ok, c.name))
 
 
 def check_converters() -> Check:
@@ -395,43 +423,6 @@ def check_converters() -> Check:
         optional=True,
         fix=("Install LibreOffice to read the older Office formats: "
              "https://www.libreoffice.org/download/" if not present else ""),
-    )
-
-
-def check_diagram_readers() -> Check:
-    """What Visio and Project files can actually be read on this machine.
-
-    Every one of these readers is optional, and the difference between "the
-    diagram is searchable" and "only its name is" is invisible until somebody
-    searches for text they know is in it and finds nothing. Reported rather
-    than assumed.
-    """
-    from app.extract.diagrams import readers_available
-
-    found = readers_available()
-    detail = "  ".join(f"{ext}: {state}" for ext, state in found.items())
-
-    # Only states that name something installable are a finding. ".vsd: name +
-    # document properties" is the *best achievable* outcome for a format with no
-    # open specification for its contents - reporting it as needing a fix would
-    # send somebody installing a package that changes nothing, and teach them to
-    # ignore this check.
-    improvable = [ext for ext, state in found.items() if "install" in state]
-
-    fix = ""
-    if improvable:
-        wanted = set()
-        if any("olefile" in found[ext] for ext in improvable):
-            wanted.add("olefile")
-        if any(ext == ".vsdx" for ext in improvable):
-            wanted.add("vsdx")
-        fix = r"venv\Scripts\python.exe -m pip install " + " ".join(sorted(wanted))
-    return Check(
-        name="Visio / Project readers",
-        ok=not improvable,
-        optional=True,
-        detail=detail,
-        fix=fix,
     )
 
 
@@ -586,7 +577,7 @@ def run_all(quick: bool = False) -> list[Check]:
     checks += check_packages()
     checks.append(check_pywin32())
     checks.append(check_converters())
-    checks.append(check_ocr())
+    checks += check_file_formats()
     checks += [
         check_fts5(),
         check_sqlite_wal(),
@@ -599,7 +590,6 @@ def run_all(quick: bool = False) -> list[Check]:
         check_rerank_model(quick),
         check_git(),
         check_resources(),
-        check_diagram_readers(),
         check_pst_direct(),
         check_outlook(),
         check_ollama(),

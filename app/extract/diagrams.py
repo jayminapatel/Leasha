@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from app.core.errors import AppError, make_error
+from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, DocumentBuilder, register
 
@@ -187,6 +188,17 @@ class VisioExtractor:
 
     name = "visio"
     extensions = (".vsdx", ".vsdm", ".vsd")
+    #: Both soft: `.vsdx` shape text is read by the built-in ZIP reader without
+    #: `vsdx`, and `.vsd` falls back to the file name without `olefile`. Neither
+    #: absence stops a file being indexed, so neither is `hard`.
+    requires = (
+        Requirement("vsdx", "vsdx",
+                    provides="richer shape text from .vsdx", hard=False,
+                    extensions=(".vsdx", ".vsdm")),
+        Requirement("olefile", "olefile",
+                    provides="title and author from older .vsd files", hard=False,
+                    extensions=(".vsd",)),
+    )
 
     def extract(self, path: Path) -> Iterable[Document]:
         if path.suffix.lower() == ".vsd":
@@ -232,6 +244,19 @@ class ProjectExtractor:
 
     name = "project"
     extensions = (".mpp", ".mpt")
+    #: Soft: without mpxj a plan is still indexed by name and properties, which
+    #: is what makes it findable. Both are needed together - mpxj is the Java
+    #: library, jpype1 is the bridge - and the first missing one is reported.
+    #: Reported in order, so a machine with neither is told to install mpxj
+    #: first - `pip install mpxj` pulls jpype1 in with it, and naming the
+    #: bridge first would send somebody after a dependency of the thing they
+    #: actually need.
+    requires = (
+        Requirement("mpxj", "mpxj",
+                    provides="task names from inside the plan", hard=False),
+        Requirement("jpype", "jpype1",
+                    provides="the Java bridge mpxj needs", hard=False),
+    )
 
     def extract(self, path: Path) -> Iterable[Document]:
         tasks = _mpp_tasks(path)

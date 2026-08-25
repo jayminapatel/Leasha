@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional, Protocol, Sequence
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
+from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, SourceKind, register
 from app.extract.email_files import build_email_document
@@ -657,6 +658,14 @@ class PstExtractor:
     #: byte-hashed. On the first real run that hash raised a permission error in
     #: the walker and took the entire index run down with it.
     reads_externally = True
+
+    #: Hard: PST is read through Outlook's MAPI interface, and pywin32 is the
+    #: only way to reach it. Outlook itself being installed is a separate
+    #: question, checked at extraction time - `find_spec` cannot answer it.
+    requires = (
+        Requirement("win32com", "pywin32",
+                    provides="Outlook MAPI access to .pst archives", hard=True),
+    )
 
     #: Injectable for tests; None means build a real Win32ComSession.
     session_factory: Optional[Callable[[], MapiSession]] = None

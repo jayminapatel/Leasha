@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from app.core.errors import raise_error
+from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.quoting import strip_quoted
 from app.extract.base import (
@@ -244,6 +245,13 @@ class MsgExtractor:
 
     name = "msg"
     extensions = frozenset({".msg"})
+    #: Hard: there is no fallback reader for the compound-file .msg layout, so
+    #: without extract-msg every .msg in the corpus is name-only.
+    requires = (
+        Requirement("extract_msg", "extract-msg",
+                    provides="the body and headers of Outlook .msg files",
+                    hard=True),
+    )
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
