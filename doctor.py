@@ -22,6 +22,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -241,9 +242,35 @@ def check_data_paths() -> list[Check]:
                          fix="Re-run install.ps1 - it writes DATA_PATH into .env."))
         return out
 
+    # **Refuse a path from another platform rather than creating it.**
+    #
+    # A backslash and a colon are ordinary filename characters on Linux and
+    # macOS, so `Path("D:\\Data\\vectors").mkdir(parents=True)` there does not
+    # fail: it makes a directory whose *name* is a drive letter and a path, in
+    # whatever folder happened to be current. That is how
+    # `D:\KnowledgeGraphData` - with `cache`, `fts`, `models`, `state` and
+    # `vectors` inside it - ended up sitting in the project folder, twice.
+    #
+    # `app/core/config.py` has had this guard for a while; `doctor` never went
+    # through it, because it is deliberately dependency-free so it can run on a
+    # half-built venv. Dependency-free is right; skipping the rule is not.
+    if sys.platform != "win32" and re.match(r"^(?:[A-Za-z]:[\\/]|\\\\)", data_path):
+        out.append(Check(
+            "Index folders exist and are writable", False,
+            f"DATA_PATH is '{data_path}', which is a Windows path, and this "
+            f"is {sys.platform}",
+            fix="Point DATA_PATH at a path for this platform, or run on "
+                "Windows. Creating it here would make a folder whose name "
+                "contains a drive letter and backslashes.",
+        ))
+        return out
+
     for sub in ("vectors", "fts", "cache", "models", "state"):
         p = Path(data_path) / sub
         try:
+            # Created if absent, which is deliberate: `doctor` is also what
+            # somebody runs after moving the index, and reporting "missing" for
+            # a folder it could have made would send them to make it by hand.
             p.mkdir(parents=True, exist_ok=True)
             probe = p / ".write_test"
             probe.write_text("ok", encoding="utf-8")

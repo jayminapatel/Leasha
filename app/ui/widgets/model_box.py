@@ -62,7 +62,13 @@ class ModelBox(QGroupBox):
     url_changed = pyqtSignal(str)
 
     def __init__(self, client_factory: Any, parent: Optional[QWidget] = None) -> None:
-        super().__init__("AI query interpretation (optional)", parent)
+        # **The word people look for is "Ollama".** Reported: *"i dont seem to
+        # find the button to turn olama on and off"* - and it was on screen, in
+        # a group headed "AI query interpretation" with a tick reading "Let a
+        # local model turn sentences into queries". Every word of that is
+        # accurate and none of it is the word somebody scanning the page has in
+        # mind. Naming the thing beats describing it.
+        super().__init__("Ollama — AI query interpretation (optional)", parent)
         #: Called with no arguments to get a fresh OllamaClient. A factory
         #: rather than a client, so the box can build one against whatever URL
         #: and model are current without owning that knowledge.
@@ -75,7 +81,8 @@ class ModelBox(QGroupBox):
         # Ollama at all. Off by default means nobody is shown a button that
         # cannot work, and nothing probes a service that is not there - which
         # matters for an app whose promise is that it is entirely local.
-        self.enabled = QCheckBox("Let a local model turn sentences into queries")
+        self.enabled = QCheckBox(
+            "Use Ollama to turn sentences into search queries")
         self.enabled.setToolTip(
             "Adds an Interpret button beside the search box.\n\n"
             "It rewrites 'emails from chris about a licence' as\n"

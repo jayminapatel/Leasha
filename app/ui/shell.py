@@ -1002,7 +1002,12 @@ class MainWindow(QMainWindow):
 
     def _save_roots(self, roots: list[str]) -> None:
         try:
-            self._store.set_state("ui:roots", "|".join(roots))
+            # The key `app.cli index` reads when it is given no folders, so
+            # the command line and the window index the same thing. Named
+            # rather than spelled out twice - see `cli.ROOTS_STATE_KEY`.
+            from app.cli import ROOTS_STATE_KEY
+
+            self._store.set_state(ROOTS_STATE_KEY, "|".join(roots))
         except Exception as exc:                 # noqa: BLE001
             _log.warning("index roots not saved: {}", exc)
 

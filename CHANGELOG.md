@@ -1,12 +1,77 @@
 # Changelog
 
-**Doc version:** 3.30 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.31 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — `doctor` created a folder literally named `D:\KnowledgeGraphData`
+
+Reported: *"i just noticed a folder DKnowledgeGraphData in our search project
+folder it was like the bug before"*. It was — a directory whose **name** is a
+drive letter, a colon and a path, with `cache`, `fts`, `models`, `state` and
+`vectors` inside it, sitting in the checkout.
+
+A backslash and a colon are ordinary filename characters on Linux and macOS, so
+`Path("D:\\Data\\vectors").mkdir(parents=True)` there does not fail and does not
+warn. `app/core/config.py` has refused foreign paths for a while;
+**`doctor.py` never went through it**, because it is deliberately
+dependency-free so it can run on a half-built venv. Dependency-free is right;
+skipping the rule was not. It now refuses and says why, in the same words.
+
+Worth naming the shape: this is the fourth time in this project that a Windows
+path treated as a POSIX one has caused a silent wrong answer.
+
+`test_no_stray_paths.py` guards the **outcome** rather than any one code path —
+it does not care what created the folder, only that nothing in the project is
+named like a path. That is the right shape for a failure whose only reliable
+symptom is the folder itself, and it caught this one within a minute of being
+written.
+
+### Fixed — the Ollama switch could not be found
+
+Reported: *"i dont seem to find the button to turn olama on and off"* — and it
+was on screen, in a group headed "AI query interpretation" with a tick reading
+"Let a local model turn sentences into queries". Every word accurate; none of
+them the word somebody scanning the page has in mind. The group is now
+"Ollama — AI query interpretation (optional)" and the tick "Use Ollama to turn
+sentences into search queries". Naming the thing beats describing it.
+
+### Added — restoring a setting's default, which was a one-way door
+
+`.env` beats the default in `config.py`, so the moment a setting is written down
+it is pinned for ever and no improved default can reach that machine again. The
+worked example is not hypothetical: the installer wrote
+`RERANK_MODEL=BAAI/bge-reranker-base` into every install, the code default was
+later changed to a model measured **9.2x faster**, and not one machine got it.
+
+The operation has existed since `75c48ae` — `apply_values(path, {"KEY": None})`
+removes a key — and nothing called it. Settings now has a **Restore defaults**
+button naming how many settings are pinned, and a **right-click on any control**
+restores just that one. The per-control menu is attached generically, by the
+registry key each control already carries as its object name, so a setting added
+next month gets one without anybody remembering.
+
+`None` removes; writing the default *value* back re-pins it. The two calls
+differ by one character, look identical on screen, and only one is the fix — so
+a test asserts both halves.
+
+### Fixed — `app.cli index` ignored the folders saved in Settings
+
+One setting, two sources of truth: the window saves "Folders to index" under
+`ui:roots`, and the command read only its own arguments. So a command-line run —
+including the one somebody uses to verify a migration, which is the whole reason
+the command exists — indexed whatever folder was typed rather than what the
+application is configured to index, and nothing afterwards could tell the two
+apart. Verifying the wrong thing and believing it was the right thing is the
+expensive kind of wrong.
+
+No folders now falls back to the saved setting **and prints which folders it is
+using**; named folders still win, because naming one is an instruction; neither
+names the Settings page rather than only the syntax.
 
 ### Added — a staged install tree, and a way to run from it
 

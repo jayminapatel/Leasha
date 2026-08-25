@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
+from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
 from app.ui.widgets.model_box import ModelBox
@@ -206,6 +207,16 @@ class SettingsView(QWidget):
         self.environment = EnvironmentBox(settings)
         self.environment.recording_toggled.connect(self.debug_recording_toggled)
 
+        # **Getting back to a default was a one-way door.** `.env` beats the
+        # code default, so a setting written once is pinned for ever - which is
+        # how a reranker measured 9.2x faster shipped and reached no machine.
+        # One button for all of them, and a right-click on any control for one.
+        # See `widgets/defaults.py`; both send None, which removes the line.
+        self.restore_defaults = restore_button(
+            self, getattr(settings, "env_file", None),
+            lambda values: self.settings_changed.emit(values))
+        attach_resets(self, lambda values: self.settings_changed.emit(values))
+
         layout = QVBoxLayout(self)
         layout.addWidget(roots_box)
         layout.addWidget(self.indexing)
@@ -218,6 +229,7 @@ class SettingsView(QWidget):
         layout.addWidget(self.models)
         layout.addWidget(self.file_types)
         layout.addWidget(self.environment, stretch=1)
+        layout.addWidget(self.restore_defaults)
 
         self.refresh_history_count()
         self.refresh_pst_status()

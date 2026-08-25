@@ -26,11 +26,11 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 from app.core.errors import AppErrorException, make_error
 
-__all__ = ["write_env", "apply_values", "render"]
+__all__ = ["write_env", "apply_values", "render", "pinned_keys"]
 
 
 def _split(line: str) -> Optional[tuple[str, str]]:
@@ -162,3 +162,40 @@ def apply_values(path: Path, values: Mapping[str, object]) -> dict[str, str]:
         if pair is not None:
             result[pair[0]] = pair[1].strip().strip('"').strip("'")
     return result
+
+
+def pinned_keys(path: Path, known: "Iterable[str] | None" = None) -> list[str]:
+    r"""Registry keys this `.env` file pins, in the order they appear.
+
+    **The list a "restore defaults" needs, and it is read from the file rather
+    than from the controls.** `.env` always beats the default in `config.py`, so
+    what matters is not whether a control *shows* something unusual - it is
+    whether the key is written down at all. A key set to exactly the current
+    default is still pinned, and still stops a better default from ever
+    reaching this machine.
+
+    That is not hypothetical: the installer wrote
+    `RERANK_MODEL=BAAI/bge-reranker-base` into every install, the code default
+    was later changed to a model measured 9.2x faster, and no machine got it.
+
+    `known` restricts the answer to keys the application recognises - normally
+    `settings_registry.keys()` - so a line somebody else's installer added is
+    reported as pinned by nothing this window offers to remove. Never raises:
+    an unreadable file pins nothing, which is the safe answer.
+    """
+    wanted = frozenset(known) if known is not None else None
+    found: list[str] = []
+    try:
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except OSError:
+        return found
+    for line in text.splitlines():
+        pair = _split(line)
+        if pair is None:
+            continue
+        key = pair[0]
+        if key in found:
+            continue
+        if wanted is None or key in wanted:
+            found.append(key)
+    return found

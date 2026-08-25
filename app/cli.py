@@ -343,6 +343,34 @@ _SKIP_DIRS = {
 }
 
 
+#: Where the window keeps "Folders to index". One key, `|`-separated - the same
+#: string `shell._save_roots` writes, and the reason this constant exists rather
+#: than the literal appearing in two files.
+ROOTS_STATE_KEY = "ui:roots"
+
+
+def _saved_roots(settings: Settings) -> "list[str]":
+    """The folders the window is configured to index, or an empty list.
+
+    **Read-only and guarded.** This runs before the pipeline is built, on a
+    store that may not exist yet - a first run has no database - and a missing
+    setting is the normal case rather than an error. Anything that goes wrong
+    here means "no saved folders", which is exactly what a fresh install has.
+    """
+    if not Path(settings.fts_db).is_file():
+        return []
+    try:
+        from app.storage.sqlite_store import SqliteStore
+
+        with SqliteStore(settings.fts_db) as store:
+            raw = store.get_state(ROOTS_STATE_KEY, "") or ""
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        logger.bind(component="cli.index").debug(
+            "could not read the saved index folders: {}", exc)
+        return []
+    return [part.strip() for part in raw.split("|") if part.strip()]
+
+
 def _iter_targets(paths: Sequence[str],
                   own: "frozenset[str]" = frozenset()) -> "list[Path]":
     """Expand the arguments into files. A folder is walked recursively.
@@ -796,13 +824,40 @@ def cmd_index(args: argparse.Namespace) -> int:
     log = logger.bind(component="cli.index")
 
     roots = [Path(root).expanduser() for root in (args.roots or [])]
+    from_settings = False
+    if not roots:
+        # **Falls back to what the window is configured to index.**
+        #
+        # The same setting had two sources of truth: the window saves "Folders
+        # to index" under `ui:roots`, and this command only ever read its own
+        # arguments. So a command-line run - including the one somebody uses to
+        # verify a migration - indexed whatever folder was typed rather than
+        # what the application is actually set up to index, and there was no
+        # way to tell the two apart afterwards. Verifying the wrong thing and
+        # believing it was the right thing is the expensive kind of wrong.
+        #
+        # Explicit arguments still win: naming a folder is an instruction, and
+        # a command that quietly ignored it in favour of a saved setting would
+        # be the same bug pointing the other way.
+        saved = _saved_roots(settings)
+        roots = [Path(root).expanduser() for root in saved]
+        from_settings = bool(roots)
+
     if not roots:
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.index",
-            key="roots", reason="give at least one folder to index",
-            suggestion=r'Name the folders to index, for example: '
-                       r'app.cli index "D:\SearchData"',
+            key="roots", reason="no folders to index",
+            suggestion=r'Name them here - app.cli index "D:\SearchData" - or '
+                       r'set them once on the Settings page, under "Folders to '
+                       r'index", and run this with no arguments.',
         ), args.json)
+
+    if from_settings and not args.json:
+        # **Said out loud.** A command that silently uses a setting is a command
+        # whose output cannot be attributed to anything.
+        print("Indexing the folders saved in Settings:")
+        for root in roots:
+            print(f"  {root}")
 
     missing = [root for root in roots if not root.exists()]
     if missing:
