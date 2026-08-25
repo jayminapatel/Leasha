@@ -166,6 +166,15 @@ SETTINGS: tuple[Setting, ...] = (
              "images filled in afterwards.",
     ),
     Setting(
+        key="INDEX_NAME_ONLY", label="Index every file by name", kind="bool",
+        default=True, group="Indexing", surface="settings.indexing",
+        help="Records a row for every file, including the ones nothing can "
+             "read - .zip, .mp4, .exe. They are findable by name; their "
+             "contents are not searchable, and nothing is opened. Switch it "
+             "off if you are indexing a media drive and do not want two "
+             "million video files in the index.",
+    ),
+    Setting(
         key="ARCHIVE_RECHECK_DAYS", label="Re-check archived folders every",
         kind="int", default=30, group="Indexing", surface="settings.indexing",
         minimum=0, maximum=365, unit="days",

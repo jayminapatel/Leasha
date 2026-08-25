@@ -44,13 +44,15 @@ CREATE TABLE IF NOT EXISTS files (
     size_bytes    INTEGER NOT NULL,
     mtime_ns      INTEGER NOT NULL,
     content_hash  TEXT,                      -- blake2b of bytes; NULL until read
-    status        TEXT    NOT NULL,          -- PENDING | INDEXED | SKIPPED | FAILED
+    status        TEXT    NOT NULL,          -- PENDING | INDEXED | SKIPPED | FAILED | NAME_ONLY
     skip_code     TEXT,                      -- AppError.code when SKIPPED/FAILED
     skip_detail   TEXT,
     indexed_at    INTEGER,
     source_kind   TEXT    NOT NULL,          -- file | pst_message | eml
     repo_id       INTEGER REFERENCES repos(id) ON DELETE SET NULL,
-    CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED'))
+    -- NAME_ONLY: the file exists and is findable by name; its contents
+    -- were never read. A status, not a failure - see FileStatus.
+    CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED', 'NAME_ONLY'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);

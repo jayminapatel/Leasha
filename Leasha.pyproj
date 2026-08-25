@@ -168,6 +168,7 @@
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
+    <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
@@ -241,6 +242,7 @@
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fusion.py" />
+    <Compile Include="tests\unit\test_git_view.py" />
     <Compile Include="tests\unit\test_gitquery.py" />
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />

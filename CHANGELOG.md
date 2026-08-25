@@ -1,12 +1,62 @@
 # Changelog
 
-**Doc version:** 3.43 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.44 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — every file in an indexed folder is findable by name
+
+`docs/WORKORDER-zip-archives.md` §1a, which the order calls *"the larger half"*:
+*"the files search should include all files, not just the ones we have read the
+content of — all files in the search folder."*
+
+A `.zip`, an `.mp4`, an `.exe`, a 40GB disk image, a zero-byte marker: each
+produced **no row at all**. Not indexed, not in the skip ledger, nothing
+anywhere recording that it had been passed over. Invisible is the worst of the
+three possible answers — somebody who can see the file in Explorer and cannot
+find it in Leasha concludes the index is broken, and they are not wrong.
+
+Now the walk yields them and the pipeline writes a name, path, size and date.
+One INSERT on top of a `stat` the walk already performed. **Nothing is opened,
+hashed, extracted or embedded**, which is the whole reason this is affordable
+at 1.5TB.
+
+A new status, `NAME_ONLY`, carries the distinction. Not `INDEXED` — a row
+claiming its contents were read while holding no chunks is the exact failure
+that made `--force` necessary. Not `SKIPPED` — nothing went wrong; there is no
+reader for a `.mp4` and there was never going to be. The summary says so in
+those words, with the extensions broken out, because *"30% of your corpus is
+`.dwg`"* is actionable and *"a lot went unread"* is not.
+
+**The dangerous half was the migration, not the feature.** `files.status`
+carries a CHECK constraint, so admitting a new value means rebuilding the
+table — and `chunks`, `messages` and `entity_mentions` reference `files(id)`
+with `ON DELETE CASCADE` while this store runs with `PRAGMA foreign_keys = ON`.
+Schema v10 disables foreign keys for the rebuild, copies `id` so every existing
+reference stays valid, recreates the indexes, and turns them back on in a
+`finally`. It is executed statement by statement rather than through
+`executescript`, which implicitly commits and would have dropped the
+surrounding transaction — found by *testing* the rebuild rather than reading
+it. `tests/unit/test_name_only.py` asserts the chunk, message and FTS counts
+are identical either side.
+
+**Two defects the tests caught, both about reading a file we promised not to
+read.** `has_changed` pays for a hash when a file was touched recently, and a
+`NAME_ONLY` row holds no hash to compare against — so `fresh != None` was true
+every time and a 4GB `.mp4` copied in this morning was read end to end on the
+next pass, while every count still looked correct. Unreadable candidates are
+now settled on mtime and size alone, above that call. The mirror of it: a row
+being `NAME_ONLY` must *not* mean settled the way `INDEXED` does, because a
+file is name-only for reasons that change — the size ceiling gets raised, an
+extractor gets added for its type — and trusting the row would leave it
+name-only for ever with nothing saying why.
+
+`INDEX_NAME_ONLY` turns it off, in Settings → Indexing. The objection it
+answers is a real one: two million video files on a media drive.
 
 ### Added — a repository pane on the Code tab, and a branch is a place the index cannot go
 

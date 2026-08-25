@@ -235,3 +235,55 @@ def test_the_progress_sink_does_not_double_every_log_line(tmp_path):
         setup_logging(tmp_path, force=True)      # leave logging as it was
 
     assert err.getvalue().count("one message") == 1
+
+
+# --- files nothing can read -------------------------------------------------
+
+def test_files_nothing_can_read_are_reported_as_names_not_skips(
+    capsys, env: list[str], corpus: Path
+) -> None:
+    r"""**Not "skipped", and not silence.**
+
+    From `docs/WORKORDER-zip-archives.md` §1a. Reporting a `.mp4` under
+    "skipped by cause" reads as something having gone wrong; there is no reader
+    for a `.mp4` and there was never going to be. Reporting nothing at all is
+    worse - it is the behaviour that had people concluding the index was broken
+    because a file they could see was not in it.
+
+    The extension breakdown is the number that turns "a lot went unread" into
+    something actionable: *30% of this corpus is .dwg* tells somebody what to
+    do next.
+    """
+    (corpus / "holiday.mp4").write_bytes(b"\x00" * 64)
+    (corpus / "backup.zip").write_bytes(b"PK\x03\x04" + b"\x00" * 60)
+
+    _code, out, _err = run(capsys, *env, "index", str(corpus), "--quiet")
+
+    assert "By name   2 file(s) indexed by name only" in out
+    assert ".mp4 x1" in out and ".zip x1" in out
+    assert "their contents are not searchable" in out
+    assert "Skipped   0" in out            # nothing went wrong, and it says so
+
+
+def test_the_by_name_block_is_absent_when_everything_was_read(
+    capsys, env: list[str], corpus: Path
+) -> None:
+    """A line reading "By name 0" on every run is noise that teaches people to
+    stop reading the summary."""
+    _code, out, _err = run(capsys, *env, "index", str(corpus), "--quiet")
+
+    assert "By name" not in out
+
+
+def test_the_count_reaches_the_json_summary_too(
+    capsys, env: list[str], corpus: Path
+) -> None:
+    """`--json` is what a scheduled run is read through, and it must not be a
+    less honest account than the human one."""
+    (corpus / "holiday.mp4").write_bytes(b"\x00" * 64)
+
+    _code, out, _err = run(capsys, *env, "--json", "index", str(corpus))
+    payload = json.loads(out)
+
+    assert payload["name_only"] == 1
+    assert payload["name_only_by_ext"] == {"mp4": 1}

@@ -949,6 +949,9 @@ def cmd_index(args: argparse.Namespace) -> int:
             # Never index our own index, logs, cache or models. Indexing the
             # project folder had the run reading the log file it was writing.
             exclude_paths=own_paths(settings),
+            # Every file gets a row, whether or not anything can read it - see
+            # `WalkConfig.name_only`. Off makes the walk behave as it did.
+            name_only=settings.index_name_only,
         ),
         limits=limits,
         min_free_gb=settings.min_free_gb,
@@ -1073,6 +1076,20 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(f"Waited    {stats.paused_seconds / 60:,.1f} min across {stats.pauses} "
               f"pause(s) to stay out of the way")
     print(f"          {stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min")
+    if stats.name_only:
+        # **Not "skipped".** Nothing went wrong: there is no reader for a
+        # `.mp4`. Reported with the types, because that is the number that
+        # tells somebody their corpus is 30% `.dwg`.
+        top = sorted(stats.name_only_by_ext.items(),
+                     key=lambda row: row[1], reverse=True)[:6]
+        kinds = ", ".join(f".{ext} x{count:,}" for ext, count in top)
+        print()
+        print(f"By name   {stats.name_only:,} file(s) indexed by name only - "
+              f"nothing can read them")
+        print(f"          {kinds}")
+        print("          They are findable by name; their contents are not "
+              "searchable.")
+
     held = stats.skipped_by_code.get("ERR_OCR_HELD", 0)
     if held:
         # **Named separately from the failures, because it is not one.** A
@@ -1346,7 +1363,7 @@ def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
 
 
 def cmd_gitsearch(args: argparse.Namespace) -> int:
-    """Search a repository - its files, its branches, its whole history.
+    r"""Search a repository - its files, its branches, its whole history.
 
     The switches are `GitSearch.txt`'s, in the `/` grammar the rest of this
     application already uses:

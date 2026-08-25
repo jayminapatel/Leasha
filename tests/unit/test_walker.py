@@ -45,6 +45,18 @@ def names(candidates) -> set[str]:
     return {c.path.name for c in candidates}
 
 
+def readable(candidates) -> set[str]:
+    """The names the walk says are worth *opening*.
+
+    Since `WORKORDER-zip-archives.md` §1a the walk yields a `.dll`, an empty
+    file and a 40GB disk image too - they get a row carrying their name, and
+    nothing else happens to them. So "was it skipped?" split into two
+    questions, and every test below that used to ask the first now asks the
+    second, which is the one that was always the point: **is it opened?**
+    """
+    return {c.path.name for c in candidates if c.readable}
+
+
 # --- what gets picked up ----------------------------------------------------
 
 def test_finds_supported_files_recursively(tmp_path: Path) -> None:
@@ -55,22 +67,48 @@ def test_finds_supported_files_recursively(tmp_path: Path) -> None:
     assert names(found) == {"a.txt", "b.txt", "c.md"}
 
 
-def test_unsupported_extensions_are_ignored(tmp_path: Path) -> None:
+def test_unsupported_extensions_are_never_opened(tmp_path: Path) -> None:
+    """A `.dll` is *there* - findable by name - and nothing reads it."""
     make_tree(tmp_path, {"keep.txt": "x", "skip.dll": "x", "skip.exe": "x"})
-    assert names(walk(WalkConfig(roots=[tmp_path], extensions=TEXT))) == {"keep.txt"}
+    found = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT)))
+
+    assert readable(found) == {"keep.txt"}
+    assert names(found) == {"keep.txt", "skip.dll", "skip.exe"}
 
 
-def test_empty_files_are_skipped(tmp_path: Path) -> None:
-    """Zero bytes cannot contain text, and would cost a parse to discover that."""
+def test_unsupported_extensions_vanish_again_when_name_only_is_off(tmp_path: Path) -> None:
+    """The old contract, still available. It is what somebody indexing a media
+    drive wants, and it is one checkbox."""
+    make_tree(tmp_path, {"keep.txt": "x", "skip.dll": "x", "skip.exe": "x"})
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT, name_only=False)
+
+    assert names(walk(config)) == {"keep.txt"}
+
+
+def test_empty_files_are_never_parsed(tmp_path: Path) -> None:
+    """Zero bytes cannot contain text, and would cost a parse to discover that.
+
+    A zero-byte marker is still a real file somebody may go looking for, so it
+    keeps its name - there is simply nothing in it to read.
+    """
     make_tree(tmp_path, {"real.txt": "content"})
     (tmp_path / "empty.txt").write_text("", encoding="utf-8")
-    assert names(walk(WalkConfig(roots=[tmp_path], extensions=TEXT))) == {"real.txt"}
+    found = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT)))
+
+    assert readable(found) == {"real.txt"}
+    assert names(found) == {"real.txt", "empty.txt"}
 
 
-def test_oversized_files_are_skipped(tmp_path: Path) -> None:
+def test_oversized_files_are_never_opened(tmp_path: Path) -> None:
+    """**The ceiling is about cost, not existence.** Hashing a 40GB disk image
+    takes minutes and yields nothing; refusing to admit it exists costs the one
+    thing the user wanted, which is to know where it is."""
     make_tree(tmp_path, {"small.txt": "x", "big.txt": "y" * 5000})
     config = WalkConfig(roots=[tmp_path], extensions=TEXT, max_file_bytes=1000)
-    assert names(walk(config)) == {"small.txt"}
+    found = list(walk(config))
+
+    assert readable(found) == {"small.txt"}
+    assert names(found) == {"small.txt", "big.txt"}
 
 
 def test_missing_root_is_not_fatal(tmp_path: Path) -> None:
@@ -89,7 +127,7 @@ def test_overlapping_roots_do_not_double_index(tmp_path: Path) -> None:
 def test_extensions_default_to_the_extractor_registry(tmp_path: Path) -> None:
     """Adding an extractor must not require editing walker config."""
     make_tree(tmp_path, {"a.txt": "x", "b.dll": "x"})
-    assert names(walk(WalkConfig(roots=[tmp_path]))) == {"a.txt"}
+    assert readable(walk(WalkConfig(roots=[tmp_path]))) == {"a.txt"}
 
 
 # --- exclusions -------------------------------------------------------------

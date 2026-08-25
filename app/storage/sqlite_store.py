@@ -79,8 +79,20 @@ class FileStatus:
     INDEXED = "INDEXED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
+    #: The file exists and is findable by name; its contents were never read.
+    #:
+    #: **A status, not a failure, and never `INDEXED`.** A row that says
+    #: INDEXED while holding no chunks is precisely the bug that made
+    #: `--force` necessary - every later run reported it as unchanged, the
+    #: totals looked healthy, and its content was not searchable. Recreating
+    #: that deliberately, for millions of rows, would be worse.
+    #:
+    #: It is not `SKIPPED` either: a skip is something that went wrong and
+    #: carries an error code. Nothing went wrong here. There is no reader for
+    #: a `.mp4`, and there was never going to be.
+    NAME_ONLY = "NAME_ONLY"
 
-    ALL = (PENDING, INDEXED, SKIPPED, FAILED)
+    ALL = (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY)
 
 
 @dataclass(frozen=True)

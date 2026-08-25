@@ -223,16 +223,22 @@ def test_the_list_is_substantially_larger_than_it_was():
 
 def test_the_walk_admits_a_file_with_no_extension_at_all(tmp_path):
     """**The half that routing by extension cannot do.** Without it a
-    repository is indexed without the file that says how it is built."""
+    repository is indexed without the file that says how it is built.
+
+    Asked of `readable`, not of the yielded set: since §1a of the archives
+    order every file in the folder is yielded, so "is it there?" no longer
+    distinguishes anything. The question this test has always been asking is
+    whether the walk will *open* it.
+    """
     from app.index.walker import WalkConfig, walk
 
     for name in ("Makefile", ".gitignore", "a.pkb", "b.exe", "c.tmp"):
         (tmp_path / name).write_text("x", encoding="utf-8")
 
-    found = {path.path.name for path in walk(WalkConfig(roots=(tmp_path,)))}
+    opened = {c.path.name for c in walk(WalkConfig(roots=(tmp_path,))) if c.readable}
 
-    assert {"Makefile", ".gitignore", "a.pkb"} <= found
-    assert "b.exe" not in found and "c.tmp" not in found
+    assert {"Makefile", ".gitignore", "a.pkb"} <= opened
+    assert "b.exe" not in opened and "c.tmp" not in opened
 
 
 def test_an_extensionless_file_nobody_named_is_still_skipped(tmp_path):
@@ -243,6 +249,6 @@ def test_an_extensionless_file_nobody_named_is_still_skipped(tmp_path):
 
     (tmp_path / "some-random-binary").write_bytes(b"\x7fELF")
 
-    found = {path.path.name for path in walk(WalkConfig(roots=(tmp_path,)))}
+    opened = {c.path.name for c in walk(WalkConfig(roots=(tmp_path,))) if c.readable}
 
-    assert "some-random-binary" not in found
+    assert "some-random-binary" not in opened

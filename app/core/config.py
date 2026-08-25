@@ -201,6 +201,13 @@ class Settings(BaseModel):
     index_interval_hours: int = 6
     #: Local time of day, HH:MM, when `index_schedule` is "daily".
     index_daily_at: str = "02:00"
+    #: Record every file by name, even the ones nothing can read.
+    #:
+    #: On by default, because *"where is that file"* is the most common
+    #: question anybody asks a search tool and a `.zip` used to produce no row
+    #: at all. Off for somebody indexing a media drive who does not want two
+    #: million video files in their index.
+    index_name_only: bool = True
     #: both | text | images. Which pass an index run is. See `pipeline.
     #: OCR_MODES`: OCR costs about 3.6 seconds a page, so at a terabyte a
     #: single pass means nothing is searchable until everything is.
@@ -315,6 +322,8 @@ def load_settings(
                 "INDEX_INTERVAL_HOURS", values.get("INDEX_INTERVAL_HOURS", "6")),
             index_daily_at=(values.get("INDEX_DAILY_AT") or "02:00").strip(),
             index_ocr_mode=(values.get("INDEX_OCR_MODE") or "both").strip().lower(),
+            index_name_only=_as_bool(
+                "INDEX_NAME_ONLY", values.get("INDEX_NAME_ONLY", "true")),
             archive_recheck_days=_as_int(
                 "ARCHIVE_RECHECK_DAYS", values.get("ARCHIVE_RECHECK_DAYS", "30")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),

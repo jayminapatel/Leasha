@@ -209,6 +209,12 @@ class IndexStats:
     #: Files seen per archival root this run, keyed as `archives.normalise`
     #: gives them. Written by the walker thread, read once at the end.
     root_counts: dict[str, int] = field(default_factory=dict)
+    #: Files recorded by name because nothing can read them, and the count per
+    #: extension. **Not skips**: nothing went wrong, there is no reader for a
+    #: `.mp4`. Reported so an invisible absence becomes a number - which is how
+    #: somebody discovers a corpus is 30% `.dwg`.
+    name_only: int = 0
+    name_only_by_ext: dict[str, int] = field(default_factory=dict)
     #: Things worth saying before or during the run that are not failures.
     #: Shown by the CLI and by the Indexing panel. A run that is going to take a
     #: week should say what it can see coming at the start of it, not at hour
@@ -291,6 +297,8 @@ class IndexStats:
             "bytes_read": self.bytes_read, "elapsed_s": round(self.elapsed_s, 2),
             "files_per_minute": round(self.files_per_minute, 1),
             "mb_per_minute": round(self.mb_per_minute, 2),
+            "name_only": self.name_only,
+            "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
@@ -414,6 +422,8 @@ class _Extracted:
     #: True on the first document from a file, so bytes are counted once per
     #: file rather than once per message.
     first_of_file: bool = True
+    #: Record this file by name and read nothing. See `FileStatus.NAME_ONLY`.
+    name_only: bool = False
     #: The closing record for a container: a row for the archive *itself*,
     #: carrying its mtime and size and holding no chunks.
     #:
@@ -807,6 +817,19 @@ class Pipeline:
         self.config.walk.extensions = (
             wanted if current is None else frozenset(current) & wanted
         )
+        # **And no name-only rows on this pass.** Narrowing the extensions is
+        # only half a narrowing while `name_only` is on: the walk still yields
+        # every `.txt`, `.pdf` and `.docx` in the corpus - now as unreadable,
+        # because the extension set no longer admits them - and the saving this
+        # method exists for disappears.
+        #
+        # The worse half is what those rows would say. A `.txt` the text pass
+        # indexed perfectly well would be rewritten as NAME_ONLY, its chunks
+        # left behind it, and the index would end up holding rows that claim
+        # nothing read them while their content sits in `chunks` - the lying
+        # row this status was introduced to prevent, arriving through the door
+        # nobody was watching. Naming a file is the first pass's job.
+        self.config.walk.name_only = False
 
     # -- archival roots ------------------------------------------------------
 
@@ -1023,6 +1046,43 @@ class Pipeline:
         """
         try:
             record = self.store.get_file(str(candidate.path))
+        except Exception as exc:            # noqa: BLE001 - see the docstring
+            self._log.warning(
+                "could not read the row for {}, queuing it anyway: {}",
+                candidate.path, exc,
+            )
+            return ""
+
+        if not getattr(candidate, "readable", True):
+            # **Decided on mtime and size alone, and never by reading.**
+            #
+            # `has_changed` is the wrong instrument for a file nothing opens.
+            # Its recent-edit rule deliberately pays for a hash when a file was
+            # touched in the last few minutes, and a NAME_ONLY row holds no hash
+            # to compare against - so `fresh != None` is true every time. The
+            # result was that a `.mp4` copied in this morning got its 4GB read
+            # on the next pass, which is the exact cost this whole feature
+            # promises not to incur.
+            #
+            # Content changes are irrelevant here: the content is not indexed.
+            # The only thing a row can go stale about is its size and date.
+            if record is not None and record.status == FileStatus.INDEXED:
+                # **Never demote a row that was read.** This pass cannot read
+                # the file; a previous one could. That happens whenever the
+                # extension set narrows - the images-only OCR pass, a type
+                # removed in Settings - and rewriting the row as NAME_ONLY
+                # would leave it claiming nothing read it while its chunks sit
+                # in `chunks` next to it. A pass that cannot open a file has
+                # nothing to say about its contents.
+                return UNCHANGED
+            if (record is not None
+                    and record.status == FileStatus.NAME_ONLY
+                    and record.mtime_ns == candidate.mtime_ns
+                    and record.size_bytes == candidate.size_bytes):
+                return UNCHANGED
+            return None                      # write the name row, read nothing
+
+        try:
             changed, digest = has_changed(
                 candidate,
                 known_mtime_ns=record.mtime_ns if record else None,
@@ -1054,6 +1114,13 @@ class Pipeline:
         # walk, which is why the row is trusted. `--force` is the answer
         # instead: the trust is cheap and overridable rather than expensive and
         # absolute.
+        # **NAME_ONLY is deliberately not in that tuple**, and this is the only
+        # place the distinction shows. Reaching here means the walk called this
+        # file readable while its row says nothing read it - the size ceiling
+        # was raised, or an extractor was added for its type. Treating the row
+        # as settled would leave it name-only for ever, with nothing to tell
+        # anyone why. The unreadable case never gets this far; it is answered
+        # above without a read.
         if not changed and record is not None and record.status == FileStatus.INDEXED:
             return UNCHANGED
         return digest
@@ -1073,6 +1140,13 @@ class Pipeline:
                 self._offer(results, _STOP)
                 work.task_done()
                 return
+            if not getattr(candidate, "readable", True):
+                # **Nothing is opened.** The row is its name, path, size and
+                # date - one INSERT on top of a `stat` the walk already did.
+                self._offer(results, _Extracted(
+                    candidate=candidate, content_hash=None, name_only=True))
+                work.task_done()
+                continue
             self._stats_ref.current = candidate.path.name
             self._stats_ref.current_since = time.monotonic()
             self._stats_ref.current_item = 0
@@ -1251,6 +1325,14 @@ class Pipeline:
                 # back saying "0.0 MB".
                 stats.bytes_read += item.candidate.size_bytes
 
+            if item.name_only:
+                self._write_name_only(item)
+                stats.name_only += 1
+                extension = indexed_ext(item.candidate.path) or "(none)"
+                stats.name_only_by_ext[extension] = (
+                    stats.name_only_by_ext.get(extension, 0) + 1)
+                continue
+
             if item.file_marker:
                 # No chunks, no embedding, no count - just the record that says
                 # "this archive was read at this size and time".
@@ -1328,6 +1410,30 @@ class Pipeline:
             f"{recent:,.0f} files/min" if recent is not None else "no measurement",
             RATE_WINDOW_S / 60, stats.paused_seconds / 60,
             dict(stats.skipped_by_code) or "none",
+        )
+
+    def _write_name_only(self, item: _Extracted) -> None:
+        r"""A row for a file nothing can read. **Opens nothing.**
+
+        `NAME_ONLY` rather than `INDEXED`, because a row claiming its contents
+        were read while holding no chunks is the bug that made `--force`
+        necessary. And rather than `SKIPPED`, because nothing went wrong: there
+        is no reader for a `.mp4` and there was never going to be.
+
+        `upsert_file` feeds `files_fts` for anything whose `source_kind` is
+        `file`, so the name becomes searchable with no extra work.
+        """
+        candidate = item.candidate
+        self.store.upsert_file(
+            str(candidate.path),
+            size_bytes=candidate.size_bytes,
+            mtime_ns=candidate.mtime_ns,
+            content_hash=None,
+            status=FileStatus.NAME_ONLY,
+            source_kind="file",
+            parent_dir=str(candidate.path.parent),
+            ext=indexed_ext(candidate.path),
+            repo_id=self._repo_id_for(candidate.path),
         )
 
     def _write_marker(self, item: _Extracted) -> None:

@@ -24,7 +24,9 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QSpinBox
+from PyQt6.QtWidgets import (
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox,
+)
 
 __all__ = ["LongRunBox"]
 
@@ -74,13 +76,26 @@ class LongRunBox(QGroupBox):
         )
         self.archive_recheck_days.valueChanged.connect(lambda _v: self.changed.emit())
 
+        self.name_only = QCheckBox("Index every file by name")
+        self.name_only.setObjectName("INDEX_NAME_ONLY")
+        self.name_only.setToolTip(
+            "Record a row for every file, including the ones nothing can read -\n"
+            ".zip, .mp4, .exe, .iso. They become findable by name; their contents\n"
+            "are not searchable, and nothing is opened.\n\n"
+            "Before this they produced no row at all: not a name, not a skip, and\n"
+            "nothing anywhere saying they had been passed over.\n\n"
+            "Costs one row per file - tens of bytes, no text and no vectors."
+        )
+        self.name_only.stateChanged.connect(lambda _s: self.changed.emit())
+
         form = QFormLayout(self)
+        form.addRow(self.name_only)
         form.addRow("Images and scans", self.ocr_mode)
         form.addRow("Re-check archives every", self.archive_recheck_days)
 
     def load(self, settings: Any) -> None:
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""
-        for widget in (self.ocr_mode, self.archive_recheck_days):
+        for widget in (self.ocr_mode, self.archive_recheck_days, self.name_only):
             widget.blockSignals(True)
         try:
             mode = str(getattr(settings, "index_ocr_mode", "both"))
@@ -88,8 +103,11 @@ class LongRunBox(QGroupBox):
             self.ocr_mode.setCurrentIndex(found if found >= 0 else 0)
             self.archive_recheck_days.setValue(
                 int(getattr(settings, "archive_recheck_days", 30)))
+            self.name_only.setChecked(
+                bool(getattr(settings, "index_name_only", True)))
         finally:
-            for widget in (self.ocr_mode, self.archive_recheck_days):
+            for widget in (self.ocr_mode, self.archive_recheck_days,
+                           self.name_only):
                 widget.blockSignals(False)
 
     def values(self) -> dict:
@@ -97,4 +115,5 @@ class LongRunBox(QGroupBox):
         return {
             "index_ocr_mode": str(self.ocr_mode.currentData() or "both"),
             "archive_recheck_days": int(self.archive_recheck_days.value()),
+            "index_name_only": bool(self.name_only.isChecked()),
         }

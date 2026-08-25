@@ -112,6 +112,13 @@ class Candidate:
     #: Raw Windows attribute bits from the stat already performed, so a
     #: placeholder check costs nothing extra. None off Windows.
     attributes: Optional[int] = None
+    #: Whether anything can read this file's *contents*.
+    #:
+    #: **False is not a failure and not a skip.** Extension routing decides
+    #: what is read; it does not decide what exists. A `.mp4` gets a row with
+    #: its name, path, size and date so it is findable - see
+    #: `WalkConfig.name_only` - and nothing opens it.
+    readable: bool = True
 
     @property
     def ext(self) -> str:
@@ -162,6 +169,17 @@ class WalkConfig:
     #: directory anywhere else, and it would hide a `logs` folder that genuinely
     #: belongs to the person.
     exclude_paths: frozenset[str] = field(default_factory=frozenset)
+    #: Yield files nothing can read, so they are indexed by name.
+    #:
+    #: **Asked for**: *"the files search should include all files, not just the
+    #: ones we have read the content of"*. Before this the walk simply skipped
+    #: them, so a `.zip`, a `.mp4` or an `.exe` produced no row at all - not a
+    #: name, not a skip-ledger line, nothing anywhere saying it had been passed
+    #: over. Invisible is the worst of the three possible answers.
+    #:
+    #: Costs one `stat` the walk already performs and one INSERT. Nothing is
+    #: opened, hashed or extracted - see `Candidate.readable`.
+    name_only: bool = True
     #: Repository roots found during the walk, written here as they are seen,
     #: as `root_path -> kind`.
     #:
@@ -454,8 +472,9 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
                     continue
 
                 path = Path(directory) / filename
-                if (path.suffix.lower() not in extensions
-                        and filename.lower() not in names):
+                readable = (path.suffix.lower() in extensions
+                            or filename.lower() in names)
+                if not readable and not config.name_only:
                     continue
 
                 key = str(path).lower()
@@ -467,7 +486,13 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
                 except OSError:
                     continue               # vanished or unreadable between listing and stat
 
-                if stat.st_size > config.max_file_bytes or stat.st_size == 0:
+                # **Too big or empty means "do not read it", not "pretend it
+                # is not there".** A 40GB disk image and a zero-byte marker are
+                # both real files somebody may go looking for; what they are
+                # not is files worth opening. They become name-only rows, which
+                # is the honest answer and costs nothing.
+                too_big = stat.st_size > config.max_file_bytes
+                if (too_big or stat.st_size == 0) and not config.name_only:
                     continue
 
                 attributes = getattr(stat, "st_file_attributes", None)
@@ -477,6 +502,7 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
                     mtime_ns=stat.st_mtime_ns,
                     priority=_priority_for(path, config.priority_roots),
                     attributes=attributes,
+                    readable=readable and not too_big and stat.st_size > 0,
                 )
 
                 if candidate.is_cloud_placeholder and not config.include_cloud:

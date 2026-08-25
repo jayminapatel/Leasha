@@ -28,7 +28,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 9
+CURRENT_VERSION = 10
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -448,6 +448,106 @@ def _v9_forget_dragged_column_widths(conn: sqlite3.Connection) -> None:
         "DELETE FROM index_state WHERE key LIKE 'ui:%:widths'")
 
 
+def _v10_name_only_status(conn: sqlite3.Connection) -> None:
+    r"""Let `files.status` hold `NAME_ONLY`, so every file can have a row.
+
+    Asked for: *"the files search should include all files, not just the ones
+    we have read the content of"*. A `.zip`, `.mp4` or `.exe` got no row at
+    all - not indexed by name, not in the skip ledger, nothing anywhere saying
+    it had been passed over. Invisible is the worst of the three possible
+    answers, because somebody who knows the file is there concludes the index
+    is broken, and they are not wrong.
+
+    `NAME_ONLY` is a status rather than a skip: nothing went wrong, there is
+    simply no reader for a `.mp4`. And it is emphatically not `INDEXED` - a row
+    claiming that while holding no chunks is the bug that made `--force`
+    necessary, and doing it deliberately for millions of rows would be worse.
+
+    **This is a table rebuild, and the dangerous part is not the rebuild.**
+    `status` carries a CHECK constraint, which SQLite cannot alter in place, so
+    the twelve-step dance is the only route. The hazard is that `chunks`,
+    `messages` and `entity_mentions` all reference `files(id)` with
+    `ON DELETE CASCADE` **and this store runs with `PRAGMA foreign_keys = ON`**:
+    a `DROP TABLE files` with them enabled deletes every chunk in the index.
+
+    So foreign keys are turned off for the rebuild and back on afterwards,
+    which is only possible because the connection uses `isolation_level=None`
+    and this runs outside a transaction. `id` is copied rather than
+    regenerated, so every existing reference stays valid.
+    `test_the_rebuild_keeps_every_chunk` proves both halves.
+
+    Cost is proportional to the row count: seconds on a normal index, a couple
+    of minutes on a corpus of millions. Once.
+    """
+    if _status_allows(conn, "NAME_ONLY"):
+        return                                # already rebuilt, or a fresh schema
+
+    # **Executed statement by statement, never `executescript`.** That helper
+    # implicitly commits any open transaction before it runs, so the `BEGIN`
+    # below would be discarded and a failure half way through would leave the
+    # schema in pieces. Found by testing the rebuild rather than by reading it.
+    steps = [
+        """CREATE TABLE files_rebuilt (
+                id            INTEGER PRIMARY KEY,
+                path          TEXT    NOT NULL UNIQUE,
+                parent_dir    TEXT    NOT NULL,
+                ext           TEXT    NOT NULL,
+                size_bytes    INTEGER NOT NULL,
+                mtime_ns      INTEGER NOT NULL,
+                content_hash  TEXT,
+                status        TEXT    NOT NULL,
+                skip_code     TEXT,
+                skip_detail   TEXT,
+                indexed_at    INTEGER,
+                source_kind   TEXT    NOT NULL,
+                repo_id       INTEGER REFERENCES repos(id) ON DELETE SET NULL,
+                CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED',
+                                  'NAME_ONLY'))
+           )""",
+        """INSERT INTO files_rebuilt
+                SELECT id, path, parent_dir, ext, size_bytes, mtime_ns,
+                       content_hash, status, skip_code, skip_detail,
+                       indexed_at, source_kind, repo_id
+                FROM files""",
+        "DROP TABLE files",
+        "ALTER TABLE files_rebuilt RENAME TO files",
+        "CREATE INDEX IF NOT EXISTS idx_files_status ON files(status)",
+        "CREATE INDEX IF NOT EXISTS idx_files_dir    ON files(parent_dir)",
+        "CREATE INDEX IF NOT EXISTS idx_files_ext    ON files(ext)",
+        "CREATE INDEX IF NOT EXISTS idx_files_skip   ON files(skip_code) "
+        "WHERE skip_code IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_kind_ext ON files(source_kind, ext)",
+        "CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo_id) "
+        "WHERE repo_id IS NOT NULL",
+    ]
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for statement in steps:
+            conn.execute(statement)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        # **Back on whatever happened.** Leaving them off would silently
+        # disable every cascade for the life of the connection, which is a far
+        # worse state than a failed migration.
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
+    """Whether `files.status` already permits `value`. Never raises."""
+    try:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='files'"
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    return bool(row) and value in str(row[0] or "")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -457,6 +557,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     7: _v7_identifier_tokens,
     8: _v8_mail_header_index,
     9: _v9_forget_dragged_column_widths,
+    10: _v10_name_only_status,
 }
 
 

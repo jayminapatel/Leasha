@@ -1159,6 +1159,8 @@ class MainWindow(QMainWindow):
                 walk=WalkConfig(
                     roots=[Path(root) for root in chosen],
                     include_cloud=self.settings_view.cloud.isChecked(),
+                    name_only=bool(getattr(
+                        self._settings, "index_name_only", True)),
                 ),
                 # Memory, CPU, battery and disk ceilings, from .env. Without
                 # these an index run competes with whatever the person is

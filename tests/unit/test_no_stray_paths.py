@@ -113,3 +113,66 @@ def test_the_guard_leaves_windows_alone(monkeypatch):
     monkeypatch.setattr(config.sys, "platform", "win32")
 
     config._refuse_foreign_path("DATA_PATH", Path(r"D:\Data"))   # must not raise
+
+
+# --- the same mistake, one layer up: a Windows path inside a docstring -------
+
+def test_no_module_compiles_with_a_syntax_warning():
+    r"""**Third sighting of the same family, so it becomes a test.**
+
+    Reported by the owner: every `app.cli` invocation printed
+
+        app\cli.py:1371: SyntaxWarning: invalid escape sequence '\P'
+          app.cli gitsearch --repo D:\Project "CustomerId /history"
+
+    before doing anything. The offending line was a *docstring* - a usage
+    example showing a Windows repository path - in a plain triple-quoted
+    string rather than a raw one, so Python read `\P` as an escape sequence
+    and warned at import time. Nothing was broken; the noise simply sat in
+    front of every command this application offers, which is its own kind of
+    broken.
+
+    Compiling is the whole test. `compile()` raises nothing for this - it warns
+    - so the warning has to be *captured*, which is why this does not just
+    import the tree. Importing would also run module-level code and drag in
+    Qt; compiling reads bytes and produces an AST.
+
+    The fix is one character and the guard is this, because in this codebase a
+    mistake found twice becomes a test. `evaluate.py`, `translate.py` and
+    `query.py` already open with raw docstrings for exactly this reason - the
+    convention existed and one module had drifted off it.
+
+    **Both categories, and that is not belt-and-braces.** Python raised
+    `DeprecationWarning` for an invalid escape sequence until 3.12, when it
+    became `SyntaxWarning`. Written for `SyntaxWarning` alone, this test passed
+    on 3.10 with the offending docstring put back - a guard that agrees with
+    you on the machine you run it on and reports the bug on nobody's. So the
+    category is matched by *message* as well, which is the part that has been
+    stable across both.
+    """
+    import warnings
+
+    def _is_escape_warning(entry) -> bool:
+        if issubclass(entry.category, SyntaxWarning):
+            return True
+        return (issubclass(entry.category, DeprecationWarning)
+                and "invalid escape sequence" in str(entry.message))
+
+    offenders: list[str] = []
+    for source in sorted((ROOT / "app").rglob("*.py")):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                compile(source.read_text(encoding="utf-8"), str(source), "exec")
+            except SyntaxError as exc:       # a real one, and worth failing on
+                offenders.append(f"{source.relative_to(ROOT)}: {exc}")
+                continue
+        offenders.extend(
+            f"{source.relative_to(ROOT)}:{w.lineno}: {w.message}"
+            for w in caught if _is_escape_warning(w)
+        )
+
+    assert offenders == [], (
+        "these modules warn when Python reads them, and the warning is printed "
+        "to the user before any command runs:\n  " + "\n  ".join(offenders)
+    )
