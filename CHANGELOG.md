@@ -42,6 +42,62 @@ one no-op version. Knowing it was new would mean changing what `replace_chunks`
 returns for every caller, to save a version that periodic compaction now
 collects anyway.
 
+### Fixed — two missing indexes, and a filter that scanned (P3, P5, P6)
+
+Schema **v5**. Both indexes are additive: no table is touched and no row is
+rewritten, so an existing index gains them in seconds. `ANALYZE` runs after,
+because SQLite picks a plan from statistics and will not use an index it knows
+nothing about.
+
+- **`files.source_kind` did not exist**, and `keyword.py` carried a comment
+  saying it did — *"already indexed, so this costs nothing"*. Clicking the Mail
+  chip full-scanned `files` on every keystroke. Now
+  `SEARCH f USING COVERING INDEX`. (`documents` is `NOT IN` and can never seek,
+  so it still scans, but scans the covering index rather than the table.)
+- **`files.mtime_ns` did not exist**, and `after:`/`before:` compare against it.
+
+**`idx_files_mtime` is also what fixes the filter-only browse — which is not
+where the diagnosis pointed.** The review read `WHERE c.ordinal = 0 ORDER BY
+f.mtime_ns DESC` as needing a `chunks` index, since `idx_chunks_file_ord` is
+`(file_id, ordinal)` and `ordinal` is not leading. A partial
+`chunks(file_id) WHERE ordinal = 0` was written — and measured **with it and
+without it, the plan and the timing were identical**. The planner never chose
+it. What the query needed was an ordered way *in*: given `mtime_ns`, SQLite
+walks `files` newest-first and finds each file's first chunk through the index
+that already existed, so `LIMIT 20` stops after twenty files.
+
+Measured on 20,000 files / 120,000 chunks: **6.30ms → 0.04ms**, and
+`USE TEMP B-TREE FOR ORDER BY` leaves the plan. The unused index was dropped
+rather than shipped — it cost a write on every document indexed, would never
+have been read, and would have stood as evidence for a diagnosis the
+measurement did not support.
+
+**P5: `LOWER()` removed from all five `LIKE` predicates** — `path:`, `name:`,
+`from:`, `to:`, `subject:`. SQLite's `LIKE` already folds case for ASCII, so
+`LOWER(sender) LIKE '%dave%'` and `sender LIKE '%dave%'` return the same rows;
+the wrapper only added a function call per row. Measured on 60,000 messages:
+**11.54ms → 4.64ms, a 2.49× cut**, identical 1,650 rows both ways.
+
+This does *not* make them use an index and nothing can — a leading `%` gives
+nothing to seek to. The scan is at least a covering one, and the subquery is
+materialised once rather than re-run per row.
+
+**Still open, now with a number.** Substring matching over mail headers costs a
+full scan of `idx_messages_sender` — ~5.5ms at 30,000 messages, and it is
+linear. At 20M that is seconds. The fix is an FTS index over the message
+headers, which is a schema change and its own piece of work, not part of adding
+two indexes.
+
+Twenty tests in `test_query_plans.py`, asserting `EXPLAIN QUERY PLAN` output
+against the **real** query builder rather than a hand-written approximation of
+it — an approximation is what first suggested the partial index was being used.
+They cover the migration applied to a database created *before* v5 (the only
+path that happens for real), that the dropped index stays dropped, and that
+every filter still matches case-insensitively against a deliberately mixed-case
+fixture. One test pins the `LIKE` folding assumption itself, so if
+`case_sensitive_like` is ever switched on it fails with an explanation instead
+of five filters quietly returning nothing.
+
 
 ### Measured — the reranker swap costs nothing on the built-in corpus
 

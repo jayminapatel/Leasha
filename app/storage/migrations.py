@@ -27,7 +27,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS"]
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -168,12 +168,51 @@ def _v4_filename_index(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v5_missing_indexes(conn: sqlite3.Connection) -> None:
+    """Two indexes the queries always needed and never had.
+
+    **Additive and re-runnable.** No table is touched and no row is rewritten,
+    so an existing index gains these in seconds and keeps everything it had.
+
+    * `files.source_kind` - `keyword.py` claimed in a comment that this was
+      "already indexed, so this costs nothing". It was not. Clicking the Mail
+      chip full-scanned `files`.
+    * `files.mtime_ns` - `after:` and `before:` compare against it, and
+      `_filter_only` sorts by it.
+
+    **`idx_files_mtime` is what fixes the `_filter_only` scan**, which is not
+    where the diagnosis pointed. The review read `WHERE c.ordinal = 0 ORDER BY
+    f.mtime_ns DESC` as needing a `chunks` index, because `idx_chunks_file_ord`
+    is `(file_id, ordinal)` and `ordinal` is not leading. A partial
+    `chunks(file_id) WHERE ordinal = 0` was written, and the planner **never
+    chose it** - measured with and without, the plan and the timing were
+    identical to two decimal places.
+
+    What the query actually needed was an ordered way in. Given `mtime_ns`,
+    SQLite walks `files` newest-first and looks up each file's first chunk
+    through the index that already existed, so `LIMIT 20` stops after twenty
+    files. Measured on 20,000 files / 120,000 chunks: **6.30ms -> 0.04ms**, and
+    `USE TEMP B-TREE FOR ORDER BY` disappears from the plan.
+
+    The unused index was dropped rather than shipped. It cost a write on every
+    document indexed and would never have been read - and it would have stood
+    as evidence for a diagnosis that measurement did not support.
+
+    `ANALYZE` afterwards because SQLite chooses a plan from statistics, and a
+    brand-new index it knows nothing about may simply not be used.
+    """
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_source_kind ON files(source_kind)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime_ns)")
+    conn.execute("ANALYZE")
+
+
 #: version -> callable applying the step that produces it.
 #: Version 1 is the baseline created by schema.sql, so it has no step here.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
     4: _v4_filename_index,
+    5: _v5_missing_indexes,
 }
 
 

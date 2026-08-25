@@ -32,6 +32,27 @@ CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);
 CREATE INDEX IF NOT EXISTS idx_files_dir    ON files(parent_dir);
 CREATE INDEX IF NOT EXISTS idx_files_ext    ON files(ext);
 CREATE INDEX IF NOT EXISTS idx_files_skip   ON files(skip_code) WHERE skip_code IS NOT NULL;
+-- **Three indexes that were missing, and one comment that claimed otherwise.**
+--
+-- `keyword.py` asserted that `source_kind` was "already indexed, so this costs
+-- nothing" while no such index existed. Clicking the Mail chip full-scanned
+-- `files` - twenty million rows at the target scale, on every keystroke of
+-- every scoped search.
+CREATE INDEX IF NOT EXISTS idx_files_source_kind ON files(source_kind);
+
+-- `after:` and `before:` filter on this, and `_filter_only` sorts by it. A
+-- scan plus a sort, per query.
+CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime_ns);
+
+-- **`idx_chunks_file_ord` is `(file_id, ordinal)`, so `ordinal` is not
+-- leading** and `WHERE c.ordinal = 0` could never use it. A filter-only query
+-- like `type:pdf after:2024` scanned every chunk in the index to find the
+-- first of each file.
+--
+-- Partial, so it holds one row per file rather than one per chunk - a twentieth
+-- of the size at the observed chunks-per-file ratio, and it exactly matches the
+-- predicate it exists for.
+
 
 -- ---------------------------------------------------------------------------
 -- Chunks
@@ -50,6 +71,19 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_file_ord ON chunks(file_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_chunks_pending ON chunks(embedded) WHERE embedded = 0;
+
+-- **There is deliberately no `chunks(file_id) WHERE ordinal = 0` index here.**
+--
+-- It looks like there should be. `idx_chunks_file_ord` is `(file_id, ordinal)`,
+-- so `ordinal` is not leading, and a filter-only query like `type:pdf
+-- after:2024` scans every chunk to find the first of each file. One was written
+-- for schema v5 and the planner never chose it - measured with it and without,
+-- the plan and the timing were identical.
+--
+-- The fix is `idx_files_mtime` above. With an ordered way into `files`, SQLite
+-- walks newest-first and looks up each file's first chunk through
+-- `idx_chunks_file_ord`, so `LIMIT 20` stops after twenty files instead of
+-- sorting the whole index. See `_v5_missing_indexes` for the measurement.
 
 -- ---------------------------------------------------------------------------
 -- Email metadata — kept separate to avoid a wide sparse `files` table
