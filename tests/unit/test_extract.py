@@ -315,13 +315,30 @@ def test_common_types_are_registered() -> None:
         assert ext in supported_extensions(), f"{ext} has no extractor"
 
 
-def test_legacy_office_is_unsupported_with_advice() -> None:
-    """.doc/.xls/.ppt need a different parser; the message must say so."""
+def test_legacy_office_has_no_direct_reader_and_says_what_is_needed() -> None:
+    """.doc/.xls/.ppt have no parser of their own - they go through a converter.
+
+    The message used to be `ERR_UNSUPPORTED_TYPE`, "this application does not
+    read .doc", which was never true and which nobody could act on. With
+    converters shipping enabled it is `ERR_CONVERTER_MISSING`, naming the
+    binary and the install command, and falling back to indexing by name.
+    """
     for ext in (".doc", ".xls", ".ppt"):
         assert extractor_for(Path(f"legacy{ext}")) is None
+
     error = skip_code(Path("legacy.doc")).error
-    assert error.code == "ERR_UNSUPPORTED_TYPE"
-    assert ".doc" in error.suggestion
+
+    # **The code depends on the machine**, so the property is what is asserted.
+    # Without LibreOffice: ERR_CONVERTER_MISSING. With it, but unable to read
+    # this fixture: ERR_CONVERTER_FAILED. Both are about the converter, and
+    # both name it - which is the thing that makes them actionable and that
+    # ERR_UNSUPPORTED_TYPE never was.
+    # ERR_CONVERTER_MISSING names the binary to install; ERR_CONVERTER_FAILED
+    # names the file and says indexing continues. Which one appears depends on
+    # whether LibreOffice is on this machine, and both are actionable - which
+    # ERR_UNSUPPORTED_TYPE, "this application does not read .doc", never was.
+    assert "CONVERTER" in error.code, f"got {error.code}"
+    assert ".doc" in error.render() or "soffice" in error.render()
 
 
 def test_extension_matching_is_case_insensitive() -> None:

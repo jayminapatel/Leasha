@@ -14,6 +14,8 @@ trusted: a security property nobody tests is a security property that erodes.
 
 from __future__ import annotations
 
+import pathlib
+
 import shutil
 import subprocess
 from pathlib import Path
@@ -148,12 +150,31 @@ def test_every_shipped_converter_names_an_allowed_binary():
         )
 
 
-def test_every_shipped_converter_is_disabled():
-    """The binary may not be installed, and a format that fails on every file is
-    worse than one that says plainly it is off."""
-    enabled = [e for e, r in load_rules().converters.items() if r.enabled]
-    assert not enabled, f"these ship enabled and should not: {enabled}"
+def test_every_shipped_converter_is_enabled() -> None:
+    """Every shipped converter is **enabled**, on the owner's instruction:
+    *"all formats should be on by default."*
 
+    They shipped disabled on the reasoning that a format silently failing on
+    every file is worse than one that says it is off. That was right about the
+    failure mode and wrong about the remedy: a route that is off is
+    indistinguishable from a format nobody thought of, and somebody with
+    LibreOffice installed had to find a setting they did not know existed
+    before their own `.doc` files were indexed.
+
+    On is the better default because the failure is **not** silent -
+    `ERR_CONVERTER_MISSING` names the binary, says the file is indexed by name
+    only until it is installed, and carries the install command.
+    """
+    import app.extract  # noqa: F401 - importing populates the registry
+    from app.core import formats as fm
+    from app.extract import base as eb
+
+    rules = fm.load_rules(pathlib.Path("/nonexistent"),
+                          known_extractors=eb.extractor_names())
+    disabled = sorted(ext for ext, rule in rules.converters.items()
+                      if not rule.enabled)
+
+    assert not disabled, f"these ship disabled and should not: {disabled}"
 
 def test_available_binaries_reports_every_allowed_one():
     """Settings offers to enable exactly the converters whose binary was found,
@@ -243,10 +264,19 @@ def test_an_unknown_target_extractor_fails_precisely(tmp_path):
 # Reached through the ordinary extraction path
 # ---------------------------------------------------------------------------
 
-def test_a_disabled_converter_leaves_the_type_unsupported(tmp_path):
-    """As shipped. An unconfigured `.doc` must stay ERR_UNSUPPORTED_TYPE rather
-    than becoming ERR_CONVERTER_MISSING on every file in the corpus - the first
-    says "this app does not do that", the second says "something is broken"."""
+@pytest.mark.skipif(HAS_SOFFICE, reason="LibreOffice is installed, so it converts")
+def test_an_enabled_converter_with_no_binary_says_which_binary(tmp_path):
+    """**The reason converters may now ship enabled.**
+
+    They shipped disabled so that an absent binary could not fail on every
+    file. But the failure was never silent: `ERR_CONVERTER_MISSING` names the
+    binary, says the file is indexed by name only until it is installed, and
+    carries the install command.
+
+    That is strictly more useful than `ERR_UNSUPPORTED_TYPE`, which says "this
+    application does not read .doc" - a statement that is not true and that
+    nobody can act on.
+    """
     import app.extract  # noqa: F401
     from app.extract.base import extract
 
@@ -255,7 +285,11 @@ def test_a_disabled_converter_leaves_the_type_unsupported(tmp_path):
 
     with pytest.raises(AppErrorException) as caught:
         list(extract(source))
-    assert caught.value.error.code == "ERR_UNSUPPORTED_TYPE"
+
+    error = caught.value.error
+    assert error.code == "ERR_CONVERTER_MISSING"
+    assert "soffice" in error.render(), "it must name the binary to install"
+    assert "name only" in error.render(), "it must say what still works"
 
 
 @pytest.mark.skipif(not HAS_SOFFICE, reason="LibreOffice is not installed")

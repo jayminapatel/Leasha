@@ -1939,7 +1939,13 @@ def cmd_formats(args: argparse.Namespace) -> int:
     except AppErrorException as exc:
         return _report(exc.error, args.json)
 
-    rows = rules.describe()
+    # **Pass the registry.** `describe()` says to, in its own docstring, and
+    # this call did not - so the table listed only the 61 extensions some TOML
+    # mentions and omitted the 56 claimed in code, including `.py`, `.cs`,
+    # `.java`, `.js`, `.ts` and `.sql`. The command whose help reads "what file
+    # types are indexed" was hiding most of the answer, and the owner
+    # reasonably concluded from it that code was not being searched. It was.
+    rows = rules.describe(registry=extract_base.REGISTRY)
     built_in = sorted(set(extract_base.supported_extensions()) - set(rules.extensions))
 
     if args.json:
@@ -1962,8 +1968,12 @@ def cmd_formats(args: argparse.Namespace) -> int:
         print(f"  your overrides would go in: {user_file}  (not present)")
     print()
 
-    if args.all and built_in:
-        print(f"Built into the code ({len(built_in)}):")
+    # Shown by default. It was behind `--all`, which meant the default output
+    # of a command called `formats` answered "which types are configured"
+    # rather than "which types are indexed" - and only one of those is the
+    # question anybody has.
+    if built_in:
+        print(f"Also built into the code, no configuration needed ({len(built_in)}):")
         print("  " + " ".join(built_in))
         print()
 

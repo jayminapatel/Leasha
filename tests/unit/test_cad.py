@@ -37,7 +37,11 @@ def test_the_dwg_converter_route_exists_and_targets_this_extractor():
     assert rule is not None, "no converter route for .dwg"
     assert rule.then == "cad", "the converted DXF must come back to this reader"
     assert rule.binary in {"dwg2dxf", "ODAFileConverter"}
-    assert not rule.enabled, "converters ship disabled - the binary may be absent"
+    # Enabled, on the owner's instruction that all formats are on by default.
+    # An absent `dwg2dxf` is reported per file type by ERR_CONVERTER_MISSING,
+    # which names the binary - strictly more useful than a route that is off
+    # and therefore indistinguishable from a format nobody thought of.
+    assert rule.enabled, "converters ship enabled now; see extractors.toml"
 
 
 def test_the_converter_binary_is_on_the_allow_list():

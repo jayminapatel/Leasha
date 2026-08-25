@@ -572,6 +572,54 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Fixed — `app.cli formats` hid 56 of the 78 file types it indexes
+
+The owner concluded from this command that source code was not being searched.
+It was. `formats` listed 61 extensions and omitted `.py`, `.cs`, `.java`,
+`.js`, `.ts`, `.sql`, `.go`, `.rs`, `.cpp`, `.php`, `.rb`, `.sh`, `.ps1` and
+forty more.
+
+Two causes, both in `cmd_formats`:
+
+- **`rules.describe()` was called without the registry.** Its own docstring
+  says *"Pass the registry"*, and explains exactly this: configuration only
+  lists extensions that need to differ from an extractor's defaults, so the
+  rules alone describe a fraction of what the application reads.
+- **The remainder was behind `--all`**, a flag nobody knew to pass. So the
+  default output of a command called `formats` answered "which types are
+  configured" rather than "which types are indexed", and only one of those is
+  a question anybody has.
+
+Now 117 on, nothing hidden. Same family as `doctor` reporting its own defaults
+and `stats` printing both halves of the embedding gap in different sections: a
+diagnostic that could not see what it claimed to report, believed because it is
+a diagnostic.
+
+### Changed — every file type is on by default
+
+On the owner's instruction: *"all formats should be on by default."*
+
+The twelve converter routes — `.doc`, `.xls`, `.ppt`, `.rtf`, `.pages`,
+`.numbers`, `.key`, `.epub`, `.fb2`, `.wpd`, `.pub`, `.dwg` — shipped disabled,
+on the reasoning that a format silently failing on every file is worse than one
+that says it is off.
+
+That was right about the failure mode and wrong about the remedy. A route that
+is off is indistinguishable from a format nobody thought of, and somebody with
+LibreOffice already installed had to find a setting they did not know existed
+before their own `.doc` files were indexed.
+
+**And the failure was never silent.** `ERR_CONVERTER_MISSING` names the binary,
+says the file is indexed by name only until it is installed, and carries the
+install command — which is strictly more useful than `ERR_UNSUPPORTED_TYPE`,
+"this application does not read .doc", a statement that was not true and that
+nobody could act on.
+
+Five tests encoded the old decision and now encode the new one, including the
+`.dwg` route and the legacy-Office message. One is deliberately tolerant of
+both `ERR_CONVERTER_MISSING` and `ERR_CONVERTER_FAILED`, because which appears
+depends on whether LibreOffice is on the machine and both are actionable.
+
 ### Fixed — closing the window left the process running
 
 Reported: *"when you close the gui it does not exit it is stuck i need to press

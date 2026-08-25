@@ -15,6 +15,8 @@ boundary that moves.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from app.core.errors import AppErrorException
@@ -49,13 +51,31 @@ def test_the_packaged_file_loads():
     assert rules.sources, "it should record where it read from"
 
 
-def test_every_shipped_converter_is_disabled():
-    """The binary may not be installed. A format that fails on every file is
-    worse than one that says plainly it is switched off."""
-    rules = load_rules()
-    enabled = [rule.extension for rule in rules.converters.values() if rule.enabled]
-    assert not enabled, f"these ship enabled and should not: {enabled}"
+def test_every_shipped_converter_is_enabled() -> None:
+    """Every shipped converter is **enabled**, on the owner's instruction:
+    *"all formats should be on by default."*
 
+    They shipped disabled on the reasoning that a format silently failing on
+    every file is worse than one that says it is off. That was right about the
+    failure mode and wrong about the remedy: a route that is off is
+    indistinguishable from a format nobody thought of, and somebody with
+    LibreOffice installed had to find a setting they did not know existed
+    before their own `.doc` files were indexed.
+
+    On is the better default because the failure is **not** silent -
+    `ERR_CONVERTER_MISSING` names the binary, says the file is indexed by name
+    only until it is installed, and carries the install command.
+    """
+    import app.extract  # noqa: F401 - importing populates the registry
+    from app.core import formats as fm
+    from app.extract import base as eb
+
+    rules = fm.load_rules(pathlib.Path("/nonexistent"),
+                          known_extractors=eb.extractor_names())
+    disabled = sorted(ext for ext, rule in rules.converters.items()
+                      if not rule.enabled)
+
+    assert not disabled, f"these ship disabled and should not: {disabled}"
 
 def test_no_converter_command_is_a_bare_string():
     """A string would have to be split, and splitting a command line is one step
