@@ -1,12 +1,55 @@
 # Changelog
 
-**Doc version:** 3.36 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.37 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — staging to a real folder no longer deletes what is living in it
+
+Staging to `D:\Leasha` as a production location, and two things in `stage.py`
+would have destroyed data there.
+
+**`shutil.rmtree(dest)`.** Staging deleted the whole destination first, on the
+sound reasoning that a stale file from an old layout makes a staged tree lie
+about what ships. Harmless while the destination was a scratch folder beside the
+source. The moment it is a real installation, that folder also holds `.env`, a
+`venv\`, the logs — and, if the index was moved there, which is the documented
+thing to do, `D:\Leasha\Data`. **Re-staging to fix a typo would have deleted a
+hundred gigabytes, silently, with no confirmation.**
+
+Each staging now records what it wrote in `.staged-manifest.json`, and the next
+one deletes exactly that. Stale files from an old layout are still removed —
+they are named in the previous manifest — and anything the manifest does not
+name is somebody's data and is left alone. A destination that was never staged
+is treated as foreign: nothing is deleted, colliding names are overwritten, and
+it says so. A corrupt manifest fails towards deleting nothing.
+
+**`Leasha.cmd` and `leasha.cmd` are the same file on Windows.** Staging copied
+the shipped `leasha.cmd` — which checks for a venv, prints "Leasha is not
+installed yet", and passes arguments through to the CLI — and then wrote a
+generated `Leasha.cmd` over the top of it, because Windows filenames are
+case-insensitive. What survived was a three-line stub hardcoding whatever
+interpreter ran the staging script. On a production tree with its own venv,
+`leasha.cmd` ran the **development** interpreter from `D:\SearchProject\venv`,
+reading the development tree's packages while presenting as a clean install.
+
+The generated launchers are now `Leasha-staged.cmd` and `leasha-cli.cmd`, and
+both prefer the tree's own `venv\` when one exists, falling back to the staging
+interpreter. So one file works before and after `run-install.cmd`. A test
+asserts no generated name collides case-insensitively with a shipped one.
+
+### Added — `stage.py --with-tests`
+
+Stages `tests\` and `pyproject.toml` alongside the application, so the suite can
+run against the production layout rather than only against the development
+checkout. `pyproject.toml` is not optional: it carries the pytest configuration,
+and without it the staged run uses different settings, which makes any
+difference in the results meaningless. The README in the staged tree says when
+it was built this way, because at that point it is not what ships.
 
 ### Fixed — moving the index now actually moves it
 

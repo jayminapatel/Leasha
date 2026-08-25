@@ -189,35 +189,197 @@ def test_the_launchers_start_in_their_own_folder(staged):
     development tree's configuration, which is exactly the confusion this
     exercise exists to remove.
     """
-    for name in ("Leasha.cmd", "leasha-cli.cmd"):
+    for name in (staging.STAGED_WINDOW, staging.STAGED_CLI, "leasha.cmd"):
         text = (staged / name).read_text(encoding="utf-8")
         assert 'cd /d "%~dp0"' in text, f"{name} runs from wherever it was called"
 
 
 def test_the_window_and_the_command_line_have_separate_launchers(staged):
-    assert "app.main" in (staged / "Leasha.cmd").read_text(encoding="utf-8")
-    assert "app.cli" in (staged / "leasha-cli.cmd").read_text(encoding="utf-8")
+    assert "app.main" in (staged / staging.STAGED_WINDOW).read_text(encoding="utf-8")
+    assert "app.cli" in (staged / staging.STAGED_CLI).read_text(encoding="utf-8")
 
 
 # --- staging again ----------------------------------------------------------
 
-def test_staging_twice_removes_what_the_first_run_left(tmp_path):
+def test_staging_twice_removes_what_the_first_run_wrote(tmp_path, monkeypatch):
     """A stale file from a previous layout is the thing that makes a staged
-    tree lie about what ships."""
+    tree lie about what ships - so anything the last staging wrote and this one
+    does not is removed."""
+    dest = tmp_path / "Leasha"
+    monkeypatch.setattr(staging, "SHIPPED", ("app", "VERSION", "leasha.cmd"))
+    staging.stage(ROOT, dest, Path(sys.executable))
+    assert (dest / "leasha.cmd").exists()
+
+    # The layout changes: leasha.cmd is no longer shipped.
+    monkeypatch.setattr(staging, "SHIPPED", ("app", "VERSION"))
+    staging.stage(ROOT, dest, Path(sys.executable))
+
+    assert not (dest / "leasha.cmd").exists(), "a file dropped from SHIPPED survived"
+    assert (dest / "VERSION").exists()
+
+
+def test_re_staging_does_not_delete_an_index_living_in_the_destination(tmp_path):
+    """**The one that would have cost a hundred gigabytes.**
+
+    `--dest D:\\Leasha` makes that folder a real installation, and the
+    documented thing to do next is move the index to `D:\\Leasha\\Data`. Staging
+    used to `rmtree` the whole destination, so re-staging after a typo fix would
+    have deleted the index, the `.env` and the venv - silently, with no
+    confirmation and no way back.
+    """
     dest = tmp_path / "Leasha"
     staging.stage(ROOT, dest, Path(sys.executable))
-    (dest / "left-over.txt").write_text("from a previous layout", encoding="utf-8")
+
+    # An installation grows these. None of them came from staging.
+    index = dest / "Data"
+    for name in ("vectors", "fts", "cache", "models", "state"):
+        (index / name).mkdir(parents=True)
+    (index / "fts" / "knowledge.db").write_bytes(b"SQLite format 3\x00")
+    (dest / ".env").write_text("DATA_PATH=D:\\Leasha\\Data\n", encoding="utf-8")
+    (dest / "venv").mkdir()
+    (dest / "venv" / "marker").write_text("two gigabytes of wheels", encoding="utf-8")
+    (dest / "logs").mkdir(exist_ok=True)
+    (dest / "logs" / "run.log").write_text("history", encoding="utf-8")
 
     staging.stage(ROOT, dest, Path(sys.executable))
 
-    assert not (dest / "left-over.txt").exists()
+    assert (index / "fts" / "knowledge.db").is_file(), "the index was deleted"
+    assert (dest / ".env").is_file(), "the configuration was deleted"
+    assert (dest / "venv" / "marker").is_file(), "the venv was deleted"
+    assert (dest / "logs" / "run.log").is_file(), "the logs were deleted"
+
+
+def test_a_destination_nobody_staged_is_not_emptied(tmp_path):
+    """Somebody typed the wrong path. Overwrite what collides; touch nothing
+    else. Deleting a stranger's folder is never the right response to a typo."""
+    dest = tmp_path / "SomeoneElsesFolder"
+    dest.mkdir()
+    (dest / "important.txt").write_text("not ours", encoding="utf-8")
+
+    staging.stage(ROOT, dest, Path(sys.executable))
+
+    assert (dest / "important.txt").is_file()
+    assert (dest / "app").is_dir()
+
+
+def test_no_generated_launcher_collides_with_a_shipped_name(tmp_path):
+    r"""**Windows filenames are case-insensitive, and `Leasha.cmd` was a bug.**
+
+    The generated `Leasha.cmd` and the shipped `leasha.cmd` are one file on
+    Windows, and the generated one was written last. So the real launcher - the
+    one that checks for a venv, says "Leasha is not installed yet", and passes
+    arguments to the CLI - was replaced by a stub hardcoding the interpreter
+    that happened to run the staging script. On a production tree with its own
+    venv, that ran the *development* interpreter.
+    """
+    generated = {staging.STAGED_WINDOW.lower(), staging.STAGED_CLI.lower()}
+    shipped = {name.lower() for name in staging.SHIPPED}
+    assert not (generated & shipped), (
+        f"{generated & shipped} is both shipped and generated; on Windows "
+        "these are the same file and the generated one wins"
+    )
+
+
+def test_the_shipped_launcher_survives_staging(tmp_path):
+    """The consequence of the above, asserted against a real staged tree."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable))
+    body = (dest / "leasha.cmd").read_text(encoding="utf-8")
+    assert "not installed yet" in body, "the real launcher was overwritten"
+
+
+def test_a_generated_launcher_prefers_the_trees_own_venv(tmp_path):
+    """One file works before and after `run-install.cmd`.
+
+    Without this, a launcher staged against the development venv keeps using it
+    forever - so the production tree reads the development tree's packages while
+    claiming to be a clean install.
+    """
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable))
+    body = (dest / staging.STAGED_WINDOW).read_text(encoding="utf-8")
+    assert "venv\\Scripts\\python.exe" in body
+    assert body.index("venv\\Scripts\\python.exe") < body.index(str(sys.executable)), (
+        "the staged interpreter is tried before the tree's own venv"
+    )
+
+
+def test_the_manifest_records_what_was_written(tmp_path):
+    """It is what makes the next staging safe, so it has to be there."""
+    import json
+
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable))
+
+    manifest = json.loads((dest / staging.MANIFEST).read_text(encoding="utf-8"))
+    assert "app" in manifest["wrote"]
+    assert staging.STAGED_WINDOW in manifest["wrote"]
+    assert "logs" not in manifest["wrote"], (
+        "logs is in the manifest, so a re-stage would delete a running "
+        "installation's log history"
+    )
+
+
+def test_a_corrupt_manifest_is_treated_as_no_manifest(tmp_path):
+    """Failing towards 'delete nothing' is the only safe direction here."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable))
+    (dest / staging.MANIFEST).write_text("{not json", encoding="utf-8")
+    (dest / "user-data.txt").write_text("keep me", encoding="utf-8")
+
+    staging.stage(ROOT, dest, Path(sys.executable))
+
+    assert (dest / "user-data.txt").is_file()
 
 
 def test_it_refuses_to_stage_over_the_source():
-    """It deletes the destination first. Pointed at the checkout, that is the
-    whole project."""
+    """Pointed at the checkout, staging into itself is a recursive copy at best."""
     with pytest.raises(SystemExit):
         staging.stage(ROOT, ROOT, Path(sys.executable))
+
+
+# --- --with-tests -----------------------------------------------------------
+
+def test_tests_are_absent_by_default(tmp_path):
+    """A product does not ship its test suite."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable))
+    assert not (dest / "tests").exists()
+    assert not (dest / "pyproject.toml").exists()
+
+
+def test_with_tests_stages_the_suite_and_its_configuration(tmp_path):
+    """`pyproject.toml` is not optional: it carries the pytest settings, and
+    without it the suite runs differently in the staged tree than in
+    development - which makes any difference in the results meaningless."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+
+    assert (dest / "tests" / "unit").is_dir()
+    assert (dest / "tests" / "conftest.py").is_file()
+    assert (dest / "pyproject.toml").is_file()
+
+
+def test_with_tests_keeps_the_fixtures(tmp_path):
+    """`fixtures` is in EXCLUDED so it is skipped inside `app/`. Inside `tests/`
+    it is the content - a suite without its fixtures fails on the first file."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    assert (dest / "tests" / "fixtures").is_dir()
+
+
+def test_with_tests_still_excludes_bytecode(tmp_path):
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    assert not list((dest / "tests").rglob("__pycache__"))
+
+
+def test_the_readme_says_when_a_tree_is_not_what_ships(tmp_path):
+    """A tree with tests in it is not a production tree, and somebody looking at
+    it later should not have to guess which kind they are holding."""
+    dest = tmp_path / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    assert "WITH TESTS" in (dest / "README.txt").read_text(encoding="utf-8")
 
 
 def test_a_name_in_the_manifest_that_does_not_exist_is_reported(tmp_path, monkeypatch):

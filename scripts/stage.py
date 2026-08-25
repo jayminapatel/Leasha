@@ -101,42 +101,127 @@ worse - one that makes this tree disagree with the source it came from.
 
 To run it:
 
-    Leasha.cmd                  the window
-    leasha-cli.cmd stats        the command line
+    run-install.cmd             build this tree's own venv (once)
+    leasha.cmd                  the window
+    leasha.cmd stats            anything else goes to the command line
 
-Both use the interpreter that was named when this tree was staged. A real
-install has its own `venv\\` here instead; that is the one difference between
-this and a shipped copy, and it is deliberate - a two-gigabyte copy per run is
-a tool nobody would use.
+Before `run-install.cmd` has been run there is no venv here, and `leasha.cmd`
+says so rather than starting. To try the tree without installing anything:
+
+    Leasha-staged.cmd           the window, borrowing the staging interpreter
+    leasha-cli.cmd stats        the command line, same interpreter
+
+Those two prefer this tree's own `venv\\` the moment one exists, so they keep
+working after an install rather than quietly running the interpreter that
+staged them.
 
 Configuration lives in `.env` in this folder, and is written by the application
 on first run. It is never copied from the development tree: those are somebody
 else's paths.
+
+Re-staging replaces only what the previous staging wrote - recorded in
+`.staged-manifest.json`. Your `.env`, `venv\\`, `logs\\` and any index folder
+here are left alone.
 """
+
+#: Appended to the README when `--with-tests` was used, because at that point
+#: the tree is no longer what a customer would receive and saying so matters.
+WITH_TESTS_NOTE = """
+This tree was staged WITH TESTS (`--with-tests`), so it also holds `tests\\` and
+`pyproject.toml`. That is not what ships - it is here so the suite can be run
+against the production layout:
+
+    venv\\Scripts\\python.exe -m pytest tests -q
+
+Re-stage without the flag to get a tree that matches a real install.
+"""
+
+
+#: Added by `--with-tests`, so the suite can be run against the production tree.
+#:
+#: `pyproject.toml` is not optional here: it carries the pytest configuration -
+#: `--basetemp`, the strict markers, the `jvm` exclusion - and without it the
+#: suite runs with different settings in the staged tree than in development,
+#: which makes any difference in the results meaningless.
+TEST_EXTRAS: tuple[str, ...] = ("tests", "pyproject.toml")
+
+#: Record of what the last staging wrote, kept in the staged tree.
+#:
+#: **This file is why a re-stage no longer deletes the whole destination.** See
+#: `stage()`.
+MANIFEST = ".staged-manifest.json"
 
 
 def _ignore(_directory: str, names: list[str]) -> set[str]:
     return {name for name in names if name in EXCLUDED}
 
 
-def stage(source: Path, dest: Path, python: Path) -> list[str]:
-    """Copy the shipped tree into `dest`. Returns what was written.
+def _ignore_keeping_fixtures(_directory: str, names: list[str]) -> set[str]:
+    """For `tests/`, where `fixtures` is content rather than something to skip."""
+    keep = {"tests", "fixtures"}
+    return {name for name in names if name in EXCLUDED and name not in keep}
 
-    `dest` is **deleted first**. That is the whole point of it being generated:
-    a stale file left over from a previous layout is the thing that makes a
-    staged tree lie about what ships.
+
+def _previous(dest: Path) -> list[str]:
+    """What the last staging wrote here, or [] if this tree is new or foreign."""
+    import json
+
+    try:
+        data = json.loads((dest / MANIFEST).read_text(encoding="utf-8"))
+        return [str(name) for name in data["wrote"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+
+
+def stage(source: Path, dest: Path, python: Path, with_tests: bool = False) -> list[str]:
+    r"""Copy the shipped tree into `dest`. Returns what was written.
+
+    **Only what a previous staging wrote is removed, never the whole folder.**
+
+    It used to be `shutil.rmtree(dest)`, on the reasoning that a stale file from
+    an old layout makes a staged tree lie about what ships. That reasoning is
+    right and the remedy was catastrophic: the moment `--dest D:\Leasha` is a
+    real installation, that folder also holds `.env`, a `venv\`, the logs, and -
+    if the index was moved there, which is the documented thing to do -
+    `D:\Leasha\Data`, a hundred gigabytes that took hours to build. Re-staging a
+    fixed typo would have deleted all of it, silently, with no confirmation.
+
+    So each staging records what it wrote in `.staged-manifest.json`, and the
+    next one deletes exactly that and nothing else. Stale files from an old
+    layout are still removed - they are in the previous manifest - and anything
+    the manifest does not name is somebody's data and is left alone.
+
+    A destination that was never staged (no manifest) is treated as foreign:
+    nothing is deleted, and existing files are overwritten in place.
     """
+    import json
+
     source = Path(source).resolve()
     dest = Path(dest).resolve()
     if dest == source:
         raise SystemExit("--dest cannot be the development tree itself.")
 
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
+    # A destination inside the source would copy the tree into itself.
+    if dest.is_relative_to(source) and dest.parent == source and dest.name in SHIPPED:
+        raise SystemExit(f"--dest cannot be {dest}: it is part of the source tree.")
 
+    for name in _previous(dest):
+        target = dest / name
+        try:
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+        except OSError as exc:
+            raise SystemExit(f"could not replace {target}: {exc}")
+
+    dest.mkdir(parents=True, exist_ok=True)
+
+    names = SHIPPED + (TEST_EXTRAS if with_tests else ())
     written: list[str] = []
-    for name in SHIPPED:
+    produced: list[str] = []
+
+    for name in names:
         origin = source / name
         if not origin.exists():
             # Named but absent is worth saying: it means this list and the
@@ -145,40 +230,83 @@ def stage(source: Path, dest: Path, python: Path) -> list[str]:
             written.append(f"  MISSING  {name}")
             continue
         target = dest / name
+        if target.exists():
+            # Only reachable for a foreign destination - a staged one had its
+            # previous manifest removed above.
+            shutil.rmtree(target) if target.is_dir() else target.unlink()
         if origin.is_dir():
-            shutil.copytree(origin, target, ignore=_ignore)
+            ignore = _ignore_keeping_fixtures if name == "tests" else _ignore
+            shutil.copytree(origin, target, ignore=ignore)
         else:
             shutil.copy2(origin, target)
         written.append(f"  {name}")
+        produced.append(name)
 
-    (dest / "README.txt").write_text(README, encoding="utf-8")
+    (dest / "README.txt").write_text(
+        README + (WITH_TESTS_NOTE if with_tests else ""), encoding="utf-8")
     _launchers(dest, python)
+    produced.extend(["README.txt", STAGED_WINDOW, STAGED_CLI])
+
     # Created rather than copied: an installed copy has an empty log folder,
-    # not the development tree's history.
+    # not the development tree's history. **Not recorded in the manifest** - a
+    # re-stage must not delete the logs of a running installation.
     (dest / "logs").mkdir(exist_ok=True)
+
+    (dest / MANIFEST).write_text(
+        json.dumps({"wrote": sorted(produced), "with_tests": with_tests}, indent=2),
+        encoding="utf-8")
+
     return written
 
 
-def _launchers(dest: Path, python: Path) -> None:
-    r"""Two `.cmd` files: the window, and the command line.
+#: The generated launchers. **Neither may collide with a shipped name, and
+#: `Leasha.cmd` did.**
+#:
+#: Windows filenames are case-insensitive, so the generated `Leasha.cmd` and the
+#: shipped `leasha.cmd` are one file - and whichever is written last wins. The
+#: generated one always was. That silently replaced the real launcher, which
+#: checks for a local venv, prints "Leasha is not installed yet" when there is
+#: none, and passes arguments through to the CLI, with a three-line stub
+#: hardcoding whatever interpreter happened to run the staging script.
+#:
+#: On a production tree at `D:\Leasha` with its own venv, that meant the
+#: launcher ran the *development* interpreter from `D:\SearchProject\venv` -
+#: reading the development tree's packages while claiming to be a clean install,
+#: which is the exact confusion staging exists to remove. A test now asserts the
+#: collision cannot come back.
+STAGED_WINDOW = "Leasha-staged.cmd"
+STAGED_CLI = "leasha-cli.cmd"
+
+
+def _launcher_body(python: Path, module: str) -> str:
+    r"""A launcher that prefers the tree's own venv, then the staged interpreter.
 
     **`cd /d "%~dp0"` first.** Everything the application finds - `.env`,
     `logs\`, `config\` - is resolved from its own location, and a launcher that
     inherits whatever directory the shortcut happened to start in is how a
-    staged tree quietly reads the development tree's configuration. That is
-    precisely the confusion this exercise is meant to remove.
+    staged tree quietly reads the development tree's configuration.
+
+    The venv check is what makes one file work for both cases: a staged tree
+    with no venv borrows the interpreter it was staged with, and the same tree
+    after `run-install.cmd` uses its own without being regenerated.
     """
-    quoted = str(python)
-    (dest / "Leasha.cmd").write_text(
+    return (
         "@echo off\r\n"
+        "REM Generated by scripts/stage.py. Do not edit - it is rewritten.\r\n"
         "cd /d \"%~dp0\"\r\n"
-        f"\"{quoted}\" -m app.main %*\r\n",
-        encoding="utf-8")
-    (dest / "leasha-cli.cmd").write_text(
-        "@echo off\r\n"
-        "cd /d \"%~dp0\"\r\n"
-        f"\"{quoted}\" -m app.cli %*\r\n",
-        encoding="utf-8")
+        "if exist \"venv\\Scripts\\python.exe\" (\r\n"
+        f"  venv\\Scripts\\python.exe -m {module} %*\r\n"
+        ") else (\r\n"
+        f"  \"{python}\" -m {module} %*\r\n"
+        ")\r\n"
+        "exit /b %ERRORLEVEL%\r\n"
+    )
+
+
+def _launchers(dest: Path, python: Path) -> None:
+    """The two generated `.cmd` files: the window, and the command line."""
+    (dest / STAGED_WINDOW).write_text(_launcher_body(python, "app.main"), encoding="utf-8")
+    (dest / STAGED_CLI).write_text(_launcher_body(python, "app.cli"), encoding="utf-8")
 
 
 #: What `--check` runs. Every one is read-only, needs no index and no model, and
@@ -231,14 +359,27 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="run the staged copy afterwards - the part that "
                              "proves the layout works")
+    parser.add_argument("--with-tests", action="store_true",
+                        help="also stage tests\\ and pyproject.toml, so the "
+                             "suite can be run against the production layout. "
+                             "Not what ships.")
     args = parser.parse_args(argv)
 
     dest = Path(args.dest)
     print(f"Staging {here}  ->  {dest}")
-    for line in stage(here, dest, Path(args.python)):
+    previous = _previous(dest)
+    if dest.exists() and not previous:
+        # A folder nobody staged before. Say so rather than quietly writing into
+        # it - this is the case where somebody typed the wrong path.
+        print(f"  note: {dest} exists and was not staged by this script. "
+              "Nothing there will be deleted; matching names are overwritten.")
+    for line in stage(here, dest, Path(args.python), with_tests=args.with_tests):
         print(line)
-    print(f"\n  {dest}\\Leasha.cmd        the window")
-    print(f"  {dest}\\leasha-cli.cmd    the command line")
+    print(f"\n  {dest}\\leasha.cmd            the window (uses this tree's venv)")
+    print(f"  {dest}\\{STAGED_WINDOW}   the window, without installing first")
+    print(f"  {dest}\\{STAGED_CLI}    the command line")
+    if args.with_tests:
+        print(f"  {dest}\\tests             staged too - run pytest from there")
 
     if not args.check:
         print("\n  Pass --check to run it. A staged tree nobody starts proves "
