@@ -1451,10 +1451,13 @@ def cmd_ollama(args: argparse.Namespace) -> int:
     if sentence:
         from app.search.translate import QueryTranslator
 
+        from app.search.translate import TRANSLATE_TIMEOUT_S
+
+        budget = float(getattr(args, "timeout", 0) or TRANSLATE_TIMEOUT_S)
         print()
-        print(f"Interpreting: {sentence!r}")
-        result = QueryTranslator(client).translate(sentence)
-        print(f"  -> {result.query!r}")
+        print(f"Interpreting: {sentence!r}  (budget {budget:g}s)")
+        result = QueryTranslator(client, timeout_s=budget).translate(sentence)
+        print(f"  -> {result.query!r}  [{result.elapsed_s:.1f}s]")
         # `changed`, not `used_model`: the latter is False for a cache hit,
         # and a cached translation is a working one. What matters here is
         # whether anything came back that differs from what went in.
@@ -1462,11 +1465,24 @@ def cmd_ollama(args: argparse.Namespace) -> int:
             cached = " (from cache)" if result.from_cache else ""
             print(f"  [  OK  ] the model produced it{cached}")
         else:
-            print(f"  [ FAIL ] fell back to the raw sentence: {result.note}")
+            print("  [ FAIL ] fell back to the raw sentence")
             print()
-            print("  The model answered, but not with something usable as a")
-            print("  query. Search is unaffected - Interpret just hands your")
-            print("  sentence through unchanged. Try a different OLLAMA_MODEL.")
+            # The error's own message and suggestion, not a guess. This command
+            # once printed "try a different model" for a *timeout*, which is
+            # sometimes right and sometimes hides that the budget is simply too
+            # small - and it printed it while the trial question above had just
+            # succeeded in under a second.
+            if result.error is not None:
+                print(f"  [{result.error.code}] {result.error.message}")
+                if result.error.details:
+                    print(f"  {result.error.details}")
+                print()
+                print(f"  FIX: {result.error.suggestion}")
+            else:
+                print(f"  {result.note}")
+            print()
+            print("  Search is unaffected. Interpret is the only thing that uses")
+            print("  Ollama, and when it cannot help it passes your words through.")
             return EXIT_ERROR
 
     return EXIT_OK
@@ -1790,6 +1806,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_ollama.add_argument(
         "--translate", metavar="SENTENCE",
         help="also run one real translation end to end, and show what came back")
+    p_ollama.add_argument(
+        "--timeout", type=float, metavar="SECONDS",
+        help="seconds to allow the model for --translate (default: %(default)s)"
+             % {"default": "30"})
     p_ollama.set_defaults(func=cmd_ollama)
 
     p_formats = sub.add_parser(

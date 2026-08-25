@@ -69,7 +69,17 @@ log = logger.bind(component="search.translate")
 #: Seconds before giving up and searching the raw text. Five, because that is
 #: about the longest anybody will wait having pressed a button that promised to
 #: be quick - and the fallback costs nothing.
-TRANSLATE_TIMEOUT_S = 5.0
+#: **Measured, not guessed.** The previous value was 5.0, chosen because it
+#: felt responsive, and it made the feature fail on the owner's machine every
+#: time: a trial question took 8.2s on a cold model, and the real prompt is
+#: ~1,900 characters of generated grammar rather than a sentence. Every
+#: translation timed out, and the message blamed Ollama for not answering.
+#:
+#: 30s because Interpret is an *explicit* button - somebody clicked it and is
+#: willing to wait - it runs off the UI thread, and the first call of a session
+#: also pays for loading the model into memory. A budget shorter than the work
+#: is not responsiveness, it is a feature that never runs.
+TRANSLATE_TIMEOUT_S = 30.0
 
 #: A reply longer than this is prose, not a query, whatever it says. Guards
 #: against a model that decides to explain itself at length.
@@ -313,9 +323,21 @@ class QueryTranslator:
             )
             text = getattr(response, "text", "") or ""
         except AppErrorException as exc:
+            # **Say what actually happened.** This used to report "Ollama is not
+            # answering" for every failure, including a timeout - so a machine
+            # with a perfectly healthy Ollama was told to go and check Ollama.
+            # `exc.error` already holds the real message; substituting a guess
+            # for it threw away the only useful information in the exception.
+            code = getattr(exc.error, "code", "")
             return self._fallback(
-                raw, "Ollama is not answering, so the words you typed were searched for as-is.",
-                error=exc.error, elapsed_s=time.monotonic() - started,
+                raw,
+                f"{exc.error.message} Your words were searched for as typed.",
+                error=exc.error,
+                elapsed_s=time.monotonic() - started,
+                # A timeout is transient: the model may simply have been cold,
+                # and the next press is usually the one that works. Caching it
+                # would make the button permanently dead for that sentence.
+                cache=code != "ERR_OLLAMA_TIMEOUT",
             )
         except Exception as exc:                 # noqa: BLE001 - boundary; never fail a search
             log.debug("translation failed: {}: {}", type(exc).__name__, exc)
@@ -353,6 +375,7 @@ class QueryTranslator:
         *,
         error: Optional[AppError] = None,
         elapsed_s: float = 0.0,
+        cache: bool = True,
     ) -> Translation:
         """Search the raw text. Logged once per translator, not per key.
 
@@ -364,9 +387,14 @@ class QueryTranslator:
             log.info("query translation unavailable: {}", note)
         result = Translation(raw=raw, query=raw, changed=False, note=note,
                              error=error, elapsed_s=elapsed_s)
-        # Cached too: a machine with no Ollama should not re-probe on every
-        # press of the button.
-        self._cache[raw] = result
+        if cache:
+            # A machine with no Ollama should not re-probe on every press of
+            # the button. **But only permanent failures are cached.** A timeout
+            # is transient - the model was cold, or the machine was busy - and
+            # caching it made the second press return the first press's failure
+            # instantly, which reads as the button being broken rather than the
+            # model being slow.
+            self._cache[raw] = result
         return result
 
 

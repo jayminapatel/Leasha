@@ -251,11 +251,39 @@ class OllamaClient:
         if json_mode:
             payload["format"] = "json"
 
+        # Imported here, not in the `except` clause below: `requests` is loaded
+        # lazily by `_post`, so naming `requests.exceptions.Timeout` in a handler
+        # without this raises NameError *while handling the timeout* - turning a
+        # slow model into a crash, which is worse than the bug being fixed.
+        import requests  # noqa: PLC0415 - lazy so importing this module is free
+
+        budget = timeout or self.timeout
         started = time.monotonic()
         try:
-            body = self._post("/api/generate", payload, timeout or self.timeout)
+            body = self._post("/api/generate", payload, budget)
         except AppErrorException:
             raise
+        except requests.exceptions.Timeout as exc:
+            # **A timeout is not "Ollama is down".**
+            #
+            # It answered - it just did not finish inside a budget this
+            # application chose. Reporting the two the same way sent a real
+            # diagnosis in exactly the wrong direction: `ollama --translate`
+            # showed a trial question answered in 0.59s and then said "Ollama is
+            # not answering", so the obvious next move was to go and check a
+            # service that was working perfectly.
+            #
+            # The health cache is deliberately *not* cleared here: the server is
+            # demonstrably up, and re-probing it would be work to confirm
+            # something already known.
+            raise AppErrorException(make_error(
+                "ERR_OLLAMA_TIMEOUT", "llm.ollama",
+                timeout_s=f"{budget:g}",
+                details=(
+                    f"{self.model} did not reply within {budget:g}s to a "
+                    f"{len(prompt):,}-character prompt."
+                ),
+            )) from exc
         except Exception as exc:  # noqa: BLE001 - deliberately one shape out
             # A failure here also invalidates the cached health, so the next
             # call re-probes instead of trusting a check from before the crash.

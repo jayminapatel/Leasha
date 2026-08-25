@@ -124,6 +124,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.AUTO_FIX,
         action_payload="ollama serve",
     ),
+    # A separate code from ERR_OLLAMA_DOWN because it has a different cause and
+    # a different fix, and conflating them sent a real diagnosis in the wrong
+    # direction: Ollama answered a trial question in 0.59s and the application
+    # still reported "Ollama is not answering". It was answering. It was being
+    # asked a much longer question with a five-second budget.
+    "ERR_OLLAMA_TIMEOUT": _Spec(
+        message="Ollama did not finish within {timeout_s}s. Search still works normally.",
+        suggestion=(
+            "The model is running but slower than the time allowed. A first call also "
+            "loads the model into memory and is much slower than the ones after it. "
+            "Try again, or set OLLAMA_MODEL to something smaller - a 1.5B model rewrites "
+            "a query as well as a 7B one and answers in a fraction of the time."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # --- file types, converters and OCR -----------------------------------
     "ERR_CLOUD_STUB": _Spec(
         message="'{path}' is a link to a Google Docs file, not the document itself.",
