@@ -553,6 +553,30 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     the mouse, but the simple and reliable signal is this one: a resize that
     happens while the header is being dragged.
     """
+    # **A kill switch, for bisecting a native crash.**
+    #
+    # The window dies in C++ during `MainWindow.__init__`, and every
+    # faulthandler dump names `_apply_theme -> resized` - this function's slot -
+    # as the main thread's position. Three fixes aimed at what the slot *does*
+    # changed nothing, which is evidence the fault is in the emission itself
+    # rather than in the Python body.
+    #
+    # Guessing further is worse than measuring. With this set, nothing connects
+    # to `sectionResized` at all: if the window then opens, the cause is here
+    # and can be fixed properly; if it still dies, this function is exonerated
+    # and the stack will move somewhere new. Either answer is progress, and one
+    # run gives it.
+    #
+    #     $env:LEASHA_NO_COLUMN_MEMORY=1
+    #     venv\Scripts\python.exe -m app.main
+    #
+    # Remove once the cause is known. A permanent switch for a bug nobody
+    # understands is how a workaround becomes the design.
+    import os
+
+    if os.environ.get("LEASHA_NO_COLUMN_MEMORY"):
+        return
+
     header = table.horizontalHeader()
     if header is None:
         return
