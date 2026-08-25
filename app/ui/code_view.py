@@ -38,7 +38,8 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.presenter import (
-    REPO_FILE_LIMIT, code_route, code_summary, git_result_row, git_summary,
+    REPO_FILE_LIMIT, code_route, code_summary, code_type_filter,
+    git_result_row, git_summary,
     repo_empty_state, repo_file_rows, repo_root_for,
 )
 from app.ui.view_options import button as view_button
@@ -209,9 +210,18 @@ class CodeView(QWidget):
     def _search_index(self, route: Any) -> None:
         self._generation += 1
         generation = self._generation
+        # **A typed `/type` wins over the configured default.** Naming a type is
+        # an instruction; the setting is what to do when nobody has. Same rule
+        # as `app.cli index`, where explicit roots beat the saved ones - a
+        # command that quietly ignored what was typed in favour of a setting
+        # would be the same bug pointing the other way.
+        #
+        # `None` means "no filter", which is what "Everything in the repository"
+        # resolves to - not an empty list, which would show nothing.
+        wanted = list(route.extensions) or code_type_filter(self._store)
         worker = CallableWorker(
             self._store.code_files, route.text, repo=route.repo,
-            ext=list(route.extensions) or None, limit=REPO_FILE_LIMIT,
+            ext=wanted, limit=REPO_FILE_LIMIT,
             component="ui.code",
         )
         worker.signals.finished.connect(

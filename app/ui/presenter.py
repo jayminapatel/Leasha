@@ -41,6 +41,7 @@ __all__ = [
     "GIT_ONLY",
     "CodeRoute",
     "code_route",
+    "code_type_filter",
     "code_summary",
     "git_result_row",
     "git_summary",
@@ -2125,6 +2126,40 @@ GIT_ONLY: frozenset[str] = frozenset({
     "ignore-case", "class", "interface", "function", "symbol", "endpoint",
     "config",
 })
+
+
+def code_type_filter(store: Any) -> Optional[list[str]]:
+    r"""The configured "what counts as code" set, or None for no filter.
+
+    **The Code tab listed by location, not by type.** `code_files` narrows on
+    `repo_id` and `source_kind` and nothing else, so every PDF, spreadsheet,
+    image and log that happens to live in a repository folder appeared in it -
+    reported from the window as *"its bringing files which are not code"*, and
+    warned about by `app.cli repos` ever since repositories were added:
+    *"`scope:code` will match your whole corpus rather than just code"*.
+
+    **It changes what is listed, never what is indexed.** Unticking a group
+    here removes those types from one tab; the main search still finds every one
+    of them, which is the whole reason this is a view preference rather than a
+    reading rule. See `app/core/code_types.py`.
+
+    Read per search rather than cached, so the setting takes effect on the next
+    keystroke rather than the next restart - it is one `get_state` and a set
+    union over a list already in memory.
+
+    Never raises. An unreadable preference costs the filter, never the tab, and
+    the failure direction is "show everything" - a Code tab that has silently
+    hidden a language is far harder to notice than one showing a stray PDF.
+    """
+    from app.core.code_types import choice_from, extensions_for
+
+    try:
+        preset, chosen = choice_from(store)
+        wanted = extensions_for(preset, chosen)
+    except Exception as exc:                     # noqa: BLE001 - see the docstring
+        _log.debug("code types not read: {}", exc)
+        return None
+    return sorted(wanted) if wanted is not None else None
 
 
 def code_route(text: str) -> CodeRoute:

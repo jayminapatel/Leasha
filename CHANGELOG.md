@@ -1,12 +1,44 @@
 # Changelog
 
-**Doc version:** 3.41 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.42 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the Code tab lists code, not everything that sits beside it
+
+*"on the code search ... at the moment its bringing files which are not code"*.
+`code_files` narrows on `repo_id` and `source_kind` and **nothing else**, so the
+tab listed every file *located* in a repository: the PDFs, spreadsheets, images
+and logs that happen to live in the folder. `app.cli repos` has warned about
+exactly this since repositories were added — *"`scope:code` will match your
+whole corpus rather than just code"* — and it finally got reported from the
+window.
+
+**A new config under Folders to index**, with a preset and the sixteen ecosystem
+groups from `source_types.py` behind it:
+
+- *Source code only* — the language groups, 311 types
+- **Source, config and build files** — the default, 382 types; adds `.csproj`,
+  `.tf`, `Dockerfile`, `Makefile`
+- *Source, config, build and documentation* — adds `.md`, `.csv`, `.json`
+- *Everything in the repository* — what it did before, kept
+- *Chosen types…* — the groups as checkboxes
+
+**It changes what is listed, never what is indexed**, and the panel says so in
+as many words. That distinction is the whole design: there are now two
+file-type editors on one Settings page, and the other one *does* decide what is
+read. Somebody who confuses them either loses search coverage or wonders why
+unticking changed nothing. A test asserts the wording, and another asserts the
+module calls no configuration writer at all.
+
+Two details worth keeping: an explicit `/type cs` still beats the setting,
+because naming a type is an instruction and the setting is only what to do when
+nobody has; and "everything" resolves to *no filter* rather than to every known
+extension, so a file type the catalogue has never heard of is still listed.
 
 ### Fixed — the suite goes green, and two of the twelve were real bugs
 

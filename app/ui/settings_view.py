@@ -41,6 +41,7 @@ from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
+from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.model_box import ModelBox
 from app.ui.widgets.roots_box import RootsBox
 from app.ui.widgets.search_box import SearchBox
@@ -60,6 +61,9 @@ class SettingsView(QWidget):
     root_modes_changed = pyqtSignal(dict)
     #: "Rescan archived folders now" - one full walk, not a change of policy.
     rescan_archives_requested = pyqtSignal()
+    #: `(preset, groups)` for the Code tab's file-type filter. A view
+    #: preference: it changes what Code lists, never what is indexed.
+    code_types_changed = pyqtSignal(str, list)
     pst_backend_changed = pyqtSignal(str)
     #: (enabled, model, timeout_s) for the Interpret button.
     ollama_model_changed = pyqtSignal(bool, str, int)
@@ -95,6 +99,12 @@ class SettingsView(QWidget):
         self.roots_box.roots_changed.connect(self.roots_changed)
         self.roots_box.modes_changed.connect(self.root_modes_changed)
         self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
+
+        # Directly under Folders to index, as asked. It answers a different
+        # question from the File types editor further down - what one tab
+        # *lists*, rather than what is *read* - and says so on itself.
+        self.code_types = CodeTypesBox()
+        self.code_types.changed.connect(self.code_types_changed)
 
         # --- behaviour
         # The Search group lives in its own widget: this file crossed the
@@ -218,6 +228,7 @@ class SettingsView(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.roots_box)
+        layout.addWidget(self.code_types)
         layout.addWidget(self.indexing)
         layout.addWidget(pst_box)
         layout.addWidget(self.search_box)

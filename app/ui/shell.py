@@ -205,6 +205,8 @@ class MainWindow(QMainWindow):
         self.settings_view.roots_changed.connect(self._save_roots)
         self.settings_view.root_modes_changed.connect(self._save_root_modes)
         self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
+        self.settings_view.code_types_changed.connect(self._save_code_types)
+        self.settings_view.code_types.load(*self._load_code_types())
         self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
         self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
         self.settings_view.models.load(
@@ -1022,6 +1024,26 @@ class MainWindow(QMainWindow):
         except Exception:                        # noqa: BLE001
             return []
         return [root for root in (stored or "").split("|") if root]
+
+    def _load_code_types(self) -> tuple:
+        """Which file types the Code tab lists. See `app/core/code_types.py`."""
+        from app.core.code_types import choice_from
+
+        return choice_from(self._store)
+
+    def _save_code_types(self, preset: str, groups: list) -> None:
+        from app.core.code_types import STATE_KEY, dump_choice
+
+        try:
+            self._store.set_state(STATE_KEY, dump_choice(preset, groups))
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("code file types not saved: {}", exc)
+            self.statusBar().showMessage(
+                "That Code file-type choice was not saved.", 8_000)
+            return
+        # The Code tab reads this per search, so it takes effect on the next
+        # keystroke - but it is already on screen, so redraw it now.
+        self.code_view.refresh()
 
     def _load_root_modes(self) -> dict:
         """Which folders the owner has declared static. See `index/archives.py`."""

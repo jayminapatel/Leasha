@@ -361,6 +361,7 @@
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
     <Content Include="docs\WORKORDER-ui-shell-and-results.md" />
+    <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
