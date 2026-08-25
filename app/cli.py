@@ -891,6 +891,84 @@ def cmd_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_gitsearch(args: argparse.Namespace) -> int:
+    """Time git history search. **A measurement, not a feature.**
+
+    `WORKORDER-git-search-backend.md` §14 makes phase 2 conditional on these
+    numbers, and `HANDOFF-ui-to-backend.md` B4 asks the same question from the
+    other side. Searching a full history is O(commits x changed files) against
+    a contract of p95 under 300ms warm, so there are two possible designs and
+    only a measurement distinguishes them.
+
+    Nothing here is reachable from a search. It is a command somebody runs
+    deliberately, once, to decide what gets built.
+    """
+    from app.search.gitsearch import DEFAULT_DEPTHS, DEFAULT_TIMEOUT_S, measure
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    repo = Path(args.repo).expanduser()
+    if not repo.is_dir():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="repo", reason=f"'{repo}' is not a folder",
+            suggestion=r'Point it at a git checkout: app.cli gitsearch --repo "D:\Project" "pattern"',
+        ), args.json)
+
+    depths = DEFAULT_DEPTHS
+    if args.depths:
+        try:
+            depths = tuple(int(part) for part in args.depths.split(",") if part.strip())
+        except ValueError:
+            return _report(make_error(
+                "ERR_CONFIG_INVALID", "cli.gitsearch",
+                key="--depths", reason=f"'{args.depths}' is not a list of numbers",
+                suggestion="Give commit counts, comma separated: --depths 1000,10000,50000",
+            ), args.json)
+
+    if not args.json:
+        print(f"Timing history search in {repo}")
+        print(f"  pattern: {args.pattern!r}   depths: "
+              f"{', '.join(f'{d:,}' for d in depths)}")
+        print("  git log -S diffs every commit, so this is deliberately the slow "
+              "case. Minutes is a result, not a failure.", flush=True)
+
+    found = measure(repo, args.pattern, depths=depths, rev=args.rev,
+                    timeout=args.timeout or DEFAULT_TIMEOUT_S)
+
+    if args.json:
+        print(json.dumps(found.as_dict(), indent=2))
+        return EXIT_OK if found.git else EXIT_ERROR
+
+    if not found.git:
+        for note in found.notes:
+            print(f"  ! {note}")
+        return EXIT_ERROR
+
+    print()
+    print(f"  {found.git}   {found.commits_total:,} commits in this repository")
+    print()
+    print(f"  {'MODE':<7} {'DEPTH':>8} {'SEARCHED':>9} {'ELAPSED':>9} {'MATCHES':>8}  ")
+    for row in found.rows:
+        elapsed = f"{row['elapsed_s']:.2f}s" if row["ok"] else "failed"
+        flag = "" if row.get("representative", True) else "  (whole history)"
+        print(f"  {row['mode']:<7} {row['depth_asked']:>8,} "
+              f"{row['commits_searched']:>9,} {elapsed:>9} "
+              f"{row['matches']:>8,}{flag}")
+
+    if found.peak_rss_mb is not None:
+        print()
+        print(f"  peak RSS (this process)  {found.peak_rss_mb:,.0f}MB")
+    for note in found.notes:
+        print(f"  note: {note}")
+
+    print()
+    print("  Write these into HANDOFF.md. They decide whether history search can")
+    print("  live behind the Enter key or has to be its own cancellable job.")
+    return EXIT_OK
+
+
 def cmd_repos(args: argparse.Namespace) -> int:
     """Every code repository found under an indexed root.
 
@@ -2021,6 +2099,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_git = sub.add_parser(
+        "gitsearch", parents=[common],
+        help="time git history search - a measurement, never part of a search")
+    p_git.add_argument("pattern", help="the string to look for in the history")
+    p_git.add_argument("--repo", required=True, metavar="PATH",
+                       help="the git checkout to measure against")
+    p_git.add_argument("--rev", default="HEAD", metavar="EXPR",
+                       help="revision or range to search (default: HEAD)")
+    p_git.add_argument("--depths", metavar="N,N",
+                       help="commit depths to time at (default: 1000,10000,50000)")
+    p_git.add_argument("--timeout", type=float, metavar="S",
+                       help="give up on one search after this long (default: 600)")
+    p_git.set_defaults(func=cmd_gitsearch)
 
     p_repos = sub.add_parser(
         "repos", parents=[common],

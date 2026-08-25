@@ -62,7 +62,7 @@ def parser_for(argv):
 
 COMMANDS = [
     "search", "index", "formats", "commands", "ollama", "doctor",
-    "evaluate", "embed-bench", "rerank-bench", "diagnose", "repos",
+    "evaluate", "embed-bench", "rerank-bench", "diagnose", "repos", "gitsearch",
 ]
 
 
@@ -523,3 +523,47 @@ def test_reembed_says_what_it_is_doing_before_the_silence(tmp_path, capsys, monk
     assert "Embedding" in out, "it started work without saying so"
     assert "4" in out, "it did not say how many passages"
     assert "first line" in out, "it did not warn that the first line is slow"
+
+
+def test_gitsearch_on_a_folder_that_is_not_a_repository(tmp_path, capsys):
+    """It must say so rather than producing an empty table that reads as
+    "history search is instant"."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    args = parser_for([
+        "gitsearch", "pattern", "--repo", str(tmp_path), "--env", env,
+        "--depths", "5", "--json",
+    ])
+    cli.cmd_gitsearch(args)
+
+    import json as _json
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["rows"] == []
+    assert payload["notes"], "it produced no rows and said nothing about why"
+
+
+def test_gitsearch_rejects_a_missing_folder(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    args = parser_for([
+        "gitsearch", "x", "--repo", str(tmp_path / "nope"), "--env", env,
+    ])
+    assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
+
+
+def test_gitsearch_rejects_depths_that_are_not_numbers(tmp_path, capsys):
+    """`--depths 1k,10k` is the obvious thing to type and is not a number."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    args = parser_for([
+        "gitsearch", "x", "--repo", str(tmp_path), "--env", env,
+        "--depths", "1k,10k",
+    ])
+    assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
+    assert "depths" in capsys.readouterr().err.lower() + capsys.readouterr().out.lower()

@@ -1405,6 +1405,36 @@ class SqliteStore:
             ).fetchone()
             return int(row["id"])
 
+    def repo_files(self, repo_id: int, *, limit: int = 500) -> list[dict[str, Any]]:
+        """Indexed files in one repository, newest first.
+
+        Requested by the UI thread (`HANDOFF-ui-to-backend.md` B3). The Code
+        tab worked without it by walking `iter_files(source_kind="file")` and
+        matching the root as a prefix - correct, and a scan of the whole
+        `files` table per expansion, when `files.repo_id` is right there and
+        indexed.
+
+        `source_kind = 'file'` is in the WHERE clause so an email archive can
+        never appear in a list of source files.
+
+        **`limit` is not clamped, deliberately.** The caller asks for
+        `limit + 1` to tell "exactly 500" from "more than 500", and quietly
+        capping it would make those two indistinguishable - which is the
+        difference between a complete list and a truncated one presented as
+        complete.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT id, path, ext, size_bytes, mtime_ns, status
+            FROM files
+            WHERE repo_id = ? AND source_kind = 'file'
+            ORDER BY mtime_ns DESC, id DESC
+            LIMIT ?
+            """,
+            (int(repo_id), int(limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def repos_list(self) -> list[dict[str, Any]]:
         """Every known repository with its indexed file count, most files first.
 
@@ -1505,6 +1535,40 @@ class SqliteStore:
             "chunks_total": int(chunk_total),
             "chunks_embedded": int(embedded),
             "skipped_by_code": self.skipped_summary(),
+        }
+
+    def vector_coverage(self, vector_rows: Optional[int]) -> dict[str, Any]:
+        """Whether meaning-based search can actually see the corpus.
+
+        Requested by the UI thread (`HANDOFF-ui-to-backend.md` B2) so the
+        window can say "meaning-based search is off" rather than leaving it in
+        a log nobody reads. **`vectors_ready` is the field to bind to.**
+
+        The row count has to be passed in: it lives in LanceDB, and this store
+        deliberately knows nothing about the vector store - SQLite is the
+        authority and the vectors are derived from it, never the reverse.
+
+        **Measured against `chunks_total`, not `chunks_embedded`.** The flag
+        answers "did the vectors get written for the chunks we tried", which is
+        not the question. The question is "can meaning-based search see my
+        corpus", and only the total can answer it - on an index where 154 of
+        3,355 passages were ever attempted, the flag and the row count agree
+        perfectly and a check comparing those two reports everything healthy.
+        `semantic_search_warnings` in the CLI already learned this the hard way.
+        """
+        chunks = int(self.conn.execute(
+            "SELECT COUNT(*) AS n FROM chunks").fetchone()["n"])
+        rows = max(0, int(vector_rows or 0))
+        covered = (rows / chunks) if chunks else 0.0
+        return {
+            # True only when meaning-based search covers effectively all of it.
+            # Not `rows > 0`: a store holding 5% of the corpus is not "ready",
+            # and calling it ready is how a half-working search looks healthy.
+            "vectors_ready": bool(chunks) and covered >= 0.95,
+            "vector_rows": rows,
+            "chunks_total": chunks,
+            "coverage": round(covered, 4),
+            "missing": max(0, chunks - rows),
         }
 
     def integrity_check(self) -> bool:

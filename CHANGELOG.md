@@ -8,6 +8,65 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Fixed — the `/` menu was hiding a third of itself
+
+`QCompleter` shows seven rows by default and there are eleven commands. The four
+below the fold were reachable by scrolling and invisible in every other sense —
+on the keystroke whose entire purpose is discovery. Sized to the catalogue now,
+so adding a command never quietly hides another one.
+
+### Added — syntax highlighting in the preview, without a library
+
+Code in the preview pane is coloured and set in a monospace font; everything
+else is left exactly as it was. `.py`, `.ts`, `.sql`, `.json`, markup, CSS and
+the C family are covered — grouped by *grammar*, because `.ts` and `.java`
+differ in ways a preview pane cannot see. An extension with no grammar gets no
+colouring at all: guessing puts arbitrary words in keyword blue, which reads as
+a rendering fault rather than a guess.
+
+**Pygments was the obvious answer and is the wrong one here.** Six hundred
+lexers to make strings and comments a different colour in a read-only pane. This
+is a table and a dozen regexes, has no install step, and never becomes a reason
+the application will not start on a machine with no network. It is not a parser
+and does not pretend to be — the failure mode is one word in the wrong colour in
+a pane nobody edits in.
+
+**Colours are mixed from the palette, never asserted.** A hard-coded comment
+green is unreadable on a dark background, which is the exact failure
+`test_forced_theme_stays_readable` exists to catch.
+
+The grammars live in `app/ui/grammars.py`, which imports no Qt, because a regex
+that over-matches has to be catchable by a test and a test that needs a display
+does not run. Writing them there caught a real bug immediately: painting rule by
+rule and letting the last one win **cannot** express what is wanted, because a
+keyword inside a string and a `//` inside a string both have to lose to the
+string, and under last-wins one of them always won — `url = "http://x"` came out
+as a comment. It is one left-to-right scan now, first alternative wins, which is
+what a highlighter has to do.
+
+### Added — Office, OpenDocument and drawing files preview as their text
+
+Word, Excel, PowerPoint, OpenDocument and anything else the index can read now
+appear in the preview pane instead of falling through to the "no preview" card.
+Spreadsheets keep their sheet names and decks their slide labels, because which
+sheet a number came from is most of what somebody previewing a spreadsheet wants
+to know.
+
+**It reuses the index's own extractor rather than owning a list of extensions.**
+Rendering a `.docx` faithfully means a word processor; showing what the *index*
+holds means reusing thirty lines of `app/extract`. In a search tool the second
+is the more useful thing, because what appears in the pane is exactly what was
+searched — "I found it but I cannot see why" is the complaint this answers. The
+notice line says so, so nobody concludes their formatting has been lost.
+
+It also means preview coverage cannot drift from index coverage: a file type
+added through the file-types UI becomes previewable at the moment it becomes
+searchable, with no second list to keep in step.
+
+Types needing a Tier 2 converter are deliberately excluded. Shelling out to
+another program is reasonable while indexing a folder overnight; it is not
+reasonable because somebody pressed the down arrow.
+
 ### Added — the Code tab shows the files, not just the folder
 
 A list of repository names told you a repository existed and nothing about what
@@ -512,6 +571,77 @@ not see the bug it was written for, and it is why these go through
 
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
+
+### Added — `app.cli gitsearch`, and the answer to whether history search can exist
+
+Work order §14 and `HANDOFF-ui-to-backend.md` B4 ask the same question from
+opposite sides: can searching git history live behind the Enter key, against a
+contract of p95 under 300ms warm?
+
+**A measurement, not a feature.** First run, against this repository:
+`git log -S` over **75 commits took 1.59s**; `git grep` over one revision took
+0.33s. Seventy-five commits already costs five times the whole search budget,
+and `git log -S` diffs every commit, so the cost is proportional to history.
+
+That settles B4 in favour of the UI thread's own position: history search is a
+separate, explicitly slow, cancellable action — never a mode of the search box.
+The full table belongs in `HANDOFF.md` once it has been run against a large
+repository; one small repository on one machine is a direction, not a
+conclusion.
+
+Every row records what it was measured under, and a depth deeper than the
+repository is flagged `representative: false` rather than reported as fact — a
+"50,000 commits" figure taken against 800 commits is precisely the sort of
+number that ends up justifying the wrong build. Exit code 1 is treated as "no
+matches" rather than failure, because both git commands use it and reporting
+every unsuccessful search as a broken tool is how a measurement turns into a
+bug report.
+
+Fifteen tests, all against a fake runner so they pass on a machine with no git.
+One of them walks the AST of every module in `app/` and fails if anything
+outside the CLI imports this: it shells out to a command that takes minutes, and
+the first non-negotiable is that no unbounded work sits on a search path.
+
+**On GitPython** — it would not help here. It mostly wraps the same subprocess,
+and what a slow cancellable job needs is streaming, a hard timeout and the
+ability to kill the process, all of which are more direct without it. It earns
+its place only if history is ever traversed as objects rather than grepped, and
+this measurement is what decides whether that is worth doing.
+
+### Fixed — the UI thread's handoff: B1, B2 and B3
+
+`HANDOFF-ui-to-backend.md`, all three landed.
+
+**B1 — an error that described itself.** A user saw:
+
+    DETAIL: Could not create the 'chunks' table: AppErrorException:
+            [ERR_UNEXPECTED] An unexpected error occurred in storage.vectors.
+
+`VectorStore.db` raises `AppErrorException` when the store was never connected,
+and `ensure_table`'s broad handler caught that *already-diagnosed* error and
+wrapped it in a second `ERR_UNEXPECTED`. Because `str(AppErrorException)`
+renders only the headline, the inner message was destroyed rather than nested —
+the real cause, `VectorStore used before connect()`, appeared nowhere. Wrapping
+an error that already carries a code and a fix downgrades a diagnosable failure
+into an undiagnosable one.
+
+Fixed with `except AppErrorException: raise` ahead of the general handler. An
+AST sweep of every module outside `app/ui/` found this was the only site.
+
+**B2 — `vectors_ready`**, the field the UI asked to be named.
+`SqliteStore.vector_coverage(vector_rows)` returns `vectors_ready`,
+`vector_rows`, `chunks_total`, `coverage` and `missing`. It is **not**
+`rows > 0`: a store holding 5% of the corpus is not ready, and calling it ready
+is how a half-working search goes on looking healthy. Measured against
+`chunks_total` rather than `chunks_embedded`, which is the trap the CLI's own
+version documents having fallen into.
+
+**B3 — `repo_files(repo_id, limit)`.** The Code tab worked without it by
+scanning the whole `files` table per expansion. `source_kind = 'file'` is in the
+WHERE clause so mail can never appear in a list of source files, and `limit` is
+deliberately not clamped — the caller asks for `limit + 1` to tell "exactly
+500" from "more than 500", and capping it makes a truncated list
+indistinguishable from a complete one.
 
 ### Fixed — a vector write that produced nothing was recorded as success
 

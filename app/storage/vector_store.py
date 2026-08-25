@@ -196,6 +196,25 @@ class VectorStore:
                 pa.field("mtime_ns", pa.int64()),
             ])
             self._table = self.db.create_table(self.table_name, schema=schema)
+        except AppErrorException:
+            # **Already diagnosed. Let it through.**
+            #
+            # `self.db` raises `AppErrorException` when the store was never
+            # connected. The broad handler below caught that finished error and
+            # wrapped it in `ERR_UNEXPECTED` - and because
+            # `str(AppErrorException)` renders only the headline, the inner
+            # message was *destroyed* rather than nested. What the user got was:
+            #
+            #   [ERR_UNEXPECTED] An unexpected error occurred in storage.vectors.
+            #     DETAIL: Could not create the 'chunks' table:
+            #             AppErrorException: [ERR_UNEXPECTED] An unexpected
+            #             error occurred in storage.vectors.
+            #
+            # A detail line describing itself, with the real cause -
+            # "VectorStore used before connect()" - nowhere in it or in the
+            # log. Wrapping an error that already carries a code and a fix
+            # downgrades a diagnosable failure into an undiagnosable one.
+            raise
         except Exception as exc:  # noqa: BLE001
             raise AppErrorException(make_error(
                 "ERR_UNEXPECTED", "storage.vectors",

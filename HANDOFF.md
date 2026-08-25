@@ -60,6 +60,58 @@ entirely rebuildable from your documents, so deleting it is always safe.
 | L9 | Hardening and packaging | Not started |
 | ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
 
+### B4 answered: history search is its own job, not a mode of the search box
+
+`HANDOFF-ui-to-backend.md` B4 asked for a decision between three products. The
+UI thread's position was option 2 — working tree indexed, history queried live
+and separately. **That is the answer, and it is now backed by a number rather
+than a preference.**
+
+`app.cli gitsearch` exists to produce that number. First run, against this
+repository:
+
+| | commits searched | elapsed |
+|---|---|---|
+| `git log -S` | 75 | **1.59s** |
+| `git grep` (one revision) | 1 | 0.33s |
+
+**Seventy-five commits already costs five times the entire 300ms budget.** That
+is not a marginal call. `git log -S` diffs every commit, so the cost is
+proportional to history, and this repository has one of the smallest histories
+anybody will point it at.
+
+This is one small repository on one machine, so **it is a direction, not a
+extrapolation** — run it on the largest repository available and write those
+rows in here before anything is built on top:
+
+```powershell
+venv\Scripts\python.exe -m app.cli gitsearch --repo "D:\SomeBigRepo" "connection string"
+```
+
+Every row carries what it was measured under, and a depth deeper than the
+repository is flagged `representative: false` rather than reported as fact — a
+"50,000 commits" figure taken against 800 commits is the sort of number that
+ends up justifying the wrong build.
+
+**What this means for the three asks:**
+
+| Ask | Answer |
+|---|---|
+| Current branch / all branches | **Not buildable as asked.** Other branches are not on disk as files, so the walker cannot see them. It would need history indexed, which is the row below. |
+| Current files / full history | **Live query, separate action.** Never behind Enter. |
+| A specific commit | **Comes with the above**, as a `--rev` on the same live query. |
+
+**The result row the UI asked for**, if and when it is built: `commit` (short
+sha), `date`, `author`, `path`, plus the matching line. A hit in a file that no
+longer exists is meaningless without the first three, which is exactly why they
+are in the list.
+
+**On GitPython:** it would not help with this. It mostly wraps the same `git`
+subprocess, and what matters for a slow cancellable job is streaming, a hard
+timeout and killing the process — all of which are more direct without it. It
+earns its place only if phase 2 ever traverses commits and diffs as objects,
+and this measurement is what says whether that is ever worth doing.
+
 ### Standing rule: nothing fails silently
 
 From the owner, 2026-08-25, and it applies everywhere rather than to the one
