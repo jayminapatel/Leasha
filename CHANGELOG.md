@@ -277,6 +277,28 @@ per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
 
+### Fixed — `leasha --help` crashed
+
+`TypeError: %o format: an integer is required, not dict`, for every user, on
+the most basic command there is.
+
+argparse runs every help string through `%` formatting so that `%(default)s`
+expands. The `rerank-bench` one-liner read *"it was 93% of one 9-second
+search"*, and `% o` is a valid conversion — space-flagged octal — which wants
+an integer and gets argparse's parameter dict. Escaped to `%%`.
+
+**`rerank-bench --help` worked the whole time**, which is why this survived: a
+subparser only formats its own strings, so the broken one only surfaced in the
+top-level listing that renders every subcommand's description. `test_cli_wiring`
+already asked each subparser for its help and caught nothing.
+
+Three tests: `format_help()` on the top-level parser, on every subparser, and a
+walk over every help string that names the offending text rather than leaving
+argparse's message to be decoded. The walk missed the bug on its first
+attempt — the subcommand one-liners live on `_choices_actions`, not on
+`action.help` — which is worth recording, because a test that cannot see the
+bug it was written for still reads as coverage.
+
 ### Changed — indexing one message cost six commits, now about one (P7)
 
 Counted by tracing `COMMIT` statements rather than by reading call sites — the

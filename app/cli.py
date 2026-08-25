@@ -1987,7 +1987,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rerank = sub.add_parser(
         "rerank-bench", parents=[common],
-        help="time reranking per model - it was 93% of one 9-second search")
+        # `%%`, not `%`. argparse runs every help string through `%`
+        # formatting to expand `%(default)s`, and "93% of" is read as the
+        # conversion `% o` - a space-flagged octal - which wants an integer and
+        # gets argparse's dict. It crashed the whole top-level `--help`, not
+        # just this line, and `rerank-bench --help` kept working because a
+        # subparser only formats its own strings.
+        help="time reranking per model - it was 93%% of one 9-second search")
     p_rerank.add_argument("--model", help="time only this one")
     p_rerank.add_argument("--count", type=int, default=30,
                           help="candidates to score (default: %(default)s)")

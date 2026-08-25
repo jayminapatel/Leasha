@@ -77,6 +77,83 @@ def test_the_command_exists_and_has_a_function(name):
     assert hasattr(args, "func")
 
 
+def test_the_top_level_help_renders():
+    """`leasha --help` crashed with `TypeError: %o format: an integer is
+    required, not dict`, and nothing caught it.
+
+    argparse runs every help string through `%` formatting to expand
+    `%(default)s`. A help string reading "93% of one 9-second search" contains
+    `% o` - a space-flagged octal conversion - which wants an integer and gets
+    argparse's parameter dict.
+
+    **The test above did not catch it, and could not.** It asks each subparser
+    for its own help, and a subparser only formats its own strings. The
+    top-level help is the one that formats *every* subcommand's one-line
+    description, so a bad `%` in any one of them breaks help for the whole
+    program while `that-command --help` keeps working.
+
+    `format_help()` rather than parsing `--help`, because the latter raises
+    SystemExit and the crash would be swallowed as "the subparser exists".
+    """
+    assert "usage:" in cli.build_parser().format_help()
+
+
+@pytest.mark.parametrize("name", COMMANDS)
+def test_each_subcommand_help_renders(name):
+    """The same failure, one level down: a bad `%` in an *argument's* help."""
+    parser = cli.build_parser()
+    subparsers = [
+        action.choices[name]
+        for action in parser._actions
+        if getattr(action, "choices", None) and name in action.choices
+    ]
+    assert subparsers, f"{name} is not registered"
+    assert "usage:" in subparsers[0].format_help()
+
+
+def test_no_help_string_has_an_unescaped_percent():
+    """Says which string is wrong, rather than only that something is.
+
+    `format_help()` above fails with argparse's own message, which names
+    neither the command nor the text. This walks them so the failure points at
+    the line to fix.
+    """
+    parser = cli.build_parser()
+    bad = []
+
+    def looks_ok(text):
+        try:
+            text % {"default": "x", "prog": "leasha", "choices": "a, b"}
+        except (TypeError, ValueError, KeyError) as exc:
+            return exc
+        return None
+
+    def check(a_parser, where):
+        for action in a_parser._actions:
+            if action.help:
+                problem = looks_ok(action.help)
+                if problem:
+                    bad.append(f"{where}: {action.help!r} ({problem})")
+
+            # **The subcommand one-liners live here, not on `action.help`.**
+            # The first version of this test walked only `_actions` and missed
+            # the very string that broke `--help`, while the `format_help()`
+            # test above caught it. A test that cannot see the bug it was
+            # written for is worse than no test, because it reads as coverage.
+            for entry in getattr(action, "_choices_actions", []):
+                if entry.help:
+                    problem = looks_ok(entry.help)
+                    if problem:
+                        bad.append(f"{entry.dest}: {entry.help!r} ({problem})")
+
+            for choice_name, sub in (getattr(action, "choices", None) or {}).items():
+                if isinstance(sub, argparse.ArgumentParser):
+                    check(sub, choice_name)
+
+    check(parser, "top level")
+    assert not bad, "escape the percent sign as %% in:\n  " + "\n  ".join(bad)
+
+
 def test_every_subcommand_is_reachable():
     """A command added to the module but never registered is invisible - it
     exists, it is tested, and nobody can run it."""
