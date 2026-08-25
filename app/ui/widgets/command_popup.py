@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QStringListModel, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
@@ -85,6 +85,42 @@ class CommandPopup(QCompleter):
         return bool(self._matches)
 
 
+class _TabAccepts(QObject):
+    """Makes Tab and Shift+Tab behave inside a completion popup.
+
+    Owned by the completer so it lives exactly as long as the popup does. An
+    event filter that is garbage collected stops filtering silently, and the
+    bug would come back looking intermittent.
+    """
+
+    def __init__(self, completer: QCompleter) -> None:
+        super().__init__(completer)
+        self._completer = completer
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
+        if event.type() != QEvent.Type.KeyPress:
+            return False
+        key = event.key()
+
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            popup = self._completer.popup()
+            index = popup.currentIndex()
+            if not index.isValid():
+                # Nothing highlighted yet - Tab picks the first row, which is
+                # what a completion list is for. Refusing here would make the
+                # key do nothing at all on the most common path.
+                index = self._completer.completionModel().index(0, 0)
+                if not index.isValid():
+                    return False
+            # Through the completer's own signal, so the insertion logic lives
+            # in exactly one place and a mouse click and a Tab cannot drift.
+            self._completer.activated[str].emit(index.data())
+            popup.hide()
+            return True
+
+        return False
+
+
 def attach_to(line_edit: QLineEdit) -> CommandPopup:
     """Wire a `CommandPopup` to a search box. Returns it, for tests and teardown.
 
@@ -95,6 +131,20 @@ def attach_to(line_edit: QLineEdit) -> CommandPopup:
     """
     popup = CommandPopup(line_edit)
     popup.setWidget(line_edit)
+
+    # **Tab has to pick the highlighted command.**
+    #
+    # QCompleter's popup handles Enter and Return and nothing else, so Tab fell
+    # through to the line edit and moved focus to the next control - the list
+    # vanished and the person was somewhere else entirely. Reported as "you use
+    # a keyboard and press tab, it does not select; it needs to be clicked by
+    # mouse", which in a project whose spec requires keyboard-only operation end
+    # to end is a plain failure rather than a rough edge.
+    #
+    # Tab is the completion key everywhere a completion list exists - shells,
+    # editors, every IDE. Enter still works; this adds the one people reach for
+    # first.
+    popup.popup().installEventFilter(_TabAccepts(popup))
 
     def on_text(text: str) -> None:
         head, sep, tail = text.rpartition("/")

@@ -34,7 +34,7 @@ __all__ = [
     "load_prefs", "save_prefs", "build_menu", "apply_to_table", "button",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
-    "prefs_to_state", "DENSITIES",
+    "prefs_to_state", "DENSITIES", "Metrics",
 ]
 
 
@@ -104,6 +104,29 @@ class ViewPreferences:
             current = {order[0]}
         return replace(
             self, columns=tuple(key for key in order if key in current))
+
+
+@dataclass(frozen=True, slots=True)
+class Metrics:
+    """Every number the layout uses. One source, so measuring and painting agree."""
+
+    pad_x: int = 10
+    pad_y: int = 6
+    gap: int = 3
+    #: How far a chunk row is indented under its document.
+    indent: int = 26
+    #: Points added to the base font for the name.
+    name_bump: int = 2
+    #: Points removed for the grey lines.
+    meta_drop: int = 1
+
+    @classmethod
+    def for_density(cls, density: str) -> "Metrics":
+        if density == Density.COMPACT:
+            # Padding shrinks, text does not. The point of a compact list is
+            # more rows on screen; text you cannot read is not more information.
+            return cls(pad_y=2, gap=1)
+        return cls()
 
 
 def available_columns(

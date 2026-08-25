@@ -45,6 +45,7 @@ from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
 from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
+from app.ui.tray import TrayPresence
 from app.ui.view_options import load_prefs, save_prefs
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.scroll import wrap_if_needed
@@ -263,6 +264,22 @@ class MainWindow(QMainWindow):
         # matters; doing it here means a new page gets it for free.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls", guarded)
+
+        # **Opt-in, and off until asked for.** An application that vanishes
+        # from the taskbar when you did not ask it to is alarming: you close a
+        # window, it disappears, and there is no obvious way back.
+        self.tray = TrayPresence(self)
+        self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
+        self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
+        if self.tray.minimise_to_tray or self.tray.close_to_tray:
+            if not self.tray.install():
+                # Never silently: a preference that does nothing is worse than
+                # one that is not offered.
+                self.tray.minimise_to_tray = self.tray.close_to_tray = False
+                _log.warning("no system tray available; minimising normally")
+        self.indexing_view.finished.connect(
+            lambda stats: self.tray.set_status(
+                f"{getattr(stats, 'indexed', 0):,} indexed"))
 
         self.setStatusBar(QStatusBar())
         self.indexing_view.refresh_totals(store, settings)
@@ -801,6 +818,23 @@ class MainWindow(QMainWindow):
     #: same outcome as before - just without the wait.
     SHUTDOWN_GRACE_MS = 4_000
 
+    def changeEvent(self, event: Any) -> None:          # noqa: N802
+        """Hide to the tray when minimised, if that was asked for."""
+        from PyQt6.QtCore import QEvent
+
+        super().changeEvent(event)
+        if (event.type() == QEvent.Type.WindowStateChange
+                and self.isMinimized() and self.tray.minimise_to_tray
+                and self.tray.installed):
+            # Deferred: hiding inside the state-change handler leaves Qt
+            # half-way through a transition it has not finished describing.
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._hide_to_tray)
+
+    def _hide_to_tray(self) -> None:
+        self.hide()
+        self.tray.notify_hidden()
+
     def closeEvent(self, event: Any) -> None:           # noqa: N802
         """Ask every background job to stop, then wait briefly before closing.
 
@@ -815,6 +849,14 @@ class MainWindow(QMainWindow):
         database closed underneath it. Asking first, and waiting, turns a
         shutdown race into an ordinary stop.
         """
+        # Close-to-tray is a *hide*, so nothing is torn down and the index lock
+        # stays held deliberately. Quit from the tray menu clears the flag first,
+        # so it falls through to the real shutdown below.
+        if self.tray.close_to_tray and self.tray.installed:
+            event.ignore()
+            self._hide_to_tray()
+            return
+
         self.recorder.event("closing")
         # **Stop new work before tearing anything down.** Twelve threads were
         # still running at close, and the debounce timers kept firing into an

@@ -1,12 +1,69 @@
 # Changelog
 
-**Doc version:** 3.19 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.20 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — Tab now picks a `/` command
+
+`QCompleter`'s popup handles Enter and Return and nothing else, so Tab fell
+through to the search box and moved focus to the next control: the list vanished
+and you were somewhere else entirely. Reported as *"you use a keyboard and press
+tab, it does not select — it needs to be clicked by mouse"*, which in a project
+whose spec requires keyboard-only operation end to end is a plain failure rather
+than a rough edge. Tab is the completion key in every shell, editor and IDE; it
+now picks the highlighted row, or the first one if nothing is highlighted yet.
+
+### Changed — result rows are painted, not built
+
+`QListWidget` with `setItemWidget` gave every row three live `QLabel`s: five
+hundred results was fifteen hundred widgets, each with a layout, a palette and
+event handling, all constructed before the first was visible. It is now a
+`QListView` over a plain model with a `QStyledItemDelegate` painting only the
+dozen rows on screen, so the cost stops scaling with the result count. Expanded
+chunks are additional model rows rather than nested widgets, and scrolling is
+per-pixel because rows have different heights.
+
+The delegate measures in `sizeHint` and draws in `paint`, and those two
+disagreeing clips text at the bottom of every row — so the geometry has exactly
+one source, `Metrics`, which lives in `view_options.py` because it is pure
+numbers and belongs where it can be tested without a display. The text decisions
+(`why`, `kind_tag`, `group_subtitle`, `result_tooltip`) moved to `presenter.py`
+for the same reason.
+
+### Added — the application icon, and an optional system tray
+
+`leasha.ico` on the window and taskbar, `leasha-tray.ico` in the tray: below
+48px the navy ellipse becomes an indistinct dark mass that swamps the three
+shapes, so the small variant is the blobs alone. The icon is looked for beside a
+frozen executable as well as beside `app/`, because getting that wrong means it
+works from source and vanishes when packaged — exactly when nobody is testing.
+
+**Minimise-to-tray and close-to-tray are both off until asked for.** An
+application that vanishes from the taskbar unbidden is alarming. **Quit from the
+tray is a real quit**, through the window's normal close path: a tray icon that
+leaves a process holding the index lock produces `ERR_DB_LOCKED` on the *next*
+launch with nothing on screen to blame. Where no tray exists the preferences are
+turned off with a warning rather than silently doing nothing.
+
+### Added — a standing rule that background work never freezes the window
+
+`docs/TROUBLESHOOTING.md` told the owner to **wait ten seconds** when the window
+went white, and named building the graph and the environment check as legitimate
+causes. That was documenting a defect as expected behaviour, which is how a bug
+becomes a feature nobody fixes. The entry now says a frozen window is a bug and
+asks for a report.
+
+A guard test enforces it: no `processEvents` outside the shutdown wait (where
+there is no event loop to return to), no `subprocess.run` or `time.sleep` on the
+interface thread, no `waitForDone` outside shutdown, `presenter.py` still free of
+Qt — and for each long operation, an assertion that it starts a worker rather
+than running inline.
+
 
 ### Changed — results are grouped by document, and the row leads with the name
 

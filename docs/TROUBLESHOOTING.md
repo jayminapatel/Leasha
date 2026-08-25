@@ -110,19 +110,24 @@ In order of how often it is the cause:
    Anything in the "Off" list is never opened at all.
 4. **Are you fighting a filter?** `/type pdf` on a Word document finds nothing, correctly.
 
-## The window has gone white / says "Not Responding"
+## The window has stopped responding
 
-Wait ten seconds before doing anything else. A few operations take real time -
-building the graph over a large index, or the environment check - and while
-Windows may paint the window as unresponsive, the work is still running and the
-window comes back on its own.
+**This should not happen, and it is a bug.** Every long operation - indexing,
+embedding, OCR, document conversion, query interpretation, the environment
+check - runs off the interface thread and reports progress back. The window is
+meant to stay interactive throughout: you can search while indexing, change
+settings while OCR runs, and close it at any moment.
 
-If it has not come back after a minute, press **Ctrl+C** in the PowerShell window
-you started it from. That closes the application properly: it releases the lock
-on the index and flushes the database, which ending the task from Task Manager
-does not. Use Task Manager only if Ctrl+C has also had no effect after a few
-seconds, and please say so if you report it - it means something is blocking that
-should not be.
+This entry used to say "wait ten seconds", and named building the graph and the
+environment check as things that legitimately froze the window. That was
+documenting a defect as expected behaviour, which is how a bug becomes a feature
+nobody fixes. A guard test now checks that no interface module blocks, and both
+named causes have been moved onto workers.
+
+So if the window does stop responding, please report it with what you were
+doing at the time. Press **Ctrl+C** in the PowerShell window you started it
+from - that closes the application properly, releasing the lock on the index and
+flushing the database, which ending the task from Task Manager does not.
 
 ## What is in the logs folder
 

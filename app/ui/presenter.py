@@ -61,6 +61,11 @@ __all__ = [
     "status_line",
     "results_message",
     "mail_details",
+    "why",
+    "kind_tag",
+    "group_subtitle",
+    "result_tooltip",
+    "KIND_LABELS",
     "file_query",
     "interpret_message",
     "progress_for",
@@ -727,6 +732,76 @@ def file_query(raw: str) -> tuple[str, list[str]]:
     parsed = parse_query(expand_slashes((raw or "").strip()))
     text = " ".join((*parsed.terms, *parsed.names)).strip() or (parsed.text or "").strip()
     return text, list(parsed.ext)
+
+
+#: A short tag per kind, rather than an icon font or bundled SVGs.
+#:
+#: Text survives dark mode, high-DPI and a missing font file, all of which an
+#: icon set has to be got right for - and none of which is worth spending on
+#: before anybody has said the tags are insufficient.
+KIND_LABELS = {
+    "email": "MAIL",
+    "pdf": "PDF",
+    "docx": "DOC", "doc": "DOC", "odt": "DOC", "rtf": "DOC",
+    "xlsx": "XLS", "xls": "XLS", "ods": "XLS", "csv": "CSV",
+    "pptx": "PPT", "ppt": "PPT", "odp": "PPT",
+    "txt": "TXT", "md": "TXT", "log": "TXT",
+}
+
+
+def kind_tag(kind: str) -> str:
+    """Four characters at most, so an unknown type still gets a legible tag."""
+    return KIND_LABELS.get(kind, (kind or "?").upper()[:4])
+
+
+def why(row: Any) -> str:
+    """Why this result is here, for a tooltip or the right-click menu.
+
+    **Moved off the row, not deleted.** `keyword and meaning both matched ·
+    score 0.83` is genuinely valuable - being able to ask is where trust comes
+    from - but it was the second thing the eye landed on, on every row, for the
+    life of the application.
+    """
+    bits = [
+        getattr(row, "location", ""),
+        getattr(row, "explain", ""),
+        f"score {getattr(row, 'score', 0.0):.2f}",
+    ]
+    return "  ·  ".join(bit for bit in bits if bit)
+
+
+def group_subtitle(group: Any, *, show_scores: bool = False,
+                   expanded: bool = False) -> str:
+    """The grey line under the name: where it is, and how many matches.
+
+    `expanded` is passed in rather than read off the group, because a
+    `ResultGroup` is frozen and describes the *data*. Whether its chunks are
+    currently on screen is a fact about one view at one moment, and putting it
+    on the dataclass would make two views of the same results fight over it.
+    """
+    bits = [getattr(group, "folder", "")]
+    label = getattr(group, "match_label", "")
+    if label:
+        bits.append(f"{label} {'▾' if expanded else '▸'}")
+    best = getattr(group, "best", None)
+    if show_scores and best is not None:
+        bits.append(f"{best.explain}  ·  score {group.score:.2f}")
+    return "  ·  ".join(bit for bit in bits if bit)
+
+
+def result_tooltip(payload: Any, *, missing: bool = False) -> str:
+    """The full path and the explanation - both of which came off the row.
+
+    The breadcrumb is a display choice; the tooltip is where the truth stays.
+    """
+    path = getattr(payload, "path", "")
+    best = getattr(payload, "best", payload)
+    lines = [path]
+    if best is not None:
+        lines.append(why(best))
+    if missing:
+        lines.append("This file is missing - the index is stale for it.")
+    return "\n\n".join(line for line in lines if line)
 
 
 def mail_details(store: Any, results: Any) -> dict:

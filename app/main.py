@@ -130,6 +130,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     application = QApplication(qt_arguments)
     application.setApplicationName(NAME)
+    # Before any window exists, so the taskbar entry is right from the first
+    # frame rather than flickering from a default. A missing file is logged and
+    # ignored - refusing to start over an icon would be absurd.
+    from app.ui.tray import install_window_icon
+
+    if not install_window_icon(application):
+        pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
 
     try:

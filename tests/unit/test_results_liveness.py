@@ -82,7 +82,7 @@ def test_emptying_the_box_resets_the_flag():
 def test_the_scroll_position_survives_a_redraw():
     """Toggling a preference or expanding a row otherwise jumps the list to the
     top, losing the place of somebody who had scrolled to the eighth result."""
-    body = source("results_view.py").split("def _redraw")[1].split("\n    def ")[0]
+    body = source("results_view.py").split("def _rebuild")[1].split("\n    def ")[0]
     assert "verticalScrollBar" in body
     assert "setValue" in body
 
