@@ -369,6 +369,11 @@ class Pipeline:
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
         self.vectors.maybe_create_index()
+        # **Always at the end of a run**, whatever the row threshold says. A run
+        # that added 4,000 chunks would otherwise never compact at all, and a
+        # nightly incremental index is exactly that shape - a small run, every
+        # day, each one leaving fragments behind forever.
+        self.vectors.maybe_compact(force=True)
         self._log.info("index run: {}", stats.as_dict())
         return stats
 
@@ -797,7 +802,16 @@ class Pipeline:
         )
 
         chunk_ids = self.store.replace_chunks(file_id, item.chunks)
-        self.vectors.delete_by_file_ids([file_id])      # a re-index must not leave the old ones
+        # A re-index must not leave the old vectors behind. `delete_by_file_ids`
+        # now returns immediately when the table is empty, which is the whole of
+        # a first index - a hundred thousand documents used to mean a hundred
+        # thousand dataset versions created to delete nothing at all.
+        #
+        # A *new* file added to an *existing* index still costs one no-op
+        # version. Knowing it is new would mean changing what `replace_chunks`
+        # returns for every caller, to save a version that periodic compaction
+        # now collects anyway. Recorded rather than done.
+        self.vectors.delete_by_file_ids([file_id])
 
         if item.meta:
             self._store_message_meta(file_id, item.meta)

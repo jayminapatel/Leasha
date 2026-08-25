@@ -14,18 +14,43 @@ count roughly doubles.
 from __future__ import annotations
 
 import math
+from datetime import timedelta
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterable, Optional, Sequence, Type
 
 from app.core.errors import AppErrorException, make_error
+from app.core.logging import logger
 
-__all__ = ["VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS"]
+__all__ = [
+    "VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS",
+    "COMPACT_EVERY_ROWS", "KEEP_VERSIONS_HOURS",
+]
+
+_log = logger.bind(component="storage.vectors")
 
 TABLE_NAME = "chunks"
 
 #: Below this many rows a brute-force scan is faster than a trained index.
 INDEX_MIN_ROWS = 100_000
+
+#: Rows appended between compactions.
+#:
+#: **LanceDB never compacts itself, and nothing here ever asked it to.** Every
+#: `add` writes a new fragment and every `delete` writes a new dataset version.
+#: A 20-million-chunk index means tens of thousands of fragments and millions of
+#: versions, and a scan has to open all of them - so the index gets slower every
+#: run and never recovers. There was no `optimize` or `compact_files` call
+#: anywhere in the codebase.
+#:
+#: 50,000 is a few minutes of indexing: often enough that fragments never pile
+#: up, rare enough that the compaction cost stays a small fraction of the run.
+COMPACT_EVERY_ROWS = 50_000
+
+#: Dataset versions older than this are dropped during compaction. Old versions
+#: are what make LanceDB time-travel possible and are of no use to this
+#: application, but they are never collected on their own.
+KEEP_VERSIONS_HOURS = 1
 
 
 class VectorStore:
@@ -43,6 +68,11 @@ class VectorStore:
         self._db: Any = None
         self._table: Any = None
         self._indexed_at_rows = 0
+        #: Rows this session has written, and the running total. Counting beats
+        #: asking: `count_rows()` on the write path is a scan per batch.
+        self._rows_added = 0
+        self._approx_rows = 0
+        self._since_compact = 0
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -72,6 +102,9 @@ class VectorStore:
             self._table = self._db.open_table(self.table_name)
             self._verify_dimension()
             self._indexed_at_rows = self.count()
+            # Corrected from the table on every open, so the running total can
+            # never drift further than one session.
+            self._approx_rows = self._indexed_at_rows
         return self
 
     def _list_tables(self) -> list[str]:
@@ -216,8 +249,55 @@ class VectorStore:
         self.ensure_table()
         self._table.add(rows)
 
+        # **Counted, not queried.** `maybe_create_index` called `count_rows()`
+        # on every single batch - a full scan of a growing table, on the write
+        # path, to answer a question that only matters when it crosses a
+        # threshold. The running total is exact between reopens and is corrected
+        # from the table whenever one happens.
+        self._rows_added += len(rows)
+        self._approx_rows += len(rows)
+        self._since_compact += len(rows)
+
         self.maybe_create_index()
+        self.maybe_compact()
         return len(rows)
+
+    def maybe_compact(self, *, force: bool = False) -> bool:
+        """Merge fragments and drop old versions. True if it ran.
+
+        **Never fatal.** A table that has not been compacted answers correctly,
+        just more slowly, so a failure here is logged and the run continues -
+        the same reasoning as the ANN index build above it.
+        """
+        if self._table is None:
+            return False
+        if not force and self._since_compact < COMPACT_EVERY_ROWS:
+            return False
+
+        self._since_compact = 0
+        try:
+            # `optimize` is the modern entry point and does both jobs. The
+            # older `compact_files` is tried after it so this keeps working on
+            # an installation that has not been upgraded.
+            if hasattr(self._table, "optimize"):
+                self._table.optimize(
+                    cleanup_older_than=timedelta(hours=KEEP_VERSIONS_HOURS))
+            elif hasattr(self._table, "compact_files"):
+                self._table.compact_files()
+                if hasattr(self._table, "cleanup_old_versions"):
+                    self._table.cleanup_old_versions(
+                        older_than=timedelta(hours=KEEP_VERSIONS_HOURS))
+            else:
+                _log.debug("this LanceDB has no compaction entry point")
+                return False
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.warning(
+                "could not compact the vector index: {}. Search still works; the "
+                "index will be slower until a later run compacts it.", exc)
+            return False
+
+        _log.info("compacted the vector index")
+        return True
 
     def delete_by_file_ids(self, file_ids: Iterable[int]) -> None:
         """Remove every vector belonging to these files.
@@ -225,9 +305,15 @@ class VectorStore:
         SQLite's cascade cannot reach here, so the caller must invoke this
         alongside delete_file() or the index will keep answering with rows whose
         source no longer exists.
+
+        **A delete against an empty table is not free.** It writes a new dataset
+        version regardless, and the pipeline called this once per document -
+        including on a first index, where by definition there is nothing to
+        remove. On a hundred thousand files that was a hundred thousand versions
+        created to delete nothing at all.
         """
         ids = [int(i) for i in file_ids]
-        if not ids or self._table is None:
+        if not ids or self._table is None or self._approx_rows <= 0:
             return
         self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})")
 
@@ -256,7 +342,7 @@ class VectorStore:
         if self._table is None:
             return False
 
-        rows = self.count()
+        rows = self._approx_rows or self.count()
         if not force:
             if rows < INDEX_MIN_ROWS:
                 return False

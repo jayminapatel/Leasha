@@ -1,12 +1,47 @@
 # Changelog
 
-**Doc version:** 3.23 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.24 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the vector index got permanently slower every run (P4)
+
+**The hardest scalability cliff in the review, and it was unrecoverable.**
+LanceDB writes a new fragment for every `add` and a new dataset version for
+every `delete`, and never compacts itself. **No `optimize` or `compact_files`
+call existed anywhere in the codebase.** At twenty million chunks that is tens
+of thousands of fragments and millions of versions, all of which a scan has to
+open — so the index got slower with every run and never recovered.
+
+`VectorStore.maybe_compact()` now merges fragments and drops versions older than
+an hour: every 50,000 rows during a run, and **always at the end of one**,
+because a nightly incremental index adds a few thousand chunks and would
+otherwise never cross the threshold at all.
+
+Two smaller things fed the same cliff:
+
+- **`delete_by_file_ids` ran once per document, including on a first index**,
+  where by definition there is nothing to delete. A hundred thousand documents
+  meant a hundred thousand dataset versions created to remove nothing. It now
+  returns immediately when the table is empty.
+- **`maybe_create_index` called `count_rows()` on every batch** — a scan of a
+  growing table, on the write path, to answer a question that only matters when
+  it crosses a threshold. The total is tracked and corrected from the table on
+  every open.
+
+Twelve tests, against real LanceDB rather than a fake: the entire subject is
+what the library does with fragments and versions, and a fake would only assert
+what I believe about that.
+
+**Recorded, not done:** a *new* file added to an *existing* index still costs
+one no-op version. Knowing it was new would mean changing what `replace_chunks`
+returns for every caller, to save a version that periodic compaction now
+collects anyway.
+
 
 ### Measured — the reranker swap costs nothing on the built-in corpus
 
