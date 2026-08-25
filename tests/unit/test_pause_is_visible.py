@@ -96,3 +96,20 @@ def test_the_pipeline_marks_the_walk_complete() -> None:
     from app.index import pipeline
 
     assert "stats.walk_complete = True" in inspect.getsource(pipeline)
+
+
+def test_the_command_line_says_paused_too():
+    """**The window got this and the CLI did not, so a real run read as stuck.**
+
+    `cmd_index` builds its own progress line rather than going through
+    `progress_text`, so the pause branch added for the panel did not reach it.
+    A governor pause held the line unchanged for minutes and was reported as a
+    hang; it was working.
+    """
+    import inspect
+
+    from app import cli
+
+    show = inspect.getsource(cli.cmd_index)
+    assert "PAUSED" in show, "the command-line progress line never mentions a pause"
+    assert "pause_reason" in show, "it should say why, not just that"
