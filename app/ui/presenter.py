@@ -79,6 +79,7 @@ __all__ = [
     "folder_size",
     "when_text",
     "archive_summary",
+    "mail_summary",
     "doctor_report",
     "doctor_lines",
     "install_package",
@@ -1728,6 +1729,40 @@ def when_text(iso: str) -> str:
     return format_when(int(moment.timestamp() * 1e9))
 
 
+def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500) -> str:
+    """The line under the Mail table: how many, what was capped, what was dropped.
+
+    Moved out of `mail_view.py`, which had **one line** of headroom under the
+    250-line guard - and a rule with one line of headroom is a rule about to be
+    broken by the next feature, at the moment when the pressure to raise the
+    number is highest and the reasoning worst.
+
+    It belongs here anyway: three branches of string formatting inside a Qt
+    widget can only be checked by a person looking at a mail tab at the right
+    moment, which is how every UI fault in this project has been found.
+
+    **No count when nothing matched, deliberately.** `COUNT(*)` over `messages`
+    is instant on a test corpus and is not on two hundred thousand of them, and
+    this runs inside the handler that paints results - so the wording covers
+    both "no mail indexed" and "no match" rather than paying a query to tell
+    them apart.
+    """
+    if not shown:
+        return ("No message matches those filters. If no mail is indexed "
+                "yet, add a .pst in Settings and run an index.")
+
+    parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
+    if shown >= page_size:
+        parts.append(
+            f"showing the newest {page_size:,} — narrow the filters to see more")
+    if leftover:
+        parts.append(
+            f"'{leftover}' was ignored — this tab filters on the header fields "
+            "only. Use Search to look inside messages."
+        )
+    return "  ·  ".join(parts)
+
+
 def archive_summary(rows: Any) -> tuple[str, list[str]]:
     r"""`(title, lines)` for the folders a run deliberately did not walk.
 
@@ -2141,13 +2176,51 @@ VALUE_LIMIT = 40
 
 #: Per-source ceilings, where the general one is wrong.
 #:
-#: **`ext` is the only bounded source.** A machine has perhaps eighty file
-#: types and never more; senders and folders have no ceiling at all, which is
-#: what the general limit is protecting against. Applying one number to both
-#: meant the safe cap for an unbounded column was silently truncating a list
-#: that fits on a screen - and truncating it by frequency, so the types
-#: somebody had just switched on were the first to be cut.
+#: **`ext` is the only bounded source, and this bounds only the indexed half.**
+#: A machine has perhaps eighty file types and never more; senders and folders
+#: have no ceiling at all, which is what the general limit is protecting
+#: against. Applying one number to both meant the safe cap for an unbounded
+#: column was silently truncating a list that fits on a screen - and truncating
+#: it by frequency, so the types somebody had just switched on were the first
+#: to be cut.
+#:
+#: The *configured* half has its own, much tighter ceiling below. One number
+#: for both was defensible while the application read 34 text extensions; it
+#: reads 405 now, and see `catalogue_limit` for why that changes the answer
+#: rather than merely the number.
 VALUE_LIMITS: dict[str, int] = {"ext": 120}
+
+#: Characters of prefix before the configured-but-not-indexed tail is offered.
+CATALOGUE_PREFIX_CHARS = 2
+
+#: How many of that tail may then be shown.
+CATALOGUE_LIMIT_PREFIXED = 40
+
+
+def catalogue_limit(prefix: str) -> int:
+    r"""How many configured-but-unindexed types to offer for this prefix.
+
+    **Zero until two characters are typed, and the reason is ordering rather
+    than volume.**
+
+    The indexed suggestions are sorted by frequency: the type somebody wants is
+    nearly always one of the three they have thousands of, so the head of the
+    menu is genuinely useful. The configured tail has no frequency to sort by -
+    nothing has been indexed - so `enabled_extensions` returns it
+    alphabetically. With 405 enabled formats that makes the first twelve
+    `abap, ada, adb, ads, adoc, ahk...`: not a shortlist, just the front of an
+    alphabet, and it would sit above `pdf` and `docx` in the one menu that
+    exists to answer "what can I filter by".
+
+    Truncating it to a smaller arbitrary number does not fix that - it is the
+    same noise, shorter. What fixes it is a prefix: two characters narrow 405
+    formats to a handful, and typing them is exactly the gesture somebody makes
+    to check that a format they just switched on is really there. **That check
+    is the whole reason the tail exists**, and it still works.
+
+    A pure function so the rule can be argued with, and read, without a menu.
+    """
+    return CATALOGUE_LIMIT_PREFIXED if len(str(prefix or "").strip()) >= CATALOGUE_PREFIX_CHARS else 0
 
 #: Parsed once. `load_rules` reads and validates two TOML files, and this is
 #: reached from a keystroke - see `enabled_extensions`.
@@ -2301,14 +2374,24 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     limit = max(int(limit or 0), 1)
     found: list[str] = []
 
-    def offer(values: Any) -> None:
-        """Add what matches the prefix, keeping the first spelling seen."""
+    def offer(values: Any, cap: Optional[int] = None) -> None:
+        """Add what matches the prefix, keeping the first spelling seen.
+
+        `cap` bounds how many *new* values this source may contribute, which is
+        not the same as slicing the input: a source whose first twenty entries
+        are already on the list would otherwise spend its whole allowance
+        adding nothing.
+        """
+        added = 0
         for value in values or ():
+            if cap is not None and added >= cap:
+                return
             text = str(value).strip()
             if not text or (wanted and wanted not in text.lower()):
                 continue
             if text not in found:
                 found.append(text)
+                added += 1
 
     # **Both readers, in order, not one or the other.** The Code tab is a
     # single box over two engines, so its switches are sourced from two places:
@@ -2361,9 +2444,19 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     #    TOML files is I/O, and the interface thread does not do I/O - so the
     #    catalogue rides with the pass that is already on a worker. An explicit
     #    `catalogue` overrides the gate, which is what the tests pass.
-    if command.source == "ext" and (catalogue is not None or store is not None):
+    #
+    #    **And bounded separately from the index, because 34 became 405.**
+    #    `3b29b7f` took the readable text types from thirty-four to four
+    #    hundred and five. Sharing one ceiling with the indexed half then
+    #    inverts the ordering this was built around: a corpus holding forty
+    #    types would have a tail of three hundred and sixty-five sitting behind
+    #    it, alphabetically, and the menu fills with types the machine does not
+    #    have. See `catalogue_limit`.
+    tail = catalogue_limit(wanted)
+    if tail and command.source == "ext" and (catalogue is not None or store is not None):
         try:
-            offer(catalogue() if catalogue is not None else enabled_extensions())
+            offer(catalogue() if catalogue is not None else enabled_extensions(),
+                  cap=tail)
         except Exception as exc:                # broad by design - see the docstring
             _log.debug("no format catalogue: {}", exc)
 

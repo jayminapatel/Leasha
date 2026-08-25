@@ -488,6 +488,16 @@ class _Store:
 
 
 def test_type_offers_index_then_kind_words_then_configured():
+    r"""The three sources, in order - and the third needs a prefix now.
+
+    **Renamed in spirit rather than in name: the assertion about the tail moved
+    behind two characters, deliberately.** When this was written the
+    application read 34 text extensions and offering all of them unprompted was
+    reasonable. `3b29b7f` took that to 405, and the tail has no frequency to
+    sort by - `enabled_extensions` returns it alphabetically - so unprompted it
+    is `abap, ada, adb, ads...` sitting above `pdf` in the one menu that exists
+    to answer "what can I filter by". See `catalogue_limit`.
+    """
     from app.ui.presenter import value_suggestions
 
     found = value_suggestions(
@@ -497,8 +507,14 @@ def test_type_offers_index_then_kind_words_then_configured():
 
     assert found[:2] == ["pdf", "docx"], "the index no longer comes first"
     assert found.index("excel") > found.index("docx"), "a kind word outranked a real type"
-    assert "dxf" in found, "a configured format is still invisible"
-    assert found.index("dxf") > found.index("excel"), "configured came before grammar"
+    assert "dxf" not in found, "405 formats cannot be offered unprompted"
+
+    narrowed = value_suggestions(
+        _Store(["pdf", "docx"]), "type", "dx",
+        catalogue=lambda: ["dxf", "docx", "pdf"],
+    )
+
+    assert "dxf" in narrowed, "a configured format is still invisible"
 
 
 def test_a_type_in_both_the_index_and_the_config_is_offered_once():
@@ -553,6 +569,65 @@ def test_a_command_with_no_source_is_unchanged():
     from app.ui.presenter import value_suggestions
 
     assert value_suggestions(None, "has") == ["attachment", "no-attachment"]
+
+
+def test_the_configured_tail_needs_a_prefix_before_it_appears():
+    r"""**Two ceilings, because 34 became 405.**
+
+    With 405 enabled formats and a corpus holding perhaps forty, one ceiling
+    for both halves inverts the ordering the menu was built around: the tail
+    dwarfs the indexed head, and the menu fills with types the machine does not
+    have. Truncating the tail to a smaller arbitrary number does not fix that -
+    it is the same noise, shorter - because the tail has no frequency to sort
+    by and comes out alphabetically.
+
+    A prefix does fix it, and typing one is exactly the gesture somebody makes
+    to check that a format they just switched on is really there. That check is
+    the only reason the tail exists, and it still works.
+    """
+    from app.ui.presenter import catalogue_limit, value_suggestions
+
+    tail = [f"z{n:03d}" for n in range(405)]
+
+    assert catalogue_limit("") == 0
+    assert catalogue_limit("p") == 0, "one letter matches a quarter of 405"
+    assert catalogue_limit("pk") > 0
+
+    bare = value_suggestions(_Store(["pdf"]), "type", catalogue=lambda: tail)
+    assert not any(v.startswith("z") for v in bare), "the alphabet leaked in"
+
+
+def test_the_tail_is_bounded_even_with_a_prefix():
+    """A two-character prefix over 405 formats still matches more than a menu
+    can hold - `z0` alone is a hundred of them."""
+    from app.ui.presenter import CATALOGUE_LIMIT_PREFIXED, value_suggestions
+
+    tail = [f"z{n:03d}" for n in range(405)]
+
+    found = value_suggestions(_Store([]), "type", "z0",
+                              catalogue=lambda: tail, limit=1000)
+    offered = [v for v in found if v.startswith("z")]
+
+    assert len(offered) == CATALOGUE_LIMIT_PREFIXED
+
+
+def test_the_tails_allowance_is_not_spent_on_duplicates():
+    r"""`cap` bounds what a source *adds*, not what it is handed.
+
+    Slicing the input instead would let a catalogue whose first forty entries
+    are already indexed spend its whole allowance adding nothing - and the
+    overlap between "indexed" and "configured" is not the exception, it is the
+    normal case.
+    """
+    from app.ui.presenter import value_suggestions
+
+    found = value_suggestions(
+        _Store(["docx", "docm"]), "type", "doc",
+        catalogue=lambda: ["docx", "docm", "docbook"], limit=1000,
+    )
+
+    assert "docbook" in found
+    assert found.count("docx") == 1
 
 
 def test_the_ext_ceiling_is_raised_above_the_general_one():

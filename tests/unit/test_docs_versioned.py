@@ -121,3 +121,44 @@ def test_the_two_specs_are_major_version_2() -> None:
         assert match.group("doc").startswith("2."), (
             f"{name} is at {match.group('doc')}; the V2 specs are major version 2"
         )
+
+
+def test_the_load_bearing_tests_all_exist() -> None:
+    r"""Every test named in `WORKORDER-CONVENTIONS.md` §0 is a real test.
+
+    **Three of the eight rows were wrong.** `test_the_presenter_still_imports_no_qt`
+    named nothing at all - there are two guards spelled differently, in two
+    files - and three more rows named a module rather than the test inside it.
+
+    §0 calls these tests load-bearing and says the temptation with one thread
+    and no reviewer is to adjust them rather than fix what they found. A table
+    that names them approximately cannot notice the day one is deleted, which
+    is the only day it matters - so the table is checked rather than trusted.
+
+    Parsed from the table itself: the first column is the test, the second is
+    the file it lives in. Both are asserted, because a test that moved is as
+    invisible as one that went.
+    """
+    import re
+
+    text = (PROJECT_ROOT / "docs" / "WORKORDER-CONVENTIONS.md").read_text(
+        encoding="utf-8")
+    rows = re.findall(
+        r"^\|\s*`(test_[a-z0-9_]+)`\s*\|\s*`(test_[a-z0-9_]+\.py)`\s*\|",
+        text, re.MULTILINE)
+
+    assert len(rows) >= 8, (
+        f"only {len(rows)} load-bearing tests parsed out of the table - the "
+        f"table's shape changed and this check stopped covering it")
+
+    missing = []
+    for name, filename in rows:
+        path = PROJECT_ROOT / "tests" / "unit" / filename
+        if not path.is_file():
+            missing.append(f"{name}: {filename} does not exist")
+        elif f"def {name}(" not in path.read_text(encoding="utf-8"):
+            missing.append(f"{name} is not in {filename}")
+
+    assert missing == [], (
+        "WORKORDER-CONVENTIONS.md section 0 names tests that are not there:\n  "
+        + "\n  ".join(missing))

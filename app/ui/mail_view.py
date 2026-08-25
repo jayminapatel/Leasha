@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
-from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows
+from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows, mail_summary
 from app.ui.preview_loader import stored_text
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
@@ -250,23 +250,11 @@ class MailView(QWidget):
         self.summary.setText(self._summary_text(len(display), leftover))
 
     def _summary_text(self, shown: int, leftover: str) -> str:
-        if not shown:
-            # No count here: `COUNT(*)` over `messages` is instant on a test
-            # corpus and is not on two hundred thousand of them, and this runs
-            # inside the handler that paints results. The wording covers both
-            # cases rather than paying a query to tell them apart.
-            return ("No message matches those filters. If no mail is indexed "
-                    "yet, add a .pst in Settings and run an index.")
-
-        parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
-        if shown >= PAGE_SIZE:
-            parts.append(f"showing the newest {PAGE_SIZE:,} — narrow the filters to see more")
-        if leftover:
-            parts.append(
-                f"'{leftover}' was ignored — this tab filters on the header fields only. "
-                "Use Search to look inside messages."
-            )
-        return "  ·  ".join(parts)
+        """The wording lives in `presenter.mail_summary` - this file had one
+        line of headroom under the 250-line guard, and three branches of string
+        formatting inside a widget can only be checked by a person looking at a
+        mail tab at the right moment."""
+        return mail_summary(shown, leftover, page_size=PAGE_SIZE)
 
     # -- how it looks ----------------------------------------------------------
 

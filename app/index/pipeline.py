@@ -47,6 +47,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract.base import reads_externally
+from app.extract.source_types import indexed_ext
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
@@ -1394,7 +1395,13 @@ class Pipeline:
                 # must come from the archive rather than from splitting a path that
                 # is not one. Without this, `path:` filters stop matching mail.
                 parent_dir=str(candidate.path.parent),
-                ext=candidate.path.suffix.lower().lstrip("."),
+                # **The name, for a file that has no extension.** `Dockerfile`
+                # and `Makefile` are indexed and were unfilterable: `ext` was
+                # `''`, `distinct_values` skips those rows, and `type:` matches
+                # on that column - so they could not be narrowed to, offered in
+                # the `/type` menu, or named in a query at all. See
+                # `source_types.indexed_ext`.
+                ext=indexed_ext(candidate.path),
                 # NULL for anything outside a repository, and for mail, whose
                 # `path` is an archive key rather than a location on disk.
                 repo_id=(

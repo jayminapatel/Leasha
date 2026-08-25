@@ -1,12 +1,74 @@
 # Changelog
 
-**Doc version:** 3.39 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.40 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — `/type` after 34 file types became 405
+
+Two findings from `WORKORDER-inbound-ui-fixes.md`, both created by fixing
+something else, which is the usual way.
+
+**The configured tail now needs a prefix before it appears** (§3). `/type` gained
+a third source — every format currently switched on, so a type enabled in the
+file-types editor is offered before anything of that type has been indexed. That
+was sized against 34 text extensions. It is 405 now, and one ceiling for both
+halves inverts the ordering the menu was built around: a corpus holding perhaps
+forty types would carry a tail of three hundred and sixty-five behind it.
+
+Raising the number does not fix it, and neither does lowering it — **the tail has
+no frequency to sort by.** Nothing has been indexed, so it comes out
+alphabetically, and the first twelve of 405 are `abap, ada, adb, ads…`: not a
+shortlist, just the front of an alphabet, sitting above `pdf` in the one menu
+that exists to answer "what can I filter by". So the tail is offered only once
+two characters are typed — which is exactly the gesture somebody makes to check
+that a format they just switched on is really there, and that check is the only
+reason the tail exists.
+
+**`Dockerfile` and `Makefile` can be filtered for, not just found** (§4).
+`NAMED_FILES` made them indexable — a repository indexed without them is missing
+the file that says how it is built — and in doing so made them unfilterable:
+`files.ext` was `''` for every one, `distinct_values` skips those rows, and
+`type:` matches on that column. They were in the index, searchable by content,
+and could not be narrowed to, offered in the menu, or named in a query at all.
+`files.ext` now holds the *name* for a named file, so `makefile` and
+`dockerfile` arrive through the ordinary frequency-sorted path rather than
+through a hand-maintained group that would drift within a month.
+
+`ext` is derived and an unchanged file is not rewritten, so a corpus indexed
+before this keeps its empty values until `app.cli index --force`. Said out loud
+because "the setting did not work" is what it otherwise looks like.
+
+### Changed — the view-line cap, and the rule about `git add -A`
+
+`mail_view.py` had **one line** of headroom under the 250-line guard, and a rule
+with one line of headroom is a rule about to be broken by the next feature, at
+the moment when the pressure to raise the number is highest and the reasoning
+worst. Its summary line moved to `presenter.mail_summary` (249 → 242).
+`search_view.py` stays at 247: what is left there is wiring, not formatting, and
+forcing an extraction to satisfy a metric is what the rule exists to prevent.
+The next lever is splitting `presenter.py`, which is approaching 2,400 lines and
+becoming the place everything goes to avoid a cap elsewhere.
+
+`WORKORDER-CONVENTIONS.md` §0 named `test_the_presenter_still_imports_no_qt`,
+which is not a test. Three more rows named a module rather than the test inside
+it. All eight rows now name the test and the file it lives in, and
+`test_the_load_bearing_tests_all_exist` parses the table and checks them — a
+table of load-bearing tests that names them approximately cannot notice the day
+one is deleted, which is the only day it matters.
+
+§5 said *never* `git add -A`. That was written for two threads, where it swept
+up the other's half-finished state. With one thread there is nothing to sweep
+up, and on 2026-08-25 a `git reset` discarded a day's work across eleven files —
+three finished, tested UI changes among them — which survived only because a
+working copy happened to exist outside the repository. Checkpointing with `-A`
+before anything that touches the whole tree is now the rule; named-file commits
+remain the rule for delivering work. A rule quietly broken every day is worse
+than one that was changed on purpose.
 
 ### Added — the terabyte work order: measure it, then do less of it
 

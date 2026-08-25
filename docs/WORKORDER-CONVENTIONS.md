@@ -1,6 +1,6 @@
 # How work orders work now
 
-**Doc version:** 2.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 2.1 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 ## One thread, from 2026-08-25
 
@@ -30,15 +30,26 @@ convention. With one thread there is no convention left to stop it, and the only
 thing standing between this codebase and a window that queries SQLite inline is
 a handful of tests. **They are load-bearing now in a way they were not before.**
 
-| Test | Stops | What it stops happening |
-|---|---|---|
-| `test_every_qt_view_keeps_its_logic_in_the_presenter` | `*_view.py` over 250 code lines | Logic drifting into views, where it cannot be tested without a display |
-| `test_the_presenter_still_imports_no_qt` | Qt in `presenter.py` | The one Qt-free UI module becoming untestable like the rest |
-| `test_ui_never_blocks` / `test_a_long_operation_starts_a_worker` | I/O on the interface thread | The window freezing on a network share |
-| `test_worker_calls` | `CallableWorker(fn, *args)` disagreeing with `fn` | Silent failures inside workers - this caught one that had shipped |
-| `test_accessible_names` | Unnamed controls | A window a screen reader cannot describe |
-| `test_settings_reachable` | A tunable with no control | Non-negotiable #11, which nothing else enforces |
-| `test_command_subsets` | An offered `/` command a tab cannot honour | Menus that promise what they do not deliver |
+**Named exactly, and with the file each lives in.** Two of the seven are in
+files whose names do not suggest them, and one row here named a test that does
+not exist - `test_the_presenter_still_imports_no_qt`. A table of load-bearing
+tests that names them approximately is a table that will not notice the day one
+is deleted, which is the only day it matters.
+
+| Test | Where | Stops | What it stops happening |
+|---|---|---|---|
+| `test_every_qt_view_keeps_its_logic_in_the_presenter` | `test_presenter.py` | `*_view.py` over 250 code lines | Logic drifting into views, where it cannot be tested without a display |
+| `test_the_presenter_never_imports_qt` | `test_presenter.py` | Qt in `presenter.py` | The one Qt-free UI module becoming untestable like the rest |
+| `test_the_presenter_still_does_not_import_qt` | `test_ui_never_blocks.py` | the same, from the other side | Belt and braces; both were written after it happened |
+| `test_a_long_operation_starts_a_worker` | `test_ui_never_blocks.py` | I/O on the interface thread | The window freezing on a network share |
+| `test_a_worker_is_called_with_arguments_it_accepts` | `test_worker_calls.py` | `CallableWorker(fn, *args)` disagreeing with `fn` | Silent failures inside workers - this caught one that had shipped |
+| `test_every_control_that_cannot_label_itself_is_labelled` | `test_accessible_names.py` | Unnamed controls | A window a screen reader cannot describe |
+| `test_every_plain_setting_has_a_control` | `test_settings_reachable.py` | A tunable with no control | Non-negotiable #11, which nothing else enforces |
+| `test_no_tab_offers_a_command_it_cannot_honour` | `test_command_subsets.py` | An offered `/` command a tab cannot honour | Menus that promise what they do not deliver |
+
+`test_the_load_bearing_tests_all_exist` (`test_docs_versioned.py`) reads this
+table and asserts every name in it is a real test in the file named beside it.
+Three of the eight rows were wrong when it was written.
 
 **If one of these fails, it has found something.** The temptation with one thread
 and no reviewer is to adjust the test. Do not. Every one of them was written
@@ -153,9 +164,33 @@ venv\Scripts\python.exe -m pytest tests -q
 Never start on a red suite. If it is already failing, fixing that is the work.
 
 **Before finishing:** run the whole suite, not just your own tests. Commit **only the files
-your work order names** - `git add <path>` by name, never `git add -A`. Both threads have
-uncommitted work at any moment, and `-A` sweeps up the other's half-finished state into your
-commit, which is worse than a merge conflict because it looks clean.
+your work order names** - `git add <path>` by name.
+
+### 5a. `git add -A` is now allowed for a checkpoint, and only for that
+
+This rule said *never* `git add -A`. It was written for two threads, where `-A` swept up the
+other's half-finished state into your commit - worse than a merge conflict, because it looks
+clean. **With one thread there is no other state to sweep up**, and on 2026-08-25 the risk it
+was guarding against turned out to be much smaller than the risk it was creating.
+
+Two `git reset` commands ran that day. The second discarded a day's uncommitted work across
+eleven files - three finished, tested UI changes among them - and they survived only because a
+working copy happened to exist outside the repository. The rule that would have prevented it
+was the one rule everybody had a good reason to break.
+
+**So: checkpoint before anything that touches the whole tree.** `git reset`, `git checkout
+-- .`, `git stash`, or opening a second session against the same folder:
+
+```powershell
+git add -A && git commit -m "wip: checkpoint"
+```
+
+Named-file commits remain the rule for delivering work, because a commit is also a
+description of what changed and `-A` describes nothing. A checkpoint is not delivering work;
+it is refusing to be unrecoverable. **"Not finished" is not a reason to be unrecoverable** -
+that was the actual failure, not the reset.
+
+A rule quietly broken every day is worse than one that was changed on purpose.
 
 ## 6. When the other thread is mid-flight
 
@@ -182,7 +217,8 @@ somebody looked first.
 | `WORKORDER-results-layout.md` | - | **Superseded** by `WORKORDER-ui-shell-and-results.md`. Deleted 2026-08-25 |
 | `WORKORDER-git-search-backend.md` | Backend | Not started. Phase 1 only; phase 2 gated on a measurement, see its §14 |
 | `WORKORDER-git-search-ui.md` | **UI** | Not started. **Blocked** on the backend order above - it needs `repos`, `repo:` and the `code` scope |
-| `WORKORDER-inbound-ui-fixes.md` | One thread | **Built, tested, and outside the repository** - lost to the 23:44 reset. The patch is in `outputs\git-search-changes\`. Also carries four findings that outlive it |
+| `WORKORDER-inbound-ui-fixes.md` | One thread | §2 patch **applied and committed** (`4f2b92c`); §3, §4, §6 and §7 **done**; §5 partly - `mail_view` reclaimed, `search_view` still at 247. Outstanding: the Windows suite, `doctor.py`, and opening the window |
+| `WORKORDER-terabyte-scale.md` | One thread | **Complete** (`4780c4b`). §7's own list - scan the corpus, time a 20-30GB subtree with and without OCR, then decide whether 600GB is one run or a phased one - is measurement the owner has to run |
 | `REVIEW-2026-08-25.md` | Both | See below |
 
 The review's findings split cleanly: **P1-P14 and A1-A5 are backend**, **U1-U11 and the

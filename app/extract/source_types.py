@@ -48,10 +48,13 @@ redacts them; the index does not contain them any less than the disk does.
 
 from __future__ import annotations
 
+from typing import Any
+
 __all__ = [
     "ALL_SOURCE_EXTENSIONS",
     "BY_ECOSYSTEM",
     "NAMED_FILES",
+    "indexed_ext",
 ]
 
 
@@ -345,3 +348,50 @@ NAMED_FILES: frozenset[str] = frozenset({
     ".eslintrc", ".prettierrc", ".stylelintrc", ".flake8", ".pylintrc",
     ".bashrc", ".bash_profile", ".zshrc", ".profile", ".vimrc",
 })
+
+
+def indexed_ext(path: Any) -> str:
+    r"""What `files.ext` should hold for this file, without the leading dot.
+
+    Ordinarily the suffix. **For a named file it is the name**, and that is the
+    whole of this function.
+
+    `NAMED_FILES` made `Dockerfile`, `Makefile` and the dotfiles indexable, and
+    in doing so made them unfilterable: `files.ext` was `''` for every one of
+    them, `distinct_values` filters `WHERE ext <> ''`, and `type:` matches on
+    that column - so they were in the index, searchable by content, and could
+    not be narrowed to, offered in the `/type` menu, or named in a query at
+    all. A gap created by fixing something else, which is the usual way.
+
+    Storing the name is the cheapest of the three options and the only one that
+    also fixes the *menu*: `makefile` and `dockerfile` arrive through
+    `distinct_values` like any other type, ordered by how many the corpus
+    actually holds, rather than needing a hand-maintained group that would
+    drift from `NAMED_FILES` within a month.
+
+    A leading dot is stripped so `.gitignore` is filtered as `gitignore` -
+    consistent with every other value in the column, none of which carry one,
+    and with what somebody would type.
+
+    **Existing rows keep their empty `ext` until the file is re-indexed.** It
+    is a derived column and the next pass over an unchanged file does not
+    rewrite it, so `app.cli index --force` is what backfills a corpus indexed
+    before this. Said out loud because "the setting did not work" is what this
+    otherwise looks like.
+    """
+    #: **Split on both separators, not `Path.name`.** These paths are written
+    #: on Windows and this runs anywhere: `PurePosixPath(r"D:\Repo\Dockerfile")`
+    #: has a `name` of the whole string, so the membership test below silently
+    #: never matches off Windows and every test of this passes for the wrong
+    #: reason. The fifth time this project has been caught by that; see
+    #: `walker.own_paths` and `sqlite_store._basename`.
+    text = str(path).replace("\\", "/").rstrip("/")
+    name = text.rpartition("/")[2].lower()
+
+    stem, dot, suffix = name.rpartition(".")
+    if dot and stem:                     # a real extension, not a leading dot
+        return suffix
+    # Only names this application deliberately indexes. Every extensionless
+    # file the walker admits is one of these, but the check is cheap and it
+    # keeps a stray `ext` out of the column if that ever stops being true.
+    return name.lstrip(".") if name in NAMED_FILES else ""
