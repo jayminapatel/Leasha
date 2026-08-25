@@ -55,9 +55,55 @@ entirely rebuildable from your documents, so deleting it is always safe.
 | ~~L6~~ | ~~Knowledge graph~~ | **Removed** - §3a |
 | ~~L7~~ | ~~Office document builder~~ | **Cancelled** - never requested, never started |
 | **L8a** | Natural-language query translation | **Code-complete** - justified by measurement, §3b |
+| **Repos** | Repository awareness: `repos` table, `repo:`, `code` scope | **Phase 1 done** - see below. Phase 2 (history) **not authorised** |
 | L8b | Prose answers over results | **Deferred** until L8a has been used in anger |
 | L9 | Hardening and packaging | Not started |
 | ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
+
+### Repository awareness, phase 1 (schema v6)
+
+The request behind this was a 56-flag specification for a git search platform.
+The finding that set the scope: **source code was already indexed.**
+`TEXT_EXTENSIONS` covers `.py .js .ts .cs .java .sql` and twenty more, so a
+`.cs` file inside a repository on an indexed root has been searchable by
+keyword and by meaning all along. The gap was not extraction, embedding or
+search. It was that nothing recorded which repository a file belonged to.
+
+So phase 1 is three things and no more:
+
+- **Detection during the existing walk.** `.git` is already in
+  `DEFAULT_EXCLUDE_DIRS`, so the walker stood next to the evidence on every
+  pass and threw it away. It now notices, at the cost of a membership test
+  against a list `os.walk` has already built. Handles `.git` as a *file* -
+  submodules and linked worktrees - which anything looking only at the
+  subdirectory list walks straight past.
+- **`repo:` filter and a `code` scope.** `code` means *in a repository*, not
+  *has a code extension*; `type:code` still answers the second and is
+  untouched. A `.md` in a repository is in scope, a `.py` in Downloads is not.
+- **`app.cli repos`**, so this is checkable headless before any UI exists.
+
+No settings, no new error codes, no git subprocess, no new extractor. Schema
+v6 is additive - a new table and one nullable column - so an existing 100GB
+index gains it in seconds and needs no re-index. `repo_id` stays NULL until
+the next indexing run attributes it.
+
+**Two bugs worth knowing about, both found by running it rather than reading
+it.** `repo:a,b` returned nothing, because each name became its own AND clause
+and a file belongs to exactly one repository - repeated names now OR. And
+`repos.name` stored the full path rather than the basename, because
+`Path(r"D:\SearchProject").name` does not split backslashes off Windows;
+`_basename` exists in `sqlite_store.py` for exactly that and is now used.
+
+**Phase 2 - history search - is deliberately not built**, and is gated on a
+measurement rather than an opinion. Searching a repository's full history is
+O(commits x changed files); on a 50,000-commit repository that is minutes,
+against a contract of p95 under 300ms warm. Before any of it is designed,
+`app.cli gitsearch --repo <path> --rev <expr> "<pattern>"` needs to be run
+against the largest repository available and its numbers written here: elapsed
+at 1k, 10k and 50k commits, and peak memory. Those decide whether it can be a
+mode of the search box or has to be a separate, explicitly slow, cancellable
+job wired to its own button. Building the UI first is how the 300ms budget
+gets lost by accident.
 
 ### What is **Next**
 

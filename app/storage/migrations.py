@@ -27,7 +27,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS"]
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -206,6 +206,49 @@ def _v5_missing_indexes(conn: sqlite3.Connection) -> None:
     conn.execute("ANALYZE")
 
 
+def _v6_repositories(conn: sqlite3.Connection) -> None:
+    """Record which repository a file belongs to.
+
+    **Additive, and no re-index.** A new table and one nullable column: an
+    existing 100GB index gains these in seconds and every row keeps everything
+    it had. `repo_id` stays NULL until the next indexing run attributes it,
+    which is a correct state rather than a broken one - nothing reads it
+    expecting a value.
+
+    `ON DELETE SET NULL`, deliberately not `CASCADE`. A repository that is
+    moved, deleted or unmounted must not take the indexed content of its files
+    with it. The files are still on disk in every case that matters, and
+    re-reading 40,000 of them because a folder was renamed is not a behaviour
+    anybody would ask for.
+
+    `kind` is stored because the three are found differently - a `.git`
+    directory, or a `.git` *file* pointing at `/modules/` or elsewhere - and
+    because a submodule's files sit inside its parent's tree, which anything
+    drawing a list has to know before it can draw one.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS repos (
+            id         INTEGER PRIMARY KEY,
+            root_path  TEXT    NOT NULL UNIQUE,
+            name       TEXT    NOT NULL,
+            kind       TEXT    NOT NULL,
+            last_seen  INTEGER NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_repos_name ON repos(name)")
+
+    # SQLite has no `ADD COLUMN IF NOT EXISTS`, and re-running a migration is a
+    # thing that happens - a half-finished run, or a version bumped by hand.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "repo_id" not in columns:
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN repo_id INTEGER "
+            "REFERENCES repos(id) ON DELETE SET NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo_id)")
+    conn.execute("ANALYZE")
+
+
 #: version -> callable applying the step that produces it.
 #: Version 1 is the baseline created by schema.sql, so it has no step here.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -213,6 +256,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     3: _v3_knowledge_graph,
     4: _v4_filename_index,
     5: _v5_missing_indexes,
+    6: _v6_repositories,
 }
 
 

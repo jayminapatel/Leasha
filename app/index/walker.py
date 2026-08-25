@@ -48,6 +48,8 @@ __all__ = [
     "walk",
     "content_hash",
     "has_changed",
+    "enclosing_repo",
+    "repo_kind_at",
     "DEFAULT_EXCLUDE_DIRS",
     "DEFAULT_EXCLUDE_GLOBS",
     "HASH_CHUNK_BYTES",
@@ -150,6 +152,15 @@ class WalkConfig:
     #: Excluded directories still descended into, by absolute path. Lets a user
     #: index one folder that happens to live under an excluded name.
     force_include: frozenset[str] = field(default_factory=frozenset)
+    #: Repository roots found during the walk, written here as they are seen,
+    #: as `root_path -> kind`.
+    #:
+    #: A mutable output parameter, which is not the shape this module prefers -
+    #: but `walk()` is a generator and a second return value is not available.
+    #: The alternative, a second pass over the tree purely to find `.git`, costs
+    #: a full walk of a 100GB corpus to learn something the first walk already
+    #: had in its hands.
+    repo_sink: Optional[dict[str, str]] = None
 
     def resolved_extensions(self) -> frozenset[str]:
         if self.extensions is not None:
@@ -162,6 +173,100 @@ class WalkConfig:
 def _matches_any(name: str, globs: Iterable[str]) -> bool:
     lowered = name.lower()
     return any(fnmatch.fnmatch(lowered, pattern.lower()) for pattern in globs)
+
+
+#: How much of a `.git` *file* to read. It holds one short `gitdir:` line; a
+#: larger read only matters when the file is not what it claims to be, and then
+#: the answer is "not a repository" either way.
+GITDIR_READ_BYTES = 4096
+
+
+def _git_file_kind(path: Path) -> Optional[str]:
+    """`submodule`, `worktree`, or None if this is not a `.git` pointer file.
+
+    **`.git` is not always a directory.** In a submodule or a linked worktree
+    it is a *file* holding `gitdir: ../.git/modules/foo`. Anything that looks
+    only at the subdirectory list walks straight past both.
+
+    Unreadable, empty, binary or unparseable all mean **not a repository**,
+    never an error. Detection is a convenience laid on top of a walk that has
+    real work to do; the posture is the one `walk()` already states for a
+    directory it cannot read - a permission error on one folder is not a reason
+    to abandon a walk.
+    """
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(GITDIR_READ_BYTES)
+    except OSError:
+        return None
+
+    try:
+        text = raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None                      # binary: not a gitdir pointer
+
+    if not text.startswith("gitdir:"):
+        return None
+
+    target = text[len("gitdir:"):].strip().replace("\\", "/")
+    if not target:
+        return None
+    # A submodule's real git directory lives under the parent's
+    # `.git/modules/`; a linked worktree's points anywhere else.
+    return "submodule" if "/modules/" in target else "worktree"
+
+
+def _detect_repo(directory: str, subdirectories: list[str],
+                 filenames: list[str]) -> Optional[str]:
+    """The `kind` of repository rooted at `directory`, or None.
+
+    Both lists are the ones `os.walk` has already built, so this costs a
+    membership test and, at most, one 4KB read per directory that holds a
+    `.git` file.
+    """
+    if ".git" in subdirectories:
+        return "work"
+    if ".git" in filenames:
+        return _git_file_kind(Path(directory) / ".git")
+    return None
+
+
+def enclosing_repo(start: Path, *, ceiling: Optional[Path] = None) -> Optional[Path]:
+    """The nearest ancestor of `start` holding a `.git`, or None.
+
+    An indexed root may sit *below* a repository root. `D:\\SearchProject\\app`
+    has no `.git` beneath it and every file under it is still in a repository,
+    so a walk that only looks downwards attributes none of them.
+
+    Pure and cheap: a `stat` per ancestor, up to the drive root. `ceiling`
+    exists so the tests can bound it, not for production.
+    """
+    start = Path(start)
+    ceiling = Path(ceiling) if ceiling is not None else None
+
+    for candidate in [start, *start.parents]:
+        marker = candidate / ".git"
+        try:
+            if marker.is_dir() or (marker.is_file() and _git_file_kind(marker)):
+                return candidate
+        except OSError:
+            pass                         # unreadable: keep climbing
+        if ceiling is not None and candidate == ceiling:
+            break
+    return None
+
+
+def repo_kind_at(root: Path) -> Optional[str]:
+    """The `kind` of the repository rooted exactly at `root`, or None."""
+    marker = Path(root) / ".git"
+    try:
+        if marker.is_dir():
+            return "work"
+        if marker.is_file():
+            return _git_file_kind(marker)
+    except OSError:
+        pass
+    return None
 
 
 def _priority_for(path: Path, priority_roots: Sequence[Path]) -> int:
@@ -199,6 +304,25 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
         for directory, subdirectories, filenames in os.walk(
             root, topdown=True, followlinks=config.follow_symlinks
         ):
+            # **Detection happens here, and the position is load-bearing.**
+            #
+            # Before the prune, because `.git` is in `DEFAULT_EXCLUDE_DIRS` and
+            # the line below is about to remove it from `subdirectories` - the
+            # walker has stood next to this evidence on every pass and thrown
+            # it away.
+            #
+            # And before the `for filename in filenames` loop, because
+            # `os.walk(topdown=True)` yields a repository root together with
+            # the files sitting directly in it. Detecting afterwards leaves
+            # exactly those files unattributed while everything in
+            # subdirectories is attributed correctly - which reads as
+            # flakiness and gets blamed on the pipeline. `test_repos_
+            # acceptance.py::T3` is that case.
+            if config.repo_sink is not None:
+                kind = _detect_repo(directory, subdirectories, filenames)
+                if kind is not None:
+                    config.repo_sink.setdefault(str(Path(directory)), kind)
+
             # Pruned here, in place - never filtered afterwards. Descending into
             # a 40,000-file node_modules and discarding it costs the subtree.
             subdirectories[:] = [

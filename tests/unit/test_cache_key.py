@@ -97,6 +97,40 @@ def test_a_different_limit_is_a_different_key():
     assert key(engine, limit=20) != key(engine, limit=50)
 
 
+@pytest.mark.parametrize("scope", ["all", "mail", "documents", "code"])
+def test_every_scope_gets_its_own_key(scope):
+    """`code` was added and nothing here covered scope at all.
+
+    Without this, "All" and "Code" share an entry for the same typed text and
+    whichever ran first answers for both. The comment in `_cache_key` says
+    exactly that about mail, and the test that would have caught it did not
+    exist - the scopes were listed in a docstring rather than asserted.
+    """
+    engine = _engine("m")
+    parsed = parse_query("quarterly report").scoped(scope)
+    keys = {
+        other: engine._cache_key("quarterly report",
+                                 parse_query("quarterly report").scoped(other), True, 20)
+        for other in ("all", "mail", "documents", "code")
+    }
+
+    mine = engine._cache_key("quarterly report", parsed, True, 20)
+    assert sum(1 for value in keys.values() if value == mine) == 1, (
+        f"scope={scope} shares a cache entry with another scope")
+
+
+def test_the_code_scope_is_a_real_scope():
+    """A value not in `SCOPES` is silently dropped back to "all" by `scoped()`.
+
+    So a typo in the scope list would make this whole filter a no-op that
+    returns everything, looking like it works.
+    """
+    from app.search.query import SCOPES
+
+    assert "code" in SCOPES
+    assert parse_query("x").scoped("code").scope == "code"
+
+
 # --- what must NOT change the key -------------------------------------------
 
 def test_the_model_is_left_out_when_reranking_is_off():

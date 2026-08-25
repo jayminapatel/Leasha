@@ -388,8 +388,13 @@ class SqliteStore:
         content_hash: Optional[str] = None,
         status: str = FileStatus.PENDING,
         source_kind: str = "file",
+        repo_id: Optional[int] = None,
     ) -> int:
-        """Insert or update one file row. Returns its id."""
+        """Insert or update one file row. Returns its id.
+
+        `repo_id` is additive and optional: every existing caller keeps working
+        and writes NULL, which is what a file outside any repository is.
+        """
         if status not in FileStatus.ALL:
             raise AppErrorException(make_error(
                 "ERR_UNEXPECTED", "storage.sqlite",
@@ -411,8 +416,8 @@ class SqliteStore:
                 """
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
-                     status, source_kind)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     status, source_kind, repo_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -420,10 +425,14 @@ class SqliteStore:
                     mtime_ns     = excluded.mtime_ns,
                     content_hash = COALESCE(excluded.content_hash, files.content_hash),
                     status       = excluded.status,
-                    source_kind  = excluded.source_kind
+                    source_kind  = excluded.source_kind,
+                    -- COALESCE, so a caller that does not know about
+                    -- repositories - `_record_skip`, the PST path, any test -
+                    -- does not blank an attribution the indexer established.
+                    repo_id      = COALESCE(excluded.repo_id, files.repo_id)
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
-                 content_hash, status, source_kind),
+                 content_hash, status, source_kind, repo_id),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
             file_id = int(row["id"])
@@ -1361,6 +1370,61 @@ class SqliteStore:
                 (entity_id, limit),
             )
         ]
+
+    # -- repositories --------------------------------------------------------
+
+    def upsert_repo(self, root_path: str, *, kind: str, name: Optional[str] = None,
+                    last_seen: Optional[int] = None) -> int:
+        """Insert or refresh one repository root. Returns its id.
+
+        `root_path` is unique, so re-walking an unchanged tree updates
+        `last_seen` rather than accumulating duplicates.
+        """
+        # `_basename`, not `Path(...).name`. These paths are written on Windows
+        # and read back anywhere, and `PurePosixPath` treats the whole of
+        # `D:\SearchProject` as one filename - so the stored name became the
+        # full path, and `repo:leasha` matched nothing. The same trap this
+        # module already documents for `files.name`.
+        name = name if name is not None else (_basename(str(root_path)) or str(root_path))
+        last_seen = int(time.time()) if last_seen is None else int(last_seen)
+
+        with self.write() as conn:
+            conn.execute(
+                """
+                INSERT INTO repos (root_path, name, kind, last_seen)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(root_path) DO UPDATE SET
+                    name      = excluded.name,
+                    kind      = excluded.kind,
+                    last_seen = excluded.last_seen
+                """,
+                (str(root_path), name, kind, last_seen),
+            )
+            row = conn.execute(
+                "SELECT id FROM repos WHERE root_path = ?", (str(root_path),)
+            ).fetchone()
+            return int(row["id"])
+
+    def repos_list(self) -> list[dict[str, Any]]:
+        """Every known repository with its indexed file count, most files first.
+
+        Returns: id, name, kind, root_path, last_seen, files.
+
+        **`LEFT JOIN`, not `JOIN`.** A repository detected on a walk that then
+        indexed none of its files - everything excluded by type, or a first
+        pass that has not reached it - still exists and must still be listed.
+        Dropping it would make the Code tab disagree with the walker for
+        reasons nobody could see.
+        """
+        rows = self.conn.execute("""
+            SELECT r.id, r.name, r.kind, r.root_path, r.last_seen,
+                   COUNT(f.id) AS files
+            FROM repos r
+            LEFT JOIN files f ON f.repo_id = r.id
+            GROUP BY r.id, r.name, r.kind, r.root_path, r.last_seen
+            ORDER BY files DESC, r.name COLLATE NOCASE
+        """).fetchall()
+        return [dict(row) for row in rows]
 
     # -- indexing state ------------------------------------------------------
 

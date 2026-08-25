@@ -25,7 +25,7 @@ import pytest
 
 from app.search.keyword import search
 from app.search.query import parse_query
-from app.storage.migrations import apply_migrations, read_version
+from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 from app.storage.sqlite_store import SqliteStore
 
 #: Indexes schema v5 adds. Both are load-bearing and both are measured.
@@ -142,7 +142,10 @@ def test_v5_applies_to_a_database_created_before_it(tmp_path):
 
     apply_migrations(conn)
 
-    assert read_version(conn) == 5
+    # `CURRENT_VERSION`, not the literal 5. This asserted `== 5` and broke the
+    # moment v6 was added - the claim is "a database from before this migration
+    # gets it and keeps its rows", which has nothing to do with the number.
+    assert read_version(conn) == CURRENT_VERSION
     names = {row[0] for row in conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'index'")}
     assert set(V5_INDEXES) <= names

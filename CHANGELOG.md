@@ -8,6 +8,42 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added — the preview pane, and no Chromium anywhere near it
+
+`WORKORDER-ui-shell-and-results.md` §4, the last outstanding UI item. Read a
+result beside the list without opening the application that owns it. Off by
+default, `Ctrl+P` or the View menu, persisted like every other view preference.
+
+**No `QWebEngineView`, and performance is not the reason.** It is a full
+Chromium — multi-process, a GPU process, hundreds of megabytes — which would
+reverse the founding decision of V2: one process, no services. Worse, it was
+proposed for *HTML email*, which means remote image loading, which means
+fifteen-year-old tracking pixels phoning home the moment somebody arrows past a
+result. "Nothing leaves this machine" would quietly stop being true, and the
+person doing it would be searching their own archive.
+
+So email HTML is sanitised **before it reaches the widget** — not disabled, not
+proxied, removed, because a widget that never sees a URL cannot fetch one, and
+that is a property a test can assert. `app/ui/sanitise.py` rebuilds the document
+from an allow-list rather than stripping a list of dangerous tags: a block-list
+has to keep up with a specification that keeps growing, and anything it has not
+heard of is permitted by default, which is the wrong default for markup this old
+and this untrusted. Every `on*` handler disappears without needing to be named.
+The reader is told what was removed, because a message that silently renders
+differently from how it was sent is confusing.
+
+Everything is read on a worker — a debounce so holding the down arrow queues one
+render rather than fifty, a generation number so a render that lands after the
+selection moved on is dropped rather than painted beside the wrong row, and a
+size ceiling per kind because a preview of a 400MB log is the first page of it.
+PDFs open at the matching page: a 400-page report opened at page one, when the
+hit is on page 312, is a preview of the wrong thing. Failure is an `AppError`
+rendered as a sentence in the pane — never a dialog, never a traceback for a
+file somebody merely scrolled past.
+
+58 tests, all of which run headless, because the sanitiser is the security
+boundary and it must be checkable on any machine in milliseconds.
+
 ### Fixed — five new controls that saved nothing, and the test that missed them
 
 Introduced in the same commit that fixed U6, which was about controls wired to
@@ -336,6 +372,63 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Added — repository awareness (schema v6)
+
+`WORKORDER-git-search-backend.md` phase 1. The request behind it was a 56-flag
+specification for a git search platform; the finding that set the scope is that
+**source code was already indexed**. `TEXT_EXTENSIONS` covers `.py .js .ts .cs
+.java .sql` and twenty more, so a file inside a repository on an indexed root
+has been searchable by keyword and by meaning all along. The gap was not
+extraction, embedding or search — it was that nothing recorded which repository
+a file belonged to.
+
+Three things, and no more:
+
+- **Detection during the existing walk.** `.git` is already in
+  `DEFAULT_EXCLUDE_DIRS`, so the walker stood next to the evidence on every
+  pass and discarded it. It now costs a membership test against a list
+  `os.walk` has already built. `.git` as a *file* is handled — a submodule or a
+  linked worktree — which anything reading only the subdirectory list walks
+  past. An unreadable, empty or binary one means *not a repository*, never an
+  error: detection is a convenience laid over a walk that has real work to do.
+- **`repo:` filter and a `code` scope.** `code` means **in a repository**, not
+  *has a code extension* — `type:code` still answers the second and is
+  untouched. A `.md` in a repository is in scope; a `.py` in Downloads is not.
+  `documents` deliberately still includes repository files: the scope is a
+  narrowing offered to the person searching, not a partition of the corpus.
+- **`app.cli repos`**, so detection is checkable headless before any UI exists.
+
+Schema v6 is additive — one table, one nullable column — so an existing 100GB
+index gains it in seconds with no re-index, and `repo_id` stays NULL until the
+next run attributes it. `ON DELETE SET NULL`, deliberately not `CASCADE`: a
+repository that is moved or unmounted must not take the indexed content of its
+files with it.
+
+No settings, no new error codes, no git subprocess, no new extractor.
+
+**Two bugs, both found by running it rather than reading it.** `repo:a,b`
+returned nothing — each name became its own AND clause, and a file belongs to
+exactly one repository, so repeated names could never match; they now OR, which
+is the only sensible reading. And `repos.name` stored the full path instead of
+the basename, because `Path(r"D:\SearchProject").name` does not split
+backslashes off Windows — `_basename` exists in `sqlite_store.py` for precisely
+that trap and is now used, so `repo:leasha` matches at all.
+
+Twenty-one acceptance tests, T1-T11 from §11 quoted in the module docstring.
+Two of them carry the weight: **T3**, a file sitting directly in a repository
+root, which is the ordering trap — `os.walk(topdown=True)` yields those files
+in the same iteration that finds the root, so detection placed after the
+filename loop leaves exactly them unattributed while everything nested is
+correct, and that reads as flakiness. And **T11**, that a tree with no `.git`
+anywhere costs nothing: this work is only justified while it is free, so it is
+asserted twice — against the same walk with detection off, and by proving no
+file is opened at all.
+
+**Phase 2, history search, is not built and not authorised.** It is gated on a
+measurement: searching a full history is O(commits x changed files), which on a
+50,000-commit repository is minutes against a contract of p95 under 300ms warm.
+See `HANDOFF.md` for the numbers that have to exist first.
 
 ### Fixed — CLI `timings_ms` measured process startup, not search
 

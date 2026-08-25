@@ -9,6 +9,30 @@ PRAGMA synchronous  = NORMAL;
 PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------------------
+-- Repositories — before `files`, which references this
+-- ---------------------------------------------------------------------------
+--
+-- Source code was already indexed and already searchable. What was missing was
+-- any record that a file *belongs* to something, so results could not be
+-- grouped, filtered or listed by repository. The walker stood next to the
+-- evidence on every pass - `.git` is in `DEFAULT_EXCLUDE_DIRS` - and threw it
+-- away.
+--
+-- `kind` is stored because the three are found differently: a `.git`
+-- directory, or a `.git` *file* whose `gitdir:` points into `/modules/` (a
+-- submodule) or elsewhere (a linked worktree). A submodule's files sit inside
+-- its parent's tree, which anything drawing a list has to know first.
+CREATE TABLE IF NOT EXISTS repos (
+    id         INTEGER PRIMARY KEY,
+    root_path  TEXT    NOT NULL UNIQUE,      -- absolute, as walked
+    name       TEXT    NOT NULL,             -- basename of root_path
+    kind       TEXT    NOT NULL,             -- work | submodule | worktree
+    last_seen  INTEGER NOT NULL              -- unix seconds, from the last walk
+);
+
+CREATE INDEX IF NOT EXISTS idx_repos_name ON repos(name);
+
+-- ---------------------------------------------------------------------------
 -- Files
 -- ---------------------------------------------------------------------------
 
@@ -25,6 +49,7 @@ CREATE TABLE IF NOT EXISTS files (
     skip_detail   TEXT,
     indexed_at    INTEGER,
     source_kind   TEXT    NOT NULL,          -- file | pst_message | eml
+    repo_id       INTEGER REFERENCES repos(id) ON DELETE SET NULL,
     CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED'))
 );
 
@@ -39,6 +64,13 @@ CREATE INDEX IF NOT EXISTS idx_files_skip   ON files(skip_code) WHERE skip_code 
 -- `files` - twenty million rows at the target scale, on every keystroke of
 -- every scoped search.
 CREATE INDEX IF NOT EXISTS idx_files_source_kind ON files(source_kind);
+
+-- `scope="code"` is `repo_id IS NOT NULL`, and `repo:` joins on it.
+--
+-- **`ON DELETE SET NULL`, deliberately not `CASCADE`.** A repository that is
+-- moved, deleted or unmounted must not take the indexed content of its files
+-- with it - they are still on disk in every case that matters.
+CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo_id);
 
 -- `after:` and `before:` filter on this, and `_filter_only` sorts by it. A
 -- scan plus a sort, per query.

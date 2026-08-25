@@ -75,6 +75,28 @@ def _filter_sql(parsed: ParsedQuery) -> tuple[str, list[Any]]:
         clauses.append("f.path LIKE ?")
         params.append(f"%{folder.lower()}%")
 
+    # **Name or root path, and the caller does not have to say which.**
+    #
+    # People refer to a project by its name and to a checkout by its path, and
+    # which one they reach for is not predictable - `repo:leasha` and
+    # `repo:D:\SearchProject` are the same question asked two ways. Matching
+    # both costs one extra comparison against a table with as many rows as the
+    # machine has repositories, which is tens.
+    #
+    # **ORed, where every other repeated filter ANDs.** That is deliberate and
+    # it is not a style choice: a file belongs to exactly one repository, so
+    # `repo:a repo:b` under the usual AND matches nothing, ever. The first
+    # version of this built one clause per name and `repo:leasha,tools`
+    # silently returned zero rows - a filter that looks like it works and
+    # cannot. One clause, one subquery, `IN`.
+    if parsed.repos:
+        conditions = " OR ".join(
+            "name = ? COLLATE NOCASE OR root_path LIKE ?" for _ in parsed.repos
+        )
+        clauses.append(f"f.repo_id IN (SELECT id FROM repos WHERE {conditions})")
+        for repo in parsed.repos:
+            params.extend((repo, f"%{repo}%"))
+
     for name in parsed.names:
         # The **basename**, not the whole path - `path:` already answers "which
         # folder", and matching the full path here would make `name:leeds` hit
@@ -109,6 +131,17 @@ def _filter_sql(parsed: ParsedQuery) -> tuple[str, list[Any]]:
         placeholders = ", ".join("?" for _ in MAIL_KINDS)
         clauses.append(f"f.source_kind NOT IN ({placeholders})")
         params.extend(MAIL_KINDS)
+    elif parsed.scope == "code":
+        # **"In a repository", not "has a code extension".** `type:code` is the
+        # other question and is untouched; this is the one that separates a
+        # work project from the same words in a document. A `.md` file in a
+        # repository is in scope, a `.py` file in Downloads is not.
+        #
+        # Note that `documents` above deliberately still includes repository
+        # files. The scope is a narrowing offered to the person searching, not
+        # a partition of the corpus - somebody looking through Documents for a
+        # connection string they know they wrote must still find it.
+        clauses.append("f.repo_id IS NOT NULL")
 
     # --- mail fields, all on the `messages` table -------------------------
     #

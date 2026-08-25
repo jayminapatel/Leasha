@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import pathlib
 
 import pytest
 
@@ -61,7 +62,7 @@ def parser_for(argv):
 
 COMMANDS = [
     "search", "index", "formats", "commands", "ollama", "doctor",
-    "evaluate", "embed-bench", "rerank-bench", "diagnose",
+    "evaluate", "embed-bench", "rerank-bench", "diagnose", "repos",
 ]
 
 
@@ -331,3 +332,61 @@ def test_search_warms_the_models_before_it_times_anything(tmp_path, monkeypatch)
     assert order[:1] == ["warm_up"], (
         f"models were not loaded before the clock started: {order}")
     assert "search" in order
+
+
+def test_repos_runs_on_an_empty_index(tmp_path, capsys):
+    """No repositories is not an error - most machines have none.
+
+    Ships before the UI per non-negotiable 8, so detection is checkable
+    headless and the Code tab has something to compare against.
+    """
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+
+    capsys.readouterr()          # discard `init`'s own output
+    assert cli.cmd_repos(parser_for(["repos", "--env", env])) == cli.EXIT_OK
+    assert "No code repositories" in capsys.readouterr().out
+
+
+def test_repos_json_is_machine_readable(tmp_path, capsys):
+    """The `--json` branch is a separate path and a separate chance to be wrong.
+
+    `rerank-bench --json` printed a human preamble ahead of its JSON and only a
+    test that parsed the output found it.
+    """
+    import json as _json
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()          # discard `init`'s own output
+
+    assert cli.cmd_repos(parser_for(["repos", "--env", env, "--json"])) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert out.lstrip().startswith("{"), f"a human preamble came first: {out[:80]!r}"
+    payload = _json.loads(out)
+    assert payload == {"repositories": [], "count": 0}
+
+
+def test_repos_lists_what_the_store_holds(tmp_path, capsys):
+    """Through the real store, so a renamed column fails here."""
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    settings = load_settings(pathlib.Path(env), check_writable=False)
+
+    with SqliteStore(settings.fts_db) as store:
+        repo_id = store.upsert_repo(str(tmp_path / "leasha"), kind="work")
+        store.upsert_file(path=str(tmp_path / "leasha" / "a.py"), size_bytes=1,
+                          mtime_ns=1, source_kind="file", repo_id=repo_id)
+        store.upsert_repo(str(tmp_path / "empty"), kind="worktree")
+
+    capsys.readouterr()
+    assert cli.cmd_repos(parser_for(["repos", "--env", env])) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "leasha" in out
+    assert "work" in out
+    # A repository with no attributed files still appears - LEFT JOIN, not JOIN.
+    assert "empty" in out
+    assert "worktree" in out

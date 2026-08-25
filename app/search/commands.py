@@ -136,6 +136,13 @@ COMMANDS: tuple[Command, ...] = (
         value_hint="any part of a folder path",
     ),
     Command(
+        name="repo",
+        aliases=("repository", "project"),
+        summary="Only files in this code repository",
+        example="/repo leasha",
+        value_hint="a repository name, as shown in the Code tab - or several: leasha,tools",
+    ),
+    Command(
         name="name",
         aliases=("filename", "file"),
         summary="Only files whose NAME contains this",

@@ -45,6 +45,7 @@ _FIELD_ALIASES = {
     "after": "after", "since": "after",
     "before": "before", "until": "before",
     "path": "path", "folder": "path", "dir": "path",
+    "repo": "repo", "repository": "repo", "project": "repo",
     "from": "sender", "sender": "sender",
     "to": "recipient", "recipient": "recipient", "cc": "recipient",
     "subject": "subject", "title": "subject", "re": "subject",
@@ -107,7 +108,15 @@ _SPAN_DAYS = {"d": 1, "day": 1, "days": 1, "w": 7, "week": 7, "weeks": 7,
 #: The scopes the UI offers. "documents" means everything that is not mail -
 #: files on disk - rather than a specific set of extensions, so a new extractor
 #: never has to be added here.
-SCOPES = ("all", "mail", "documents")
+#:
+#: **"code" means "in a repository", not "has a code extension".** The two are
+#: different questions and both stay available: `type:code` answers the second
+#: (see `_EXT_GROUPS`) and is untouched. This scope answers the first, which
+#: nothing could ask before, and it is the one that actually separates a work
+#: project from the same words in a document. A `.md` file in a repository is
+#: in scope; a `.py` file in Downloads is not. The opposite reading is the
+#: natural guess, which is why it is written down here.
+SCOPES = ("all", "mail", "documents", "code")
 
 #: `files.source_kind` values that count as mail.
 MAIL_KINDS = ("pst_message", "eml")
@@ -126,6 +135,10 @@ class ParsedQuery:
     after: Optional[date] = None
     before: Optional[date] = None
     paths: tuple[str, ...] = ()
+    #: Repository names or root paths. Matched on either, because people refer
+    #: to a project by its name and to a checkout by its path and which one
+    #: they reach for is not predictable.
+    repos: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
     #: Mail-only fields. Empty for a document search, which is why they cost
     #: nothing when unused: each becomes a subquery on `messages` only if the
@@ -151,7 +164,7 @@ class ParsedQuery:
     #: person did not say. Three states, because "did not ask" and "asked for
     #: none" are different searches and a bool cannot tell them apart.
     has_attachment: Optional[bool] = None
-    #: "all" | "mail" | "documents". Not typed by the user - set by the scope
+    #: "all" | "mail" | "documents" | "code". Not typed by the user - set by the scope
     #: chips beside the search box, and folded in here so it travels with the
     #: query through fusion, the cache key and the usage log rather than being
     #: a second argument every layer has to remember to pass on.
@@ -162,6 +175,7 @@ class ParsedQuery:
     def has_filters(self) -> bool:
         return bool(
             self.ext or self.after or self.before or self.paths
+            or self.repos
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes
             or self.has_attachment is not None or self.scope != "all"
@@ -268,6 +282,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
 
     ext: list[str] = []
     paths: list[str] = []
+    repos: list[str] = []
     senders: list[str] = []
     recipients: list[str] = []
     subjects: list[str] = []
@@ -293,6 +308,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         elif fld == "path":
             if val:
                 paths.append(val)
+        elif fld == "repo":
+            # **Comma-separated, unlike the others.** `repo:leasha,tools` is
+            # how somebody asks about two checkouts at once, and it is the
+            # form the `/repo` value hint advertises. Lowered here so the
+            # match can be case-insensitive without `LOWER()` at query time.
+            for part in val.split(","):
+                part = part.strip().lower()
+                if part:
+                    repos.append(part)
         elif fld == "sender":
             if val:
                 senders.append(val.lower())
@@ -415,6 +439,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         after=after,
         before=before,
         paths=tuple(paths),
+        repos=tuple(dict.fromkeys(repos)),
         senders=tuple(senders),
         recipients=tuple(recipients),
         subjects=tuple(subjects),

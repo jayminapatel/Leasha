@@ -35,6 +35,7 @@ with no chunks, invisible to search and never retried.
 from __future__ import annotations
 
 import hashlib
+import os
 import queue
 import threading
 import time
@@ -48,7 +49,15 @@ from app.extract import chunk_document, extract
 from app.extract.base import reads_externally
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
-from app.index.walker import Candidate, WalkConfig, content_hash, has_changed, walk
+from app.index.walker import (
+    Candidate,
+    WalkConfig,
+    content_hash,
+    enclosing_repo,
+    has_changed,
+    repo_kind_at,
+    walk,
+)
 from app.storage.sqlite_store import FileStatus, SqliteStore
 from app.storage.vector_store import VectorStore
 
@@ -286,6 +295,18 @@ class Pipeline:
             on_state_change=self._on_throttle,
         )
         self._log = logger.bind(component="index.pipeline")
+        # Repository roots the walk finds, as `root_path -> kind`. Written by
+        # the producer thread inside `walk()`, read by the consumer when it
+        # attributes a file. Safe because the only write is `setdefault` and
+        # because of the ordering `walker.py` guarantees: a repository root is
+        # detected in the same `os.walk` iteration that yields the files
+        # sitting directly in it, and before them - so by the time any
+        # candidate arrives here, its repository is already in the sink.
+        self._repo_roots: dict[str, str] = {}
+        #: root_path -> repos.id, so each root is inserted once per run.
+        self._repo_ids: dict[str, int] = {}
+        #: The sink's keys, longest first. Rebuilt only when the sink grows.
+        self._repo_order: list[str] = []
         self._throttle: Optional[Verdict] = None
         self._stats_ref = IndexStats()
         # Two different meanings, and conflating them cost a silent bug: the
@@ -332,6 +353,13 @@ class Pipeline:
             self._log.debug("running at below-normal priority")
 
         self.vectors.ensure_table()
+        # Before the producer starts, so the sink is attached to the config the
+        # walk is about to read and the enclosing roots are already in it.
+        self._repo_roots.clear()
+        self._repo_ids.clear()
+        self._repo_order = []
+        self._seed_repos()
+
         work: queue.PriorityQueue = queue.PriorityQueue(maxsize=self.config.queue_size)
         results: queue.Queue = queue.Queue(maxsize=self.config.queue_size)
 
@@ -364,6 +392,8 @@ class Pipeline:
         # yet" and pruning would delete perfectly good rows.
         if self.config.prune_missing and not self._interrupted:
             stats.deleted = self._prune_missing(seen_paths)
+
+        self._record_repos()
 
         stats.elapsed_s = time.perf_counter() - started
         self.store.set_state("last_run", str(int(time.time())))
@@ -441,6 +471,69 @@ class Pipeline:
         finally:
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
+
+    # -- repository attribution ---------------------------------------------
+
+    def _seed_repos(self) -> None:
+        """Repositories that *enclose* an indexed root, before the walk starts.
+
+        An indexed root may sit below a repository root: `D:\\SearchProject\\app`
+        has no `.git` beneath it and every file under it is still in a
+        repository. A walk that only looks downwards attributes none of them.
+
+        One `stat` per ancestor per root, once per run.
+        """
+        self.config.walk.repo_sink = self._repo_roots
+        for root in self.config.walk.roots:
+            found = enclosing_repo(Path(root))
+            if found is None:
+                continue
+            kind = repo_kind_at(found) or "work"
+            self._repo_roots.setdefault(str(found), kind)
+
+    def _repo_id_for(self, path: Path) -> Optional[int]:
+        """The id of the repository containing `path`, or None.
+
+        **Longest matching prefix, not first match.** A submodule's files sit
+        inside its parent's tree, so a first-match search over an unordered
+        list attributes them to whichever root it happened to see first -
+        correct or not, depending on dictionary order. Sorting by length
+        descending makes the nested case right by construction rather than by
+        luck.
+
+        An in-memory string comparison per file. No I/O.
+        """
+        if not self._repo_roots:
+            return None
+        if len(self._repo_order) != len(self._repo_roots):
+            self._repo_order = sorted(self._repo_roots, key=len, reverse=True)
+
+        text = str(path).lower()
+        for root in self._repo_order:
+            prefix = root.lower().rstrip("\\/")
+            if text == prefix or text.startswith(prefix + os.sep) or \
+                    text.startswith(prefix + "/"):
+                cached = self._repo_ids.get(root)
+                if cached is None:
+                    cached = self.store.upsert_repo(
+                        root, kind=self._repo_roots[root])
+                    self._repo_ids[root] = cached
+                return cached
+        return None
+
+    def _record_repos(self) -> None:
+        """Every root the walk found, whether or not any of its files indexed.
+
+        A repository whose files are all excluded by type still exists, and
+        `repos_list` uses a LEFT JOIN so it appears with a count of zero. If
+        this only recorded the ones that were attributed, the Code tab would
+        disagree with the walker for reasons nobody could see.
+        """
+        for root, kind in self._repo_roots.items():
+            try:
+                self._repo_ids[root] = self.store.upsert_repo(root, kind=kind)
+            except Exception as exc:      # detection may never fail a run
+                self._log.warning("could not record repository {}: {}", root, exc)
 
     def _candidates(self) -> Iterator[Candidate]:
         # Snapshotted BEFORE the walk, deliberately. Read lazily afterwards, the
@@ -812,6 +905,12 @@ class Pipeline:
                 # is not one. Without this, `path:` filters stop matching mail.
                 parent_dir=str(candidate.path.parent),
                 ext=candidate.path.suffix.lower().lstrip("."),
+                # NULL for anything outside a repository, and for mail, whose
+                # `path` is an archive key rather than a location on disk.
+                repo_id=(
+                    self._repo_id_for(candidate.path)
+                    if item.source_kind == "file" else None
+                ),
             )
 
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)

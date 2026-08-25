@@ -887,6 +887,56 @@ def cmd_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_repos(args: argparse.Namespace) -> int:
+    """Every code repository found under an indexed root.
+
+    Ships before the UI per non-negotiable 8, so repository detection can be
+    checked headless and so the Code tab has something to compare against.
+
+    An index with no repositories is not an error - most machines have none -
+    so it says so in one line and exits 0.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    with SqliteStore(settings.fts_db) as store:
+        repos = store.repos_list()
+
+    if args.json:
+        print(json.dumps({"repositories": repos, "count": len(repos)},
+                         indent=2, default=str))
+        return EXIT_OK
+
+    if not repos:
+        print("No code repositories found under the indexed folders.")
+        return EXIT_OK
+
+    name_width = max(len("NAME"), max(len(str(r["name"])) for r in repos))
+    kind_width = max(len("KIND"), max(len(str(r["kind"])) for r in repos))
+    print(f"{'NAME':<{name_width}}  {'KIND':<{kind_width}}  {'FILES':>7}  LAST SEEN            ROOT")
+    for repo in repos:
+        seen = repo.get("last_seen")
+        stamp = (
+            time.strftime("%Y-%m-%d %H:%M", time.localtime(int(seen)))
+            if seen else "-"
+        )
+        print(
+            f"{repo['name']:<{name_width}}  {repo['kind']:<{kind_width}}  "
+            f"{int(repo['files']):>7,}  {stamp:<19}  {repo['root_path']}"
+        )
+
+    attributed = sum(int(r["files"]) for r in repos)
+    print()
+    print(f"  {len(repos)} repositor{'y' if len(repos) == 1 else 'ies'}, "
+          f"{attributed:,} indexed files attributed.")
+    if attributed == 0:
+        print("  Detected on the last walk but nothing attributed yet - "
+              "run `app.cli index` again to attribute existing files.")
+    return EXIT_OK
+
+
 def cmd_files(args: argparse.Namespace) -> int:
     """Find a file by its NAME. Not a content search.
 
@@ -1941,6 +1991,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_files.add_argument("--type", metavar="EXT",
                          help="restrict to these extensions, comma separated: pdf,docx")
     p_files.set_defaults(func=cmd_files)
+
+    p_repos = sub.add_parser(
+        "repos", parents=[common],
+        help="list the code repositories found under the indexed folders")
+    p_repos.set_defaults(func=cmd_repos)
 
     p_eval = sub.add_parser(
         "evaluate", parents=[common],
