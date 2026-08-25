@@ -25,8 +25,10 @@ Nothing here imports Qt.
 
 from __future__ import annotations
 
+import os
 import re
 import time as _time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -42,6 +44,9 @@ __all__ = [
     "CodeRoute",
     "code_route",
     "code_type_filter",
+    "GitScope",
+    "git_rows_matching",
+    "code_rows_for",
     "code_summary",
     "git_result_row",
     "git_summary",
@@ -2128,6 +2133,137 @@ GIT_ONLY: frozenset[str] = frozenset({
 })
 
 
+@dataclass(frozen=True, slots=True)
+class GitScope:
+    """What the tree on the left has narrowed the file list to.
+
+    **A scope, not a query.** The tree says *where to look*; the box still says
+    *what to look for*, and the two compose - asked for as *"dont forget the
+    code switches apply there too"*. Selecting `main` and then typing
+    `/type cs order` means "`.cs` files matching order, as of main", and neither
+    half overrides the other.
+    """
+
+    #: "" (everything), "repo", "worktree", "branch" or "commit".
+    kind: str = ""
+    #: Repository name, as `repos.name` holds it.
+    repo: str = ""
+    #: Its path on disk - a git run needs this, the index needs the name.
+    root: str = ""
+    #: Branch name or commit sha. Empty for a repository or the working tree.
+    ref: str = ""
+    #: What the commit said, for the line above the list.
+    subject: str = ""
+
+    @property
+    def from_git(self) -> bool:
+        """Whether answering this needs git rather than the index.
+
+        **The index cannot answer a branch.** It holds the working tree: a file
+        deleted on `main` but alive on a feature branch has no row, and one that
+        only ever existed on a branch never had one. That is the whole reason
+        this pane is worth building rather than being a filter over names.
+        """
+        return self.kind in ("branch", "commit")
+
+    def describe(self) -> str:
+        if self.kind == "branch":
+            return f"{self.repo} · branch {self.ref}"
+        if self.kind == "commit":
+            subject = f" · {self.subject}" if self.subject else ""
+            return f"{self.repo} · commit {self.ref}{subject}"
+        if self.kind in ("repo", "worktree"):
+            return f"{self.repo} · working tree"
+        return "every repository"
+
+
+def git_rows_matching(
+    rows: Any, *, text: str = "", extensions: Any = (),
+    types: Any = None,
+) -> list[Any]:
+    r"""Narrow git-sourced rows by the same switches the index path honours.
+
+    **The switches have to work here too, and git cannot apply them.** A branch
+    listing comes back from `git ls-tree` as paths; `/type cs` and free text are
+    then a filter over that list rather than a clause in a query. Capped at
+    `TREE_FILE_LIMIT` before it arrives, so this is a pass over a few thousand
+    strings.
+
+    `extensions` is what the person typed and wins outright; `types` is the
+    configured "what counts as code" set, used only when they typed nothing -
+    the same precedence as the index path, so a branch and the working tree
+    filter identically.
+
+    Matching is substring and case-insensitive on the whole path, because
+    `order` should find `src/OrderService.cs` - the rule `code_files` already
+    uses for the index.
+    """
+    wanted = str(text or "").strip().lower()
+    typed = {str(e).lstrip(".").lower() for e in (extensions or ()) if str(e).strip()}
+    allowed = typed or {str(e).lstrip(".").lower() for e in (types or ())}
+
+    found = []
+    for row in rows or ():
+        # **Either shape.** A `GitRow` straight from a reader, or the mapping
+        # the pane shapes for the table - `repo_file_rows` takes both for the
+        # same reason, and reading only attributes silently filtered every
+        # mapping out, which looked exactly like a branch with no files in it.
+        path = str((row.get("path") if isinstance(row, Mapping)
+                    else getattr(row, "path", "")) or "")
+        if not path:
+            continue
+        if wanted and wanted not in path.lower():
+            continue
+        if allowed:
+            # The same two questions `indexed_ext` answers, in the same order:
+            # a suffix, or the whole name for `Makefile` and `Dockerfile`.
+            name = path.replace("\\", "/").rpartition("/")[2].lower()
+            stem, dot, suffix = name.rpartition(".")
+            kind = suffix if (dot and stem) else name.lstrip(".")
+            if kind not in allowed:
+                continue
+        found.append(row)
+    return found
+
+
+def code_rows_for(store: Any, scope: Any, route: Any,
+                  *, cached: Any = None, limit: int = 500) -> list[dict]:
+    r"""The Code list, for the current scope and the current query.
+
+    **Two engines, one shape**, so the table, the preview and the row menu do
+    not know which one ran. Both end as the mappings `repo_file_rows` reads.
+
+    **But only one of them may run behind a keystroke.** A branch scope is
+    answered by `git ls-tree`, a subprocess: fetching it per keystroke is the
+    first non-negotiable broken, and `test_nothing_that_runs_on_a_keystroke_
+    imports_this` caught exactly that in the first version of this function.
+    So the listing is fetched **once per selection**, by the pane that owns the
+    tree, and handed in as `cached`; typing then filters it in memory. The
+    listing does not change while somebody types, so this is both correct and
+    far faster than the version the guard rejected.
+
+    The index path has no such problem - it is an indexed query that applies
+    the text in SQL - so it still runs per keystroke.
+
+    **The switches compose with the scope** - *"dont forget the code switches
+    apply there too"*. The tree says where to look, the box says what to look
+    for. A typed `/type` beats the configured code types on either path, so a
+    branch and the working tree filter identically.
+    """
+    types = code_type_filter(store)
+    text = str(getattr(route, "text", "") or "")
+    typed = tuple(getattr(route, "extensions", ()) or ())
+
+    if cached is not None:
+        return git_rows_matching(
+            cached, text=text, extensions=typed, types=types)[:limit]
+
+    return list(store.code_files(
+        text, repo=str(getattr(scope, "repo", "") or "")
+        or str(getattr(route, "repo", "") or ""),
+        ext=list(typed) or types, limit=limit))
+
+
 def code_type_filter(store: Any) -> Optional[list[str]]:
     r"""The configured "what counts as code" set, or None for no filter.
 
@@ -2705,12 +2841,21 @@ def repo_root_for(repos: Iterable[Mapping[str, Any]], name: str) -> str:
     return ""
 
 
-def code_summary(rows: list[Any], repos: list[Any]) -> str:
-    """What is on screen, and what there is. Both, because "40 files" over a
-    corpus of 48,000 and over one of 40 mean different things."""
+def code_summary(rows: list[Any], repos: list[Any], scope: Any = None) -> str:
+    r"""What is on screen, and what there is. Both, because "40 files" over a
+    corpus of 48,000 and over one of 40 mean different things.
+
+    **And what it is scoped to**, when the tree has narrowed it. A list showing
+    a branch with nothing on screen saying so is the same failure as a skipped
+    archive that says nothing: the numbers look ordinary and mean something
+    else. `git ls-tree` also answers from the repository rather than the index,
+    so "2 files" beside "48,000 indexed" would otherwise be simply confusing.
+    """
     total = sum(int(row.get("files", 0) or 0) for row in repos)
     count = len(repos)
     parts = [f"{len(rows):,} file{'s' if len(rows) != 1 else ''}"]
+    if scope is not None and str(getattr(scope, "kind", "")):
+        parts.append(scope.describe())
     if len(rows) >= REPO_FILE_LIMIT:
         parts.append(f"showing the newest {REPO_FILE_LIMIT:,} — narrow it with "
                      f"/repo or /type")

@@ -37,7 +37,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -58,6 +58,9 @@ __all__ = [
     "is_repository",
     "measure",
     "search_history",
+    "tree_files",
+    "commit_files",
+    "TREE_FILE_LIMIT",
 ]
 
 _log = logger.bind(component="search.gitsearch")
@@ -638,3 +641,77 @@ def repo_values(repo: Path, kind: str, *, prefix: str = "", limit: int = 40,
         if len(found) >= max(1, int(limit)):
             break
     return found
+
+
+#: Files listed for one branch or commit. A repository with 40,000 files in it
+#: would otherwise fill the table with a tree nobody scrolls, and the pane is a
+#: way *in* to a file rather than a directory listing.
+TREE_FILE_LIMIT = 2_000
+
+
+def tree_files(repo: Path, ref: str, *, limit: int = TREE_FILE_LIMIT,
+               runner: Runner = _run) -> list[GitRow]:
+    r"""Every file as of `ref` - a branch, a tag or a commit.
+
+    **This is what makes a branch selectable.** The index knows the working
+    tree and nothing else: a file deleted on `main` but alive on a feature
+    branch is not in `files`, and a file that only ever existed on a branch
+    never was. Only git can answer "what is in this branch", which is precisely
+    why the pane is worth building rather than filtering the index by name.
+
+    `-r` recurses; `--name-only` keeps the output one path per line, which is
+    the cheapest shape to parse and the only part of the entry the pane shows.
+
+    Never raises. A ref that has been deleted between the tree being drawn and
+    a click on it is an empty list, not a dialog - the same posture as
+    `repo_values`, and for the same reason: this runs from a selection change.
+    """
+    wanted = str(ref or "").strip()
+    if not wanted:
+        return []
+    try:
+        code, out, _err = runner(
+            ["git", "ls-tree", "-r", "--name-only", wanted], Path(repo), 30.0)
+    except Exception:                        # noqa: BLE001 - see the docstring
+        return []
+    if code != 0:
+        return []
+
+    rows: list[GitRow] = []
+    for line in out.splitlines():
+        path = line.strip()
+        if not path:
+            continue
+        rows.append(GitRow(kind="tree", path=path, commit=wanted))
+        if len(rows) >= max(1, int(limit)):
+            break
+    return rows
+
+
+def commit_files(repo: Path, sha: str, *, limit: int = TREE_FILE_LIMIT,
+                 runner: Runner = _run) -> list[GitRow]:
+    r"""The files one commit touched, with what it did to each.
+
+    `--name-status` gives `M\tsrc/Order.cs`, which `_read_name_status` already
+    parses - the same reader `/changed` uses, so a commit selected in the tree
+    and a commit named with a switch produce identical rows rather than two
+    shapes that drift.
+
+    `--no-commit-id` suppresses the header `_read_name_status` would otherwise
+    take for a commit line, and `-m` makes a merge report its changes against
+    the first parent instead of nothing at all - a merge that lists no files is
+    the sort of empty answer somebody reasonably reads as a bug.
+    """
+    wanted = str(sha or "").strip()
+    if not wanted:
+        return []
+    try:
+        code, out, _err = runner(
+            ["git", "show", "--no-commit-id", "--name-status", "-m",
+             "--format=", wanted], Path(repo), 30.0)
+    except Exception:                        # noqa: BLE001
+        return []
+    if code != 0:
+        return []
+    rows = _read_name_status(out.splitlines(), max(1, int(limit)))
+    return [replace(row, commit=wanted) for row in rows]

@@ -35,6 +35,7 @@ from app.search.gitquery import GIT_COMMANDS
 from app.ui.presenter import CODE_COMMANDS
 
 __all__ = [
+    "git_values",
     "CODE_CATALOGUE",
     "code_command_for",
     "code_matching",
@@ -78,3 +79,26 @@ def code_matching(prefix: str) -> list[Command]:
         return list(CODE_CATALOGUE)
     return [command for command in CODE_CATALOGUE
             if any(spelling.startswith(wanted) for spelling in command.spellings)]
+
+
+def git_values(repos: Any, text: str, kind: str, prefix: str, limit: int) -> list:
+    """Branches, tags and authors, from whichever repository the box names.
+
+    **The `/` menu's other half.** The index answers `/repo` and `/type`
+    through the store; only git can answer these, and only for one repository
+    at a time - so the value in `/repo` decides which. With none named and
+    exactly one repository known, that is the one meant; with several it is a
+    question nobody has answered, and offering the first would be a guess
+    presented as a fact.
+
+    Here rather than in `code_view.py`, which is at the 250-line guard, and
+    because it belongs beside the catalogue it fills. Qt-free, so the rule
+    about *which* repository is testable without a window.
+    """
+    from app.search.gitsearch import repo_values
+    from app.ui.presenter import code_route, repo_root_for
+
+    root = repo_root_for(repos, code_route(text).repo)
+    if not root:
+        return []
+    return repo_values(root, kind, prefix=prefix, limit=limit)

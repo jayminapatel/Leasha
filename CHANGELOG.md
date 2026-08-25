@@ -1,12 +1,56 @@
 # Changelog
 
-**Doc version:** 3.42 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.43 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — a repository pane on the Code tab, and a branch is a place the index cannot go
+
+Asked for as *"a git view option by which the view changes to a two pane view
+git on the left and the file list on the right"*, with an invitation to propose
+something better than a folder tree — which this takes, because a folder tree
+duplicates Explorer.
+
+The left pane is repositories, and under each: **Working tree**, **Branches**,
+**Recent commits**. Selecting one scopes the list on the right.
+
+**The reason it earns its place is one fact.** The index holds the *working
+tree*: a file deleted on `main` but alive on a feature branch has no row in
+`files`, and one that only ever existed on a branch never had one. "List the
+files as of this branch" is a question only git can answer — `git ls-tree` — so
+this is not a filter over names dressed up as a pane. Selecting a commit lists
+what it touched, with `M`/`A`/`D` intact, through the reader `/changed` already
+uses.
+
+It also makes `/branch`, `/history` and `/commit` **discoverable**. They have
+worked since the git backend landed and were reachable only by knowing to type
+them; this codebase keeps finding features that were built, shipped and
+invisible.
+
+**The switches compose with the scope** — *"dont forget the code switches apply
+there too"*. The tree says where to look, the box says what to look for, and
+neither overrides the other: selecting `main` and typing `/type cs order` means
+"`.cs` files matching order, as of main". A typed `/type` still beats the
+configured code types, on both engines, so a branch and the working tree filter
+identically. Both end as the same row shape, so the table, the preview and the
+row menu never learn which engine answered.
+
+**A guard reshaped this feature, and was right to.** The first version fetched
+the branch inside the function that runs on the typing debounce — so every
+keystroke shelled out to `git ls-tree`.
+`test_nothing_that_runs_on_a_keystroke_imports_this` refused it. The listing
+does not change while somebody types, so the pane now reads it **once per
+selection**, on a worker, and typing filters it in memory: correct, and far
+faster than the version that was rejected.
+
+The summary line names the scope — *"2 files · leasha · branch main · 1
+repository, 2 indexed files"* — because a list narrowed to a branch with nothing
+saying so is the same failure as an archive skipped in silence: the numbers look
+ordinary and mean something else.
 
 ### Added — the Code tab lists code, not everything that sits beside it
 

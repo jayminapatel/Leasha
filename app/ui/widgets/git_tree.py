@@ -1,0 +1,319 @@
+r"""The repository tree beside the Code list.
+
+Layer: L6 (UI), driving L4
+
+Asked for: *"add a git view option by which the view changes to a two pane view
+git on the left and the file list on the right"* - with the invitation to
+propose something better than a folder tree, which this takes.
+
+**A folder tree would duplicate Explorer.** What only this application can offer
+is scoping by *git*: a branch, a commit, the working tree. So the left pane is
+
+    ▾ leasha
+      ▾ Branches          main, feature/x …
+      ▾ Recent commits    3b29b7f  389 source and code types …
+        Working tree
+
+and selecting a node narrows the list on the right. Two things follow from that
+which a folder tree would not have given:
+
+* **The index cannot answer a branch.** It holds the working tree - a file
+  deleted on `main` but alive on a feature branch has no row at all. Selecting a
+  branch reads `git ls-tree`, which is the only thing that can answer it.
+* **It makes `/branch`, `/history` and `/commit` discoverable.** Those switches
+  have worked since the git backend landed and are reachable only by knowing to
+  type them. This codebase keeps finding features that were built, shipped and
+  invisible; a tree of branches is the same capability with a way in.
+
+**Everything git is loaded lazily and off the interface thread.** A repository's
+branches and commits are two subprocesses; doing that for every repository when
+the pane opens would freeze the window on a machine with twenty checkouts. The
+repositories themselves come from the index and are instant.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
+
+from app.core.logging import logger
+from app.ui.presenter import GitScope
+from app.ui.workers import CallableWorker, run
+
+__all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
+           "ROLE_SCOPE"]
+
+_log = logger.bind(component="ui.gittree")
+
+#: Where a node keeps its `GitScope`. `UserRole + 100`, matching
+#: `result_table.ROLE_ROW` - the collision that broke Mail sorting was two
+#: files independently choosing `UserRole + 1`.
+ROLE_SCOPE = int(Qt.ItemDataRole.UserRole) + 100
+
+#: Branches and commits offered per repository. Enough to find what you want,
+#: few enough that the subprocess stays under a second and the tree stays a
+#: tree rather than a log viewer.
+BRANCH_LIMIT = 60
+COMMIT_LIMIT = 40
+
+#: On the button that reveals the pane. It names the thing the index genuinely
+#: cannot do, which is the reason the pane exists at all.
+GIT_VIEW_HINT = (
+    "Show the repositories, their branches and their recent commits.\n\n"
+    "Selecting a branch lists the files as of that branch — which the index "
+    "cannot answer, because it holds the working tree. The switches still "
+    "apply on top of whatever is selected."
+)
+
+
+class GitTree(QTreeWidget):
+    """Repositories, their branches and their recent commits."""
+
+    #: `(GitScope, rows or None)`. **One signal carrying both**, because a
+    #: branch has to be *read* before it can be listed and the read is a
+    #: subprocess: the view would otherwise have to own a fetch, a cache and
+    #: the rule about which scopes need one. `None` means "ask the index".
+    scoped = pyqtSignal(object, object)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setAccessibleName("Repositories, branches and commits")
+        self.setUniformRowHeights(True)
+        #: Repositories whose git has already been read, so expanding twice
+        #: does not run four subprocesses.
+        self._loaded: set[str] = set()
+        self.itemExpanded.connect(self._expanded)
+        self.currentItemChanged.connect(
+            lambda item, _previous: self._chosen(item))
+
+    # -- filling it in -------------------------------------------------------
+
+    def show_repos(self, repos: Any) -> None:
+        """Draw the repositories. Instant: they come from the index."""
+        self.clear()
+        self._loaded.clear()
+
+        everything = QTreeWidgetItem(["All repositories"])
+        everything.setData(0, ROLE_SCOPE, GitScope())
+        self.addTopLevelItem(everything)
+
+        for repo in repos or ():
+            name = str(_get(repo, "name") or "")
+            root = str(_get(repo, "root_path") or "")
+            if not name:
+                continue
+            count = int(_get(repo, "files") or 0)
+            item = QTreeWidgetItem([f"{name}   ({count:,} files)"])
+            item.setToolTip(0, root)
+            item.setData(0, ROLE_SCOPE,
+                         GitScope(kind="repo", repo=name, root=root))
+            # **A placeholder, so the arrow appears before anything is read.**
+            # Without one the repository looks like a leaf and nobody expands
+            # it, which is the whole feature going undiscovered.
+            item.addChild(QTreeWidgetItem(["Reading…"]))
+            self.addTopLevelItem(item)
+
+        self.setCurrentItem(everything)
+
+    def _expanded(self, item: Any) -> None:
+        """Load one repository's branches and commits, once, on a worker."""
+        scope = item.data(0, ROLE_SCOPE)
+        if not isinstance(scope, GitScope) or scope.kind != "repo":
+            return
+        if scope.root in self._loaded:
+            return
+        self._loaded.add(scope.root)
+
+        worker = CallableWorker(_read_repo, scope.root, component="ui.gittree")
+        worker.signals.finished.connect(
+            lambda payload, node=item: self._fill(node, payload))
+        # A repository that cannot be read keeps its "Reading…" row replaced by
+        # a sentence rather than sitting there for ever - see `_fill`.
+        worker.signals.failed.connect(
+            lambda _error, node=item: self._fill(node, {}))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _fill(self, item: Any, payload: Any) -> None:
+        """Replace the placeholder with what git said. Interface thread."""
+        try:
+            scope = item.data(0, ROLE_SCOPE)
+            item.takeChildren()
+        except RuntimeError:                     # the pane closed mid-read
+            return
+
+        branches = list((payload or {}).get("branches") or ())
+        commits = list((payload or {}).get("commits") or ())
+
+        work = QTreeWidgetItem(["Working tree"])
+        work.setData(0, ROLE_SCOPE, GitScope(
+            kind="worktree", repo=scope.repo, root=scope.root))
+        item.addChild(work)
+
+        if branches:
+            head = QTreeWidgetItem([f"Branches ({len(branches)})"])
+            item.addChild(head)
+            for name in branches:
+                node = QTreeWidgetItem([name])
+                node.setData(0, ROLE_SCOPE, GitScope(
+                    kind="branch", repo=scope.repo, root=scope.root, ref=name))
+                head.addChild(node)
+
+        if commits:
+            head = QTreeWidgetItem([f"Recent commits ({len(commits)})"])
+            item.addChild(head)
+            for line in commits:
+                # `repo_values` returns "3b29b7f  389 source and code types".
+                sha, _sep, subject = str(line).partition("  ")
+                node = QTreeWidgetItem([str(line)])
+                node.setToolTip(0, subject.strip())
+                node.setData(0, ROLE_SCOPE, GitScope(
+                    kind="commit", repo=scope.repo, root=scope.root,
+                    ref=sha.strip(), subject=subject.strip()))
+                head.addChild(node)
+
+        if not branches and not commits:
+            # **Said, not left empty.** A repository whose git cannot be read -
+            # git missing, the folder moved, a repository being rewritten -
+            # would otherwise expand to nothing, which reads as a broken pane.
+            note = QTreeWidgetItem(["No branches or commits could be read"])
+            note.setDisabled(True)
+            item.addChild(note)
+
+    # -- selection -----------------------------------------------------------
+
+    def _chosen(self, item: Any) -> None:
+        """A selection: the index answers at once, a branch is read first.
+
+        The read happens here rather than on the typing path - `ls-tree` is a
+        subprocess, and once per selection is the whole difference. See
+        `presenter.code_rows_for` for the guard that insisted on it.
+        """
+        if item is None:
+            return
+        scope = item.data(0, ROLE_SCOPE)
+        if not isinstance(scope, GitScope):
+            return
+        if not scope.from_git:
+            self.scoped.emit(scope, None)
+            return
+
+        worker = CallableWorker(scope_rows, scope, component="ui.gittree")
+        worker.signals.finished.connect(
+            lambda rows, chosen=scope: self.scoped.emit(chosen, list(rows or [])))
+        # A ref that cannot be read lists nothing rather than leaving whatever
+        # the last selection showed, which would be the wrong files under the
+        # right heading.
+        worker.signals.failed.connect(
+            lambda _error, chosen=scope: self.scoped.emit(chosen, []))
+        run(QThreadPool.globalInstance(), worker)
+
+
+def _get(row: Any, key: str) -> Any:
+    """A field from a row that may be a mapping or an object."""
+    if isinstance(row, dict):
+        return row.get(key)
+    return getattr(row, key, None)
+
+
+def _read_repo(root: str) -> dict:
+    """Branches and recent commits for one repository. **Worker thread.**
+
+    Never raises: `repo_values` already swallows a missing git, a folder that
+    is not a repository and a timeout, and returns an empty list for each. An
+    empty tree node is a sentence on screen; an exception here would be a
+    dialog for expanding a row.
+    """
+    from pathlib import Path
+
+    from app.search.gitsearch import repo_values
+
+    try:
+        return {
+            "branches": repo_values(Path(root), "branch", limit=BRANCH_LIMIT),
+            "commits": repo_values(Path(root), "commit", limit=COMMIT_LIMIT),
+        }
+    except Exception as exc:                     # noqa: BLE001 - see the docstring
+        _log.debug("no git detail for {}: {}", root, exc)
+        return {}
+
+
+def attach_git_tree(results: Any):
+    """Build the tree, put it left of `results`, and return `(tree, splitter)`.
+
+    The same shape as `attach_preview`, and for the same reasons: the splitter
+    exists whether or not the tree is shown, so toggling is a repaint rather
+    than a relayout, and the divider somebody dragged is still where they left
+    it when the pane comes back.
+
+    Here rather than in the view because `code_view.py` is at the 250-line
+    guard, and a splitter assembled in three places would drift.
+    """
+    from PyQt6.QtWidgets import QSplitter
+
+    tree = GitTree()
+    split = QSplitter(Qt.Orientation.Horizontal)
+    split.addWidget(tree)
+    split.addWidget(results)
+    split.setStretchFactor(0, 1)
+    split.setStretchFactor(1, 3)
+    split.setChildrenCollapsible(False)
+    tree.setVisible(False)
+    return tree, split
+
+
+def scope_rows(scope: Any) -> list:
+    r"""Every file a branch or a commit holds, as the table's own row shape.
+
+    **Worker thread, and once per selection rather than once per keystroke.**
+    This shells out to git; `test_nothing_that_runs_on_a_keystroke_imports_this`
+    refused the first version of this feature for putting it on the typing
+    path, and it was right to - `ls-tree` on a large repository is a subprocess
+    and tens of milliseconds. The listing does not change while somebody types,
+    so the pane fetches it here and `presenter.code_rows_for` filters it in
+    memory afterwards.
+
+    The rows come back as mappings rather than `GitRow`s so that a branch and
+    the index produce one shape, and the table, the preview and the row menu
+    stay ignorant of which engine answered.
+
+    Never raises: `tree_files` and `commit_files` already swallow a missing
+    git, a moved repository and a deleted ref, and return an empty list.
+    """
+    import os
+    from pathlib import Path
+
+    from app.search.gitsearch import commit_files, tree_files
+
+    kind = str(getattr(scope, "kind", "") or "")
+    if kind not in ("branch", "commit"):
+        return []
+    root = Path(str(getattr(scope, "root", "") or ""))
+    ref = str(getattr(scope, "ref", "") or "")
+    rows = commit_files(root, ref) if kind == "commit" else tree_files(root, ref)
+
+    shaped = []
+    for row in rows:
+        relative = str(getattr(row, "path", "") or "")
+        if not relative:
+            continue
+        name = relative.replace("\\", "/").rpartition("/")[2].lower()
+        stem, dot, suffix = name.rpartition(".")
+        shaped.append({
+            # **Joined to the repository root.** `ls-tree` reports a path
+            # relative to the repository; the preview pane and "open" need one
+            # that exists, and a relative path previews as missing for every
+            # single row.
+            "path": str(root / relative.replace("/", os.sep)),
+            "ext": suffix if (dot and stem) else name.lstrip("."),
+            "repo": str(getattr(scope, "repo", "") or ""),
+            "repo_root": str(root),
+            # A commit says what it did to the file; a branch listing has
+            # nothing to say, and an invented "INDEXED" would be a claim.
+            "status": str(getattr(row, "status", "") or ""),
+            "size_bytes": 0,
+            "mtime_ns": 0,
+        })
+    return shaped

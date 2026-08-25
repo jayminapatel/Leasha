@@ -3,28 +3,27 @@
 Layer: L5, driving L1 and L4
 
 **Corrected by the owner**: *"the code search page is all wrong it should be a
-combined one search box with the git code files in the list"*. It was a tree of
-repositories above a separate git search box, and that made somebody choose an
-engine before they had a question. The question is nearly always *"where is that
-file"*, and that is answered from the index in milliseconds - so it must be what
-typing does.
+combined one search box with the git code files in the list"*. A tree above a
+separate git box made somebody choose an engine before they had a question -
+and the question is nearly always *"where is that file"*, which the index
+answers in milliseconds, so that is what typing does.
 
-**The grammar picks the engine, not the person.** A line with no git switch in
-it searches the indexed files of every repository at once, as you type. A line
-carrying `/history`, `/branch`, `/introduced` and the rest runs git, on Enter,
-because `git log -S` diffs every commit it walks - 2.26s for 200 commits,
-measured on this project. Both fill the same table, and the line above it says
-which engine answered and what it looked at.
+**The grammar picks the engine, not the person.** A line with no git switch
+searches the indexed files of every repository at once, as you type. One
+carrying `/history` or `/introduced` runs git, on Enter, because `git log -S`
+diffs every commit it walks - 2.26s for 200 commits, measured here.
 
-That decision lives in `presenter.code_route`, which imports no Qt, because
-"which engine" is what the whole tab turns on and a decision made inside a
-widget is one nobody can test. It is also the one that must never go wrong
-*towards* git: an index lookup taken as a repository search costs two seconds
-and a subprocess for a question that had a 3ms answer.
+That decision lives in `presenter.code_route`, which imports no Qt: it is what
+the whole tab turns on, it cannot be tested inside a widget, and it must never
+go wrong *towards* git - an index lookup taken as a repository search costs two
+seconds and a subprocess for a question that had a 3ms answer.
 
-**The repository is a column, not a tree.** A flat list has to say where a file
-came from, and `/repo` narrows it - offering the names actually found, like
-every other value in the `/` menu.
+**The repository is a column, and now optionally a tree as well.** The flat list
+says where each file came from and `/repo` narrows it. "Git view" adds a pane on
+the left - repositories, branches, recent commits - because a branch is the one
+thing the index cannot answer: it holds the working tree, so a file deleted on
+`main` but alive on a feature branch has no row. See `widgets/git_tree.py`. The
+switches still apply on top of whatever the tree has selected.
 """
 
 from __future__ import annotations
@@ -38,16 +37,17 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.presenter import (
-    REPO_FILE_LIMIT, code_route, code_summary, code_type_filter,
+    REPO_FILE_LIMIT, GitScope, code_route, code_rows_for, code_summary,
     git_result_row, git_summary,
     repo_empty_state, repo_file_rows, repo_root_for,
 )
 from app.ui.view_options import button as view_button
 from app.ui.widgets.code_commands import (
-    CODE_CATALOGUE, code_command_for, code_matching,
+    CODE_CATALOGUE, code_command_for, code_matching, git_values,
 )
 from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.command_popup import attach_to
+from app.ui.widgets.git_tree import GIT_VIEW_HINT, attach_git_tree
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["CodeView", "COLUMNS", "PREFS_KEY"]
@@ -59,6 +59,7 @@ _log = logger.bind(component="ui.code")
 #: One indexed lookup over an indexed column, so this only needs to be long
 #: enough to avoid a query per keystroke on a fast typist.
 CODE_DEBOUNCE_MS = 90
+
 
 
 class CodeView(QWidget):
@@ -90,7 +91,9 @@ class CodeView(QWidget):
         # `/branch`, `/tag` and `/author`.
         self._popup = attach_to(
             self.input, catalogue=CODE_CATALOGUE, matcher=code_matching,
-            resolve=code_command_for, store=store, lookup=self._values,
+            resolve=code_command_for, store=store,
+            lookup=lambda kind, prefix, limit: git_values(
+                self._repos, self.input.text(), kind, prefix, limit),
         )
 
         self.run_button = QPushButton("Search history")
@@ -101,19 +104,21 @@ class CodeView(QWidget):
             "git diffs every commit it walks, so they take seconds.")
         self.run_button.clicked.connect(self.start)
 
-        self.summary = QLabel("")
-        self.summary.setObjectName("resultsSummary")
-        self.summary.setWordWrap(True)
+        self.summary = QLabel("", objectName="resultsSummary", wordWrap=True)
 
-        self.empty = QLabel("")
-        self.empty.setWordWrap(True)
-        self.empty.setOpenExternalLinks(False)
-        self.empty.linkActivated.connect(lambda _link: self.indexing_requested.emit())
-        self.empty.setVisible(False)
+        self.empty = QLabel("", wordWrap=True, openExternalLinks=False,
+                            visible=False)
+        self.empty.linkActivated.connect(lambda _l: self.indexing_requested.emit())
 
-        # The table, the preview beside it and the row menu - see
-        # `widgets/code_results.py`. Split out when this file crossed the
-        # 250-line guard, which is the guard working rather than a nuisance.
+        # The table, the preview and the row menu are in `code_results.py`;
+        # the tree and its scope are in `git_tree.py`. Both were split out when
+        # this file hit the 250-line guard - the guard working, not a nuisance.
+        #: Empty means every repository, which is what the tab did before.
+        self._scope = GitScope()
+        #: The branch or commit listing, fetched once when the scope changes.
+        #: None for an index scope, which is queried per keystroke instead.
+        self._scoped_rows: Any = None
+
         self.results = CodeResults(self)
         self.results.error.connect(self.error)
         self.results.open_requested.connect(self.open_requested)
@@ -121,10 +126,17 @@ class CodeView(QWidget):
         self.results.search_repo_requested.connect(self.search_repo_requested)
         self.results.view_menu_requested.connect(
             lambda at: self.view_button.show_menu(at))
-        #: Re-exposed so callers and tests need not know where it moved to,
-        #: the same way `settings_view` re-exposes the controls `SearchBox`
-        #: took with it.
-        self.preview = self.results.preview
+        self.preview = self.results.preview        # re-exposed for callers
+
+        # The repository tree, and the button that reveals it. Off by default:
+        # it costs a subprocess per repository expanded, and somebody who wants
+        # to browse branches asks for it - the same posture as the preview pane.
+        self.git_tree, self.git_split = attach_git_tree(self.results)
+        self.git_tree.scoped.connect(self._scoped)
+        self.git_button = QPushButton("Git view")
+        self.git_button.setCheckable(True)
+        self.git_button.setToolTip(GIT_VIEW_HINT)
+        self.git_button.toggled.connect(self._git_view_toggled)
 
         self.view_button = view_button(
             self, store, PREFS_KEY,
@@ -140,6 +152,7 @@ class CodeView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
+        top.addWidget(self.git_button)
         top.addWidget(self.run_button)
         top.addWidget(self.view_button)
 
@@ -147,7 +160,7 @@ class CodeView(QWidget):
         layout.addLayout(top)
         layout.addWidget(self.summary)
         layout.addWidget(self.empty)
-        layout.addWidget(self.results, 1)
+        layout.addWidget(self.git_split, 1)
         self._apply_prefs()
 
     # -- lifecycle -----------------------------------------------------------
@@ -174,23 +187,6 @@ class CodeView(QWidget):
 
     # -- running -------------------------------------------------------------
 
-    def _values(self, kind: str, prefix: str, limit: int) -> list:
-        """Branches, tags and authors, from whichever repository is in the box.
-
-        The index answers `/repo` and `/type` through `store`; only git can
-        answer these, and only for one repository at a time - so the value in
-        `/repo` decides which. With none named and exactly one repository
-        known, that is the one meant; with several it is a question nobody has
-        answered yet, and offering the first would be a guess presented as a
-        fact.
-        """
-        root = repo_root_for(self._repos, code_route(self.input.text()).repo)
-        if not root:
-            return []
-        from app.search.gitsearch import repo_values
-
-        return repo_values(root, kind, prefix=prefix, limit=limit)
-
     def _typed(self) -> None:
         """As-you-type, and **only ever the index.**
 
@@ -210,24 +206,31 @@ class CodeView(QWidget):
     def _search_index(self, route: Any) -> None:
         self._generation += 1
         generation = self._generation
-        # **A typed `/type` wins over the configured default.** Naming a type is
-        # an instruction; the setting is what to do when nobody has. Same rule
-        # as `app.cli index`, where explicit roots beat the saved ones - a
-        # command that quietly ignored what was typed in favour of a setting
-        # would be the same bug pointing the other way.
-        #
-        # `None` means "no filter", which is what "Everything in the repository"
-        # resolves to - not an empty list, which would show nothing.
-        wanted = list(route.extensions) or code_type_filter(self._store)
+        # One call for both engines - see `presenter.code_rows_for`. The tree
+        # says where to look, the box says what to look for, and a typed
+        # `/type` still beats the configured code types on either path.
         worker = CallableWorker(
-            self._store.code_files, route.text, repo=route.repo,
-            ext=wanted, limit=REPO_FILE_LIMIT,
+            code_rows_for, self._store, self._scope, route,
+            cached=self._scoped_rows, limit=REPO_FILE_LIMIT,
             component="ui.code",
         )
         worker.signals.finished.connect(
             lambda rows, g=generation: self._show_files(rows, g))
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
+
+    def _git_view_toggled(self, on: bool) -> None:
+        """Reveal the tree and fill it; leaving drops the scope with it, since
+        a list still narrowed to a branch with nothing saying so is the worst
+        of both panes."""
+        self.git_tree.setVisible(on)
+        self.git_tree.show_repos(self._repos) if on else self._scoped(GitScope())
+
+    def _scoped(self, scope: Any, rows: Any = None) -> None:
+        """The tree has chosen, and has already read a branch if it needed to."""
+        self._scope = scope if scope is not None else GitScope()
+        self._scoped_rows = rows
+        self._typed()
 
     def start(self) -> None:
         """Enter: run whatever the line asks for, including the slow one."""
@@ -278,7 +281,7 @@ class CodeView(QWidget):
         self._fill(rows)
         self._show_state()
         if self._repos:
-            self.summary.setText(code_summary(rows, self._repos))
+            self.summary.setText(code_summary(rows, self._repos, self._scope))
 
     def _show_git(self, found: Any, generation: int) -> None:
         if generation != self._generation:
