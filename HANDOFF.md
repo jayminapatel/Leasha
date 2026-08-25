@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.1 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 4.2 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -42,7 +42,7 @@ entirely rebuildable from your documents, so deleting it is always safe.
 
 ## 3. Current state
 
-**Version 0.3.2. Layers 0-6 code-complete. 938 tests passing, 1 xfailed (real-Outlook COM, deliberately).**
+**Version 0.3.3. Layers 0-6 code-complete. 1582 tests passing, 1 xfailed (real-Outlook COM, deliberately), 2 deselected (JVM - see below).**
 
 | Layer | What it is | State |
 |---|---|---|
@@ -72,10 +72,29 @@ In order, and the first two need the owner rather than the code:
    rather than by argument.
 4. **Layer 9**: hardening and packaging.
 
-The file-type work order is **complete** - all six steps. OpenDocument and Google Drive
-pointers read natively, Tier 2 converters cover a dozen dead Office formats through
-LibreOffice and pandoc, OCR reads images and scanned PDFs, and Settings has a checkbox per
-type. `app.cli formats` prints what is on and what is off.
+The file-type work order is **complete** - all six steps, plus the follow-on work in 0.3.3.
+OpenDocument and Google Drive pointers read natively, Tier 2 converters cover a dozen dead
+Office formats through LibreOffice and pandoc, OCR reads images and scanned PDFs, and
+AutoCAD `.dxf` is read for its notes and title-block attributes. `app.cli formats` prints
+what is on and what is off.
+
+**Settings now manages file types rather than listing them.** Every supported type is
+shown - including the ones claimed in code, which the table used to omit entirely, so
+there was no `.pdf` row and no way to switch PDFs off. Each carries a **Status**: ready,
+limited, cannot read, or off, with the exact fix command on the row. Double-click edits a
+type's reader and size cap; **Reset to defaults** deletes the override file, restoring
+every shipped type, reader and limit.
+
+`app/core/format_health.py` is the single source of that status, read by both Settings and
+`doctor.py`. **An extractor with a new optional dependency declares it with `requires` and
+appears in both places without either being edited** - see `docs/adding-a-file-type.md`,
+which is the guide to adding a format at any of the three tiers.
+
+Two known gaps, both deliberate: `.dwg` needs LibreDWG's `dwg2dxf` on PATH and ships
+disabled, so DWG files are found by name only until it is installed and switched on; and
+the JVM-starting mpxj tests are excluded from the default run (`pytest -m jvm` to run
+them), because `startJVM` can take the host process down with a Windows access violation
+and lose the whole suite's result with it.
 
 ## 3a. The scope change, and what would reverse it
 

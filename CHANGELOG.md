@@ -56,6 +56,50 @@ the first thing anybody tries. Double-click now opens the type's reader, size ca
 and on/off state, and the dialog says what a large cap costs at the moment the
 number is raised rather than leaving it to be discovered mid-run.
 
+### Added — the Add file type wizard generates the reader for you
+
+Adding a format meant knowing which of three mechanisms applied, then editing
+TOML or writing a module and remembering four separate places to touch. The
+knowledge was written down, which is the kind of thing somebody reads once and
+then re-derives from memory, badly. The step people forget is the import in
+`app/extract/__init__.py`, and its failure mode is the worst kind: the module is
+perfect, the extension reports unsupported, and nothing connects the two.
+
+The wizard asks the one question that decides the tier — can something we
+already have read this? — and then does as much of the rest as is safe. Tier 1
+writes the route. Tier 2 writes the converter block and **refuses a binary that
+is not installed**, rather than saving a route that fails on every file until
+somebody notices. Tier 3 generates the module, inserts the import in
+alphabetical order, pins the package, and installs it.
+
+**It cannot finish Tier 3 and says so** instead of producing something that
+looks complete and raises `NotImplementedError` on the first file. What it
+generates is the contract — lazy import, declared `requires`, errors as values,
+a name-only fallback so an unreadable file is still findable — with one marked
+`TODO` where the parsing goes.
+
+`app/core/scaffold.py` holds the generation, and the tests worth having are the
+ones proving what it refuses: a name already taken, an extension another reader
+claims, a package named with no import name (`python-docx` imports as `docx`),
+and applying a plan whose file appeared while the plan was on screen. Nothing is
+ever overwritten, and a frozen build refuses outright rather than writing into a
+temporary directory nobody will look at.
+
+The pip install runs on a worker. It was written inline first and the
+`test_ui_never_blocks` guard caught it in the same run — non-negotiable #5 held
+by a test rather than by memory.
+
+### Added — Select all / Select none in the file-types list
+
+**They act on the rows currently shown, not on the whole table.** Filter to
+`ocr` and "select none" switches off the eight image types, not the eighty
+formats behind the filter. A button that silently acts on rows somebody cannot
+see turns one decision into eighty, and they find out at the next index run.
+
+The status line names the filter whenever the count is smaller than the table,
+because a number that does not match what is on screen otherwise reads as the
+button having half worked.
+
 ### Fixed — the File types page omitted most file types
 
 `describe()` listed only extensions that appear in configuration, and

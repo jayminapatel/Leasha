@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -52,6 +52,14 @@ change it deliberately, write down why, and update `HANDOFF.md`.
    precisely so a miss can be attributed. "It feels fast" is not a result.
 10. **Read-only against user data.** The indexer opens and reads. It never modifies, moves or
     deletes a document or an email.
+11. **Anything tunable has a UI, or is not tunable.** No setting ever requires editing a file.
+    If a value has no control, it becomes a fixed constant with a comment saying why it is
+    fixed and what evidence would change it - so the rule *shrinks* the tuning surface rather
+    than growing a sixty-control dialog. `.env` is written by the application, never by the
+    user. Every setting must also justify its existence: if nobody will ever change it, it is a
+    constant. Destructive settings - index location, chunk size, embedding model - are flows
+    that state the cost and confirm, never plain fields.
+    See `docs/WORKORDER-everything-tunable-has-a-ui.md`.
 
 ## How a layer gets built
 
