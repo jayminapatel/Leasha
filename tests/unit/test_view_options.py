@@ -468,3 +468,42 @@ def test_the_deferred_save_survives_a_table_that_has_gone_away():
     record = body.split("def record(")[1].split("def resized(")[0]
 
     assert "RuntimeError" in record
+
+
+def test_the_preview_toggle_is_offered_on_every_list_not_only_search():
+    """**Reported: "the option in the view menu is only on the main search tab".**
+
+    "One row per document" and "Show why each result matched" are about ranked
+    search results, so they live behind `grouping`. The preview pane sat in that
+    same block by accident - so Files, Mail and Code each built a preview pane,
+    wired it up, and offered no way to switch it on.
+    """
+    import inspect
+
+    from app.ui import view_options
+
+    source = inspect.getsource(view_options.build_menu)
+    grouping_block = source.split("if grouping:")[1].split("\n    if columns:")[0]
+
+    assert "Preview pane" not in grouping_block, (
+        "the preview toggle is inside the grouping branch, so it only appears "
+        "on the search tab"
+    )
+    assert "Preview pane" in source, "the toggle has gone missing entirely"
+
+
+def test_the_search_only_options_stay_search_only():
+    """The other half: moving preview out must not drag these with it.
+
+    A table of files has one row per file already, so offering to group it would
+    be offering nothing.
+    """
+    import inspect
+
+    from app.ui import view_options
+
+    source = inspect.getsource(view_options.build_menu)
+    grouping_block = source.split("if grouping:")[1].split("\n    if columns:")[0]
+
+    assert "One row per document" in grouping_block
+    assert "Show why each result matched" in grouping_block

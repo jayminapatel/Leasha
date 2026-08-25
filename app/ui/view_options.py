@@ -390,23 +390,35 @@ def build_menu(
             lambda checked: on_change(replace(prefs, show_scores=checked)))
         menu.addAction(scores)
 
-        preview = QAction("Preview pane", menu)
-        preview.setCheckable(True)
-        preview.setChecked(prefs.preview)
-        # **Not `Ctrl+P`, which this said for weeks and never did.** The window
-        # binds `Ctrl+P` to "go to Files" - the shortcut every editor uses for
-        # "go to file" - and a window-level action wins over one on a menu that
-        # only exists while it is open. So the menu advertised a key that did
-        # nothing, which is worse than advertising none: somebody presses it,
-        # lands on another tab, and concludes the preview is broken.
-        preview.setShortcut("Ctrl+Shift+P")
-        preview.setToolTip(
-            "Read the selected result beside the list, without opening the "
-            "application that owns it."
-        )
-        preview.toggled.connect(
-            lambda checked: on_change(replace(prefs, preview=checked)))
-        menu.addAction(preview)
+    # **Outside `if grouping:`, and it should never have been inside it.**
+    #
+    # "One row per document" and "Show why each result matched" are about
+    # ranked search results, so they belong to the grouping branch. The preview
+    # pane is about reading the selected row and applies to every list there is
+    # - but it sat in the same block, so Files, Mail and Code offered no way to
+    # switch it on. Each of those views builds a preview pane and wires it up;
+    # the only thing missing was the menu entry that reveals it.
+    #
+    # Reported as: "the option in the view menu is only on the main search tab,
+    # it should be on all tabs."
+    menu.addSection("Reading")
+    preview = QAction("Preview pane", menu)
+    preview.setCheckable(True)
+    preview.setChecked(prefs.preview)
+    # **Not `Ctrl+P`, which this said for weeks and never did.** The window
+    # binds `Ctrl+P` to "go to Files" - the shortcut every editor uses for
+    # "go to file" - and a window-level action wins over one on a menu that
+    # only exists while it is open. So the menu advertised a key that did
+    # nothing, which is worse than advertising none: somebody presses it,
+    # lands on another tab, and concludes the preview is broken.
+    preview.setShortcut("Ctrl+Shift+P")
+    preview.setToolTip(
+        "Read the selected result beside the list, without opening the "
+        "application that owns it."
+    )
+    preview.toggled.connect(
+        lambda checked: on_change(replace(prefs, preview=checked)))
+    menu.addAction(preview)
 
     if columns:
         # **A way back from a column somebody dragged too narrow.** Widths are
