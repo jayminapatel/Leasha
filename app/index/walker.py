@@ -179,11 +179,45 @@ class WalkConfig:
         )
 
     def resolved_extensions(self) -> frozenset[str]:
+        r"""Every extension the application can index, from all three tiers.
+
+        **This used to return the code registry alone, and that quietly
+        disabled two entire tiers of the format system.**
+
+        `config/extractors.toml` describes three ways a file gets read: an
+        extension routed to a registered extractor (tier 1), an external
+        converter (tier 2), and a parser written in Python (tier 3). Only tier 3
+        puts an extension in `REGISTRY`. So the walker - which skips any file
+        whose suffix is not in this set - never offered a single file to tiers 1
+        or 2, and both were configured, reported as ready by `doctor`, shown as
+        enabled in Settings, and dead.
+
+        That was 27 text and code types (`.vb`, `.kt`, `.swift`, `.tex`,
+        `.conf`, `.ics`...) and **every converter format**: `.doc`, `.ppt`,
+        `.dwg`, `.pub`, `.wpd` and the iWork three. Installing LibreOffice could
+        never have made any difference, because no `.doc` file ever reached the
+        converter.
+
+        `is_enabled` is applied last so a route switched off in configuration
+        stays off - the whole point of the switch.
+        """
         if self.extensions is not None:
             return self.extensions
+
+        from app.core.formats import load_rules
         from app.extract import supported_extensions
 
-        return supported_extensions()
+        known = set(supported_extensions())
+        try:
+            rules = load_rules()
+        except Exception:                        # noqa: BLE001
+            # A broken config must not stop the walk finding the file types the
+            # code itself knows about.
+            return frozenset(known)
+
+        known |= set(rules.extensions)           # tier 1: routed by config
+        known |= set(rules.converters)           # tier 2: external converters
+        return rules.enabled_extensions(known)
 
 
 def own_paths(settings: object) -> frozenset[str]:

@@ -113,6 +113,40 @@ enabled = true
 ".jsonl"      = { extractor = "plaintext" }
 ".ndjson"     = { extractor = "plaintext" }
 
+# --- Web templates and .NET ---------------------------------------------------
+# Server-side pages are text with markup around it, and the text is the part
+# somebody searches for. A repository of ASP.NET work is mostly these: the .cs
+# files were already read and the .aspx beside them - the markup, the labels,
+# the inline script - were not, so half of each page was missing from the index
+# with nothing to say so.
+".aspx"       = { extractor = "plaintext" }
+".ascx"       = { extractor = "plaintext" }
+".asmx"       = { extractor = "plaintext" }
+".ashx"       = { extractor = "plaintext" }
+".asax"       = { extractor = "plaintext" }
+".master"     = { extractor = "plaintext" }
+".asp"        = { extractor = "plaintext" }
+".cshtml"     = { extractor = "plaintext" }
+".vbhtml"     = { extractor = "plaintext" }
+".razor"      = { extractor = "plaintext" }
+".jsp"        = { extractor = "plaintext" }
+".php"        = { extractor = "plaintext" }
+".erb"        = { extractor = "plaintext" }
+".hbs"        = { extractor = "plaintext" }
+".vue"        = { extractor = "plaintext" }
+".svelte"     = { extractor = "plaintext" }
+".jsx"        = { extractor = "plaintext" }
+".tsx"        = { extractor = "plaintext" }
+
+# Project and configuration files. XML, and the place connection strings, app
+# settings and build steps live - which is exactly what somebody greps a repo
+# for months later.
+".config"     = { extractor = "plaintext" }
+".resx"       = { extractor = "plaintext" }
+".csproj"     = { extractor = "plaintext" }
+".vbproj"     = { extractor = "plaintext" }
+".sln"        = { extractor = "plaintext" }
+
 # --- Code -------------------------------------------------------------------
 ".kt"         = { extractor = "plaintext" }
 ".swift"      = { extractor = "plaintext" }
