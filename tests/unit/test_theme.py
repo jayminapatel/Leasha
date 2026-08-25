@@ -125,3 +125,48 @@ def test_detection_never_raises_without_an_application():
     from app.ui.theme import detect_scheme
 
     assert detect_scheme(None) in (Theme.LIGHT, Theme.DARK)
+
+
+# -- the tab bar, and the trap in the template --------------------------------
+
+def test_every_brace_in_the_template_is_doubled():
+    """The sheet goes through `str.format`, so a single brace anywhere in it -
+    including inside a CSS comment - is a KeyError when the window is built.
+
+    It is not a styling bug and it does not degrade: the application fails to
+    start, with a traceback naming a token nobody wrote. This happened while
+    the tab rules below were being written, which is why it is now a test.
+    """
+    import re
+
+    from app.ui.theme import Theme, stylesheet
+
+    for scheme in (Theme.LIGHT, Theme.DARK):
+        sheet = stylesheet(scheme)
+        left = re.findall(r"\{[a-z_]+\}", sheet)
+        assert left == [], f"{scheme}: unsubstituted tokens {left}"
+        # Doubled braces are how the template escapes CSS. If any survive into
+        # the output, one was written singly somewhere and Qt gets a sheet with
+        # literal braces in it.
+        assert "{{" not in sheet and "}}" not in sheet
+
+
+def test_the_selected_tab_is_not_signalled_by_colour_alone():
+    """Shape, background and an accent edge all change. The same reasoning as
+    `#statWarn`: a state carried by hue is a state some people never receive."""
+    from app.ui.theme import Theme, stylesheet
+
+    for scheme in (Theme.LIGHT, Theme.DARK):
+        sheet = stylesheet(scheme)
+        assert "QTabWidget::pane" in sheet
+        assert "QTabBar::tab:selected" in sheet
+        assert "border-top-color" in sheet
+        assert "QTabBar::tab:focus" in sheet, "focus must be visible on its own"
+
+
+def test_the_pane_is_pulled_under_the_tab_bar():
+    """Without the negative offset the selected tab floats a pixel above its
+    own page and every tab reads as unselected."""
+    from app.ui.theme import stylesheet
+
+    assert "top: -1px" in stylesheet("dark")

@@ -84,9 +84,12 @@ def test_a_date_offers_the_spellings_that_are_easier_to_pick_than_to_recall():
 
 
 def test_index_values_are_offered_for_the_filters_that_have_them():
+    """**Leading, not alone.** `/type` also carries the kind words the parser
+    expands, so this asserts the front of the list rather than the whole of it -
+    see `test_the_kind_words_come_after_the_index`."""
     store = FakeStore({"ext": ["pdf", "docx", "msg"]})
 
-    assert value_suggestions(store, "type") == ["pdf", "docx", "msg"]
+    assert value_suggestions(store, "type")[:3] == ["pdf", "docx", "msg"]
 
 
 def test_an_alias_resolves_to_its_command():
@@ -95,17 +98,25 @@ def test_an_alias_resolves_to_its_command():
     drift the shared catalogue exists to prevent."""
     store = FakeStore({"ext": ["pdf"]})
 
-    assert value_suggestions(store, "kind") == ["pdf"]
-    assert value_suggestions(store, "ext") == ["pdf"]
+    assert value_suggestions(store, "kind")[0] == "pdf"
+    assert value_suggestions(store, "ext") == value_suggestions(store, "type")
 
 
-def test_fixed_values_come_before_the_index_s(monkeypatch):
-    """Both, in that order. `/size` has useful shorthands *and* nothing in the
-    index to read; a command with both should show the shorthands first because
-    they are the ones somebody would not have guessed."""
+def test_fixed_values_lead_when_there_is_no_index_to_read(monkeypatch):
+    """`/size` has useful shorthands and nothing in the index to read, so its
+    shorthands are the whole list and lead it.
+
+    **This used to say fixed values come first, full stop, and that rule did
+    not survive `/type` gaining both.** Frequency beats novelty once there is
+    real data: `>1mb` is worth showing because nobody would guess it, but
+    `excel` is not worth showing above `pdf` when there are four thousand PDFs.
+    So the rule is now conditional, and `test_the_kind_words_come_after_the_index`
+    is the other half of it.
+    """
     command = command_for("size")
 
     assert command.values, "size lost its shorthands"
+    assert not command.source, "size gained a source; this test now proves nothing"
     assert value_suggestions(None, "size")[0].startswith((">", "<"))
 
 
@@ -143,8 +154,18 @@ def test_an_unknown_command_offers_nothing_rather_than_guessing():
 def test_a_store_that_cannot_answer_costs_the_suggestions_and_nothing_else():
     """**It runs behind a keystroke.** Mid-index, locked, or closed while the
     window is shutting down are all normal, and none of them is a reason for a
-    menu to raise into the handler that opened it."""
-    assert value_suggestions(FakeStore(raises=True), "type") == []
+    menu to raise into the handler that opened it.
+
+    This asserted an empty list, from when `/type` had nothing but the index to
+    offer. It now keeps its kind words - which is the rule the test below
+    already stated for `/has`, applied to the filter people use most. A menu
+    that empties itself because the index is busy reads as the filter
+    disappearing.
+    """
+    found = value_suggestions(FakeStore(raises=True), "type")
+
+    assert "excel" in found, "a locked index took the grammar's own values with it"
+    assert isinstance(found, list)
 
 
 def test_fixed_values_survive_a_store_that_cannot_answer():
@@ -156,11 +177,37 @@ def test_fixed_values_survive_a_store_that_cannot_answer():
 
 
 def test_the_number_offered_is_bounded():
-    """No unbounded work behind a keystroke - the first non-negotiable - and no
-    dropdown taller than the screen either."""
-    store = FakeStore({"ext": [f"ext{n}" for n in range(500)]})
+    """No unbounded work behind a keystroke - the first non-negotiable.
 
-    assert len(value_suggestions(store, "type")) <= VALUE_LIMIT
+    The ceiling is now per source. `ext` is the one bounded column - a machine
+    has perhaps eighty file types and never more - and the general cap was
+    truncating a list that fits on a screen, by frequency, so the formats
+    somebody had just switched on were the first to be cut. Senders and folders
+    have no ceiling at all and keep the general one, which is what it was
+    protecting against.
+    """
+    from app.ui.presenter import VALUE_LIMITS
+
+    store = FakeStore({"ext": [f"ext{n}" for n in range(500)]})
+    ceiling = VALUE_LIMITS.get("ext", VALUE_LIMIT)
+
+    assert len(value_suggestions(store, "type")) <= ceiling
+    assert ceiling < 500, "the ceiling stopped being a ceiling"
+
+    senders = FakeStore({"sender": [f"p{n}@x" for n in range(500)]})
+    assert len(value_suggestions(senders, "from")) <= VALUE_LIMIT
+
+
+def test_the_kind_words_come_after_the_index():
+    """The other half of the ordering rule. `/type excel` has parsed since
+    Layer 4 and was never offered, because `files.ext` has no row saying
+    "excel" - but it must not outrank a type somebody actually has."""
+    store = FakeStore({"ext": ["pdf", "docx"]})
+    found = value_suggestions(store, "type")
+
+    assert found[:2] == ["pdf", "docx"]
+    assert "excel" in found, "a filter that parses is still hidden from the menu"
+    assert found.index("excel") > found.index("docx")
 
 
 def test_the_limit_is_pushed_down_to_the_query():

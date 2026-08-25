@@ -468,3 +468,105 @@ def test_every_view_starts_workers_through_run() -> None:
         text = source.read_text(encoding="utf-8")
         assert ".start(worker)" not in text, f"{source.name} bypasses run()"
         assert ".start(self._worker)" not in text, f"{source.name} bypasses run()"
+
+
+# -- what the /type menu offers ----------------------------------------------
+#
+# Three sources with a deliberate order, and the ordering is the feature: what
+# is in the index is what somebody nearly always wants, and what is merely
+# configured must be reachable without pushing the common answers down.
+
+class _Store:
+    """Just the one method `value_suggestions` reaches for."""
+
+    def __init__(self, values):
+        self._values = list(values)
+
+    def distinct_values(self, kind, *, prefix="", limit=40):
+        assert kind == "ext"
+        return [v for v in self._values if not prefix or prefix in v][:limit]
+
+
+def test_type_offers_index_then_kind_words_then_configured():
+    from app.ui.presenter import value_suggestions
+
+    found = value_suggestions(
+        _Store(["pdf", "docx"]), "type",
+        catalogue=lambda: ["dxf", "docx", "pdf"],
+    )
+
+    assert found[:2] == ["pdf", "docx"], "the index no longer comes first"
+    assert found.index("excel") > found.index("docx"), "a kind word outranked a real type"
+    assert "dxf" in found, "a configured format is still invisible"
+    assert found.index("dxf") > found.index("excel"), "configured came before grammar"
+
+
+def test_a_type_in_both_the_index_and_the_config_is_offered_once():
+    from app.ui.presenter import value_suggestions
+
+    found = value_suggestions(_Store(["pdf"]), "type", catalogue=lambda: ["pdf"])
+    assert found.count("pdf") == 1
+
+
+def test_the_prefix_filters_all_three_sources():
+    """Matching is on a substring, as it always has been for the grammar's own
+    values and for the `LIKE` behind `distinct_values`. The point here is that
+    the *third* source is filtered too - a catalogue appended whole would put
+    every enabled format on screen the moment somebody typed a letter."""
+    from app.ui.presenter import value_suggestions
+
+    found = value_suggestions(
+        _Store(["docx", "pdf"]), "type", "do", catalogue=lambda: ["docm"],
+    )
+    assert found == ["docx", "doc", "docm"], found
+    assert "pdf" not in found, "a value matching no part of the prefix survived"
+
+
+def test_the_catalogue_is_not_read_without_a_store():
+    """The menu is built twice - instantly on the interface thread with no
+    store, then on a worker. Reading two TOML files is I/O and the interface
+    thread does not do I/O, so the first pass must not reach the catalogue."""
+    from app.ui.presenter import value_suggestions
+
+    def explode():
+        raise AssertionError("the catalogue was read on the instant pass")
+
+    found = value_suggestions(None, "type")
+    assert "excel" in found, "the grammar's own values should still be offered"
+    assert value_suggestions(None, "type", catalogue=None) == found
+
+
+def test_a_broken_catalogue_costs_only_the_extra_suggestions():
+    """A missing or invalid extractors.toml must not empty the menu."""
+    from app.ui.presenter import value_suggestions
+
+    def explode():
+        raise OSError("no such file")
+
+    found = value_suggestions(_Store(["pdf"]), "type", catalogue=explode)
+    assert found[0] == "pdf"
+    assert "excel" in found
+
+
+def test_a_command_with_no_source_is_unchanged():
+    """`/has` and `/size` reach the values first and must keep doing so."""
+    from app.ui.presenter import value_suggestions
+
+    assert value_suggestions(None, "has") == ["attachment", "no-attachment"]
+
+
+def test_the_ext_ceiling_is_raised_above_the_general_one():
+    """`ext` is bounded at perhaps eighty values; senders and folders are not.
+    One number for both truncated a list that fits on a screen."""
+    from app.ui.presenter import VALUE_LIMIT, VALUE_LIMITS
+
+    assert VALUE_LIMITS["ext"] > VALUE_LIMIT
+    assert "sender" not in VALUE_LIMITS, "an unbounded column must keep the cap"
+
+
+def test_a_long_index_does_not_squeeze_out_the_kind_words():
+    from app.ui.presenter import value_suggestions
+
+    found = value_suggestions(_Store([f"e{n:03d}" for n in range(60)]), "type",
+                              catalogue=lambda: [])
+    assert "excel" in found, "sixty extensions buried every kind word"

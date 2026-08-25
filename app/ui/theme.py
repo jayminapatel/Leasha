@@ -123,12 +123,57 @@ QGroupBox {{
 }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; color: {text_dim}; }}
 
-QTabBar::tab {{
-    background: transparent; padding: 8px 14px; color: {text_dim};
-    border-bottom: 2px solid transparent;
+/* Tabs drawn as tabs.
+
+   The first version was an underline: transparent tabs with a coloured bar
+   under the selected one. It is a clean look and it was the wrong one here,
+   because these are not sections of one page - Search, Files, Mail and Code are
+   four different tools that happen to share a window, and an underline reads as
+   emphasis rather than as separation. A tab with an edge says "this is a
+   surface, and behind it are others".
+
+   The pane's `top: -1px` is what joins the two: it pulls the page up under the
+   tab bar so the selected tab's bottom edge and the page's top edge are the
+   same line. The selected tab then paints that line in the page colour and
+   appears to open into it, which is the whole trick. Without the negative
+   offset the tab floats a pixel above its own page and every tab looks
+   unselected.
+
+   **Every brace in this template is doubled**, comments included - the sheet
+   goes through `str.format` to substitute the palette, and a single brace in
+   prose is a KeyError at startup rather than a styling problem. Which is what
+   happened while this block was being written.
+
+   **The accent is on top, not underneath.** Shape and colour both change when a
+   tab is selected, and the accent bar survives at the top edge - so the state
+   is not carried by hue alone. Same reasoning as `#statWarn` further down. */
+QTabWidget::pane {{
+    border: 1px solid {border};
+    border-top-left-radius: 0; border-top-right-radius: 0;
+    border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
+    top: -1px;
 }}
-QTabBar::tab:selected {{ color: {text}; border-bottom-color: {accent}; }}
-QTabWidget::pane {{ border: none; }}
+QTabBar {{ background: transparent; }}
+QTabBar::tab {{
+    background: {surface_alt}; color: {text_dim};
+    border: 1px solid {border};
+    border-top: 2px solid transparent;
+    border-top-left-radius: 6px; border-top-right-radius: 6px;
+    padding: 6px 16px; margin-right: 2px; margin-top: 3px;
+}}
+QTabBar::tab:hover:!selected {{ color: {text}; background: {surface}; }}
+QTabBar::tab:selected {{
+    background: {window}; color: {text};
+    border-top-color: {accent};
+    /* Painted in the page colour, which is what erases the line between the
+       tab and the page below it. */
+    border-bottom-color: {window};
+    margin-top: 0px;
+}}
+QTabBar::tab:disabled {{ color: {text_faint}; }}
+/* Keyboard focus must be visible on its own. Ctrl+Tab moves between these and
+   the selection colour alone is not enough to say where the focus went. */
+QTabBar::tab:focus {{ border-color: {accent}; border-top-color: {accent}; }}
 
 QComboBox, QSpinBox, QTimeEdit {{
     background: {surface}; border: 1px solid {border};

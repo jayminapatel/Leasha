@@ -374,3 +374,33 @@ def test_every_boolean_expression_is_valid_fts5(tmp_path):
         if not expression:
             continue
         conn.execute("SELECT count(*) FROM t WHERE t MATCH ?", (expression,)).fetchone()
+
+
+# -- /type offers what the parser expands ------------------------------------
+
+def test_type_offers_every_kind_word_the_parser_expands():
+    """`/type excel` has parsed since Layer 4 and was never offered.
+
+    `type` carries a `source`, so the menu was filled from `files.ext` alone -
+    and no row in that column ever says "excel". The kind words are grammar,
+    not data, so they have to come from `Command.values`, and the two lists
+    have to be the same list or the menu goes back to advertising values it
+    will not complete.
+    """
+    from app.search.commands import command_for
+    from app.search.query import _EXT_GROUPS
+
+    offered = set(command_for("type").values)
+    expands = set(_EXT_GROUPS)
+
+    assert expands - offered == set(), "the parser expands it, the menu hides it"
+    assert offered - expands == set(), "offered but expands to nothing"
+
+
+def test_every_kind_word_offered_actually_narrows_a_search():
+    """Each one is copy-pasteable, like the examples above."""
+    from app.search.commands import command_for
+
+    for word in command_for("type").values:
+        parsed = parse_query(expand_slashes(f"/type {word} report"))
+        assert parsed.ext, f"/type {word} produced no extension filter"

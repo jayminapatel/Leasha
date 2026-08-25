@@ -109,9 +109,24 @@ COMMANDS: tuple[Command, ...] = (
         aliases=("ext", "kind"),
         summary="Only this kind of file",
         example="/type pdf",
-        value_hint="pdf, docx, xlsx, email, code - or several: pdf,docx",
+        value_hint="an extension, or a kind: excel, mail, code - or several: pdf,docx",
         icon="▤",
         source="ext",
+        # **The kind words `_EXT_GROUPS` expands, listed because they parse.**
+        #
+        # Every one of these has worked since Layer 4 and not one was ever
+        # offered: `/type` carries a `source`, so the menu was filled from the
+        # index alone and `files.ext` has no row saying "excel". The hint above
+        # even named two of them, so the menu advertised values it would not
+        # complete - which is the exact failure the note on `COMMANDS` warns
+        # about, arrived at from the value end instead of the operator end.
+        #
+        # **This tuple must match `_EXT_GROUPS` in `query.py`.** A test asserts
+        # it, for the same reason one asserts the alias table: a value offered
+        # here that the parser does not expand matches nothing, and a value the
+        # parser knows that is missing here stays invisible.
+        values=("word", "excel", "sheet", "slides", "powerpoint",
+                "mail", "email", "text", "code", "doc", "xls", "ppt"),
     ),
     Command(
         name="from",

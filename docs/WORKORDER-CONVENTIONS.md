@@ -182,6 +182,7 @@ somebody looked first.
 | `WORKORDER-results-layout.md` | - | **Superseded** by `WORKORDER-ui-shell-and-results.md`. Deleted 2026-08-25 |
 | `WORKORDER-git-search-backend.md` | Backend | Not started. Phase 1 only; phase 2 gated on a measurement, see its §14 |
 | `WORKORDER-git-search-ui.md` | **UI** | Not started. **Blocked** on the backend order above - it needs `repos`, `repo:` and the `code` scope |
+| `WORKORDER-inbound-ui-fixes.md` | One thread | **Built, tested, and outside the repository** - lost to the 23:44 reset. The patch is in `outputs\git-search-changes\`. Also carries four findings that outlive it |
 | `REVIEW-2026-08-25.md` | Both | See below |
 
 The review's findings split cleanly: **P1-P14 and A1-A5 are backend**, **U1-U11 and the

@@ -36,6 +36,7 @@ __all__ = [
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
+    "column_cap", "MAX_COLUMN_SHARE", "MIN_COLUMN_CAP_PX",
 ]
 
 
@@ -553,6 +554,83 @@ APPLYING = "leasha_applying_widths"
 #: and not on every one. Cleared by "Fit columns to contents".
 FITTED = "leasha_columns_fitted"
 
+#: The most of a table any single column may occupy.
+#:
+#: **A share, not a pixel count.** A fixed cap is wrong at one end or the other:
+#: 400px is most of the window at the 720px minimum and a third of it on a wide
+#: monitor. A share is right at both, and it is the same number everywhere in
+#: the application - Files, Mail, Search, Code - because "one column has eaten
+#: the row" looks and feels identical in all of them.
+MAX_COLUMN_SHARE = 0.40
+
+#: Below this, the share is ignored and this is used instead. On a very narrow
+#: window 40% of the table is a few dozen pixels, which truncates every value
+#: to an ellipsis and makes the list useless in a different way than the
+#: problem being fixed.
+MIN_COLUMN_CAP_PX = 140
+
+
+def column_cap(available: int) -> int:
+    """The widest any one column may be, given the space the table has.
+
+    Pure, so the arithmetic can be tested without a display - which is the same
+    reason `visible_columns` is a function rather than a method.
+
+    Returns 0 when there is no width to divide, meaning "do not cap": a table
+    that has not been laid out yet reports a width of zero, and capping against
+    that would set every column to the floor before the window is even shown.
+    """
+    try:
+        width = int(available)
+    except (TypeError, ValueError):
+        return 0
+    if width <= 0:
+        return 0
+    return max(MIN_COLUMN_CAP_PX, int(width * MAX_COLUMN_SHARE))
+
+
+def _available_width(widget: Any) -> int:
+    """The width a header has to divide up, or 0 if it is not laid out yet."""
+    try:
+        viewport = widget.viewport()
+        width = int(viewport.width()) if viewport is not None else 0
+        return width if width > 0 else int(widget.width())
+    except (AttributeError, RuntimeError):
+        return 0
+
+
+def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str]) -> None:
+    """Stop any one column from taking the whole row.
+
+    **Called with `APPLYING` already set.** `setColumnWidth` emits
+    `sectionResized`, which `remember_widths` listens to - see the note in
+    `_apply_widths` about the recursion that kills the process. This function
+    never sets the flag itself, so that it cannot be called from somewhere the
+    guard is missing and appear to work.
+
+    Two columns are deliberately exempt. **The last visible one**, because
+    `setStretchLastSection` owns its width and capping it is a fight this would
+    lose on the next repaint. And **a table showing a single column**, where the
+    cap would mean four fifths of the table is permanently blank.
+    """
+    visible = [key for key in order if key in shown]
+    if len(visible) < 2:
+        return
+
+    cap = column_cap(_available_width(widget))
+    if cap <= 0:
+        return
+
+    last = visible[-1]
+    for index, key in enumerate(order):
+        if key not in shown or key == last:
+            continue
+        try:
+            if widget.columnWidth(index) > cap:
+                widget.setColumnWidth(index, cap)
+        except RuntimeError:                 # the C++ side went away mid-apply
+            return
+
 
 def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
     """Save a column width when somebody drags it, and only then.
@@ -576,7 +654,15 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             if table.property(APPLYING):
                 return
             if 0 <= index < len(order) and new > 0:
-                button.remember_width(order[index], int(new))
+                # **Capped on the way in as well as on the way out.** Capping
+                # only at apply time would store the width somebody dragged and
+                # re-cap it on every fill for ever - the preference and the
+                # table permanently disagreeing, and a "Reset widths" that
+                # appears to do nothing because the stored value is still wide.
+                # Storing what will actually be shown keeps the two the same.
+                cap = column_cap(_available_width(table))
+                width = min(int(new), cap) if cap > 0 else int(new)
+                button.remember_width(order[index], width)
         except RuntimeError:
             # The table's C++ side went away between the resize and this
             # callback - a tab closing, or shutdown. Nothing to save, and
@@ -730,6 +816,14 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         for index, key in enumerate(order):
             if key in saved and key in shown:
                 table.setColumnWidth(index, saved[key])
+
+        # **After the saved widths, not before.** A width dragged wide in an
+        # earlier version - or on a wider monitor - is exactly the column that
+        # arrives stuck, and capping before restoring it would let the stored
+        # value put it straight back. This is also why the cap is applied on
+        # every fill rather than once: it is what unsticks a table somebody is
+        # already living with, without touching what they have saved.
+        _cap_columns(table, order, shown)
     finally:
         table.setProperty(APPLYING, False)
 
@@ -799,4 +893,14 @@ def apply_to_tree(
     for index, key in enumerate(order):
         tree.setColumnHidden(index, key not in shown)
     apply_font(tree, prefs.font_pt)
+
+    # The same cap as every table. A tree has no saved widths to restore, so
+    # there is nothing to guard against here - but `setColumnWidth` still
+    # emits `sectionResized`, and setting the flag costs nothing and means the
+    # two paths cannot diverge if a tree ever gains them.
+    tree.setProperty(APPLYING, True)
+    try:
+        _cap_columns(tree, order, shown)
+    finally:
+        tree.setProperty(APPLYING, False)
     return shown

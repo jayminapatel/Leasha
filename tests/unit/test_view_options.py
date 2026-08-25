@@ -507,3 +507,45 @@ def test_the_search_only_options_stay_search_only():
 
     assert "One row per document" in grouping_block
     assert "Show why each result matched" in grouping_block
+
+
+# -- no column may take the whole row ----------------------------------------
+#
+# The complaint that produced this: the Files tab's Name column arrives wide
+# enough to push everything else off the right-hand side, and once a width has
+# been dragged and saved it stays there for good.
+
+def test_the_cap_is_a_share_of_the_table():
+    from app.ui.view_options import MAX_COLUMN_SHARE, column_cap
+
+    assert column_cap(1000) == int(1000 * MAX_COLUMN_SHARE)
+    assert column_cap(2000) == int(2000 * MAX_COLUMN_SHARE)
+
+
+def test_a_narrow_window_falls_back_to_the_floor():
+    """40% of a very narrow table is a few dozen pixels, which truncates every
+    value to an ellipsis - the same list, unusable for a different reason."""
+    from app.ui.view_options import MIN_COLUMN_CAP_PX, column_cap
+
+    assert column_cap(200) == MIN_COLUMN_CAP_PX
+    assert column_cap(120) == MIN_COLUMN_CAP_PX
+
+
+def test_an_unlaid_out_table_is_not_capped():
+    """A widget reports a width of zero before it is shown. Capping against
+    that would pin every column to the floor before the window appears."""
+    from app.ui.view_options import column_cap
+
+    assert column_cap(0) == 0
+    assert column_cap(-50) == 0
+    assert column_cap(None) == 0
+    assert column_cap("wide") == 0
+
+
+def test_the_cap_leaves_room_for_the_other_columns():
+    """The property that matters, stated as a property: whatever the width,
+    one column can never take so much that the rest cannot be read."""
+    from app.ui.view_options import column_cap
+
+    for width in (400, 800, 1280, 1920, 3840):
+        assert column_cap(width) < width, width

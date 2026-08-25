@@ -860,6 +860,15 @@ class FileTypesEditor(QGroupBox):
         self.save_button.setEnabled(False)
         self.changes_saved.emit(changes)
 
+        # The `/type` menu offers every enabled format, and it caches the list
+        # rather than re-reading two TOML files on a keystroke. This is the
+        # moment that list stops being true - without it a format switched on
+        # here is missing from the filter menu until the window is restarted,
+        # which is the same "the setting did not work" the status line below is
+        # written to prevent.
+        from app.ui.presenter import clear_format_catalogue
+        clear_format_catalogue()
+
         # **Says what it does not do.** A format switched on does not
         # retrospectively index the files already skipped, and somebody not told
         # that concludes the setting did not work.
