@@ -1,12 +1,49 @@
 # Changelog
 
-**Doc version:** 3.29 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.30 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — a staged install tree, and a way to run from it
+
+Asked for: *"organize a structure under Leasha which are the master files as if
+they are installed in final environment.. i.e. production and run like that so
+that can be tested too"*.
+
+`D:\SearchProject` is a development checkout — source, tests, fixtures, work
+orders, scratch files and a two-gigabyte venv in one tree — and every command is
+run as `venv\Scripts\python.exe -m app.cli`. Nobody had ever run this the way it
+will be installed, so the install layout was unverified.
+
+    venv\Scripts\python.exe scripts\stage.py --check
+
+builds `Leasha\` holding only what ships, writes `Leasha.cmd` and
+`leasha-cli.cmd`, and then **runs the staged copy** — `--version`, `commands`,
+`formats`, `doctor --quick`. Staging a tree nobody starts proves that files were
+copied, which was never in doubt.
+
+**Generated, never hand-maintained**, and deleted before each rebuild: a second
+copy of the source that quietly goes out of date is worse than none, because it
+is trusted. The manifest is an allowlist rather than "everything except", so it
+fails towards a tree that is missing something — an import error on first run —
+rather than towards shipping the owner's `.env` and 100GB of scratch.
+
+**The venv is not copied.** The launchers name an interpreter and `cd /d "%~dp0"`
+first, which is what makes the application resolve *its own* files: staged, it
+reads `Leasha\.env`, writes `Leasha\logs\`, and reports its root as `Leasha` —
+verified by running it, not by reading it.
+
+`test_staging.py` reads the application's *imports* rather than the manifest, so
+it fails on the day a new package ships nowhere rather than the day a user finds
+out. Writing it turned up one thing worth knowing: `app/cli.py` imports the test
+corpus for `evaluate --builtin`. That is deliberate, guarded, and answers with a
+clear error when the tests are not installed — so the check became "never at
+module scope", which is the version that would not have forced a working feature
+out of the source build.
 
 ### Fixed — the first Interpret after a break timed out on a cold model
 
