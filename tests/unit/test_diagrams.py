@@ -225,6 +225,7 @@ def test_the_real_vsdx_library_has_the_api_we_use():
         assert hasattr(vsdx.VisioFile, attribute) or True   # a property on the instance
 
 
+@pytest.mark.jvm
 def test_the_real_mpxj_reader_is_importable_under_a_known_package():
     """mpxj moved from `net.sf.mpxj` to `org.mpxj` around version 14.
 
@@ -243,8 +244,12 @@ def test_the_real_mpxj_reader_is_importable_under_a_known_package():
     assert hasattr(reader(), "read")
 
 
+@pytest.mark.jvm
 def test_mpp_falls_back_cleanly_when_mpxj_cannot_read_the_file(tmp_path):
-    """A plan mpxj rejects must still be indexed by name, not skipped."""
+    """A plan mpxj rejects must still be indexed by name, not skipped.
+
+    Marked `jvm`: with mpxj installed, `extract()` on an `.mpp` starts the
+    JVM in-process, which can crash the host process outright."""
     plan = tmp_path / "not really a plan.mpp"
     plan.write_bytes(b"\xd0\xcf\x11\xe0" + b"\x00" * 200)
 

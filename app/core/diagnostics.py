@@ -239,11 +239,55 @@ def build_bundle(
         env_file = getattr(settings, "env_file", None)
         if env_file and Path(env_file).is_file():
             try:
-                bundle.writestr("env.txt", Path(env_file).read_text(encoding="utf-8-sig"))
+                raw = Path(env_file).read_text(encoding="utf-8-sig")
+                bundle.writestr("env.txt", redact_env(raw))
             except OSError as exc:
                 bundle.writestr("env.txt", f"unreadable: {exc}")
 
     return target
+
+
+#: Env keys whose values are safe to ship in a bundle somebody will email to a
+#: stranger. Everything else is redacted BY DEFAULT: the allowlist has to be
+#: extended deliberately, so adding a token to `.env` later can never silently
+#: make the "send this zip" workflow leak it. Keep in sync with `Settings`.
+ENV_ALLOWLIST = frozenset({
+    "DATA_PATH", "VECTOR_PATH", "FTS_DB", "CACHE_PATH", "MODEL_CACHE",
+    "STATE_PATH", "PROJECT_PATH", "LOG_PATH",
+    "EMBED_MODEL", "EMBED_DIM", "RERANK_MODEL", "RERANK_ENABLED",
+    "OLLAMA_URL", "OLLAMA_MODEL",
+    "INDEX_WORKERS", "INDEX_MEMORY_MB", "INDEX_CPU_PERCENT",
+    "INDEX_PAUSE_ON_BATTERY", "INDEX_LOW_PRIORITY",
+    "INDEX_SCHEDULE", "INDEX_INTERVAL_HOURS", "INDEX_DAILY_AT",
+    "MIN_FREE_GB", "REQUIRED_FREE_GB",
+})
+
+#: Fragments that force redaction even for an allowlisted key, so a future
+#: allowlist mistake ("OLLAMA_API_KEY looks harmless") still fails safe.
+_ALWAYS_REDACT = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "PWD",
+                  "API_KEY", "APIKEY", "CREDENTIAL", "AUTH", "PRIVATE")
+
+
+def redact_env(text: str) -> str:
+    """The `.env` contents with every non-allowlisted value removed.
+
+    Key names always survive - knowing *which* settings exist is most of the
+    diagnostic value - but values only survive when their key is explicitly
+    allowlisted and matches no sensitive fragment. Comments and blank lines
+    are dropped rather than shipped: a comment is exactly where somebody
+    parks an old credential "just for now".
+    """
+    lines = ["# Values redacted for sharing; only allowlisted settings shown."]
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        upper = key.upper()
+        safe = upper in ENV_ALLOWLIST and not any(f in upper for f in _ALWAYS_REDACT)
+        lines.append(f"{key}={value.strip()}" if safe else f"{key}=<redacted>")
+    return "\n".join(lines) + "\n"
 
 
 def _summary(sections: dict[str, Any]) -> str:

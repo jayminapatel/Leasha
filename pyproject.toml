@@ -28,13 +28,20 @@ pythonpath = ["."]
 #
 # WARNING: pytest DELETES the contents of basetemp. It must stay a dedicated
 # folder - never point it at anything real. It is gitignored.
-addopts = "-q --strict-markers --basetemp=.pytest_tmp"
+# `-m "not jvm"` keeps JVM-starting tests out of the default run: JPype's
+# startJVM can hard-crash the *host process* (a Windows access violation, not
+# a Python exception) depending on the installed Java/JPype pair, taking the
+# whole suite's result with it. A crash in one optional integration must not
+# cost the report for everything else. Run them deliberately, in their own
+# process: `pytest -m jvm`.
+addopts = "-q --strict-markers --basetemp=.pytest_tmp -m \"not jvm\""
 # Keep the last few runs' temp trees for inspection, then discard them.
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed"
 markers = [
     "slow: takes more than a second (model loading, large fixtures)",
     "windows: requires Windows (Outlook MAPI, named mutex)",
+    "jvm: starts a JVM in-process via JPype/mpxj; excluded by default, run with `pytest -m jvm`",
 ]
 filterwarnings = ["error::DeprecationWarning:app.*"]
 

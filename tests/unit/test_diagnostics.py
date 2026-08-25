@@ -82,6 +82,42 @@ def test_bundle_written_to_an_explicit_path(temp_env: Path, project_root: Path, 
     assert target.is_file()
 
 
+def test_env_in_bundle_is_redacted(temp_env: Path, project_root: Path) -> None:
+    """A secret added to `.env` must never reach a bundle, and unknown keys
+    are redacted by default - the allowlist is opt-in, not opt-out."""
+    settings = load_settings(temp_env)
+    env_path = Path(settings.env_file)
+    env_text = env_path.read_text(encoding="utf-8-sig")
+    env_path.write_text(
+        env_text
+        + "\n# my token: hunter2-in-a-comment\n"
+        + "SOME_FUTURE_TOKEN=hunter2\n"
+        + "MYSTERY_SETTING=surprising\n",
+        encoding="utf-8",
+    )
+
+    bundle = build_bundle(settings, project_root)
+    with zipfile.ZipFile(bundle) as archive:
+        content = archive.read("env.txt").decode("utf-8")
+
+    assert "hunter2" not in content, "secret value leaked into the bundle"
+    assert "surprising" not in content, "unknown keys must be redacted by default"
+    assert "SOME_FUTURE_TOKEN=<redacted>" in content, "key names should survive"
+    assert "MYSTERY_SETTING=<redacted>" in content
+    # Allowlisted, non-sensitive settings keep their values - that is the
+    # diagnostic point of shipping the file at all.
+    assert "EMBED_MODEL=" in content and "<redacted>" not in content.split("EMBED_MODEL=")[1].splitlines()[0]
+
+
+def test_redact_env_drops_comments_and_blanks() -> None:
+    from app.core.diagnostics import redact_env
+
+    out = redact_env("# password=oops\n\nOLLAMA_MODEL=mistral\nX_AUTH=abc\n")
+    assert "oops" not in out
+    assert "OLLAMA_MODEL=mistral" in out
+    assert "X_AUTH=<redacted>" in out
+
+
 def test_large_logs_are_truncated_not_dropped(temp_env: Path, project_root: Path) -> None:
     """A 50MB debug log should contribute its tail, not nothing and not 50MB."""
     from app.core.diagnostics import MAX_LOG_BYTES
