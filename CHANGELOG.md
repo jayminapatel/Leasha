@@ -1,12 +1,205 @@
 # Changelog
 
-**Doc version:** 3.21 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.22 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — the reranker, on a measurement
+
+Reranking was **8,338ms of a 8,999ms search** — 93% of it, against a spec budget
+of 300ms warm. `leasha rerank-bench` on the owner's machine, 30 candidates
+windowed to 600 characters, median of three passes:
+
+| model | size | per search | per passage |
+|---|---|---|---|
+| **Xenova/ms-marco-MiniLM-L-6-v2** | 0.08 GB | **0.66s** | 22ms |
+| jinaai/jina-reranker-v1-tiny-en | 0.13 GB | 0.81s | 27ms |
+| Xenova/ms-marco-MiniLM-L-12-v2 | 0.12 GB | 1.98s | 66ms |
+| BAAI/bge-reranker-base *(was the default)* | 1.04 GB | 6.08s | 203ms |
+
+**MiniLM-L-6 is 9.2× faster than what was shipping**, and the default is now it.
+Two separate things got us there: passage windowing took bge from 8.34s in the
+real search to 6.08s here — about 27% — and the model change took the rest.
+
+`bge-reranker-base` is the better *ranker*; that is what the extra 960MB buys.
+But an ordering nobody waits for is worth nothing, and six seconds is nobody.
+`RERANK_MODEL` in `.env` puts it back, and `leasha evaluate` measures what the
+ordering actually costs on one particular corpus — speed was only half the
+question and the other half belongs to whoever owns the documents.
+
+The bench flagged `bge-reranker-base` **UNSTABLE**: its three passes varied by
+more than 25%. That warning exists because a conclusion was drawn from a noisy
+single pass earlier in this project and was wrong.
+
+
+### Fixed — two faults found by using the Settings page
+
+Both reported in one sentence each, and both invisible to every test in the
+suite until they were written afterwards.
+
+*"Scrolling moves from the main page into the list without clicking on it."* A
+scrollable table inside a scrollable page takes the wheel from whatever is under
+the pointer, so scrolling down Settings stopped dead the moment the pointer
+crossed the file-types table — and once it was there, the page could not be
+scrolled past it at all. The same rule the spin boxes already use now applies to
+the table: **the wheel works when the control has focus, and goes to the page
+when it does not.** Click the table and it scrolls; scroll past it and the page
+keeps moving.
+
+*"When you double click the file it does not open the edit box."* It did nothing
+whatsoever, which on a table of settings is worse than either alternative — it is
+the first thing anybody tries. Double-click now opens the type's reader, size cap
+and on/off state, and the dialog says what a large cap costs at the moment the
+number is raised rather than leaving it to be discovered mid-run.
+
+### Fixed — the File types page omitted most file types
+
+`describe()` listed only extensions that appear in configuration, and
+configuration only records what differs from an extractor's own defaults. So
+`.pdf`, `.docx` and `.txt` — claimed in code, in no TOML file anywhere — had no
+row. **A settings page that quietly omits the settings people came for**: there
+was no way to stop indexing PDFs from the UI at all.
+
+The table is built from the registry as well as the rules now. `with_override`
+raised `KeyError` for exactly those extensions, and creates a rule instead.
+
+`extractor` also became optional in an `[extensions]` entry. Turning off `.pdf`
+should not require restating that `pdf` reads it — that fact lives in the
+registry, and copying it into every user's config file means a rename in code
+strands them all. An entry with no reader named adjusts whatever already claims
+the extension, and is inert if nothing does.
+
+### Added — AutoCAD drawings
+
+`.dxf` is read natively by `app/extract/cad.py`: notes and callouts, **block
+attributes**, dimension overrides, and layer and block names, with each layout a
+segment of its own so a hit can say which sheet it came from.
+
+Block attributes are the reason this is worth doing. Drawing number, title,
+revision and drawn-by are almost never loose text — they are attributes on the
+title block's `INSERT`, and an extractor that read only `TEXT` and `MTEXT` would
+miss the single field people search drawings by.
+
+**`.dwg` is deliberately not claimed by the extractor.** It has no open
+specification and no Python reader — `ezdxf` explicitly does not read it — so it
+goes through a Tier 2 converter (`dwg2dxf`) to DXF and back to this reader.
+Registering `.dwg` here would have looked more complete and silently disabled the
+only thing that can read it, because `extract()` reaches a converter only when
+the registry has no answer. The converter ships disabled like every other, so
+DWG files are found by name until LibreDWG is installed.
+
+A drawing that cannot be parsed is still indexed by its file name, with a warning
+saying why the contents are missing. An empty document would mean
+`ERR_NO_TEXT_LAYER` and the drawing would vanish from the index entirely, which
+for a file somebody searches for by number is the worst available outcome.
+
+### Added — every file type now says whether it actually works
+
+`app/core/format_health.py` answers the question the routing table never did:
+not "what is this extension routed to" but **"will it read my files?"**
+
+The gap was real and silent. `.doc` could be switched on, correctly routed to a
+converter, and fail on every single file because LibreOffice was not installed —
+once per file, three hours into a run, with nothing on screen distinguishing it
+from a format that works. The person sees an empty result set and concludes the
+search is bad.
+
+Extractors declare their optional dependencies with a `requires` attribute, and
+one function turns that plus the converter binaries into a state per extension:
+ready, limited, cannot read, or off. **`doctor` and Settings read the same
+function**, so they cannot disagree — a format reported healthy in one and broken
+in the other is a support call nobody can answer.
+
+This replaced three hand-written probes in `doctor.py` (OCR, Visio/Project,
+converters), each of which had to be remembered separately. A format added later
+now appears in both places without either being edited.
+
+Requirements are per-extension where it matters. `visio` covers `.vsdx` (helped
+by `vsdx`) and `.vsd` (helped by `olefile`), and neither package does anything
+for the other extension — so before this, a `.vsd` row recommended installing
+`vsdx`, a fix that changes nothing. A column full of fixes that change nothing is
+a column nobody reads.
+
+### Changed — the file-types editor manages formats rather than listing them
+
+A **Status** column carrying the exact fix command on the row, not buried in a
+tooltip: a tooltip is not discoverable, and this is the one thing the person has
+to act on. Right-click copies it.
+
+Also a filter box and an "only show what needs attention" toggle — sixty-odd
+formats is a scroll, and the one being looked for is never the one on screen —
+plus **Add file type…** for Tier 1 routes, right-click removal of types added
+here, and **Reset to defaults**.
+
+Reset **deletes the override file** rather than writing the current state back as
+"everything on". Writing a snapshot would pin today's defaults forever: a format
+added in a later release would arrive switched off and a limit improved upstream
+would never reach the machine. Deleting is the only action that keeps meaning
+"as shipped" after an upgrade.
+
+### Fixed — a broad filter could return no semantic results at all
+
+When more than `MAX_PREFILTER_IDS` files matched a filter, the prefilter was
+skipped and the search asked for the global top 100, then discarded the rows that
+failed the filter. Whatever survived was not the top 100 PDFs; it was the PDFs
+that happened to be in the global top 100 — on a large mixed index, frequently
+none of them. `type:pdf` could return nothing while thousands of PDFs matched.
+
+The comment called this "correct but weaker". It was not weaker, it was **wrong**:
+a filtered top-k query that silently returns fewer than k eligible rows when more
+exist has changed its meaning, not its quality.
+
+It now over-fetches (4×, then 16×), post-filters, and escalates to the full
+pushdown if the ladder runs out. Fast in the common case — a filter big enough to
+skip the prefilter usually matches most of the corpus, so the first rung fills the
+page in one query — and never wrong in the rare one.
+
+### Fixed — diagnostic bundles shipped the raw `.env`
+
+`build_bundle` wrote the whole environment file into `env.txt`, and the CLI tells
+people to send the zip for troubleshooting. Today it holds paths and local
+endpoints, so nothing has leaked. That is not the point: the workflow says "send
+this file to somebody", and the day a token is added to `.env` it would go with
+it, silently, having never been a decision anybody made.
+
+Values are now allowlisted — key names always survive, because knowing which
+settings exist is most of the diagnostic value — and anything else is redacted.
+Comments are dropped rather than shipped: a comment is exactly where somebody
+parks an old credential "just for now". Keys containing TOKEN, SECRET, PASSWORD,
+API_KEY and friends are redacted even if allowlisted by mistake, so the failure
+mode of a future edit is a missing value rather than a leaked one.
+
+### Changed — the JVM test no longer decides whether the suite reports at all
+
+`startJVM()` can take the **host process** down with a Windows access violation
+rather than raising, depending on the installed Java and JPype. When it did, the
+run ended with no trustworthy pass/fail summary — every other test's result lost
+to one optional integration.
+
+Both JVM-starting tests are marked `jvm` and excluded from the default run
+(`-m "not jvm"`). Run them deliberately with `pytest -m jvm`.
+
+### Added — regression tests for two guards that were correct only by convention
+
+An external code review reported three release blockers. **Two did not survive
+reading the code.** The low-disk stop was said to leave `_interrupted` unset and
+let the prune delete rows for files the walk never reached; it sets it, via
+`request_stop()`, and the prune is guarded on exactly that. The Qt menu callbacks
+were said to raise `TypeError` because `triggered` emits a boolean; PyQt truncates
+signal arguments to the callable's arity, so a zero-argument lambda is fine.
+
+Both findings were wrong and both suggested tests were worth writing anyway. The
+prune guard is a three-line chain across three methods that a refactor could break
+in silence, and the menu now has tests that trigger every action through real
+signal dispatch rather than merely constructing it.
+
+The lesson is the process one: **no finding enters the fix queue until it is
+reproduced** by a failing test or a manual trigger. A review that reads fluently
+and cites plausible line numbers can still be describing code that does not exist.
 
 ### Fixed — the model invented a file type, and I had removed the list
 

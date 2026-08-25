@@ -105,7 +105,22 @@ class Settings(BaseModel):
     # --- models -------------------------------------------------------------
     embed_model: str = "BAAI/bge-small-en-v1.5"
     embed_dim: int = 384
-    rerank_model: str = "BAAI/bge-reranker-base"
+    #: **Changed on a measurement, not a preference.** `rerank-bench` on the
+    #: owner's machine, 30 candidates windowed to 600 characters, median of
+    #: three passes:
+    #:
+    #:     Xenova/ms-marco-MiniLM-L-6-v2    0.08 GB    0.66s    22ms/passage
+    #:     jinaai/jina-reranker-v1-tiny-en  0.13 GB    0.81s    27ms/passage
+    #:     Xenova/ms-marco-MiniLM-L-12-v2   0.12 GB    1.98s    66ms/passage
+    #:     BAAI/bge-reranker-base           1.04 GB    6.08s   203ms/passage
+    #:
+    #: bge-reranker-base was the default and was 93% of a nine-second search.
+    #: It is the better *ranker* - that is what the extra 960MB buys - but an
+    #: ordering nobody waits for is worth nothing, and 6 seconds is nobody.
+    #:
+    #: `app.cli evaluate` measures whether the ordering is still good enough on
+    #: a particular corpus; `RERANK_MODEL` in `.env` puts the old one back.
+    rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     rerank_enabled: bool = True
     #: Candidates scored, and characters of each shown to the cross-encoder.
     #: Both multiply into the rerank time, which was 93% of one 9-second search.
@@ -228,7 +243,7 @@ def load_settings(
             log_path=path_of("LOG_PATH", root / "logs"),
             embed_model=values.get("EMBED_MODEL") or "BAAI/bge-small-en-v1.5",
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
-            rerank_model=values.get("RERANK_MODEL") or "BAAI/bge-reranker-base",
+            rerank_model=values.get("RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2",
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
             rerank_top_n=int(values.get("RERANK_TOP_N") or 30),
             rerank_window_chars=int(values.get("RERANK_WINDOW_CHARS") or 600),

@@ -1515,7 +1515,12 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
         # **Not on stdout under `--json`.** A preamble in front of the payload
         # makes machine-readable output unparseable, which is the one thing it
         # has to be. Found by a test that ran the command rather than reading it.
-        print("Timing a full rerank. The first run of each model downloads it.")
+        print("Timing a full rerank.")
+        if not models:
+            # It downloaded 1.4GB of models on the owner's first run without
+            # saying so beforehand. Saying so is the least it can do.
+            print("First run downloads about 1.4GB for the four candidates.")
+            print("Use --model NAME to time only one.")
         print()
 
     with SqliteStore(settings.fts_db) as store:
@@ -1529,6 +1534,10 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
         print(json.dumps(result.as_dict(), indent=2))
         return EXIT_OK
 
+    # The download progress bars write to the same terminal and overwrite the
+    # first lines of the table. A blank line and a flush lets them finish.
+    sys.stdout.flush()
+    print("\n")
     print(f"{result.count} candidates  ·  passages cut to {result.window_chars} "
           f"chars (mean chunk is {result.mean_passage_chars})")
     print()
