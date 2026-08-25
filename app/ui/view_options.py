@@ -572,6 +572,13 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             return
 
     def resized(index: int, _old: int, new: int) -> None:
+        # **First line, and it touches nothing.** Every check below calls into
+        # Qt, and during construction those calls happen from inside a polish
+        # that is still running - which is where the window was dying. Reading a
+        # Python bool cannot crash, so it is what happens before anything else.
+        if not listening:
+            return
+
         # **Ours, or theirs?** `sectionResized` fires for both, and recording a
         # width we set ourselves feeds straight back into setting it again -
         # see the note in `_apply_widths` for the crash that produced.
@@ -608,7 +615,29 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         # is captured now, so a later drag cannot change what gets recorded.
         QTimer.singleShot(0, lambda i=index, n=new: record(i, n))
 
+    # **Nothing listens to a layout signal until the window exists.**
+    #
+    # The window was dying in C++ inside `MainWindow.__init__`, with
+    # faulthandler pointing at `__init__ -> _apply_theme -> resized`. Deferring
+    # the *save* was not enough: `resized` itself still ran synchronously from
+    # inside Qt's polish, touching `table.property()` and
+    # `QApplication.mouseButtons()` while the header was mid-rebuild.
+    #
+    # A column width can only be dragged by somebody looking at the window, so
+    # there is nothing to lose by not listening before it opens - and every
+    # resize before that point is Qt laying out, which this must ignore anyway.
+    # `listening` stays False until the event loop turns, by which time
+    # construction and the first theme pass are both finished.
+    listening = False
+
+    def start_listening() -> None:
+        nonlocal listening
+        listening = True
+
+    from PyQt6.QtCore import QTimer as _QTimer
+
     header.sectionResized.connect(resized)
+    _QTimer.singleShot(0, start_listening)
 
 
 def apply_font(widget: Any, font_pt: int) -> None:
