@@ -193,9 +193,19 @@ def _converter_status(
     if not binaries.get(binary):
         return FormatStatus(
             extension, reader, BLOCKED,
+            # **Say where it looked.** "Not found on this machine" is wrong from
+            # the reader's point of view the moment they have just installed the
+            # thing - and the usual cause is not absence but a stale PATH: a
+            # folder added to the system PATH is invisible to processes that
+            # were already running, including the terminal the app was started
+            # from. Naming the search turns "you are wrong, it is installed"
+            # into "ah, I need to reopen the terminal".
             detail=(
-                f"Switched on, but '{binary}' was not found on this machine, so "
-                f"every {extension} file will be indexed by name only."
+                f"Switched on, but '{binary}' was not found on PATH or in the "
+                f"usual install folders, so every {extension} file will be "
+                f"indexed by name only. If you have just installed it, close "
+                f"this application and any terminal and start again - a new "
+                f"PATH does not reach programs that are already running."
             ),
             fix=_binary_fix(binary),
         )
