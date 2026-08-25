@@ -154,43 +154,50 @@ def test_a_zero_rate_does_not_divide_by_zero():
 # The arithmetic that should have been checked the first time
 # ---------------------------------------------------------------------------
 
-#: A stable run on the owner's machine - three passes per length, medians,
-#: spreads under 10%. The earlier single-pass numbers swung 44% and the
-#: conclusion drawn from them was wrong; these are what replaced them.
-MEASURED = {128: 17.11, 256: 7.04, 512: 2.29}
+#: Four runs on the same machine, in order. The first two were single-pass; the
+#: last two are medians of three with the spread reported.
+#:
+#:     tokens/sec         128      256      512    256 vs 512
+#:     run 1 (1 pass)   2,235    2,304    2,263        1.02x
+#:     run 2 (1 pass)   2,204    2,063    1,265        1.63x
+#:     run 3 (median)   2,190    1,802    1,172        1.54x
+#:     run 4 (median)   1,948    2,017    1,772        1.14x
+#:
+#: **Run 4 is the trustworthy one**: its 512 measurement ranged 3.43-3.50, a 2%
+#: spread. Runs 2 and 3 had a depressed 512 figure - exactly what the spread
+#: warning exists to flag - and a "chunk size is a 1.5x lever" conclusion was
+#: drawn from run 3 and stated as fact.
+MEASURED = {128: 15.22, 256: 7.88, 512: 3.46}
 
 
 def test_a_throughput_figure_is_meaningless_without_its_sequence_length():
-    """The original wrong estimate, written down.
-
-    The same model on the same machine differs by more than seven times between
-    128 and 512 tokens. Quoting one figure as though it were a property of the
-    model is what sent a week of attention at the wrong problem.
-    """
-    assert MEASURED[128] / MEASURED[512] > 5
+    """The original wrong estimate, written down. Chunks per second differs by
+    four times across sequence lengths on one machine, so quoting one figure as
+    a property of the model sent a week of attention at the wrong problem."""
+    assert MEASURED[128] / MEASURED[512] > 3
 
 
-def test_shorter_chunks_are_cheaper_per_token_not_merely_smaller():
-    """**The correction.** Attention is quadratic, so the saving is real.
+def test_tokens_per_second_is_roughly_flat_across_chunk_sizes():
+    """**The correction to the correction.**
 
-    An earlier version of this test asserted that halving the chunk size was
-    roughly a wash - twice as many chunks at twice the speed - and said so on
-    the strength of an unstable measurement. With three passes and a tight
-    spread it is plainly false: per *token*, 256-token chunks run about 1.5
-    times faster than 512-token ones and 128-token chunks about 1.9 times.
+    Per *token* - the unit that plans a corpus - throughput barely moves: about
+    1,950, 2,020 and 1,770. Chunk size is worth 10-15%, not the 54% claimed from
+    an unstable run, and nothing like enough to justify re-indexing a corpus.
 
-    That makes chunk size a real lever on indexing cost, and one that costs no
-    accuracy in the embedding itself - only context per vector, which is a
-    retrieval question rather than a throughput one.
+    The first measurement of all said 1.02x and was closest to the truth. It was
+    dismissed because two noisier runs disagreed with it, which is the whole
+    argument for reporting spread rather than a single number.
     """
     def tokens_per_second(size: int) -> float:
         return size * MEASURED[size]
 
-    assert tokens_per_second(256) / tokens_per_second(512) > 1.4
-    assert tokens_per_second(128) / tokens_per_second(512) > 1.7
-    # Monotonic: shorter is always cheaper per token at these lengths.
-    rates = [tokens_per_second(size) for size in sorted(MEASURED, reverse=True)]
-    assert rates == sorted(rates)
+    best = max(tokens_per_second(size) for size in MEASURED)
+    worst = min(tokens_per_second(size) for size in MEASURED)
+
+    assert best / worst < 1.35, (
+        "if this gap widens, either the machine changed or the measurement is "
+        "unstable again - check the spread before drawing a conclusion from it"
+    )
 
 
 def test_the_projection_uses_tokens_because_that_is_what_a_corpus_has():
@@ -201,8 +208,10 @@ def test_the_projection_uses_tokens_because_that_is_what_a_corpus_has():
         size: total_tokens / (size * MEASURED[size]) / 3600
         for size in MEASURED
     }
-    assert hours[512] > hours[256] > hours[128]
-    assert hours[512] / hours[128] > 1.7
+    # Hours, not chunk counts: a corpus is a quantity of text, and how it is cut
+    # is a choice. Quoting hours against a chunk count hides that entirely.
+    assert all(20 < value < 200 for value in hours.values())
+    assert max(hours.values()) / min(hours.values()) < 1.35
 
 
 # ---------------------------------------------------------------------------

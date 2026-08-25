@@ -1233,11 +1233,11 @@ def _embed_advice(result: Any) -> list[str]:
         lines.append("    small accuracy cost, and switching invalidates every stored")
         lines.append("    vector - so it is cheapest while the index is small.")
     lines += [
-        "  * Smaller chunks are cheaper PER TOKEN, not just smaller - attention",
-        "    is quadratic, so 256-token chunks run about 1.5x faster over the",
-        "    same text than 512-token ones. It costs context per vector, which",
-        "    is a retrieval question, and it needs a re-index rather than a",
-        "    re-embed because chunking happens at extraction.",
+        "  * Chunk size is worth about 10-15% over the same text, and the table",
+        "    above shows it for THIS machine rather than in the abstract. It was",
+        "    claimed here as 1.5x once, from a measurement whose spread the tool",
+        "    now warns about. Unless the table shows a wide gap, this is not",
+        "    worth a re-index.",
         "  * Fewer chunks beats faster chunks. Quoted replies and signatures are",
         "    already stripped; near-duplicate passages are the next candidate.",
         "  * The cost is per token, so it scales with how much text is indexed,",
@@ -1724,8 +1724,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="use the shipped corpus with known answers (no model needed)")
     p_eval.add_argument("--interpret", action="store_true",
                         help="translate each sentence with Ollama first, to measure the gain")
-    p_eval.add_argument("--k", type=int, default=10, metavar="N",
-                        help="count a hit if the document is in the top N (default 10)")
+    p_eval.add_argument("--k", type=int, default=1, metavar="N",
+                        help="count a hit if the document is in the top N (default 1 - "
+                             "did it come FIRST? higher numbers flatter the result)")
     p_eval.set_defaults(func=cmd_evaluate)
 
     p_bench = sub.add_parser(

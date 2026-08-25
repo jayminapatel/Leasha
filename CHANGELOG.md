@@ -1,12 +1,48 @@
 # Changelog
 
-**Doc version:** 3.14 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.15 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — a benchmark that could not fail, and a lever that was not one
+
+Two corrections, both from running the tools on the real machine.
+
+**`evaluate --builtin` reported 100% on every category.** The default was recall
+at ten, on a twenty-one document corpus — half of everything. A benchmark that
+cannot fail is worse than no benchmark, because it gets believed and then
+quoted. The default is now **rank 1**: did the right document come *first*?
+Same corpus, same code, honest answer — 70% overall, 88% on topics, 58% on
+constraints. A generous `--k` now prints a line saying it is flattering the
+result.
+
+**Chunk size is worth about 10-15%, not the 54% claimed here.** Four runs now
+exist:
+
+| tokens/sec | 128 | 256 | 512 | 256 vs 512 |
+|---|---|---|---|---|
+| run 1 (1 pass) | 2,235 | 2,304 | 2,263 | 1.02× |
+| run 2 (1 pass) | 2,204 | 2,063 | 1,265 | 1.63× |
+| run 3 (median) | 2,190 | 1,802 | 1,172 | 1.54× |
+| **run 4 (median)** | **1,948** | **2,017** | **1,772** | **1.14×** |
+
+Run 4 is the trustworthy one — its 512 measurement ranged 3.43–3.50, a 2%
+spread. Runs 2 and 3 had a depressed 512 figure, exactly what the spread warning
+exists to flag, and the "chunk size IS a lever" conclusion was drawn from run 3
+and stated as fact.
+
+**The very first measurement said 1.02× and was closest to the truth.** It was
+dismissed because two noisier runs disagreed with it — which is the entire
+argument for reporting spread rather than a single number, made against the tool
+by its own output.
+
+That leaves **int8 as the only remaining lever worth real money** (~2× on a fp16
+model), and chunk size as not worth a re-index.
+
 
 ### Fixed — every document told you to type a command PowerShell refuses to run
 

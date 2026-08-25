@@ -579,20 +579,28 @@ wrong, not the tokenizer.
 
 Not blockers, but decide them deliberately rather than by accident.
 
-1. **Indexing cost is now measured, and it is the main constraint.** `app.cli embed-bench`
-   on the owner's machine: 2.29 passages/second at 512 tokens, twelve threads, fp16 model.
-   That is ~97 hours for a 100GB corpus, and `reembed` reports the time as **100% model** -
-   not I/O, so no amount of tuning the stores will help. Three levers, measured:
+1. **Indexing cost is measured, and it is the main constraint.** `app.cli
+   embed-bench` on the owner's machine: **1,770-2,020 tokens/second**, twelve threads,
+   fp16 model. That is roughly **56-64 hours for a 100GB corpus**, and `reembed` reports
+   the time as **100% model** - not I/O, so no amount of tuning the stores will help.
 
    | Lever | Worth | Costs |
    |---|---|---|
-   | 256-token chunks instead of 512 | 1.54x | less context per vector; needs a **re-index** |
-   | int8 model instead of fp16 | ~2x | small accuracy loss; needs a **re-embed** |
+   | int8 model instead of fp16 | **~2x** | small accuracy loss; a **re-embed** |
    | fewer chunks (quoted replies stripped) | ~1.8x on mail | nothing - already done |
+   | narrowing the index roots | linear | the documents you leave out |
+   | ~~256-token chunks~~ | **~1.1x** | not worth a re-index |
 
-   Both of the first two are far cheaper now, at 355 files, than at 100GB. **Neither has been
-   decided.** The chunk-size question is a retrieval trade rather than a speed one, and
-   should be settled by running `app.cli evaluate` before and after.
+   **Chunk size was claimed here as a 1.5x lever and it is not.** That came from one
+   run whose 512-token measurement was depressed; four runs now exist and per *token*
+   throughput is roughly flat. The first measurement of all said 1.02x and was closest
+   to the truth - it was dismissed because two noisier runs disagreed, which is the
+   whole argument for reporting spread rather than a single number.
+
+   **int8 is the only lever left that is worth real money**, and it is far cheaper now
+   than after 100GB is indexed. It has not been decided. Settle it by running
+   `app.cli evaluate` before and after rather than by argument.
+
 2. **Cached Exchange Mode window.** How much of the live mailbox to index, and whether to
    fetch beyond the local cache.
 3. **OCR is being built** - it was out of scope for V2 and the owner overrode that

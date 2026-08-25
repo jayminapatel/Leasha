@@ -49,9 +49,18 @@ __all__ = [
     "DEFAULT_K",
 ]
 
-#: "In the top ten" is the work order's bar, and a sensible one: it is roughly
-#: what fits on a screen, so a result below it is one nobody scrolls to.
-DEFAULT_K = 10
+#: **Rank 1, not 10.**
+#:
+#: Ten is the work order's bar and is right for a real corpus. On the twenty-one
+#: document built-in corpus it is half of everything, so it reported **100% on
+#: every category** - a benchmark that cannot fail is worse than no benchmark,
+#: because it gets believed and then quoted.
+#:
+#: One is the honest question: did the right document come *first*? On a small
+#: corpus that is the only measure with any discrimination left in it, and on a
+#: large one it is the number that matches what somebody actually experiences -
+#: nobody scrolls to rank nine and calls it a good search.
+DEFAULT_K = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +177,13 @@ class Report:
             out.append("")
             for kind, rate in by_kind.items():
                 out.append(f"    {kind:<20} {rate:>6.0%}")
+
+        if self.k > 1:
+            out += [
+                "",
+                f"  Counting a hit anywhere in the top {self.k}. Rank 1 is the honest",
+                "  question - on a small corpus a generous k flatters everything.",
+            ]
 
         misses = [o for o in self.outcomes if not o.hit(self.k)]
         if misses:
