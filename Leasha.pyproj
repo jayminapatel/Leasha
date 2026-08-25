@@ -258,6 +258,7 @@
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
+    <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_no_scroll.py" />
     <Compile Include="tests\unit\test_no_stray_paths.py" />
     <Compile Include="tests\unit\test_notice_line.py" />
@@ -354,6 +355,7 @@
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
     <Content Include="docs\WORKORDER-git-search-backend.md" />
     <Content Include="docs\WORKORDER-git-search-ui.md" />
+    <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />

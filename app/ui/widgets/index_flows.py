@@ -317,12 +317,27 @@ class RebuildVectorsDialog(QDialog):
         self._refresh()
 
     def chosen_model(self) -> str:
-        """The identifier alone - the dimensions shown beside it are for the
-        reader and must never reach `.env`."""
-        data = self.model.currentData()
-        if data:
-            return str(data)
-        return self.model.currentText().split("   —   ")[0].strip()
+        r"""The identifier alone - the dimensions shown beside it are for the
+        reader and must never reach `.env`.
+
+        **`currentData()` alone is wrong on an editable combo, and wrong in the
+        expensive direction.** The box is editable so any model can be named,
+        but typing into it does not move `currentIndex` - so after picking a
+        preset and then typing something else, `currentData()` still returned
+        *the preset*. This is the dialog that invalidates every vector in the
+        index and re-embeds the corpus: it would have spent those hours
+        rebuilding against a model nobody chose, and `.env` would then disagree
+        with what the person typed.
+
+        The text is the authority, and the data is consulted only when the text
+        is still exactly an item's display - which is the case where the person
+        picked from the list and the display carries the dimensions.
+        """
+        text = self.model.currentText().strip()
+        index = self.model.findText(text)
+        if index >= 0:
+            return str(self.model.itemData(index) or text)
+        return text.split("   —   ")[0].strip()
 
     def _refresh(self) -> None:
         changed = self.chosen_model() and self.chosen_model() != self._current

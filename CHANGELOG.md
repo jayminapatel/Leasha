@@ -1,12 +1,50 @@
 # Changelog
 
-**Doc version:** 3.40 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.41 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the suite goes green, and two of the twelve were real bugs
+
+Twelve tests had been failing long enough to be treated as the baseline, which
+is how a real failure hides: nobody reads a list they have learned to expect.
+Worked through one at a time.
+
+**"Use Ollama" appeared to do nothing** — reported from the window, with a log
+full of *"Interpreting is switched off. Turn it on in Settings to have a
+sentence rewritten as a query"*, said to somebody standing in Settings with it
+switched on, pressing Test. `QueryTranslator` defaults to `enabled=False`,
+because search must not reach the network when the feature is off, and the
+Test probe built one with the default — so **the button could never once have
+worked**. Each press built a fresh translator, so the "logged once per
+translator" guard did not dedupe them either: every press produced another
+identical line advising the thing already done.
+
+**The rebuild-vectors dialog could re-embed against the wrong model.** Its model
+box is editable so any model can be named, but typing does not move
+`currentIndex`, and `chosen_model()` read `currentData()` — so after picking a
+preset and then typing something else it still returned *the preset*. This is
+the dialog that invalidates every vector and re-embeds the corpus: it would have
+spent those hours on a model nobody chose, then written it to `.env`. The text
+is the authority now, and the item data is consulted only when the text is still
+exactly an item's display.
+
+The rest were the tests being stale rather than the code:
+
+* three RTF failures were `striprtf` missing from this sandbox — it is pinned in
+  `requirements.txt` and the tests pass with it installed;
+* `test_file_menu` passed `build_menu(QWidget(), …)`, a temporary with no Python
+  reference, so Qt deleted the menu with its parent before the assertions ran;
+* `test_launcher` demanded the installer write `FTS_DB` and `VECTOR_PATH`, which
+  it deliberately stopped doing — pinning them made `DATA_PATH` meaningless,
+  because moving the index then moved nothing. The test now asserts the
+  opposite, with a note not to put them back;
+* `test_scaffold` blamed the generator for an unsorted import list, and the file
+  really was unsorted: `plaintext` sat below the alphabetical block.
 
 ### Fixed — `/type` after 34 file types became 405
 

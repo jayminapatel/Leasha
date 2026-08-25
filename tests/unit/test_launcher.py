@@ -169,8 +169,33 @@ def test_the_installer_does_not_pin_a_tuning_default(key):
 
 
 def test_the_installer_still_writes_the_settings_that_are_not_choices():
-    """The guard above must not be satisfied by writing nothing at all."""
+    r"""The guard above must not be satisfied by writing nothing at all.
+
+    **`FTS_DB` and `VECTOR_PATH` were removed from this list on purpose.**
+
+    They used to be written, pinned absolutely to the chosen drive - and
+    because `.env` always beats a default, that made `DATA_PATH` meaningless:
+    changing it moved nothing, because all five subdirectories still resolved
+    to the old location. `config.py` derives them from `DATA_PATH` when they
+    are absent, which is what lets the index be moved at all.
+
+    So this test failing was the *installer* being right and the test being
+    stale - the one shape of failure the conventions' "do not adjust the test"
+    rule does not cover. The list keeps `DATA_PATH`, `EMBED_MODEL` and
+    `EMBED_DIM`, which still cannot be derived from anything, and that is
+    enough to stop the anti-pinning guard being satisfied vacuously.
+
+    **Do not put the two paths back.** Re-adding them here is how somebody
+    reintroduces the bug the comment in `install.ps1` describes, believing
+    they are fixing a regression.
+    """
     block = _generated_env_block()
 
-    for key in ("DATA_PATH", "FTS_DB", "VECTOR_PATH", "EMBED_MODEL", "EMBED_DIM"):
+    for key in ("DATA_PATH", "EMBED_MODEL", "EMBED_DIM"):
         assert f"{key}=" in block, f"install.ps1 no longer writes {key}"
+
+    for derived in ("FTS_DB", "VECTOR_PATH", "CACHE_PATH", "MODEL_CACHE", "STATE_PATH"):
+        assert f"{derived}=" not in block, (
+            f"install.ps1 pins {derived}, which makes DATA_PATH meaningless - "
+            f"moving the index would then move nothing. See the comment above "
+            f"the here-string in install.ps1.")

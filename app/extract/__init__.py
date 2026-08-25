@@ -21,12 +21,15 @@ from app.extract import email_files as email_files  # noqa: F401,E402
 from app.extract import ocr as ocr  # noqa: F401,E402
 from app.extract import odf as odf  # noqa: F401,E402
 from app.extract import office as office  # noqa: F401,E402
+# Every one of these registers itself on import. Order is irrelevant - a
+# duplicate claim raises - so they are kept alphabetical, which is what
+# `scripts/scaffold_extractor.py` inserts into and what `test_scaffold`
+# asserts. `plaintext` sat below this block, out of order, and the generator
+# was blamed for the file it was reading.
 from app.extract import pdf as pdf  # noqa: F401,E402
+from app.extract import plaintext as plaintext  # noqa: F401,E402
 from app.extract import rtf as rtf  # noqa: F401,E402
 from app.extract import xls as xls  # noqa: F401,E402
-
-# Registration side-effects. Order is irrelevant; duplicate claims raise.
-from app.extract import plaintext as plaintext  # noqa: F401,E402
 from app.extract.base import (  # noqa: F401
     Document,
     DocumentBuilder,

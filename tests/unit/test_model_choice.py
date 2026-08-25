@@ -221,3 +221,45 @@ def test_nothing_configured_never_picks_an_embedding_model():
     following instructions, which is true and completely unhelpful."""
     model, _note = choose("", ["nomic-embed-text:latest"])
     assert model == ""
+
+
+# --- the Test button --------------------------------------------------------
+
+def test_the_test_button_builds_a_translator_that_is_switched_on():
+    r"""**Reported from the window: ticking the box appeared to do nothing.**
+
+    The log filled with *"Interpreting is switched off. Turn it on in Settings
+    to have a sentence rewritten as a query"* - said to somebody standing in
+    Settings, with it switched on, pressing Test.
+
+    `QueryTranslator` defaults to `enabled=False`, because the feature is
+    optional and search must not reach the network when it is off. The probe
+    built one with the default, so the button could never once have worked.
+    And because each press builds a fresh translator, the "logged once per
+    translator" guard did not dedupe them either: every press produced another
+    identical line advising the thing already done.
+
+    Driven through `ModelBox._translate` rather than by reading the source, so
+    a refactor that reintroduces the default is caught.
+    """
+    from app.ui.widgets.model_box import ModelBox
+
+    asked: list[str] = []
+
+    class Client:
+        model = ""
+
+        def generate(self, prompt, **kwargs):
+            asked.append(prompt)
+            return '{"query": "invoice barnsley"}'
+
+    box = ModelBox.__new__(ModelBox)              # no Qt: only the worker body
+    box._client_factory = Client
+
+    result = box._translate("mistral", 5)
+
+    assert asked, (
+        "the probe never called the model - it built a switched-off translator "
+        "and returned the fallback"
+    )
+    assert "switched off" not in (getattr(result, "note", "") or "")

@@ -323,12 +323,31 @@ class ModelBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _translate(self, model: str, budget: int) -> Any:
-        """Worker thread. Uses the real translator, so this tests what runs."""
+        r"""Worker thread. Uses the real translator, so this tests what runs.
+
+        **`enabled=True`, and without it this button could never work.**
+        `QueryTranslator` defaults to disabled - the feature is optional and off
+        until somebody asks for it - and the probe built one with the default,
+        so every press returned the switched-off fallback and logged
+        *"Interpreting is switched off. Turn it on in Settings."* The person is
+        standing in Settings, with it switched on, pressing Test.
+
+        Pressing it again builds another fresh translator, so the "logged once
+        per translator" guard in `_fallback` does not dedupe them either: four
+        presses, four identical lines, and the advice in each one is to do the
+        thing that has already been done.
+
+        The switch guards *search*, which must not reach the network when
+        somebody has turned this off. Pressing Test **is** asking for it, so the
+        probe is enabled by construction rather than by reading the checkbox -
+        the checkbox has already had its say by enabling the button.
+        """
         from app.search.translate import QueryTranslator
 
         client = self._client_factory()
         client.model = model
-        return QueryTranslator(client, timeout_s=float(budget)).translate(TEST_SENTENCE)
+        return QueryTranslator(
+            client, timeout_s=float(budget), enabled=True).translate(TEST_SENTENCE)
 
     def _show_test(self, result: Any) -> None:
         seconds = getattr(result, "elapsed_s", 0.0)

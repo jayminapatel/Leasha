@@ -65,8 +65,18 @@ def test_every_action_fires_its_callback_when_triggered(qapp, tmp_path: Path, co
     target.write_text("x", encoding="utf-8")
 
     fired: list[str] = []
+    # **The parent must be held in a local.** `build_menu(QWidget(), ...)`
+    # passes a temporary with no Python reference: it is collected as soon as
+    # the call returns, Qt deletes its children with it, and the menu becomes
+    # "wrapped C/C++ object of type QMenu has been deleted" on the next line.
+    #
+    # A test artefact, not a product bug - in the window the parent is a
+    # long-lived table - but it is the same ownership trap that produced a real
+    # one in `view_options`, and a test that cannot run is a guard that is not
+    # guarding.
+    parent = QWidget()
     menu = build_menu(
-        QWidget(),
+        parent,
         str(target),
         FileActions(
             open_file=lambda: fired.append("open"),
@@ -92,8 +102,18 @@ def test_missing_file_offers_reindex_and_it_fires(qapp, tmp_path: Path, copied):
     gone = tmp_path / "vanished.pdf"
 
     fired: list[str] = []
+    # **The parent must be held in a local.** `build_menu(QWidget(), ...)`
+    # passes a temporary with no Python reference: it is collected as soon as
+    # the call returns, Qt deletes its children with it, and the menu becomes
+    # "wrapped C/C++ object of type QMenu has been deleted" on the next line.
+    #
+    # A test artefact, not a product bug - in the window the parent is a
+    # long-lived table - but it is the same ownership trap that produced a real
+    # one in `view_options`, and a test that cannot run is a guard that is not
+    # guarding.
+    parent = QWidget()
     menu = build_menu(
-        QWidget(),
+        parent,
         str(gone),
         FileActions(
             open_file=lambda: fired.append("open"),
@@ -120,8 +140,18 @@ def test_explicit_copy_pairs_fire_with_their_own_values(qapp, tmp_path: Path, co
     target = tmp_path / "msg.eml"
     target.write_text("x", encoding="utf-8")
 
+    # **The parent must be held in a local.** `build_menu(QWidget(), ...)`
+    # passes a temporary with no Python reference: it is collected as soon as
+    # the call returns, Qt deletes its children with it, and the menu becomes
+    # "wrapped C/C++ object of type QMenu has been deleted" on the next line.
+    #
+    # A test artefact, not a product bug - in the window the parent is a
+    # long-lived table - but it is the same ownership trap that produced a real
+    # one in `view_options`, and a test that cannot run is a guard that is not
+    # guarding.
+    parent = QWidget()
     menu = build_menu(
-        QWidget(),
+        parent,
         str(target),
         FileActions(copy=[("Copy subject", "HACCP review"), ("Copy sender", "a@b.c")]),
     )
