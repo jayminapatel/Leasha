@@ -16,7 +16,8 @@ every other layer honours.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
 
@@ -24,7 +25,11 @@ from app.core.errors import AppError, to_app_error
 from app.core.logging import logger
 
 __all__ = [
-    "WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker", "run",
+    "CallableWorker",
+    "IndexWorker",
+    "SearchWorker",
+    "WorkerSignals",
+    "run",
     "stop_timers",
 ]
 
@@ -167,7 +172,7 @@ def _emit(signals: Any, name: str, *args: Any) -> None:
         getattr(signals, name).emit(*args)
     except RuntimeError:
         pass
-    except Exception as exc:                     # noqa: BLE001
+    except Exception as exc:
         # A slot that raises must not take the worker down with it, and must not
         # skip the `done` signal that releases the worker from `_IN_FLIGHT`.
         _log.debug("emitting {} failed: {}", name, exc)
@@ -193,10 +198,10 @@ class CallableWorker(QRunnable):
         self._component = component
         self.signals = WorkerSignals()
 
-    def run(self) -> None:                       # noqa: D102 - Qt's entry point
+    def run(self) -> None:
         try:
             _emit(self.signals, "finished", self._work(*self._args, **self._kwargs))
-        except Exception as exc:                 # noqa: BLE001 - the boundary; see module docstring
+        except Exception as exc:
             error = to_app_error(exc, self._component)
             if _is_shutdown(error):
                 _log.debug("{} abandoned during shutdown", self._component)
@@ -226,7 +231,7 @@ class SearchWorker(QRunnable):
         self.generation = generation
         self.signals = WorkerSignals()
 
-    def run(self) -> None:                       # noqa: D102
+    def run(self) -> None:
         try:
             if self._tier == "interim":
                 # The interim tier takes a scope too but not a rerank flag, so
@@ -237,7 +242,7 @@ class SearchWorker(QRunnable):
             else:
                 response = self._engine.search(self._query, **self._options)
             _emit(self.signals, "finished", (self.generation, response))
-        except Exception as exc:                 # noqa: BLE001
+        except Exception as exc:
             error = to_app_error(exc, "ui.search")
             if _is_shutdown(error):
                 # Expected, and not the user's problem. Logged at debug so it
@@ -266,13 +271,13 @@ class IndexWorker(QRunnable):
     def stop(self) -> None:
         self.pipeline.request_stop()
 
-    def run(self) -> None:                       # noqa: D102
+    def run(self) -> None:
         try:
             stats = self.pipeline.run(
                 on_progress=lambda payload: _emit(self.signals, "progress", payload)
             )
             _emit(self.signals, "finished", stats)
-        except Exception as exc:                 # noqa: BLE001
+        except Exception as exc:
             error = to_app_error(exc, "ui.index")
             _log.bind(error_code=error.code).error("{}", error.render())
             _emit(self.signals, "failed", error)
@@ -280,7 +285,7 @@ class IndexWorker(QRunnable):
             _emit(self.signals, "done")
 
 
-def open_in_explorer(path: str, *, select: bool = True) -> Optional[AppError]:
+def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
     """Open a file, or its folder with the file selected. Returns an error or None.
 
     Windows only in the useful sense; falls back to a plain open elsewhere so
@@ -318,5 +323,56 @@ def open_in_explorer(path: str, *, select: bool = True) -> Optional[AppError]:
         else:
             subprocess.Popen(["xdg-open", str(target if not select else target.parent)])
         return None
-    except Exception as exc:                     # noqa: BLE001
+    except Exception as exc:
         return to_app_error(exc, "ui.open", path=str(target))
+
+
+def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
+    """Record that a result was opened, off the interface thread.
+
+    **Extracted from `search_view` so every view can use it**, and because
+    `search_view.py` was at 249 of the 250 code lines the presenter guard
+    allows - a view at its limit is a view that starts pushing logic somewhere
+    worse.
+
+    `record_open` is a database *write*. It was running on the UI thread
+    between the double-click and the file opening, so a busy or locked index
+    made opening a result feel slow for a reason that had nothing to do with
+    opening it.
+
+    It once took four arguments where three were wanted, so every click raised
+    a TypeError inside the worker; the worker caught it, as it must, and
+    `record_open` swallows failures because a click is never worth blocking on.
+    Two safety nets in a row turned a wrong call into silence, and Layer 10's
+    table was empty by construction. That is the argument for
+    `test_a_worker_is_called_with_arguments_it_accepts`, not for removing
+    either net.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.presenter import record_open
+
+    worker = CallableWorker(record_open, engine, search_id, chunk_id,
+                            component="ui.search.record")
+    run(QThreadPool.globalInstance(), worker)
+
+
+def decorate_results_async(store: Any, results: Any, on_done: Callable) -> None:
+    """Fetch mail subtitles and missing-file marks off the interface thread.
+
+    `mail_details` is a SQLite query and `missing_paths` is one filesystem stat
+    per result. Both were running in the handler that paints results - the
+    comment above `mail_details` said "one query, not fifty", and nobody had
+    asked the prior question of whether it belonged on this thread at all.
+
+    Here for the same reason as `record_open_async`: every view that shows
+    results wants it, and the view it came from was at the 250-line limit.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.presenter import decorate_results
+
+    worker = CallableWorker(decorate_results, store, list(results),
+                            component="ui.search.decorate")
+    worker.signals.finished.connect(on_done)
+    run(QThreadPool.globalInstance(), worker)

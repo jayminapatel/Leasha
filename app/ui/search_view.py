@@ -18,7 +18,7 @@ rather than a race.
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any
 
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -31,25 +31,28 @@ from PyQt6.QtWidgets import (
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
-    decorate_results,
-    record_open,
-    search_options,
-    results_message,
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
     Tier,
+    results_message,
+    search_options,
     search_shape,
     tier_for,
 )
 from app.ui.results_view import ResultsView
 from app.ui.view_options import button as view_button
 from app.ui.widgets.interpret import run_interpretation
+from app.ui.widgets.notice_bar import NoticeBar
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.search_bar import (
-    build_input, build_interpret, build_rerank, build_scope,
-    scope_value, select_scope,
+    build_input,
+    build_interpret,
+    build_rerank,
+    build_scope,
+    scope_value,
+    select_scope,
 )
-from app.ui.workers import CallableWorker, SearchWorker, run, stop_timers
+from app.ui.workers import SearchWorker, decorate_results_async, record_open_async, run, stop_timers
 
 __all__ = ["SearchView"]
 
@@ -78,7 +81,7 @@ class SearchView(QWidget):
         self,
         engine: Any,
         translator: Any = None,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._engine = engine
@@ -91,7 +94,7 @@ class SearchView(QWidget):
         #: list somebody is reading is the worse of the two mistakes.
         self._shown_anything = False
         self._last_keystroke = time.monotonic()
-        self._last_search_id: Optional[int] = None
+        self._last_search_id: int | None = None
 
         self.input, self.commands = build_input(
             self, self._on_text_changed, self._on_submitted)
@@ -136,9 +139,14 @@ class SearchView(QWidget):
         top.addWidget(self.rerank_toggle)
         top.addWidget(self.view_button)
 
+        # Above the results and below the status line: a degradation is about
+        # the results, so it belongs where the eye lands before reading them.
+        self.notices = NoticeBar(self)
+
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.status)
+        layout.addWidget(self.notices)
         layout.addWidget(self.split, stretch=1)
 
         # Two timers, because the two tiers answer different questions.
@@ -260,6 +268,10 @@ class SearchView(QWidget):
         self._shown_generation = generation
 
         self._last_search_id = response.search_id
+        # **The window's half of "nothing fails silently".** The engine decides
+        # a search was degraded; until this line the only place that reached
+        # was a log file.
+        self.notices.show_notices(getattr(response, "notices", ()))
         self._shown_anything = self._shown_anything or bool(response.results)
         terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
         summary, status = results_message(response)
@@ -289,14 +301,9 @@ class SearchView(QWidget):
         self.results.show_results(response.results, terms, summary=summary)
 
         generation = self._shown_generation
-        worker = CallableWorker(
-            decorate_results, getattr(self._engine, "store", None),
-            list(response.results),
-            component="ui.search.decorate",
-        )
-        worker.signals.finished.connect(
+        decorate_results_async(
+            getattr(self._engine, "store", None), response.results,
             lambda extra, g=generation: self._decorated(extra, g, terms, summary, response))
-        run(QThreadPool.globalInstance(), worker)
 
     def _decorated(self, extra: Any, generation: int, terms: Any,
                    summary: str, response: Any) -> None:
@@ -322,23 +329,10 @@ class SearchView(QWidget):
         """
         self.result_opened.emit(row)
 
-        search_id, chunk_id = self._last_search_id, row.chunk_id
-        # `record_open(engine, search_id, chunk_id)` - three arguments.
-        #
-        # **This was passing four**, with `search_options` in front of them, so
-        # every click raised a TypeError inside the worker. The worker caught it,
-        # as it must, and `record_open` swallows failures because a click is
-        # never worth blocking on - so nothing surfaced anywhere and not one
-        # open was ever recorded. Everything Layer 10 is meant to learn from is
-        # derived from these rows, and the table was empty by construction.
-        #
-        # Two safety nets in a row turned a wrong call into silence, which is
-        # the argument for `test_a_worker_is_called_with_arguments_it_accepts`
-        # rather than for removing either net.
-        worker = CallableWorker(
-            record_open, self._engine, search_id, chunk_id,
-            component="ui.search.record")
-        run(QThreadPool.globalInstance(), worker)
+        # Extracted to `workers.record_open_async` - it is a database write
+        # that must stay off this thread, every view needs it, and this file
+        # was at the 250-line limit the presenter guard allows.
+        record_open_async(self._engine, self._last_search_id, row.chunk_id)
 
     # -- interpreting a sentence --------------------------------------------
 

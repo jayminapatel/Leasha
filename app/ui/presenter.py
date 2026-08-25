@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 __all__ = [
+    "notice_line",
     "Tier",
     "tier_for",
     "Snippet",
@@ -2028,3 +2029,35 @@ def repo_filter_summary(
     if not shown:
         return f"No repository matches that.{note}"
     return f"{format_count(shown)} of {format_count(total)} repositories{note}"
+
+
+# ---------------------------------------------------------------------------
+# Search notices
+# ---------------------------------------------------------------------------
+
+def notice_line(notices: Any) -> str:
+    """One line for the notice bar, or "" when the search was healthy.
+
+    **Here rather than in the widget, so it can be tested.** `QtWidgets` needs
+    a display, and the last time UI logic was verified by reading it instead of
+    running it, `QPdfView()` shipped without its parent argument and crashed
+    the window on startup. Everything that decides *what* is shown lives in
+    this module; the widget only draws it.
+
+    Reads `message` and nothing else. The wording is the backend's and is free
+    to change; `code` is what anything branching must use, and there is a test
+    asserting the UI never parses a message string to decide anything.
+    """
+    if not notices:
+        return ""
+    messages = [
+        str(getattr(notice, "message", "")).strip()
+        for notice in notices
+        if str(getattr(notice, "message", "")).strip()
+    ]
+    if not messages:
+        return ""
+    # Two spaces between, not a newline: the bar is one line that wraps, and a
+    # hard break makes a single notice and two notices look like different
+    # kinds of thing.
+    return "  ".join(f"\u26a0 {message}" for message in messages)

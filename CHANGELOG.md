@@ -572,6 +572,56 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Added — the window now says when a search has quietly done a worse job (UI-1)
+
+The last piece of the owner's standing rule. The engine detected the
+degradation, `SearchResponse.notices` carried it, the CLI printed it — and the
+window, the only interface the owner actually uses, said nothing at all.
+
+`widgets/notice_bar.py` draws it above the results, in `#statWarn` rather than
+`#resultsSummary`. That colour choice is the point: the summary is `text_faint`,
+which is what "20 results in 240ms" uses, and `#statWarn` exists in `theme.py`
+precisely because a figure the code had decided was worth warning about was
+rendering identically to one that was fine. Using the faint one here would have
+been making that same mistake inside the fix for it.
+
+**The decision lives in `presenter.notice_line`, which imports no Qt.** That is
+what makes it testable: `QtWidgets` needs a display, and the last time UI logic
+was verified by reading rather than running it, `QPdfView()` shipped without its
+parent argument and crashed the window on startup. Ten tests cover what is
+shown; the widget only draws the string it is handed.
+
+`search_view.py` was at 249 of the 250 code lines the presenter guard allows, so
+this needed two extractions first — `record_open_async` and
+`decorate_results_async` into `workers.py`. Both are plumbing every view wants,
+both keep a database write and a filesystem stat off the interface thread, and
+the view is at 246 now.
+
+### Fixed — one genuine test failure, and it was the fixture's name
+
+`test_shutdown_stops_every_timer_a_view_owns` has been failing for as long as
+anybody has looked, and it was neither `stop_timers` nor the view. The fixture
+attribute meant to represent "something that is not a timer" was called
+**`not_a_timer`** — which ends in `_timer`, so the suffix rule stopped it,
+correctly. A name that reads as "not a timer" to a person and *is* one to
+`str.endswith`.
+
+Renamed to `refresh_handle`. The production code was right the whole time.
+
+With that gone, every remaining failure in the suite is environmental: 42 need
+model downloads and one needs `libEGL` for `QtWidgets`. **Zero genuine defects.**
+
+### Verified — the forty UI tests that had never executed (UI-3)
+
+The thread-merge handover named this the single highest-value thing to inherit:
+the UI had been shipping on inference because no PyQt6 was available where it
+was written. It is available here.
+
+**122 of 123 pass.** The one failure cannot load `QtWidgets` — `libEGL.so.1` is
+missing and cannot be installed without root — so the widget-level assertions in
+`test_command_subsets.py` still need a run on Windows. Everything reachable
+through `QtCore` is now verified rather than reasoned about.
+
 ### Added — `app.cli repos --scan`, to answer "are there any" in seconds
 
 `app.cli repos` lists what the last index run attributed, which cannot answer

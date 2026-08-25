@@ -314,7 +314,14 @@ class _FakeView:
         self._shown_generation = 0
         self._interim_timer = _FakeTimer()
         self._full_timer = _FakeTimer()
-        self.not_a_timer = _FakeTimer()          # must be left alone
+        # **Must be left alone, and the name is the point.**
+        #
+        # This was `not_a_timer`, which reads as "not a timer" to a person
+        # and ends in `_timer` to `str.endswith` - so the suffix rule
+        # stopped it, correctly, and the test failed for a year of
+        # afternoons looking like a bug in `stop_timers`. The production
+        # code was right the whole time; the fixture was named to trip it.
+        self.refresh_handle = _FakeTimer()
 
 
 def test_shutdown_stops_every_timer_a_view_owns():
@@ -339,7 +346,8 @@ def test_shutdown_stops_every_timer_a_view_owns():
 
     assert not view._interim_timer.running
     assert not view._full_timer.running
-    assert view.not_a_timer.running, "only attributes ending in _timer are timers"
+    assert view.refresh_handle.running, (
+        "an attribute that is not named like a timer was stopped anyway")
 
 
 def test_shutdown_stales_anything_still_in_flight():
