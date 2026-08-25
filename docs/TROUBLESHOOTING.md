@@ -21,6 +21,30 @@ your configuration, so nobody has to ask you twenty questions.
 
 In VS Code: **Terminal > Run Task > Diagnose (bundle for troubleshooting)**.
 
+## "The term 'leasha' is not recognized"
+
+```
+leasha : The term 'leasha' is not recognized as the name of a cmdlet...
+```
+
+Type `.\leasha` instead - with a dot and a backslash in front.
+
+PowerShell does not run commands from the folder you are standing in, on
+purpose: it is what stops a malicious `ls.exe` left in a downloads folder from
+running when you type `ls`. The `.\` says "yes, I mean this one, here".
+
+To stop needing it:
+
+```powershell
+cd D:\SearchProject
+.\add-to-path.ps1
+```
+
+That adds the folder to **your** PATH - no administrator rights, nothing changed
+for anybody else using the computer, and `.\add-to-path.ps1 -Remove` undoes it.
+Open a new terminal afterwards: one that is already open keeps the PATH it
+started with.
+
 ## "That file was not indexed and I do not know why"
 
 ```powershell

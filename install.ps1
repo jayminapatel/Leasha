@@ -621,6 +621,17 @@ if ($doctorExit -ne 0) {
 
 Write-Host ""
 Write-Host "  ALL STEPS SUCCEEDED - environment verified." -ForegroundColor Green
-Write-Host "  Next: open a new chat, paste LOCAL_KNOWLEDGE_GRAPH_V2.md and BUILD_SPEC_V2.md," -ForegroundColor Green
-Write-Host "        and say: 'Environment verified by doctor.py. Start Layer 0.'" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Start it with:" -ForegroundColor Green
+Write-Host "    cd $ProjectPath"
+Write-Host "    .\leasha"
+Write-Host ""
+Write-Host "  The .\ is required by PowerShell, which does not run commands from" -ForegroundColor Gray
+Write-Host "  the current folder. To drop it and use 'leasha' from anywhere:" -ForegroundColor Gray
+Write-Host "    .\add-to-path.ps1" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  Worth running once each:" -ForegroundColor Green
+Write-Host "    .\leasha commands            the filters you can type in the search box"
+Write-Host "    .\leasha evaluate --builtin  proves search works, in about ten seconds"
+Write-Host "    .\leasha formats             which file types are indexed, and which are off"
 Exit-Installer 0

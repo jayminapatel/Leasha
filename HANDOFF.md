@@ -409,6 +409,12 @@ venv\Scripts\python.exe doctor.py             # must print READY
 venv\Scripts\python.exe -m pytest tests -q    # must be green before you change anything
 ```
 
+`.\leasha` is the shortcut for everything else - `.\leasha stats`,
+`.\leasha evaluate --builtin`, `.\leasha` on its own for the window. **The `.\`
+is required** unless somebody has run `.\add-to-path.ps1`: PowerShell does not
+run commands from the current directory, and the error it gives
+("The term 'leasha' is not recognized") does not say so.
+
 On a **new** machine:
 
 1. Copy or clone `D:\SearchProject`. Do **not** copy `venv\` - it hardcodes paths. Do not

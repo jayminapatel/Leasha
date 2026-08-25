@@ -1,12 +1,37 @@
 # Changelog
 
-**Doc version:** 3.13 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 3.14 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — every document told you to type a command PowerShell refuses to run
+
+```
+leasha : The term 'leasha' is not recognized as the name of a cmdlet...
+```
+
+PowerShell does not run commands from the current directory — a deliberate
+protection against a malicious `ls.exe` left in a folder you happen to be
+standing in. So `leasha` fails where `.\leasha` works, and **every example in
+every document said `leasha`**. A documentation bug, which is the kind nothing
+catches.
+
+- Every copy-pasteable line now reads `.\leasha`.
+- `.\add-to-path.ps1` puts the folder on your **user** PATH so the `.\` can be
+  dropped — no administrator rights, nothing changed for anybody else on the
+  machine, and `-Remove` undoes it. Safe to run twice.
+- The installer ends by showing the command that actually works, and offering
+  the PATH step.
+- `docs/TROUBLESHOOTING.md` answers the error using the words the error itself
+  uses, because somebody hitting this will paste it in looking for it.
+- A test fails if any document goes back to bare `leasha`. It caught the one
+  legitimate exception on its first run — the troubleshooting guide quotes the
+  failing message verbatim, and has to.
+
 
 ### Added — the file-types editor, and the work order is complete
 

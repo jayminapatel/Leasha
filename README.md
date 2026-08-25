@@ -23,9 +23,19 @@ sentence into the filter syntax the search box already understands, visibly, so 
 correct it. With Ollama stopped, search works exactly as it always does.
 
 ```powershell
-leasha                    # open the window
-leasha commands           # the filters you can type
-leasha evaluate --builtin # does search actually work?
+cd D:\SearchProject
+.\leasha                    # open the window
+.\leasha commands           # the filters you can type
+.\leasha evaluate --builtin # does search actually work?
+```
+
+**The `.\` is not optional**, and it is not a typo. PowerShell deliberately does
+not run commands from the current directory - a protection against a malicious
+`ls.exe` dropped in a folder you happen to be standing in. To drop the `.\` and
+run `leasha` from anywhere:
+
+```powershell
+.\add-to-path.ps1     # undo with -Remove; user PATH only, no admin rights
 ```
 
 ---
