@@ -36,6 +36,7 @@ fails on every file is worse than one that says plainly it is switched off.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -159,16 +160,98 @@ class ConversionResult:
             self._set_cleanup(None)
 
 
+#: Where these programs actually install on Windows, relative to a program-files
+#: root.
+#:
+#: **`shutil.which` alone was not enough, and this is the bug it caused.**
+#: LibreOffice does not put itself on `PATH` on Windows - it never has - so a
+#: machine with LibreOffice installed and working reported "needs attention",
+#: offered an install link for software already present, and refused to enable
+#: the `.doc` and `.ppt` routes. The person is then told to fix something that
+#: is not broken, which is worse than saying nothing.
+#:
+#: PATH is still checked first: somebody who has deliberately put a build on it
+#: means that one.
+_WINDOWS_LOCATIONS: dict[str, tuple[str, ...]] = {
+    "soffice": (r"LibreOffice\program\soffice.exe",),
+    "libreoffice": (r"LibreOffice\program\soffice.exe",),
+    "tesseract": (r"Tesseract-OCR\tesseract.exe",),
+    # No `pandoc` entry: it came off ALLOWED_BINARIES when `.epub` and `.fb2`
+    # moved in-process. A location for a name that cannot run is dead weight,
+    # and `test_only_allowed_names_have_locations` is what caught it here.
+    "dwg2dxf": (r"LibreDWG\bin\dwg2dxf.exe", r"libredwg\bin\dwg2dxf.exe"),
+    "ODAFileConverter": (
+        r"ODA\ODAFileConverter\ODAFileConverter.exe",
+        r"ODA\ODAFileConverter_title 25.4.0\ODAFileConverter.exe",
+    ),
+}
+
+#: The roots `_WINDOWS_LOCATIONS` is resolved against, in order of preference.
+#: `LOCALAPPDATA\Programs` catches a per-user install, which is what somebody
+#: without administrator rights ends up with.
+_WINDOWS_ROOTS = ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432")
+
+
+def _is_windows() -> bool:
+    """Its own function so a test can say otherwise without patching `os.name`.
+
+    Patching `os.name` globally breaks `pathlib` for the whole process - it
+    starts trying to build `WindowsPath` objects on Linux and raises
+    `NotImplementedError` from inside pytest's own error reporting. One
+    indirection avoids all of it.
+    """
+    return os.name == "nt"
+
+
+def _installed_on_windows(name: str) -> Optional[str]:
+    """A known Windows install location for `name`, or None.
+
+    Never raises and never guesses: it returns a path only when the executable
+    is actually there.
+    """
+    if not _is_windows():
+        return None
+
+    candidates = _WINDOWS_LOCATIONS.get(name, ())
+    if not candidates:
+        return None
+
+    roots = [os.environ.get(key) for key in _WINDOWS_ROOTS]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(os.path.join(local, "Programs"))
+
+    for root in roots:
+        if not root:
+            continue
+        for relative in candidates:
+            # Split on the backslash rather than handing it to `Path`: the table
+            # is written the way these paths look on Windows, and on any other
+            # platform a backslash is an ordinary filename character, so
+            # `Path(root) / r"a\b"` makes one segment called `a\b`. Splitting
+            # keeps the table readable and the test runnable anywhere.
+            candidate = Path(root, *relative.split("\\"))
+            try:
+                if candidate.is_file():
+                    return str(candidate)
+            except OSError:                      # a drive that is not there
+                continue
+    return None
+
+
 def resolve_binary(name: str) -> Optional[str]:
     """The absolute path of an **allowed** binary, or None if it is not here.
 
     Refuses anything off the list before looking, so a blocked name is never
     even resolved - the answer to "is `curl` installed" is not one this
     application should be helping anybody find out.
+
+    Looks on `PATH` first, then in the standard Windows install locations - see
+    `_WINDOWS_LOCATIONS` for why the second half is needed at all.
     """
     if name not in ALLOWED_BINARIES:
         return None
-    return shutil.which(name)
+    return shutil.which(name) or _installed_on_windows(name)
 
 
 def available_binaries() -> dict[str, Optional[str]]:
@@ -176,8 +259,13 @@ def available_binaries() -> dict[str, Optional[str]]:
 
     Settings offers to enable exactly the converters whose binary was found -
     so nobody switches on a format that will then fail on every file.
+
+    **Goes through `resolve_binary`, deliberately.** It used to call
+    `shutil.which` itself, so the two answered differently: a conversion could
+    find LibreOffice and run, while Settings and `doctor` reported it missing.
+    One lookup, one answer.
     """
-    return {name: shutil.which(name) for name in sorted(ALLOWED_BINARIES)}
+    return {name: resolve_binary(name) for name in sorted(ALLOWED_BINARIES)}
 
 
 def _build_command(
