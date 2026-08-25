@@ -71,6 +71,10 @@ ALLOWED_BINARIES = frozenset({
     "pandoc",           # epub, fb2, rst, org
     "xstexporter",      # Lotus Notes NSF, on the rare machine that has it
     "tesseract",        # OCR as a converter, for anybody preferring it to RapidOCR
+    # AutoCAD DWG has no open specification and no Python reader. Both of these
+    # turn it into DXF, which `app/extract/cad.py` then reads properly.
+    "dwg2dxf",          # LibreDWG, free and file-at-a-time
+    "ODAFileConverter", # Open Design Alliance's, free to download, batch-oriented
 })
 
 #: Placeholders a converter command may use. Anything else in braces is left

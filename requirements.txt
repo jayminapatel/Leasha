@@ -25,6 +25,11 @@ openpyxl==3.1.5
 python-pptx==1.0.2
 pywin32==312          # Outlook MAPI for PST ingestion (Windows only)
 extract-msg==0.56.1   # single .msg items only - NEVER .pst (see email_files.py)
+ezdxf==1.4.2          # AutoCAD .dxf - notes, title-block attributes, layer names
+# Pure Python, py3-none-any wheel, no compiler. Reads DXF only: .dwg is AutoCAD's
+# proprietary binary format with no open specification, and ezdxf does not read
+# it - that route is the dwg2dxf converter in config/extractors.toml, shipped
+# disabled. Without ezdxf, .dxf degrades to name-only rather than failing.
 #
 # extract-msg is the one exception to the wheel rule at the top of this file.
 # It is itself a py3-none-any wheel, but its dependency `red-black-tree-mod`

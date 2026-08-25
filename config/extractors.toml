@@ -90,6 +90,14 @@ enabled = true
 ".webp" = { extractor = "ocr", max_bytes = 26214400 }
 ".gif"  = { extractor = "ocr", max_bytes = 26214400 }
 
+# --- AutoCAD ----------------------------------------------------------------
+# `.dxf` is read natively by app/extract/cad.py (notes, title-block attributes,
+# layer and block names). `.dwg` is NOT listed here on purpose: it is handled by
+# the converter below, and an extension claimed by an extractor never reaches a
+# converter at all. 20MB cap - a drawing larger than that is geometry, and its
+# text is not proportionally richer for the time spent parsing it.
+".dxf" = { extractor = "cad", max_bytes = 20971520 }
+
 # --- Text-ish files that are plain text by any other name -------------------
 ".conf"       = { extractor = "plaintext" }
 ".env"        = { extractor = "plaintext" }
@@ -207,6 +215,25 @@ then      = "plaintext"
 timeout_s = 120
 enabled   = false
 note      = "Publisher conversion is unreliable; layout-heavy files often yield little text."
+
+# AutoCAD DWG: proprietary binary, no open specification, and no Python library
+# reads it - ezdxf explicitly does not. Converting to DXF is the only honest
+# route, and then app/extract/cad.py reads the result properly.
+#
+# `dwg2dxf` comes with LibreDWG (free): https://www.gnu.org/software/libredwg/
+# The Open Design Alliance's ODAFileConverter is the other allowed option, but
+# it converts whole directories rather than single files and does not fit the
+# {input}/{outdir} contract, so it needs a wrapper - dwg2dxf is the one to use.
+#
+# Without either, .dwg files are still found by name; only their contents are
+# missing. 20MB cap matches .dxf, applied before the conversion is attempted.
+[converters.".dwg"]
+command   = ["dwg2dxf", "-o", "{outdir}/{stem}.dxf", "{input}"]
+produces  = "{stem}.dxf"
+then      = "cad"
+timeout_s = 180
+enabled   = false
+note      = "Needs LibreDWG's dwg2dxf on PATH. DWG has no open specification, so conversion quality varies by the AutoCAD version that wrote the file."
 
 [converters.".epub"]
 command   = ["pandoc", "--to", "plain", "--output", "{outdir}/{stem}.txt", "{input}"]

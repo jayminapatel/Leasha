@@ -13,6 +13,7 @@ them.
 
 from __future__ import annotations
 
+from app.extract import cad as cad  # noqa: F401,E402
 from app.extract import cloudstub as cloudstub  # noqa: F401,E402
 from app.extract import diagrams as diagrams  # noqa: F401,E402
 from app.extract import email_files as email_files  # noqa: F401,E402
