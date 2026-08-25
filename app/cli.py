@@ -1632,7 +1632,7 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
             env = getattr(args, "env", None) or ".env"
             print()
             print(f"  Your {env} pins RERANK_MODEL, so the shipped default does")
-            print(f"  not apply. Edit that line to change it:")
+            print("  not apply. Edit that line to change it:")
             print(f"      RERANK_MODEL={best.name}")
         print()
         print("Speed is only half the question. `leasha evaluate --builtin` measures")
