@@ -513,6 +513,33 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Fixed — a vector write that produced nothing was recorded as success
+
+**This is how a file ends up `INDEXED` with no vector, permanently.**
+
+`VectorStore.add` returns how many rows it wrote. The pipeline ignored the
+return value and marked the chunks embedded and the file `INDEXED` regardless —
+so a write that produced nothing was recorded as complete, and because the file
+was then `INDEXED` and unchanged, every later run skipped it. Stuck for good.
+The only symptom is that meaning-based search quietly covers less of the corpus
+than it claims, which is the failure nobody reports.
+
+Such files are now left `PENDING` — the state that *is* retried — and it is
+logged as an error rather than passed over. The chunks are already written, so
+the retry costs only the embedding.
+
+Two tests, both failing on the old pipeline. The second one matters as much as
+the first: `PENDING` is only the right answer if a later run genuinely
+recovers it, so that is asserted rather than assumed. (Its first version left a
+patched `add` in place across both runs — the fixture hands both pipelines the
+same `VectorStore` — and so failed the second run for the first run's reason.)
+
+The fake `VectorStore` in `test_index_freshness.py` returned `None` from `add`
+rather than a count, which turned a real check into nineteen false failures. It
+honours `-> int` now, and the pipeline treats `None` as "did not report" rather
+than as "failed" — silently reading no answer as failure would leave every file
+`PENDING` for ever.
+
 ### Fixed — `reembed` looked like it had hung, and `stats` said everything twice
 
 **"This seems stuck" — and it was not.** `reembed` printed nothing until its

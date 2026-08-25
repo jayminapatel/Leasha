@@ -577,3 +577,84 @@ def test_a_hidden_git_file_is_still_detected(stores, tmp_path):
 
     assert [r["kind"] for r in store.repos_list()] == ["submodule"]
     assert attribution(store)["code.py"] == "lib"
+
+
+# --- a vector write that produced nothing must not report success -----------
+
+def test_a_failed_vector_write_leaves_the_file_pending(stores, tmp_path):
+    """**How a file ends up INDEXED with no vector, permanently.**
+
+    `VectorStore.add` returns how many rows it wrote, and the pipeline ignored
+    it - marking the chunks embedded and the file INDEXED regardless. A write
+    that produced nothing was therefore recorded as complete, and because the
+    file was then INDEXED and unchanged, every later run skipped it. Stuck for
+    good, with the only symptom being that meaning-based search quietly covered
+    less of the corpus than it claimed.
+
+    PENDING is the state that gets retried, so that is where such a file
+    belongs. The chunks are already written, so the retry costs only the
+    embedding.
+    """
+    root = tmp_path / "corpus"
+    root.mkdir()
+    for n in range(4):
+        (root / f"f{n}.txt").write_text(f"document {n} about pumps", encoding="utf-8")
+    age(root)
+
+    store, vectors = stores
+    from app.index.pipeline import Pipeline, PipelineConfig
+
+    config = PipelineConfig(
+        walk=WalkConfig(roots=[root], extensions=frozenset({".txt"})),
+        workers=1, min_free_gb=0,
+    )
+    pipeline = Pipeline(store, vectors, Embedder(dim=DIM, encoder=fake_encoder),
+                        config)
+    # The write silently does nothing, which is what a full disk or a LanceDB
+    # hiccup looks like from here.
+    real_add = vectors.add
+    vectors.add = lambda **_kwargs: 0
+    try:
+        pipeline.run()
+    finally:
+        vectors.add = real_add
+
+    statuses = store.stats()["files"]
+    assert statuses.get("INDEXED", 0) == 0, (
+        "a file was marked INDEXED with no vector, and will never be retried")
+    assert statuses.get("PENDING", 0) == 4
+    assert store.stats()["chunks_embedded"] == 0
+
+
+def test_the_retry_recovers_it_on_the_next_run(stores, tmp_path):
+    """PENDING is only the right answer if a later run actually fixes it."""
+    root = tmp_path / "corpus"
+    root.mkdir()
+    for n in range(4):
+        (root / f"f{n}.txt").write_text(f"document {n} about pumps", encoding="utf-8")
+    age(root)
+
+    store, vectors = stores
+    from app.index.pipeline import Pipeline, PipelineConfig
+
+    config = PipelineConfig(
+        walk=WalkConfig(roots=[root], extensions=frozenset({".txt"})),
+        workers=1, min_free_gb=0,
+    )
+    broken = Pipeline(store, vectors, Embedder(dim=DIM, encoder=fake_encoder), config)
+    real_add = vectors.add
+    vectors.add = lambda **_kwargs: 0
+    broken.run()
+    assert store.stats()["files"].get("INDEXED", 0) == 0
+
+    # A normal run, with the vector store working again. Restored explicitly:
+    # the fixture hands both pipelines the *same* VectorStore, so a patch left
+    # in place makes the second run fail for the first run's reason - which is
+    # what the first version of this test did.
+    vectors.add = real_add
+    Pipeline(store, vectors, Embedder(dim=DIM, encoder=fake_encoder), config).run()
+
+    stats = store.stats()
+    assert stats["files"].get("PENDING", 0) == 0
+    assert stats["chunks_embedded"] == stats["chunks_total"]
+    assert vectors.count() == stats["chunks_total"]

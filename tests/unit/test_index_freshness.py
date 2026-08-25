@@ -87,7 +87,11 @@ class NullVectors:
         pass
 
     def add(self, **kwargs):
-        pass
+        # **Returns the count, because the real one does.** It returned None,
+        # and the pipeline now checks the count to catch a write that produced
+        # nothing - a fake that does not honour `-> int` turns a real check
+        # into nineteen false failures.
+        return len(kwargs.get("chunk_ids") or ())
 
     def __getattr__(self, name):
         return lambda *args, **kwargs: None

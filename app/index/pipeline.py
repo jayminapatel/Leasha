@@ -1006,11 +1006,38 @@ class Pipeline:
         texts = [text for _cid, _fid, text in pending]
         vectors = list(self.embedder.embed_all(texts))
 
-        self.vectors.add(
+        written = self.vectors.add(
             chunk_ids=[cid for cid, _f, _t in pending],
             file_ids=[fid for _c, fid, _t in pending],
             vectors=vectors,
         )
+        # **The return value was ignored, and that is how a file ends up
+        # INDEXED with no vector.**
+        #
+        # `add` returns how many rows it wrote. Marking the chunks embedded and
+        # the files INDEXED regardless means a write that produced nothing is
+        # recorded as complete - and because the file is then INDEXED and
+        # unchanged, every later run skips it. It is stuck permanently, and the
+        # only symptom is that meaning-based search quietly covers less of the
+        # corpus than it claims.
+        #
+        # Left PENDING instead, which is the state that gets retried: the
+        # chunks are already written, so the next run re-embeds them and costs
+        # nothing else. Loud, because a silent one is what produced 559 missing
+        # vectors with the run reporting success.
+        #
+        # `None` means the store did not report - an older double, or a
+        # stub. Not second-guessed: silently treating "no answer" as
+        # "failed" would leave every file PENDING for ever.
+        if written is not None and written < len(pending):
+            self._log.error(
+                "wrote {} vectors for {} passages - the rest stay PENDING and "
+                "will be retried. Meaning-based search covers less of the "
+                "corpus until then; `app.cli reembed` fixes it now.",
+                written, len(pending),
+            )
+            pending.clear()
+            return
         # One transaction for the whole batch. This was a commit per chunk-set
         # plus a commit per file - dozens of them, for one logical step.
         with self.store.batch():
