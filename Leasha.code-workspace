@@ -1,0 +1,46 @@
+{
+  // Leasha - local search over your own files and Outlook mail.
+  //
+  // Renamed from SearchProject.code-workspace, whose display name still read
+  // "Local Knowledge Graph" - the name the project had before the knowledge
+  // graph was removed and the scope narrowed to search. Two stale names in one
+  // line is how a folder ends up called something nobody recognises.
+  //
+  // The folder on disk is still D:\SearchProject, deliberately: the venv has
+  // that path baked into pip.exe, activate.bat and every console script, so
+  // moving it means rebuilding the environment for no functional gain.
+  "folders": [
+    {
+      "name": "Leasha",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.env.example": "dotenv",
+      "schema.sql": "sql"
+    },
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.pytest_tmp": true,
+      "**/.ruff_cache": true,
+      "**/.vs": true
+    },
+    "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": ["tests"],
+    "search.exclude": {
+      "venv": true,
+      "Leasha": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "charliermarsh.ruff",
+      "ms-vscode.powershell"
+    ]
+  }
+}

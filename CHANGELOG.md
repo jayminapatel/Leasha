@@ -1,12 +1,40 @@
 # Changelog
 
-**Doc version:** 3.33 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.34 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — a Visual Studio solution, and both editors now say Leasha
+
+`Leasha.sln` and `Leasha.pyproj` open the project in full Visual Studio, with
+the venv wired up relatively (`MSBuild|venv|$(MSBuildProjectFullPath)`), F5 on
+`app\main.py`, and pytest registered so Test Explorer finds the suite.
+
+`SearchProject.code-workspace` is now `Leasha.code-workspace`. Its display name
+read **"Local Knowledge Graph"** — the name the project had before the graph was
+removed and the scope narrowed to search. Two stale names in one line is how a
+project ends up called something nobody recognises.
+
+**The folder on disk stays `D:\SearchProject`.** Renaming it would mean
+rebuilding the venv — `pip.exe`, `activate.bat` and every console script have
+the absolute path compiled into them — for no functional gain. The index at
+`D:\KnowledgeGraphData` was never affected either way.
+
+**`Leasha.pyproj` is generated, not hand-maintained.** Visual Studio shows only
+the files its project lists, unlike VS Code which shows the folder. With 228
+Python files that manifest goes stale the first time somebody adds a module —
+and a stale one is worse than none, because the new file is missing from
+Solution Explorer while every test that imports it passes, so it looks as though
+it does not exist. `scripts/regen_vs_project.py` builds it from `git ls-files`,
+and a test asserts the committed file matches what the script produces, so drift
+fails the suite rather than surprising whoever next opens the solution.
+
+`.vs/`, `*.suo` and `*.user` are gitignored — per-user state, and `.vs/` alone
+reaches hundreds of megabytes here. New: `docs/VISUALSTUDIO.md`.
 
 ### Changed — libraries before converters, and LibreOffice for far less
 

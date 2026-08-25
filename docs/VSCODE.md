@@ -4,7 +4,14 @@
 
 ## Opening it
 
-Either open the folder `D:\SearchProject`, or double-click **`SearchProject.code-workspace`**.
+Either open the folder `D:\SearchProject`, or double-click **`Leasha.code-workspace`**.
+
+The folder on disk is still `SearchProject`; the workspace presents it as **Leasha**, which is
+the application's name. Renaming the folder would mean rebuilding the venv - `pip.exe`,
+`activate.bat` and every console script have the absolute path compiled into them - for no
+functional gain.
+
+Visual Studio users: open **`Leasha.sln`** instead. See `docs/VISUALSTUDIO.md`.
 
 On first open VS Code will offer the recommended extensions from
 `.vscode/extensions.json`. Accept them:

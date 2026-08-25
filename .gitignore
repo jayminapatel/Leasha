@@ -50,6 +50,17 @@ tests/output/
 # is excluded.
 .vscode/*.log
 .vscode/settings.local.json
+
+# Visual Studio. `Leasha.sln` and `Leasha.pyproj` ARE committed - they are the
+# project definition. Everything below is per-user state Visual Studio writes
+# beside them: window layout, breakpoints, the IntelliSense database. `.vs/`
+# in particular reaches hundreds of megabytes on a project this size.
+.vs/
+*.suo
+*.user
+*.userprefs
+*.sln.docstates
+
 .idea/
 *.swp
 Thumbs.db
