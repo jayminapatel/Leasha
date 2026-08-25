@@ -263,6 +263,7 @@
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
+    <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_no_scroll.py" />
     <Compile Include="tests\unit\test_no_stray_paths.py" />

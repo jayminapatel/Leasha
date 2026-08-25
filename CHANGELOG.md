@@ -1,12 +1,56 @@
 # Changelog
 
-**Doc version:** 3.44 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.45 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — `scan` reports what is inside the archives, without opening any of it
+
+`docs/WORKORDER-zip-archives.md` §6 refuses to let section 3 be built on a
+guess: *"Not because it is unimportant — because the cost is unknown… Deciding
+before that number exists is guessing, and guessing at 1.5TB is expensive."*
+This is the number.
+
+`app.cli scan` now counts archives and reads the **central directory** of a
+sample of them. A zip carries, at its tail, a list of every member with its
+compressed and uncompressed size — so *"what is in the 240GB of `.zip` in this
+corpus"* costs a seek per archive rather than a read of 240GB. Nothing is
+decompressed anywhere in the module, and the report says so, because the claim
+is unusual enough to be worth stating.
+
+The report gives archive count and size on disk, how many were listed, the
+estimated member count and uncompressed size across the corpus, **how many of
+those members are types something here can already read** — the single figure
+section 3 turns on — and the commonest member types. Members are routed by
+`tier_for`, the same function that routes a file on disk, so the estimate
+cannot drift from what an index run would actually do.
+
+`.7z`, `.rar`, `.tar`, `.cab` and `.iso` are counted and never opened: reading
+them means taking a dependency, and whether that is worth it is a separate
+decision that deserves its own number. `.docx`, `.xlsx`, `.odt` and `.epub` are
+deliberately **not** counted — they are zip containers with extractors already,
+and folding them in would make the answer "most of your corpus" on every corpus
+in the world.
+
+**Three guards, none decorative.** `infolist()` builds an object per entry
+eagerly, so an archive declaring forty million members costs tens of gigabytes
+to *list* — no decompression, nothing for a ratio check to catch. The declared
+count is therefore read from the end-of-central-directory record, following the
+ZIP64 locator when present, and refused before `zipfile` is handed the file at
+all. A member declaring an expansion over 200:1 is counted apart rather than
+added to the corpus total. And a corrupt archive is one line in a report with
+its reason kept, never the end of a scan of 600GB.
+
+The ratio guard needed a size floor, found by testing rather than reasoning: a
+5KB log of one repeated line compresses a thousand to one, and so does a
+zero-padded header. Judged on ratio alone, the measurement built to answer *"how
+much is locked up in archives"* was quietly excluding the ordinary contents of
+every archive it looked at. A bomb is dangerous because of what it expands
+*to*, so the expansion now qualifies it.
 
 ### Added — every file in an indexed folder is findable by name
 

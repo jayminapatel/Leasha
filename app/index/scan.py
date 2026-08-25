@@ -48,6 +48,14 @@ __all__ = [
     "ScanResult",
     "Tally",
     "PageProbe",
+    "ArchiveProbe",
+    "ARCHIVE_EXTENSIONS",
+    "ZIP_FAMILY",
+    "OPAQUE_ARCHIVES",
+    "ARCHIVE_MEMBER_LIMIT",
+    "ARCHIVE_SAMPLE",
+    "BOMB_RATIO",
+    "BOMB_MIN_BYTES",
     "scan",
     "tier_for",
     "format_report",
@@ -88,6 +96,52 @@ SCAN_STATE_KEY = "scan:last"
 #: a Unix binary. `""` sorts oddly and prints as nothing, and a blank row in a
 #: table of extensions reads as a rendering bug.
 NO_EXTENSION = "(none)"
+
+#: Archive types a `zipfile` can open. **Deliberately not "anything that is a
+#: zip"**: `.docx`, `.odt`, `.epub`, `.vsdx`, `.xlsx` and `.pptx` are all zip
+#: containers and all have extractors already. They are documents that happen to
+#: be stored as zips, not archives, and counting them here would put the whole
+#: Office corpus in the row that is supposed to answer "how much is locked up
+#: inside archives".
+ZIP_FAMILY = frozenset({".zip", ".jar", ".nupkg", ".whl"})
+
+#: Archives nothing in the standard library opens. Counted but never probed, so
+#: the report can say *"and 12,000 `.7z` that this cannot see inside"* - which is
+#: the number that decides whether `py7zr` and `rarfile` are worth taking on.
+OPAQUE_ARCHIVES = frozenset({
+    ".7z", ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".cab", ".iso", ".dmg",
+})
+
+ARCHIVE_EXTENSIONS = ZIP_FAMILY | OPAQUE_ARCHIVES
+
+#: Members listed from one archive before the probe gives up on it.
+#:
+#: **A ceiling on the central directory, not on the archive.** `infolist()`
+#: parses every entry eagerly into a `ZipInfo` object, so an archive declaring
+#: forty million members costs gigabytes of memory to *list* - without a single
+#: byte being decompressed. The count is checked against this before `zipfile`
+#: is handed the file at all; see `_declared_members`.
+ARCHIVE_MEMBER_LIMIT = 200_000
+
+#: Archives opened to estimate what is inside the rest. Same reservoir shape as
+#: the PDF sample, and the same reason: a corpus with 80,000 zips must not be
+#: measured by holding 80,000 paths.
+ARCHIVE_SAMPLE = 200
+
+#: Ratio above which a member's declared expansion is reported as implausible.
+#: Ordinary text compresses about 5:1 and a well-packed corpus of XML maybe
+#: 20:1; 200:1 is a bomb or a lie, and either way the number should not be
+#: silently added to a corpus estimate somebody is going to plan around.
+#: Nothing is decompressed either way - this only decides which total it joins.
+BOMB_RATIO = 200
+
+#: **And only above this size.** The ratio alone flags perfectly ordinary
+#: members: a 5KB log of one repeated line, a mostly-empty XML stub, a
+#: zero-padded header all compress a thousand to one and are harmless. Excluding
+#: them would quietly shrink the estimate this whole measurement exists to
+#: produce. A zip bomb is dangerous because of what it expands *to*, so the
+#: expansion is what qualifies it - below a megabyte the ratio is a curiosity.
+BOMB_MIN_BYTES = 1024 * 1024
 
 #: In cost order, which is also the order the report shows them. `disabled`
 #: sits between the tiers that work and the one that does nothing because it is
@@ -143,6 +197,43 @@ class PageProbe:
         return not self.failed and self.chars < PROBE_MIN_CHARS
 
 
+@dataclass(frozen=True)
+class ArchiveProbe:
+    """What one sampled archive turned out to hold. **Nothing was decompressed.**
+
+    A zip carries a central directory at its end listing every member with its
+    compressed and uncompressed size. Reading it is a seek and a small read,
+    whatever the archive weighs - so this answers *"what is in the 240GB of
+    `.zip` in this corpus"* without expanding a single byte of it. That is the
+    work order's own principle, recorded as *"check the header, not the read"*.
+
+    The counts are of members, not of files on disk: one archive contributes one
+    `ArchiveProbe` and however many members it declares.
+    """
+
+    members: int = 0
+    #: Uncompressed bytes the members *say* they will expand to. A declaration,
+    #: not a measurement - see `bombs`.
+    uncompressed: int = 0
+    compressed: int = 0
+    #: Member extension -> count. What decides whether reading inside archives
+    #: would find anything: 400,000 members that are all `.dll` is a different
+    #: answer from 400,000 that are all `.docx`.
+    by_extension: dict[str, int] = field(default_factory=dict)
+    #: Members whose type has a reader today. The single number section 3 turns on.
+    readable: int = 0
+    encrypted: int = 0
+    #: Members declaring an expansion ratio over `BOMB_RATIO`. Counted apart so
+    #: one crafted entry cannot inflate the corpus estimate by a terabyte.
+    bombs: int = 0
+    #: Set when the archive could not be listed - corrupt, truncated, or a
+    #: central directory larger than `ARCHIVE_MEMBER_LIMIT`. A finding, not a zero.
+    failed: bool = False
+    #: Why, when it failed. Reported verbatim so "corrupt" and "too many
+    #: members" are never merged into one unactionable count.
+    reason: str = ""
+
+
 @dataclass
 class ScanConfig:
     """What to walk, and how hard to look at PDFs."""
@@ -161,6 +252,10 @@ class ScanConfig:
     #: probe entirely, and the report then says the OCR figure is unknown
     #: rather than printing a zero that reads as "none".
     sample_pdfs: int = 400
+    #: Archives whose central directory is read to estimate what the rest hold.
+    #: 0 disables it, and the report then says what is inside them is unknown
+    #: rather than printing a zero.
+    sample_archives: int = ARCHIVE_SAMPLE
     #: Files above this are skipped by the walker, so they are counted apart
     #: rather than folded into a tier that will never see them.
     max_file_bytes: int = 2 * 1024 * 1024 * 1024
@@ -205,6 +300,29 @@ class ScanResult:
     #: Total pages across the probed PDFs that came back image-only. The basis
     #: of the OCR estimate, and reported so the estimate can be checked.
     image_only_pages: int = 0
+
+    #: Archive files found, and what they weigh on disk. `.zip` and friends;
+    #: see `ARCHIVE_EXTENSIONS` for what counts and what deliberately does not.
+    archives: Tally = field(default_factory=Tally)
+    #: The ones nothing in the standard library can open, counted apart because
+    #: reading them means taking a dependency and that is a separate decision.
+    opaque_archives: Tally = field(default_factory=Tally)
+    archives_probed: int = 0
+    archives_unreadable: int = 0
+    #: Why the unreadable ones failed - `corrupt`, `too many members`. Grouped,
+    #: because "31 archives could not be listed" is not actionable and
+    #: "31 are password-protected" is.
+    archive_failures: dict[str, int] = field(default_factory=dict)
+    #: Totals across the *sample*. Extrapolated to the corpus by the estimates
+    #: below; never reported as a corpus figure directly.
+    archive_members: int = 0
+    archive_member_bytes: int = 0
+    archive_readable_members: int = 0
+    archive_encrypted_members: int = 0
+    archive_bomb_members: int = 0
+    #: Member extension -> count, across the sample.
+    archive_member_ext: dict[str, int] = field(default_factory=dict)
+
     elapsed_s: float = 0.0
     #: Set when the scan was stopped before it finished, so no total here is
     #: mistaken for a complete one.
@@ -294,6 +412,79 @@ class ScanResult:
         readable = self.indexable.bytes - self.tier("ocr").bytes
         return max(0.0, readable) / 1_048_576 / mb_per_minute / 60
 
+    # -- archives -----------------------------------------------------------
+
+    @property
+    def archives_listed(self) -> int:
+        """Sampled archives that actually opened.
+
+        The denominator, and not `archives_probed` - the same correction the
+        PDF estimate needs. Folding "could not be listed" in with "held nothing"
+        understates what is inside the corpus by however many were corrupt.
+        """
+        return max(0, self.archives_probed - self.archives_unreadable)
+
+    @property
+    def zip_family(self) -> Tally:
+        """Archives this can see inside, as opposed to merely count."""
+        found = Tally()
+        found.files = self.archives.files - self.opaque_archives.files
+        found.bytes = self.archives.bytes - self.opaque_archives.bytes
+        return found
+
+    def _archive_scale(self) -> Optional[float]:
+        """Sample -> corpus multiplier, or `None` when nothing could be listed.
+
+        `None` is a different answer from 1.0 and must print differently: a
+        confident "0 documents inside your archives" on a corpus nobody could
+        open is exactly the sort of number that gets planned around.
+        """
+        if not self.archives_listed:
+            return None
+        return self.zip_family.files / self.archives_listed
+
+    @property
+    def estimated_archive_members(self) -> Optional[int]:
+        """How many files are inside the corpus's archives, extrapolated."""
+        scale = self._archive_scale()
+        if scale is None:
+            return None
+        return int(round(self.archive_members * scale))
+
+    @property
+    def estimated_readable_members(self) -> Optional[int]:
+        """**The number section 3 turns on.**
+
+        Members whose type already has a reader. If this is a few thousand, the
+        cheap half of the archive work order was most of its value; if it is
+        millions, reading inside archives is the largest single body of text in
+        the corpus and nothing else competes with it.
+        """
+        scale = self._archive_scale()
+        if scale is None:
+            return None
+        return int(round(self.archive_readable_members * scale))
+
+    @property
+    def estimated_archive_bytes(self) -> Optional[int]:
+        """Uncompressed bytes inside the archives, extrapolated.
+
+        Bomb members are already excluded upstream, so a single crafted entry
+        declaring a 5GB expansion cannot put a phantom terabyte into a capacity
+        plan. This is still a *declaration* - the number the archives claim -
+        and the report says so.
+        """
+        scale = self._archive_scale()
+        if scale is None:
+            return None
+        return int(round(self.archive_member_bytes * scale))
+
+    def top_archive_member_types(self, limit: int = 8) -> list[tuple[str, int]]:
+        """Commonest member types in the sample, most first."""
+        return sorted(
+            self.archive_member_ext.items(), key=lambda row: row[1], reverse=True
+        )[:limit]
+
     def top_extensions(self, limit: int = 25) -> list[tuple[str, Tally]]:
         """Biggest first, by bytes. Files-first would put a folder of a million
         empty `.pyc` stubs above the archive that is the actual corpus."""
@@ -336,6 +527,21 @@ class ScanResult:
                     if self.estimated_ocr_hours is not None else None
                 ),
                 "seconds_per_page": OCR_SECONDS_PER_PAGE,
+            },
+            "archives": {
+                **self.archives.as_dict(),
+                "opaque": self.opaque_archives.as_dict(),
+                "probed": self.archives_probed,
+                "listed": self.archives_listed,
+                "failures": dict(sorted(self.archive_failures.items())),
+                "members_in_sample": self.archive_members,
+                "readable_in_sample": self.archive_readable_members,
+                "encrypted_in_sample": self.archive_encrypted_members,
+                "bombs_in_sample": self.archive_bomb_members,
+                "estimated_members": self.estimated_archive_members,
+                "estimated_readable_members": self.estimated_readable_members,
+                "estimated_uncompressed_bytes": self.estimated_archive_bytes,
+                "member_types_in_sample": dict(self.top_archive_member_types(limit=40)),
             },
             "elapsed_s": round(self.elapsed_s, 2),
             "stopped_early": self.stopped_early or None,
@@ -466,13 +672,20 @@ def scan(
     on_progress: Optional[Callable[[ScanResult], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     probe: Optional[Callable[[Path], PageProbe]] = None,
+    archive_probe: Optional[Callable[[Path], ArchiveProbe]] = None,
     progress_every: int = 20_000,
 ) -> ScanResult:
     """Walk `config.roots` and return what is there. Opens nothing but PDFs.
 
-    `probe` is the seam. The default opens a sampled PDF with PyMuPDF; the
-    tests pass a function, so every branch of the scanned-PDF estimate is
-    exercised on a machine with no PDFs and no PyMuPDF.
+    - and the *ends* of a sample of archives, which is a smaller claim than it
+    sounds: a zip's central directory is a few bytes per member at the tail of
+    the file, so listing a 40GB backup costs a seek. Nothing is decompressed
+    anywhere in this module.
+
+    `probe` and `archive_probe` are the seams. The defaults open a sampled PDF
+    with PyMuPDF and a sampled archive with `zipfile`; the tests pass functions,
+    so every branch of both estimates is exercised on a machine with no PDFs,
+    no PyMuPDF and no archives.
     """
     result = ScanResult(roots=tuple(str(root) for root in config.roots))
     started = time.perf_counter()
@@ -486,6 +699,11 @@ def scan(
     # is what the estimate needs anyway.
     reservoir: list[Path] = []
     pdf_seen = 0
+    # A second reservoir, on the same principle and with its own counter: the
+    # two populations are unrelated, and sharing a counter would sample
+    # whichever type the walk happened to meet more of.
+    archive_reservoir: list[Path] = []
+    archive_seen = 0
     chooser = random.Random(config.seed)
     seen_files: set[str] = set()
 
@@ -621,11 +839,34 @@ def scan(
                             if slot < config.sample_pdfs:
                                 reservoir[slot] = Path(entry.path)
 
+                if extension in ARCHIVE_EXTENSIONS:
+                    result.archives.add(size)
+                    if extension in OPAQUE_ARCHIVES:
+                        # Counted and finished with. Nothing in the standard
+                        # library opens a `.7z`, and the whole point of this
+                        # measurement is to decide whether a dependency that
+                        # could is worth taking.
+                        result.opaque_archives.add(size)
+                    elif config.sample_archives > 0:
+                        archive_seen += 1
+                        if len(archive_reservoir) < config.sample_archives:
+                            archive_reservoir.append(Path(entry.path))
+                        else:
+                            slot = chooser.randrange(archive_seen)
+                            if slot < config.sample_archives:
+                                archive_reservoir[slot] = Path(entry.path)
+
                 if on_progress is not None and result.total.files % progress_every == 0:
                     on_progress(result)
 
     if not result.stopped_early and reservoir:
         _probe_pdfs(reservoir, result, probe=probe, should_stop=should_stop)
+    if not result.stopped_early and archive_reservoir:
+        _probe_archives(
+            archive_reservoir, result, probe=archive_probe,
+            should_stop=should_stop,
+            routing=(rules, registry, names, ocr_extensions),
+        )
 
     result.elapsed_s = time.perf_counter() - started
     if on_progress is not None:
@@ -693,6 +934,199 @@ def _probe_pdf(path: Path) -> PageProbe:
         return PageProbe(pages=int(document.page_count), chars=chars)
     finally:
         document.close()
+
+
+def _probe_archives(
+    paths: list[Path],
+    result: ScanResult,
+    *,
+    probe: Optional[Callable[[Path], ArchiveProbe]],
+    should_stop: Optional[Callable[[], bool]],
+    routing: tuple,
+) -> None:
+    """List the sample's central directories and record what they declare.
+
+    Never raises, and never decompresses. One unreadable archive is a finding
+    about that archive, not a reason to abandon a measurement of 600GB.
+
+    `routing` is threaded through rather than resolved per archive: it reads
+    `extractors.toml`, and re-reading it two hundred times to answer the same
+    question is the shape of thing that turns a two-minute scan into a ten.
+    """
+    def default(path: Path) -> ArchiveProbe:
+        return _probe_archive(path, routing)
+
+    reader = probe or default
+    for path in paths:
+        if should_stop is not None and should_stop():
+            return
+        try:
+            found = reader(path)
+        except Exception as exc:                   # noqa: BLE001 - one file, not the scan
+            log.debug("could not list {}: {}", path.name, exc)
+            found = ArchiveProbe(failed=True, reason="could not be opened")
+        result.archives_probed += 1
+        if found.failed:
+            result.archives_unreadable += 1
+            reason = found.reason or "could not be opened"
+            result.archive_failures[reason] = result.archive_failures.get(reason, 0) + 1
+            continue
+        result.archive_members += found.members
+        result.archive_member_bytes += found.uncompressed
+        result.archive_readable_members += found.readable
+        result.archive_encrypted_members += found.encrypted
+        result.archive_bomb_members += found.bombs
+        for extension, count in found.by_extension.items():
+            result.archive_member_ext[extension] = (
+                result.archive_member_ext.get(extension, 0) + count
+            )
+
+
+def _declared_members(path: Path) -> Optional[int]:
+    r"""How many members the archive's end record claims, without parsing them.
+
+    **This is the guard, and it has to run before `zipfile` sees the file.**
+    `ZipFile.infolist()` builds a `ZipInfo` for every entry in the central
+    directory, eagerly, at roughly a kilobyte apiece once Python object
+    overhead is counted. An archive declaring forty million members therefore
+    costs tens of gigabytes of memory *to list* - no decompression involved,
+    no bomb ratio to catch it, and a scan that was supposed to only stat files
+    takes the machine down with it.
+
+    The End of Central Directory record is 22 bytes at the very end of the file
+    (plus any comment), and carries the entry count. ZIP64 archives - anything
+    over 65,535 entries or 4GB - park a sentinel there and put the real count in
+    a separate record, which the 20-byte locator immediately before the EOCD
+    points at. Both are read here, because refusing every ZIP64 archive would
+    refuse every large legitimate one, which is precisely the population this
+    measurement exists to describe.
+
+    Returns `None` when the end record cannot be found - not a zip, or
+    truncated. The caller reports that; it does not guess.
+    """
+    import struct
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size < 22:
+        return None
+
+    # The comment may be up to 64KB, so the EOCD signature can sit that far
+    # back. Read the tail once and search it backwards.
+    tail_len = min(size, 64 * 1024 + 22)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(size - tail_len)
+            tail = handle.read(tail_len)
+
+            start = tail.rfind(b"PK\x05\x06")
+            if start < 0 or start + 22 > len(tail):
+                return None
+            count = struct.unpack("<H", tail[start + 10:start + 12])[0]
+            if count != 0xFFFF:
+                return int(count)
+
+            # ZIP64. The locator sits directly before the EOCD and points at
+            # the ZIP64 end record, whose entry count is 8 bytes at offset 32.
+            locator = start - 20
+            if locator < 0 or tail[locator:locator + 4] != b"PK\x06\x07":
+                return None
+            offset = struct.unpack("<Q", tail[locator + 8:locator + 16])[0]
+            if offset + 40 > size:
+                return None
+            handle.seek(offset)
+            record = handle.read(40)
+            if len(record) < 40 or record[:4] != b"PK\x06\x06":
+                return None
+            return int(struct.unpack("<Q", record[32:40])[0])
+    except OSError:
+        return None
+
+
+def _probe_archive(path: Path, routing: tuple) -> ArchiveProbe:
+    r"""Read one archive's central directory. **Decompresses nothing.**
+
+    Deliberately not any part of Layer 2: nothing here opens a member, writes a
+    temp file, or recurses into a nested archive. A nested `.zip` is counted as
+    one member of type `.zip` and left alone - that is honest, and it is what
+    keeps this a measurement rather than the feature it is measuring the case
+    for.
+    """
+    import zipfile
+
+    declared = _declared_members(path)
+    if declared is None:
+        return ArchiveProbe(failed=True, reason="not a readable archive")
+    if declared > ARCHIVE_MEMBER_LIMIT:
+        return ArchiveProbe(
+            failed=True,
+            reason=f"more than {ARCHIVE_MEMBER_LIMIT:,} members",
+        )
+
+    from app.extract.source_types import indexed_ext
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+    except Exception as exc:                       # noqa: BLE001 - corrupt, truncated
+        log.debug("central directory unreadable in {}: {}", path.name, exc)
+        return ArchiveProbe(failed=True, reason="corrupt or truncated")
+
+    rules, registry, names, ocr_extensions = routing
+    found = ArchiveProbe(by_extension={})
+    members = uncompressed = compressed = readable = encrypted = bombs = 0
+
+    for entry in entries:
+        if entry.is_dir():
+            continue                               # a folder entry is not a file
+        members += 1
+        if entry.flag_bits & 0x1:
+            encrypted += 1
+        declared_size = int(entry.file_size)
+        packed = int(entry.compress_size)
+        # **Ratio checked against the header, never against a read.** A member
+        # claiming 5GB from 20KB joins the bomb count rather than the corpus
+        # total; nothing is expanded either way.
+        if (declared_size >= BOMB_MIN_BYTES and packed > 0
+                and declared_size / packed > BOMB_RATIO):
+            bombs += 1
+        else:
+            uncompressed += declared_size
+        compressed += packed
+
+        # `indexed_ext` rather than `Path(...).suffix`: a member named
+        # `src/Makefile` has no suffix and is still a file with a reader, and
+        # zip member names use forward slashes whatever wrote them.
+        # Zip member names always use forward slashes, whatever wrote them, so
+        # the leaf is taken here rather than by `Path(...).name` - which on
+        # Linux would hand the whole path to the suffix check.
+        leaf = entry.filename.replace("\\", "/").rsplit("/", 1)[-1]
+        if not leaf:
+            continue
+        extension = Path(leaf).suffix.lower()
+        # **Routed by exactly the rules a file on disk gets.** A second answer
+        # to "can this be read" would drift from the first within a month, and
+        # this number's whole purpose is to predict what section 3 would find.
+        tier = tier_for(
+            extension, leaf, rules=rules, registry=registry,
+            names=names, ocr_extensions=ocr_extensions,
+        )
+        # Labelled the way the main extension table labels things: `.txt` with
+        # its dot, `makefile` without one because that is a *name*, and
+        # `NO_EXTENSION` for the rest. Two conventions in one report is how a
+        # reader ends up believing there is a file type called `.makefile`.
+        bucket = extension or indexed_ext(Path(leaf)) or NO_EXTENSION
+        found.by_extension[bucket] = found.by_extension.get(bucket, 0) + 1
+        if tier in ("extractor", "converter", "ocr"):
+            readable += 1
+
+    return ArchiveProbe(
+        members=members, uncompressed=uncompressed, compressed=compressed,
+        by_extension=found.by_extension, readable=readable,
+        encrypted=encrypted, bombs=bombs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +1230,48 @@ def format_report(result: ScanResult, *, mb_per_minute: float = 0.0,
     else:
         out("  No PDFs found.")
     out("")
+
+    if result.archives.files:
+        out("Archives - what is locked up inside them")
+        out(f"  {result.archives.files:,} archive file(s), "
+            f"{human_bytes(result.archives.bytes)} on disk")
+        if result.opaque_archives.files:
+            out(f"  {result.opaque_archives.files:,} of those "
+                f"({human_bytes(result.opaque_archives.bytes)}) are .7z, .rar, .tar "
+                f"or similar - nothing here can see inside them without a new "
+                f"dependency, so they are counted and no more")
+        listed = result.archives_listed
+        if listed:
+            members = result.estimated_archive_members or 0
+            readable = result.estimated_readable_members or 0
+            out(f"  {listed:,} of a sample of {result.archives_probed:,} could be "
+                f"listed, holding {result.archive_members:,} member(s)")
+            out(f"  so roughly {members:,} file(s) inside the corpus's archives, "
+                f"{human_bytes(result.estimated_archive_bytes or 0)} uncompressed")
+            out(f"  of which about {readable:,} are types something here can "
+                f"already read")
+            rows = result.top_archive_member_types()
+            if rows:
+                summary = ", ".join(f"{name} x{count:,}" for name, count in rows)
+                out(f"  commonest members in the sample: {summary}")
+            if result.archive_encrypted_members:
+                out(f"  {result.archive_encrypted_members:,} member(s) in the sample "
+                    f"are password-protected and could not be read by anything")
+            if result.archive_bomb_members:
+                out(f"  {result.archive_bomb_members:,} member(s) declare an "
+                    f"expansion over {BOMB_RATIO}:1 and are left out of the size "
+                    f"above - a ratio that high is a bomb or a lie")
+            if result.archive_failures:
+                for reason, count in sorted(result.archive_failures.items()):
+                    out(f"  {count:,} of the sample could not be listed - {reason}")
+            out("  Nothing was decompressed to produce these numbers; they come")
+            out("  from what each archive's own index declares.")
+        elif result.archives_probed:
+            out(f"  none of the {result.archives_probed:,} sampled could be listed, "
+                f"so what is inside them is unknown")
+        else:
+            out("  none were opened, so what is inside them is unknown")
+        out("")
 
     if mb_per_minute > 0:
         out("Time, at the throughput you gave")

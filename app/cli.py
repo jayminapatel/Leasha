@@ -1182,6 +1182,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         exclude_paths=own_paths(settings),
         include_excluded=bool(args.all),
         sample_pdfs=0 if args.no_sample else int(args.sample_pdfs),
+        sample_archives=0 if args.no_sample else int(args.sample_archives),
     )
 
     progress = ProgressLine(enabled=not args.quiet and not args.json)
@@ -2750,9 +2751,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--sample-pdfs", type=int, default=400, metavar="N",
                         help="PDFs opened to estimate how many are scanned "
                              "(default 400; they are chosen at random)")
+    p_scan.add_argument("--sample-archives", type=int, default=200, metavar="N",
+                        help="archives whose index is read to estimate what is "
+                             "inside the rest (default 200). Nothing is "
+                             "decompressed - only the list of members at the "
+                             "end of each file")
     p_scan.add_argument("--no-sample", action="store_true",
-                        help="open nothing at all - then how much is scanned is "
-                             "reported as unknown rather than as zero")
+                        help="open nothing at all - then how much is scanned, "
+                             "and what is inside the archives, are reported as "
+                             "unknown rather than as zero")
     p_scan.add_argument("--mb-per-minute", type=float, metavar="RATE",
                         help="your measured indexing throughput, to turn the "
                              "byte count into hours. Without it no time is "
