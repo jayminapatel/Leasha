@@ -513,6 +513,32 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Fixed — `reembed` looked like it had hung, and `stats` said everything twice
+
+**"This seems stuck" — and it was not.** `reembed` printed nothing until its
+first batch of 256 passages finished. At the 4.4 passages/second `embed-bench`
+measures on a real machine that is nearly a minute of completely silent
+terminal, and the correct response to a silent terminal is to assume it died
+and kill it — which loses the work.
+
+The standing rule is that nothing fails silently, and a long operation that
+says nothing is the same fault in different clothes: there is no way to tell it
+from one that has died. It now says how many passages it is about to embed, how
+many are already done, and that the first line takes a minute.
+
+**And `stats` printed the embedding gap twice**, because a second reporter was
+written without looking for the first. `semantic_search_warnings` had existed
+since `ec85b76` and was better: it also handles an empty vector store and
+orphaned rows, and its own comment documents having fixed the exact bug the new
+copy reproduced — comparing the row count against `chunks_embedded` rather than
+`chunks_total`, which agree perfectly on a corpus where almost nothing was ever
+embedded, so the check prints nothing on the one machine it was written for.
+
+The duplicate is gone. It had tests and the original had none, so the tests now
+point at the original — including that bug, and the branch ordering that makes
+under-coverage reported ahead of orphans (a missing vector cannot be found at
+all; a stale one merely fails to open).
+
 ### Fixed — `app.cli stats` could not answer the warning that sends people to it
 
     no vector hits for a query with 60 keyword hits - meaning-based search

@@ -76,56 +76,6 @@ def _load(args: argparse.Namespace) -> Settings:
 # Commands
 # ---------------------------------------------------------------------------
 
-def embedding_gap(info: dict[str, Any]) -> Optional[dict[str, int]]:
-    """SQLite's belief about embedding against what LanceDB actually holds.
-
-    **The two disagreeing is the failure that produced "no vector hits for a
-    query with 60 keyword hits".** SQLite marks a chunk `embedded = 1` when its
-    vector is written; if the write did not survive - an interrupted run, a
-    rebuilt vector store, a `reembed` that never finished - the mark stays and
-    nothing anywhere compares the two.
-
-    `stats` printed both numbers, in different sections, and left the reader to
-    notice. The warning that sends people here could not be answered by the
-    command it names, which is the same shape as `doctor` reporting its own
-    defaults: a diagnostic that cannot see the problem it exists for.
-
-    Returns None when there is nothing to compare.
-    """
-    sqlite_stats = info.get("sqlite")
-    if not sqlite_stats:
-        return None
-
-    chunks = int(sqlite_stats.get("chunks_total") or 0)
-    claimed = int(sqlite_stats.get("chunks_embedded") or 0)
-    rows = int((info.get("vectors") or {}).get("rows") or 0)
-    if chunks == 0:
-        return None
-    return {"chunks": chunks, "claimed": claimed, "rows": rows,
-            "missing": max(0, chunks - rows)}
-
-
-def _report_embedding_gap(info: dict[str, Any]) -> None:
-    """One line when the stores agree, and what to do when they do not."""
-    gap = embedding_gap(info)
-    if gap is None:
-        return
-
-    print()
-    if gap["missing"] == 0 and gap["claimed"] >= gap["chunks"]:
-        print(f"  Meaning-based search   ready - all {gap['chunks']:,} passages have a vector")
-        return
-
-    share = gap["rows"] / gap["chunks"] * 100 if gap["chunks"] else 0.0
-    print("  Meaning-based search   INCOMPLETE")
-    print(f"    {gap['rows']:,} of {gap['chunks']:,} passages have a vector ({share:.0f}%)")
-    if gap["claimed"] > gap["rows"]:
-        print(f"    SQLite believes {gap['claimed']:,} are embedded, so the two stores disagree -")
-        print("    the vectors were lost or never written, most likely an interrupted run.")
-    print("    Keyword search is unaffected. To rebuild without re-reading any document:")
-    print(r"      venv\Scripts\python.exe -m app.cli reembed")
-
-
 def cmd_stats(args: argparse.Namespace) -> int:
     """Print the resolved configuration. The 'does it start at all' command."""
     settings = _load(args)
@@ -197,7 +147,6 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print()
         print("  Vector store      not created yet (run: app.cli init)")
 
-    _report_embedding_gap(info)
 
     for line in semantic_search_warnings(info.get("sqlite"), info.get("vectors")):
         print(line)
@@ -1461,6 +1410,24 @@ def cmd_reembed(args: argparse.Namespace) -> int:
             print(f"Clearing the vector store and re-embedding all {total:,} passages.")
             vectors.drop()
             store.mark_all_unembedded()
+
+        # **Say what is about to happen, before the silence starts.**
+        #
+        # Nothing was printed until the first batch of 256 finished. At the 4.4
+        # passages/second `embed-bench` measures on a real machine that is
+        # nearly a minute of a completely silent terminal, and the correct
+        # response to a silent terminal is to assume it has hung and kill it -
+        # which loses the work. Reported as exactly that: "this seems stuck".
+        #
+        # The standing rule is that nothing fails silently. A long operation
+        # that says nothing is the same fault wearing a different hat: there is
+        # no way to tell it from one that has died.
+        outstanding = max(0, total - int(stats["chunks_embedded"]))
+        if not args.quiet:
+            print(f"Embedding {outstanding:,} of {total:,} passages "
+                  f"({total - outstanding:,} already done).")
+            print("  Loading the model, then the first batch of 256 - "
+                  "the first line takes a minute or so.", flush=True)
 
         embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
                             cache_dir=str(settings.model_cache))

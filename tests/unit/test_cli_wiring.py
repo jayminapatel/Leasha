@@ -395,69 +395,88 @@ def test_repos_lists_what_the_store_holds(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 # The embedding gap, which is what "no vector hits" actually means
 # ---------------------------------------------------------------------------
+#
+# `semantic_search_warnings` already existed and had no tests. A second,
+# worse copy of it was written before anybody looked - and the copy
+# reproduced the exact bug the original's own comment documents having
+# fixed: comparing the vector row count against `chunks_embedded` rather
+# than `chunks_total`, which agrees perfectly on a corpus where almost
+# nothing was ever embedded, and so prints nothing on the one machine it
+# was written for.
+#
+# The duplicate is gone. These are the tests it should have arrived with.
 
-@pytest.mark.parametrize("chunks, claimed, rows, expect_gap", [
-    (3355, 3355, 3355, False),   # healthy
-    (3355, 3355, 154, True),     # the reported failure: SQLite lies, vectors gone
-    (3355, 3355, 0, True),       # vector store empty or rebuilt
-    (3355, 154, 154, True),      # honest, but incomplete
-    (0, 0, 0, None),             # nothing indexed: nothing to say
-])
-def test_the_embedding_gap_is_detected(chunks, claimed, rows, expect_gap):
-    """`stats` printed both numbers in different sections and left the reader
-    to notice the difference.
+def warnings_for(chunks, embedded, rows):
+    return cli.semantic_search_warnings(
+        {"chunks_total": chunks, "chunks_embedded": embedded}, {"rows": rows})
 
-    The warning that sends people here - "no vector hits for a query with 60
-    keyword hits - Check: app.cli stats" - could not be answered by the command
-    it names. Same shape as `doctor` reporting its own defaults: a diagnostic
-    that cannot see the problem it exists for.
+
+def test_an_empty_vector_store_is_reported_as_not_working():
+    lines = "\n".join(warnings_for(3355, 3355, 0))
+
+    assert "NOT working" in lines
+    assert "reembed" in lines
+
+
+def test_partial_coverage_is_reported_with_the_share():
+    """The owner's real numbers: 1,170 of 1,729."""
+    lines = "\n".join(warnings_for(1729, 1170, 1170))
+
+    assert "68%" in lines
+    assert "1,170" in lines and "1,729" in lines
+    assert "559" in lines, "it must say how many are missing, not only the share"
+    assert "reembed" in lines
+
+
+def test_coverage_is_measured_against_the_total_not_the_flag():
+    """**The bug the original fixed, which the duplicate reintroduced.**
+
+    `chunks_embedded` answers "did the vectors get written for the chunks we
+    tried", which is not the question. The question is "can meaning-based
+    search see my corpus", and only the total can answer it. On a corpus where
+    154 of 3,355 were ever attempted, the flag and the row count agree
+    perfectly - and a check comparing those two prints nothing at all.
     """
-    info = {
-        "sqlite": {"chunks_total": chunks, "chunks_embedded": claimed},
-        "vectors": {"rows": rows},
-    }
+    lines = warnings_for(3355, 154, 154)
 
-    gap = cli.embedding_gap(info)
-
-    if expect_gap is None:
-        assert gap is None
-        return
-    assert gap is not None
-    assert (gap["missing"] > 0 or gap["claimed"] > gap["rows"]) is expect_gap
+    assert lines, "a corpus 95% unembedded reported itself healthy"
+    assert "5%" in "\n".join(lines)
 
 
-def test_a_missing_vector_store_is_a_gap_not_a_crash():
-    """`stats` omits the section entirely when the table does not exist."""
-    info = {"sqlite": {"chunks_total": 500, "chunks_embedded": 500}}
+def test_orphaned_vectors_are_reported():
+    """More rows than SQLite believes were embedded: results that cannot open.
 
-    gap = cli.embedding_gap(info)
+    **Coverage must be complete for this branch to be reached.** The partial
+    branch returns first, so a store that is both under-covered and holding
+    orphans reports only the under-coverage - which is the right priority (a
+    missing vector is worse than a stale one) but is worth pinning, because it
+    is invisible from reading the branches in order.
+    """
+    lines = "\n".join(warnings_for(1000, 500, 1000))
 
-    assert gap is not None
-    assert gap["rows"] == 0
-    assert gap["missing"] == 500
-
-
-def test_stats_says_which_and_names_the_remedy(capsys):
-    """A number without an action is a number somebody has to research."""
-    cli._report_embedding_gap({
-        "sqlite": {"chunks_total": 3355, "chunks_embedded": 3355},
-        "vectors": {"rows": 154},
-    })
-
-    out = capsys.readouterr().out
-    assert "154" in out and "3,355" in out
-    assert "reembed" in out, "it did not say how to fix it"
-    assert "Keyword search is unaffected" in out
+    assert "orphan" in lines.lower()
+    assert "reembed --all" in lines
 
 
-def test_stats_confirms_when_the_stores_agree(capsys):
-    """Silence on success is indistinguishable from the check not running."""
-    cli._report_embedding_gap({
-        "sqlite": {"chunks_total": 500, "chunks_embedded": 500},
-        "vectors": {"rows": 500},
-    })
+def test_under_coverage_is_reported_before_orphans():
+    """Both wrong at once: say the worse thing. A missing vector cannot be
+    found at all; a stale one merely fails to open."""
+    lines = "\n".join(warnings_for(1000, 400, 800))
 
-    assert "ready" in capsys.readouterr().out
+    assert "covers 80%" in lines
+    assert "orphan" not in lines.lower()
+
+
+def test_a_healthy_index_says_nothing():
+    """Above 95%, silence. Otherwise the signal is noise within a week."""
+    assert warnings_for(1000, 1000, 1000) == []
+    assert warnings_for(1000, 1000, 980) == [], "96% should not nag"
+
+
+def test_nothing_indexed_is_not_a_warning():
+    """An empty index is a state, not a fault."""
+    assert warnings_for(0, 0, 0) == []
+    assert cli.semantic_search_warnings(None, None) == []
 
 
 def test_stats_runs_end_to_end_on_an_empty_index(tmp_path, capsys):
@@ -468,3 +487,39 @@ def test_stats_runs_end_to_end_on_an_empty_index(tmp_path, capsys):
 
     assert cli.cmd_stats(parser_for(["stats", "--env", env])) == cli.EXIT_OK
     assert "Vector store" in capsys.readouterr().out
+
+
+def test_reembed_says_what_it_is_doing_before_the_silence(tmp_path, capsys, monkeypatch):
+    """"This seems stuck" - and it was not.
+
+    Nothing printed until the first batch of 256 finished. At the 4.4
+    passages/second `embed-bench` measures on a real machine that is nearly a
+    minute of silent terminal, and the correct response to a silent terminal is
+    to kill it, which loses the work.
+
+    The standing rule is that nothing fails silently. A long operation that
+    says nothing is the same fault in different clothes: there is no way to
+    tell it from one that has died.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+
+    from app.core.config import load_settings
+    settings = load_settings(pathlib.Path(env), check_writable=False)
+    with SqliteStore(settings.fts_db) as store:
+        file_id = store.upsert_file(path="/a.txt", size_bytes=1, mtime_ns=1,
+                                    source_kind="file")
+        store.replace_chunks(file_id, [{"text": f"passage {n}"} for n in range(4)])
+    capsys.readouterr()
+
+    # The model cannot load here, and does not need to: what is under test is
+    # that something is said *before* it is reached.
+    with contextlib.suppress(Exception):
+        cli.cmd_reembed(parser_for(["reembed", "--env", env]))
+
+    out = capsys.readouterr().out
+    assert "Embedding" in out, "it started work without saying so"
+    assert "4" in out, "it did not say how many passages"
+    assert "first line" in out, "it did not warn that the first line is slow"
