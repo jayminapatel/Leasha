@@ -30,6 +30,7 @@ from types import TracebackType
 from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence, Type
 
 from app.core.errors import AppError, AppErrorException, make_error
+from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
 from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 
@@ -492,6 +493,43 @@ class SqliteStore:
                 (status, error.code, error.message, file_id),
             )
 
+    def optimize_fts(self) -> bool:
+        r"""Merge the FTS5 index's b-tree segments into one. Never raises.
+
+        **This has never been run in this application.** `PRAGMA optimize` is
+        called on close, and that is the query planner's statistics - a
+        different thing entirely. FTS5 keeps its own segmented index, one
+        segment per batch of inserts, and every query touches all of them. An
+        index built over tens of millions of chunks across a week-long run
+        accumulates thousands, and keyword search gets slower in proportion,
+        for ever, with nothing to explain it.
+
+        `INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')` is the merge.
+        It rewrites the whole index, so it is **not** something to do after
+        every incremental pass - the caller decides, and `Pipeline` only asks
+        after a run that added a meaningful number of chunks.
+
+        Returns whether it ran. A failure costs a slower index, never a run:
+        an older SQLite without FTS5, a locked database, an index that is not
+        there yet - none of those are reasons to fail a week of work at the
+        very end of it.
+        """
+        try:
+            with self.write() as conn:
+                conn.execute(
+                    "INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
+            return True
+        except Exception as exc:                  # noqa: BLE001 - see the docstring
+            # **Deliberately every exception, not just `sqlite3.Error`.** A
+            # closed store raises `AppErrorException` from `write()`, and a
+            # background job that outlives the window hits exactly that - at
+            # which point "the keyword index could not be merged" must not be
+            # the thing that fails a week of work.
+            _log.warning(
+                "the keyword index was not merged, so searches stay slower "
+                "than they need to be: {}", exc)
+            return False
+
     def browse_messages(
         self,
         *,
@@ -734,13 +772,19 @@ class SqliteStore:
             for ordinal, chunk in enumerate(chunks):
                 cursor = conn.execute(
                     """
-                    INSERT INTO chunks (file_id, ordinal, text, char_start, char_end, page, embedded)
-                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                    INSERT INTO chunks (file_id, ordinal, text, symbols,
+                                        char_start, char_end, page, embedded)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
                     """,
                     (
                         file_id,
                         chunk.get("ordinal", ordinal),
                         chunk["text"],
+                        # camelCase split forms, so `password` finds
+                        # `ResetPasswordHandler`. Empty for prose - see
+                        # app/core/identifiers.py for why this is not the
+                        # whole text again.
+                        symbol_tokens(chunk["text"]),
                         chunk.get("char_start"),
                         chunk.get("char_end"),
                         chunk.get("page"),

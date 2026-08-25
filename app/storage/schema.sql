@@ -98,7 +98,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     char_start  INTEGER,                     -- offsets into the extracted text,
     char_end    INTEGER,                     -- so results can highlight in place
     page        INTEGER,                     -- PDF page / slide number / sheet ref
-    embedded    INTEGER NOT NULL DEFAULT 0
+    embedded    INTEGER NOT NULL DEFAULT 0,
+    -- Split forms of camelCase identifiers found in `text`, indexed beside it.
+    -- Empty for prose, which is most documents. See app/core/identifiers.py.
+    symbols     TEXT    NOT NULL DEFAULT ''
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_file_ord ON chunks(file_id, ordinal);
@@ -141,8 +144,15 @@ CREATE INDEX IF NOT EXISTS idx_messages_sent   ON messages(sent_at);
 -- Full-text index — external content table over `chunks`
 -- ---------------------------------------------------------------------------
 
+-- `symbols` holds the split forms of camelCase and PascalCase identifiers -
+-- "ResetPasswordHandler" indexes "Reset Password Handler" beside it, so a
+-- search for "password" reaches it. snake_case, kebab-case and dotted names
+-- need nothing: unicode61 already splits on every non-alphanumeric character.
+-- MATCH against the table searches both columns, so no query knows this exists.
+-- See app/core/identifiers.py.
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     text,
+    symbols,
     content='chunks',
     content_rowid='id',
     tokenize='porter unicode61'
@@ -150,16 +160,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 
 -- External-content FTS5 tables are not maintained automatically.
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+    INSERT INTO chunks_fts(rowid, text, symbols) VALUES (new.id, new.text, new.symbols);
 END;
 
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+    VALUES ('delete', old.id, old.text, old.symbols);
 END;
 
 CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
-    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+    VALUES ('delete', old.id, old.text, old.symbols);
+    INSERT INTO chunks_fts(rowid, text, symbols) VALUES (new.id, new.text, new.symbols);
 END;
 
 -- ---------------------------------------------------------------------------

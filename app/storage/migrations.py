@@ -27,7 +27,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS"]
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -251,12 +251,99 @@ def _v6_repositories(conn: sqlite3.Connection) -> None:
 
 #: version -> callable applying the step that produces it.
 #: Version 1 is the baseline created by schema.sql, so it has no step here.
+def _v7_identifier_tokens(conn: sqlite3.Connection) -> None:
+    r"""Index `ResetPasswordHandler` so that searching `password` finds it.
+
+    **Measured before it was built.** FTS5's `unicode61` tokenizer already
+    splits on every non-alphanumeric character, so `get_user_name`,
+    `reset-password` and `Order.Service` are already three tokens each. Only
+    **camelCase and PascalCase** carry their boundaries in capitalisation, and
+    those are stored as a single token - so no search for `password` could ever
+    reach `ResetPasswordHandler`.
+
+    `chunks` gains a `symbols` column holding the split parts, and `chunks_fts`
+    gains a column over it. `MATCH` against the table searches every column, so
+    no query has to know this exists.
+
+    **The FTS table is rebuilt, not altered.** FTS5 has no `ALTER TABLE ... ADD
+    COLUMN`, and an external-content table's column list must match the columns
+    the triggers feed it. Dropping and recreating is the only route, and the
+    `rebuild` command repopulates it from `chunks` without re-reading a single
+    file from disk - which matters when the alternative is re-indexing 600GB.
+
+    Column weights are set at query time, not here: the split forms are a weaker
+    signal than the text as written, and `bm25()` takes per-column weights.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+    if "symbols" not in columns:
+        conn.execute("ALTER TABLE chunks ADD COLUMN symbols TEXT NOT NULL DEFAULT ''")
+
+    # Backfill before the FTS rebuild, so the rebuild sees the finished column.
+    # Done in Python rather than SQL because the splitting rules are a hundred
+    # lines of regex with acronym handling - see app/core/identifiers.py - and
+    # a second implementation in SQL would drift from the first within a month.
+    # `app.core`, not `app.search` - the comment two lines above already says
+    # so. As written this raised ModuleNotFoundError inside the v7 migration,
+    # which runs on `connect()`, so every store in the application failed to
+    # open and every test that touches one failed at setup.
+    from app.core.identifiers import symbol_tokens
+
+    rows = conn.execute(
+        "SELECT id, text FROM chunks WHERE symbols = '' AND text IS NOT NULL"
+    ).fetchall()
+    updates = []
+    for chunk_id, text in rows:
+        tokens = symbol_tokens(text or "")
+        if tokens:
+            updates.append((tokens, chunk_id))
+    if updates:
+        conn.executemany("UPDATE chunks SET symbols = ? WHERE id = ?", updates)
+
+    conn.execute("DROP TRIGGER IF EXISTS chunks_ai")
+    conn.execute("DROP TRIGGER IF EXISTS chunks_ad")
+    conn.execute("DROP TRIGGER IF EXISTS chunks_au")
+    conn.execute("DROP TABLE IF EXISTS chunks_fts")
+    conn.execute("""
+        CREATE VIRTUAL TABLE chunks_fts USING fts5(
+            text,
+            symbols,
+            content='chunks',
+            content_rowid='id',
+            tokenize='porter unicode61'
+        )
+    """)
+    conn.execute("""
+        CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+            INSERT INTO chunks_fts(rowid, text, symbols)
+            VALUES (new.id, new.text, new.symbols);
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+            VALUES ('delete', old.id, old.text, old.symbols);
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER chunks_au AFTER UPDATE ON chunks BEGIN
+            INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+            VALUES ('delete', old.id, old.text, old.symbols);
+            INSERT INTO chunks_fts(rowid, text, symbols)
+            VALUES (new.id, new.text, new.symbols);
+        END
+    """)
+    # Repopulate from the content table. Cheap next to a re-index and the only
+    # way to get the existing rows into the new column list.
+    conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
     4: _v4_filename_index,
     5: _v5_missing_indexes,
     6: _v6_repositories,
+    7: _v7_identifier_tokens,
 }
 
 

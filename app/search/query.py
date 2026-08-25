@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Optional, Sequence
 
+from app.core.identifiers import expand_term, has_case_boundary
+
 __all__ = [
     "ParsedQuery",
     "parse_query",
@@ -453,13 +455,32 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
 
 
 def _fts_quote(value: str) -> str:
-    """Wrap a token as an FTS5 string literal, preserving a trailing prefix star.
+    r"""Wrap a token as an FTS5 string literal, preserving a trailing prefix star.
 
     Everything is quoted, so no token can ever be read as FTS5 syntax. `AND`,
     `NOT`, `*`, `(` and a lone `"` all become ordinary text.
+
+    **A camelCase word also matches its split spelling.** Somebody who types
+    `getUserName` means the same thing as `get_user_name`, but the two tokenize
+    differently: the second is already three tokens (`unicode61` splits on the
+    underscore) and therefore contains no token `getusername` at all. So the
+    term becomes `("getUserName" OR ("get" AND "user" AND "name"))`.
+
+    The document side of the same problem is handled by the `symbols` column -
+    see `app/core/identifiers.py`. Both halves are needed and neither is
+    sufficient: this one finds the underscored spelling, that one finds the
+    camelCase spelling, and a word with no capital in the middle of it - which
+    is nearly every word anybody ever searches for - takes neither path and is
+    quoted exactly as before.
     """
     prefix = value.endswith("*")
     body = value[:-1] if prefix else value
+
+    # A prefix search is left alone: `getUser*` already matches `getUserName`,
+    # and expanding it would turn one cheap prefix scan into three.
+    if not prefix and has_case_boundary(body):
+        return expand_term(body)
+
     body = body.replace('"', '""')
     if not body:
         return ""
