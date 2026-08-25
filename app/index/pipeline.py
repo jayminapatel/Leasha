@@ -206,6 +206,14 @@ class PipelineConfig:
     #: Retry files previously skipped as locked - the program holding them may
     #: well have closed since.
     retry_locked: bool = True
+    #: Index every file found, whatever the change detector says.
+    #:
+    #: **The escape hatch that was missing.** Change detection decided a file
+    #: was unchanged from its `files` row alone, and there was no way to
+    #: overrule it - so a corpus whose rows said INDEXED while holding no chunks
+    #: could never be rebuilt except by deleting the database. Seventeen files
+    #: seen, seventeen unchanged, zero chunks, and the run reported success.
+    force: bool = False
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -622,6 +630,21 @@ class Pipeline:
             )
             return ""                        # queue it; the worker reports properly
 
+        if self.config.force:
+            return digest                    # `--force`: index it whatever the row says
+
+        # **`status == INDEXED` is trusted, and a row can lie.**
+        #
+        # A file recorded as INDEXED that produced no chunks is skipped for ever:
+        # every later run reports it as unchanged, the totals look healthy, and
+        # its content is not searchable. That is the same shape as the `.pst`
+        # bug this method's docstring describes - "the run was a success by
+        # every number it printed" - reappearing through a different door.
+        #
+        # Checking the chunk count here would cost a query per file on a 100GB
+        # walk, which is why the row is trusted. `--force` is the answer
+        # instead: the trust is cheap and overridable rather than expensive and
+        # absolute.
         if not changed and record is not None and record.status == FileStatus.INDEXED:
             return UNCHANGED
         return digest

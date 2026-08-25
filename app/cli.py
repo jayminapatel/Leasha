@@ -954,6 +954,7 @@ def cmd_index(args: argparse.Namespace) -> int:
         min_free_gb=settings.min_free_gb,
         verify_hash=not args.fast,
         prune_missing=not args.no_prune,
+        force=bool(getattr(args, "force", False)),
     )
 
     embedder = Embedder(
@@ -2489,6 +2490,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument("--full-speed", action="store_true",
                          help="no CPU, battery or priority limits - for a machine "
                               "nobody is using. Will make this one feel slow.")
+    p_index.add_argument(
+        "--force", action="store_true",
+        help="index every file found, ignoring change detection. Use when the\nindex says a file is up to date but its content is missing.")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
     p_index.set_defaults(func=cmd_index)
 
