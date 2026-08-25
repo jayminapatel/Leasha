@@ -23,13 +23,27 @@ __all__ = ["SORT_ROLE", "SortableItem", "SortableTreeItem"]
 #: The role holding the value a column should actually sort on.
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
+#: What a column may sort on. **Anything else is ignored**, and that is a fix
+#: rather than a nicety: `ResultTable` once stored the whole row object at this
+#: number, so Mail's "From" column sorted by comparing `MailRow` instances.
+#: Roles are integers picked in different files, and a collision cannot be
+#: prevented by care alone - so the comparison refuses what it cannot order and
+#: falls back to the text, which is what the column showed anyway.
+_ORDERABLE = (int, float, str, bool)
+
+
+def _sortable(value: object) -> object:
+    """`value` if a column can be ordered by it, else None."""
+    return value if isinstance(value, _ORDERABLE) else None
+
 
 class SortableItem(QTableWidgetItem):
     """A cell that sorts on `SORT_ROLE` when it has one."""
 
     def __lt__(self, other: QTableWidgetItem) -> bool:      # noqa: D105 - Qt's hook
-        mine = self.data(SORT_ROLE)
-        theirs = other.data(SORT_ROLE) if isinstance(other, QTableWidgetItem) else None
+        mine = _sortable(self.data(SORT_ROLE))
+        theirs = _sortable(
+            other.data(SORT_ROLE) if isinstance(other, QTableWidgetItem) else None)
         if mine is None or theirs is None:
             # A column that stores a sort value for some rows and not others
             # still orders sensibly instead of raising in the middle of a sort
@@ -56,9 +70,9 @@ class SortableTreeItem(QTreeWidgetItem):
     def __lt__(self, other: object) -> bool:                 # noqa: D105 - Qt's hook
         tree = self.treeWidget()
         column = tree.sortColumn() if tree is not None else 0
-        mine = self.data(column, SORT_ROLE)
-        theirs = (other.data(column, SORT_ROLE)
-                  if isinstance(other, QTreeWidgetItem) else None)
+        mine = _sortable(self.data(column, SORT_ROLE))
+        theirs = _sortable(other.data(column, SORT_ROLE)
+                           if isinstance(other, QTreeWidgetItem) else None)
         if mine is None or theirs is None:
             return super().__lt__(other)
         try:

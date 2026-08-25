@@ -129,6 +129,7 @@ class CodeView(QWidget):
             self, store, PREFS_KEY,
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
             on_change=self._prefs_changed,
+            table=self.results.table,
         )
 
         self._timer = QTimer(self)

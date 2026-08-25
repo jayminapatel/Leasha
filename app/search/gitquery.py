@@ -117,6 +117,12 @@ class GitQuery:
     tags: tuple[str, ...] = ()
     #: `a..b`, from `/range` or from `/between-tags`.
     rev_range: str = ""
+    #: Which repository to search. **Read here and never put in the command.**
+    #: git is *run inside* a checkout, so this is the caller's business - but it
+    #: has to be consumed by this parser rather than left in the free text, or
+    #: `/repo leasha CustomerId /history` searches for the literal string
+    #: "/repo leasha CustomerId".
+    repo: str = ""
 
     # -- how -----------------------------------------------------------------
     #: "text" (fixed string) | "regex" | "word"
@@ -227,6 +233,9 @@ def _c(name: str, aliases: tuple[str, ...], summary: str, example: str,
 #: files, who, when, and what happened to it.
 GIT_COMMANDS: tuple[Command, ...] = (
     # -- where ---------------------------------------------------------------
+    _c("repo", ("repository", "project"), "Which repository to search",
+       "/repo leasha", "a repository name, as listed in the Code tab", "⌥",
+       source="repo"),
     _c("branch", ("b",), "Search these branches instead of the checkout",
        "/branch develop", "a branch name, or several: develop,release", "⑂", source="branch"),
     _c("all-branches", ("allbranches",), "Search every local branch head",
@@ -519,6 +528,7 @@ def _assemble(words, seen, flags, single, depth) -> GitQuery:
         commits=tuple(seen["commits"]),
         tags=tuple(seen["tags"]),
         rev_range=rev_range,
+        repo=single.get("repo", ""),
         method=method,
         ignore_case="ignore-case" in flags,
         declaration=declaration,

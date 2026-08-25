@@ -33,16 +33,30 @@ from app.ui.widgets.result_table import ResultTable
 __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 
 #: (key, heading, attribute, right-aligned?).
+#:
+#: **Every column a code row can fill**, asked for directly: *"on code list all
+#: all columns which can be viewed for code"*. Which of them are *offered* is
+#: still decided by the rows on screen - `available_columns` hides a column no
+#: row can fill, because a column of blanks takes width from the ones that
+#: matter and reads as a broken index.
+#:
+#: `full` is the whole path where `path` is shortened for the column. Both are
+#: offered because they answer different questions: "where in the repository"
+#: and "where on this machine", and the second is the one somebody copies.
 COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("name", "Name", "name", False),
     ("repo", "Repository", "repo", False),
     ("kind", "Kind", "kind", False),
+    ("size", "Size", "size", True),
     ("seen", "When", "seen", False),
+    ("status", "Status", "status", False),
     ("path", "Where", "path", False),
+    ("full", "Full path", "full_path", False),
 )
 
-#: A code list with no names is not a list.
-ALWAYS_OFFERED = ("name",)
+#: A code list with no names is not a list, and one that cannot say which
+#: repository a file is in is the tree this replaced.
+ALWAYS_OFFERED = ("name", "repo")
 
 
 class CodeResults(QWidget):

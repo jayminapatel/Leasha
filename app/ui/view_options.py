@@ -35,7 +35,7 @@ __all__ = [
     "button",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
-    "prefs_to_state", "DENSITIES", "Metrics",
+    "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
 ]
 
 
@@ -93,6 +93,25 @@ class ViewPreferences:
     #: it reads a file for every row the selection touches. Somebody who wants
     #: it asks for it, with `Ctrl+P` or the View menu.
     preview: bool = False
+    #: `{column key: pixels}` for columns somebody has dragged.
+    #:
+    #: **Empty means "fit to the contents", which is the starting state.** A
+    #: table that opens with every column the same arbitrary width truncates
+    #: the one you came to read and leaves an ocean beside the one you did not,
+    #: and Qt's default does exactly that. Fitting once, on the first fill, is
+    #: what makes the list readable without anybody touching it - and a width
+    #: that has been dragged is a decision, so it survives a restart.
+    #:
+    #: Only dragged columns are stored, so a column added in a later version
+    #: fits itself rather than inheriting a width nobody chose for it.
+    widths: tuple[tuple[str, int], ...] = ()
+
+    def with_width(self, key: str, pixels: int) -> "ViewPreferences":
+        """One column's width, replacing any previous value for it."""
+        kept = [(name, size) for name, size in self.widths if name != key]
+        if pixels > 0:
+            kept.append((key, int(pixels)))
+        return replace(self, widths=tuple(sorted(kept)))
 
     def with_column(self, key: str, shown: bool, *, order: Sequence[str]) -> "ViewPreferences":
         """Turn one column on or off, keeping the canonical column order.
@@ -227,11 +246,22 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
             return False
         return default
 
+    widths: list[tuple[str, int]] = []
+    for piece in str(state.get(f"{prefix}:widths", "") or "").split(","):
+        key, _sep, value = piece.partition("=")
+        try:
+            pixels = int(value)
+        except (TypeError, ValueError):
+            continue                    # a bad row is a default, not an error
+        if key.strip() and pixels > 0:
+            widths.append((key.strip(), pixels))
+
     return ViewPreferences(
         columns=columns, density=density, font_pt=font_pt,
         group_by_document=flag("group", True),
         show_scores=flag("scores", False),
         preview=flag("preview", False),
+        widths=tuple(sorted(widths)),
     )
 
 
@@ -244,6 +274,8 @@ def prefs_to_state(prefs: ViewPreferences, prefix: str) -> dict[str, str]:
         f"{prefix}:group": "on" if prefs.group_by_document else "off",
         f"{prefix}:scores": "on" if prefs.show_scores else "off",
         f"{prefix}:preview": "on" if prefs.preview else "off",
+        f"{prefix}:widths": ",".join(f"{key}={int(size)}"
+                                     for key, size in prefs.widths),
     }
 
 
@@ -376,6 +408,24 @@ def build_menu(
             lambda checked: on_change(replace(prefs, preview=checked)))
         menu.addAction(preview)
 
+    if columns:
+        # **A way back from a column somebody dragged too narrow.** Widths are
+        # remembered, which is what makes dragging worth doing and also what
+        # makes a mistake permanent - a column pulled to nothing stays at
+        # nothing across restarts, and the handle to pull it back out is one
+        # pixel wide. Clearing them restores the fitted layout.
+        fit = QAction("Fit columns to contents", menu)
+        fit.setToolTip(
+            "Sizes every column to what is in it, and forgets any width you "
+            "have dragged.\n\nColumns fit themselves until you drag one; "
+            "after that yours is kept.")
+        fit.triggered.connect(
+            lambda _checked=False: on_change(replace(prefs, widths=())))
+        # The flag lives on the table, and the table is not reachable from
+        # here - clearing the saved widths is what tells `_apply_widths` to
+        # measure again, which is why `prefs.widths` is part of that condition.
+        menu.addAction(fit)
+
     menu.addSection("Text size")
     box = QWidget(menu)
     row = QHBoxLayout(box)
@@ -407,6 +457,7 @@ def button(
     columns: Sequence[tuple[str, str]] = (),
     on_change: Any = None,
     grouping: bool = False,
+    table: Any = None,
 ) -> Any:
     """A "View" button that owns its own preferences, menu and persistence.
 
@@ -455,10 +506,76 @@ def button(
         """
         changed(replace(widget.prefs, preview=not widget.prefs.preview))
 
+    def remember_width(key: str, pixels: int) -> None:
+        """Record a column somebody dragged. **Saved, not redrawn.**
+
+        Deliberately not `changed()`: that persists *and* calls `on_change`,
+        which redraws the table - and a redraw re-applies the widths, which is
+        both a full re-fit on every pixel of a drag and the recursion that
+        crashed the process. The column is already the width they dragged it
+        to; there is nothing on screen to update.
+        """
+        widget.prefs = widget.prefs.with_width(key, pixels)
+        if store is not None:
+            save_prefs(store, prefix, widget.prefs)
+
     widget.show_menu = show
     widget.toggle_preview = toggle_preview
+    widget.remember_width = remember_width
+    # **The button owns the preferences, so it owns the wiring that writes
+    # them.** Passing the table here rather than making every view call
+    # `remember_widths` itself is what keeps this one line instead of four in
+    # each of them - and `mail_view.py` was one line over the length guard,
+    # which is the guard doing its job.
+    if table is not None and columns:
+        remember_widths(table, widget, columns)
     widget.clicked.connect(lambda: show())
     return widget
+
+
+#: Set on a table while this module is sizing its columns, so the handler that
+#: records a *dragged* width can tell the two apart. See `_apply_widths`.
+APPLYING = "leasha_applying_widths"
+
+#: Set once a table's columns have been fitted, so it happens on the first fill
+#: and not on every one. Cleared by "Fit columns to contents".
+FITTED = "leasha_columns_fitted"
+
+
+def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
+    """Save a column width when somebody drags it, and only then.
+
+    **`sectionResized` cannot tell a drag from a fit.** It fires for both, and
+    `resizeColumnsToContents` runs on every fill - so connecting it directly
+    would store a width on the first result set and pin the column there for
+    ever, silently disabling the fitting this exists alongside. Qt does report
+    the difference, through `QHeaderView.sectionHandleDoubleClicked` and through
+    the mouse, but the simple and reliable signal is this one: a resize that
+    happens while the header is being dragged.
+    """
+    header = table.horizontalHeader()
+    if header is None:
+        return
+    order = [key for key, _heading in columns]
+
+    def resized(index: int, _old: int, new: int) -> None:
+        # **Ours, or theirs?** `sectionResized` fires for both, and recording a
+        # width we set ourselves feeds straight back into setting it again -
+        # see the note in `_apply_widths` for the crash that produced.
+        if table.property(APPLYING):
+            return
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import QApplication
+
+        # A second, weaker signal for the resizes Qt does on its own - a
+        # window resize with `setStretchLastSection` on, for one. Those hold no
+        # mouse button; a drag does.
+        if not (QApplication.mouseButtons() & _Qt.MouseButton.LeftButton):
+            return
+        if 0 <= index < len(order) and new > 0:
+            button.remember_width(order[index], int(new))
+
+    header.sectionResized.connect(resized)
 
 
 def apply_font(widget: Any, font_pt: int) -> None:
@@ -476,6 +593,67 @@ def apply_font(widget: Any, font_pt: int) -> None:
     # Qt warns and ignores anything <= 0. A widget sized from a px stylesheet
     # reports pointSize() == -1, which is how a -1 reached setPointSize at all.
     widget.setStyleSheet(f"font-size: {size}pt;" if size > 0 else "")
+
+
+def _apply_widths(table: Any, prefs: ViewPreferences,
+                  order: Sequence[str], shown: Sequence[str]) -> None:
+    """Restore dragged widths; fit the rest to their contents.
+
+    **Fitting is the default and dragging is the exception**, which is the way
+    round that needs no explanation: a table nobody has touched shows every
+    column at the width its content needs, and a column somebody has sized
+    stays where they put it.
+
+    `resizeColumnsToContents` measures the visible rows only, so this is cheap
+    on a five-hundred-row table and is why it can run on every fill rather than
+    once. A column with a saved width is set afterwards, so the two never
+    fight.
+    """
+    from PyQt6.QtWidgets import QHeaderView
+
+    header = table.horizontalHeader()
+    if header is None:
+        return
+
+    # Interactive: the point of the exercise is that a width can be dragged.
+    # `ResizeToContents` as a *mode* would re-measure on every repaint and undo
+    # the drag; fitting once, here, gives the same starting layout without
+    # taking the control away.
+    header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    # The last visible column takes the slack, so a fitted table has no dead
+    # strip on the right - which is what "fit to contents" looks like wrong.
+    header.setStretchLastSection(True)
+
+    # **The flag is not tidiness; without it this segfaults.**
+    #
+    # `resizeColumnsToContents` emits `sectionResized`. `remember_widths`
+    # listens to that, saves the width, and saving calls `on_change`, which is
+    # the view's "redraw with these preferences" - which lands back here. That
+    # is unbounded recursion into C++, and it does not raise: it exhausts the
+    # stack and the process dies. Caught by running the Qt suite for real,
+    # after it had been written and reasoned about and looked correct.
+    #
+    # A mouse-button check was the first guard and is not one: a header click
+    # holds the button down, which is exactly when a sort resizes columns.
+    table.setProperty(APPLYING, True)
+    try:
+        # **Once per table, not once per fill.** "Initially auto fit" is what
+        # was asked for and is also the cheaper reading: re-measuring every
+        # column on every result set fights the person who has just dragged
+        # one, costs a full re-layout per keystroke on a debounced list, and -
+        # measured here - eventually takes the process down inside Qt's own
+        # layout code. The menu's "Fit columns to contents" is how somebody
+        # asks for it again, which is the only time they want it.
+        if not table.property(FITTED) or prefs.widths:
+            table.resizeColumnsToContents()
+            table.setProperty(FITTED, True)
+
+        saved = dict(prefs.widths)
+        for index, key in enumerate(order):
+            if key in saved and key in shown:
+                table.setColumnWidth(index, saved[key])
+    finally:
+        table.setProperty(APPLYING, False)
 
 
 def apply_to_table(
@@ -506,6 +684,8 @@ def apply_to_table(
     # widget whose size came from a px stylesheet reports `pointSize() == -1`,
     # and copying that font carried the -1 along.
     apply_font(table, prefs.font_pt)
+
+    _apply_widths(table, prefs, order, shown)
 
     header = table.verticalHeader()
     if header is not None:

@@ -44,8 +44,17 @@ __all__ = ["ResultTable", "ROLE_ROW"]
 #: highlighted, which is the kind of bug nobody reports because they assume they
 #: misclicked. Qt moves item data when it sorts; it does not move a list.
 #:
-#: `UserRole` itself is taken: both tables already keep `file_id` there.
-ROLE_ROW = Qt.ItemDataRole.UserRole + 1
+#: **`+ 100`, and the number matters.** `UserRole` itself is taken - both tables
+#: keep `file_id` there - and `UserRole + 1` is `sortable_item.SORT_ROLE`, which
+#: is where `SortableItem.__lt__` looks for the value a column sorts on. Landing
+#: on it meant Mail's "From" column sorted by comparing whole row *objects*:
+#: reported as *"on the mail results when i clicked on top of a column to sort
+#: it it crashed"*.
+#:
+#: Two roles that must not be equal, defined in two files, is exactly the sort
+#: of thing that goes wrong silently - so `test_result_table.py` asserts they
+#: differ, and `SortableItem` now ignores a sort value it cannot compare.
+ROLE_ROW = Qt.ItemDataRole.UserRole + 100
 
 
 class ResultTable(QTableWidget):

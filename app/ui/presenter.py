@@ -1720,6 +1720,11 @@ class RepoFileRow:
     #: flat list has to say it in a column - "where is that file" is the
     #: question somebody arrives with, and the repository is the answer.
     repo: str = ""
+    #: INDEXED, SKIPPED, FAILED or PENDING - straight from the store. Shown as
+    #: a column because "it is in the list but I cannot search inside it" is a
+    #: real and useful thing to know, and hiding it invites the same search
+    #: twice.
+    status: str = ""
     #: Text the preview pane should draw instead of reading the file. Filled
     #: for a *historical* hit, whose version no longer exists on disk - see
     #: `preview_loader.load_preview_for`. Empty for a file in the checkout,
@@ -1751,6 +1756,7 @@ def repo_file_rows(
         ext = str(field(record, "ext", "") or "").lower().lstrip(".")
         out.append(RepoFileRow(
             repo=str(field(record, "repo", "") or ""),
+            status=str(field(record, "status", "") or ""),
             name=path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path,
             size=format_size(size),
             kind=ext,
@@ -2006,8 +2012,14 @@ def code_route(text: str) -> CodeRoute:
 
     if named:
         query = parse_git_query(raw)
+        # **`/repo` is consumed by the git parser too**, and has to be: git is
+        # *run inside* a checkout, so which one is the caller's business - but
+        # left in the free text it becomes part of the pattern, and
+        # `/repo leasha CustomerId /history` searched for the literal string
+        # "/repo leasha CustomerId". The symptom before that was "name a
+        # repository first" in answer to a line that named one.
         return CodeRoute(
-            engine="git", text=query.text, repo="",
+            engine="git", text=query.text, repo=query.repo,
             extensions=query.extensions,
             because="/" + ", /".join(sorted(set(named))),
         )
@@ -2111,20 +2123,27 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     found = [value for value in command.values
              if not wanted or wanted in value.lower()]
 
-    # `lookup` is the Code tab's: repository values come from git, not from
-    # the index, and the shape of the question - "what values does this switch
-    # have here" - is the same one.
-    reader = lookup or (
-        (lambda kind, prefix, limit: store.distinct_values(
+    # **Both readers, in order, not one or the other.** The Code tab is a
+    # single box over two engines, so its switches are sourced from two places:
+    # `/branch` and `/author` only git can answer, `/type` and `/repo` only the
+    # index can. Taking `lookup` *instead of* the store left `/type` offering
+    # nothing on the one tab where code file types matter most - the menu was
+    # there, it opened, and it was empty.
+    readers = []
+    if lookup is not None:
+        readers.append(lookup)
+    if store is not None:
+        readers.append(lambda kind, prefix, limit: store.distinct_values(
             kind, prefix=prefix, limit=limit))
-        if store is not None else None)
 
-    if command.source and reader is not None:
+    for reader in readers if command.source else ():
         try:
             found += [value for value in reader(command.source, wanted, limit)
                       if value not in found]
         except Exception as exc:                # noqa: BLE001 - see the docstring
             _log.debug("no {} suggestions: {}", command.source, exc)
+        if len(found) >= limit:
+            break
 
     return found[:limit]
 

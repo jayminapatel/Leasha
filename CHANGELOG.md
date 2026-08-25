@@ -1,12 +1,75 @@
 # Changelog
 
-**Doc version:** 3.34 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.35 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — six things in the window, four reported and two found on the way
+
+The Qt suite has never run in this project's headless environment — `libEGL` is
+absent, so every test that touches a widget was skipped. Installing it changed
+the character of this work completely: each of these was **reproduced before it
+was fixed**, and two of them were not on the list.
+
+**Sorting a Mail column.** `ResultTable.ROLE_ROW` was `UserRole + 1`, and so is
+`sortable_item.SORT_ROLE` — two role numbers that must differ, chosen in two
+files with nothing connecting them. Mail's "From" column was sorting by
+comparing whole `MailRow` objects. `ROLE_ROW` moved, a test asserts they differ,
+and `SortableItem` now ignores a sort value it cannot order, so the next
+collision degrades to sorting by text instead of misbehaving.
+
+**The `/` menu after its first use.** `set_values` lowers the popup to fit a
+value list; nothing put it back. After using `/type` once, the *command* menu
+returned one row tall for the rest of the session — which from the outside is
+exactly what a dropdown that has stopped working looks like.
+
+**What each switch expects.** The rows read `/type <type>`, which says a value
+goes there and nothing about which. They now read
+`/type <pdf, docx, xlsx, …>  Only this kind of file`, and a switch that takes no
+value says `(no value)` rather than showing a blank.
+
+**Column widths.** Every table fits its columns to their contents on the first
+fill, any column can be dragged, a dragged width is remembered per table, and
+the View menu has "Fit columns to contents" to undo one pulled too narrow.
+
+Two found while fixing those:
+
+**`/repo` was being lost on a git route.** Git's catalogue had no `/repo`,
+because git is *run inside* a checkout — so `/repo leasha CustomerId /history`
+either could not find its repository or searched for the literal string
+"/repo leasha CustomerId". It is parsed and consumed now, and never reaches the
+command.
+
+**A crash in the width code, ninety seconds after writing it.**
+`resizeColumnsToContents` emits `sectionResized`; the handler that records a
+dragged width saved the preference; saving redrew the table; the redraw resized
+the columns. Unbounded recursion into C++, which does not raise — it exhausts
+the stack and the process dies. The first guard was a mouse-button check, and
+that is not a guard: a header click holds the button down, which is exactly when
+a sort resizes columns. Fitting now happens once per table, and a flag tells our
+own resizes from a person's.
+
+### Added — every column a code row can fill
+
+Asked for: *"on code list all all columns which can be viewed for code"*. Name,
+Repository, Kind, Size, When, Status and both paths — the shortened one for the
+column and the full one for copying. Which are *offered* still depends on the
+rows on screen: a column no row can fill takes width from the ones that matter
+and reads as a broken index.
+
+### Fixed — the Qt suite could abort on any run, depending on collection order
+
+Several test modules wrote `QApplication.instance() or QApplication([])` and
+discarded the result. Where that line was the one creating the application,
+nothing held a reference, Python collected it, and the next widget built
+anywhere in the process aborted inside Qt. Which module hit it depended on
+collection order, so the same suite passed and crashed on alternate runs and the
+failure never pointed at the line responsible. One session-scoped fixture in
+`tests/conftest.py` now owns it.
 
 ### Added — a Visual Studio solution, and both editors now say Leasha
 

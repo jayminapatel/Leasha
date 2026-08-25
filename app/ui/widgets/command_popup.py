@@ -61,9 +61,20 @@ __all__ = [
     "MAIL_COMMANDS", "VALUE_ICON", "SUGGEST_TTL_S",
 ]
 
-#: Shown per row: what to type, then what it does. Wide enough that the example
-#: and the description both fit without the popup becoming a wall of text.
-_ROW = "{example:<22} {summary}"
+#: Shown per row: what to type, **what it expects**, and what it does.
+#:
+#: Asked for: *"in the dropdown / command should indicate what it expects as an
+#: argument"*. It used to read `/type <type>`, which says a value goes there and
+#: nothing about which - and a value guessed wrong returns nothing, which is
+#: indistinguishable from a filter that does not work. `/type <pdf, docx, …>`
+#: answers the question the menu is open to answer.
+_ROW = "{example:<26} {hint:<34} {summary}"
+
+#: How much of a value hint fits before the description is pushed off the row.
+#: The hints are written longest-useful-part-first for this reason - "pdf, docx,
+#: xlsx, email, code - or several: pdf,docx" still reads correctly cut at the
+#: comma.
+HINT_CHARS = 32
 
 #: The glyph beside a *value*. One for all of them: the row is a value of the
 #: command already chosen, and repeating that command's icon down the list says
@@ -79,6 +90,26 @@ SUGGEST_TTL_S = 120.0
 # where they can be tested: the rule they encode - search offers the union, each
 # tab a subset - is about the grammar, not about Qt, and asserting it should not
 # need a display.
+
+
+def _hint(command: Any) -> str:
+    """What this switch expects, short enough to sit in a row.
+
+    A switch that takes no value says so rather than showing an empty column -
+    "no value needed" is the answer to "what do I put here" for `/history`, and
+    a blank is not.
+    """
+    text = str(getattr(command, "value_hint", "") or "").strip()
+    if not text:
+        return f"<{command.name}>"
+    if text.startswith("no value"):
+        return "(no value)"
+    if len(text) > HINT_CHARS:
+        # Cut at a comma when there is one near the end, so the hint reads as a
+        # shortened list rather than a word chopped in half.
+        cut = text.rfind(",", 0, HINT_CHARS)
+        text = text[:cut] + ", …" if cut > 12 else text[:HINT_CHARS - 1] + "…"
+    return f"<{text}>"
 
 
 class CommandPopup(QCompleter):
@@ -139,15 +170,25 @@ class CommandPopup(QCompleter):
         self.set_prefix("")
 
     def set_prefix(self, prefix: str) -> None:
-        """Narrow the list to commands matching what has been typed after `/`."""
+        """Narrow the list to commands matching what has been typed after `/`.
+
+        **The row count is restored here, and that is a fix.** `set_values`
+        lowers `maxVisibleItems` to fit a value list, and nothing put it back -
+        so after using `/type` once, the *command* menu came back one row tall
+        for the rest of the session. Reported as *"the / comands dont work
+        after first use on code windows"*, and from the outside that is exactly
+        what a one-line dropdown looks like.
+        """
         self.value_of = ""
+        self.setMaxVisibleItems(max(len(self._catalogue), 1))
         self._matches = [
             command for command in self._matcher(prefix)
             if self._only is None or command.name in self._only
         ]
         self._fill([
             (command.icon,
-             _ROW.format(example=f"/{command.name} <{command.name}>",
+             _ROW.format(example=f"/{command.name}",
+                         hint=_hint(command),
                          summary=command.summary))
             for command in self._matches
         ])

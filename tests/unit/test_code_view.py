@@ -90,8 +90,22 @@ class FakeStore:
 
 
 @pytest.fixture()
-def view(qapp):
+def view(qapp, monkeypatch):
+    """A view whose workers run inline.
+
+    **Every query this page makes goes to a worker**, which is the point - a
+    store read on the interface thread is the freeze this application has a
+    standing rule against. It also means nothing has happened by the time a
+    test returns from `_typed()`, so the first version of these tests asserted
+    on an empty list and failed for a reason that had nothing to do with the
+    feature. Running the worker inline keeps the assertions about behaviour.
+    """
+    def inline(_pool, worker):
+        worker.run()
+
+    monkeypatch.setattr("app.ui.code_view.run", inline)
     widget = CodeView(FakeStore())
+    widget.show()               # `isVisible` is False for a widget never shown
     widget._repos_read(widget._store.repos_list())
     return widget
 
@@ -142,7 +156,6 @@ def test_the_old_tree_and_the_old_git_panel_are_gone():
 def test_typing_asks_the_index_and_fills_the_list(view):
     view.input.setText("cli")
     view._typed()
-    view._show_files(view._store.code_files(), view._generation)
 
     assert "cli.py" in rows(view)
 
@@ -186,12 +199,14 @@ def test_enter_with_several_repositories_and_no_name_asks_rather_than_guesses(vi
 
 
 def test_enter_with_a_named_repository_starts_a_git_run(view, monkeypatch):
+    """**`/repo` has to survive the git parse.** git is run *inside* a
+    checkout, so which one is the caller's business - but a `/repo` left in the
+    free text became part of the pattern, and before that the run could not
+    find its repository at all and answered "name a repository first" to a line
+    that named one."""
     started: dict = {}
-
-    def fake_run(_pool, worker):
-        started["work"] = worker
-
-    monkeypatch.setattr("app.ui.code_view.run", fake_run)
+    monkeypatch.setattr("app.ui.code_view.run",
+                        lambda _pool, worker: started.setdefault("work", worker))
     view.input.setText("/repo leasha CustomerId /history")
     view.start()
 
@@ -237,6 +252,7 @@ def test_shutdown_is_safe_with_work_in_flight(view):
 
 def test_no_repositories_but_an_index_explains_what_one_is(qapp):
     widget = CodeView(FakeStore(repos=[], files_total=5_000))
+    widget.show()
     widget._repos_read([])
 
     assert widget.empty.isVisible()

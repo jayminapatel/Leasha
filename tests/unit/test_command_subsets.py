@@ -96,7 +96,11 @@ def test_the_popup_shows_only_what_it_was_restricted_to() -> None:
 
     from app.ui.widgets.command_popup import CommandPopup
 
-    QApplication.instance() or QApplication([])
+    # Held, not discarded: a QApplication nobody references is collected, and
+    # the next widget built in this process aborts. See the session fixture in
+    # `tests/conftest.py`.
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
     box = QLineEdit()
     popup = CommandPopup(box, only=("repo",))
     popup.set_prefix("")

@@ -132,6 +132,9 @@ class FilesView(QWidget):
             self, store, PREFS_KEY,
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
             on_change=self._prefs_changed,
+            # A dragged width is remembered; an automatic fit is not - see
+            # `view_options.remember_widths` for why that needs a guard.
+            table=self.results,
         )
 
         self._timer = QTimer(self)
