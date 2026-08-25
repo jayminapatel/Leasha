@@ -172,19 +172,29 @@ class ConversionResult:
 #:
 #: PATH is still checked first: somebody who has deliberately put a build on it
 #: means that one.
-_WINDOWS_LOCATIONS: dict[str, tuple[str, ...]] = {
-    "soffice": (r"LibreOffice\program\soffice.exe",),
-    "libreoffice": (r"LibreOffice\program\soffice.exe",),
-    "tesseract": (r"Tesseract-OCR\tesseract.exe",),
+#: name -> (the folders it installs into, the executable to look for)
+#:
+#: **Folders, not full paths, because the layout inside them varies.**
+#: The first version hardcoded `LibreDWG\bin\dwg2dxf.exe`, and a real install
+#: turned out to be `C:\Program Files\libredwg` with the executable somewhere
+#: else inside it. Guessing the exact layout for every project is how this table
+#: goes stale; searching the two or three arrangements that actually exist -
+#: the folder itself, `bin\`, `program\` - costs three `is_file()` calls and
+#: covers all of them.
+_WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
+    "soffice": (("LibreOffice",), "soffice.exe"),
+    "libreoffice": (("LibreOffice",), "soffice.exe"),
+    "tesseract": (("Tesseract-OCR",), "tesseract.exe"),
     # No `pandoc` entry: it came off ALLOWED_BINARIES when `.epub` and `.fb2`
     # moved in-process. A location for a name that cannot run is dead weight,
     # and `test_only_allowed_names_have_locations` is what caught it here.
-    "dwg2dxf": (r"LibreDWG\bin\dwg2dxf.exe", r"libredwg\bin\dwg2dxf.exe"),
-    "ODAFileConverter": (
-        r"ODA\ODAFileConverter\ODAFileConverter.exe",
-        r"ODA\ODAFileConverter_title 25.4.0\ODAFileConverter.exe",
-    ),
+    "dwg2dxf": (("libredwg", "LibreDWG"), "dwg2dxf.exe"),
+    "ODAFileConverter": (("ODA",), "ODAFileConverter.exe"),
 }
+
+#: Where an executable sits inside its install folder. `""` is the folder
+#: itself, which is how a zip extracted by hand usually looks.
+_WINDOWS_SUBDIRS = ("", "bin", "program")
 
 #: The roots `_WINDOWS_LOCATIONS` is resolved against, in order of preference.
 #: `LOCALAPPDATA\Programs` catches a per-user install, which is what somebody
@@ -212,9 +222,10 @@ def _installed_on_windows(name: str) -> Optional[str]:
     if not _is_windows():
         return None
 
-    candidates = _WINDOWS_LOCATIONS.get(name, ())
-    if not candidates:
+    entry = _WINDOWS_LOCATIONS.get(name)
+    if entry is None:
         return None
+    folders, executable = entry
 
     roots = [os.environ.get(key) for key in _WINDOWS_ROOTS]
     local = os.environ.get("LOCALAPPDATA")
@@ -224,18 +235,15 @@ def _installed_on_windows(name: str) -> Optional[str]:
     for root in roots:
         if not root:
             continue
-        for relative in candidates:
-            # Split on the backslash rather than handing it to `Path`: the table
-            # is written the way these paths look on Windows, and on any other
-            # platform a backslash is an ordinary filename character, so
-            # `Path(root) / r"a\b"` makes one segment called `a\b`. Splitting
-            # keeps the table readable and the test runnable anywhere.
-            candidate = Path(root, *relative.split("\\"))
-            try:
-                if candidate.is_file():
-                    return str(candidate)
-            except OSError:                      # a drive that is not there
-                continue
+        for folder in folders:
+            for sub in _WINDOWS_SUBDIRS:
+                parts = [root, folder] + ([sub] if sub else []) + [executable]
+                candidate = Path(*parts)
+                try:
+                    if candidate.is_file():
+                        return str(candidate)
+                except OSError:                  # a drive that is not there
+                    continue
     return None
 
 

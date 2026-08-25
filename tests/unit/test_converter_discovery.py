@@ -60,6 +60,43 @@ def test_the_allow_list_still_governs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert converter.resolve_binary("curl") is None
 
 
+def test_a_flat_install_folder_is_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """**The layout the first version missed.**
+
+    It hardcoded `LibreDWG\\bin\\dwg2dxf.exe`; the real install was
+    `C:\\Program Files\\libredwg`. Guessing each project's internal layout is
+    how this table goes stale, so the folder itself, `bin\\` and `program\\`
+    are all tried.
+    """
+    root = tmp_path / "Program Files"
+    exe = root / "libredwg" / "dwg2dxf.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(converter, "_is_windows", lambda: True)
+    monkeypatch.setattr(converter.shutil, "which", lambda name: None)
+    monkeypatch.setenv("ProgramFiles", str(root))
+
+    assert converter.resolve_binary("dwg2dxf") == str(exe)
+
+
+def test_a_bin_subfolder_is_found_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "Program Files"
+    exe = root / "libredwg" / "bin" / "dwg2dxf.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(converter, "_is_windows", lambda: True)
+    monkeypatch.setattr(converter.shutil, "which", lambda name: None)
+    monkeypatch.setenv("ProgramFiles", str(root))
+
+    assert converter.resolve_binary("dwg2dxf") == str(exe)
+
+
 def test_only_allowed_names_have_locations() -> None:
     """A location for a name that cannot run is dead weight, and a location for
     a name somebody later adds to the map is a way to run it."""
