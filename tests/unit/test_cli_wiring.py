@@ -22,6 +22,7 @@ function, and that the function runs to completion without raising.
 from __future__ import annotations
 
 import argparse
+import contextlib
 
 import pytest
 
@@ -285,3 +286,48 @@ def test_ollama_runs_without_ollama(tmp_path, capsys):
     args = parser_for(["ollama", "--env", env_file(tmp_path)])
     assert cli.cmd_ollama(args) in (cli.EXIT_OK, cli.EXIT_ERROR)
     assert "Ollama" in capsys.readouterr().out
+
+
+def test_search_warms_the_models_before_it_times_anything(tmp_path, monkeypatch):
+    """`timings_ms` must measure search, not process startup.
+
+    The window warms up on a background worker; the CLI did not, so both
+    models loaded lazily inside the timed block - `retrieve` included loading
+    the embedder and `rerank` included loading the cross-encoder.
+
+    A one-shot CLI search reported `rerank: 3047ms` for work the benchmark
+    measures at 660ms, and the gap was read as the reranker being slow. Every
+    model-to-model comparison drawn from these numbers was meaningless, which
+    is the only thing they were being used for.
+    """
+    from app.search.engine import SearchEngine
+
+    order: list[str] = []
+    real_warm = SearchEngine.warm_up
+    real_search = SearchEngine.search
+
+    def warm(self):
+        order.append("warm_up")
+        with contextlib.suppress(Exception):   # no models in this environment
+            real_warm(self)
+
+    def search(self, *a, **kw):
+        order.append("search")
+        return real_search(self, *a, **kw)
+
+    monkeypatch.setattr(SearchEngine, "warm_up", warm)
+    monkeypatch.setattr(SearchEngine, "search", search)
+
+    env = env_file(tmp_path)
+    # `cmd_search` returns early when there is no index, so warm_up would
+    # never be reached and the test would pass for the wrong reason.
+    cli.cmd_init(parser_for(["init", "--env", env]))
+
+    # No network here, so the models cannot download. Irrelevant: the
+    # assertion is about the *order* of the two calls, not their success.
+    with contextlib.suppress(Exception):
+        cli.cmd_search(parser_for(["search", "anything", "--env", env]))
+
+    assert order[:1] == ["warm_up"], (
+        f"models were not loaded before the clock started: {order}")
+    assert "search" in order

@@ -1778,6 +1778,20 @@ def cmd_search(args: argparse.Namespace) -> int:
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
         engine = SearchEngine(store, vectors, embedder, reranker=reranker)
         try:
+            # **Load the models before the clock starts.**
+            #
+            # The window does this on a background worker at startup; the CLI
+            # did not, so both models loaded lazily *inside* the timed block.
+            # `retrieve` included loading the embedding model and `rerank`
+            # included loading the cross-encoder, which made `timings_ms`
+            # measure process startup rather than search.
+            #
+            # That is not a small distortion. A one-shot CLI search reported
+            # `rerank: 3047ms` for work the benchmark measures at 660ms, and
+            # the gap was read as the reranker being slow. It made every
+            # comparison between models meaningless, which is exactly what the
+            # numbers were being used for.
+            engine.warm_up()
             response = engine.search(raw, limit=args.limit)
         finally:
             engine.close()

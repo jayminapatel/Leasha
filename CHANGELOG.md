@@ -337,6 +337,21 @@ per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
 
+### Fixed — CLI `timings_ms` measured process startup, not search
+
+The window loads the models on a background worker before anyone searches. The
+CLI did not, so both loaded **lazily inside the timed block** — `retrieve`
+included loading the embedder and `rerank` included loading the cross-encoder.
+
+A one-shot `app.cli search` reported `rerank: 3047ms` for work `rerank-bench`
+measures at 660ms. The gap reads as the reranker being slow, and every
+model-to-model comparison drawn from those numbers was meaningless — which is
+the only thing they were being used for. `search` now warms up before it
+starts the clock, matching what the window does.
+
+The numbers already reported from CLI runs were inflated by one model load
+each, so they were never comparable to the benchmark or to the application.
+
 ### Fixed — `doctor` reported its own defaults, not the application's
 
 `doctor.py` carried its own copy of six defaults —
