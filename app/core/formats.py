@@ -53,6 +53,11 @@ __all__ = [
     "SCHEMA_VERSION",
     "save_overrides",
     "differences",
+    "added_routes",
+    "append_converter",
+    "changed_limits",
+    "with_override",
+    "with_route",
     "DEFAULT_MAX_BYTES",
 ]
 
@@ -188,25 +193,47 @@ class FormatRules:
     def converter_for(self, extension: str) -> Optional[ConverterRule]:
         return self.converters.get(extension.lower())
 
-    def describe(self) -> list[dict[str, Any]]:
-        """Every rule as plain data, for `app.cli formats` and the editor."""
+    def describe(self, registry: Optional[Mapping[str, Any]] = None) -> list[dict[str, Any]]:
+        """Every supported file type as plain data, for the CLI and the editor.
+
+        **Pass the registry.** Configuration only lists extensions that need to
+        differ from an extractor's own defaults, so the rules alone describe a
+        fraction of what the application reads - `.pdf`, `.docx` and `.txt` are
+        claimed in code and appear in no TOML file anywhere. Listing only the
+        configured ones gave a "File types" table with no PDF in it and no way
+        to switch one off, which is a settings page that quietly omits the
+        settings people came for.
+        """
+        known = set(self.extensions) | set(self.converters)
+        if registry:
+            known |= {str(extension).lower() for extension in registry}
+
         rows: list[dict[str, Any]] = []
-        for extension in sorted(set(self.extensions) | set(self.converters)):
+        for extension in sorted(known):
             rule = self.extensions.get(extension)
             converter = self.converters.get(extension)
+            built_in = (registry or {}).get(extension)
             rows.append({
                 "extension": extension,
                 "extractor": (
-                    rule.extractor if rule
-                    else f"converter -> {converter.then}" if converter else "?"
+                    # A policy-only rule carries no reader, so the registry is
+                    # asked - it is the authority either way.
+                    (rule.extractor if rule and rule.extractor else "")
+                    or str(getattr(built_in, "name", "") or "")
+                    or (f"converter -> {converter.then}" if converter else "?")
                 ),
                 "enabled": (
-                    rule.enabled if rule else bool(converter and converter.enabled)
+                    rule.enabled if rule
+                    else True if built_in is not None
+                    else bool(converter and converter.enabled)
                 ),
                 "max_bytes": self.max_bytes_for(extension),
                 "converter": converter.binary if converter else "",
                 "note": (rule.note if rule and rule.note
                          else converter.note if converter else ""),
+                #: False for anything claimed in code: the editor may switch it
+                #: off, but the route itself is not the config file's to remove.
+                "from_config": rule is not None and built_in is None,
             })
         return rows
 
@@ -357,9 +384,17 @@ def _validate(
                 f"unknown key(s): {', '.join(sorted(unknown_keys))}",
                 suggestion=f"Expected only: {', '.join(sorted(_EXTENSION_KEYS))}.",
             )
-        extractor = body.get("extractor")
-        if not isinstance(extractor, str) or not extractor:
-            _fail(f"extensions.{raw_ext}.extractor", "is required and must be a name")
+        # **Optional, and its absence means "whatever already reads this".**
+        # An entry that only turns a format off or re-caps it has no business
+        # restating the reader: `.pdf` is claimed in code, so requiring the name
+        # here would copy a fact that lives in the registry into a text file
+        # where it can go stale - rename the extractor and every user's config
+        # silently routes nowhere. Settings writes these policy-only entries,
+        # which is why turning off PDFs must not need the word "pdf".
+        extractor = body.get("extractor", "")
+        if not isinstance(extractor, str):
+            _fail(f"extensions.{raw_ext}.extractor",
+                  f"must be an extractor name, got {extractor!r}")
 
         enabled = bool(body.get("enabled", default_enabled))
         # A disabled rule routes nothing, so the name it does not use cannot be
@@ -369,7 +404,7 @@ def _validate(
         # answer starts mattering. Validating it while it is off would mean an
         # upgrade that adds a format has to add config and code in one commit,
         # or the application refuses to start.
-        if enabled and names is not None and extractor not in names:
+        if enabled and extractor and names is not None and extractor not in names:
             _fail(
                 f"extensions.{raw_ext}.extractor",
                 f"no extractor named {extractor!r} is registered",
@@ -382,6 +417,18 @@ def _validate(
         if not isinstance(max_bytes, int) or max_bytes <= 0:
             _fail(f"extensions.{raw_ext}.max_bytes",
                   f"must be a positive whole number, got {max_bytes!r}")
+
+        if not extractor and enabled:
+            # Nothing to route, so this only makes sense as an override of
+            # something that already claims the extension. Logged rather than
+            # refused: whether anything claims it is the registry's business,
+            # and this module is a layer below the registry deliberately. A
+            # rule for an extension nothing reads is inert, not dangerous.
+            log.debug(
+                "{} has a rule with no extractor - it will adjust whatever "
+                "already reads that extension, and do nothing if none does",
+                extension,
+            )
 
         extensions[extension] = ExtensionRule(
             extension=extension,
@@ -504,6 +551,10 @@ def apply_to_registry(rules: FormatRules, registry: dict[str, Any]) -> list[str]
 
     applied: list[str] = []
     for extension, rule in rules.extensions.items():
+        if not rule.extractor:
+            # A policy-only rule: on/off and size cap for whatever already
+            # claims the extension. There is no route to apply.
+            continue
         extractor = by_name.get(rule.extractor)
         if extractor is None:
             log.warning(
@@ -518,34 +569,134 @@ def apply_to_registry(rules: FormatRules, registry: dict[str, Any]) -> list[str]
     return applied
 
 
-def with_override(rules: FormatRules, extension: str, **changes: Any) -> FormatRules:
+def with_override(
+    rules: FormatRules,
+    extension: str,
+    *,
+    extractor: Optional[str] = None,
+    **changes: Any,
+) -> FormatRules:
     """A copy with one extension's rule changed. Used by the editor.
+
+    **An extension with no rule yet is normal, not an error.** Configuration
+    lists only what differs from an extractor's own defaults, so `.pdf` has no
+    entry until somebody changes something about it. Raising `KeyError` here
+    meant the editor could not switch off, or re-cap, any of the formats claimed
+    in code - which is most of them. A rule is created instead, and `extractor`
+    names the reader it should record (defaulting to the extension itself only
+    when the caller genuinely has nothing better, which `load_rules` will then
+    reject loudly rather than accept silently).
 
     Returns a new object because `FormatRules` is frozen and shared: mutating it
     in place would change what a running index run believes about file types
     half-way through.
     """
     extension = extension.lower()
-    existing = rules.extensions.get(extension)
-    if existing is None:
-        raise KeyError(extension)
     updated = dict(rules.extensions)
+    existing = updated.get(extension)
+
+    if existing is None:
+        # `extractor=""` is a policy-only rule: switch it off, or re-cap it,
+        # without restating who reads it. That is what Settings writes for the
+        # formats claimed in code, which is most of them.
+        updated[extension] = ExtensionRule(
+            extension=extension,
+            extractor=extractor or "",
+            max_bytes=rules.default_max_bytes,
+            from_config=True,
+        )
+        existing = updated[extension]
+
     updated[extension] = replace(existing, **changes)
     return replace(rules, extensions=updated)
 
 
-def save_overrides(data_path: Path, changes: Mapping[str, bool]) -> Path:
-    """Write the user's on/off choices to `<DATA_PATH>/extractors.toml`.
+def with_route(
+    rules: FormatRules, extension: str, extractor: str, *, enabled: bool = True
+) -> FormatRules:
+    """A copy with one extension routed to an existing extractor.
 
-    **Only the differences, and only `enabled`.** The packaged file is replaced
-    on upgrade, so a user file that copied everything would freeze today's
-    defaults forever - a new format added in a later release would arrive
-    switched off, or with an old size limit, and nobody would know why.
+    Adds the rule if it is new, re-points it if it is not. The extractor name is
+    **not** validated here - `load_rules` does that against the live registry on
+    the next load, which is the one check that cannot go stale.
+    """
+    extension = extension.lower()
+    updated = dict(rules.extensions)
+    existing = updated.get(extension)
+    if existing is None:
+        updated[extension] = ExtensionRule(
+            extension=extension,
+            extractor=extractor,
+            enabled=enabled,
+            max_bytes=rules.default_max_bytes,
+            from_config=True,
+        )
+    else:
+        updated[extension] = replace(existing, extractor=extractor, enabled=enabled)
+    return replace(rules, extensions=updated)
+
+
+def without_route(rules: FormatRules, extension: str) -> FormatRules:
+    """A copy with a user-added extension removed entirely."""
+    extension = extension.lower()
+    updated = dict(rules.extensions)
+    updated.pop(extension, None)
+    return replace(rules, extensions=updated)
+
+
+def changed_limits(rules: FormatRules, packaged: Optional[FormatRules] = None) -> dict[str, int]:
+    """Extensions whose size cap differs from the shipped default.
+
+    Separate from `differences` so that turning a format off and raising its cap
+    stay independent facts: writing one must not silently restore the other.
+    """
+    baseline = packaged or _packaged_only()
+    out: dict[str, int] = {}
+    for extension, rule in rules.extensions.items():
+        shipped = baseline.extensions.get(extension)
+        if shipped is None:
+            if rule.max_bytes != rules.default_max_bytes:
+                out[extension] = rule.max_bytes
+        elif shipped.max_bytes != rule.max_bytes:
+            out[extension] = rule.max_bytes
+    return out
+
+
+def save_overrides(
+    data_path: Path,
+    changes: Mapping[str, bool],
+    routes: Optional[Mapping[str, str]] = None,
+    limits: Optional[Mapping[str, int]] = None,
+) -> Path:
+    """Write the user's file-type choices to `<DATA_PATH>/extractors.toml`.
+
+    **Only the differences.** The packaged file is replaced on upgrade, so a
+    user file that copied everything would freeze today's defaults forever - a
+    new format added in a later release would arrive switched off, or with an
+    old size limit, and nobody would know why.
+
+    `routes` carries extensions the user has *added*: `{".ino": "plaintext"}`,
+    a Tier 1 route to an extractor that already exists. That is the only kind of
+    new file type configuration can introduce, and the reason it is safe to
+    expose in Settings - it chooses among readers that shipped, it cannot invent
+    one. Anything needing a new parser is code, and stays code.
 
     Written whole and atomically: a half-written config that fails to parse
     stops the application starting, and the person who caused it was only trying
     to turn off `.png`.
     """
+    entries: dict[str, dict[str, Any]] = {}
+    for extension, enabled in changes.items():
+        entries.setdefault(extension.lower(), {})["enabled"] = bool(enabled)
+    for extension, extractor in (routes or {}).items():
+        entry = entries.setdefault(extension.lower(), {})
+        entry["extractor"] = str(extractor)
+        entry.setdefault("enabled", True)
+    for extension, max_bytes in (limits or {}).items():
+        entry = entries.setdefault(extension.lower(), {})
+        entry["max_bytes"] = int(max_bytes)
+        entry.setdefault("enabled", True)
+
     target = user_path(data_path)
     lines = [
         "# Your file-type choices. Written by Settings.",
@@ -558,16 +709,103 @@ def save_overrides(data_path: Path, changes: Mapping[str, bool]) -> Path:
         "",
         "[extensions]",
     ]
-    for extension in sorted(changes):
-        enabled = "true" if changes[extension] else "false"
-        lines.append(f'"{extension}" = {{ enabled = {enabled} }}')
+    for extension in sorted(entries):
+        entry = entries[extension]
+        parts = []
+        if "extractor" in entry:
+            parts.append(f'extractor = "{entry["extractor"]}"')
+        parts.append(f'enabled = {"true" if entry.get("enabled", True) else "false"}')
+        if "max_bytes" in entry:
+            parts.append(f'max_bytes = {entry["max_bytes"]}')
+        lines.append(f'"{extension}" = {{ {", ".join(parts)} }}')
 
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(".toml.tmp")
     temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
     temporary.replace(target)
-    log.info("wrote {} override(s) to {}", len(changes), target)
+    log.info("wrote {} override(s) to {}", len(entries), target)
     return target
+
+
+def append_converter(data_path: Path, rule: Mapping[str, Any]) -> Path:
+    """Add one converter block to the user's file, keeping everything else.
+
+    **Appended, never rewritten.** `save_overrides` writes the `[extensions]`
+    section whole, which is safe because it is generated from the switches; the
+    converters are not, and rewriting the file from a partial view of it would
+    drop any block this editor did not create.
+
+    The binary is checked against the allow-list here as well as at run time.
+    Refusing at run time is what keeps the application safe; refusing here is
+    what stops somebody saving a route that will never fire and waiting until
+    the next index run to find out.
+    """
+    extension = _clean_extension(str(rule["extension"]), section="converters")
+    command = [str(part) for part in rule["command"]]
+    if not command:
+        _fail(f"converters.{extension}.command", "is empty")
+
+    try:
+        from app.extract.converter import ALLOWED_BINARIES
+    except ImportError:                          # pragma: no cover - partial install
+        ALLOWED_BINARIES = frozenset()
+
+    if ALLOWED_BINARIES and command[0] not in ALLOWED_BINARIES:
+        _fail(
+            f"converters.{extension}.command",
+            f"{command[0]!r} is not an allowed converter",
+            suggestion=(
+                "Converters may only run programs on a fixed list held in the "
+                "application's own code - a configuration file that could name "
+                f"any executable would be a way to run anything. Allowed: "
+                f"{', '.join(sorted(ALLOWED_BINARIES))}."
+            ),
+        )
+
+    target = user_path(data_path)
+    existing = target.read_text(encoding="utf-8-sig") if target.is_file() else ""
+    if not existing.strip():
+        existing = f"schema_version = {SCHEMA_VERSION}\n"
+    if f'[converters."{extension}"]' in existing:
+        _fail(
+            f"converters.{extension}",
+            "already has a converter in your settings file",
+            suggestion=f"Edit or remove it in {target}, then add it again.",
+        )
+
+    rendered = ", ".join(f'"{part}"' for part in command)
+    block = (
+        f'\n[converters."{extension}"]\n'
+        f"command   = [{rendered}]\n"
+        f'produces  = "{rule.get("produces", "{stem}.txt")}"\n'
+        f'then      = "{rule["then"]}"\n'
+        f"timeout_s = {int(rule.get('timeout_s', 180))}\n"
+        f"enabled   = {'true' if rule.get('enabled', True) else 'false'}\n"
+    )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".toml.tmp")
+    temporary.write_text(existing.rstrip("\n") + "\n" + block, encoding="utf-8")
+    temporary.replace(target)
+    log.info("added a converter for {} to {}", extension, target)
+    return target
+
+
+def added_routes(rules: FormatRules, packaged: Optional[FormatRules] = None) -> dict[str, str]:
+    """Extensions this machine has added, as `{extension: extractor}`.
+
+    These are the only rows the editor may delete: a built-in route belongs to
+    the code that parses it, and removing it from a text file would not stop the
+    extractor claiming the extension anyway - it would just look as though it had.
+    """
+    baseline = packaged or _packaged_only()
+    return {
+        extension: rule.extractor
+        for extension, rule in rules.extensions.items()
+        # A policy-only rule (no reader named) is an override of something that
+        # already exists, not a route this machine invented.
+        if extension not in baseline.extensions and rule.extractor
+    }
 
 
 def differences(rules: FormatRules, packaged: Optional[FormatRules] = None) -> dict[str, bool]:

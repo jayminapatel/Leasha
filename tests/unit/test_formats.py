@@ -426,14 +426,38 @@ def test_an_override_patches_the_rule_rather_than_replacing_it(tmp_path):
     assert rule.max_bytes < load_rules(tmp_path).default_max_bytes, "so did the cap"
 
 
-def test_a_brand_new_extension_must_still_be_complete(tmp_path):
-    """There is nothing to patch, so a partial rule is a mistake worth naming."""
+def test_a_rule_without_an_extractor_adjusts_rather_than_routes(tmp_path):
+    """`extractor` is optional, and its absence means "whatever already reads
+    this". Settings writes these to switch off `.pdf` without restating that
+    `pdf` reads it - a fact that lives in the registry and would go stale here.
+
+    It used to be required, which meant the editor could not touch any of the
+    formats claimed in code. A rule for an extension nothing reads is inert,
+    not an error: refusing to start over it would be this module claiming
+    knowledge of a registry that sits a layer above it."""
     (tmp_path / "extractors.toml").write_text(
         '[extensions]\n".brandnew" = { enabled = true }\n', encoding="utf-8")
 
+    rule = load_rules(tmp_path).rule_for(".brandnew")
+
+    assert rule is not None
+    assert rule.extractor == "", "no reader claimed, and none invented"
+
+
+def test_a_named_extractor_is_still_checked_when_enabled(tmp_path):
+    """Optional is not unvalidated: a name that is given must be real."""
+    (tmp_path / "extractors.toml").write_text(
+        '[extensions]\n".x" = { extractor = "nosuchreader", enabled = true }\n',
+        encoding="utf-8")
+    # An empty packaged file, so this asserts on the user's line rather than
+    # tripping over a shipped route the cut-down name set does not cover.
+    packaged = tmp_path / "packaged.toml"
+    packaged.write_text("schema_version = 1\n", encoding="utf-8")
+
     with pytest.raises(AppErrorException) as caught:
-        load_rules(tmp_path)
-    assert "extractor" in caught.value.error.render()
+        load_rules(tmp_path, packaged=packaged,
+                   known_extractors={"plaintext", "pdf"})
+    assert "nosuchreader" in caught.value.error.render()
 
 
 def test_the_override_file_can_always_be_deleted(tmp_path):
@@ -459,3 +483,153 @@ def test_saving_is_atomic(tmp_path):
     assert written.is_file()
     assert not list(tmp_path.glob("*.tmp")), "no temporary file should be left behind"
     load_rules(tmp_path)                        # parses, therefore complete
+
+
+# ---------------------------------------------------------------------------
+# What the Settings editor writes. Tested here rather than beside the dialog so
+# it still runs on a machine without Qt - the numbers have to survive a restart
+# whether or not a window can be opened to check them.
+# ---------------------------------------------------------------------------
+
+def test_the_table_lists_types_claimed_in_code_not_just_configured_ones(tmp_path):
+    """`.pdf`, `.docx` and `.txt` are claimed by extractors and appear in no
+    TOML file. Describing only the configured ones gave a File types page with
+    no PDF row on it and no way to switch PDFs off."""
+    import app.extract  # noqa: F401 - registration side effects
+    from app.extract.base import REGISTRY
+
+    rules = load_rules(None)
+    configured = {row["extension"] for row in rules.describe()}
+    everything = {row["extension"] for row in rules.describe(REGISTRY)}
+
+    assert ".pdf" not in configured, "precondition: .pdf is not in any TOML"
+    assert {".pdf", ".docx", ".txt"} <= everything
+    assert everything > configured
+
+
+def test_a_built_in_type_can_be_switched_off_without_a_rule(tmp_path):
+    """The consequence of the above: `with_override` used to raise KeyError for
+    exactly the formats people most want to turn off."""
+    from app.core.formats import differences, save_overrides, with_override
+
+    updated = with_override(load_rules(None), ".pdf", enabled=False)
+    save_overrides(tmp_path, differences(updated))
+
+    reloaded = load_rules(tmp_path)
+    assert reloaded.is_enabled(".pdf") is False
+    # And without naming the reader: a rename in code must not strand it.
+    assert 'extractor' not in (tmp_path / "extractors.toml").read_text(encoding="utf-8")
+
+
+def test_a_changed_size_limit_survives_a_reload(tmp_path):
+    from app.core.formats import changed_limits, save_overrides, with_override
+
+    updated = with_override(load_rules(None), ".pdf", max_bytes=7 * (1 << 20))
+    limits = changed_limits(updated)
+    assert limits[".pdf"] == 7 * (1 << 20)
+
+    save_overrides(tmp_path, {}, {}, limits)
+    assert load_rules(tmp_path).max_bytes_for(".pdf") == 7 * (1 << 20)
+
+
+def test_an_unchanged_limit_is_never_written(tmp_path):
+    """Only differences are stored, so an upgrade still delivers better
+    defaults. Writing every current value would pin today's forever."""
+    from app.core.formats import changed_limits
+
+    assert changed_limits(load_rules(None)) == {}
+
+
+def test_a_switch_and_a_limit_become_one_entry(tmp_path):
+    """Two facts about one extension must not become two conflicting lines -
+    the second would win silently and the first would look like it never saved."""
+    from app.core.formats import save_overrides, user_path
+
+    save_overrides(tmp_path, {".pdf": False}, {}, {".pdf": 3 * (1 << 20)})
+
+    text = user_path(tmp_path).read_text(encoding="utf-8")
+    assert text.count('".pdf"') == 1
+
+    reloaded = load_rules(tmp_path)
+    assert reloaded.is_enabled(".pdf") is False
+    assert reloaded.max_bytes_for(".pdf") == 3 * (1 << 20)
+
+
+def test_a_route_added_in_settings_survives_with_its_limit(tmp_path):
+    from app.core.formats import changed_limits, save_overrides, with_override, with_route
+
+    rules = with_route(load_rules(None), ".ino", "plaintext")
+    rules = with_override(rules, ".ino", max_bytes=2 * (1 << 20))
+
+    save_overrides(tmp_path, {}, {".ino": "plaintext"}, changed_limits(rules))
+    reloaded = load_rules(tmp_path)
+
+    rule = reloaded.rule_for(".ino")
+    assert rule is not None and rule.extractor == "plaintext"
+    assert reloaded.max_bytes_for(".ino") == 2 * (1 << 20)
+
+
+def test_a_converter_is_appended_without_disturbing_the_switches(tmp_path):
+    """`save_overrides` writes the `[extensions]` section whole, which is safe
+    because it is generated. The converters are not, so they are appended -
+    rewriting the file from a partial view of it would drop blocks this editor
+    did not create."""
+    from app.core.formats import append_converter, save_overrides
+
+    save_overrides(tmp_path, {".png": False})
+    append_converter(tmp_path, {
+        "extension": ".nsf",
+        "command": ["pandoc", "--to", "plain", "{input}"],
+        "produces": "{stem}.txt",
+        "then": "plaintext",
+        "enabled": True,
+    })
+
+    reloaded = load_rules(tmp_path)
+    assert reloaded.is_enabled(".png") is False, "the switch was lost"
+
+    rule = reloaded.converter_for(".nsf")
+    assert rule is not None
+    assert rule.binary == "pandoc" and rule.then == "plaintext" and rule.enabled
+
+
+def test_a_converter_binary_off_the_allow_list_is_refused_when_saved(tmp_path):
+    """Refusing at run time is what keeps this safe; refusing here is what
+    stops somebody saving a route that will never fire and finding out at the
+    next index run."""
+    from app.core.formats import append_converter
+
+    with pytest.raises(AppErrorException) as caught:
+        append_converter(tmp_path, {
+            "extension": ".xyz",
+            "command": ["curl", "{input}"],
+            "then": "plaintext",
+        })
+
+    rendered = caught.value.error.render()
+    assert "curl" in rendered and "not an allowed converter" in rendered
+
+
+def test_a_second_converter_for_one_extension_is_refused(tmp_path):
+    from app.core.formats import append_converter
+
+    rule = {"extension": ".nsf", "command": ["pandoc", "{input}"],
+            "then": "plaintext"}
+    append_converter(tmp_path, rule)
+
+    with pytest.raises(AppErrorException) as caught:
+        append_converter(tmp_path, rule)
+    assert "already has a converter" in caught.value.error.render()
+
+
+def test_added_routes_reports_only_what_this_machine_added(tmp_path):
+    """Only these may be removed in the editor: a built-in route belongs to the
+    code that parses it, and deleting it from a text file would not stop the
+    extractor claiming the extension - it would only look as though it had."""
+    from app.core.formats import added_routes, with_route
+
+    baseline = load_rules(None)
+    assert added_routes(baseline) == {}
+
+    added = added_routes(with_route(baseline, ".ino", "plaintext"))
+    assert added == {".ino": "plaintext"}
