@@ -38,6 +38,13 @@ from app.core.logging import logger
 _log = logger.bind(component="ui.presenter")
 
 __all__ = [
+    "GIT_ONLY",
+    "CodeRoute",
+    "code_route",
+    "code_summary",
+    "git_result_row",
+    "git_summary",
+    "repo_root_for",
     "notice_line",
     "Tier",
     "tier_for",
@@ -1708,6 +1715,16 @@ class RepoFileRow:
     ext: str = ""       # lower-case, no dot - what `type:` matches
     size_bytes: int = 0
     seen_at: int = 0
+    #: Which repository the file is in. **Empty until the Code tab became one
+    #: list**: a tree already answered that with the row it hung under, and a
+    #: flat list has to say it in a column - "where is that file" is the
+    #: question somebody arrives with, and the repository is the answer.
+    repo: str = ""
+    #: Text the preview pane should draw instead of reading the file. Filled
+    #: for a *historical* hit, whose version no longer exists on disk - see
+    #: `preview_loader.load_preview_for`. Empty for a file in the checkout,
+    #: which is read normally.
+    preview_text: str = ""
 
 
 def repo_file_rows(
@@ -1733,6 +1750,7 @@ def repo_file_rows(
         size = int(field(record, "size_bytes", 0) or 0)
         ext = str(field(record, "ext", "") or "").lower().lstrip(".")
         out.append(RepoFileRow(
+            repo=str(field(record, "repo", "") or ""),
             name=path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path,
             size=format_size(size),
             kind=ext,
@@ -1910,6 +1928,97 @@ MAIL_COMMANDS = ("from", "to", "subject", "has", "after", "before")
 #: Code. `repo:` picks the repository; `type:` and `name:` narrow the files
 #: underneath it. Before the tree listed files, this was `repo` alone.
 CODE_COMMANDS = ("repo", "type", "name")
+
+
+@dataclass(frozen=True, slots=True)
+class CodeRoute:
+    """What one line typed into the Code box means.
+
+    **One box, two engines.** The owner's correction: *"the code search page is
+    all wrong it should be a combined one search box with the git code files in
+    the list"*. A tree of repositories above a separate git box made somebody
+    choose an engine before they had a question - and the question is nearly
+    always "where is that file", which is answered from the index in
+    milliseconds.
+
+    So the grammar decides, not the person. A line with no git switch in it is
+    an index search: instant, as you type, over every repository at once. A line
+    carrying `/history`, `/branch`, `/introduced` and the rest is a git run, on
+    Enter, because `git log -S` diffs every commit it walks.
+    """
+
+    #: "index" or "git".
+    engine: str = "index"
+    #: Free text, with the switches removed - **for the index path only.**
+    #: A git run is handed the raw line and re-read by `parse_git_query`, which
+    #: is the module that knows what `/class OrderService` means; copying half
+    #: of that decision here is how the two would come to disagree.
+    text: str = ""
+    #: `/repo` - a name, not a path.
+    repo: str = ""
+    #: `/type` or `/extension`, lower-case and without dots.
+    extensions: tuple[str, ...] = ()
+    #: Why it chose git, for the line above the results. Empty for the index.
+    because: str = ""
+
+
+#: Switches only the repository engine has. **Deliberately not "every git
+#: switch"**: `/repo`, `/type`, `/path` and `/file` mean the same thing in both
+#: catalogues, and routing on those would send `type:cs` - the commonest thing
+#: anybody types here - into a git subprocess instead of a 3ms index lookup.
+GIT_ONLY: frozenset[str] = frozenset({
+    "history", "lifetime", "branch", "all-branches", "remote-branches",
+    "commit", "range", "tag", "author", "committer", "since", "until",
+    "merges", "introduced", "removed", "changed", "lifecycle", "file-history",
+    "added-only", "removed-only", "deleted-files", "depth", "regex", "word",
+    "ignore-case", "class", "interface", "function", "symbol", "endpoint",
+    "config",
+})
+
+
+def code_route(text: str) -> CodeRoute:
+    """Read the Code box: which engine, and what to give it.
+
+    Qt-free and here rather than in the view, because "which engine" is the
+    decision the whole tab turns on and a decision made inside a widget is one
+    nobody can test. It is also the decision that must never be made *wrongly
+    towards git*: an index lookup taken as a repository search costs somebody
+    two seconds and a subprocess for a question that had a 3ms answer.
+    """
+    from app.search.commands import expand_slashes
+    from app.search.gitquery import git_command_for, parse_git_query
+    from app.search.query import parse_query
+
+    raw = str(text or "").strip()
+    if not raw:
+        return CodeRoute()
+
+    # Which git-only switches are present. Read through `git_command_for` so an
+    # alias - `/hist`, `/b`, `/by` - counts exactly as its canonical name does.
+    named: list[str] = []
+    for token in raw.split():
+        if not token.startswith("/") and ":" not in token:
+            continue
+        name = token.lstrip("/").partition(":")[0].partition("=")[0]
+        command = git_command_for(name)
+        if command is not None and command.name in GIT_ONLY:
+            named.append(command.name)
+
+    if named:
+        query = parse_git_query(raw)
+        return CodeRoute(
+            engine="git", text=query.text, repo="",
+            extensions=query.extensions,
+            because="/" + ", /".join(sorted(set(named))),
+        )
+
+    parsed = parse_query(expand_slashes(raw))
+    return CodeRoute(
+        engine="index",
+        text=(parsed.text or "").strip(),
+        repo=(parsed.repos[0] if getattr(parsed, "repos", ()) else ""),
+        extensions=tuple(getattr(parsed, "ext", ()) or ()),
+    )
 
 
 #: How many values a dropdown offers. Enough to cover a real corpus's file
@@ -2190,3 +2299,90 @@ def notice_line(notices: Any) -> str:
     # hard break makes a single notice and two notices look like different
     # kinds of thing.
     return "  ".join(f"\u26a0 {message}" for message in messages)
+
+
+# ---------------------------------------------------------------------------
+# The Code tab's wording and row shapes
+#
+# Here rather than in `code_view.py` for the reason every other decision is:
+# what a summary says and what a git result looks like as a row are choices,
+# and a choice made inside a widget is one nobody can test without a display.
+# ---------------------------------------------------------------------------
+
+def repo_root_for(repos: Iterable[Mapping[str, Any]], name: str) -> str:
+    """The folder for a repository name, or the only one there is.
+
+    **Only one is a fact; several is a question.** With no name given and
+    exactly one repository known, that is plainly the one meant. With several,
+    picking the first would be a guess presented as an answer - so it returns
+    nothing and the caller asks.
+    """
+    wanted = (name or "").strip().lower()
+    rows = list(repos or ())
+    for row in rows:
+        if wanted and wanted in str(row.get("name", "")).lower():
+            return str(row.get("root_path", "") or "")
+    if not wanted and len(rows) == 1:
+        return str(rows[0].get("root_path", "") or "")
+    return ""
+
+
+def code_summary(rows: list[Any], repos: list[Any]) -> str:
+    """What is on screen, and what there is. Both, because "40 files" over a
+    corpus of 48,000 and over one of 40 mean different things."""
+    total = sum(int(row.get("files", 0) or 0) for row in repos)
+    count = len(repos)
+    parts = [f"{len(rows):,} file{'s' if len(rows) != 1 else ''}"]
+    if len(rows) >= REPO_FILE_LIMIT:
+        parts.append(f"showing the newest {REPO_FILE_LIMIT:,} — narrow it with "
+                     f"/repo or /type")
+    parts.append(f"{count:,} repositor{'ies' if count != 1 else 'y'}, "
+                 f"{total:,} indexed file{'s' if total != 1 else ''}")
+    return "  ·  ".join(parts)
+
+
+def git_summary(found: Any) -> str:
+    parts = [f"{len(found.rows):,} result{'s' if len(found.rows) != 1 else ''} "
+             f"{found.explain}", f"{found.elapsed_s:.2f}s"]
+    if found.truncated:
+        parts.append("stopped at the limit — narrow it with /path, /extension "
+                     "or /depth")
+    if not found.rows:
+        parts.append(f"command: {' '.join(found.command)}")
+    return "  ·  ".join(parts)
+
+
+def git_result_row(row: Any, repo_root: str) -> Any:
+    """One git result, in the shape the table and the preview already read.
+
+    A hit in the *checkout* has a file to open and preview; a hit in history
+    does not - the version that matched no longer exists on disk. Handing the
+    pane a path that is not there would show "file missing" for every history
+    result, which reads as a broken preview rather than as a file that is
+    genuinely gone.
+    """
+    from pathlib import Path
+
+    historical = bool(row.commit) and row.kind != "content"
+    full = ("" if historical or not row.path
+            else str(Path(repo_root) / row.path) if repo_root else row.path)
+    where = row.path or ""
+    if row.line_no:
+        where = f"{where}:{row.line_no}"
+
+    name = row.path.rsplit("/", 1)[-1] if row.path else (row.subject or row.commit[:8])
+    return RepoFileRow(
+        name=name,
+        # A history row has no size on disk: the version that matched is gone,
+        # and a number invented for the column would be a number somebody
+        # believes.
+        size="",
+        repo=row.commit[:8] if row.kind == "commit" else (row.author or ""),
+        kind={"commit": "commit", "change": row.status or "change"}.get(
+            row.kind, row.status or "line"),
+        seen=row.date or "",
+        path=where,
+        full_path=full,
+        preview_text=(f"{row.subject}\n\n{row.author}   {row.date}   {row.commit}"
+                      if row.kind == "commit" else row.text),
+    )

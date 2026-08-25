@@ -1435,6 +1435,63 @@ class SqliteStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def code_files(self, text: str = "", *, repo: str = "",
+                   ext: Optional[Sequence[str]] = None,
+                   limit: int = 500) -> list[dict[str, Any]]:
+        """Indexed files that live in a repository, newest first, with its name.
+
+        **One list across every repository**, which is what the Code tab needed
+        once it became a search rather than a tree. `repo_files` answers "what
+        is in *this* repository" and is still the right query for that; this
+        answers "where is that file", which is the question somebody actually
+        arrives with - and it cannot be answered by picking a repository first,
+        because not knowing which one it is in is the reason they are looking.
+
+        Every clause is index-backed: `files.repo_id` has an index and carries
+        the join, `source_kind` has one, and `LIMIT` is applied in SQL. This
+        runs on a debounce while somebody types.
+
+        `text` matches the path substring-wise, so "order" finds
+        `src/OrderService.cs`. Not FTS: this is a *name* search over a column,
+        the same thing `search_files_by_name` does for documents, and a
+        trigram index over paths would be a second index to keep in step for a
+        list that is already bounded by `repo_id`.
+        """
+        clauses = ["f.repo_id IS NOT NULL", "f.source_kind = 'file'"]
+        params: list[Any] = []
+
+        def contains(column: str, value: str) -> None:
+            escaped = (value.replace("\\", "\\\\")
+                       .replace("%", "\\%").replace("_", "\\_"))
+            clauses.append(f"{column} LIKE ? ESCAPE '\\'")
+            params.append(f"%{escaped}%")
+
+        if text.strip():
+            contains("f.path", text.strip())
+        if repo.strip():
+            contains("r.name", repo.strip())
+        if ext:
+            wanted = [str(e).lstrip(".").lower() for e in ext if str(e).strip()]
+            if wanted:
+                clauses.append(
+                    f"LOWER(f.ext) IN ({','.join('?' * len(wanted))})")
+                params += wanted
+
+        params.append(max(1, int(limit)))
+        rows = self.conn.execute(
+            f"""
+            SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns, f.status,
+                   r.name AS repo, r.root_path AS repo_root
+            FROM files f
+            JOIN repos r ON r.id = f.repo_id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY f.mtime_ns DESC, f.id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def repos_list(self) -> list[dict[str, Any]]:
         """Every known repository with its indexed file count, most files first.
 

@@ -1,12 +1,48 @@
 # Changelog
 
-**Doc version:** 3.31 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.32 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — the Code page is one box and one list
+
+Corrected by the owner: *"the code search page is all wrong it should be a
+combined one search box with the git code files in the list"*. It was a tree of
+repositories with a separate git search box underneath, and that made somebody
+choose an engine before they had a question. The question is nearly always
+*"where is that file"* — and that is answered from the index in milliseconds, so
+it has to be what typing does.
+
+**The grammar picks the engine now, not the person.** A line with no git switch
+searches the indexed files of every repository at once, as you type, over a new
+`code_files` query that joins `files.repo_id` to `repos` — every clause
+index-backed, the limit in SQL. A line carrying `/history`, `/branch`,
+`/introduced` and the rest runs git, on Enter. Both fill the same table, and the
+line above it says which engine answered and what it looked at.
+
+**Routing is not symmetric, and that shaped it.** Sending a git query to the
+index costs an empty list. Sending an index query to git costs a subprocess that
+diffs every commit — two seconds and a spinning window — for a question that had
+a 3ms answer. So it only reaches for git on a switch *only git has*, and
+`/repo`, `/type`, `/path` and `/file`, which both catalogues share and which are
+the commonest things typed here, stay on the fast path. A test asserts that
+list, because nothing else in the suite would notice it changing.
+
+The two catalogues merge into one menu with the index winning every shared
+spelling — same reason. The repository is a column rather than a tree, `/repo`
+narrows it, and `/branch`, `/tag` and `/author` still offer what the selected
+repository actually has.
+
+`app/ui/widgets/repo_tree.py` and `app/ui/widgets/git_search.py` are **deleted**
+rather than left unreferenced: code that still imports is code somebody
+maintains for nothing. The decisions moved to `presenter.code_route` and its
+neighbours, which import no Qt and are covered by 38 tests that run without a
+display — this project has shipped UI logic verified by reading that crashed on
+the first run, so what stays in the view is wiring.
 
 ### Fixed — `doctor` created a folder literally named `D:\KnowledgeGraphData`
 
