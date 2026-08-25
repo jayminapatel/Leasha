@@ -42,6 +42,12 @@ __all__ = [
     "group_skips",
     "ResultRow",
     "to_row",
+    "to_rows",
+    "ResultGroup",
+    "group_results",
+    "breadcrumb",
+    "fetch_depth",
+    "GROUP_FETCH_MULTIPLIER",
     "FileRow",
     "file_rows",
     "StatRow",
@@ -53,6 +59,7 @@ __all__ = [
     "doctor_lines",
     "search_shape",
     "status_line",
+    "results_message",
     "progress_for",
     "progress_text",
     "finished_text",
@@ -368,6 +375,10 @@ class ResultRow:
     explain: str
     location: str = ""
     score: float = 0.0
+    #: Straight through from `SearchResult`, which now carries both. Kept on the
+    #: row rather than only on the group so a flat list can show them too.
+    ext: str = ""
+    mtime_ns: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -398,6 +409,178 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
 
 def to_rows(results: Iterable[Any], terms: Sequence[str], **kwargs: Any) -> list[ResultRow]:
     return [to_row(result, terms, **kwargs) for result in results]
+
+
+# ---------------------------------------------------------------------------
+# One row per document, not one per chunk
+#
+# **The problem this solves.** Results are chunk-level, and nothing grouped
+# them, so a long PDF matching in five places took five of the top ten rows.
+# The person saw three documents where they should have seen ten.
+#
+# **Grouping lives here and never in the engine.** That is not a stylistic
+# preference. The measured baseline in HANDOFF.md §3b - 75% at rank 1 after
+# translation - was taken against chunk-level ranking. Grouping inside the
+# engine would change what "rank 1" means and make every future measurement
+# incomparable with that one, silently. `SearchEngine` keeps returning exactly
+# what it returns today; this decides how to draw it.
+# ---------------------------------------------------------------------------
+
+#: How many chunks to fuse before grouping, as a multiple of the groups shown.
+#:
+#: **Grouping shrinks the list, so the fetch has to be deeper than the display.**
+#: If fifty chunks come back and thirty belong to one PDF, grouping yields far
+#: fewer documents than chunks - and a fetch sized for the display count would
+#: leave the page half empty on exactly the corpora this feature exists for.
+#: Four is enough for a document matching in a handful of places without
+#: quadrupling rerank cost.
+GROUP_FETCH_MULTIPLIER = 4
+
+
+def fetch_depth(display_count: int, *, multiplier: int = GROUP_FETCH_MULTIPLIER) -> int:
+    """How many chunks to ask for, to end up with `display_count` documents."""
+    return max(1, int(display_count)) * max(1, int(multiplier))
+
+
+@dataclass(frozen=True, slots=True)
+class ResultGroup:
+    """Every matching chunk of one document, as a single row."""
+
+    file_id: int
+    #: Filename for a file; the subject for a message.
+    name: str
+    #: A breadcrumb, not a raw path. The full path stays on `path` for the
+    #: tooltip, for opening, and for "Copy path" - shortening is a display
+    #: choice and must never be the only copy of the truth.
+    folder: str
+    kind: str
+    when: str
+    path: str
+    #: Every matching chunk, best first.
+    rows: list[ResultRow] = field(default_factory=list)
+
+    @property
+    def best(self) -> Optional[ResultRow]:
+        """The chunk shown while collapsed."""
+        return self.rows[0] if self.rows else None
+
+    @property
+    def score(self) -> float:
+        """**The best chunk's score, never the mean.**
+
+        Averaging punishes a long document that matches strongly in one place -
+        which is the common case in an archive, and precisely the document
+        somebody is looking for.
+        """
+        return self.rows[0].score if self.rows else 0.0
+
+    @property
+    def match_count(self) -> int:
+        return len(self.rows)
+
+    @property
+    def match_label(self) -> str:
+        """Shown only when there is more than one. "1 match" is noise on every
+        row of a list where one is the normal case."""
+        return f"{self.match_count} matches" if self.match_count > 1 else ""
+
+
+def group_results(
+    rows: Sequence[ResultRow],
+    *,
+    limit: int = 0,
+    details: Optional[Mapping[int, Mapping[str, Any]]] = None,
+    now: Optional[float] = None,
+) -> list[ResultGroup]:
+    """Chunk rows to document groups, ordered by each group's best chunk.
+
+    `rows` must already be in rank order - the engine's order is preserved
+    rather than recomputed, which is what keeps this display-only.
+
+    `details` optionally maps `file_id` to mail metadata (see
+    `store.messages_for`), so a message can use its subject rather than a
+    synthetic path nobody would recognise. Absent, or missing an entry, falls
+    back to the filename without raising.
+    """
+    order: list[int] = []
+    collected: dict[int, list[ResultRow]] = {}
+    for row in rows:
+        if row.file_id not in collected:
+            collected[row.file_id] = []
+            # First appearance decides position, so the best-ranked chunk of a
+            # document decides where the document sits. No re-sorting needed.
+            order.append(row.file_id)
+        collected[row.file_id].append(row)
+
+    groups = [
+        _build_group(file_id, collected[file_id], (details or {}).get(file_id), now=now)
+        for file_id in order
+    ]
+    return groups[:limit] if limit else groups
+
+
+def _build_group(
+    file_id: int,
+    rows: list[ResultRow],
+    detail: Optional[Mapping[str, Any]],
+    *,
+    now: Optional[float] = None,
+) -> ResultGroup:
+    path = rows[0].path if rows else ""
+    name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
+    folder = breadcrumb(path[: len(path) - len(name)])
+    kind = (rows[0].ext if rows else "") or _ext_of(name)
+    when = format_when(rows[0].mtime_ns, now=now) if rows else ""
+
+    if detail:
+        # A message: its path is a synthetic key nobody typed and nobody would
+        # recognise, so the subject is the only usable name.
+        subject = str(detail.get("subject") or "").strip()
+        sender = format_address(detail.get("sender"))
+        attachments = "1 attachment" if detail.get("has_attach") else ""
+        name = subject or "(no subject)"
+        folder = "  ·  ".join(bit for bit in (f"from {sender}" if sender else "",
+                                              attachments) if bit)
+        kind = "email"
+        sent = detail.get("sent_at")
+        if sent:
+            when = format_sent(sent, now=now)
+
+    return ResultGroup(
+        file_id=file_id, name=name, folder=folder, kind=kind,
+        when=when, path=path, rows=rows,
+    )
+
+
+def _ext_of(name: str) -> str:
+    return name.rpartition(".")[2].lower() if "." in name else ""
+
+
+#: How many folders of a path to show in the breadcrumb. The last few are the
+#: ones that distinguish; `D:\Archive` is the same for everything.
+BREADCRUMB_PARTS = 3
+
+
+def breadcrumb(path: str, *, parts: int = BREADCRUMB_PARTS) -> str:
+    r"""A path as `Archive > 2019 > Leeds`, keeping the end rather than the start.
+
+    **`shorten_path` elides the middle, which is where the distinguishing part
+    of a long archive path lives.** A person recognises the last two or three
+    folders; nobody scans `D:\Archive\2019\Projects\...`. Keeping the tail is
+    the same instinct as showing a filename before its directory.
+    """
+    cleaned = (path or "").replace("\\", "/").strip("/")
+    if not cleaned:
+        return ""
+    pieces = [piece for piece in cleaned.split("/") if piece]
+    # A drive letter on its own is not a folder anybody thinks in.
+    if pieces and pieces[0].endswith(":"):
+        pieces = pieces[1:]
+    if not pieces:
+        return ""
+    tail = pieces[-parts:]
+    prefix = "… > " if len(pieces) > parts else ""
+    return prefix + " > ".join(tail)
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +623,15 @@ def format_when(mtime_ns: int, *, now: Optional[float] = None) -> str:
     "Yesterday" and "3 weeks ago" answer "is this the version I was working on"
     instantly; "2026-08-03 14:22:07" requires arithmetic. Beyond a year the
     date is more useful than the age, so it switches over.
+
+    **Zero means "not known", and produces nothing.** It used to produce
+    "01 Jan 1970", which is not a fallback but a claim - and a false one that
+    looks entirely plausible in a fifteen-year archive. A row with no date is
+    honest; a row dated 1970 sends somebody looking for a file that does not
+    exist.
     """
+    if not mtime_ns:
+        return ""
     seconds = (now if now is not None else _time.time()) - (mtime_ns / 1_000_000_000)
     if seconds < 0:
         return "just now"          # a clock skew, or a file from the future
@@ -500,6 +691,37 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
 # caught it: a bar that moves too slowly still moves, and "the progress does not
 # feel right" is the only symptom anybody can report.
 # ---------------------------------------------------------------------------
+
+def results_message(response: Any) -> tuple[str, str]:
+    """`(summary, status)` for a completed search.
+
+    Three branches deciding two strings, which is logic - and logic inside a Qt
+    widget can only be checked by a person searching for the right thing at the
+    right moment.
+
+    The precedence matters and is the reason this is one function rather than
+    three scattered `setText` calls: an ignored operator is the most actionable
+    thing that can be said, so it wins; a dead semantic half is next, because
+    silent degradation is how "search feels worse than it should" goes
+    unreported for weeks; the plain count is the fallback.
+    """
+    parsed = getattr(response, "parsed", None)
+    summary = status_line(response)
+
+    if not getattr(response, "results", None):
+        hint = ""
+        if parsed is not None and getattr(parsed, "has_filters", False):
+            # The single most common cause of a surprising empty result, and
+            # invisible otherwise: the filters are doing exactly what they were
+            # told and excluding everything.
+            hint = "  The filters may be excluding everything."
+        return f"No results.{hint}", summary
+
+    unknown = list(getattr(parsed, "unknown_operators", ()) or ()) if parsed else []
+    if unknown:
+        return summary, "Ignored: " + ", ".join(unknown)
+    return summary, semantic_health(response) or ""
+
 
 def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     """`(value, maximum)` for the bar, given a progress tick.

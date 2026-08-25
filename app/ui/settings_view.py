@@ -50,8 +50,8 @@ _log = logger.bind(component="ui.settings")
 class SettingsView(QWidget):
     roots_changed = pyqtSignal(list)
     pst_backend_changed = pyqtSignal(str)
-    #: (model, timeout_s) for the Interpret button.
-    ollama_model_changed = pyqtSignal(str, int)
+    #: (enabled, model, timeout_s) for the Interpret button.
+    ollama_model_changed = pyqtSignal(bool, str, int)
     convert_pst_requested = pyqtSignal(str, str)   # archive, destination
     rerank_toggled = pyqtSignal(bool)
 

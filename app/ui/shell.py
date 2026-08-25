@@ -140,10 +140,24 @@ class MainWindow(QMainWindow):
         # hand, so a choice made in Settings is stored beside the index.
         model = self._read_state("ui:ollama_model", "") or settings.ollama_model
         budget = self._read_state("ui:ollama_timeout_s", "")
+        # **Off unless switched on**, and switched on only by an explicit tick
+        # or by choosing a model. Most machines have no Ollama, and the promise
+        # of this application is that it is entirely local - so nothing may
+        # contact another process unless somebody asked for it.
+        # New installs start off. **But somebody who already chose a model was
+        # already using this**, and a new default must never silently take away
+        # something that was working - so an existing `ui:ollama_model` counts
+        # as consent until they say otherwise.
+        stored = self._read_state("ui:ollama_enabled", "")
+        interpret_on = (
+            stored == "on" if stored
+            else bool(self._read_state("ui:ollama_model", ""))
+        )
         self._ollama = OllamaClient(settings.ollama_url, model)
         translator = QueryTranslator(
             self._ollama,
             timeout_s=float(budget) if budget.isdigit() else TRANSLATE_TIMEOUT_S,
+            enabled=interpret_on,
         )
         self._translator = translator
         self.search_view = SearchView(engine, translator)
@@ -153,6 +167,9 @@ class MainWindow(QMainWindow):
         self.search_view.error.connect(self._show_error)
         # Restored from last time, then saved whenever it changes. Three keys in
         # one transaction - see `set_states`.
+        # Applied at startup too, not only when the setting changes - otherwise
+        # the button is visible for the first session after being turned off.
+        self.search_view.set_interpret_enabled(interpret_on)
         self.search_view.set_view_preferences(load_prefs(store, RESULTS_PREFS_KEY))
         self.search_view.view_preferences_changed.connect(
             lambda prefs: save_prefs(self._store, RESULTS_PREFS_KEY, prefs))
@@ -178,7 +195,8 @@ class MainWindow(QMainWindow):
         self.settings_view.roots_changed.connect(self._save_roots)
         self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
         self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
-        self.settings_view.models.load(model, int(translator.timeout_s))
+        self.settings_view.models.load(
+            model, int(translator.timeout_s), enabled=interpret_on)
         self.settings_view.convert_pst_requested.connect(self._convert_pst)
         self.settings_view.indexing.load_indexing(settings)
         self.settings_view.indexing.schedule_changed.connect(self._schedule_changed)
@@ -414,7 +432,7 @@ class MainWindow(QMainWindow):
         self._store.set_states({f"ui:{key}": str(value) for key, value in values.items()})
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
 
-    def _ollama_model_changed(self, model: str, timeout_s: int) -> None:
+    def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
         """Apply a model choice immediately, and persist it.
 
         **Live, not on restart.** The client and the translator are mutated in
@@ -426,13 +444,20 @@ class MainWindow(QMainWindow):
         a stale "yes" would let a generate call proceed against a model that is
         not installed, failing several seconds later for no visible reason.
         """
-        self._translator.reconfigure(model=model, timeout_s=float(timeout_s))
+        self._translator.reconfigure(
+            model=model or None, timeout_s=float(timeout_s), enabled=enabled)
         self._store.set_states({
+            "ui:ollama_enabled": "on" if enabled else "off",
             "ui:ollama_model": model,
             "ui:ollama_timeout_s": str(int(timeout_s)),
         })
+        # The button appears and disappears with the setting, rather than
+        # sitting there greyed out - an Interpret button that cannot interpret
+        # is a permanent question with no answer on screen.
+        self.search_view.set_interpret_enabled(enabled)
         self.statusBar().showMessage(
-            f"Interpret will use {model}, with up to {timeout_s}s.", 8_000)
+            f"Interpret will use {model}, with up to {timeout_s}s." if enabled
+            else "Query interpretation is off. Search is unaffected.", 8_000)
 
     def _read_state(self, key: str, default: str = "") -> str:
         """One small key, defaulted rather than raised.
@@ -791,6 +816,16 @@ class MainWindow(QMainWindow):
         shutdown race into an ordinary stop.
         """
         self.recorder.event("closing")
+        # **Stop new work before tearing anything down.** Twelve threads were
+        # still running at close, and the debounce timers kept firing into an
+        # engine and a store that were being shut. Cancelling first turns a race
+        # into an ordinary stop - the same reasoning as asking the index run to
+        # stop rather than closing over it.
+        for view in (self.search_view, self.files_view, self.mail_view):
+            try:
+                view.shutdown()
+            except Exception:                        # noqa: BLE001
+                pass
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
         # the sluggishness the debounce was added to fix.

@@ -344,6 +344,23 @@ def button(
     return widget
 
 
+def apply_font(widget: Any, font_pt: int) -> None:
+    """Set (or clear) a point-size override on one widget, via its stylesheet.
+
+    A stylesheet rule wins over `setFont`, and `theme.py` sets `font-size: 13px`
+    on every QWidget - so this is the only way a size preference actually takes
+    effect. An empty override removes the rule and lets the theme decide again,
+    rather than freezing whatever size happened to be set last.
+    """
+    try:
+        size = int(font_pt or 0)
+    except (TypeError, ValueError):
+        size = 0
+    # Qt warns and ignores anything <= 0. A widget sized from a px stylesheet
+    # reports pointSize() == -1, which is how a -1 reached setPointSize at all.
+    widget.setStyleSheet(f"font-size: {size}pt;" if size > 0 else "")
+
+
 def apply_to_table(
     table: Any, prefs: ViewPreferences, *, columns: Sequence[tuple[str, str]],
     available: Sequence[str],
@@ -354,7 +371,7 @@ def apply_to_table(
     turning one back on needs no re-query and the row data stays addressable by
     a stable index.
     """
-    from PyQt6.QtGui import QFont, QFontMetrics
+    from PyQt6.QtGui import QFontMetrics
 
     order = [key for key, _heading in columns]
     shown = visible_columns(prefs, order, available)
@@ -362,14 +379,20 @@ def apply_to_table(
     for index, key in enumerate(order):
         table.setColumnHidden(index, key not in shown)
 
-    font = QFont(table.font())
-    if prefs.font_pt:
-        font.setPointSize(int(prefs.font_pt))
-    table.setFont(font)
+    # **Through the stylesheet, not through QFont.**
+    #
+    # `theme.py` sets `font-size: 13px` on QWidget, and a stylesheet rule beats
+    # anything `setFont` does - so the text-size preference was being applied
+    # and then silently overridden, doing nothing at all on a table.
+    #
+    # It also caused `QFont::setPointSize: Point size <= 0 (-1)` on startup: a
+    # widget whose size came from a px stylesheet reports `pointSize() == -1`,
+    # and copying that font carried the -1 along.
+    apply_font(table, prefs.font_pt)
 
     header = table.verticalHeader()
     if header is not None:
-        height = row_height_for(prefs.density, QFontMetrics(font).height())
+        height = row_height_for(prefs.density, QFontMetrics(table.font()).height())
         header.setDefaultSectionSize(height)
         # Fixed, not ResizeToContents: the latter measures every row on every
         # repaint, which on five hundred rows is a visible stutter while

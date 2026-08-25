@@ -1458,7 +1458,12 @@ def cmd_ollama(args: argparse.Namespace) -> int:
         budget = float(getattr(args, "timeout", 0) or TRANSLATE_TIMEOUT_S)
         print()
         print(f"Interpreting: {sentence!r}  (budget {budget:g}s)")
-        result = QueryTranslator(client, timeout_s=budget).translate(sentence)
+        # `enabled=True` because typing `--translate` *is* the request. The
+        # stored preference governs the button in the window; it would be
+        # obtuse for a command that exists to run one translation to refuse
+        # because a checkbox elsewhere is unticked.
+        result = QueryTranslator(
+            client, timeout_s=budget, enabled=True).translate(sentence)
         print(f"  -> {result.query!r}  [{result.elapsed_s:.1f}s]")
         # `changed`, not `used_model`: the latter is False for a cache hit,
         # and a cached translation is a working one. What matters here is

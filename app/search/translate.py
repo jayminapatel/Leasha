@@ -339,15 +339,27 @@ class QueryTranslator:
         *,
         timeout_s: float = TRANSLATE_TIMEOUT_S,
         today: Optional[date] = None,
+        enabled: bool = False,
     ) -> None:
         self.client = client
         self.timeout_s = timeout_s
         self.today = today
+        #: **Off unless switched on.** Interpretation is the one part of this
+        #: application that talks to another process, and most machines have no
+        #: Ollama at all. Off by default means somebody who never wanted it is
+        #: never shown a button that cannot work, and nothing probes a service
+        #: that is not there - which matters for an app whose promise is that it
+        #: is entirely local.
+        #:
+        #: Choosing a model in Settings is what turns it on, because choosing a
+        #: model is the act of asking for it.
+        self.enabled = bool(enabled)
         self._cache: dict[str, Translation] = {}
         self._warned = False
 
     def reconfigure(self, *, model: Optional[str] = None,
-                    timeout_s: Optional[float] = None) -> None:
+                    timeout_s: Optional[float] = None,
+                    enabled: Optional[bool] = None) -> None:
         """Change the model or its budget without a restart.
 
         **The cache is emptied.** Every entry in it was produced by the previous
@@ -355,6 +367,8 @@ class QueryTranslator:
         nothing at all on any sentence tried before - and trying the same
         sentence again is the first thing anybody does after switching.
         """
+        if enabled is not None:
+            self.enabled = bool(enabled)
         if timeout_s is not None:
             self.timeout_s = float(timeout_s)
         if model and self.client is not None and hasattr(self.client, "set_model"):
@@ -370,7 +384,7 @@ class QueryTranslator:
 
     def available(self) -> bool:
         """Whether the button should offer to do anything. Never raises."""
-        if self.client is None:
+        if not self.enabled or self.client is None:
             return False
         try:
             return bool(self.client.health() and self.client.has_model())
@@ -393,6 +407,18 @@ class QueryTranslator:
             # Repeating a search must not pay for the model twice. Pressing the
             # button again is the most natural thing to do after editing.
             return _replace_cached(cached)
+
+        # **Switched off means no network, not a quiet failure.** Checked
+        # before the client, before the cache lookup that follows a miss, and
+        # before anything that could open a socket - somebody who has turned
+        # this off should be able to watch the process and see it talk to
+        # nothing.
+        if not self.enabled:
+            return self._fallback(
+                raw,
+                "Interpreting is switched off. Turn it on in Settings to have a "
+                "sentence rewritten as a query.",
+            )
 
         if self.client is None:
             return self._fallback(raw, "Interpreting needs Ollama, which is not configured.")

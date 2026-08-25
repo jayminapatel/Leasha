@@ -29,6 +29,29 @@ __all__ = [
 
 _log = logger.bind(component="ui.workers")
 
+
+#: Codes that mean "the window is closing", not "something went wrong".
+#:
+#: Three ERR_UNEXPECTED tracebacks appeared on every exit, each telling the
+#: owner "This is a bug... send the log file". Closing a window is not a bug,
+#: and printing that it is buries the errors that are.
+_SHUTDOWN_CODES = frozenset({"ERR_SHUTTING_DOWN"})
+
+#: Substrings of the *detail* that mean the same thing, for the races that
+#: surface as a plain RuntimeError from the standard library before any of this
+#: application's code can label them.
+_SHUTDOWN_DETAILS = (
+    "cannot schedule new futures after shutdown",
+    "used before connect(), or after close()",
+)
+
+
+def _is_shutdown(error: Any) -> bool:
+    if getattr(error, "code", "") in _SHUTDOWN_CODES:
+        return True
+    detail = str(getattr(error, "details", "") or "")
+    return any(fragment in detail for fragment in _SHUTDOWN_DETAILS)
+
 #: Every worker handed to a QThreadPool, until it reports itself done.
 #:
 #: **Without this the application crashes.** `QThreadPool.start()` takes
@@ -128,6 +151,9 @@ class CallableWorker(QRunnable):
             _emit(self.signals, "finished", self._work(*self._args, **self._kwargs))
         except Exception as exc:                 # noqa: BLE001 - the boundary; see module docstring
             error = to_app_error(exc, self._component)
+            if _is_shutdown(error):
+                _log.debug("{} abandoned during shutdown", self._component)
+                return
             _log.bind(error_code=error.code).error("{}", error.render())
             _emit(self.signals, "failed", error)
         finally:
@@ -166,6 +192,12 @@ class SearchWorker(QRunnable):
             _emit(self.signals, "finished", (self.generation, response))
         except Exception as exc:                 # noqa: BLE001
             error = to_app_error(exc, "ui.search")
+            if _is_shutdown(error):
+                # Expected, and not the user's problem. Logged at debug so it
+                # is still findable, and never emitted - `failed` puts a dialog
+                # in front of somebody who has already clicked the close button.
+                _log.debug("search abandoned during shutdown")
+                return
             _log.bind(error_code=error.code).error("{}", error.render())
             _emit(self.signals, "failed", error)
         finally:

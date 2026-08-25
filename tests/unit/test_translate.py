@@ -64,7 +64,7 @@ class FakeClient:
 
 
 def translate(reply: str, sentence: str = "find something"):
-    return QueryTranslator(FakeClient(reply), today=TODAY).translate(sentence)
+    return QueryTranslator(FakeClient(reply), enabled=True, today=TODAY).translate(sentence)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def test_output_longer_than_the_cap_is_prose_whatever_it_says() -> None:
 def test_no_client_at_all_still_returns_a_usable_query() -> None:
     """`translate` has no error path a caller can forget, because forgetting it
     would mean a search that does not run - worse than a blunt one."""
-    result = QueryTranslator(None).translate("find the leeds report")
+    result = QueryTranslator(None, enabled=True).translate("find the leeds report")
 
     assert result.query == "find the leeds report"
     assert not result.changed
@@ -200,7 +200,7 @@ def test_ollama_unreachable_falls_back_and_the_search_still_runs() -> None:
 
     client = FakeClient(raises=AppErrorException(make_error(
         "ERR_OLLAMA_DOWN", "test", details="refused")))
-    result = QueryTranslator(client, today=TODAY).translate("find the leeds report")
+    result = QueryTranslator(client, enabled=True, today=TODAY).translate("find the leeds report")
 
     assert result.query == "find the leeds report"
     assert result.error is not None and result.error.code == "ERR_OLLAMA_DOWN"
@@ -209,7 +209,7 @@ def test_ollama_unreachable_falls_back_and_the_search_still_runs() -> None:
 def test_any_unexpected_exception_is_still_a_fallback() -> None:
     """The boundary. A translator that raises would take a search down with it."""
     client = FakeClient(raises=RuntimeError("something nobody predicted"))
-    result = QueryTranslator(client, today=TODAY).translate("find the leeds report")
+    result = QueryTranslator(client, enabled=True, today=TODAY).translate("find the leeds report")
 
     assert result.query == "find the leeds report"
     assert not result.changed
@@ -218,7 +218,7 @@ def test_any_unexpected_exception_is_still_a_fallback() -> None:
 def test_the_fallback_is_logged_once_not_once_per_key() -> None:
     """Per-key logging would fill the log with the same line while somebody
     typed, burying everything else at the moment it is needed."""
-    translator = QueryTranslator(None)
+    translator = QueryTranslator(None, enabled=True)
     translator.translate("one")
     translator.translate("two")
     translator.translate("three")
@@ -237,7 +237,7 @@ def test_available_is_false_and_never_raises_when_the_probe_explodes() -> None:
         def generate(self, prompt, **kw):
             raise AssertionError("should not be reached")
 
-    assert QueryTranslator(Exploding()).available() is False
+    assert QueryTranslator(Exploding(), enabled=True).available() is False
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +246,7 @@ def test_available_is_false_and_never_raises_when_the_probe_explodes() -> None:
 
 def test_repeating_a_sentence_does_not_pay_for_the_model_twice() -> None:
     client = FakeClient("type:pdf leeds")
-    translator = QueryTranslator(client, today=TODAY)
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
 
     first = translator.translate("leeds pdfs")
     second = translator.translate("leeds pdfs")
@@ -259,7 +259,7 @@ def test_repeating_a_sentence_does_not_pay_for_the_model_twice() -> None:
 def test_a_failure_is_cached_too() -> None:
     """A machine with no Ollama should not re-probe on every press of the
     button - the answer will not have changed within one session."""
-    translator = QueryTranslator(None)
+    translator = QueryTranslator(None, enabled=True)
     translator.translate("leeds")
     assert "leeds" in translator._cache
 

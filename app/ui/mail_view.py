@@ -158,6 +158,18 @@ class MailView(QWidget):
         layout.addWidget(self.results, 1)
         self._apply_prefs()
 
+    def shutdown(self) -> None:
+        """Stop the debounce timers, so no new query starts while closing.
+
+        A timer that fires during teardown starts a search against a store that
+        is being closed, which arrives as a traceback telling the owner to send
+        the log file. Nothing is wrong; the work simply should not have begun.
+        """
+        self._generation += 1        # anything still in flight is now stale
+        timer = getattr(self, "_timer", None)
+        if timer is not None:
+            timer.stop()
+
     def focus(self) -> None:
         self.input.setFocus()
         self.input.selectAll()

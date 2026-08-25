@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.view_options import Density
+from app.ui.view_options import Density, apply_font
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.presenter import ResultRow, to_rows
 
@@ -192,10 +192,11 @@ class _ResultItem(QWidget):
 
         for label in (heading, meta, snippet):
             label.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-            if font_pt:
-                font = label.font()
-                font.setPointSize(int(font_pt))
-                label.setFont(font)
+            # Via the stylesheet, for the reason in `view_options.apply_font`:
+            # `theme.py` sizes these in px by objectName, and a px rule beats
+            # `setFont` outright - so setting a QFont here did nothing visible
+            # while also carrying a pointSize of -1 into Qt's warning stream.
+            apply_font(label, font_pt)
 
         # Compact halves the padding rather than shrinking the text: the point
         # of a compact list is more rows on screen, and text you cannot read is

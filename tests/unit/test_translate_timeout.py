@@ -94,13 +94,13 @@ def test_the_budget_is_not_so_long_that_it_reads_as_a_hang():
 def test_a_timeout_does_not_claim_the_server_is_down():
     """**The bug.** The user was told to check a service that had just answered
     a trial question in 0.59 seconds."""
-    result = QueryTranslator(Client(timeout_error())).translate("find the invoice")
+    result = QueryTranslator(Client(timeout_error()), enabled=True).translate("find the invoice")
     assert "not answering" not in result.note
     assert "not running" not in result.note
 
 
 def test_a_timeout_says_it_was_a_timeout():
-    result = QueryTranslator(Client(timeout_error())).translate("find the invoice")
+    result = QueryTranslator(Client(timeout_error()), enabled=True).translate("find the invoice")
     assert result.error is not None
     assert result.error.code == "ERR_OLLAMA_TIMEOUT"
     assert "30" in result.note or "30" in result.error.message
@@ -115,7 +115,7 @@ def test_the_suggestion_is_actionable_rather_than_generic():
 
 def test_a_real_outage_still_says_so():
     """The distinction has to cut both ways, or it is just a renamed error."""
-    result = QueryTranslator(Client(down_error())).translate("find the invoice")
+    result = QueryTranslator(Client(down_error()), enabled=True).translate("find the invoice")
     assert result.error.code == "ERR_OLLAMA_DOWN"
 
 
@@ -124,7 +124,7 @@ def test_the_query_is_always_usable_whatever_failed(error):
     """The contract that must survive every change here: a caller never has to
     check anything, because a search that does not run is worse than a blunt
     one."""
-    result = QueryTranslator(Client(error)).translate("find the invoice")
+    result = QueryTranslator(Client(error), enabled=True).translate("find the invoice")
     assert result.query == "find the invoice"
     assert result.changed is False
 
@@ -137,7 +137,7 @@ def test_a_timeout_is_retried_on_the_next_press():
     """The model may simply have been cold. Caching the failure made the second
     press return the first press's failure instantly - a dead button."""
     client = Client(timeout_error())
-    translator = QueryTranslator(client)
+    translator = QueryTranslator(client, enabled=True)
     translator.translate("find the invoice")
     translator.translate("find the invoice")
     assert client.calls == 2
@@ -147,14 +147,14 @@ def test_a_dead_server_is_not_re_probed_every_press():
     """The behaviour the cache was added for, which must survive the fix: a
     machine with no Ollama should not pay for a probe on every click."""
     client = Client(down_error())
-    translator = QueryTranslator(client)
+    translator = QueryTranslator(client, enabled=True)
     translator.translate("find the invoice")
     translator.translate("find the invoice")
     assert client.calls == 1
 
 
 def test_a_missing_client_is_still_not_re_probed():
-    translator = QueryTranslator(None)
+    translator = QueryTranslator(None, enabled=True)
     first = translator.translate("find the invoice")
     second = translator.translate("find the invoice")
     assert first.query == second.query == "find the invoice"
@@ -195,7 +195,7 @@ def test_generation_is_capped():
     from app.search.translate import MAX_QUERY_TOKENS
 
     client = Recorder()
-    QueryTranslator(client).translate("emails from chris about a licence")
+    QueryTranslator(client, enabled=True).translate("emails from chris about a licence")
     assert client.kwargs.get("max_tokens") == MAX_QUERY_TOKENS
 
 
@@ -211,13 +211,13 @@ def test_generation_stops_at_the_end_of_the_line():
     one line and only the first is kept, so everything after it is waste by
     definition."""
     client = Recorder()
-    QueryTranslator(client).translate("emails from chris about a licence")
+    QueryTranslator(client, enabled=True).translate("emails from chris about a licence")
     assert client.kwargs.get("stop") == ["\n"]
 
 
 def test_the_budget_still_travels_with_the_request():
     client = Recorder()
-    QueryTranslator(client, timeout_s=17.0).translate("find the invoice")
+    QueryTranslator(client, enabled=True, timeout_s=17.0).translate("find the invoice")
     assert client.kwargs.get("timeout") == 17.0
 
 
@@ -227,7 +227,7 @@ def test_reconfiguring_changes_the_budget_and_forgets_the_old_answers():
     before - and trying the same sentence again is the first thing anybody does
     after switching."""
     client = Recorder()
-    translator = QueryTranslator(client, timeout_s=5.0)
+    translator = QueryTranslator(client, enabled=True, timeout_s=5.0)
     translator.translate("find the invoice")
 
     translator.reconfigure(timeout_s=45.0)
@@ -245,7 +245,7 @@ def test_reconfiguring_points_the_client_at_the_new_model():
             self.model = name
 
     client = WithModel()
-    QueryTranslator(client).reconfigure(model="qwen2.5:1.5b")
+    QueryTranslator(client, enabled=True).reconfigure(model="qwen2.5:1.5b")
     assert client.model == "qwen2.5:1.5b"
 
 

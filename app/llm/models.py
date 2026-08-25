@@ -45,7 +45,7 @@ EMBEDDING_HINTS = ("embed", "bge", "gte-", "e5-")
 #: Seconds. The floor is above the ~8s a cold model takes to answer even a
 #: trivial prompt - a smaller budget cannot work and only produces the timeout
 #: this whole line of work came from.
-TIMEOUT_RANGE = (10, 180)
+TIMEOUT_RANGE = (10, 240)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,17 +108,22 @@ def suggested_timeout_s(billions: Optional[float]) -> int:
     reason: the cost of waiting too long is impatience, and the cost of waiting
     too little is a feature that appears broken.
     """
+    # **These went up after a measurement.** qwen2.5:1.5b answered in 3.7s from
+    # the command line with the model already warm, so 15s looked generous - and
+    # then timed out in the GUI, because the first call of a session also loads
+    # the model into memory and that is where the time goes. A budget that only
+    # works on the second attempt is not a budget.
     if billions is None:
-        return 30
+        return 45
     if billions <= 2:
-        return 15
-    if billions <= 4:
-        return 20
-    if billions <= 9:
         return 30
-    if billions <= 20:
+    if billions <= 4:
+        return 40
+    if billions <= 9:
         return 60
-    return 120
+    if billions <= 20:
+        return 90
+    return 150
 
 
 def describe(name: str, billions: Optional[float] = None, embedding_only: bool = False) -> str:

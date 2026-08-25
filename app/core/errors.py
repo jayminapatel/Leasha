@@ -44,6 +44,11 @@ class ActionType(str, Enum):
     USER_RETRY = "USER_RETRY"        # the user does something, then retries
     RUN_COMMAND = "RUN_COMMAND"      # an exact command is shown, ready to copy
     SKIP_CONTINUE = "SKIP_CONTINUE"  # this item is skipped, the batch carries on
+    #: Nothing to do, by anyone. For conditions that are reported for the log's
+    #: sake but are not failures - a search abandoned because the window closed
+    #: is the case this exists for. Without it, every such condition had to
+    #: borrow a code that tells the user to retry something they did not ask for.
+    NONE = "NONE"
 
 
 class AppError(BaseModel):
@@ -117,6 +122,15 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "after that the app is fully offline. Check connectivity or your proxy, then retry."
         ),
         action_type=ActionType.USER_RETRY,
+    ),
+    # **Not a failure - a race that is expected and harmless.** A search
+    # running when the window closes finds the engine gone. It used to surface
+    # as ERR_UNEXPECTED with "This is a bug... send the log file", which is
+    # alarming, wrong, and buries the real errors it is printed among.
+    "ERR_SHUTTING_DOWN": _Spec(
+        message="The window is closing, so this search was abandoned.",
+        suggestion="Nothing is wrong and nothing was lost.",
+        action_type=ActionType.NONE,
     ),
     "ERR_OLLAMA_DOWN": _Spec(
         message="Ollama is not running, so AI answers are unavailable. Search still works normally.",

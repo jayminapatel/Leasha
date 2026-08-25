@@ -440,6 +440,48 @@ def test_a_full_disk_still_ends_the_run_rather_than_pausing(tmp_path, corpus):
     assert stats.stopped_early.code == "ERR_DISK_SPACE"
 
 
+def test_a_disk_stop_never_prunes_files_the_walk_did_not_reach(tmp_path, corpus):
+    """The guard that keeps a resource stop from becoming data loss.
+
+    A disk stop ends the walk early, so files not yet reached are absent from
+    `seen_paths`. If the prune ran anyway, it would delete their rows - valid
+    metadata, chunks and messages - during exactly the resource-exhaustion
+    condition the stop exists to protect against, and the next run would not
+    know those files were ever indexed.
+
+    The chain that prevents it is three lines in three places (`_disk_ok` ->
+    `request_stop` -> the `_interrupted` prune guard) and is correct only by
+    convention, so this pins it. Setup: a fully indexed corpus, then a re-run
+    that hits the disk stop before the walk completes, with pruning on.
+    """
+    from app.index.resources import Snapshot
+
+    db = tmp_path / "index.db"
+    first = run_index(db, corpus)
+    assert first.indexed == 1 + FakeArchive.messages
+
+    with SqliteStore(db) as store:
+        before = {record.path for record in store.iter_files()}
+    assert before, "setup failed: nothing was indexed"
+
+    def no_space():
+        return Snapshot(rss_mb=100.0, system_cpu_percent=5.0, own_cpu_percent=0.0,
+                        free_disk_gb=0.1, on_battery=False, at=0.0)
+
+    stats = governed(db, corpus, no_space)
+
+    assert stats.stopped_early is not None
+    assert stats.stopped_early.code == "ERR_DISK_SPACE"
+    assert stats.deleted == 0, "an interrupted run must never prune"
+
+    with SqliteStore(db) as store:
+        after = {record.path for record in store.iter_files()}
+    assert after == before, (
+        "rows vanished during a disk stop: "
+        f"lost {sorted(before - after)}"
+    )
+
+
 def test_embedding_is_batched_across_documents_not_per_document(tmp_path, corpus):
     """Per-message indexing must not cost per-message embedding.
 

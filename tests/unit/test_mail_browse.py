@@ -247,3 +247,62 @@ def test_free_text_is_not_smuggled_in_as_a_filter():
     empty table for a query that looks perfectly reasonable - the view says so
     instead."""
     assert mail_filters(parsed("quarterly report")) == {}
+
+
+# ---------------------------------------------------------------------------
+# Mail metadata for a page of search results
+# ---------------------------------------------------------------------------
+
+def test_messages_for_returns_metadata_by_file_id(store):
+    first = add(store, path="a", subject="Licence renewal", sender="chris@acme.com")
+    add(store, path="b", subject="Other")
+    found = store.messages_for([first])
+    assert found[first]["subject"] == "Licence renewal"
+
+
+def test_messages_for_omits_files_that_are_not_messages(store):
+    """Most search results are documents. A file with no `messages` row must be
+    absent rather than an error."""
+    message = add(store, path="a", subject="Hi")
+    document = store.upsert_file(path="doc.pdf", size_bytes=1, mtime_ns=1,
+                                 source_kind="file")
+    found = store.messages_for([message, document])
+    assert set(found) == {message}
+
+
+def statements(store):
+    """Count SQL actually sent to SQLite.
+
+    `sqlite3.Connection.execute` cannot be monkeypatched - it is read-only - and
+    counting calls to a wrapper would prove nothing about what reached the
+    database anyway. `set_trace_callback` is the real thing.
+    """
+    seen: list[str] = []
+    store.conn.set_trace_callback(seen.append)
+    return seen
+
+
+def test_messages_for_is_one_query_for_the_whole_page(store):
+    """**The number that matters.** The search box runs on a debounce, so a
+    per-row lookup over ten results is ten queries per keystroke - fifty at the
+    fetch depth grouping needs. That is the shape of slowness that gets blamed
+    on the search itself."""
+    ids = [add(store, path=f"m{i}", subject=f"s{i}") for i in range(10)]
+
+    seen = statements(store)
+    try:
+        store.messages_for(ids)
+    finally:
+        store.conn.set_trace_callback(None)
+
+    assert len(seen) == 1, f"expected one query for ten results, made {len(seen)}"
+
+
+def test_messages_for_an_empty_page_asks_nothing(store):
+    """A page of pure documents must not cost a round trip at all."""
+    seen = statements(store)
+    try:
+        assert store.messages_for([]) == {}
+    finally:
+        store.conn.set_trace_callback(None)
+    assert seen == []

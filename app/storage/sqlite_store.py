@@ -390,6 +390,28 @@ class SqliteStore:
         params.append(max(1, int(limit)))
         return [dict(row) for row in self.conn.execute(sql, params)]
 
+    def messages_for(self, file_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+        """Mail metadata for a page of results, keyed by `file_id`.
+
+        **One query for the whole page, never one per row.** The search box runs
+        on a debounce, so a per-row lookup over ten results is ten queries per
+        keystroke - fifty at the fetch depth grouping needs. That is the shape
+        of slowness that gets blamed on the search itself.
+
+        Files that are not messages are simply absent from the result, which is
+        the common case and must not be an error: most results are documents.
+        """
+        wanted = [int(file_id) for file_id in file_ids or ()]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" * len(wanted))
+        rows = self.conn.execute(
+            f"""SELECT file_id, subject, sender, recipients, sent_at, has_attach
+                FROM messages WHERE file_id IN ({placeholders})""",
+            wanted,
+        )
+        return {int(row["file_id"]): dict(row) for row in rows}
+
     def count_messages(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
         return int(row["n"]) if row else 0

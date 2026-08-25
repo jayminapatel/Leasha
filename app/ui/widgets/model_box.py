@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -53,7 +54,10 @@ class ModelBox(QGroupBox):
     #: (model, timeout_s). One signal for both, because they are one decision:
     #: changing the model without changing the budget is how a large model looks
     #: broken instead of slow.
-    changed = pyqtSignal(str, int)
+    #: (enabled, model, timeout_s). One signal for all three, because they are
+    #: one decision: a model without a budget that fits it looks broken rather
+    #: than slow, and either without the switch does nothing at all.
+    changed = pyqtSignal(bool, str, int)
 
     def __init__(self, client_factory: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("AI query interpretation (optional)", parent)
@@ -63,6 +67,21 @@ class ModelBox(QGroupBox):
         self._client_factory = client_factory
         self._configured = ""
         self._loading = False
+
+        # **Off unless asked for.** Interpretation is the only part of this
+        # application that talks to another process, and most machines have no
+        # Ollama at all. Off by default means nobody is shown a button that
+        # cannot work, and nothing probes a service that is not there - which
+        # matters for an app whose promise is that it is entirely local.
+        self.enabled = QCheckBox("Let a local model turn sentences into queries")
+        self.enabled.setToolTip(
+            "Adds an Interpret button beside the search box.\n\n"
+            "It rewrites 'emails from chris about a licence' as\n"
+            "'from:chris licence' and puts that in the box for you to edit.\n\n"
+            "Search itself never uses this, and works exactly the same with it\n"
+            "switched off. Nothing contacts Ollama while this is unticked."
+        )
+        self.enabled.toggled.connect(self._on_toggled)
 
         self.model = QComboBox()
         self.model.setToolTip(
@@ -107,6 +126,7 @@ class ModelBox(QGroupBox):
         buttons.addStretch(1)
 
         form = QFormLayout(self)
+        form.addRow(self.enabled)
         form.addRow("Model", self.model)
         form.addRow("Give it up to", self.timeout)
         form.addRow(buttons)
@@ -114,18 +134,50 @@ class ModelBox(QGroupBox):
 
     # -- loading ---------------------------------------------------------------
 
-    def load(self, model: str, timeout_s: int) -> None:
+    def load(self, model: str, timeout_s: int, *, enabled: bool = False) -> None:
         """Show the saved settings, then go and ask Ollama what exists.
 
         In that order deliberately: the saved model appears immediately even if
         Ollama is slow or absent, so the panel is never briefly blank or briefly
         wrong.
+
+        **Nothing is probed while switched off.** Opening Settings must not
+        contact a service somebody has declined to use.
         """
         self._configured = (model or "").strip()
+        with _quiet(self.enabled):
+            self.enabled.setChecked(bool(enabled))
         with _quiet(self.timeout):
             self.timeout.setValue(int(timeout_s or suggested_timeout_s(None)))
         self._show_models([])
-        self.refresh()
+        self._sync_enabled()
+        if enabled:
+            self.refresh()
+        else:
+            self.status.setText(
+                "Switched off. Search works normally without it; tick the box to "
+                "have sentences rewritten as queries."
+            )
+
+    def _on_toggled(self, on: bool) -> None:
+        """Turning it on is what triggers the first probe."""
+        self._sync_enabled()
+        if on:
+            self.refresh()
+        else:
+            self.status.setText("Switched off. Nothing will contact Ollama.")
+        self._emit()
+
+    def _sync_enabled(self) -> None:
+        """Grey out what has no meaning while it is off.
+
+        Disabled rather than hidden: a panel that changes height as you tick a
+        box makes everything below it jump, and seeing the controls is how
+        somebody knows what turning it on would give them.
+        """
+        on = self.enabled.isChecked()
+        for widget in (self.model, self.timeout, self.refresh_button, self.test_button):
+            widget.setEnabled(on)
 
     def refresh(self) -> None:
         """Ask Ollama for its model list, off the UI thread."""
@@ -207,13 +259,20 @@ class ModelBox(QGroupBox):
 
         with _quiet(self.timeout):
             self.timeout.setValue(suggested_timeout_s(parameter_billions(chosen)))
+        if not self.enabled.isChecked():
+            # Choosing a model is the act of asking for the feature. Making
+            # somebody then find a separate switch is a step that exists only
+            # because the code has two flags.
+            with _quiet(self.enabled):
+                self.enabled.setChecked(True)
+            self._sync_enabled()
         self.status.setText(f"Using {chosen}. Press Test to see how fast it is.")
         self._emit()
 
     def _emit(self) -> None:
         model = str(self.model.currentData() or self._configured or "")
-        if model:
-            self.changed.emit(model, int(self.timeout.value()))
+        self.changed.emit(
+            bool(self.enabled.isChecked()), model, int(self.timeout.value()))
 
     # -- testing ---------------------------------------------------------------
 

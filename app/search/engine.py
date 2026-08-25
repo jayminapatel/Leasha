@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
-from app.core.errors import AppErrorException
+from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 from app.search import keyword, vector
 from app.search.fusion import RRF_K, fuse_hits
@@ -64,6 +64,16 @@ class SearchResult:
     page: Optional[int] = None
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+    #: The file's extension and modification time, for the result row to show.
+    #:
+    #: **Both were already being fetched and thrown away.** `keyword.py` and
+    #: `vector.py` have selected `f.ext` and `f.mtime_ns` since Layer 4; this
+    #: dataclass simply had nowhere to put them, so `_to_result` dropped them on
+    #: the floor. In a fifteen-year archive with eight versions of everything,
+    #: the date is frequently the only thing distinguishing two results - and it
+    #: cost one line and no new query to show it.
+    ext: str = ""
+    mtime_ns: int = 0
     #: Which retrievers found it. Both agreeing is the strongest signal the
     #: pipeline produces, and the UI is expected to say so.
     sources: tuple[int, ...] = ()
@@ -163,8 +173,22 @@ class SearchEngine:
         self.weights = weights
         self.log_usage = log_usage
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="search")
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """True once `close()` has run. Ask before starting work.
+
+        A search already in flight when the window closes will otherwise reach
+        `self._pool.submit` on a shut-down executor and raise `RuntimeError:
+        cannot schedule new futures after shutdown` - which the worker's
+        boundary dutifully reported as ERR_UNEXPECTED, three times, telling the
+        owner it was "a bug" and to send the log. Shutting down is not a bug.
+        """
+        return self._closed
 
     def close(self) -> None:
+        self._closed = True
         self._pool.shutdown(wait=False)
 
     def warm_up(self) -> None:
@@ -225,6 +249,11 @@ class SearchEngine:
         cache_key = self._cache_key(raw, parsed, want_rerank, limit)
 
         if use_cache and self.cache is not None:
+            # Checked here, not only at entry: the window can close while the
+            # embedder is mid-call, and the next thing this method does is
+            # submit to an executor that no longer exists.
+            if self._closed:
+                raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
             cached = self._cache_get(cache_key)
             if cached is not None:
                 cached.from_cache = True
@@ -383,6 +412,11 @@ class SearchEngine:
             page=hit.get("page"),
             char_start=hit.get("char_start"),
             char_end=hit.get("char_end"),
+            # Normalised the way `upsert_file` stores it - bare, lowercase, no
+            # leading dot. A dotted extension here would make `type:pdf` and the
+            # result row's own label disagree about the same file.
+            ext=str(hit.get("ext", "") or "").lower().lstrip("."),
+            mtime_ns=int(hit.get("mtime_ns") or 0),
             score=float(hit.get("rerank_score", score) if "rerank_score" in hit else score),
             rank=rank,
             sources=tuple(sources),

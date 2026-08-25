@@ -23,28 +23,25 @@ from typing import Any, Optional
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
-    status_line,
+    results_message,
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
     Tier,
     search_shape,
-    semantic_health,
     tier_for,
 )
 from app.ui.results_view import ResultsView
 from app.ui.view_options import button as view_button
+from app.ui.widgets.search_bar import build_interpret, build_rerank, build_scope
 from app.ui.widgets.command_popup import attach_to
 from app.ui.workers import CallableWorker, SearchWorker, run
 
@@ -101,37 +98,13 @@ class SearchView(QWidget):
         # Scope chips. A filter, not a mode: you should never have to decide
         # whether a thing was an email or a document *before* typing, because
         # the usual answer is "I do not remember, that is why I am searching".
-        self.scope = QComboBox()
-        self.scope.addItem("Everything", "all")
-        self.scope.addItem("Mail only", "mail")
-        self.scope.addItem("Documents only", "documents")
-        self.scope.setToolTip(
-            "Narrow the search to mail or to files on disk.\n"
-            "Mail results show who sent it and when instead of a file path."
-        )
-        self.scope.currentIndexChanged.connect(self._on_scope_changed)
-
-        # Explicit, never automatic. Plain Enter runs what was typed, exactly as
-        # it always has; this button is the user choosing to spend a second on a
-        # model. Silently interpreting every search would make results
-        # unpredictable, and unpredictable search over your own archive is worse
-        # than blunt search because you stop trusting it.
-        self.interpret_button = QPushButton("Interpret")
-        self.interpret_button.setToolTip(
-            "Turn a sentence into a search query using Ollama.  Ctrl+Enter\n\n"
-            "The query it builds goes into the box so you can read and edit it.\n"
-            "If Ollama is not running, your words are searched for unchanged."
-        )
-        self.interpret_button.clicked.connect(lambda _c=False: self.interpret())
+        # The four controls beside the box - see `widgets/search_bar.py` for
+        # why each tooltip is load-bearing.
+        self.scope = build_scope(self, self._on_scope_changed)
+        self.interpret_button = build_interpret(self, lambda _c=False: self.interpret())
+        self.rerank_toggle = build_rerank(self, lambda _state: self._dispatch(Tier.FULL))
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.interpret)
         QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.interpret)
-
-        self.rerank_toggle = QCheckBox("Rerank")
-        self.rerank_toggle.setToolTip(
-            "Slower but more precise ordering. Turning it off does not need a restart."
-        )
-        self.rerank_toggle.setChecked(True)
-        self.rerank_toggle.stateChanged.connect(lambda _state: self._dispatch(Tier.FULL))
 
         # Text size and spacing for the results pane. Results are the one place
         # in this window people *read* rather than scan, and the size that suits
@@ -173,6 +146,35 @@ class SearchView(QWidget):
         self._full_timer.setSingleShot(True)
         self._full_timer.setInterval(IDLE_DEBOUNCE_MS)
         self._full_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False))
+
+    def set_interpret_enabled(self, enabled: bool) -> None:
+        """Show the Interpret button only when it can actually do something.
+
+        Hidden rather than disabled: a greyed-out button is a permanent question
+        - *why can I not press that?* - with no answer visible on the screen it
+        appears on. Somebody who has not turned interpretation on has no reason
+        to know the feature exists, and the search box is not the place to
+        advertise it.
+        """
+        self.interpret_button.setVisible(bool(enabled))
+
+    def shutdown(self) -> None:
+        """Stop the debounce timers, so no new query starts while closing.
+
+        A timer that fires during teardown starts a search against a store that
+        is being closed, which arrives as a traceback telling the owner to send
+        the log file. Nothing is wrong; the work simply should not have begun.
+        """
+        self._generation += 1        # anything still in flight is now stale
+        timer = getattr(self, "_typing_timer", None)
+        if timer is not None:
+            timer.stop()
+        timer = getattr(self, "_idle_timer", None)
+        if timer is not None:
+            timer.stop()
+        timer = getattr(self, "_timer", None)
+        if timer is not None:
+            timer.stop()
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -261,26 +263,14 @@ class SearchView(QWidget):
 
         self._last_search_id = response.search_id
         terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
+        summary, status = results_message(response)
 
-        if not response.results:
-            hint = ""
-            if response.parsed and response.parsed.has_filters:
-                hint = "  The filters may be excluding everything."
-            self.results.clear(f"No results.{hint}")
-            self.status.setText(status_line(response))
-            self._announce(response)
-            return
-
-        self.results.show_results(response.results, terms, summary=status_line(response))
-        # Say it when the semantic half returned nothing. Silent degradation is
-        # how "search feels worse than it should" goes unreported for weeks.
-        self.status.setText(semantic_health(response) or "")
+        if response.results:
+            self.results.show_results(response.results, terms, summary=summary)
+        else:
+            self.results.clear(summary)
+        self.status.setText(status)
         self._announce(response)
-
-        if response.parsed and response.parsed.unknown_operators:
-            self.status.setText(
-                "Ignored: " + ", ".join(response.parsed.unknown_operators)
-            )
 
     def _announce(self, response: Any) -> None:
         """Emit the shape of a completed search, for the debug recorder."""
