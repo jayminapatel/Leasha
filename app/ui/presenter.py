@@ -1113,6 +1113,12 @@ class MailRow:
     #: The synthetic path for the message. Not shown - nobody typed it and
     #: nobody would recognise it - but the menu needs it to act on the row.
     path: str = ""
+    #: What to call this row. **The field name is `name` because that is what
+    #: every consumer of a row already reads** - `FileRow` and `ResultRow` both
+    #: have one, and the preview pane's heading is `row.name`. Without it a
+    #: message was headed with its synthetic path, which is the one string here
+    #: that means nothing to anybody.
+    name: str = ""
     #: Sortable originals, so the table can sort by real values rather than by
     #: the formatted strings. "3 KB" and "10 KB" sort the wrong way as text, and
     #: a date column sorted alphabetically is worse than no sorting at all.
@@ -1212,14 +1218,17 @@ def mail_rows(
             sent_at = 0
         size_bytes = int(row.get("size_bytes") or 0)
         attached = bool(row.get("has_attach"))
+        # An empty subject is common and meaningful. Blank looks like a
+        # rendering fault; saying so does not.
+        subject = str(row.get("subject") or "").strip() or "(no subject)"
         out.append(MailRow(
             file_id=int(row.get("file_id") or 0),
             sender=format_address(row.get("sender")),
             recipients=format_recipients(row.get("recipients")),
             sent=format_sent(sent_at, now=now),
-            # An empty subject is common and meaningful. Blank looks like a
-            # rendering fault; saying so does not.
-            subject=str(row.get("subject") or "").strip() or "(no subject)",
+            subject=subject,
+            # The same string, under the name every row consumer reads.
+            name=subject,
             attachment="Yes" if attached else "",
             size=format_size(size_bytes),
             path=str(row.get("path") or ""),

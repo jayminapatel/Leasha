@@ -59,6 +59,11 @@ class RepoTree(QTreeWidget):
     repo_activated = pyqtSignal(str)
     #: A file row was activated - open it. Carries the full path.
     file_activated = pyqtSignal(str)
+    #: The row under the cursor changed. The preview pane listens; nothing else
+    #: does, and this widget does not know the preview exists. Named to match
+    #: `ResultsView` and `ResultTable`, because `attach_preview` is written
+    #: against the name rather than against any of the three.
+    selected = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -78,6 +83,9 @@ class RepoTree(QTreeWidget):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionsMovable(True)
 
+        self.currentItemChanged.connect(
+            lambda item, _prev: self.selected.emit(
+                item.data(0, ROW_ROLE) if item is not None else None))
         self.itemExpanded.connect(self._on_expanded)
         self.itemActivated.connect(lambda item, _c: self._activate(item))
         self.itemDoubleClicked.connect(lambda item, _c: self._activate(item))
@@ -201,6 +209,13 @@ class RepoTree(QTreeWidget):
         """The `RepoRow` or `RepoFileRow` under the selection, or None."""
         items = self.selectedItems()
         return items[0].data(0, ROW_ROLE) if items else None
+
+    def current_row(self) -> Any:
+        """What the preview pane draws when it is switched on. The same thing
+        `selected_row` returns; the name is the one `attach_preview` asks for,
+        and a second spelling of it here is cheaper than a third results widget
+        that almost fits."""
+        return self.selected_row()
 
     def selected_repo(self) -> str:
         """The repository the selection belongs to, whichever level it is on.

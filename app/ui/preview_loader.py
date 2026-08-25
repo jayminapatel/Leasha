@@ -16,14 +16,18 @@ Nothing imports Qt, so every decision here is testable without a display.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 
 from app.core.errors import AppError, make_error
+from app.core.logging import logger
 
 __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
-           "KIND_NONE", "kind_for", "load_preview", "CAPS"]
+           "KIND_NONE", "kind_for", "load_preview", "load_preview_for", "stored_text",
+           "CAPS"]
+
+_log = logger.bind(component="ui.preview")
 
 KIND_TEXT = "text"
 KIND_HTML = "html"
@@ -310,3 +314,66 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     return Preview(kind=KIND_TEXT, body=text, path=path_text, title=title,
                    subtitle=subtitle, truncated=truncated)
+
+
+def stored_text(store: Any, file_id: Any) -> str:
+    """What the index holds for one file, reassembled. **Runs on a worker.**
+
+    The `body_provider` Mail installs. Read from `chunks` rather than from the
+    file because the "file" is a PST holding a hundred thousand messages and
+    there is nothing on disk that is *this* message - the text was extracted
+    once, at index time, and this is where it went.
+
+    `chunks_for_file` is indexed on `file_id`, which is the whole reason it is
+    affordable on every arrow key.
+    """
+    try:
+        chunks = store.chunks_for_file(int(file_id or 0))
+    except Exception as exc:                    # noqa: BLE001
+        _log.debug("no stored text for file {}: {}", file_id, exc)
+        return ""
+    return "\n\n".join(chunk.text for chunk in chunks)
+
+
+def load_preview_for(row: Any, *, body_provider: Any = None) -> Preview:
+    """`load_preview` for a result row, whatever kind of row it is.
+
+    **Which fields of a row become which arguments is a decision, so it is
+    made here rather than in the widget.** The pane used to reach into the row
+    with three `getattr` calls, which meant the rule was untestable and silently
+    wrong for anything that did not look like a search result - a Mail row has
+    no `preview_text`, so every message previewed as ERR_FILE_MISSING against a
+    synthetic path nobody could have opened.
+
+    `body_provider` is how a view supplies text the row does not carry: Mail
+    reads the message from the store. **It is called here, on the worker**, for
+    the same reason nothing else in this module is called anywhere else - a
+    store read on the interface thread between two presses of the down arrow is
+    the freeze this application has a standing rule against.
+    """
+    body = str(getattr(row, "preview_text", "") or "")
+    if not body and body_provider is not None:
+        try:
+            body = str(body_provider(row) or "")
+        except Exception as exc:            # noqa: BLE001 - see the docstring
+            # A body that cannot be fetched is a preview without one, never a
+            # traceback for a row somebody arrowed past.
+            _log.debug("no body for the selected row: {}", exc)
+            body = ""
+
+    # **`full_path` first.** A Code row's `path` is shortened for its column and
+    # cannot be opened - `full_path` is the real one. Reading `path` blindly
+    # previewed every repository file as ERR_FILE_MISSING, which is a plausible
+    # enough message that nobody would have questioned it.
+    preview = load_preview(
+        str(getattr(row, "full_path", "") or getattr(row, "path", "")),
+        page=int(getattr(row, "page", 0) or 0),
+        mail_body=body,
+    )
+    # A message's title is its subject. `load_preview` cannot know that - it is
+    # given text and a synthetic path - and "Message" above every message is a
+    # heading that says nothing the pane has not already said.
+    name = str(getattr(row, "name", "") or "")
+    if body and name:
+        preview = replace(preview, title=name)
+    return preview

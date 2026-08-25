@@ -429,6 +429,7 @@ class MainWindow(QMainWindow):
         bind("Ctrl+,", lambda: self._show(self.settings_view))
         bind("Ctrl+I", lambda: self._show(self.indexing_view))
         bind("Ctrl+P", self._focus_files)
+        bind("Ctrl+Shift+P", self._toggle_preview)
         bind("Ctrl+M", self._focus_mail)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
@@ -732,6 +733,23 @@ class MainWindow(QMainWindow):
         self._show(self.files_view)
         self.files_view.focus()
 
+    def _toggle_preview(self) -> None:
+        """Ctrl+Shift+P, on whichever list is in front.
+
+        **Deliberately not one setting for the whole window.** Each list keeps
+        its own preferences under its own key, and somebody who wants the pane
+        on Code has said nothing about wanting it on Mail. The key is the same
+        everywhere, which is the part that has to be consistent.
+
+        Guarded: not every page has a list - Settings and Indexing do not - and
+        a shortcut that raises on the wrong tab is worse than one that does
+        nothing there.
+        """
+        button = getattr(self._current_view(), "view_button", None)
+        toggle = getattr(button, "toggle_preview", None)
+        if toggle is not None:
+            toggle()
+
     def _focus_mail(self) -> None:
         """Ctrl+M. Mail is a browser, so this lands in its filter box."""
         self._show(self.mail_view)
@@ -785,6 +803,19 @@ class MainWindow(QMainWindow):
         index = self._tab_index.get(view)
         if index is not None:
             self.tabs.setCurrentIndex(index)
+
+    def _current_view(self) -> Any:
+        """The view whose tab is in front, or None.
+
+        **By index, never `tabs.currentWidget()`.** A view inside a scroll area
+        is not the tab's widget - the scroll area is - which is the same trap
+        `_show` exists to avoid, and it returns the wrong object silently.
+        """
+        index = self.tabs.currentIndex()
+        for view, at in self._tab_index.items():
+            if at == index:
+                return view
+        return None
 
     def _tab_changed(self, index: int) -> None:
         """Refresh what the tab shows, then put the cursor where typing goes.

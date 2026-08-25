@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -44,6 +43,8 @@ from app.ui.view_options import (
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.preview import attach_preview
+from app.ui.widgets.result_table import ResultTable
 from app.ui.workers import CallableWorker, open_in_explorer, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
@@ -107,12 +108,9 @@ class FilesView(QWidget):
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")
 
-        self.results = QTableWidget(0, len(COLUMNS))
-        self.results.setHorizontalHeaderLabels([h for _k, h, _a, _r in COLUMNS])
-        self.results.verticalHeader().hide()
-        self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.results.setSortingEnabled(False)      # ranked by match quality, not by column
+        # Not sortable: ranked by match quality, and a header click would throw
+        # that away silently. See widgets/result_table.py.
+        self.results = ResultTable([h for _k, h, _a, _r in COLUMNS])
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
@@ -141,6 +139,12 @@ class FilesView(QWidget):
         self._timer.setInterval(NAME_DEBOUNCE_MS)
         self._timer.timeout.connect(self._run)
 
+        # Off until asked for - `Ctrl+P` or the View menu. Same pane, same
+        # shortcut and same behaviour as the search tab: the owner's rule is
+        # that a feature helping one search area is applied to the others.
+        self.preview, self.split = attach_preview(
+            self.results, lambda _row: self._open_selected(), self.error.emit)
+
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.view_button)
@@ -148,7 +152,7 @@ class FilesView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
-        layout.addWidget(self.results, 1)
+        layout.addWidget(self.split, 1)
 
         self._apply_prefs()
         self.refresh_summary()
@@ -161,6 +165,8 @@ class FilesView(QWidget):
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
             available=self._available,
         )
+        self.preview.apply_preference(
+            self.view_button.prefs, self.results.current_row())
 
     def _prefs_changed(self, _prefs: Any) -> None:
         """The button owns the preferences and has already saved them."""
@@ -169,6 +175,7 @@ class FilesView(QWidget):
     def shutdown(self) -> None:
         """Stop the debounce timers - see `workers.stop_timers`."""
         stop_timers(self)
+        self.preview.shutdown()
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -223,7 +230,6 @@ class FilesView(QWidget):
             # Returns without querying and without clearing: the rows from the
             # last complete query stay put, which is the whole point.
             return
-            return
 
         # Generation-tagged, like the main search box: a lookup that lands after
         # newer typing must be dropped rather than overwrite fresher results.
@@ -260,6 +266,9 @@ class FilesView(QWidget):
                     if row.note:
                         item.setToolTip(row.note)
                 self.results.setItem(index, column, item)
+        # What the preview pane draws from. After filling, so the order here is
+        # the order the rows went in.
+        self.results.set_row_objects(display)
 
         # Offered when the data can fill it, disabled when it cannot.
         self.view_button.available = self._available = available_columns(

@@ -34,7 +34,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -43,11 +42,14 @@ from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
 from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows
+from app.ui.preview_loader import stored_text
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.preview import attach_preview
+from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
 from app.ui.workers import CallableWorker, run, stop_timers
 
@@ -114,16 +116,11 @@ class MailView(QWidget):
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")
 
-        self.results = QTableWidget(0, len(COLUMNS))
-        self.results.setHorizontalHeaderLabels([h for _k, h, _a, _r in COLUMNS])
-        self.results.verticalHeader().hide()
-        self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.results.setAlternatingRowColors(True)
         # Sortable, unlike the search results: these rows have no rank to
         # destroy, and "biggest attachment" and "oldest thread" are real
         # questions that a click on a header answers for free.
-        self.results.setSortingEnabled(True)
+        self.results = ResultTable([h for _k, h, _a, _r in COLUMNS],
+                                   sortable=True, alternating=True)
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)   # Subject
         header.setSectionsMovable(True)
@@ -149,6 +146,14 @@ class MailView(QWidget):
         self._timer.setInterval(MAIL_DEBOUNCE_MS)
         self._timer.timeout.connect(self._run)
 
+        # Off until asked for - `Ctrl+P` or the View menu. The body comes from
+        # `_message_body` rather than from the file, because a PST is a hundred
+        # thousand messages in one file and there is nothing on disk to open
+        # for any one of them.
+        self.preview, self.split = attach_preview(
+            self.results, lambda _row: self._open_selected(), self.error.emit)
+        self.preview.body_provider = lambda row: stored_text(store, row.file_id)
+
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.view_button)
@@ -156,12 +161,13 @@ class MailView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
-        layout.addWidget(self.results, 1)
+        layout.addWidget(self.split, 1)
         self._apply_prefs()
 
     def shutdown(self) -> None:
         """Stop the debounce timers - see `workers.stop_timers`."""
         stop_timers(self)
+        self.preview.shutdown()
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -225,6 +231,9 @@ class MailView(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, row.file_id)
                     item.setToolTip(row.path)
                 self.results.setItem(index, column, item)
+        # Before sorting is re-enabled: the objects are attached in table order
+        # and a sort would already have moved the cells out from under them.
+        self.results.set_row_objects(display)
         self.results.setSortingEnabled(True)
 
         # Recomputed from the rows on screen, so a column is offered when the
@@ -264,6 +273,8 @@ class MailView(QWidget):
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
             available=self._available,
         )
+        self.preview.apply_preference(
+            self.view_button.prefs, self.results.current_row())
 
     def _prefs_changed(self, _prefs: Any) -> None:
         """The button owns the preferences and has already saved them."""

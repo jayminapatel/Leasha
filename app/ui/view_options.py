@@ -361,7 +361,13 @@ def build_menu(
         preview = QAction("Preview pane", menu)
         preview.setCheckable(True)
         preview.setChecked(prefs.preview)
-        preview.setShortcut("Ctrl+P")
+        # **Not `Ctrl+P`, which this said for weeks and never did.** The window
+        # binds `Ctrl+P` to "go to Files" - the shortcut every editor uses for
+        # "go to file" - and a window-level action wins over one on a menu that
+        # only exists while it is open. So the menu advertised a key that did
+        # nothing, which is worse than advertising none: somebody presses it,
+        # lands on another tab, and concludes the preview is broken.
+        preview.setShortcut("Ctrl+Shift+P")
         preview.setToolTip(
             "Read the selected result beside the list, without opening the "
             "application that owns it."
@@ -440,7 +446,17 @@ def button(
         )
         menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
+    def toggle_preview() -> None:
+        """Flip the preview pane, saving and redrawing as a menu click would.
+
+        Here rather than in the window because `changed` is what saves and
+        redraws, and it is a closure over this button. A shortcut that set
+        `prefs` directly would show the pane and forget it by the next launch.
+        """
+        changed(replace(widget.prefs, preview=not widget.prefs.preview))
+
     widget.show_menu = show
+    widget.toggle_preview = toggle_preview
     widget.clicked.connect(lambda: show())
     return widget
 

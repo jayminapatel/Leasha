@@ -41,6 +41,7 @@ from app.ui.view_options import (
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.repo_tree import COLUMNS, RepoTree
 from app.ui.widgets.table_filter import build_filter
 from app.ui.workers import CallableWorker, run
@@ -122,6 +123,16 @@ class CodeView(QWidget):
             on_change=self._prefs_changed,
         )
 
+        # Off until asked for - `Ctrl+P` or the View menu, as everywhere else.
+        # A repository row has no file to draw and shows the card; expanding it
+        # and selecting a file is what fills the pane, which is the sequence the
+        # tab is for.
+        self.preview, self.split = attach_preview(
+            self.results,
+            lambda row: self.open_requested.emit(getattr(row, "full_path", "")),
+            self.error.emit,
+        )
+
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.view_button)
@@ -130,7 +141,7 @@ class CodeView(QWidget):
         layout.addLayout(top)
         layout.addWidget(self.summary)
         layout.addWidget(self.empty)
-        layout.addWidget(self.results, 1)
+        layout.addWidget(self.split, 1)
         self._apply_prefs()
 
     # -- lifecycle -----------------------------------------------------------
@@ -140,6 +151,7 @@ class CodeView(QWidget):
         from app.ui.workers import stop_timers
 
         stop_timers(self)
+        self.preview.shutdown()
 
     def focus(self) -> None:
         """The filter box, like Files and Mail."""
@@ -218,11 +230,14 @@ class CodeView(QWidget):
             # The summary is `_apply_filter`'s to write - it is the only one
             # that knows whether a filter is narrowing the count.
             self.empty.setVisible(False)
-            self.results.setVisible(True)
+            self.split.setVisible(True)
             self.input.setVisible(True)
             return
         self.input.setVisible(False)     # nothing to narrow
-        self.results.setVisible(False)
+        # The splitter, not the tree: hiding the tree alone would leave the
+        # preview pane floating beside nothing, above a message explaining that
+        # there is nothing.
+        self.split.setVisible(False)
         self.empty.setVisible(True)
         self.summary.setText("")
         self.empty.setText(repo_empty_state(self._anything_indexed()))
@@ -241,6 +256,8 @@ class CodeView(QWidget):
             columns=[(key, heading) for key, heading, _r in COLUMNS],
             available=self._available,
         )
+        self.preview.apply_preference(
+            self.view_button.prefs, self.results.current_row())
 
     def _prefs_changed(self, _prefs: Any) -> None:
         self._apply_prefs()

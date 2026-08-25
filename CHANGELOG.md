@@ -1,12 +1,56 @@
 # Changelog
 
-**Doc version:** 3.25 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.26 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the preview pane, on every list
+
+Asked for directly: *"preview pane should be in every search type"*. The pane
+itself was written weeks ago and worked; it was attached to the search tab and
+nowhere else, because `attach_preview` needs a results widget with a `selected`
+signal and a `current_row()`, and only `ResultsView` had them. Files and Mail
+used a bare `QTableWidget`, which knows about cells and strings and threw the
+row object away as soon as the text had been read out of it.
+
+`widgets/result_table.py` is that widget, and it absorbs the table setup the two
+views had been copying — which had already drifted, one sorting and one not, for
+reasons that were real and written down nowhere. Both reasons now sit next to the
+switch that selects between them. Filling stays in the views: what a Mail row
+looks like is not something a table should know.
+
+**The row object lives on the item, not in a list beside the table.** Mail sorts
+on a header click, and after one, visual row 3 is not `rows[3]`. Qt moves item
+data when it sorts; it does not move a list — a positional lookup would preview a
+different message from the one highlighted, which nobody reports because they
+assume they misclicked.
+
+Two silent failures came out of writing the rule down. Reading a row is now
+`preview_loader.load_preview_for`, which imports no Qt and is therefore tested,
+where before the pane reached into rows with three `getattr` calls:
+
+* A **Mail** row has no `preview_text`, so every message would have previewed as
+  `ERR_FILE_MISSING` against a synthetic path nobody could have opened. The text
+  comes from `chunks` instead — the message was extracted at index time and that
+  is where it went. A PST is a hundred thousand messages in one file; there is
+  nothing on disk that is *this* message.
+* A **Code** row's `path` is shortened to fit its column, so every repository
+  file would have done the same. "File missing" is plausible enough about a file
+  sitting right there that nobody would have questioned it.
+
+### Fixed — the View menu advertised `Ctrl+P` for a pane it could not open
+
+The window binds `Ctrl+P` to "go to Files", the shortcut every editor uses for
+"go to file", and a window-level action wins over one on a menu that exists only
+while it is open. So the menu named a key that did nothing — worse than naming
+none, because somebody presses it, lands on another tab, and concludes the
+preview is broken. It is `Ctrl+Shift+P` now, bound in the window, and it toggles
+the pane on whichever list is in front. Per list, deliberately: somebody who
+wants the pane on Code has said nothing about wanting it on Mail.
 
 ### Added — one log file per run
 

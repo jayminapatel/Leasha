@@ -51,7 +51,7 @@ from app.ui.preview_loader import (
     KIND_NONE,
     KIND_PDF,
     KIND_TEXT,
-    load_preview,
+    load_preview_for,
 )
 from app.ui.widgets.highlight import CodeHighlighter, language_for
 from app.ui.workers import CallableWorker, run
@@ -106,6 +106,11 @@ class PreviewPane(QWidget):
         #: Incremented per request. A result carrying an older number is a
         #: render the selection has already moved past - see `_rendered`.
         self._generation = 0
+        #: Optional, set by the view. Text for a row that carries none of its
+        #: own - Mail reads the message from the store, because a PST is a
+        #: hundred thousand messages in one file and there is nothing on disk to
+        #: open for any one of them. **Called on the worker**, never here.
+        self.body_provider: Any = None
 
         self.title = QLabel("")
         self.title.setObjectName("resultName")
@@ -253,10 +258,8 @@ class PreviewPane(QWidget):
             return
         generation = self._generation
         worker = CallableWorker(
-            load_preview,
-            str(getattr(self._row, "path", "")),
-            page=int(getattr(self._row, "page", 0) or 0),
-            mail_body=str(getattr(self._row, "preview_text", "") or ""),
+            load_preview_for, self._row,
+            body_provider=self.body_provider,
             component="ui.preview",
         )
         worker.signals.finished.connect(
