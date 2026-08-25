@@ -295,6 +295,63 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_move_index(args: argparse.Namespace) -> int:
+    r"""Move the index to a new folder and repoint `.env` at it.
+
+    **The CLI is where this belongs, and the UI defers to it**, because the one
+    thing a move must not do is run while the stores are open: copying SQLite
+    out from under a live connection yields a database that opens, reports no
+    error, and is missing whatever was in the write-ahead log. Here, nothing is
+    holding the files.
+
+    `--dry-run` prints the plan and touches nothing, which is the right way to
+    start when the number is measured in hundreds of gigabytes.
+    """
+    from app.core.index_move import ADOPT, FRESH, MOVE, perform_move, plan_move
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    action = ADOPT if args.adopt else (FRESH if args.fresh else MOVE)
+    source = Path(settings.data_path)
+    destination = Path(args.destination).expanduser()
+
+    try:
+        if args.dry_run:
+            report = plan_move(source, destination, action)
+        else:
+            report = perform_move(
+                source, destination, action, Path(settings.env_file),
+                on_progress=None if args.json else lambda line: print(line, flush=True),
+            )
+    except AppErrorException as exc:
+        return _report(exc.error, args.json)
+
+    if args.json:
+        print(json.dumps({
+            "action": report.action,
+            "source": str(report.source),
+            "destination": str(report.destination),
+            "moved": list(report.moved),
+            "bytes": report.bytes_moved,
+            "same_volume": report.same_volume,
+            "env_keys_removed": list(report.env_keys_removed),
+            "performed": report.performed,
+        }, indent=2))
+        return EXIT_OK
+
+    print(report.summary)
+    if report.performed:
+        # The five derived keys are the reason a move used to appear to do
+        # nothing: `.env` pinned them absolutely, and they beat DATA_PATH.
+        print(f"Unpinned {', '.join(report.env_keys_removed)} so they follow "
+              "DATA_PATH from now on.")
+        print("Start the application when ready.")
+    else:
+        print("Nothing was changed. Re-run without --dry-run to do it.")
+    return EXIT_OK
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run doctor.py and pass its exit code through."""
     doctor = project_root() / "doctor.py"
@@ -2351,6 +2408,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_init = sub.add_parser("init", parents=[common], help="create and migrate the stores (safe to re-run)")
     p_init.set_defaults(func=cmd_init)
+
+    p_move = sub.add_parser(
+        "move-index", parents=[common],
+        help="move the index to another folder and repoint .env at it",
+        description=(
+            "Moves vectors, fts, cache, models and state to DESTINATION, then "
+            "rewrites DATA_PATH and removes the five per-directory keys so they "
+            "derive from it. Run with nothing else open. Use --dry-run first."
+        ),
+    )
+    p_move.add_argument("destination", help=r"the new index folder, e.g. D:\Leasha\Data")
+    p_move.add_argument("--dry-run", action="store_true",
+                        help="print what would happen and change nothing")
+    move_kind = p_move.add_mutually_exclusive_group()
+    move_kind.add_argument("--adopt", action="store_true",
+                           help="use the index already at DESTINATION instead of moving")
+    move_kind.add_argument("--fresh", action="store_true",
+                           help="start a new, empty index at DESTINATION")
+    p_move.set_defaults(func=cmd_move_index)
 
     p_doctor = sub.add_parser("doctor", parents=[common], help="verify the environment")
     p_doctor.add_argument("--quick", action="store_true", help="skip model loading")

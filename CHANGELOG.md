@@ -1,12 +1,65 @@
 # Changelog
 
-**Doc version:** 3.35 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.36 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — moving the index now actually moves it
+
+Asked to move the index to `D:\Leasha\Data`, and found the feature wired up to
+nothing. **Two separate defects, either of which loses an index.**
+
+**The move that never happened.** Settings offered "Move or change index
+location…", the dialog wrote the new `DATA_PATH` into `.env`, recorded
+`index:pending_move`, and the status bar said *"the app will move the index the
+next time it starts"*. Nothing anywhere read that key — one occurrence in the
+tree, the write itself. So the files stayed put while the configuration was
+repointed at an empty folder, and an intact index became unreferenced. Same
+category the August review named: documented, believed, never wired up.
+
+**The five keys that outrank `DATA_PATH`.** `install.ps1` pinned every
+subdirectory absolutely — `VECTOR_PATH`, `FTS_DB`, `CACHE_PATH`, `MODEL_CACHE`,
+`STATE_PATH`. `.env` always beats a default, so **changing `DATA_PATH` alone
+changed nothing at all**: vectors, database, cache and models kept resolving to
+the old drive, and the only visible effect was Settings displaying a path the
+application was not using.
+
+New `app/core/index_move.py` does the whole thing as one operation:
+
+- **Files first, `.env` last.** A failed copy leaves the configuration pointing
+  at the old location, which is intact, so the application still starts. Writing
+  `.env` first and then failing is precisely what orphans an index. A test pins
+  the ordering by making `shutil.move` throw.
+- **The derived keys are removed, not rewritten** — `env_writer` already treated
+  `None` as "delete this line", and this is exactly the case it was written for.
+  They derive from `DATA_PATH` afterwards, so this is the last time anyone has
+  to think about them.
+- **Refusals happen before anything is touched**: moving onto an existing index,
+  into a subfolder of itself, or adopting a folder that holds no index. None of
+  those is something to discover forty gigabytes in.
+- **The pending decision is a file beside `.env`, not a row in the index.** The
+  original recorded it inside the very database about to be moved.
+
+The UI no longer writes `.env` when you choose a location — it validates the
+plan, records it, and says *"nothing has moved yet, and this index keeps working
+until then"*, which is now true. `app/main.py` performs it at startup after
+logging is up and before any store opens: the one moment nothing holds the
+files. Copying SQLite from under a live connection yields a database that opens,
+reports no error, and is missing whatever was in the write-ahead log.
+
+Also available headless, which is how a hundred-gigabyte move should be run:
+
+```
+venv\Scripts\python.exe -m app.cli move-index D:\Leasha\Data --dry-run
+venv\Scripts\python.exe -m app.cli move-index D:\Leasha\Data
+```
+
+`install.ps1` no longer writes the five subpath keys, which is the root cause.
+27 new tests.
 
 ### Fixed — six things in the window, four reported and two found on the way
 

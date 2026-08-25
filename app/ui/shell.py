@@ -530,15 +530,22 @@ class MainWindow(QMainWindow):
             return
 
         choice = dialog.choice()
-        try:
-            from app.core.env_writer import apply_values
 
-            apply_values(Path(self._settings.env_file), {"DATA_PATH": str(choice.destination)})
+        # **`.env` is NOT written here, and that is a correction.** It used to
+        # be written immediately while the files stayed put - so the next start
+        # opened an empty folder and an intact index became unreferenced. The
+        # write and the move are one operation, performed together at startup by
+        # `app.core.index_move`, before any store opens. Until then nothing has
+        # changed and the application keeps working exactly as it did.
+        try:
+            from app.core.index_move import plan_move, write_pending
+
+            plan_move(Path(self._settings.data_path), choice.destination, choice.action)
+            write_pending(Path(self._settings.project_path), choice.action, choice.destination)
         except Exception as exc:                 # noqa: BLE001
             self._show_error(to_app_error(exc, "ui.settings"))
             return
 
-        self._store.set_state("index:pending_move", f"{choice.action}:{choice.destination}")
         self.settings_view.data_path.setText(str(choice.destination))
 
         if choice.action == ADOPT:
@@ -546,10 +553,10 @@ class MainWindow(QMainWindow):
         elif choice.action == FRESH:
             what = "will start a new, empty index there"
         else:
-            what = "will move the index there"
+            what = "will move the index there, which can take a while"
         self.statusBar().showMessage(
-            f"Saved: the app {what} the next time it starts. "
-            "Nothing has moved yet.", 12_000)
+            f"Saved: the app {what} when you restart it. Nothing has moved yet, "
+            "and this index keeps working until then.", 12_000)
 
     def _change_meaning_model(self) -> None:
         """Confirm the cost of changing the embedding model, then record it."""

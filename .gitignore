@@ -60,6 +60,14 @@ tests/output/
 *.user
 *.userprefs
 *.sln.docstates
+# Visual Studio 2022+ rewrites the solution header on first open and leaves an
+# upgrade report and a copy of the originals behind. Both are per-machine noise.
+UpgradeLog*.htm
+Backup/
+
+# Written by Settings when an index move is chosen, consumed by the next start.
+# Per-machine state about one pending operation - see app/core/index_move.py.
+pending-move.json
 
 .idea/
 *.swp

@@ -124,6 +124,42 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run.finish(code)
 
 
+def _apply_pending_move(settings: Any) -> Any:
+    """Carry out an index move recorded by Settings, if one is waiting.
+
+    Returns the settings to use - reloaded when a move happened, unchanged
+    otherwise. Raises `AppErrorException` if the move fails, because starting
+    against a half-moved index is worse than not starting.
+
+    **The pending record is cleared before the move, not after.** A move that
+    fails with the record still in place would retry on every launch, and the
+    second attempt finds a destination that is partly populated and refuses -
+    so the application would never start again without someone deleting a file
+    they do not know about. Cleared first, a failure is one bad start, the old
+    index is untouched, and the error says what to do.
+    """
+    from app.core.config import load_settings
+    from app.core.index_move import clear_pending, perform_move, read_pending
+
+    pending = read_pending(settings.project_path)
+    if pending is None:
+        return settings
+
+    action, destination = pending
+    clear_pending(settings.project_path)
+
+    from app.core.logging import logger
+
+    log = logger.bind(component="main")
+    log.info("applying pending index move", action=action, destination=str(destination))
+
+    perform_move(
+        settings.data_path, destination, action, settings.env_file,
+        on_progress=lambda line: log.info(line),
+    )
+    return load_settings()
+
+
 def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     from app.core.config import load_settings
     from app.core.single_instance import SingleInstance
@@ -135,6 +171,18 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     run.settings(settings)
     setup_logging(settings.log_path)
+
+    # **A pending index move runs here and nowhere else**: after logging is up,
+    # before a single store is opened. That is the only moment nothing holds the
+    # files. Settings records the decision; this keeps it, moving the folders and
+    # rewriting `.env` as one operation - the split between those two is what
+    # used to leave an index orphaned. Settings are reloaded afterwards so the
+    # window opens against the new location rather than the one on this object.
+    try:
+        settings = _apply_pending_move(settings)
+    except AppErrorException as exc:
+        return _fatal(exc.error)
+    run.settings(settings)
 
     try:
         from PyQt6.QtWidgets import QApplication

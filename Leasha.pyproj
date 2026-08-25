@@ -74,6 +74,7 @@
     <Compile Include="app\core\errors.py" />
     <Compile Include="app\core\format_health.py" />
     <Compile Include="app\core\formats.py" />
+    <Compile Include="app\core\index_move.py" />
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\runlog.py" />
     <Compile Include="app\core\scaffold.py" />
@@ -234,6 +235,7 @@
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_index_flows.py" />
     <Compile Include="tests\unit\test_index_freshness.py" />
+    <Compile Include="tests\unit\test_index_move.py" />
     <Compile Include="tests\unit\test_index_panel.py" />
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />
@@ -277,6 +279,7 @@
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_staging.py" />
+    <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_translate.py" />
     <Compile Include="tests\unit\test_translate_timeout.py" />
