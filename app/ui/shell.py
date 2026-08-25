@@ -164,6 +164,11 @@ class MainWindow(QMainWindow):
             enabled=interpret_on,
         )
         self._translator = translator
+        # **Warmed at startup only when it was already switched on**, which is
+        # somebody having asked for the feature in a previous session. A new
+        # install loads nothing and contacts nothing - see `_warm_translator`
+        # for why the first press otherwise pays 8.2s against a 5s budget.
+        translator.just_enabled = interpret_on
         self.search_view = SearchView(engine, translator)
         self.search_view.result_opened.connect(self._open_result)
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
@@ -325,6 +330,8 @@ class MainWindow(QMainWindow):
         self._refresh_status()
         self._build_shortcuts()
         self._start_scheduler()
+        # Last, and on a worker: nothing about the window waits for it.
+        self._warm_translator()
         self._wire_recorder()
 
         self._apply_theme()
@@ -697,9 +704,34 @@ class MainWindow(QMainWindow):
         # sitting there greyed out - an Interpret button that cannot interpret
         # is a permanent question with no answer on screen.
         self.search_view.set_interpret_enabled(enabled)
+        self._warm_translator()
         self.statusBar().showMessage(
             f"Interpret will use {model}, with up to {timeout_s}s." if enabled
             else "Query interpretation is off. Search is unaffected.", 8_000)
+
+    def _warm_translator(self) -> None:
+        """Load the model, once, at the moment somebody asks for the feature.
+
+        **Not at startup.** Interpretation is optional and off by default, and
+        loading a model into VRAM for somebody who never presses the button is
+        a cost they did not ask for. But the *first* press then pays the load -
+        8.2s measured here, against a five-second budget - and reports a
+        timeout, which reads as a broken model rather than a cold one. Ollama
+        also drops the model again after five minutes of quiet by default; the
+        client now says thirty.
+
+        **On a worker**, because it is a network round trip and this runs
+        inside the handler that saves a setting. Nothing waits for the result:
+        a warm that fails costs a slow first press, which is where we started.
+        """
+        translator = getattr(self, "_translator", None)
+        if translator is None or not getattr(translator, "just_enabled", False):
+            return
+        translator.just_enabled = False
+
+        worker = CallableWorker(translator.warm, component="ui.translate")
+        worker.signals.failed.connect(lambda _error: None)
+        run(QThreadPool.globalInstance(), worker)
 
     def _read_state(self, key: str, default: str = "") -> str:
         """One small key, defaulted rather than raised.

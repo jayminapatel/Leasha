@@ -1,12 +1,33 @@
 # Changelog
 
-**Doc version:** 3.28 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.29 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the first Interpret after a break timed out on a cold model
+
+Ollama drops a model from memory after five minutes of quiet, and reloading it
+costs 8.2s here against a translate budget of five seconds. So the first press
+after any pause failed with `ERR_OLLAMA_TIMEOUT` while the service was working
+perfectly — which reads as a broken model rather than a cold one, and sends the
+diagnosis in exactly the wrong direction. The same shape of confusion the
+connect/read timeout split fixed earlier.
+
+Two halves. Every request now carries `keep_alive: 30m`, so the model stays put
+across a working session — on the request rather than configured once, because a
+server restarted underneath us would otherwise silently go back to five minutes.
+And the model is **warmed on the transition**: when somebody switches Interpret
+on, and at startup only if it was already on.
+
+**Not warmed at boot**, which is where the advice this came from would have put
+it. Interpretation is optional, off by default, and most machines have no Ollama
+at all — loading a model into VRAM for somebody who never presses the button is
+a cost they did not ask for, in an application whose promise is that it does
+nothing until asked.
 
 ### Added — repository search: `GitSearch.txt`'s switches, in the `/` grammar
 

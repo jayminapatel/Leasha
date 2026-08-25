@@ -390,6 +390,11 @@ class QueryTranslator:
         #: Choosing a model in Settings is what turns it on, because choosing a
         #: model is the act of asking for it.
         self.enabled = bool(enabled)
+        #: Whether the feature has just been switched on, so the caller knows
+        #: to warm the model. **Set here as well as in `reconfigure`**: an
+        #: attribute that only appears once a method has been called is one
+        #: that reads fine and raises on the path nobody exercised.
+        self.just_enabled = False
         self._cache: dict[str, Translation] = {}
         self._warned = False
 
@@ -403,6 +408,7 @@ class QueryTranslator:
         nothing at all on any sentence tried before - and trying the same
         sentence again is the first thing anybody does after switching.
         """
+        was_enabled = self.enabled
         if enabled is not None:
             self.enabled = bool(enabled)
         if timeout_s is not None:
@@ -413,6 +419,33 @@ class QueryTranslator:
         # So the "unavailable" line is logged again if the new model also
         # fails: it is a different model, and that is news rather than noise.
         self._warned = False
+        #: Whether this call is the moment the feature was switched on. The
+        #: caller warms on that transition - see `warm` - and doing it here
+        #: instead would put a network round trip inside a settings save.
+        self.just_enabled = self.enabled and (not was_enabled or bool(model))
+
+    def warm(self) -> bool:
+        """Load the model, so the first press is not the one that pays for it.
+
+        **Called when Interpret is switched on, never at startup.** The feature
+        is optional and off by default; loading a model into VRAM for somebody
+        who never presses the button is a cost they did not ask for. But the
+        first press after that pays the load - 8.2s measured, against a
+        five-second budget - and reports a timeout, which reads as a broken
+        model rather than a cold one.
+
+        Never raises, and returns False when there is nothing to warm. Warming
+        is an optimisation; an optimisation that can fail a search is not one.
+        """
+        if not self.enabled or self.client is None:
+            return False
+        warmer = getattr(self.client, "warm", None)
+        if warmer is None:
+            return False
+        try:
+            return bool(warmer())
+        except Exception:                        # noqa: BLE001 - see docstring
+            return False
 
     def client_name(self) -> str:
         """The model's name, for a message that has to name it. Never raises."""

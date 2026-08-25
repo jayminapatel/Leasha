@@ -30,7 +30,7 @@ from typing import Any, Callable, Optional
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
 
-__all__ = ["OllamaClient", "OllamaResponse", "HEALTH_CACHE_S"]
+__all__ = ["OllamaClient", "OllamaResponse", "HEALTH_CACHE_S", "KEEP_ALIVE"]
 
 log = logger.bind(component="llm.ollama")
 
@@ -38,6 +38,17 @@ log = logger.bind(component="llm.ollama")
 #: re-probe before every call; short enough that starting Ollama is noticed
 #: within a few seconds rather than needing a restart of the app.
 HEALTH_CACHE_S = 10.0
+
+#: How long Ollama holds the model in memory after a request.
+#:
+#: **Its default is five minutes, and that is the wrong number here.** This
+#: application asks the model one short question at a time, minutes or hours
+#: apart, and the load costs 8.2s against a translate budget of five seconds -
+#: so every interpretation after a break timed out while the service was
+#: working perfectly, and the failure looked like a broken model rather than a
+#: cold one. Thirty minutes covers a working session at the price of some VRAM
+#: that is only committed once somebody has switched Interpret on.
+KEEP_ALIVE = "30m"
 
 #: How long to wait for the TCP connection itself, as opposed to the model's
 #: reply. These are different questions and were previously answered with one
@@ -236,6 +247,33 @@ class OllamaClient:
         report["elapsed_s"] = round(time.monotonic() - started, 2)
         return report
 
+    def warm(self, *, timeout: float = 30.0) -> bool:
+        """Load the model into memory without asking it anything.
+
+        **Called when Interpret is switched on, never at startup.** Ollama is
+        optional and off by default, and loading a model into VRAM for somebody
+        who never presses the button is a cost they did not ask for. But the
+        first press after that pays 8.2s of load against a five-second budget
+        and reports a timeout - which reads as a broken model rather than a
+        cold one.
+
+        An empty prompt with `num_predict: 0` loads and generates nothing; that
+        is Ollama's own documented way to preload. Returns whether it worked,
+        and never raises: warming is an optimisation, and an optimisation that
+        can fail a search is not one.
+        """
+        try:
+            self._post("/api/generate",
+                       {"model": self.model, "prompt": "", "stream": False,
+                        "keep_alive": KEEP_ALIVE,
+                        "options": {"num_predict": 0}},
+                       timeout)
+            log.debug("warmed {} (keep_alive {})", self.model, KEEP_ALIVE)
+            return True
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            log.debug("could not warm {}: {}", self.model, exc)
+            return False
+
     def generate(
         self,
         prompt: str,
@@ -260,6 +298,16 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": False,
+            # **How long Ollama keeps the model in memory after this call.**
+            # The default is five minutes, after which the next request pays
+            # the load again - 8.2s measured here, against a translate budget
+            # of five seconds, which is how every interpretation after a coffee
+            # break timed out while the service was working perfectly.
+            #
+            # Sent on every request rather than configured once: `keep_alive`
+            # is a property of the request, and a server restarted underneath
+            # us would otherwise silently go back to the default.
+            "keep_alive": KEEP_ALIVE,
             "options": {"temperature": temperature},
         }
         if max_tokens:
