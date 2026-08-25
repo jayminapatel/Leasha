@@ -292,3 +292,105 @@ def test_ctrl_c_is_wired_up() -> None:
     text = (UI.parent / "main.py").read_text(encoding="utf-8")
     assert "SIGINT" in text
     assert "QTimer" in text, "a signal handler alone never runs while Qt owns the loop"
+
+
+# ---------------------------------------------------------------------------
+# Shutdown must actually stop the timers, not merely appear to
+# ---------------------------------------------------------------------------
+
+class _FakeTimer:
+    def __init__(self) -> None:
+        self.running = True
+
+    def stop(self) -> None:
+        self.running = False
+
+
+class _FakeView:
+    """A view with the timers named as the real ones are."""
+
+    def __init__(self) -> None:
+        self._generation = 0
+        self._shown_generation = 0
+        self._interim_timer = _FakeTimer()
+        self._full_timer = _FakeTimer()
+        self.not_a_timer = _FakeTimer()          # must be left alone
+
+
+def test_shutdown_stops_every_timer_a_view_owns():
+    """U1, and the reason it went unnoticed for so long.
+
+    `search_view.shutdown()` asked for `_typing_timer`, `_idle_timer` and
+    `_timer`. Its timers are `_interim_timer` and `_full_timer`. Every name
+    missed, `getattr(view, name, None)` returned None three times, and shutdown
+    stopped nothing - so the debounce timers kept running into teardown and
+    could start a search against a closing store. The call looked correct at
+    both ends and did nothing at all.
+
+    Names are found by suffix now, so a rename cannot silently disarm it.
+    """
+    # `stop_timers` is pure Python, but it lives beside QRunnable and the
+    # module imports Qt - so a headless machine skips rather than errors.
+    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    from app.ui.workers import stop_timers
+
+    view = _FakeView()
+    stop_timers(view)
+
+    assert not view._interim_timer.running
+    assert not view._full_timer.running
+    assert view.not_a_timer.running, "only attributes ending in _timer are timers"
+
+
+def test_shutdown_stales_anything_still_in_flight():
+    """A result landing after the window starts closing must be dropped, which
+    is what the generation counters are for."""
+    # `stop_timers` is pure Python, but it lives beside QRunnable and the
+    # module imports Qt - so a headless machine skips rather than errors.
+    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    from app.ui.workers import stop_timers
+
+    view = _FakeView()
+    stop_timers(view)
+
+    assert view._generation == 1
+    assert view._shown_generation == 1
+
+
+def test_a_view_naming_its_timers_explicitly_still_works():
+    """The argument list is an optimisation, not a promise - both paths stop."""
+    # `stop_timers` is pure Python, but it lives beside QRunnable and the
+    # module imports Qt - so a headless machine skips rather than errors.
+    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    from app.ui.workers import stop_timers
+
+    view = _FakeView()
+    stop_timers(view, "_interim_timer")
+
+    assert not view._interim_timer.running
+    assert not view._full_timer.running, "the unnamed one must stop too"
+
+
+def test_every_view_with_timers_stops_them_on_shutdown():
+    """Static: a view that grows a timer and forgets `shutdown` puts the race
+    straight back, and nothing would fail until somebody closed the window at
+    the wrong moment."""
+    import ast
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    for path in sorted(ui.glob("*_view.py")):
+        source = path.read_text(encoding="utf-8")
+        if "QTimer(" not in source:
+            continue
+        tree = ast.parse(source)
+        names = {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        }
+        assert "shutdown" in names, (
+            f"{path.name} creates a QTimer but has no shutdown() to stop it"
+        )
+        assert "stop_timers" in source, (
+            f"{path.name}.shutdown must call stop_timers - see workers.py"
+        )

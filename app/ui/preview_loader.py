@@ -45,6 +45,36 @@ CAPS: dict[str, int] = {
     KIND_PDF: 0,                     # paged by the viewer; never read here
 }
 
+#: Characters of an extracted document worth showing. Lower than the text cap
+#: because extraction has already cost a zip open and an XML parse, and a Word
+#: document long enough to reach this is one somebody should open properly.
+EXTRACTED_CAP = 128 * 1024
+
+#: Types that reach the extractor rather than the "no preview" card. **Not a
+#: list of Office extensions**: it is "everything the registry can read", asked
+#: at call time, so a file type added through the file-types UI becomes
+#: previewable at the same moment it becomes searchable. A preview that lags
+#: behind the index is a second list to keep in step, and it would drift.
+def _extractable(path: Path) -> bool:
+    """Whether the index's own extractor claims this file.
+
+    Imported inside the function: `preview_loader` is on the window's startup
+    path, and `app.extract` pulls in a registry that imports optional libraries.
+    Paying for that before anybody has selected a result is the wrong trade.
+    """
+    try:
+        from app.extract.base import extractor_for, reads_externally
+
+        if reads_externally(path):
+            # A Tier 2 converter shells out to another program. That is a
+            # reasonable thing to do while indexing a folder overnight; it is
+            # not a reasonable thing to do because somebody pressed the down
+            # arrow. The card says the file can be opened instead.
+            return False
+        return extractor_for(path) is not None
+    except Exception:                        # noqa: BLE001
+        return False
+
 _TEXT_SUFFIXES = frozenset({
     ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json",
     ".yaml", ".yml", ".xml", ".ini", ".cfg", ".toml", ".py", ".js", ".ts",
@@ -123,6 +153,70 @@ def _decode(raw: bytes) -> str:
     return raw.decode("latin-1", errors="replace")
 
 
+def _extracted(path: Path, *, title: str, subtitle: str) -> Preview:
+    """A Word, Excel, PowerPoint, OpenDocument or drawing file, as its text.
+
+    **The same extractor the index uses, and that is the point.** Rendering a
+    `.docx` faithfully means a word processor; showing what the *index* holds
+    means reusing thirty lines of `app/extract`. The second is not a compromise
+    of the first - it is a different and more useful thing in a search tool,
+    because what appears in the pane is exactly what was searched. A result you
+    cannot find the match in is the complaint this answers.
+
+    The pane says so in the notice line rather than letting somebody conclude
+    their formatting has been lost.
+
+    Segments carry labels - "Slide 3", a sheet name - so a spreadsheet does not
+    arrive as one undifferentiated wall of cells. Where an extractor provides
+    them they become headings; where it does not, the flat text is used.
+    """
+    from app.core.errors import AppErrorException
+    from app.extract.base import extract
+
+    try:
+        documents = list(extract(path))
+    except AppErrorException as exc:
+        # ERR_NO_TEXT_LAYER for a scanned PDF or a slide deck of pictures,
+        # ERR_FILE_CORRUPT, ERR_FILE_LOCKED - all already carry a fix line.
+        return Preview(kind=KIND_NONE, path=str(path), title=title,
+                       subtitle=subtitle, error=exc.error)
+    except Exception as exc:                 # noqa: BLE001
+        return Preview(
+            kind=KIND_NONE, path=str(path), title=title, subtitle=subtitle,
+            error=make_error("ERR_UNEXPECTED", "ui.preview",
+                             details=f"{type(exc).__name__}: {exc}"),
+        )
+
+    body = "\n\n".join(_labelled(document) for document in documents).strip()
+    truncated = len(body) > EXTRACTED_CAP
+    return Preview(
+        kind=KIND_TEXT,
+        body=body[:EXTRACTED_CAP],
+        path=str(path),
+        title=title,
+        subtitle=subtitle,
+        truncated=truncated,
+        notice="Text extracted from the document - this is what was indexed, "
+               "not how the file looks. Open it to see the formatting.",
+    )
+
+
+def _labelled(document: Any) -> str:
+    """Segment labels as headings, where the extractor gave any.
+
+    A spreadsheet without them is a wall of cells with no way to tell which
+    sheet a number came from, which is precisely the question somebody
+    previewing a spreadsheet is asking.
+    """
+    labels = [segment for segment in document.segments if segment.label]
+    if not labels:
+        return document.text
+    return "\n\n".join(
+        f"{segment.label}\n{'-' * len(segment.label)}\n{segment.text}".strip()
+        for segment in labels
+    )
+
+
 def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Preview:
     """Everything the pane needs for one result. **Never raises.**
 
@@ -157,6 +251,9 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     title = path.name
     subtitle = _describe(path)
+
+    if kind == KIND_NONE and _extractable(path):
+        return _extracted(path, title=title, subtitle=subtitle)
 
     if kind in (KIND_PDF, KIND_IMAGE, KIND_NONE):
         # Drawn from the path by the widget that knows how - a PDF is paged by

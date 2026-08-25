@@ -1,0 +1,854 @@
+GITSEARCH
+Universal Git Repository Search, Discovery, Analysis and Code Archaeology Platform
+
+Version: 1.0
+Status: Functional Specification
+
+================================================================================
+1. PURPOSE
+================================================================================
+
+GitSearch is a high-performance repository intelligence platform designed to
+search, analyze, and trace any information that exists or has existed within a
+Git repository.
+
+The platform extends beyond traditional code search by allowing developers to
+search repository content, commits, branches, tags, history, metadata, deleted
+code, renamed files, symbols, dependencies, and code evolution.
+
+The objective is to make every piece of information inside a Git repository
+instantly discoverable regardless of whether that information exists in the
+current repository state or only in historical commits.
+
+================================================================================
+2. PRIMARY USE CASES
+================================================================================
+
+UC-001 Search current repository files.
+
+UC-002 Search current branch only.
+
+UC-003 Search selected branches.
+
+UC-004 Search all local branches.
+
+UC-005 Search remote branches.
+
+UC-006 Search all branches and tags.
+
+UC-007 Search complete repository history.
+
+UC-008 Search a specific commit.
+
+UC-009 Search multiple specific commits.
+
+UC-010 Search a commit range.
+
+UC-011 Search a specific release.
+
+UC-012 Search between releases.
+
+UC-013 Search deleted code.
+
+UC-014 Search renamed files.
+
+UC-015 Search historical versions of files.
+
+UC-016 Determine where code was introduced.
+
+UC-017 Determine where code was removed.
+
+UC-018 Track code evolution through time.
+
+UC-019 Search files, folders, classes, methods, APIs and symbols.
+
+UC-020 Search commit metadata, authors and messages.
+
+UC-021 Perform dependency analysis and impact analysis.
+
+UC-022 Generate reports and export search results.
+
+================================================================================
+3. SEARCH TARGETS
+================================================================================
+
+The platform shall support searching the following repository entities.
+
+CONTENT
+
+Source Code
+Configuration Files
+JSON Files
+YAML Files
+XML Files
+Text Files
+Markdown Files
+Scripts
+Database Scripts
+
+FILES
+
+File Names
+File Extensions
+Deleted Files
+Renamed Files
+
+DIRECTORIES
+
+Directory Names
+Directory Structures
+
+SYMBOLS
+
+Classes
+Interfaces
+Methods
+Functions
+Properties
+Variables
+Constants
+Enums
+Namespaces
+Modules
+Records
+Structs
+
+GIT OBJECTS
+
+Commits
+Branches
+Tags
+Releases
+Authors
+Committers
+Merge Commits
+Pull Request Merge Commits
+
+METADATA
+
+Commit Messages
+Author Names
+Author Email Addresses
+Dates
+Tags
+Release Names
+
+APPLICATION ARTIFACTS
+
+API Endpoints
+Connection Strings
+Environment Variables
+Configuration Entries
+Database Objects
+Stored Procedures
+
+SECURITY ARTIFACTS
+
+Secrets
+API Keys
+Tokens
+Passwords
+Certificates
+Private Keys
+
+================================================================================
+4. SEARCH MODES
+================================================================================
+
+MODE: CURRENT FILES
+
+Description:
+Search current repository state only.
+
+Scope:
+Current files in current checkout.
+
+Example:
+
+gitsearch "CustomerId"
+
+================================================================================
+
+MODE: CURRENT BRANCH
+
+Description:
+Search current branch current state.
+
+Example:
+
+gitsearch "CustomerId" --current-branch
+
+================================================================================
+
+MODE: SELECTED BRANCHES
+
+Description:
+Search specific branches.
+
+Example:
+
+gitsearch "CustomerId" --branch develop
+
+Example:
+
+gitsearch "CustomerId" --branch develop,release,hotfix
+
+================================================================================
+
+MODE: ALL BRANCHES
+
+Description:
+Search all branch heads.
+
+Example:
+
+gitsearch "CustomerId" --all-branches
+
+================================================================================
+
+MODE: CURRENT BRANCH HISTORY
+
+Description:
+Search all commits in current branch.
+
+Example:
+
+gitsearch "CustomerId" --branch-history
+
+================================================================================
+
+MODE: SELECTED BRANCH HISTORY
+
+Description:
+Search commit history for one or more branches.
+
+Example:
+
+gitsearch "CustomerId" --branch-history develop
+
+================================================================================
+
+MODE: ALL HISTORY
+
+Description:
+Search every commit reachable from all branches.
+
+Example:
+
+gitsearch "CustomerId" --history
+
+================================================================================
+
+MODE: SPECIFIC COMMIT
+
+Description:
+Search a single commit.
+
+Example:
+
+gitsearch "CustomerId" --commit a1b2c3d
+
+================================================================================
+
+MODE: MULTIPLE COMMITS
+
+Description:
+Search a predefined list of commits.
+
+Example:
+
+gitsearch "CustomerId" --commits a1b2c3d,b2c3d4e,c3d4e5f
+
+================================================================================
+
+MODE: COMMIT RANGE
+
+Description:
+Search between commits.
+
+Example:
+
+gitsearch "CustomerId" --range a1b2c3d..z9y8x7w
+
+================================================================================
+
+MODE: SPECIFIC TAG
+
+Description:
+Search a specific tag/release.
+
+Example:
+
+gitsearch "CustomerId" --tag v5.1
+
+================================================================================
+
+MODE: TAG RANGE
+
+Description:
+Search between releases.
+
+Example:
+
+gitsearch "CustomerId" --between-tags v5.0 v6.0
+
+================================================================================
+
+MODE: REPOSITORY LIFETIME
+
+Description:
+Maximum search scope.
+
+Includes:
+
+All Branches
+All Commits
+All Tags
+Deleted Files
+Renamed Files
+Historical Content
+
+Example:
+
+gitsearch "CustomerId" --repository-lifetime
+
+================================================================================
+5. SEARCH METHODS
+================================================================================
+
+EXACT SEARCH
+
+Switch:
+
+--exact
+
+Description:
+
+Exact string match.
+
+================================================================================
+
+CASE SENSITIVE SEARCH
+
+Switch:
+
+--case-sensitive
+
+================================================================================
+
+CASE INSENSITIVE SEARCH
+
+Switch:
+
+--ignore-case
+
+================================================================================
+
+WHOLE WORD SEARCH
+
+Switch:
+
+--whole-word
+
+================================================================================
+
+REGEX SEARCH
+
+Switch:
+
+--regex
+
+Examples:
+
+Customer.*
+Order[A-Z]+
+^I[A-Z].*
+
+================================================================================
+
+WILDCARD SEARCH
+
+Switch:
+
+--wildcard
+
+================================================================================
+
+FUZZY SEARCH
+
+Switch:
+
+--fuzzy
+
+Examples Match:
+
+CustomerID
+customer_id
+customer-id
+CustomerIdentifier
+
+================================================================================
+
+SYMBOL SEARCH
+
+Switch:
+
+--symbol
+
+================================================================================
+
+FUNCTION SEARCH
+
+Switch:
+
+--function
+
+================================================================================
+
+CLASS SEARCH
+
+Switch:
+
+--class
+
+================================================================================
+
+INTERFACE SEARCH
+
+Switch:
+
+--interface
+
+================================================================================
+
+ENDPOINT SEARCH
+
+Switch:
+
+--endpoint
+
+================================================================================
+
+CONFIGURATION SEARCH
+
+Switch:
+
+--config
+
+================================================================================
+6. FILE FILTERS
+================================================================================
+
+--file
+
+Single file.
+
+Example:
+
+--file OrderService.cs
+
+-------------------------------------------------------------------------------
+
+--files
+
+Multiple files.
+
+Example:
+
+--files "*.cs,*.ts,*.js"
+
+-------------------------------------------------------------------------------
+
+--path
+
+Specific path.
+
+Example:
+
+--path src/services
+
+-------------------------------------------------------------------------------
+
+--exclude-file
+
+Exclude files.
+
+Example:
+
+--exclude-file "*.generated.cs"
+
+-------------------------------------------------------------------------------
+
+--exclude-path
+
+Exclude directories.
+
+Example:
+
+--exclude-path node_modules
+
+Example:
+
+--exclude-path tests
+
+-------------------------------------------------------------------------------
+
+--extension
+
+Limit by extension.
+
+Examples:
+
+--extension cs
+--extension ts
+--extension sql
+--extension json
+
+================================================================================
+7. BRANCH FILTERS
+================================================================================
+
+--current-branch
+
+-------------------------------------------------------------------------------
+
+--branch
+
+Example:
+
+--branch develop
+
+-------------------------------------------------------------------------------
+
+--all-branches
+
+-------------------------------------------------------------------------------
+
+--remote-branches
+
+-------------------------------------------------------------------------------
+
+--branches
+
+Show branches containing result.
+
+================================================================================
+8. COMMIT FILTERS
+================================================================================
+
+--commit SHA
+
+-------------------------------------------------------------------------------
+
+--commits SHA1,SHA2,SHA3
+
+-------------------------------------------------------------------------------
+
+--range SHA1..SHA2
+
+-------------------------------------------------------------------------------
+
+--merge-commits
+
+-------------------------------------------------------------------------------
+
+--exclude-merges
+
+================================================================================
+9. AUTHOR FILTERS
+================================================================================
+
+--author
+
+Example:
+
+--author "John Smith"
+
+-------------------------------------------------------------------------------
+
+--author-email
+
+Example:
+
+--author-email john@company.com
+
+-------------------------------------------------------------------------------
+
+--committer
+
+-------------------------------------------------------------------------------
+
+--team
+
+================================================================================
+10. DATE FILTERS
+================================================================================
+
+--since
+
+Example:
+
+--since 2025-01-01
+
+-------------------------------------------------------------------------------
+
+--before
+
+Example:
+
+--before 2025-12-31
+
+-------------------------------------------------------------------------------
+
+--date-range
+
+Example:
+
+--date-range 2025-01-01 2025-12-31
+
+================================================================================
+11. HISTORY INTELLIGENCE
+================================================================================
+
+INTRODUCED SEARCH
+
+Switch:
+
+--introduced
+
+Purpose:
+
+Determine when content first appeared.
+
+Output:
+
+Commit
+Date
+Author
+Branch
+File
+
+-------------------------------------------------------------------------------
+
+REMOVED SEARCH
+
+Switch:
+
+--removed
+
+Purpose:
+
+Determine when content was deleted.
+
+-------------------------------------------------------------------------------
+
+CHANGED SEARCH
+
+Switch:
+
+--changed
+
+Purpose:
+
+Show all modifications.
+
+-------------------------------------------------------------------------------
+
+LIFECYCLE SEARCH
+
+Switch:
+
+--lifecycle
+
+Purpose:
+
+Display complete lifecycle.
+
+Output:
+
+Created
+Modified
+Renamed
+Refactored
+Deprecated
+Removed
+
+-------------------------------------------------------------------------------
+
+RENAME TRACKING
+
+Switch:
+
+--track-renames
+
+Purpose:
+
+Track files and symbols through renames.
+
+-------------------------------------------------------------------------------
+
+FILE HISTORY
+
+Switch:
+
+--file-history
+
+Purpose:
+
+Display file evolution.
+
+Output:
+
+Created
+Moved
+Renamed
+Modified
+Deleted
+
+-------------------------------------------------------------------------------
+
+DELETED CONTENT SEARCH
+
+Switch:
+
+--deleted-only
+
+Search only deleted content.
+
+-------------------------------------------------------------------------------
+
+ADDED CONTENT SEARCH
+
+Switch:
+
+--added-only
+
+Search only added lines.
+
+-------------------------------------------------------------------------------
+
+REMOVED CONTENT SEARCH
+
+Switch:
+
+--removed-only
+
+Search only deleted lines.
+
+================================================================================
+12. COMMIT INTELLIGENCE
+================================================================================
+
+Search commit content.
+
+Search commit metadata.
+
+Search commit messages.
+
+Search commit authors.
+
+Search commit files.
+
+Search commit diffs.
+
+Show commit timeline.
+
+Show commit lineage.
+
+Show parents and children.
+
+Show merge relationships.
+
+================================================================================
+13. BRANCH INTELLIGENCE
+================================================================================
+
+BRANCH PRESENCE
+
+Switch:
+
+--branches
+
+Purpose:
+
+Show all branches containing result.
+
+-------------------------------------------------------------------------------
+
+BRANCH ORIGIN
+
+Switch:
+
+--branch-origin
+
+Purpose:
+
+Determine where content first appeared.
+
+-------------------------------------------------------------------------------
+
+BRANCH COMPARISON
+
+Switch:
+
+--compare
+
+Example:
+
+--compare main develop
+
+Output:
+
+Present
+Missing
+Modified
+Deleted
+
+-------------------------------------------------------------------------------
+
+BRANCH TIMELINE
+
+Switch:
+
+--branch-timeline
+
+================================================================================
+14. TAG AND RELEASE INTELLIGENCE
+================================================================================
+
+Search release tags.
+
+Search release history.
+
+Determine release introduction.
+
+Determine release removal.
+
+Compare releases.
+
+Show release timelines.
+
+Show release presence.
+
+Switches:
+
+--tag
+--tags
+--between-tags
+--releases
+
+================================================================================
+15. DEPENDENCY AND IMPACT ANALYSIS
+================================================================================
+
+REFERENCE SEARCH
+
+Switch:
+
+--references
+
+Purpose:
+
+Identify all references.
+
+---------

@@ -175,10 +175,19 @@ SETTINGS: tuple[Setting, ...] = (
         group="Models", surface="settings.models",
         help="Any model you have pulled in Ollama.",
     ),
+    # Grouped with Search, not Models, deliberately. **The Models panel is about
+    # Ollama**, and a reranking field under that heading implies search calls
+    # the LLM - which it never does, and which is the most persistent
+    # misunderstanding about how this application works. The reranker is a small
+    # local cross-encoder that search runs directly, so it belongs beside the
+    # switch that turns reranking on and the two numbers that decide its cost.
+    #
+    # Agreed as a one-off crossing of the UI/Backend boundary; see
+    # docs/WORKORDER-CONVENTIONS.md §3.
     Setting(
         key="RERANK_MODEL", label="Rerank model", kind="text",
-        default="Xenova/ms-marco-MiniLM-L-6-v2", group="Models",
-        surface="settings.models", restart=True,
+        default="Xenova/ms-marco-MiniLM-L-6-v2", group="Search",
+        surface="settings.search", restart=True,
         help="Changing this downloads a new model on next start.",
     ),
     # Both of the following change what the index *is*, not how it behaves.

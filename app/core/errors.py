@@ -326,6 +326,17 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="This is a bug. The technical detail below, plus the log file, is what is needed to fix it.",
         action_type=ActionType.USER_RETRY,
     ),
+    # Appended, never inserted - the file's own rule, so two threads adding a
+    # code on the same day merge instead of conflicting.
+    "ERR_FILE_MISSING": _Spec(
+        message="'{path}' is no longer where it was indexed.",
+        suggestion=(
+            "It has been moved, renamed or deleted since the last index run. The result is "
+            "still worth showing - knowing a file existed and where it was is often the point "
+            "- and re-indexing that folder will clear it."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
 }
 
 

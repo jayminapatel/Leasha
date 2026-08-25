@@ -306,3 +306,73 @@ def test_toggling_a_column_leaves_grouping_and_scores_alone():
     result = prefs.with_column("size", False, order=["name", "size"])
     assert result.group_by_document is False
     assert result.show_scores is True
+
+
+# ---------------------------------------------------------------------------
+# The View menu must never quietly reset a preference it was not asked about
+# ---------------------------------------------------------------------------
+
+def test_the_menu_never_builds_preferences_positionally():
+    """U5, and the reason it is a source check rather than a click test.
+
+    `ViewPreferences(prefs.columns, n, prefs.font_pt)` enumerates fields by
+    position, so every field after the third is silently dropped - changing the
+    row height turned grouping back on and discarded "show why each result
+    matched". The bug is not in any one call; it is the shape of the call, and
+    it comes back the moment somebody adds a field.
+
+    `replace(prefs, density=n)` cannot have this bug: it says which field it is
+    changing and carries the rest, whatever they are.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[2] / "app" / "ui" / "view_options.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        if name == "ViewPreferences" and node.args:
+            offenders.append(node.lineno)
+
+    assert not offenders, (
+        "view_options.py builds ViewPreferences with positional arguments at "
+        f"line(s) {offenders}. Use dataclasses.replace(prefs, field=value) so "
+        "fields nobody mentioned are carried rather than reset to their defaults."
+    )
+
+
+def test_every_field_survives_a_change_to_any_other_field():
+    """Whatever fields the dataclass grows, changing one keeps the rest.
+
+    Written over `fields()` rather than over a list of names, so a field added
+    later is covered without anybody remembering to extend this test.
+    """
+    from dataclasses import fields, replace
+
+    #: A value that differs from the default for each kind, so "carried" and
+    #: "reset to default" cannot look the same.
+    def other_than(value):
+        if isinstance(value, bool):
+            return not value
+        if isinstance(value, int):
+            return value + 3
+        if isinstance(value, tuple):
+            return ("name",)
+        return "compact" if value != "compact" else "normal"
+
+    changed = {f.name: other_than(getattr(ViewPreferences(), f.name))
+               for f in fields(ViewPreferences)}
+    prefs = ViewPreferences(**changed)
+
+    for field in fields(ViewPreferences):
+        updated = replace(prefs, **{field.name: getattr(ViewPreferences(), field.name)})
+        for other in fields(ViewPreferences):
+            if other.name == field.name:
+                continue
+            assert getattr(updated, other.name) == changed[other.name], (
+                f"changing {field.name} lost {other.name}"
+            )

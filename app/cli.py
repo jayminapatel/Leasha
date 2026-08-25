@@ -917,10 +917,17 @@ def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
         # beneath it has a `.git` and a downward walk finds nothing.
         above = enclosing_repo(root)
         if above is not None:
-            found.setdefault(str(above), {
-                "root_path": str(above), "kind": repo_kind_at(above) or "work",
-                "encloses": str(root),
-            })
+            entry = {"root_path": str(above),
+                     "kind": repo_kind_at(above) or "work"}
+            # **"Is the root" and "is above the root" are different facts.**
+            # The first version said "contains the indexed folder D:\SearchData"
+            # about D:\SearchData, which reads as a bug in the scan rather than
+            # as the significant thing it is.
+            if str(above).rstrip("\\/").lower() == str(root).rstrip("\\/").lower():
+                entry["is_root"] = True
+            else:
+                entry["encloses"] = str(root)
+            found.setdefault(str(above), entry)
 
         sink: dict[str, str] = {}
         # `extensions` is a frozenset with one impossible member rather than
@@ -958,9 +965,35 @@ def _scan_for_repos(roots: Sequence[Path], *, as_json: bool = False) -> int:
     print()
     for row in rows:
         note = ""
-        if row.get("encloses"):
+        if row.get("is_root"):
+            note = "   <- the indexed folder itself"
+        elif row.get("encloses"):
             note = f"   (contains the indexed folder {row['encloses']})"
         print(f"  {row['kind']:<{width}}  {row['root_path']}{note}")
+
+    # **An indexed root that is itself a repository swallows the `code` scope.**
+    #
+    # Attribution is by longest matching prefix, so every file underneath gets
+    # that repository's id - the spreadsheets, the PDFs, the mail. `scope:code`
+    # then means "everything", which is not what it is for: the scope exists to
+    # separate a work project from the same words in a document.
+    #
+    # Not an error and not something to fix automatically. It may be exactly
+    # what somebody wants. But it is invisible from the outside, and finding
+    # out by wondering why the Code tab lists your holiday photos is worse.
+    swallowing = [r for r in rows if r.get("is_root")]
+    if swallowing:
+        print()
+        for row in swallowing:
+            print(f"  ! {row['root_path']} is a git repository *and* an indexed folder.")
+        print("    Every file beneath it - documents, spreadsheets, mail - will be")
+        print("    attributed to it, so `scope:code` will match your whole corpus")
+        print("    rather than just code. The nested repositories below it are")
+        print("    still attributed to themselves, which is correct.")
+        print()
+        print("    Fine if deliberate. If that `.git` is there by accident, removing")
+        print("    it and re-indexing makes the Code scope mean what it says.")
+
     print()
     print("  These are detected during a normal index run - nothing extra to do.")
     print("  Afterwards: app.cli repos, or `repo:<name>` in a search.")

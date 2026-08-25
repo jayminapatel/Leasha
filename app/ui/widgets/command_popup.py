@@ -77,6 +77,13 @@ class CommandPopup(QCompleter):
         # prefix matching only ever sees the display string.
         self.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
         self.setFilterMode(Qt.MatchFlag.MatchContains)
+        # **Qt shows seven rows by default, and there are more commands than
+        # that.** The four below the fold were reachable by scrolling and
+        # invisible in every other sense - the menu exists for discovery, so a
+        # list that hides a third of itself on the keystroke meant to reveal it
+        # defeats the whole feature. Sized to what this box offers, so adding a
+        # command to the catalogue never quietly hides another one.
+        self.setMaxVisibleItems(max(len(COMMANDS), 1))
         self.show_all()
 
     def show_all(self) -> None:

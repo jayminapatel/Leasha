@@ -640,3 +640,42 @@ def test_scan_json_is_machine_readable(tmp_path, capsys):
     payload = _json.loads(capsys.readouterr().out)
     assert payload["count"] == 1
     assert payload["repositories"][0]["kind"] == "work"
+
+
+def test_scan_warns_when_the_indexed_folder_is_itself_a_repository(tmp_path, capsys):
+    """**The owner's actual shape, and it changes what `scope:code` means.**
+
+    `D:\\SearchData` turned out to be a git repository *and* the indexed root.
+    Attribution is by longest matching prefix, so every file beneath it - the
+    spreadsheets, the PDFs, the mail - is attributed to it, and `scope:code`
+    then matches the whole corpus rather than code.
+
+    Not an error, and not fixed automatically: it may be deliberate. But it is
+    invisible from the outside, and finding out by wondering why the Code tab
+    lists your holiday photos is worse.
+    """
+    root = tmp_path / "SearchData"
+    (root / ".git").mkdir(parents=True)
+    (root / "GIT_REPOS" / "inner" / ".git").mkdir(parents=True)
+
+    cli._scan_for_repos([root])
+
+    out = capsys.readouterr().out
+    assert "the indexed folder itself" in out
+    assert "scope:code" in out
+    assert "whole corpus" in out
+    # The nested one is still attributed to itself, which is correct and worth
+    # saying so the warning does not read as "repositories are broken".
+    assert "still attributed to themselves" in out
+
+
+def test_scan_does_not_warn_when_repositories_sit_below_the_root(tmp_path, capsys):
+    """The ordinary case. A warning here would be noise within a week."""
+    root = tmp_path / "SearchData"
+    (root / "code" / "a" / ".git").mkdir(parents=True)
+
+    cli._scan_for_repos([root])
+
+    out = capsys.readouterr().out
+    assert "the indexed folder itself" not in out
+    assert "scope:code" not in out

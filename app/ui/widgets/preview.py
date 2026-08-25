@@ -33,7 +33,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QFontDatabase, QPixmap
 from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -53,6 +53,7 @@ from app.ui.preview_loader import (
     KIND_TEXT,
     load_preview,
 )
+from app.ui.widgets.highlight import CodeHighlighter, language_for
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
@@ -124,6 +125,10 @@ class PreviewPane(QWidget):
         self.text.setOpenExternalLinks(False)
         self.text.setOpenLinks(False)
         self.text.setAccessibleName("Preview")
+        # **One highlighter, re-pointed per file.** Building one per selection
+        # would leak a rule set for every row arrowed past; `setLanguage` is the
+        # whole of what changes between one file and the next.
+        self._highlighter = CodeHighlighter(self.text.document(), self.palette())
 
         self.image = QLabel("")
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -282,9 +287,16 @@ class PreviewPane(QWidget):
 
         if preview.kind == KIND_HTML:
             # `setHtml` on a document with no remote references left in it.
+            # No highlighting: the document carries its own formatting, and a
+            # regex painting keywords over an email would be vandalism.
+            self._highlight_as(None)
             self.text.setHtml(preview.body)
             self.stack.setCurrentWidget(self.text)
         elif preview.kind == KIND_TEXT:
+            # Set the language *before* the text: `setPlainText` triggers a
+            # rehighlight, and doing it the other way round paints the file
+            # twice - once with the previous file's grammar.
+            self._highlight_as(preview.path)
             self.text.setPlainText(preview.body)
             self.stack.setCurrentWidget(self.text)
         elif preview.kind == KIND_IMAGE:
@@ -303,6 +315,27 @@ class PreviewPane(QWidget):
             return
         self._show_card(getattr(error, "render", lambda: str(error))())
         self.error.emit(error)
+
+    def _highlight_as(self, path: Optional[str]) -> None:
+        """Point the highlighter at a grammar, and set a font to match.
+
+        **Monospace only for code.** Proportional text is easier to read and is
+        right for everything else; code is the one case where column alignment
+        carries meaning, so the font follows the grammar rather than being set
+        once. An extension with no grammar gets neither - see `language_for`
+        for why guessing is worse than leaving it alone.
+
+        Taken from the path rather than from a field on `Preview`: a mail body
+        arrives with a synthetic path and no extension, which is exactly the
+        case that should end up unhighlighted.
+        """
+        suffix = (path or "").replace("\\", "/").rpartition("/")[2]
+        language = language_for(suffix.rpartition(".")[2]) if "." in suffix else None
+        self._highlighter.setLanguage(language)
+        self.text.setFont(
+            QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+            if language else self.font()
+        )
 
     def _show_card(self, text: str) -> None:
         self.card.setText(text)
