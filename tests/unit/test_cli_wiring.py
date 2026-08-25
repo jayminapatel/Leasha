@@ -144,6 +144,43 @@ def test_search_on_an_empty_index_runs(tmp_path, capsys):
     assert cli.cmd_search(args) in (cli.EXIT_OK, cli.EXIT_ERROR)
 
 
+def test_evaluate_builtin_runs(tmp_path, capsys):
+    args = parser_for(["evaluate", "--builtin", "--env", env_file(tmp_path)])
+    assert cli.cmd_evaluate(args) in (cli.EXIT_OK, cli.EXIT_ERROR)
+    assert "Recall at" in capsys.readouterr().out
+
+
+def test_evaluate_with_rerank_reaches_the_engine(tmp_path):
+    """**The third missing-name bug in a row.** `--rerank` referred to
+    `settings` in a function that never loaded it, and the path was reachable
+    only by typing the flag - which no test did.
+
+    A model download cannot happen here, so this asserts the distinction that
+    matters: it must fail on the *model*, with a clear AppError, rather than on
+    a NameError from code that was never executed.
+    """
+    from app.core.errors import AppErrorException
+
+    args = parser_for([
+        "evaluate", "--builtin", "--rerank", "--env", env_file(tmp_path),
+    ])
+    try:
+        cli.cmd_evaluate(args)
+    except (NameError, AttributeError, TypeError) as exc:      # pragma: no cover
+        pytest.fail(f"the --rerank path is not wired: {type(exc).__name__}: {exc}")
+    except AppErrorException:
+        pass          # no model in this environment, which is a real answer
+
+
+def test_the_two_evaluate_modes_say_which_they_are(tmp_path, capsys):
+    """The keyword-only run cannot see a reranker change, and reporting both
+    under one heading is how somebody measures the wrong thing and believes
+    they measured the right one - which is what happened."""
+    args = parser_for(["evaluate", "--builtin", "--env", env_file(tmp_path)])
+    cli.cmd_evaluate(args)
+    assert "keyword only" in capsys.readouterr().out
+
+
 def test_ollama_runs_without_ollama(tmp_path, capsys):
     """Most machines have no Ollama. The diagnostic has to work there - that is
     precisely when somebody runs it."""

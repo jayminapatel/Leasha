@@ -191,7 +191,11 @@ class Report:
             for outcome in misses:
                 out.append(f"    {outcome.question.sentence}")
                 out.append(f"      wanted {outcome.question.expects}"
-                           f"   got {outcome.returned} results"
+                           # Not "got N results" - with `k=1` that always said
+                           # "got 1 results", which reads as the search having
+                           # found a single document rather than as the harness
+                           # having asked for one.
+                           f"   not in the top {self.k}"
                            f"{f', rank {outcome.rank}' if outcome.rank else ''}")
                 if outcome.query and outcome.query != outcome.question.sentence:
                     out.append(f"      searched: {outcome.query}")

@@ -1057,10 +1057,14 @@ def _read_questions(path: Path) -> list:
 
 
 def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
-    """The shipped corpus, with keyword search only.
+    """The shipped corpus. Keyword only by default; `--rerank` for the lot.
 
-    Deliberately keyword-only: it is the half that needs no model, so this runs
-    anywhere and measures the same thing every time. The vector half is what the
+    Keyword-only is the half that needs no model, so it runs anywhere and
+    measures the same thing every time - which is exactly why it cannot see a
+    reranker or embedding change. `--rerank` builds the real engine for that,
+    and says so in the heading so the two are never confused.
+
+    The vector half is what the
     `--questions` mode against a real index exercises.
     """
     import tempfile
@@ -1083,12 +1087,46 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
     with SqliteStore(folder / "evaluate.db") as store:
         load_into(store)
 
-        def search(query: str) -> list[str]:
-            parsed = parse_query(expand_slashes(query))
-            return [hit["path"] for hit in keyword.search(store, parsed, limit=args.k)]
+        # **`--rerank` is the only way to measure a reranker change.**
+        #
+        # Without it this calls the keyword retriever directly - no vectors, no
+        # fusion, no cross-encoder - which is a perfectly good measurement of
+        # BM25 and completely blind to the thing it was reached for. The owner
+        # ran it to judge a reranker swap on my advice, and it could not have
+        # detected one: the numbers came back identical because they measure a
+        # stage the reranker never touches.
+        mode = "built-in corpus, keyword only"
+        if args.rerank:
+            settings = _load(args)
+            from app.index.embedder import Embedder
+            from app.search.engine import SearchEngine
+            from app.search.rerank import Reranker
+            from app.storage.vector_store import VectorStore
+
+            vectors = VectorStore(folder / "vectors", dim=settings.embed_dim)
+            vectors.connect()
+            engine = SearchEngine(
+                store, vectors,
+                Embedder(settings.embed_model, dim=settings.embed_dim,
+                         cache_dir=str(settings.model_cache)),
+                reranker=Reranker(settings.rerank_model,
+                                  cache_dir=str(settings.model_cache),
+                                  top_n=settings.rerank_top_n,
+                                  window_chars=settings.rerank_window_chars),
+                log_usage=False,
+            )
+            mode = f"built-in corpus, full pipeline, {settings.rerank_model}"
+
+            def search(query: str) -> list[str]:
+                response = engine.search(expand_slashes(query), limit=args.k, rerank=True)
+                return [result.path for result in response.results]
+        else:
+            def search(query: str) -> list[str]:
+                parsed = parse_query(expand_slashes(query))
+                return [hit["path"] for hit in keyword.search(store, parsed, limit=args.k)]
 
         report = evaluate(
-            QUESTIONS, search, k=args.k, mode="built-in corpus, keyword only",
+            QUESTIONS, search, k=args.k, mode=mode,
             note=f"{len(CORPUS)} documents. A small clean corpus with no "
                  "near-duplicates - every number here is optimistic. Your own "
                  "questions against your own index are the measurement that counts.",
@@ -1850,6 +1888,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="use the shipped corpus with known answers (no model needed)")
     p_eval.add_argument("--interpret", action="store_true",
                         help="translate each sentence with Ollama first, to measure the gain")
+    p_eval.add_argument(
+        "--rerank", action="store_true",
+        help="run the full pipeline instead of keyword only - the only way to "
+             "measure a reranker or embedding change")
     p_eval.add_argument("--k", type=int, default=1, metavar="N",
                         help="count a hit if the document is in the top N (default 1 - "
                              "did it come FIRST? higher numbers flatter the result)")
