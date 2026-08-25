@@ -572,6 +572,31 @@ not see the bug it was written for, and it is why these go through
 **The window does not draw them yet** — `app/ui/` is the other thread's, and
 the task is filed. Backend emits, CLI shows.
 
+### Fixed — closing the window left the process running
+
+Reported: *"when you close the gui it does not exit it is stuck i need to press
+ctrl c"*.
+
+`SearchEngine` runs its two retrievers on a `ThreadPoolExecutor`. Those worker
+threads are **non-daemon**, and `concurrent.futures` installs an `atexit` hook
+that joins every one of them at interpreter shutdown. `shutdown(wait=False)`
+returned immediately — and then Python blocked on that join anyway, after Qt
+had closed the window, with nothing left on screen to explain the wait.
+
+So the window vanished, the process stayed, and the only way out was Ctrl+C in
+a console the person may not have had open.
+
+`cancel_futures=True` drops what is queued, which is exactly the work worth
+abandoning: nobody is waiting for a result in a window that has closed. Work
+already running still finishes — that cannot be helped without killing a thread
+mid-write — which is why `shell._drain_workers` keeps its bounded grace period
+on top.
+
+Five tests, one failing on the old `close()`. Ruled out first, by reading the
+code rather than guessing: close-to-tray defaults to `False`, the pipeline's
+threads are all daemon, `_drain_workers` is deadline-bounded, and nothing sets
+`setQuitOnLastWindowClosed`.
+
 ### Added — the window now says when a search has quietly done a worse job (UI-1)
 
 The last piece of the owner's standing rule. The engine detected the

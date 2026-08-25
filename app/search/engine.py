@@ -242,8 +242,25 @@ class SearchEngine:
         return self._closed
 
     def close(self) -> None:
+        """Stop taking work, and drop whatever is queued.
+
+        **`cancel_futures=True` is why the window can actually exit.**
+
+        `ThreadPoolExecutor` worker threads are non-daemon, and
+        `concurrent.futures` installs an `atexit` hook that *joins every one of
+        them* at interpreter shutdown. `shutdown(wait=False)` returns
+        immediately - and then Python blocks on that join anyway, after Qt has
+        closed the window and there is nothing left on screen to explain it.
+        Reported as "when you close the gui it does not exit, it is stuck, I
+        need to press ctrl c".
+
+        A queued search is exactly the work worth abandoning: nobody is waiting
+        for a result in a window that has closed. Running ones still finish -
+        that cannot be helped without killing a thread mid-write - which is why
+        the shutdown grace in `shell._drain_workers` exists on top of this.
+        """
         self._closed = True
-        self._pool.shutdown(wait=False)
+        self._pool.shutdown(wait=False, cancel_futures=True)
 
     def warm_up(self) -> None:
         """Load the models now, off the first search's critical path."""
