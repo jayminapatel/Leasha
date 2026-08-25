@@ -8,6 +8,54 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added — the Code tab, which is a browser and not a second search
+
+`WORKORDER-git-search-ui.md`. The request was a git search tab; what the audit
+found was that **source code was already searchable** — twenty extensions since
+Layer 2, with snippets and reranking like everything else. The one thing the
+application could not do was say *which repository a result came from*, or let
+you ask for one.
+
+So the tab is a repository browser that hands its selection to the search box
+you already have. It lists what you have and how much of it is indexed — a
+question about the machine, asked before you know what you are looking for — and
+it cannot find code by what the code says, because that is the search tab's job.
+
+**Nothing new was invented for it.** The alternative proposal ran to fifty-six
+command-line switches; this adds one filter, `repo:`, to the single grammar in
+`app/search/commands.py`, so the `/` dropdown, the search box, the Files tab and
+the Mail tab all gained it at once. A tab whose filters work nowhere else is how
+the fifty-six-switch design arrives through the side door.
+
+Double-click, Enter or the right-click menu puts `repo:"<name>" ` **in the search
+box, visible and editable** — not applied as hidden state, for the same reason an
+interpreted query is shown. The name is quoted because repository folders contain
+spaces, and an unquoted value ends at the first one, matching a different
+repository with nothing on screen to explain why. There is a test for exactly
+that, and another asserting what happens without the quotes.
+
+Three empty states, because they are three different questions. The one that
+matters: an indexed corpus with no repositories says what a repository is here —
+a folder containing `.git` — and that adding its parent as an indexed root is
+what makes it appear. A generic "no results" would waste it.
+
+Deliberately not built, and recorded: a search box on this tab, branch pickers,
+commit ranges, add/remove/configure a repository, and anything needing git
+history. The last is minutes of work on a large repository against a contract of
+300ms warm, and it never goes behind the Enter key.
+
+### Changed — "Code only" in the scope chips, and Everything means everything
+
+The fourth scope. **"Code only" means "in a repository", not "looks like
+code"** — a README inside a repository counts and a `.py` file in Downloads does
+not — which is a surprising enough definition that the tooltip says it in words
+and points at `type:code` for the other question. Both stay available.
+
+The chip's tooltip now states the principle the whole search box rests on:
+**it narrows, it never adds.** Everything is the union of what every focused tab
+can find, so a filter learned anywhere works there, and there is never a reason
+to visit another tab to ask something the search box cannot.
+
 ### Added — the preview pane, and no Chromium anywhere near it
 
 `WORKORDER-ui-shell-and-results.md` §4, the last outstanding UI item. Read a
@@ -372,6 +420,62 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Fixed — indexing paused and resumed for ten minutes without getting anywhere
+
+Reported from a real run against the project folder:
+
+    pause - Indexing has added 1,501MB (now 1,601MB), above the 1,500MB...
+    run   - clear
+    pause - Indexing has added 1,539MB (now 1,638MB), above the 1,500MB...
+
+The memory ceiling is growth above a baseline taken on the **first probe**,
+seconds into the run. The embedding model, the reranker and the OCR engine all
+load *after* that — the same run's log said `OCR engine loaded in 3.0s`, seven
+seconds in — and together they are roughly a gigabyte that is never released.
+So growth sat permanently just over the ceiling and the governor oscillated for
+as long as it was left alone. It was making progress, and paying a pause cycle
+for it.
+
+**The fix is not a bigger ceiling.** A pause only helps if the memory can
+actually be released, and a pause that does not move RSS has proved that it
+cannot. The floor is then raised to accept that level as resident. Indexing may
+still only add `memory_mb` above the new floor, so this is the ceiling being
+measured from the right place rather than being ignored — and it is logged at
+WARNING, because a limit that quietly moves itself is exactly the sort of thing
+that must never happen silently.
+
+The first version of that rule counted *rising* memory as "the pause achieved
+nothing" and would have handed a genuine leak another ceiling's worth of
+headroom every few seconds. Rising memory is a leak, not residency; only memory
+that sits still settles. Caught by the leak test, which is why it is in the file.
+
+`Verdict` gained a `cause` field so the rule can tell a memory pause from a CPU
+one. Matching on the reason *text* would break the moment the wording changed,
+and the wording is meant to be free to change — it is what the user reads.
+
+### Fixed — the indexer read its own log file while writing to it
+
+`LOG_PATH` defaults to `<project>\logs`, so indexing the project folder swept
+up the application's own logs — and its SQLite index, vector store and model
+cache, had `DATA_PATH` sat under a root too.
+
+`WalkConfig.exclude_paths` prunes by **absolute path**, not by name. Excluding
+`logs` by name would have been wrong twice over: it would miss a log directory
+anywhere else, and it would hide a `logs` folder that genuinely belongs to the
+person. `app.cli index` derives the set from Settings via `own_paths()`, and the
+pipeline additionally protects the two stores it holds first-hand — so a run
+started from the window is safe too, without reaching into `app/ui/`.
+
+A root that *is* an excluded path is now skipped outright: pruning only filters
+subdirectories, so without that the exclusion worked everywhere except the one
+place somebody aimed it.
+
+**The Windows-path trap, for the third time this session.**
+`Path(r"D:\Data\fts\knowledge.db").parent` is `.` off Windows, because
+`PurePosixPath` treats the whole thing as one filename — so the database
+directory was excluded from nothing. Split on both separators, as
+`sqlite_store._basename` already does for the same reason.
 
 ### Added — repository awareness (schema v6)
 

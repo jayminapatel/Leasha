@@ -358,6 +358,7 @@ class Pipeline:
         self._repo_roots.clear()
         self._repo_ids.clear()
         self._repo_order = []
+        self._protect_own_stores()
         self._seed_repos()
 
         work: queue.PriorityQueue = queue.PriorityQueue(maxsize=self.config.queue_size)
@@ -473,6 +474,26 @@ class Pipeline:
                 work.put((10_000, sequence + 1, _STOP, None))
 
     # -- repository attribution ---------------------------------------------
+
+    def _protect_own_stores(self) -> None:
+        """Never walk the index we are writing into.
+
+        `app.cli index` derives the full set from Settings, but the window
+        builds its own `WalkConfig` and cannot be reached from here. This adds
+        the two paths the pipeline knows about first-hand, so an indexed root
+        that happens to contain the SQLite index or the vector store is safe
+        whoever started the run.
+
+        Additive: whatever the caller already excluded is kept.
+        """
+        mine: set[str] = set(self.config.walk.exclude_paths)
+        database = getattr(self.store, "db_path", None)
+        if database:
+            mine.add(str(Path(database).parent))
+        vectors = getattr(self.vectors, "uri", None)
+        if vectors:
+            mine.add(str(vectors))
+        self.config.walk.exclude_paths = frozenset(mine)
 
     def _seed_repos(self) -> None:
         """Repositories that *enclose* an indexed root, before the walk starts.

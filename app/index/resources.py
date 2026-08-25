@@ -54,6 +54,18 @@ __all__ = [
 
 log = logger.bind(component="index.resources")
 
+#: Consecutive memory polls with no meaningful drop before the level being
+#: waited for is accepted as resident rather than transient.
+SETTLE_POLLS = 3
+
+#: How far RSS must fall for a pause to count as having achieved something.
+#: Below this is measurement noise, not memory being released.
+SETTLE_DROP_MB = 50.0
+
+#: Most times per run the memory floor may be raised. Bounds the damage if the
+#: growth really is a leak: it still trips, just later and loudly.
+MAX_SETTLES = 3
+
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -192,6 +204,10 @@ class Verdict:
 
     action: str          # "run" | "pause" | "stop"
     reason: str = ""
+    #: Which limit produced this, for callers that must treat one differently.
+    #: Matching on `reason` text would break the moment the wording changed,
+    #: and the wording is meant to be free to change.
+    cause: str = ""      # "memory" | "disk" | "battery" | "cpu" | ""
 
     @property
     def running(self) -> bool:
@@ -224,7 +240,7 @@ def verdict(
             f"Only {snapshot.free_disk_gb:.1f}GB free on the index drive, "
             f"below the {limits.min_free_gb}GB floor. "
             "Everything indexed so far is saved; free some space and run again."
-        ))
+        ), cause="disk")
 
     growth = snapshot.growth_mb
     if growth is not None and growth > limits.memory_mb:
@@ -232,10 +248,11 @@ def verdict(
             f"Indexing has added {growth:,.0f}MB "
             f"(now {snapshot.rss_mb:,.0f}MB), above the {limits.memory_mb:,}MB "
             "it is allowed to add. Pausing to let memory settle."
-        ))
+        ), cause="memory")
 
     if limits.pause_on_battery and snapshot.on_battery:
-        return Verdict("pause", "On battery. Indexing resumes on mains power.")
+        return Verdict("pause", "On battery. Indexing resumes on mains power.",
+                       cause="battery")
 
     others = snapshot.other_cpu_percent
     if (
@@ -248,7 +265,7 @@ def verdict(
         return Verdict("pause", (
             f"The machine is busy ({others:.0f}% CPU used by other programs). "
             "Indexing waits until it is free."
-        ))
+        ), cause="cpu")
 
     return Verdict("run")
 
@@ -274,7 +291,10 @@ class SystemProbe:
         *,
         baseline_mb: Optional[float] = None,
     ) -> None:
-        self._baseline_mb = baseline_mb
+        #: Public, because the governor raises it when a memory pause proves
+        #: that the level being waited for is resident rather than transient.
+        #: See `ResourceGovernor._accept_resident`.
+        self.baseline_mb = baseline_mb
         #: A path, or a callable returning one. Callable because the pipeline
         #: builds its governor before the vector store is necessarily usable,
         #: and a probe that fails at construction takes the whole run with it.
@@ -348,13 +368,13 @@ class SystemProbe:
 
         # The first reading becomes the baseline: whatever the process already
         # weighed before indexing began is not indexing's fault.
-        if self._baseline_mb is None and rss is not None:
-            self._baseline_mb = rss
+        if self.baseline_mb is None and rss is not None:
+            self.baseline_mb = rss
 
         return Snapshot(
             rss_mb=rss, system_cpu_percent=cpu, own_cpu_percent=own,
             free_disk_gb=free_gb, on_battery=battery,
-            baseline_mb=self._baseline_mb, at=time.monotonic(),
+            baseline_mb=self.baseline_mb, at=time.monotonic(),
         )
 
     def lower_priority(self) -> bool:
@@ -408,12 +428,17 @@ class ResourceGovernor:
         self._on_state_change = on_state_change
         self._busy_since: Optional[float] = None
         self._last_action = "run"
+        #: The most recent RSS reading, so a pause can tell whether waiting is
+        #: achieving anything. See `wait_while_throttled`.
+        self._last_rss: Optional[float] = None
+        self._settles = 0
         self.paused_seconds = 0.0
         self.pauses = 0
 
     def check(self, now: Optional[float] = None) -> Verdict:
         """One decision, with the busy-timer maintained across calls."""
         snapshot = self._probe()
+        self._last_rss = snapshot.rss_mb
         moment = now if now is not None else snapshot.at or time.monotonic()
 
         others = snapshot.other_cpu_percent
@@ -449,16 +474,82 @@ class ResourceGovernor:
         Returns the verdict that ended the wait: `run` to carry on, `stop` to
         end the run. `should_stop` is checked every poll so a user pressing
         Stop is never left waiting out a battery pause.
+
+        **A memory pause that frees nothing is waiting for something that will
+        never happen.** The ceiling is growth above a baseline taken on the
+        first probe - seconds into the run, before the embedding model, the
+        reranker and the OCR engine have loaded. Those are ~1GB that is never
+        released, so growth sits permanently over the ceiling and the run
+        oscillates: pause, resume, pause, for as long as it is left alone.
+        Observed on a real run doing this for ten minutes.
+
+        So a pause that does not move RSS is treated as evidence that the
+        memory is *resident*, not transient, and the floor is raised to accept
+        it. That is not the ceiling being ignored: indexing may still only add
+        `memory_mb` above the new floor, and a genuine runaway keeps growing
+        and trips again. `MAX_SETTLES` bounds how far this can go.
         """
+        settle_from: Optional[float] = None
+        ineffective = 0
+
         while True:
             found = self.check()
             if found.action == "run" or found.action == "stop":
                 return found
             if should_stop():
                 return Verdict("stop", "Stopped at your request.")
+
+            if found.cause == "memory":
+                rss = self._last_rss
+                if rss is None:
+                    pass
+                elif settle_from is None or abs(rss - settle_from) > SETTLE_DROP_MB:
+                    # First look, or memory *moved*. Falling means the pause is
+                    # working. **Rising means this is a leak, not residency** -
+                    # and settling on it would hand a runaway another ceiling's
+                    # worth of headroom every few seconds. Either way, reset and
+                    # keep waiting: only memory that sits still is resident.
+                    settle_from, ineffective = rss, 0
+                else:
+                    ineffective += 1
+                    if ineffective >= SETTLE_POLLS and self._accept_resident(rss):
+                        settle_from, ineffective = None, 0
+                        continue
+            else:
+                settle_from, ineffective = None, 0
+
             self.pauses = self.pauses            # state kept for reporting
             self.paused_seconds += self.limits.poll_seconds
             self._sleep(self.limits.poll_seconds)
+
+    def _accept_resident(self, rss: float) -> bool:
+        """Raise the floor to `rss`. False once the run has done this enough.
+
+        Logged at WARNING, once per adjustment, because a ceiling quietly
+        moving itself is exactly the kind of thing that should never happen
+        silently - and because the message names the real fix, which is to set
+        the ceiling above what the models cost on this machine.
+        """
+        if self._settles >= MAX_SETTLES:
+            return False
+        # The baseline lives on the probe, which is what reads RSS. Reached the
+        # same way `apply_priority` reaches it rather than by threading a
+        # second reference through every caller.
+        probe = getattr(self._probe, "__self__", None)
+        if not isinstance(probe, SystemProbe):
+            return False                # an injected fake: nothing to adjust
+        self._settles += 1
+        previous = probe.baseline_mb or 0.0
+        probe.baseline_mb = rss
+        log.warning(
+            "Pausing freed nothing, so {:,.0f}MB is resident rather than "
+            "indexing - most likely the embedding, rerank and OCR models, "
+            "which load after the run starts and are never released. Carrying "
+            "on with the ceiling measured from {:,.0f}MB instead of {:,.0f}MB "
+            "({} of {}). Set a higher memory ceiling to stop this being needed.",
+            rss - previous, rss, previous, self._settles, MAX_SETTLES,
+        )
+        return True
 
     def apply_priority(self) -> bool:
         if not self.limits.low_priority:

@@ -749,7 +749,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     """
     from app.index.embedder import Embedder
     from app.index.pipeline import Pipeline, PipelineConfig
-    from app.index.walker import WalkConfig
+    from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
 
@@ -796,6 +796,9 @@ def cmd_index(args: argparse.Namespace) -> int:
             roots=roots,
             priority_roots=[Path(p).expanduser() for p in (args.first or [])],
             include_cloud=args.include_cloud,
+            # Never index our own index, logs, cache or models. Indexing the
+            # project folder had the run reading the log file it was writing.
+            exclude_paths=own_paths(settings),
         ),
         limits=limits,
         min_free_gb=settings.min_free_gb,

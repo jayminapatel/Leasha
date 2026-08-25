@@ -426,3 +426,112 @@ def test_candidate_exposes_what_the_files_table_needs(tmp_path: Path) -> None:
     assert candidate.ext == ".pdf", "normalised, because the registry keys on lowercase"
     assert candidate.parent_dir == str(tmp_path / "sub")
     assert candidate.size_bytes == 1
+
+
+# ---------------------------------------------------------------------------
+# Never index ourselves
+# ---------------------------------------------------------------------------
+
+def test_exclude_paths_prunes_a_directory_whatever_it_is_called(tmp_path):
+    """**The indexer was reading its own log file while writing to it.**
+
+    `LOG_PATH` defaults to `<project>\\logs`, so an indexed root pointed at the
+    project folder swept it up. Excluding by *name* would have been wrong twice
+    over: it would miss a log directory anywhere else, and it would hide a
+    `logs` folder that genuinely belongs to the person.
+    """
+    from app.index.walker import WalkConfig, walk
+
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "leasha.txt").write_text("noise", encoding="utf-8")
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "real.txt").write_text("wanted", encoding="utf-8")
+
+    found = sorted(c.path.name for c in walk(WalkConfig(
+        roots=[tmp_path], extensions=frozenset({".txt"}),
+        exclude_paths=frozenset({str(tmp_path / "logs")}))))
+
+    assert found == ["real.txt"]
+
+
+def test_a_logs_folder_is_only_excluded_when_it_is_ours(tmp_path):
+    """The name is not what makes it ours. Somebody else's `logs` is content."""
+    from app.index.walker import WalkConfig, walk
+
+    (tmp_path / "someone_elses" / "logs").mkdir(parents=True)
+    (tmp_path / "someone_elses" / "logs" / "theirs.txt").write_text("x", encoding="utf-8")
+
+    found = [c.path.name for c in walk(WalkConfig(
+        roots=[tmp_path], extensions=frozenset({".txt"})))]
+
+    assert found == ["theirs.txt"]
+
+
+def test_a_root_that_is_itself_excluded_is_not_walked(tmp_path):
+    """Pruning only filters *subdirectories*.
+
+    Without this, an indexed root pointed straight at the log or index
+    directory would still be walked in full - the exclusion would look like it
+    worked everywhere except the one place it was aimed at.
+    """
+    from app.index.walker import WalkConfig, walk
+
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "a.txt").write_text("x", encoding="utf-8")
+
+    found = list(walk(WalkConfig(
+        roots=[tmp_path / "logs"], extensions=frozenset({".txt"}),
+        exclude_paths=frozenset({str(tmp_path / "logs")}))))
+
+    assert found == []
+
+
+def test_exclude_paths_ignores_case_and_trailing_separators(tmp_path):
+    """Configuration and the filesystem disagree about both, on Windows."""
+    from app.index.walker import WalkConfig, walk
+
+    (tmp_path / "Logs").mkdir()
+    (tmp_path / "Logs" / "a.txt").write_text("x", encoding="utf-8")
+
+    found = list(walk(WalkConfig(
+        roots=[tmp_path], extensions=frozenset({".txt"}),
+        exclude_paths=frozenset({str(tmp_path / "LOGS") + os.sep}))))
+
+    assert found == []
+
+
+def test_own_paths_covers_every_directory_the_app_writes_to():
+    """A new store path added to Settings and forgotten here is indexed.
+
+    Listed explicitly rather than derived, so the failure is a missing name in
+    one place rather than a subtle inclusion nobody notices.
+    """
+    from pathlib import Path as _Path
+
+    from app.index.walker import own_paths
+
+    class FakeSettings:
+        data_path = _Path(r"D:\Data")
+        log_path = _Path(r"D:\Project\logs")
+        state_path = _Path(r"D:\Data\state")
+        cache_path = _Path(r"D:\Data\cache")
+        model_cache = _Path(r"D:\Data\models")
+        vector_path = _Path(r"D:\Data\vectors")
+        fts_db = _Path(r"D:\Data\fts\knowledge.db")
+
+    found = own_paths(FakeSettings())
+
+    assert str(_Path(r"D:\Project\logs")) in found
+    assert str(_Path(r"D:\Data\vectors")) in found
+    # The database is a *file*; its directory is what must not be walked.
+    # Compared as text, because these are Windows paths and the test may run
+    # anywhere - which is the whole reason `own_paths` does not use
+    # `Path.parent` here.
+    assert any(entry.replace("\\", "/").endswith("D:/Data/fts") for entry in found), found
+
+
+def test_own_paths_survives_a_settings_missing_a_field():
+    """It must never become the reason a run cannot start."""
+    from app.index.walker import own_paths
+
+    assert own_paths(object()) == frozenset()

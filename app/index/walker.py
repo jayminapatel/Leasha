@@ -50,6 +50,7 @@ __all__ = [
     "has_changed",
     "enclosing_repo",
     "repo_kind_at",
+    "own_paths",
     "DEFAULT_EXCLUDE_DIRS",
     "DEFAULT_EXCLUDE_GLOBS",
     "HASH_CHUNK_BYTES",
@@ -152,6 +153,15 @@ class WalkConfig:
     #: Excluded directories still descended into, by absolute path. Lets a user
     #: index one folder that happens to live under an excluded name.
     force_include: frozenset[str] = field(default_factory=frozenset)
+    #: Absolute directory paths never descended into, whatever they are called.
+    #:
+    #: **This is how the application avoids indexing itself.** `LOG_PATH`
+    #: defaults to `<project>\\logs`, so pointing an indexed root at the project
+    #: folder had the indexer reading its own log file - while writing to it.
+    #: Excluding by *name* would have been wrong twice over: it would miss a log
+    #: directory anywhere else, and it would hide a `logs` folder that genuinely
+    #: belongs to the person.
+    exclude_paths: frozenset[str] = field(default_factory=frozenset)
     #: Repository roots found during the walk, written here as they are seen,
     #: as `root_path -> kind`.
     #:
@@ -162,12 +172,54 @@ class WalkConfig:
     #: had in its hands.
     repo_sink: Optional[dict[str, str]] = None
 
+    def excluded_paths_lower(self) -> frozenset[str]:
+        """`exclude_paths`, normalised once rather than per directory entry."""
+        return frozenset(
+            str(Path(p)).rstrip("\\/").lower() for p in self.exclude_paths
+        )
+
     def resolved_extensions(self) -> frozenset[str]:
         if self.extensions is not None:
             return self.extensions
         from app.extract import supported_extensions
 
         return supported_extensions()
+
+
+def own_paths(settings: object) -> frozenset[str]:
+    """Directories this application writes to, and must never index.
+
+    **The indexer was reading its own log file while writing to it.**
+    `LOG_PATH` defaults to `<project>\\logs`, so an indexed root pointed at the
+    project folder swept it up - along with the SQLite index, the vector store
+    and the model cache if `DATA_PATH` happens to sit under a root too.
+
+    Every field is read defensively: this is called with a `Settings`, but it
+    must not become the reason a run cannot start if one of them is absent.
+    """
+    names = (
+        "data_path", "log_path", "state_path", "cache_path",
+        "model_cache", "vector_path",
+    )
+    found: set[str] = set()
+    for name in names:
+        value = getattr(settings, name, None)
+        if value:
+            found.add(str(value))
+    # `fts_db` is a file; its directory is what must not be walked.
+    #
+    # **Split on both separators, not `Path.parent`.** These paths are written
+    # on Windows and read back anywhere, and `PurePosixPath` treats the whole
+    # of `D:\Data\fts\knowledge.db` as one filename - so the parent came out as
+    # `.`, which excludes nothing. The third time this project has been caught
+    # by that; `sqlite_store._basename` exists for the same reason.
+    database = getattr(settings, "fts_db", None)
+    if database:
+        text = str(database).replace("\\", "/").rstrip("/")
+        parent = text.rpartition("/")[0]
+        if parent:
+            found.add(str(Path(parent)))
+    return frozenset(found)
 
 
 def _matches_any(name: str, globs: Iterable[str]) -> bool:
@@ -294,11 +346,18 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
     matter are raised where they can be attributed to a file.
     """
     extensions = config.resolved_extensions()
+    # Normalised once for the whole walk, not per directory entry.
+    blocked = config.excluded_paths_lower()
     seen: set[str] = set()
 
     for root in config.roots:
         root = Path(root)
         if not root.exists():
+            continue
+        if str(root).rstrip("\\/").lower() in blocked:
+            # The root itself is excluded. Pruning only filters subdirectories,
+            # so without this an indexed root pointed straight at the log or
+            # index directory would still be walked in full.
             continue
 
         for directory, subdirectories, filenames in os.walk(
@@ -325,10 +384,19 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
 
             # Pruned here, in place - never filtered afterwards. Descending into
             # a 40,000-file node_modules and discarding it costs the subtree.
+            #
+            # `exclude_paths` is checked case-insensitively: these are absolute
+            # paths from configuration, compared against paths from the
+            # filesystem, and on Windows the same directory routinely appears
+            # with different casing in the two.
             subdirectories[:] = [
                 name for name in subdirectories
-                if str(Path(directory, name)) in config.force_include
-                or (name not in config.exclude_dirs and not _matches_any(name, config.exclude_globs))
+                if str(Path(directory, name)).lower() not in blocked
+                and (
+                    str(Path(directory, name)) in config.force_include
+                    or (name not in config.exclude_dirs
+                        and not _matches_any(name, config.exclude_globs))
+                )
             ]
 
             for filename in filenames:
