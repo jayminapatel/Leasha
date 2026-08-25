@@ -458,8 +458,19 @@ LOG_PATH=$ProjectPath\logs
 
 EMBED_MODEL=BAAI/bge-small-en-v1.5
 EMBED_DIM=384
-RERANK_MODEL=BAAI/bge-reranker-base
 RERANK_ENABLED=true
+
+# RERANK_MODEL is deliberately NOT set here.
+#
+# It was, as BAAI/bge-reranker-base, and that pinned every installed copy to
+# the slowest of the four measured models - 9.2x slower than the default, for
+# identical scores on the evaluation corpus. Changing the default in the code
+# then did nothing for anybody who had run this installer, because a value in
+# .env always wins. The measurement said "9.2x faster" and no machine got it.
+#
+# Leaving it unset lets the code default apply, so a model chosen on a later
+# measurement reaches existing installs. Set it only to override deliberately:
+#   RERANK_MODEL=BAAI/bge-reranker-base    slower, no better on what was tested
 
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=mistral

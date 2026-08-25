@@ -126,3 +126,51 @@ def test_the_launcher_forwards_to_the_cli_and_the_window():
 def test_the_launcher_says_what_to_do_when_nothing_is_installed():
     text = (ROOT / "leasha.cmd").read_text(encoding="utf-8")
     assert "run-install" in text
+
+
+# ---------------------------------------------------------------------------
+# What the installer writes into .env
+# ---------------------------------------------------------------------------
+
+#: Keys the installer must NOT write. Every one of these is a *tuning* choice
+#: that lives as a default in `app/core/config.py`, and a value in `.env`
+#: always wins - so pinning one here freezes it for every existing install and
+#: makes the code default unreachable.
+MUST_NOT_PIN = ("RERANK_MODEL", "RERANK_TOP_N", "AND_TERM_LIMIT", "EMBED_BATCH")
+
+
+def _generated_env_block() -> str:
+    """The here-string install.ps1 writes to `.env`, comments stripped."""
+    text = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+@pytest.mark.parametrize("key", MUST_NOT_PIN)
+def test_the_installer_does_not_pin_a_tuning_default(key):
+    """`RERANK_MODEL=BAAI/bge-reranker-base` was written into every `.env`.
+
+    It pinned every installed copy to the slowest of the four models measured -
+    **9.2x slower than the default, for identical scores** on the evaluation
+    corpus. The default in `config.py` was then changed to the fast one, and it
+    did nothing for anybody, because `.env` always wins. The measurement said
+    "9.2x faster" and no machine ever got it.
+
+    This is not about that one key. Any tuning value the installer writes can
+    never be improved afterwards for the people who already ran it - which is
+    everybody. Paths and identifiers must be written; choices must not.
+    """
+    assert f"{key}=" not in _generated_env_block(), (
+        f"install.ps1 writes {key} into .env, which overrides the default in "
+        f"config.py for every existing install and can never be changed. "
+        f"Leave it unset and let the code default apply."
+    )
+
+
+def test_the_installer_still_writes_the_settings_that_are_not_choices():
+    """The guard above must not be satisfied by writing nothing at all."""
+    block = _generated_env_block()
+
+    for key in ("DATA_PATH", "FTS_DB", "VECTOR_PATH", "EMBED_MODEL", "EMBED_DIM"):
+        assert f"{key}=" in block, f"install.ps1 no longer writes {key}"

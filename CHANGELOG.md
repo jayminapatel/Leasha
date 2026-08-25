@@ -277,6 +277,32 @@ per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
 
+### Fixed — the installer pinned the slow reranker into every `.env`
+
+`install.ps1` wrote `RERANK_MODEL=BAAI/bge-reranker-base` into every generated
+`.env`. That is the slowest of the four models measured — **9.2× slower than
+the default, for identical scores** (80/88/75 on both) on the evaluation
+corpus.
+
+The default in `config.py` was changed to `Xenova/ms-marco-MiniLM-L-6-v2` on
+that measurement, and it **did nothing for anybody**, because a value in `.env`
+always wins. The measurement said 9.2× faster and no machine ever got it. It
+was still the slow model on the owner's install today, confirmed by `doctor`.
+
+The installer no longer writes the key at all, so the code default applies and
+a model chosen on a later measurement reaches existing installs too. An
+override is documented in the generated file rather than set.
+
+**This is not about one key.** Any tuning value an installer writes can never
+be improved afterwards for the people who already ran it — which is everybody.
+`test_launcher.py` now fails if `install.ps1` pins `RERANK_MODEL`,
+`RERANK_TOP_N`, `AND_TERM_LIMIT` or `EMBED_BATCH`, with a second test asserting
+it still writes the paths and identifiers that are not choices, so the guard
+cannot be satisfied by writing nothing.
+
+**Existing installs are not fixed by this** — `.env` is generated once. Delete
+the `RERANK_MODEL` line to pick up the default.
+
 ### Fixed — `leasha --help` crashed
 
 `TypeError: %o format: an integer is required, not dict`, for every user, on
