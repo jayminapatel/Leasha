@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.1 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -60,6 +60,18 @@ change it deliberately, write down why, and update `HANDOFF.md`.
     constant. Destructive settings - index location, chunk size, embedding model - are flows
     that state the cost and confirm, never plain fields.
     See `docs/WORKORDER-everything-tunable-has-a-ui.md`.
+
+12. **A library where one exists; an external converter only where none does.** A library is
+    in-process, pinned, ships a wheel, works on a machine with nothing else installed, and fails
+    in a way the error contract can describe. A converter is a subprocess that needs a separate
+    install, can be missing, can hang, and turns one file into two disk writes. Before adding a
+    converter, check for a maintained wheel; then check whether the format is a documented
+    container - zip, XML, JSON - that the standard library already reads. ODF, `.fb2`, `.epub`
+    and the Google Drive stubs all went that way and none needed a dependency. Only if neither
+    applies does a converter get added, and its reason goes in `CONVERTER_JUSTIFIED` in
+    `app/extract/converter.py`, where a test enforces that it exists and says something.
+    "Nobody has written a reader" is a reason; "the converter was easier" is not.
+    See `docs/WORKORDER-libraries-before-converters.md`.
 
 ## How a layer gets built
 

@@ -599,7 +599,7 @@ def test_a_converter_is_appended_without_disturbing_the_switches(tmp_path):
     save_overrides(tmp_path, {".png": False})
     append_converter(tmp_path, {
         "extension": ".nsf",
-        "command": ["pandoc", "--to", "plain", "{input}"],
+        "command": ["xstexporter", "--to", "plain", "{input}"],
         "produces": "{stem}.txt",
         "then": "plaintext",
         "enabled": True,
@@ -610,7 +610,7 @@ def test_a_converter_is_appended_without_disturbing_the_switches(tmp_path):
 
     rule = reloaded.converter_for(".nsf")
     assert rule is not None
-    assert rule.binary == "pandoc" and rule.then == "plaintext" and rule.enabled
+    assert rule.binary == "xstexporter" and rule.then == "plaintext" and rule.enabled
 
 
 def test_a_converter_binary_off_the_allow_list_is_refused_when_saved(tmp_path):
@@ -633,7 +633,7 @@ def test_a_converter_binary_off_the_allow_list_is_refused_when_saved(tmp_path):
 def test_a_second_converter_for_one_extension_is_refused(tmp_path):
     from app.core.formats import append_converter
 
-    rule = {"extension": ".nsf", "command": ["pandoc", "{input}"],
+    rule = {"extension": ".nsf", "command": ["xstexporter", "{input}"],
             "then": "plaintext"}
     append_converter(tmp_path, rule)
 

@@ -316,14 +316,19 @@ def test_common_types_are_registered() -> None:
 
 
 def test_legacy_office_has_no_direct_reader_and_says_what_is_needed() -> None:
-    """.doc/.xls/.ppt have no parser of their own - they go through a converter.
+    """.doc/.ppt have no parser of their own - they go through a converter.
 
     The message used to be `ERR_UNSUPPORTED_TYPE`, "this application does not
     read .doc", which was never true and which nobody could act on. With
     converters shipping enabled it is `ERR_CONVERTER_MISSING`, naming the
     binary and the install command, and falling back to indexing by name.
+
+    **`.xls` used to be in this list and no longer is.** `xlrd` reads it
+    in-process - see `app/extract/xls.py` and non-negotiable 12. `.doc` and
+    `.ppt` stay because the OLE2 Word and PowerPoint streams genuinely have no
+    Python reader; the container is openable, the document inside is not.
     """
-    for ext in (".doc", ".xls", ".ppt"):
+    for ext in (".doc", ".ppt"):
         assert extractor_for(Path(f"legacy{ext}")) is None
 
     error = skip_code(Path("legacy.doc")).error

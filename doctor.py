@@ -473,11 +473,16 @@ def check_converters() -> Check:
     return Check(
         "Document converters (optional)",
         True,
+        # **Name the formats that actually depend on this.** It used to say
+        # ".doc, .xls, .ppt and friends", which stopped being true when .xls
+        # and .rtf moved to xlrd and striprtf - and an over-broad warning is one
+        # people install software they do not need in order to silence.
         detail=(", ".join(present) if present else
-                "none installed - .doc, .xls, .ppt and friends will not be read"),
+                "none installed - .doc, .ppt, .pub, .wpd and Apple iWork files "
+                "will be indexed by name only. Everything else is read without it"),
         optional=True,
-        fix=("Install LibreOffice to read the older Office formats: "
-             "https://www.libreoffice.org/download/" if not present else ""),
+        fix=("Install LibreOffice to read .doc, .ppt and other pre-2007 Office "
+             "formats: https://www.libreoffice.org/download/" if not present else ""),
     )
 
 

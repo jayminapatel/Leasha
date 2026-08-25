@@ -48,6 +48,7 @@ from app.core.logging import logger
 
 __all__ = [
     "ALLOWED_BINARIES",
+    "CONVERTER_JUSTIFIED",
     "ConversionResult",
     "convert",
     "resolve_binary",
@@ -65,10 +66,13 @@ log = logger.bind(component="extract.converter")
 #: Anything else named by config is refused with `ERR_CONVERTER_BLOCKED`, which
 #: names the binary - and, critically, refuses *before* resolving or executing
 #: anything at all.
+#: `pandoc` was here for `.epub` and `.fb2` and is deliberately gone: both are
+#: now read in-process, nothing ships routed to it, and an allow-list is a
+#: security boundary that should hold only what is actually used. Re-adding it
+#: is a commit with a diff, which is the point.
 ALLOWED_BINARIES = frozenset({
-    "soffice",          # LibreOffice: doc, xls, ppt, rtf, pages, numbers, key
+    "soffice",          # LibreOffice: doc, ppt, pages, numbers, key, wpd, pub
     "libreoffice",      # the same thing under its other name
-    "pandoc",           # epub, fb2, rst, org
     "xstexporter",      # Lotus Notes NSF, on the rare machine that has it
     "tesseract",        # OCR as a converter, for anybody preferring it to RapidOCR
     # AutoCAD DWG has no open specification and no Python reader. Both of these
@@ -76,6 +80,36 @@ ALLOWED_BINARIES = frozenset({
     "dwg2dxf",          # LibreDWG, free and file-at-a-time
     "ODAFileConverter", # Open Design Alliance's, free to download, batch-oriented
 })
+
+#: **Why each remaining format still needs an external converter.**
+#:
+#: Non-negotiable 12: a library is used where one exists, and a converter is the
+#: justified exception. This is the justification, and a test asserts every
+#: shipped converter has one. A format with a usable Python library must not
+#: appear here - it should have an extractor instead.
+#:
+#: "Nobody has written a reader" is a reason. "The converter was easier" is not.
+#: Four formats left this map when `.xls`, `.rtf`, `.epub` and `.fb2` moved to
+#: `xls.py`, `rtf.py` and `ebook.py`; the ones below were checked and have no
+#: library in any state worth depending on.
+CONVERTER_JUSTIFIED: dict[str, str] = {
+    ".doc":     "OLE2 Word. olefile opens the container but nothing parses the "
+                "WordDocument stream; no maintained pure-Python reader exists.",
+    ".ppt":     "OLE2 PowerPoint. Same as .doc - no reader for the record "
+                "structures inside the container.",
+    ".pub":     "Microsoft Publisher. No reader in any language worth depending "
+                "on, and LibreOffice's own import is poor - hence the note.",
+    ".wpd":     "WordPerfect. libwpd is C++ with no maintained Python binding.",
+    ".pages":   "Modern iWork is protobuf inside a zip, with an undocumented "
+                "schema that changes between releases. No reader.",
+    ".numbers": "Modern iWork is protobuf inside a zip. numbers-parser exists "
+                "but is a large dependency for a format most corpora hold none "
+                "of; revisit if a real corpus turns out to contain them.",
+    ".key":     "Modern iWork is protobuf inside a zip. No reader.",
+    ".dwg":     "AutoCAD binary with no open specification. ezdxf explicitly "
+                "does not read it. Converted to DXF by dwg2dxf - which is "
+                "LibreDWG, not LibreOffice - and then read properly by cad.py.",
+}
 
 #: Placeholders a converter command may use. Anything else in braces is left
 #: alone rather than guessed at - a filename containing `{` is not a template.

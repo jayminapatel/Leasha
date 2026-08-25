@@ -179,7 +179,7 @@ somebody looked first.
 | `WORKORDER-everything-tunable-has-a-ui.md` §1-3, §5 | Backend | Registry and writer **done**; constants still to demote |
 | `WORKORDER-everything-tunable-has-a-ui.md` §4, §6 | **UI** | Controls, `data_path` flow - not started |
 | `WORKORDER-ui-shell-and-results.md` | **UI** | Not started. **Blocked** on `SearchResult` gaining `ext` and `mtime_ns` |
-| `WORKORDER-results-layout.md` | - | **Superseded** by `WORKORDER-ui-shell-and-results.md`. Delete it |
+| `WORKORDER-results-layout.md` | - | **Superseded** by `WORKORDER-ui-shell-and-results.md`. Deleted 2026-08-25 |
 | `WORKORDER-git-search-backend.md` | Backend | Not started. Phase 1 only; phase 2 gated on a measurement, see its §14 |
 | `WORKORDER-git-search-ui.md` | **UI** | Not started. **Blocked** on the backend order above - it needs `repos`, `repo:` and the `code` scope |
 | `REVIEW-2026-08-25.md` | Both | See below |

@@ -168,25 +168,11 @@ then      = "plaintext"
 timeout_s = 180
 enabled   = true
 
-[converters.".xls"]
-command   = ["soffice", "--headless", "--convert-to", "csv", "--outdir", "{outdir}", "{input}"]
-produces  = "{stem}.csv"
-then      = "plaintext"
-timeout_s = 180
-enabled   = true
-
 [converters.".ppt"]
 command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
 produces  = "{stem}.txt"
 then      = "plaintext"
 timeout_s = 180
-enabled   = true
-
-[converters.".rtf"]
-command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
-timeout_s = 120
 enabled   = true
 
 [converters.".pages"]
@@ -247,16 +233,11 @@ timeout_s = 180
 enabled   = true
 note      = "Needs LibreDWG's dwg2dxf on PATH. DWG has no open specification, so conversion quality varies by the AutoCAD version that wrote the file."
 
-[converters.".epub"]
-command   = ["pandoc", "--to", "plain", "--output", "{outdir}/{stem}.txt", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
-timeout_s = 120
-enabled   = true
-
-[converters.".fb2"]
-command   = ["pandoc", "--to", "plain", "--output", "{outdir}/{stem}.txt", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
-timeout_s = 120
-enabled   = true
+# `.epub`, `.fb2`, `.rtf` and `.xls` used to be here, routed to pandoc and
+# soffice. They are now read in-process by app/extract/ebook.py, rtf.py and
+# xls.py - a zip of XHTML, a single XML document, a text markup format and an
+# OLE2 workbook, none of which needed a subprocess. See non-negotiable 12 and
+# docs/WORKORDER-libraries-before-converters.md.
+#
+# That removed pandoc from the project entirely, and left LibreOffice needed
+# only for the formats below, which genuinely have no library.

@@ -16,11 +16,14 @@ from __future__ import annotations
 from app.extract import cad as cad  # noqa: F401,E402
 from app.extract import cloudstub as cloudstub  # noqa: F401,E402
 from app.extract import diagrams as diagrams  # noqa: F401,E402
+from app.extract import ebook as ebook  # noqa: F401,E402
 from app.extract import email_files as email_files  # noqa: F401,E402
 from app.extract import ocr as ocr  # noqa: F401,E402
 from app.extract import odf as odf  # noqa: F401,E402
 from app.extract import office as office  # noqa: F401,E402
 from app.extract import pdf as pdf  # noqa: F401,E402
+from app.extract import rtf as rtf  # noqa: F401,E402
+from app.extract import xls as xls  # noqa: F401,E402
 
 # Registration side-effects. Order is irrelevant; duplicate claims raise.
 from app.extract import plaintext as plaintext  # noqa: F401,E402

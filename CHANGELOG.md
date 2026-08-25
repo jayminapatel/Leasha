@@ -1,12 +1,62 @@
 # Changelog
 
-**Doc version:** 3.32 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.33 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — libraries before converters, and LibreOffice for far less
+
+New standing rule from the owner: *"use libraries where you can and only
+libreoffice where it cant"*, now non-negotiable 12.
+
+**`.xls`, `.rtf`, `.epub` and `.fb2` are read in-process.** They went through
+`soffice` and `pandoc` until now, which meant a machine without LibreOffice read
+none of them — and `.xls` and `.rtf` are not exotic. A long archive is full of
+both, and `.rtf` turns up wherever anything was ever pasted between two
+applications that disagreed about formatting.
+
+- `.xls` → `xlrd==2.0.2`. **It reads `.xls` only** — it dropped `.xlsx`
+  deliberately in 2.0, which is what makes the split with `openpyxl` clean
+  rather than overlapping. Dates are converted (Excel stores 2019-04-01 as the
+  float `43556.0`, and indexed raw no date search ever matches) and whole
+  numbers lose their `.0`, so a search for `12400` finds the invoice.
+- `.rtf` → `striprtf==0.0.33`, with a `{\rtf` magic-number check first: without
+  it a mislabelled binary's stray ASCII gets indexed as though it were the
+  document.
+- `.epub` and `.fb2` → the standard library, no dependency. **That removed
+  pandoc from the project**, and it is off the converter allow-list.
+
+Two things in the e-book reader are worth knowing. EPUB chapters are read in
+**spine order, not manifest order** — manifest order is arbitrary, and getting
+it wrong produces snippets that read like two sentences from different chapters
+glued together, a bug that survives a long time because all the text is present.
+And FictionBook's `<binary>` elements are skipped, which is not an optimisation:
+a book stores its cover as base64 *inside the document*, so indexing it would
+make every chunk random letters and the embedding meaningless.
+
+**LibreOffice is now needed only for `.doc`, `.ppt`, `.pub`, `.wpd` and Apple
+iWork** — seven formats rather than nine, and none of them common. `doctor.py`
+says which formats actually depend on it instead of the old blanket ".doc,
+.xls, .ppt and friends", because an over-broad warning is one people silence by
+installing software they do not need.
+
+**The rule is enforced, not remembered.** `CONVERTER_JUSTIFIED` in
+`app/extract/converter.py` maps each remaining converter to why no library will
+do, mirroring the `NOT_SETTINGS` pattern from the settings registry. Tests
+assert that every shipped converter has an entry, that every entry says
+something, that no format has both a converter and an extractor — two routes to
+one format is how a file reads differently on two machines — and that the map
+holds no stale entries for formats that have since moved to a library.
+
+Office automation through `pywin32` was considered and rejected: free in
+dependency terms, but it swaps LibreOffice for Microsoft Office, Microsoft does
+not support it unattended (KB257757 — Office prompts with a dialog on error,
+which on an invisible instance is a hang), and its advantage is formatting
+fidelity that a plain-text index discards anyway.
 
 ### Changed — the Code page is one box and one list
 
