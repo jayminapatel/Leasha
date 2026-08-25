@@ -1105,16 +1105,40 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
 
             vectors = VectorStore(folder / "vectors", dim=settings.embed_dim)
             vectors.connect()
+            embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
+                                cache_dir=str(settings.model_cache))
+
+            # **The vectors have to be built or this is not the full pipeline.**
+            #
+            # `load_into` writes to SQLite only, so the first version of this
+            # ran keyword + an *empty* vector store + rerank, warned "no vector
+            # hits" on all twenty questions, and still called itself "full
+            # pipeline" in the heading. That is a label the measurement did not
+            # earn, and the warnings were the evidence sitting right there.
+            #
+            # Twenty-one documents, so this costs a second.
+            chunks = list(store.conn.execute(
+                "SELECT id, file_id, text FROM chunks ORDER BY id"))
+            if chunks:
+                vectors.add(
+                    chunk_ids=[row["id"] for row in chunks],
+                    file_ids=[row["file_id"] for row in chunks],
+                    vectors=list(embedder.embed_all([row["text"] for row in chunks])),
+                )
+                store.mark_embedded(row["id"] for row in chunks)
+
             engine = SearchEngine(
                 store, vectors,
-                Embedder(settings.embed_model, dim=settings.embed_dim,
-                         cache_dir=str(settings.model_cache)),
+                embedder,
                 reranker=Reranker(settings.rerank_model,
                                   cache_dir=str(settings.model_cache),
                                   top_n=settings.rerank_top_n,
                                   window_chars=settings.rerank_window_chars),
                 log_usage=False,
             )
+            # The model is named because `.env` overrides the shipped default,
+            # and two runs of the same model look exactly like two runs of
+            # different ones if the heading does not say.
             mode = f"built-in corpus, full pipeline, {settings.rerank_model}"
 
             def search(query: str) -> list[str]:
@@ -1590,12 +1614,26 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
         print(f"{timing.name:38} {timing.size:>8} {timing.median_s:>10.2f}s "
               f"{per_passage:>11.0f}ms  {timing.load_s:.1f}s{flag}")
 
+    # **Always, not only when a model loaded.** This is the fact that misled
+    # the owner: two runs looked like a comparison and were the same model
+    # twice, because `.env` pinned it and nothing on screen said so.
+    print()
+    print(f"You are currently using: {settings.rerank_model}")
+
     usable = [t for t in result.timings if t.passes]
     if usable:
         best = min(usable, key=lambda t: t.median_s)
-        print()
-        print(f"Fastest here: {best.name} at {best.median_s:.2f}s per search.")
-        print(f"Set it with:  RERANK_MODEL={best.name}   in your .env")
+        print(f"Fastest here:            {best.name} at {best.median_s:.2f}s per search.")
+        if settings.rerank_model != best.name:
+            # **`.env` shadows the shipped default.** Changing a default in the
+            # code does nothing for anybody who already has a `.env` - which is
+            # everybody who has ever run the installer. Saying "the default is
+            # now X" would have been useless advice, and was.
+            env = getattr(args, "env", None) or ".env"
+            print()
+            print(f"  Your {env} pins RERANK_MODEL, so the shipped default does")
+            print(f"  not apply. Edit that line to change it:")
+            print(f"      RERANK_MODEL={best.name}")
         print()
         print("Speed is only half the question. `leasha evaluate --builtin` measures")
         print("whether the ordering is still good enough on your own corpus.")
