@@ -1096,8 +1096,19 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
         # detected one: the numbers came back identical because they measure a
         # stage the reranker never touches.
         mode = "built-in corpus, keyword only"
+        # A flag that names a reranker and then does not use one is a setting
+        # that silently does nothing - the failure this project keeps hitting.
+        if getattr(args, "rerank_model", None):
+            args.rerank = True
         if args.rerank:
             settings = _load(args)
+            # **Comparing two models must not require editing a config file.**
+            # The instruction "put this line in .env" was pasted into PowerShell
+            # as a command, which is a fair reading of a line in a code block -
+            # and even done correctly it is an edit, a save and a reread between
+            # every measurement. One flag is the whole comparison.
+            if getattr(args, "rerank_model", None):
+                settings = settings.model_copy(update={"rerank_model": args.rerank_model})
             from app.index.embedder import Embedder
             from app.search.engine import SearchEngine
             from app.search.rerank import Reranker
@@ -1926,6 +1937,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="use the shipped corpus with known answers (no model needed)")
     p_eval.add_argument("--interpret", action="store_true",
                         help="translate each sentence with Ollama first, to measure the gain")
+    p_eval.add_argument(
+        "--rerank-model", metavar="NAME",
+        help="compare a different reranker without editing .env, e.g. "
+             "Xenova/ms-marco-MiniLM-L-6-v2 - implies --rerank")
     p_eval.add_argument(
         "--rerank", action="store_true",
         help="run the full pipeline instead of keyword only - the only way to "

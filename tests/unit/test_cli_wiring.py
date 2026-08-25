@@ -172,6 +172,27 @@ def test_evaluate_with_rerank_reaches_the_engine(tmp_path):
         pass          # no model in this environment, which is a real answer
 
 
+def test_rerank_model_implies_rerank(tmp_path):
+    """**A flag that names a reranker and does not use one** would be a setting
+    that silently does nothing - the failure this project keeps hitting. It has
+    to turn the full pipeline on by itself, or somebody compares two models and
+    gets the keyword numbers twice."""
+    from app.core.errors import AppErrorException
+
+    args = parser_for([
+        "evaluate", "--builtin", "--env", env_file(tmp_path),
+        "--rerank-model", "Xenova/ms-marco-MiniLM-L-6-v2",
+    ])
+    assert args.rerank is False, "the flag alone should not preset --rerank"
+    try:
+        cli.cmd_evaluate(args)
+    except AppErrorException:
+        pass          # no embedding model here, which is a real answer
+    except (NameError, AttributeError, TypeError) as exc:      # pragma: no cover
+        pytest.fail(f"--rerank-model is not wired: {type(exc).__name__}: {exc}")
+    assert args.rerank is True, "--rerank-model must imply --rerank"
+
+
 def test_the_two_evaluate_modes_say_which_they_are(tmp_path, capsys):
     """The keyword-only run cannot see a reranker change, and reporting both
     under one heading is how somebody measures the wrong thing and believes
