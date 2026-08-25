@@ -44,9 +44,11 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from app.core.branding import SHORT_DESCRIPTION, banner
-from app.core.config import Settings, load_settings, project_root
+from app.core.config import Settings, load_settings, log_dir_for, project_root
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import log_app_error, logger, setup_logging
+from app.core.runlog import current as current_run
+from app.core.runlog import start_run
 from app.core.single_instance import SingleInstance
 from app.core.version import build_info
 from app.index.resources import limits_from_settings
@@ -69,7 +71,16 @@ def _report(error: AppError, as_json: bool) -> int:
 
 def _load(args: argparse.Namespace) -> Settings:
     env_file = Path(args.env) if getattr(args, "env", None) else None
-    return load_settings(env_file)
+    settings = load_settings(env_file)
+
+    # **The one place every command gets its configuration**, and therefore the
+    # only place the run log can record what the configuration actually was.
+    # Writing it from `.env` instead would record the file rather than the
+    # values in force, which is the mistake `doctor` made for a week.
+    run = current_run()
+    if run is not None:
+        run.settings(settings)
+    return settings
 
 
 # ---------------------------------------------------------------------------
@@ -332,14 +343,32 @@ _SKIP_DIRS = {
 }
 
 
-def _iter_targets(paths: Sequence[str]) -> "list[Path]":
+def _iter_targets(paths: Sequence[str],
+                  own: "frozenset[str]" = frozenset()) -> "list[Path]":
     """Expand the arguments into files. A folder is walked recursively.
 
     Unsupported extensions are filtered out *here* rather than being reported as
     skips, because listing every .exe and .dll in a folder as "skipped" would
     bury the failures that actually matter.
+
+    **`own` is the application's own folders, and a walk never enters them.**
+    `walker.own_paths` exists because *"the indexer was reading its own log file
+    while writing to it"*, and this command walks folders the same way without
+    ever having been given the same guard - so pointing `extract` at the project
+    folder reads the index, the vector store and the log file being written by
+    the very command doing the reading. The standing rule is that a fix for one
+    search area is applied to the others; this is the other.
+
+    A file **named explicitly** is still attempted, whatever folder it is in.
+    That is a deliberate choice by somebody who wants to see how a log file
+    extracts, and it is the sweep, not the intent, that needs the guard.
     """
     from app.extract import extractor_for
+
+    # Compared lower-cased: these are absolute paths from configuration, matched
+    # against paths from the filesystem, and on Windows the same directory
+    # routinely appears with different casing in the two.
+    blocked = frozenset(str(Path(p)).rstrip("\\/").lower() for p in own)
 
     found: list[Path] = []
     for raw in paths:
@@ -353,7 +382,13 @@ def _iter_targets(paths: Sequence[str]) -> "list[Path]":
         import os
 
         for directory, subdirectories, filenames in os.walk(path):
-            subdirectories[:] = [d for d in subdirectories if d not in _SKIP_DIRS]
+            subdirectories[:] = [
+                d for d in subdirectories
+                if d not in _SKIP_DIRS
+                and str(Path(directory, d)).lower() not in blocked
+            ]
+            if str(Path(directory)).rstrip("\\/").lower() in blocked:
+                continue
             for name in sorted(filenames):
                 candidate = Path(directory) / name
                 if extractor_for(candidate) is not None:
@@ -395,7 +430,9 @@ def cmd_extract(args: argparse.Namespace) -> int:
     if args.mailbox:
         return _extract_mailbox(args, log)
 
-    targets = _iter_targets(args.paths)
+    from app.index.walker import own_paths
+
+    targets = _iter_targets(args.paths, own_paths(settings))
     if not targets:
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.extract",
@@ -2345,8 +2382,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # **Opened before the command runs, not inside it.** A run that fails at
+    # configuration - the single most common way this application has gone
+    # wrong on the owner's machine - is exactly the run worth having a file
+    # for, and by the time `_load` raises it is too late to start one.
+    # `log_dir_for` answers "which folder" without validating anything, so a
+    # broken `.env` still gets logged rather than losing its own evidence.
+    run = start_run(log_dir_for(Path(args.env) if getattr(args, "env", None)
+                                else None),
+                    getattr(args, "command", "cli"),
+                    argv=list(argv) if argv is not None else sys.argv[1:])
+
+    code = EXIT_ERROR
     try:
-        return int(args.func(args))
+        code = int(args.func(args))
+        return code
     except AppErrorException as exc:
         # Logging may not be configured yet (a bad .env fails before setup),
         # so print unconditionally and log only on a best-effort basis.
@@ -2354,10 +2404,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             log_app_error(exc.error)
         except Exception:  # noqa: BLE001
             pass
-        return _report(exc.error, getattr(args, "json", False))
+        code = _report(exc.error, getattr(args, "json", False))
+        return code
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
-        return EXIT_ERROR
+        code = EXIT_ERROR
+        return code
+    except BaseException as exc:
+        # Recorded, then re-raised unchanged. The sink never sees an exception
+        # nobody caught, so without this the run log would end at whatever line
+        # happened to be logged last - the least useful place to stop.
+        run.unhandled(exc)
+        code = "crash"
+        raise
+    finally:
+        path = run.finish(code)
+        # Named on the console only when it is worth opening. A line printed
+        # after every successful `search` is furniture within a day, and
+        # furniture is what people stop reading.
+        if code != EXIT_OK or run.errors:
+            print(f"\nRun log: {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

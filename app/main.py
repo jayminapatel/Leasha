@@ -19,7 +19,7 @@ Startup order matters and is deliberate:
 from __future__ import annotations
 
 import sys
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from app.core.branding import NAME
 from app.core.errors import AppError, AppErrorException
@@ -93,8 +93,8 @@ def _make_ctrl_c_work(application: object) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    from app.core.config import load_settings
-    from app.core.single_instance import SingleInstance
+    from app.core.config import log_dir_for
+    from app.core.runlog import start_run
 
     arguments = list(argv if argv is not None else sys.argv)
     # Parsed by hand rather than with argparse: this is a GUI entry point, and
@@ -103,11 +103,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     debug = "--debug" in arguments
     qt_arguments = [a for a in arguments if a != "--debug"]
 
+    # **The window session gets a run log like any command.** It is the one
+    # that matters most: this is the interface the owner actually uses, its
+    # failures are reported as prose hours later, and its footer names the
+    # threads still alive at exit - which is the whole diagnosis of a window
+    # that closes without the process ending.
+    #
+    # Opened before settings load, because a startup that dies in the "Cannot
+    # start" dialog leaves nothing else behind at all.
+    run = start_run(log_dir_for(), "window", argv=arguments[1:])
+    code = 1
+    try:
+        code = _run_window(run, qt_arguments, debug)
+        return code
+    except BaseException as exc:
+        run.unhandled(exc)
+        code = "crash"     # type: ignore[assignment]
+        raise
+    finally:
+        run.finish(code)
+
+
+def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
+    from app.core.config import load_settings
+    from app.core.single_instance import SingleInstance
+
     try:
         settings = load_settings()
     except AppErrorException as exc:
         return _fatal(exc.error)
 
+    run.settings(settings)
     setup_logging(settings.log_path)
 
     try:

@@ -1,6 +1,6 @@
 # UI thread: closing handover
 
-**Doc version:** 2.0 · **Written:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 2.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 **Status:** the UI thread is closed. One thread owns everything from here.
 
 The owner has merged Planning, Backend and UI into a single thread. This is the

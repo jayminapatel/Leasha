@@ -158,6 +158,50 @@ def test_unsupported_types_are_filtered_not_reported(
     assert "ignore.dll" not in out
 
 
+def test_a_walk_never_enters_the_application_s_own_folders(
+    capsys: pytest.CaptureFixture[str], env: list[str], tmp_path: Path
+) -> None:
+    """**It was reading the log file the same command was writing.**
+
+    `walker.own_paths` exists for exactly this - its docstring says so - but it
+    guarded the indexer only, and this command walks folders the same way. Every
+    run now writes a run log under `LOG_PATH`, which sits inside the project
+    folder by default, so `extract` pointed anywhere above it swept up its own
+    output and reported it as a document.
+    """
+    from app.core.config import load_settings
+
+    settings = load_settings(Path(env[1]))
+    (tmp_path / "real.txt").write_text("a genuine document", encoding="utf-8")
+
+    noise = Path(settings.log_path) / "runs"
+    noise.mkdir(parents=True, exist_ok=True)
+    (noise / "run-20260101-000000-extract.log").write_text(
+        "a log this command wrote", encoding="utf-8")
+
+    _code, out, _err = run(capsys, *env, "extract", str(tmp_path))
+
+    assert "real.txt" in out
+    assert "run-20260101" not in out, "it extracted its own log file"
+
+
+def test_a_file_inside_them_is_still_extracted_when_it_is_named(
+    capsys: pytest.CaptureFixture[str], env: list[str]
+) -> None:
+    """The guard is on the sweep, not on the intent. Asking how a log file
+    extracts is a reasonable thing to want and is not an accident."""
+    from app.core.config import load_settings
+
+    settings = load_settings(Path(env[1]))
+    target = Path(settings.log_path) / "named.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("asked for by name", encoding="utf-8")
+
+    _code, out, _err = run(capsys, *env, "extract", str(target))
+
+    assert "named.txt" in out
+
+
 def test_nothing_supported_is_a_clean_error(
     capsys: pytest.CaptureFixture[str], env: list[str], tmp_path: Path
 ) -> None:

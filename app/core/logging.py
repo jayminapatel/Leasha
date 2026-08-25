@@ -44,6 +44,7 @@ _configured = False
 LOG_SUBDIRS = {
     "app": "Application logs, one file per day. Start here.",
     "errors": "Errors only, one JSON object per line. Machine-readable.",
+    "runs": "One file per command or window session, with its settings and result.",
     "install": "Installer transcripts, one per run.",
     "crash": "Unhandled crash reports.",
     "diagnostics": "Diagnostic bundles produced by 'app.cli diagnose'.",
@@ -58,29 +59,43 @@ def ensure_log_dirs(log_dir: Path) -> dict[str, Path]:
         target.mkdir(parents=True, exist_ok=True)
         made[name] = target
 
+    lines = [
+        "Log folders",
+        "===========",
+        "",
+    ]
+    width = max(len(n) for n in LOG_SUBDIRS)
+    for name, description in LOG_SUBDIRS.items():
+        lines.append(f"  {name.ljust(width)}  {description}")
+    lines += [
+        "",
+        "If something goes wrong, run this and send the resulting zip:",
+        "",
+        "    venv\\Scripts\\python.exe -m app.cli diagnose",
+        "",
+        "It gathers the environment report, both store summaries, recent",
+        "logs and the installed package versions into one file.",
+        "",
+        "See docs/TROUBLESHOOTING.md for what each file means.",
+        "",
+    ]
+    wanted = "\n".join(lines)
+
+    # **Rewritten when it no longer matches, not only when it is absent.**
+    # It was written once and never again, so adding a folder left a file
+    # confidently describing a structure that no longer existed - and a
+    # generated document that has quietly gone stale is worse than none,
+    # because somebody will act on it. Nothing here is hand-edited: it is
+    # produced from `LOG_SUBDIRS`, which is the thing that changes.
     readme = Path(log_dir) / "README.txt"
-    if not readme.exists():
-        lines = [
-            "Log folders",
-            "===========",
-            "",
-        ]
-        width = max(len(n) for n in LOG_SUBDIRS)
-        for name, description in LOG_SUBDIRS.items():
-            lines.append(f"  {name.ljust(width)}  {description}")
-        lines += [
-            "",
-            "If something goes wrong, run this and send the resulting zip:",
-            "",
-            "    venv\\Scripts\\python.exe -m app.cli diagnose",
-            "",
-            "It gathers the environment report, both store summaries, recent",
-            "logs and the installed package versions into one file.",
-            "",
-            "See docs/TROUBLESHOOTING.md for what each file means.",
-            "",
-        ]
-        readme.write_text("\n".join(lines), encoding="utf-8")
+    try:
+        if readme.read_text(encoding="utf-8") != wanted:
+            readme.write_text(wanted, encoding="utf-8")
+    except OSError:
+        try:
+            readme.write_text(wanted, encoding="utf-8")
+        except OSError:
+            pass          # a missing README is never a reason not to log
     return made
 
 
@@ -147,6 +162,21 @@ def setup_logging(
         backtrace=False,
         diagnose=False,
     )
+
+    # **`logger.remove()` above cleared every handler, including the run log's.**
+    # A run log opens before its command loads settings - it has to, because a
+    # run that fails at configuration is the one most worth having a file for -
+    # so this always runs second and would silently truncate it to a header and
+    # a footer. Imported here rather than at module scope to keep the dependency
+    # one-way.
+    try:
+        from app.core.runlog import current as _current_run
+
+        run = _current_run()
+        if run is not None:
+            run.reattach()
+    except Exception:  # noqa: BLE001 - logging must not fail over a log file
+        pass
 
     _configured = True
     return pattern

@@ -23,7 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.errors import AppErrorException, make_error
 
-__all__ = ["Settings", "load_settings", "find_env_file", "DEFAULT_ENV_NAME"]
+__all__ = ["Settings", "load_settings", "find_env_file", "log_dir_for",
+           "DEFAULT_ENV_NAME"]
 
 DEFAULT_ENV_NAME = ".env"
 
@@ -44,6 +45,25 @@ def find_env_file(explicit: Optional[Path] = None) -> Path:
     if explicit is not None:
         return Path(explicit)
     return project_root() / DEFAULT_ENV_NAME
+
+
+def log_dir_for(env_file: Optional[Path] = None) -> Path:
+    """Where logs go, resolved without validating anything else.
+
+    `load_settings` is the authority, but it refuses a bad `.env` - and a run
+    that failed at configuration is precisely one worth having a log of. This
+    answers the single question "which folder", guesses the default when it
+    cannot tell, and never raises.
+    """
+    values: dict[str, str] = {}
+    try:
+        path = find_env_file(env_file)
+        if path.is_file():
+            values = _read_env_file(path)
+    except Exception:  # noqa: BLE001 - a fallback that can fail is not one
+        values = {}
+    raw = (os.environ.get("LOG_PATH") or values.get("LOG_PATH") or "").strip()
+    return Path(raw) if raw else project_root() / "logs"
 
 
 def _read_env_file(path: Path) -> dict[str, str]:

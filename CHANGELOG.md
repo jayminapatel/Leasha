@@ -1,12 +1,71 @@
 # Changelog
 
-**Doc version:** 3.24 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 3.25 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — one log file per run
+
+Asked for directly: *"for testing create detailed log files which for every run
+you can check on the project folder"*. The value is the round trip. A report of
+the form *"this seems stuck"* has found real faults here, but answering it costs
+a message asking what the console said, another asking which command was run,
+and a third asking what the settings were — by which time the run is over and
+the console has scrolled.
+
+**No new logging.** `logs\app\` already held everything at DEBUG. What it did
+not hold was a *boundary*: one run's lines sat in the same daily file as the
+twenty around it, interleaved with a window session. `logs\runs\` now holds one
+file per command and per window session, named `run-YYYYMMDD-HHMMSS-<command>`,
+carrying four things the daily log cannot say:
+
+* **The settings in force** — written from the object the run is using, not from
+  `.env` and not from the defaults. This is the section that would have caught
+  `doctor` reporting its own hardcoded defaults, which cost a week of attributing
+  a measurement to the wrong model.
+* **The threads still alive at the end**, with the non-daemon ones marked. The
+  window closing without the process exiting was diagnosed by reasoning about
+  `concurrent.futures`; the footer names them outright.
+* **Errors grouped by code.** Four hundred `ERR_CONVERTER_MISSING` and one
+  `ERR_DB_LOCKED` reads, flat, as 401 problems. The tally says it is two.
+* **Where the time went**, when a command records stages.
+
+Opened *before* the command runs, so a run that dies at configuration — the most
+common way this application has failed on the owner's machine — still leaves the
+evidence. The path is printed to stderr only when the run failed or logged an
+error; a line after every successful `search` is furniture within a day.
+
+Two traps, both found by running it rather than reading it. The sink builds each
+line from the record instead of a format string, because a format naming
+`{extra[component]}` raises `KeyError` on any line logged before
+`logger.configure` has supplied the defaults — and this sink attaches
+deliberately early, so that is not a corner case, it is the start of every run.
+And `setup_logging` calls `logger.remove()`, which took the run's own sink with
+it; without `reattach` the file would have held a header, a footer and none of
+the run, which looks exactly like a working feature until you open one.
+
+### Fixed — `extract` was reading the application's own output
+
+`walker.own_paths` exists because *"the indexer was reading its own log file
+while writing to it"* — its docstring says so — but it guarded the indexer only.
+`app.cli extract` walks folders the same way and had never been given the same
+guard, so pointing it at the project folder swept up the SQLite index, the vector
+store and the log file. Adding a run log per command made that visible within
+minutes: a test that had passed for months started reporting one extra document.
+
+A file **named explicitly** is still extracted wherever it lives. The guard
+belongs on the sweep, not on the intent.
+
+### Fixed — `logs\README.txt` described a structure that no longer existed
+
+It was written once, on first run, and never again — so adding a log folder left
+a generated document confidently listing the old set. It is now rewritten
+whenever it no longer matches `LOG_SUBDIRS`. Nothing in it is hand-edited, and a
+stale generated document is worse than none because somebody will act on it.
 
 ### Fixed — the `/` menu was hiding a third of itself
 
