@@ -193,8 +193,8 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(
         key="EMBED_DIM", label="Meaning model dimensions", kind="int",
         default=384, group="Models", surface="settings.models",
-        minimum=64, maximum=4096, restart=True, destructive=True,
-        flow="rebuild-vectors",
+        minimum=64, maximum=4096, unit="dimensions", restart=True,
+        destructive=True, flow="rebuild-vectors",
         help="Set by the meaning model. Changing it by hand cannot make an "
              "existing index work; it only makes the mismatch louder.",
     ),

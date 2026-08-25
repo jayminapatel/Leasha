@@ -15,6 +15,7 @@ adds a setting and forgets the UI.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -27,26 +28,59 @@ from app.core.errors import AppErrorException
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_SOURCE = PROJECT_ROOT / "app" / "core" / "config.py"
 
-#: Keys `config.py` derives rather than exposes. Paths under DATA_PATH are
-#: computed from it, so giving each its own control would let a user point the
-#: vectors at one drive and the database at another - a broken index with no
-#: error, which is worse than not offering the choice.
-DERIVED = frozenset({
-    "VECTOR_PATH", "FTS_DB", "CACHE_PATH", "MODEL_CACHE",
-    "STATE_PATH", "PROJECT_PATH", "LOG_PATH",
-})
+#: Keys that are read but are not preferences, each with the reason.
+#:
+#: A bare exemption list rots: it becomes the place to put anything awkward.
+#: Requiring a reason per key, and testing that the reason is substantive, keeps
+#: the exemption honest. "Nobody would ever change this" is a reason. "No time
+#: to build the control" is not - that belongs in a failing test.
+NOT_SETTINGS: dict[str, str] = {
+    # All five are computed from DATA_PATH. Separate controls would let someone
+    # put the vectors on one drive and the database on another, which produces a
+    # broken index with no error at all - worse than not offering the choice.
+    "VECTOR_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
+    "FTS_DB": "derived from DATA_PATH; splitting the index across drives silently breaks it",
+    "CACHE_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
+    "MODEL_CACHE": "derived from DATA_PATH; splitting the index across drives silently breaks it",
+    "STATE_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
+    "PROJECT_PATH": "where the application itself lives; not a preference",
+    "LOG_PATH": "where the application itself logs; not a preference",
+}
 
 
 def env_keys_read_by_config() -> set[str]:
     """Every `.env` key `config.py` reads, parsed from its source.
 
-    Parsing the source rather than importing keeps this test honest: it sees
-    what the file does, not what an import happens to expose.
+    Parsed with `ast` rather than a regex over the text, so a key mentioned in a
+    comment, a docstring or an error message cannot count as one the loader
+    reads. Reading the source rather than importing keeps it honest either way:
+    it sees what the file does, not what an import happens to expose.
+
+    The five call shapes the loader actually uses: `values.get("KEY")`,
+    `_require(values, "KEY")`, `_as_int("KEY", ...)`, `_as_bool("KEY", ...)`
+    and `path_of("KEY", ...)`.
     """
-    source = CONFIG_SOURCE.read_text(encoding="utf-8")
-    found = set(re.findall(r'values\.get\("([A-Z_][A-Z0-9_]*)"', source))
-    found |= set(re.findall(r'_require\(values,\s*"([A-Z_][A-Z0-9_]*)"\)', source))
-    return found - DERIVED
+    tree = ast.parse(CONFIG_SOURCE.read_text(encoding="utf-8"))
+    readers = {"get", "_require", "_as_int", "_as_bool", "path_of"}
+    found: set[str] = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Attribute):
+            name = node.func.attr
+        elif isinstance(node.func, ast.Name):
+            name = node.func.id
+        else:
+            continue
+        if name not in readers:
+            continue
+        for argument in node.args:
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                if re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", argument.value):
+                    found.add(argument.value)
+
+    return found - set(NOT_SETTINGS)
 
 
 # --- the rule itself --------------------------------------------------------
@@ -78,6 +112,40 @@ def test_no_control_for_a_setting_nothing_reads() -> None:
         "These have controls but config.py never reads them, so changing them "
         "would do nothing:\n  " + "\n  ".join(orphans)
     )
+
+
+def test_no_key_is_exempted_without_a_real_reason() -> None:
+    """An exemption list with no reasons becomes a dumping ground."""
+    for key, reason in NOT_SETTINGS.items():
+        assert len(reason) > 20, (
+            f"{key} is exempt from needing a control, but {reason!r} does not "
+            f"explain why it is not a preference"
+        )
+
+
+def test_the_key_parser_ignores_prose() -> None:
+    """The parser must read code, not text.
+
+    A regex over the source counted keys named in comments and error messages,
+    which would let a setting look wired up because somebody mentioned it in a
+    docstring. This asserts the `ast` walk does not.
+    """
+    import ast as _ast
+
+    sample = _ast.parse(
+        'def f(values):\n'
+        '    """Reads MENTIONED_IN_A_DOCSTRING and nothing else."""\n'
+        '    # COMMENTED_OUT_KEY used to be read here\n'
+        '    return values.get("REALLY_READ", "x")\n'
+    )
+    found = set()
+    for node in _ast.walk(sample):
+        if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute):
+            for argument in node.args:
+                if isinstance(argument, _ast.Constant) and isinstance(argument.value, str):
+                    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", argument.value):
+                        found.add(argument.value)
+    assert found == {"REALLY_READ"}
 
 
 def test_every_setting_names_a_real_surface() -> None:
@@ -116,6 +184,9 @@ def test_numeric_settings_have_bounds(setting: reg.Setting) -> None:
             f"{setting.key} is numeric with no bounds"
         )
         assert setting.minimum <= setting.default <= setting.maximum
+        # A bare number tells nobody what it measures. "1500" is meaningless;
+        # "1500 MB" is a decision somebody can make.
+        assert setting.unit, f"{setting.key} is a number with no unit"
 
 
 @pytest.mark.parametrize("setting", reg.SETTINGS, ids=lambda s: s.key)
