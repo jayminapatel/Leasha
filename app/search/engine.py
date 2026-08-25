@@ -388,11 +388,27 @@ class SearchEngine:
         # entry for the same typed text, and whichever ran first answers for
         # both - the same class of bug as the generation being wrong, and just
         # as invisible.
+        # **Which reranker produced it is part of what the answer is.**
+        #
+        # `rerank` was a bare on/off flag, so every result reranked by one
+        # model was served afterwards as though a different model had produced
+        # it. Changing `RERANK_MODEL` invalidated nothing: every query already
+        # asked kept its old ordering until the index generation happened to
+        # change. Swapping to a model measured 9.2x faster and finding search
+        # unchanged is exactly what that looks like from the outside, and it
+        # would have been blamed on the model rather than on the cache.
+        #
+        # Only when reranking is on: with it off no model touched the result,
+        # and keying on one would split the cache for no reason.
+        model = ""
+        if rerank:
+            model = str(getattr(self.reranker, "model_name", "") or "")
+
         return "|".join([
-            "v2", str(generation), raw.strip().lower(),
+            "v3", str(generation), raw.strip().lower(),
             repr(parsed.ext), repr(parsed.after), repr(parsed.before),
             repr(parsed.paths), repr(parsed.senders), parsed.scope,
-            "r" if rerank else "-", str(limit),
+            "r" if rerank else "-", model, str(limit),
         ])
 
     def _cache_get(self, key: str) -> Optional[SearchResponse]:

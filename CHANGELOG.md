@@ -310,6 +310,32 @@ per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
 
+### Fixed — changing the reranker invalidated nothing
+
+`_cache_key` included a bare `rerank` on/off flag and **not which model did the
+reranking**. So every result reranked by one model was served afterwards as
+though a different model had produced it, and changing `RERANK_MODEL`
+invalidated nothing: every query already asked kept its old ordering until the
+index generation happened to change.
+
+Found while writing the instructions to measure the model swap — the obvious
+"run it twice and compare" would have returned the *old* model's cached
+ordering the second time, in about a millisecond, and proved nothing. Swapping
+to a reranker measured 9.2x faster and finding search unchanged is exactly what
+this looks like from the outside, and the model would have taken the blame.
+
+The function's own docstring already said it, about the index generation: *a
+cache that cannot tell it is stale is a lie*.
+
+The model name is now in the key, and only when reranking is on — with it off
+no model touched the result, and keying on one would split the cache between
+two states that produce identical answers. The key version went `v2` to `v3`,
+so nothing cached under the old format is read back under the new one.
+
+Fourteen tests, three of which fail on the old key. They encode the general
+rule rather than this one field: anything that changes the answer belongs in
+the key, anything that does not must stay out of it.
+
 ### Added — `.env` keys can be removed, so a default can reach an existing install
 
 `env_writer.render` could only ever *set* a key. There was no operation, in the
