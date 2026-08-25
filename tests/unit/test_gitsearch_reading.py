@@ -246,3 +246,59 @@ def test_a_timeout_is_a_result_rather_than_an_exception():
 
     assert result.ok is False
     assert "timed out" in result.error
+
+
+# --- switches that need the repository to be asked -------------------------
+
+def test_all_branches_is_expanded_into_the_branch_names():
+    """**`git grep --branches` is not a command.** git log understands it and
+    git grep does not - it takes a list of revisions. `gitquery` cannot know
+    them, because it builds commands without running any, so the runner asks.
+
+    Found by running all thirty-seven switches against a real checkout rather
+    than by reading the builder: every `/all-branches` search failed with
+    "unknown option `branches'" on every repository.
+    """
+    calls = []
+
+    def run(args, cwd, timeout):
+        calls.append(list(args))
+        if "for-each-ref" in args:
+            return (0, "main\ndevelop\n", "")
+        return (0, "main:app/a.py:1:hit\n", "")
+
+    result = run_query("/repo", parse_git_query("hit /all-branches"), runner=run)
+
+    grep = [call for call in calls if call[:2] == ["git", "grep"]][0]
+    assert "--branches" not in grep, "the option git rejects reached the command"
+    assert "main" in grep and "develop" in grep
+    assert result.ok is True
+
+
+def test_a_repository_with_no_branches_greps_the_checkout():
+    """Rather than passing an option git will refuse. A fresh repository with
+    no commits has no refs, and searching what is on disk is the honest answer
+    to "search every branch" when there are none."""
+    def run(args, cwd, timeout):
+        if "for-each-ref" in args:
+            return (0, "", "")
+        return (1, "", "")
+
+    result = run_query("/repo", parse_git_query("hit /all-branches"), runner=run)
+
+    assert result.ok is True
+
+
+def test_a_history_search_keeps_the_option_git_log_understands():
+    """`git log --branches` is correct and must not be expanded - the expansion
+    is a fix for grep, not a rule about the word."""
+    calls = []
+
+    def run(args, cwd, timeout):
+        calls.append(list(args))
+        return (0, "", "")
+
+    run_query("/repo", parse_git_query("hit /lifetime"), runner=run)
+    log = [call for call in calls if call[:2] == ["git", "log"]][0]
+
+    assert "--all" in log

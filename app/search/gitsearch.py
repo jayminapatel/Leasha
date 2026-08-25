@@ -483,6 +483,51 @@ def _read_patch(lines: Sequence[str], limit: int, keep: str = "") -> list[GitRow
     return rows
 
 
+#: `git log` understands these; `git grep` does not. It takes a list of
+#: revisions instead, and the list is only knowable by asking the repository -
+#: which `gitquery` deliberately cannot do, because it builds commands without
+#: running any.
+_REF_PLACEHOLDERS = {"--branches": "branch", "--remotes": "branch",
+                     "--all": "branch"}
+
+#: How many refs a grep is expanded across. A repository with four hundred
+#: branches would otherwise become a four-hundred-tree search behind one Enter.
+MAX_REFS = 25
+
+
+def _expand_refs(repo: Path, plan: Any, runner: Runner) -> list[str]:
+    """Turn `--branches` into the branch names, for the commands that need it.
+
+    **`/all-branches` produced `git grep --branches` and git refused it**:
+    "unknown option `branches'". The switch existed, the menu offered it, and it
+    failed on every repository - found by running all thirty-seven switches
+    against a real checkout rather than by reading the builder, which is the
+    only way this class of mistake shows up.
+
+    Only greps are touched. `git log --branches` is correct and is left alone.
+    """
+    from app.search.gitquery import KIND_GREP
+
+    if plan.kind != KIND_GREP:
+        return list(plan.argv)
+
+    out: list[str] = []
+    for argument in plan.argv:
+        kind = _REF_PLACEHOLDERS.get(argument)
+        if kind is None:
+            out.append(argument)
+            continue
+        refs = repo_values(repo, kind, limit=MAX_REFS, runner=runner)
+        if refs:
+            out += refs
+        else:
+            # No refs to name means the checkout is all there is, which is what
+            # a grep with no revision searches. Better than passing an option
+            # git will reject.
+            _log.debug("no refs to expand {} against in {}", argument, repo)
+    return out
+
+
 def run_query(
     repo: Path,
     query: Any,
@@ -507,6 +552,7 @@ def run_query(
     )
 
     plan = build(query)
+    plan.argv = _expand_refs(Path(repo), plan, runner)
     started = time.perf_counter()
     code, out, err = runner(plan.argv, Path(repo), timeout)
     elapsed = time.perf_counter() - started
