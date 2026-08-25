@@ -393,12 +393,47 @@ def test_every_field_survives_a_change_to_any_other_field():
 # It cannot guard this one, which arrives with the flag clear.
 
 
-def test_a_header_resize_is_never_saved_from_inside_the_signal():
-    """The save is deferred to the event loop, not run re-entrantly.
+def test_nothing_connects_to_sectionresized_during_construction():
+    """**The fix, and it took bisecting to find.**
 
-    Asserted on the source rather than by driving Qt, because the failure is a
-    native crash: a test that reproduces it takes the runner down with it
-    instead of failing.
+    Three attempts at what the slot *does* changed nothing - the last of them
+    made its first statement read a Python bool, which cannot fault. Skipping
+    the `connect()` entirely was the experiment that settled it: with no
+    connection the window opens.
+
+    So the fault is in invoking a Python slot from `sectionResized` while
+    `setStyleSheet` re-polishes the widget tree. The connection must be made
+    from the event loop, after construction, not during it.
+
+    Asserted on the source rather than by driving Qt: the failure is a native
+    crash, so a test that reproduces it takes the runner down instead of
+    failing.
+    """
+    import inspect
+
+    from app.ui import view_options
+
+    body = inspect.getsource(view_options.remember_widths)
+    code = "\n".join(
+        line for line in body.splitlines() if not line.strip().startswith("#")
+    )
+
+    connect_at = code.index("sectionResized.connect")
+    defer_at = code.index("singleShot")
+    assert defer_at < connect_at, (
+        "sectionResized is connected during construction. Qt then invokes the "
+        "slot from inside setStyleSheet's polish, and the process dies in C++ "
+        "with no Python exception."
+    )
+    assert "def listen(" in code, "the connection is not deferred behind a callback"
+
+
+def test_a_header_resize_is_never_saved_from_inside_the_signal():
+    """Belt and braces: even once connected, the save is deferred.
+
+    `remember_width` calls `on_change`, which re-applies the whole view. Doing
+    that from inside `sectionResized` re-enters a layout that has not finished -
+    the recursion `_apply_widths` documents and guards with APPLYING.
     """
     import inspect
 
@@ -406,15 +441,12 @@ def test_a_header_resize_is_never_saved_from_inside_the_signal():
 
     body = inspect.getsource(view_options.remember_widths)
     handler = body.split("def resized(")[1]
-
-    assert "singleShot" in handler, (
-        "remember_widths saves directly from sectionResized. That re-enters "
-        "Qt's layout and crashed the window during construction."
-    )
     code = "\n".join(
         line for line in handler.splitlines()
         if not line.strip().startswith("#")
     )
+
+    assert "singleShot" in handler
     assert "button.remember_width(" not in code, (
         "the signal handler still calls remember_width directly; deferring the "
         "call is the whole fix"

@@ -553,30 +553,6 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     the mouse, but the simple and reliable signal is this one: a resize that
     happens while the header is being dragged.
     """
-    # **A kill switch, for bisecting a native crash.**
-    #
-    # The window dies in C++ during `MainWindow.__init__`, and every
-    # faulthandler dump names `_apply_theme -> resized` - this function's slot -
-    # as the main thread's position. Three fixes aimed at what the slot *does*
-    # changed nothing, which is evidence the fault is in the emission itself
-    # rather than in the Python body.
-    #
-    # Guessing further is worse than measuring. With this set, nothing connects
-    # to `sectionResized` at all: if the window then opens, the cause is here
-    # and can be fixed properly; if it still dies, this function is exonerated
-    # and the stack will move somewhere new. Either answer is progress, and one
-    # run gives it.
-    #
-    #     $env:LEASHA_NO_COLUMN_MEMORY=1
-    #     venv\Scripts\python.exe -m app.main
-    #
-    # Remove once the cause is known. A permanent switch for a bug nobody
-    # understands is how a workaround becomes the design.
-    import os
-
-    if os.environ.get("LEASHA_NO_COLUMN_MEMORY"):
-        return
-
     header = table.horizontalHeader()
     if header is None:
         return
@@ -596,13 +572,6 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             return
 
     def resized(index: int, _old: int, new: int) -> None:
-        # **First line, and it touches nothing.** Every check below calls into
-        # Qt, and during construction those calls happen from inside a polish
-        # that is still running - which is where the window was dying. Reading a
-        # Python bool cannot crash, so it is what happens before anything else.
-        if not listening:
-            return
-
         # **Ours, or theirs?** `sectionResized` fires for both, and recording a
         # width we set ourselves feeds straight back into setting it again -
         # see the note in `_apply_widths` for the crash that produced.
@@ -639,29 +608,40 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         # is captured now, so a later drag cannot change what gets recorded.
         QTimer.singleShot(0, lambda i=index, n=new: record(i, n))
 
-    # **Nothing listens to a layout signal until the window exists.**
+    # **The connection is made after the window exists, not during construction.**
     #
-    # The window was dying in C++ inside `MainWindow.__init__`, with
-    # faulthandler pointing at `__init__ -> _apply_theme -> resized`. Deferring
-    # the *save* was not enough: `resized` itself still ran synchronously from
-    # inside Qt's polish, touching `table.property()` and
-    # `QApplication.mouseButtons()` while the header was mid-rebuild.
+    # This is the fix, and it took bisecting to find. The window died in C++
+    # inside `MainWindow.__init__`, every faulthandler dump naming
+    # `_apply_theme -> resized`. Three attempts at what the slot *does* -
+    # deferring the save, guarding the body so its first statement only read a
+    # Python bool, moving the background workers off construction - changed
+    # nothing. A Python bool cannot fault, so the crash was never in the body.
     #
-    # A column width can only be dragged by somebody looking at the window, so
-    # there is nothing to lose by not listening before it opens - and every
-    # resize before that point is Qt laying out, which this must ignore anyway.
-    # `listening` stays False until the event loop turns, by which time
-    # construction and the first theme pass are both finished.
-    listening = False
-
-    def start_listening() -> None:
-        nonlocal listening
-        listening = True
-
+    # An environment switch that skipped `connect()` entirely was the experiment
+    # that settled it: with no connection the window opens. So the fault is in
+    # *invoking a Python slot from `sectionResized` while `setStyleSheet` is
+    # re-polishing the widget tree* - Qt calling into PyQt's glue during a
+    # layout pass the header has not finished.
+    #
+    # Deferring the connection itself removes that window completely: during
+    # construction and the first theme pass nothing is attached to the signal,
+    # and afterwards this behaves exactly as it always did - a direct
+    # connection, so the APPLYING check still sees the flag its own resizes set.
+    #
+    # Nothing is lost. A column width can only be dragged by somebody looking at
+    # the window, and every resize before that point is Qt laying out, which
+    # this had to ignore anyway.
     from PyQt6.QtCore import QTimer as _QTimer
 
-    header.sectionResized.connect(resized)
-    _QTimer.singleShot(0, start_listening)
+    def listen() -> None:
+        try:
+            header.sectionResized.connect(resized)
+        except RuntimeError:
+            # The table went away before the event loop turned - a view built
+            # and discarded during start-up. Nothing to connect to.
+            return
+
+    _QTimer.singleShot(0, listen)
 
 
 def apply_font(widget: Any, font_pt: int) -> None:
