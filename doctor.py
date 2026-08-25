@@ -82,6 +82,34 @@ def env_path(key: str, default: str = "") -> str:
     return ENV.get(key, os.environ.get(key, default))
 
 
+def env_setting(key: str, fallback: str = "") -> str:
+    """`.env` if it says so, otherwise **the declared default**, not a copy.
+
+    `doctor` kept its own defaults - `env_path("RERANK_MODEL",
+    "BAAI/bge-reranker-base")` and five more. When `RERANK_MODEL` was removed
+    from `.env` so that the faster default could apply, doctor went on
+    reporting the model it had been given as a fallback, and loading it. It
+    said `BAAI/bge-reranker-base` while search used
+    `Xenova/ms-marco-MiniLM-L-6-v2`.
+
+    **A diagnostic that reports its own defaults instead of the
+    application's is worse than no diagnostic**, because it is trusted. This
+    one sent the owner looking for a bug in a config change that had worked.
+
+    `settings_registry` is stdlib-only on purpose, so importing it here does
+    not compromise doctor's ability to run before the dependencies are proven.
+    The import is still guarded: a doctor that cannot start is a doctor that
+    cannot tell you why nothing starts.
+    """
+    try:
+        from app.core.settings_registry import by_key
+    except Exception:                       # doctor must always run
+        return env_path(key, fallback)
+    setting = by_key(key)
+    declared = fallback if setting is None else str(setting.default)
+    return env_path(key, declared)
+
+
 # ---------------------------------------------------------------------------
 # Checks - required
 # ---------------------------------------------------------------------------
@@ -233,7 +261,7 @@ def check_data_paths() -> list[Check]:
 def required_free_gb() -> int:
     """Threshold shared with install.ps1 -RequiredFreeGB, via .env."""
     try:
-        return int(float(env_path("REQUIRED_FREE_GB", str(DEFAULT_REQUIRED_FREE_GB))))
+        return int(float(env_setting("REQUIRED_FREE_GB")))
     except ValueError:
         return DEFAULT_REQUIRED_FREE_GB
 
@@ -283,13 +311,13 @@ def check_embedding_model(quick: bool = False) -> Check:
     if quick:
         return Check("Embedding model (skipped: --quick)", True, optional=True)
     model_cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
-    model_name = env_path("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+    model_name = env_setting("EMBED_MODEL")
     try:
         os.environ["FASTEMBED_CACHE_PATH"] = model_cache
         from fastembed import TextEmbedding
         model = TextEmbedding(model_name, cache_dir=model_cache)
         vec = list(model.embed(["doctor probe"]))[0]
-        expected = int(env_path("EMBED_DIM", "384"))
+        expected = int(env_setting("EMBED_DIM"))
         if len(vec) != expected:
             raise RuntimeError(f"expected {expected} dimensions, got {len(vec)}")
         return Check("Embedding model loads and embeds", True, f"{model_name}, dim={len(vec)}")
@@ -310,7 +338,7 @@ def check_rerank_model(quick: bool = False) -> Check:
     if quick:
         return Check("Rerank model (skipped: --quick)", True, optional=True)
     model_cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
-    model_name = env_path("RERANK_MODEL", "BAAI/bge-reranker-base")
+    model_name = env_setting("RERANK_MODEL")
     try:
         os.environ["FASTEMBED_CACHE_PATH"] = model_cache
         from fastembed.rerank.cross_encoder import TextCrossEncoder
@@ -536,13 +564,13 @@ def check_outlook() -> Check:
 
 
 def check_ollama() -> Check:
-    url = env_path("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+    url = env_setting("OLLAMA_URL").rstrip("/")
     try:
         import urllib.request
         with urllib.request.urlopen(f"{url}/api/tags", timeout=3) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         models = [m.get("name", "?") for m in payload.get("models", [])]
-        want = env_path("OLLAMA_MODEL", "mistral")
+        want = env_setting("OLLAMA_MODEL")
         has_want = any(m.split(":")[0] == want.split(":")[0] for m in models)
         if not has_want:
             return Check(

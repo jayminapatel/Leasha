@@ -11,6 +11,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from app.core.config import load_settings
 from app.core.diagnostics import build_bundle, collect_sections
 from app.core.logging import LOG_SUBDIRS, ensure_log_dirs
@@ -133,3 +135,83 @@ def test_large_logs_are_truncated_not_dropped(temp_env: Path, project_root: Path
         assert b"THE-IMPORTANT-LAST-LINE" in content, "the tail is the useful part"
         assert b"truncated" in content
         assert len(content) < MAX_LOG_BYTES + 1000
+
+
+# ---------------------------------------------------------------------------
+# doctor must report the application's defaults, not its own
+# ---------------------------------------------------------------------------
+
+def test_doctor_reports_the_declared_default_not_a_copy_of_it(monkeypatch):
+    """`doctor` said `BAAI/bge-reranker-base` while search used MiniLM.
+
+    It kept its own fallbacks - `env_path("RERANK_MODEL",
+    "BAAI/bge-reranker-base")` and five more. Removing the key from `.env` so
+    the faster default could apply worked, and doctor went on reporting *and
+    loading* the model it had been handed as a fallback.
+
+    A diagnostic that reports its own defaults is worse than no diagnostic,
+    because it is trusted. This one sent the owner hunting a bug in a config
+    change that had already worked.
+    """
+    import doctor
+    from app.core.settings_registry import by_key
+
+    monkeypatch.setattr(doctor, "ENV", {}, raising=False)
+    monkeypatch.delenv("RERANK_MODEL", raising=False)
+
+    assert doctor.env_setting("RERANK_MODEL") == str(by_key("RERANK_MODEL").default)
+
+
+@pytest.mark.parametrize("key", [
+    "RERANK_MODEL", "EMBED_MODEL", "EMBED_DIM",
+    "OLLAMA_URL", "OLLAMA_MODEL", "REQUIRED_FREE_GB",
+])
+def test_doctor_does_not_hardcode_a_declared_default(key, monkeypatch):
+    """Every key doctor reports and the registry declares must agree."""
+    import doctor
+    from app.core.settings_registry import by_key
+
+    monkeypatch.setattr(doctor, "ENV", {}, raising=False)
+    monkeypatch.delenv(key, raising=False)
+    declared = by_key(key)
+    assert declared is not None, f"{key} is no longer in the registry"
+
+    assert doctor.env_setting(key) == str(declared.default)
+
+
+def test_env_still_wins_over_the_declared_default(monkeypatch):
+    """The registry is the *fallback*, not an override.
+
+    Someone who deliberately pins a model in `.env` must still get it, or this
+    fix would have swapped one wrong answer for another.
+    """
+    import doctor
+
+    monkeypatch.setattr(doctor, "ENV", {"RERANK_MODEL": "someone/deliberate"},
+                        raising=False)
+
+    assert doctor.env_setting("RERANK_MODEL") == "someone/deliberate"
+
+
+def test_doctor_still_works_if_the_registry_cannot_be_imported(monkeypatch):
+    """A doctor that cannot start cannot tell you why nothing starts.
+
+    It runs before the dependencies are proven, so the import is guarded and
+    the caller's fallback is used instead.
+    """
+    import builtins
+
+    import doctor
+
+    real_import = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if "settings_registry" in name:
+            raise ImportError("pretend the app is not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(doctor, "ENV", {}, raising=False)
+    monkeypatch.delenv("RERANK_MODEL", raising=False)
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+    assert doctor.env_setting("RERANK_MODEL", "fallback/model") == "fallback/model"

@@ -8,6 +8,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Fixed — five new controls that saved nothing, and the test that missed them
+
+Introduced in the same commit that fixed U6, which was about controls wired to
+nothing. `RERANK_TOP_N`, `RERANK_WINDOW_CHARS`, `RERANK_MODEL`, `MIN_FREE_GB`
+and `REQUIRED_FREE_GB` each had an object name, each passed
+`test_every_plain_setting_has_a_control`, and not one persisted anything.
+`SearchBox` even had a `values()` method that nothing called.
+
+**The test was right and incomplete, and said so.** Its own docstring recorded
+that it proves a control is *built*, not that it is wired to the writer — and
+that gap was then filled with five controls. A rule enforced at one end only
+gets broken at the other.
+
+`test_every_control_writes_its_setting_somewhere` closes it, reading `app/ui`
+with `ast` so that `{"RERANK_TOP_N": value}` counts as a write while
+`getattr(settings, "rerank_top_n", 30)` does not — a check that cannot tell a
+save from a load passes for a control that only ever loads its own default.
+
+It immediately caught a sixth: **`OLLAMA_URL` was a read-only box**, the same
+untunable failure `DATA_PATH` had, and named in the work order as "the easy
+case". It is now an editable field in the Ollama panel, beside the Refresh and
+Test buttons that are the only way to know whether an address is right.
+
+Settings that reach `.env` through a flow rather than a panel are listed with
+which flow writes them, so an exemption has to be a decision rather than an
+oversight.
+
 ### Changed — the model settings are lists with their cost on them, not text boxes
 
 A free-text field for a model name asks somebody to know an exact HuggingFace
@@ -309,6 +336,32 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Fixed — `doctor` reported its own defaults, not the application's
+
+`doctor.py` carried its own copy of six defaults —
+`env_path("RERANK_MODEL", "BAAI/bge-reranker-base")` and five more. So after
+`RERANK_MODEL` was removed from `.env` so that the faster default could apply,
+doctor went on reporting **and loading** the model it had been handed as a
+fallback. It said `BAAI/bge-reranker-base` while search used
+`Xenova/ms-marco-MiniLM-L-6-v2`.
+
+The config change had worked. The diagnostic had not, and it was the
+diagnostic that was believed — it sent the owner hunting a bug that was not
+there. **A tool that reports its own defaults instead of the application's is
+worse than no tool, because it is trusted.**
+
+The same shape as the installer pinning and the un-removable `.env` key: a
+second copy of a default, somewhere the first one cannot reach.
+
+`doctor` now reads `settings_registry`, which is stdlib-only on purpose so this
+does not compromise its ability to run before the dependencies are proven. The
+import is guarded anyway — a doctor that cannot start cannot tell you why
+nothing starts — and `.env` still wins over the declared default, so a
+deliberate pin is still honoured.
+
+Ten tests, eight of which fail on the old `doctor.py`, including one per key so
+a newly hardcoded default fails by name.
 
 ### Fixed — changing the reranker invalidated nothing
 
