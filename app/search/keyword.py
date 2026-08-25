@@ -22,10 +22,10 @@ the filter*, which is the only version that gives correct results.
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from app.core.logging import logger
-from app.search.query import MAIL_KINDS, ParsedQuery
+from app.search.query import MAIL_KINDS, ParsedQuery, _fts_quote
 
 __all__ = ["search", "KEYWORD_LIMIT"]
 
@@ -200,6 +200,46 @@ def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[
     """
     rows = store.conn.execute(sql, [*params, limit]).fetchall()
     return [dict(row) for row in rows]
+
+
+def unmatched_terms(store: Any, terms: Sequence[str], *, limit: int = 6) -> tuple[str, ...]:
+    """Which of these words appear nowhere in the index.
+
+    **The bug this exists for.** A search for "a project file for petrrabigh
+    project" returned twenty confident-looking results, none of which had
+    anything to do with Petro Rabigh - because that word is not in the corpus at
+    all, terms are ORed, and every message containing "project" or "file"
+    therefore matched. The ranking was correct. The *query* had collapsed to its
+    two most useless words, and nothing on screen said so.
+
+    A word that matches nothing is almost always the whole answer: a typo, a
+    name spelled differently in the documents, or something simply not indexed
+    yet. Saying which word it was turns a mystifying result list into a
+    one-second diagnosis.
+
+    One indexed lookup per word with `LIMIT 1`, capped at `limit` words - cheap
+    enough for the full tier, deliberately not run on every keystroke.
+    """
+    missing: list[str] = []
+    for term in list(terms)[:limit]:
+        cleaned = (term or "").strip().rstrip("*")
+        if len(cleaned) < 3:
+            # One and two-letter words match by accident or not at all, and
+            # reporting them as "not found" would be noise on every query.
+            continue
+        expression = _fts_quote(cleaned)
+        if not expression:
+            continue
+        try:
+            row = store.conn.execute(
+                "SELECT 1 FROM chunks_fts WHERE chunks_fts MATCH ? LIMIT 1",
+                (expression,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            continue                             # never fail a search over a hint
+        if row is None:
+            missing.append(cleaned)
+    return tuple(missing)
 
 
 def file_ids_matching(store: Any, parsed: ParsedQuery) -> Optional[set[int]]:

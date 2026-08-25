@@ -61,6 +61,11 @@ __all__ = [
     "status_line",
     "results_message",
     "mail_details",
+    "missing_paths",
+    "file_summary",
+    "search_options",
+    "decorate_results",
+    "record_open",
     "why",
     "kind_tag",
     "group_subtitle",
@@ -804,6 +809,94 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     return "\n\n".join(line for line in lines if line)
 
 
+def search_options(tier: str, *, scope: str, rerank: bool) -> dict:
+    """What to pass the engine for one tier.
+
+    `rerank` is only meaningful on the full tier - the interim one is BM25 with
+    no model at all, and passing it there would look like a setting that does
+    nothing. Here rather than in the view because "which options apply to which
+    tier" is a rule, and a rule inside a widget is a rule nobody can test.
+    """
+    options: dict[str, Any] = {"scope": scope}
+    if tier == Tier.FULL:
+        options["rerank"] = bool(rerank)
+    return options
+
+
+def decorate_results(store: Any, results: Any) -> dict:
+    """Mail subtitles and missing-file marks for one page. **Worker only.**
+
+    Both halves were running on the UI thread in the handler that paints
+    results - a SQLite query and one filesystem stat per row. Together here so
+    there is one worker rather than two, and one place that says which of this
+    work is off-thread.
+    """
+    return {
+        "details": mail_details(store, results),
+        "missing": missing_paths(getattr(row, "path", "") for row in results or ()),
+    }
+
+
+def record_open(engine: Any, search_id: Any, chunk_id: Any) -> None:
+    """A click is worth recording and never worth blocking on. **Worker only.**
+
+    Everything in Layer 10 is derived from these, but this is a database
+    *write*, and it was running between the double-click and the file opening -
+    so a busy index made opening a result feel slow for a reason that has
+    nothing to do with opening it.
+    """
+    try:
+        engine.record_open(search_id, chunk_id)
+    except Exception:                            # noqa: BLE001 - never block an open
+        pass
+
+
+def file_summary(total: int, shown: int = -1, text: str = "") -> str:
+    """The line under the Files table.
+
+    Here rather than in the view because it is three branches choosing a
+    sentence, and a branch inside a Qt widget can only be checked by somebody
+    typing the right thing at the right moment.
+    """
+    if shown >= 0:
+        if not shown:
+            return f"No file name contains '{text}'."
+        return f"{shown:,} file name{'s' if shown != 1 else ''} contain '{text}'"
+    if not total:
+        return "No file names indexed yet — run an index first."
+    return f"{total:,} file names indexed."
+
+
+def missing_paths(paths: Any) -> set[str]:
+    """Which of these no longer exist on disk. **Worker thread only.**
+
+    `Path.exists()` is a filesystem stat: microseconds on a warm local disk,
+    *seconds* on a network share or a drive that has spun down. It was being
+    called once per row while filling the results model - twenty stats for a
+    normal page, five hundred for a full one - on the UI thread, inside the
+    virtualisation work whose whole purpose was to make that list cheap.
+
+    Done once per result set, off-thread, and passed in. Never raises: a
+    disconnected drive means "cannot open it", not a crash, and a result whose
+    file has vanished is a real finding that must still be shown.
+    """
+    from pathlib import Path as _Path
+
+    missing = set()
+    for path in paths or ():
+        text = str(path or "")
+        # A message lives inside a .pst and has no file of its own; statting a
+        # synthetic key would report every message as missing.
+        if not text or text.startswith("pst://"):
+            continue
+        try:
+            if not _Path(text).exists():
+                missing.add(text)
+        except OSError:
+            continue
+    return missing
+
+
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 
@@ -847,6 +940,19 @@ def results_message(response: Any) -> tuple[str, str]:
             # told and excluding everything.
             hint = "  The filters may be excluding everything."
         return f"No results.{hint}", summary
+
+    # **The most actionable thing that can be said, so it outranks the rest.**
+    # A word matching nothing is usually the entire explanation for a baffling
+    # list: a typo, a name spelled differently in the documents, or something
+    # not indexed yet. Twenty results with no clue why is what this replaces.
+    unmatched = list(getattr(response, "unmatched", ()) or ())
+    if unmatched:
+        words = ", ".join(f"'{word}'" for word in unmatched)
+        found = "no document contains" if len(unmatched) == 1 else "no document contains any of"
+        return summary, (
+            f"{found} {words} — the rest of your words were searched for, "
+            f"which is why these results may look unrelated."
+        )
 
     unknown = list(getattr(parsed, "unknown_operators", ()) or ()) if parsed else []
     if unknown:

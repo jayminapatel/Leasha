@@ -49,7 +49,7 @@ from app.ui.view_options import (
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
-from app.ui.workers import CallableWorker, run
+from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -159,16 +159,8 @@ class MailView(QWidget):
         self._apply_prefs()
 
     def shutdown(self) -> None:
-        """Stop the debounce timers, so no new query starts while closing.
-
-        A timer that fires during teardown starts a search against a store that
-        is being closed, which arrives as a traceback telling the owner to send
-        the log file. Nothing is wrong; the work simply should not have begun.
-        """
-        self._generation += 1        # anything still in flight is now stale
-        timer = getattr(self, "_timer", None)
-        if timer is not None:
-            timer.stop()
+        """Stop the debounce timers - see `workers.stop_timers`."""
+        stop_timers(self)
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -246,13 +238,12 @@ class MailView(QWidget):
 
     def _summary_text(self, shown: int, leftover: str) -> str:
         if not shown:
-            try:
-                total = self._store.count_messages()
-            except Exception:                # noqa: BLE001 - a label, not a crash
-                total = 0
-            if not total:
-                return "No mail indexed yet — add a .pst in Settings and run an index."
-            return "No message matches those filters."
+            # No count here: `COUNT(*)` over `messages` is instant on a test
+            # corpus and is not on two hundred thousand of them, and this runs
+            # inside the handler that paints results. The wording covers both
+            # cases rather than paying a query to tell them apart.
+            return ("No message matches those filters. If no mail is indexed "
+                    "yet, add a .pst in Settings and run an index.")
 
         parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
         if shown >= PAGE_SIZE:

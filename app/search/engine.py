@@ -129,6 +129,13 @@ class SearchResponse:
     #: it. This is the same shape as the sentinel bug that hid every PST.
     keyword_count: int = 0
     vector_count: int = 0
+    #: Query words that appear nowhere in the index.
+    #:
+    #: **Usually the entire explanation for a baffling result list.** Terms are
+    #: ORed, so a query whose one distinctive word matches nothing silently
+    #: becomes a search for its most common words - and returns twenty
+    #: confident, irrelevant results with nothing to say why.
+    unmatched: tuple[str, ...] = ()
 
     def __len__(self) -> int:
         return len(self.results)
@@ -143,6 +150,7 @@ class SearchResponse:
             "search_id": self.search_id,
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
+            "unmatched_terms": list(self.unmatched),
             "results": [result.as_dict() for result in self.results],
         }
 
@@ -298,11 +306,20 @@ class SearchEngine:
             for rank, hit in enumerate(fused, start=1)
         ]
 
+        # **Which words found nothing.** Terms are ORed, so a query whose one
+        # distinctive word is absent quietly becomes a search for its most
+        # common words - twenty confident, irrelevant results and nothing to
+        # explain them. One indexed lookup per word, on the full tier only.
+        unmatched = keyword.unmatched_terms(self.store, parsed.terms)
+
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
             keyword_count=len(keyword_hits), vector_count=len(vector_hits),
+            unmatched=unmatched,
             elapsed_ms=(time.perf_counter() - started) * 1000, timings=timings,
         )
+        if unmatched:
+            _log.info("no document contains: {}", ", ".join(unmatched))
         if keyword_hits and not vector_hits:
             # Worth a line in the log every time. Meaning-based search returning
             # nothing while keyword search returns plenty is not a normal state -

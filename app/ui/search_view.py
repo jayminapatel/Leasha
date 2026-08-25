@@ -31,8 +31,9 @@ from PyQt6.QtWidgets import (
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
-    interpret_message,
-    mail_details,
+    decorate_results,
+    record_open,
+    search_options,
     results_message,
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -42,10 +43,11 @@ from app.ui.presenter import (
 )
 from app.ui.results_view import ResultsView
 from app.ui.view_options import button as view_button
+from app.ui.widgets.interpret import run_interpretation
 from app.ui.widgets.search_bar import (
     build_input, build_interpret, build_rerank, build_scope,
 )
-from app.ui.workers import CallableWorker, SearchWorker, run
+from app.ui.workers import CallableWorker, SearchWorker, run, stop_timers
 
 __all__ = ["SearchView"]
 
@@ -156,22 +158,8 @@ class SearchView(QWidget):
         self.interpret_button.setVisible(bool(enabled))
 
     def shutdown(self) -> None:
-        """Stop the debounce timers, so no new query starts while closing.
-
-        A timer that fires during teardown starts a search against a store that
-        is being closed, which arrives as a traceback telling the owner to send
-        the log file. Nothing is wrong; the work simply should not have begun.
-        """
-        self._generation += 1        # anything still in flight is now stale
-        timer = getattr(self, "_typing_timer", None)
-        if timer is not None:
-            timer.stop()
-        timer = getattr(self, "_idle_timer", None)
-        if timer is not None:
-            timer.stop()
-        timer = getattr(self, "_timer", None)
-        if timer is not None:
-            timer.stop()
+        """Stop the debounce timers - see `workers.stop_timers`."""
+        stop_timers(self, "_typing_timer", "_idle_timer", "_timer")
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -237,10 +225,8 @@ class SearchView(QWidget):
             return
 
         self._generation += 1
-        options: dict[str, Any] = {"scope": self.current_scope()}
-        if tier == Tier.FULL:
-            options["rerank"] = self.rerank_toggle.isChecked()
-
+        options = search_options(tier, scope=self.current_scope(),
+                                 rerank=self.rerank_toggle.isChecked())
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )
@@ -263,23 +249,48 @@ class SearchView(QWidget):
         self._shown_anything = self._shown_anything or bool(response.results)
         terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
         summary, status = results_message(response)
+        self.status.setText(status or summary)
+        self._announce(response)
 
-        if response.results:
-            self.results.show_results(
-                response.results, terms, summary=summary,
-                details=mail_details(getattr(self._engine, "store", None), response.results),
-            )
-        elif self._shown_anything:
+        if not response.results:
             # **Keep what is on screen.** Mail feels better than this tab
             # because it never blanks, and a search that momentarily finds
             # nothing - mid-word, or while the interim tier is still running -
-            # should not empty a list somebody is reading. The summary says
-            # what happened; the results stay until something replaces them.
-            self.status.setText(summary)
-        else:
-            self.results.clear(summary)
-        self.status.setText(status)
-        self._announce(response)
+            # should not empty a list somebody is reading.
+            if not self._shown_anything:
+                self.results.clear(summary)
+            return
+
+        # **The metadata is fetched on a worker.** `mail_details` is a SQLite
+        # query and `missing_paths` is one filesystem stat per result; both were
+        # running here, on the UI thread, in the handler that paints results.
+        # The comment above `mail_details` says "one query, not fifty" - and I
+        # never asked the prior question of whether it belonged on this thread
+        # at all.
+        #
+        # The rows are drawn immediately with what is already known, and the
+        # subtitles and missing-file marks arrive a moment later.
+        self.results.show_results(response.results, terms, summary=summary)
+
+        generation = self._shown_generation
+        worker = CallableWorker(
+            decorate_results, getattr(self._engine, "store", None),
+            list(response.results),
+            component="ui.search.decorate",
+        )
+        worker.signals.finished.connect(
+            lambda extra, g=generation: self._decorated(extra, g, terms, summary, response))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _decorated(self, extra: Any, generation: int, terms: Any,
+                   summary: str, response: Any) -> None:
+        """Redraw with the mail subtitles and missing-file marks."""
+        if generation != self._shown_generation:
+            return                               # a newer search has landed
+        self.results.show_results(
+            response.results, terms, summary=summary,
+            details=extra.get("details", {}), missing=extra.get("missing", set()),
+        )
 
     def _announce(self, response: Any) -> None:
         """Emit the shape of a completed search, for the debug recorder."""
@@ -288,55 +299,44 @@ class SearchView(QWidget):
         ))
 
     def _on_opened(self, row: Any) -> None:
-        # The click is the label: this result was the useful one. Everything in
-        # Layer 10 is derived from these, so it is recorded before the file opens.
-        try:
-            self._engine.record_open(self._last_search_id, row.chunk_id)
-        except Exception:                        # noqa: BLE001 - never block an open
-            pass
+        """The click is the label: this result was the useful one.
+
+        **Emitted first, recorded after.** Everything in Layer 10 is derived
+        from these clicks, but `record_open` is a database *write* and it was
+        running on the UI thread between the double-click and the file opening -
+        so a busy or locked index made opening a result feel slow for a reason
+        that has nothing to do with opening it.
+        """
         self.result_opened.emit(row)
+
+        search_id, chunk_id = self._last_search_id, row.chunk_id
+        worker = CallableWorker(
+            record_open,
+    search_options, self._engine, search_id, chunk_id,
+            component="ui.search.record")
+        run(QThreadPool.globalInstance(), worker)
 
     # -- interpreting a sentence --------------------------------------------
 
     def interpret(self) -> None:
         """Translate the sentence in the box, then search what it produced.
 
-        **The translated query goes into the box.** That is a hard requirement,
-        not a nicety: a bad translation must be a two-second correction rather
-        than a mystery, and it can only be corrected if it can be seen. The next
-        search then starts from it, like any other text.
-
-        Off the UI thread, because it costs about a second and a second of
-        frozen window is how this application has repeatedly looked broken.
+        The feature lives in `widgets/interpret.py`; this is the wiring. Every
+        outcome ends in a search - see that module for why.
         """
-        sentence = self.input.text().strip()
-        if not sentence or self._translator is None:
+        started = run_interpretation(
+            translator=self._translator,
+            sentence=self.input.text(),
+            button=self.interpret_button,
+            pool=self._pool,
+            set_text=self.input.setText,
+            set_status=self.status.setText,
+            on_done=self._interpreted,
+        )
+        if not started:
             self._dispatch(Tier.FULL)
-            return
-
-        self.interpret_button.setEnabled(False)
-        self.status.setText("Interpreting…")
-
-        worker = CallableWorker(
-            self._translator.translate, sentence, component="ui.translate"
-        )
-        worker.signals.finished.connect(self._interpreted)
-        worker.signals.failed.connect(self._interpret_failed)
-        worker.signals.done.connect(
-            lambda: self.interpret_button.setEnabled(True)
-        )
-        run(self._pool, worker)
 
     def _interpreted(self, translation: Any) -> None:
-        query, note = interpret_message(translation)
-        if query is not None:
-            self.input.setText(query)      # visible and editable, never hidden
-        self.status.setText(note)
-        self.interpreted.emit(translation)
-        self._dispatch(Tier.FULL)
-
-    def _interpret_failed(self, error: Any) -> None:
-        """Even a failure searches. `translate` is not supposed to raise, but a
-        button that does nothing is worse than one that does the plain thing."""
-        self.status.setText(getattr(error, "message", "Could not interpret that."))
+        if translation is not None:
+            self.interpreted.emit(translation)
         self._dispatch(Tier.FULL)

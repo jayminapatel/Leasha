@@ -25,6 +25,7 @@ from app.core.logging import logger
 
 __all__ = [
     "WorkerSignals", "CallableWorker", "SearchWorker", "IndexWorker", "run",
+    "stop_timers",
 ]
 
 _log = logger.bind(component="ui.workers")
@@ -74,6 +75,30 @@ def _retain(worker: Any) -> Any:
     _IN_FLIGHT.add(worker)
     worker.signals.done.connect(lambda: _IN_FLIGHT.discard(worker))
     return worker
+
+
+def stop_timers(view: Any, *names: str) -> None:
+    """Stop a view's debounce timers and stale anything still in flight.
+
+    **Called from `closeEvent`, before anything is torn down.** A timer that
+    fires during teardown starts a query against a store that is being closed,
+    which arrives as a traceback telling the owner to send the log file.
+    Nothing is wrong; the work simply should not have begun.
+
+    Here rather than three near-identical copies in three views - the third one
+    is where the divergence starts, and a view that quietly stops stopping its
+    timer would put those tracebacks straight back.
+    """
+    # Bumping the generation is what makes a result that lands anyway get
+    # dropped: every view checks it before drawing.
+    if hasattr(view, "_generation"):
+        view._generation += 1
+    if hasattr(view, "_shown_generation"):
+        view._shown_generation += 1
+    for name in names or ("_timer",):
+        timer = getattr(view, name, None)
+        if timer is not None:
+            timer.stop()
 
 
 def run(pool: Any, worker: Any) -> Any:

@@ -30,7 +30,6 @@ the list for reasons nobody could see.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -71,6 +70,8 @@ class ResultsView(QWidget):
         #: it is about the query on screen, and restoring it against a different
         #: result set would expand arbitrary rows.
         self._expanded: set[int] = set()
+        #: Paths that no longer exist, decided on a worker - never statted here.
+        self._missing: set[str] = set()
 
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
@@ -112,10 +113,19 @@ class ResultsView(QWidget):
         terms: Sequence[str],
         summary: str = "",
         details: Optional[dict[int, Any]] = None,
+        missing: Optional[set[str]] = None,
     ) -> None:
-        """`details` maps file_id to mail metadata - see `store.messages_for`."""
+        """`details` maps file_id to mail metadata - see `store.messages_for`.
+
+        `missing` is the set of paths that no longer exist, computed **on the
+        worker** by `presenter.missing_paths`. It used to be a `Path.exists()`
+        per row here, on the UI thread - twenty stats for a normal page, five
+        hundred for a full one, each of which can block for seconds on a network
+        share. In the virtualisation work, of all places.
+        """
         self._rows = to_rows(results, terms)
         self._details = dict(details or {})
+        self._missing = set(missing or ())
         self._expanded.clear()
         self._summary.setText(summary)
         self._rebuild()
@@ -149,7 +159,8 @@ class ResultsView(QWidget):
         item.setData(payload, ROLE_PAYLOAD)
         item.setData(expanded, ROLE_EXPANDED)
         item.setData(
-            result_tooltip(payload, missing=_missing(getattr(payload, 'path', ''))),
+            result_tooltip(payload,
+                           missing=getattr(payload, "path", "") in self._missing),
             int(Qt.ItemDataRole.ToolTipRole))
         self._model.appendRow(item)
 
@@ -213,11 +224,3 @@ class ResultsView(QWidget):
             reindex=lambda: self.reindex_requested.emit(row),
             copy=[("Why this result?", why(row))],
         ))
-
-
-def _missing(path: str) -> bool:
-    """Never raises. A disconnected drive is "cannot open it", not a crash."""
-    try:
-        return bool(path) and not Path(path).exists()
-    except OSError:
-        return False

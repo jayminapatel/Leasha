@@ -38,13 +38,13 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.ui.presenter import file_query, file_rows
+from app.ui.presenter import file_query, file_rows, file_summary
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
-from app.ui.workers import CallableWorker, open_in_explorer, run
+from app.ui.workers import CallableWorker, open_in_explorer, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -166,31 +166,28 @@ class FilesView(QWidget):
         self._apply_prefs()
 
     def shutdown(self) -> None:
-        """Stop the debounce timers, so no new query starts while closing.
-
-        A timer that fires during teardown starts a search against a store that
-        is being closed, which arrives as a traceback telling the owner to send
-        the log file. Nothing is wrong; the work simply should not have begun.
-        """
-        self._generation += 1        # anything still in flight is now stale
-        timer = getattr(self, "_timer", None)
-        if timer is not None:
-            timer.stop()
+        """Stop the debounce timers - see `workers.stop_timers`."""
+        stop_timers(self)
 
     def focus(self) -> None:
         self.input.setFocus()
         self.input.selectAll()
 
     def refresh_summary(self) -> None:
-        try:
-            total = self._store.count_named_files()
-        except Exception:                          # noqa: BLE001 - a label is not worth crashing over
-            return
-        self.summary.setText(
-            f"{total:,} file names indexed."
-            if total
-            else "No file names indexed yet — run an index first."
-        )
+        """Count the indexed filenames, on a worker.
+
+        `COUNT(*)` over `files_fts` is instant on a test corpus and is not on a
+        real one - and this runs on every tab switch and after every index run.
+        A label is never worth blocking the window for.
+        """
+        worker = CallableWorker(
+            self._store.count_named_files, component="ui.files.count")
+        worker.signals.finished.connect(self._show_summary)
+        worker.signals.failed.connect(lambda _e: None)   # a label, not a search
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_summary(self, total: int) -> None:
+        self.summary.setText(file_summary(total))
 
     # -- searching -----------------------------------------------------------
 
@@ -270,11 +267,7 @@ class FilesView(QWidget):
         )
         self._apply_prefs()
 
-        self.summary.setText(
-            f"{len(display):,} file name{'s' if len(display) != 1 else ''} contain '{text}'"
-            if display
-            else f"No file name contains '{text}'."
-        )
+        self.summary.setText(file_summary(0, shown=len(display), text=text))
 
     # -- opening -------------------------------------------------------------
 

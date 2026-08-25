@@ -144,6 +144,100 @@ def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
 
 
 # ---------------------------------------------------------------------------
+# Filesystem and database work in a paint path
+#
+# **The class of bug the named-call list missed.** `subprocess.run` and
+# `time.sleep` are obvious. `Path.exists()` is not - it looks free, and it is,
+# on a warm local disk. On a network share or a drive that has spun down it
+# blocks for seconds, and it was being called *once per row* while filling the
+# results model. Twenty stats for a normal page, five hundred for a full one, on
+# the UI thread, inside the virtualisation work whose entire purpose was to make
+# that list cheap.
+#
+# A guard that lists only the calls somebody thought of has a gap the shape of
+# the next bug. These tests look at *where* a call is instead.
+# ---------------------------------------------------------------------------
+
+#: Methods that touch the filesystem. Cheap until they are not.
+FILESYSTEM = {"exists", "is_file", "is_dir", "stat", "glob", "rglob", "iterdir"}
+
+#: Methods that reach the database. Every one is a query.
+STORE_CALLS = {
+    "messages_for", "search_files_by_name", "browse_messages", "count_messages",
+    "count_named_files", "record_open", "all_state", "set_states",
+}
+
+#: Functions that run on a worker by construction, so the calls inside them are
+#: fine. Named explicitly rather than inferred, because inferring it is how a
+#: genuine violation gets waved through.
+OFF_THREAD = {
+    "_decorate", "_record_open", "_list_models", "_translate", "_run_doctor",
+    "missing_paths", "mail_details", "open_in_explorer",
+    # **Bounded, keyed, and not on any interactive path.** These read or write a
+    # handful of rows from `index_state` by primary key, during window
+    # construction or in response to a deliberate click on a setting. The rule
+    # is about work that *scales* - a COUNT over the index, a stat per row - and
+    # a keyed lookup of nine settings is not that.
+    #
+    # Named individually rather than skipping the module, so a scan added to one
+    # of these files later still fails.
+    "load_prefs", "save_prefs", "_read_state", "_ollama_model_changed",
+    "_limits_changed", "_schedule_changed", "_save_roots", "_save_pst_backend",
+    "_debug_recording_toggled", "_prefs_changed", "__init__",
+}
+
+#: Painting and model-filling. A blocking call here runs per row.
+PAINT_PATHS = {"paint", "sizeHint", "_append", "_rebuild", "data", "_redraw"}
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_no_filesystem_call_in_a_paint_path(path):
+    """Per-row work must be arithmetic, not syscalls."""
+    tree = ast.parse(source(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name not in PAINT_PATHS or node.name in OFF_THREAD:
+            continue
+        for call in ast.walk(node):
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+                assert call.func.attr not in FILESYSTEM, (
+                    f"{path.name}:{call.lineno} calls .{call.func.attr}() inside "
+                    f"{node.name} - that runs once per row on the UI thread"
+                )
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_no_store_call_outside_a_worker(path):
+    """A query on the UI thread is a freeze waiting for a busy index."""
+    if path.name in WORKER_ONLY:
+        pytest.skip(f"{path.name} is called from workers by design")
+    tree = ast.parse(source(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name in OFF_THREAD:
+            continue
+        for call in ast.walk(node):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+                continue
+            if call.func.attr not in STORE_CALLS:
+                continue
+            # A call passed *to* CallableWorker is being scheduled, not made.
+            scheduled = any(
+                isinstance(outer, ast.Call)
+                and getattr(outer.func, "id", "") == "CallableWorker"
+                and call in ast.walk(outer)
+                for outer in ast.walk(node)
+                if isinstance(outer, ast.Call)
+            )
+            assert scheduled, (
+                f"{path.name}:{call.lineno} calls .{call.func.attr}() inside "
+                f"{node.name} on the UI thread - put it in a CallableWorker"
+            )
+
+
+# ---------------------------------------------------------------------------
 # The presenter stays Qt-free
 # ---------------------------------------------------------------------------
 
