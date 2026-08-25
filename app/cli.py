@@ -1505,13 +1505,18 @@ def cmd_rerank_bench(args: argparse.Namespace) -> int:
     was a number quoted without its conditions.
     """
     from app.search.rerank_bench import measure
+    from app.storage.sqlite_store import SqliteStore
 
     settings = _load(args)
     setup_logging(settings.log_path)
 
     models = [args.model] if getattr(args, "model", None) else []
-    print("Timing a full rerank. The first run of each model downloads it.")
-    print()
+    if not args.json:
+        # **Not on stdout under `--json`.** A preamble in front of the payload
+        # makes machine-readable output unparseable, which is the one thing it
+        # has to be. Found by a test that ran the command rather than reading it.
+        print("Timing a full rerank. The first run of each model downloads it.")
+        print()
 
     with SqliteStore(settings.fts_db) as store:
         result = measure(
