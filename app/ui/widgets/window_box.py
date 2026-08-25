@@ -1,0 +1,65 @@
+r"""How the window behaves when you are not using it.
+
+Layer: L5
+
+Two checkboxes, and they were both unreachable. `ui:tray_minimise` and
+`ui:tray_close` were read at startup and written by **nothing**, so the tray
+code could never run: off by default, with no way to turn either on.
+
+Off by default is still right. An application that vanishes from the taskbar
+when you did not ask it to is alarming - you close a window, it disappears, and
+there is no obvious way back. But "off unless asked" and "no way to ask" are
+different things, and only one of them was implemented.
+
+Its own group because window behaviour is not indexing behaviour and not a
+search preference, and because `settings_view.py` is at its length limit - the
+rule that keeps views short being the rule that keeps logic out of them.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QCheckBox, QGroupBox, QVBoxLayout, QWidget
+
+__all__ = ["WindowBox"]
+
+
+class WindowBox(QGroupBox):
+    """Minimise and close behaviour for the notification area."""
+
+    #: (minimise_to_tray, close_to_tray). Both together, because the window
+    #: applies them as a pair and installing the tray icon depends on either.
+    changed = pyqtSignal(bool, bool)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__("Window", parent)
+
+        self.minimise_to_tray = QCheckBox("Minimise to the notification area")
+        self.minimise_to_tray.setToolTip(
+            "Minimising hides the window to the tray icon rather than the "
+            "taskbar. The application keeps running either way."
+        )
+
+        self.close_to_tray = QCheckBox("Closing the window keeps it running there")
+        self.close_to_tray.setToolTip(
+            "The window closes but the application keeps running, so searching "
+            "is instant when you come back. Quit properly from the tray icon."
+        )
+
+        for box in (self.minimise_to_tray, self.close_to_tray):
+            box.stateChanged.connect(lambda _s: self.changed.emit(
+                self.minimise_to_tray.isChecked(), self.close_to_tray.isChecked()))
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.minimise_to_tray)
+        layout.addWidget(self.close_to_tray)
+
+    def load(self, minimise: bool, close: bool) -> None:
+        """Show the stored preferences without emitting on the way in."""
+        for box, value in ((self.minimise_to_tray, minimise),
+                           (self.close_to_tray, close)):
+            box.blockSignals(True)
+            box.setChecked(bool(value))
+            box.blockSignals(False)

@@ -44,8 +44,10 @@ from app.ui.presenter import (
 from app.ui.results_view import ResultsView
 from app.ui.view_options import button as view_button
 from app.ui.widgets.interpret import run_interpretation
+from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.search_bar import (
     build_input, build_interpret, build_rerank, build_scope,
+    scope_value, select_scope,
 )
 from app.ui.workers import CallableWorker, SearchWorker, run, stop_timers
 
@@ -123,6 +125,10 @@ class SearchView(QWidget):
         self.results.reveal_requested.connect(self.reveal_requested)
         self.results.reindex_requested.connect(self.reindex_requested)
 
+        # Off until asked for - `Ctrl+P` or the View menu. See preview.py.
+        self.preview, self.split = attach_preview(
+            self.results, self._on_opened, self.error)
+
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.interpret_button)
@@ -133,7 +139,7 @@ class SearchView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.status)
-        layout.addWidget(self.results, stretch=1)
+        layout.addWidget(self.split, stretch=1)
 
         # Two timers, because the two tiers answer different questions.
         self._interim_timer = QTimer(self)
@@ -147,19 +153,18 @@ class SearchView(QWidget):
         self._full_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False))
 
     def set_interpret_enabled(self, enabled: bool) -> None:
-        """Show the Interpret button only when it can actually do something.
+        """Show the Interpret button only when it can do something.
 
-        Hidden rather than disabled: a greyed-out button is a permanent question
-        - *why can I not press that?* - with no answer visible on the screen it
-        appears on. Somebody who has not turned interpretation on has no reason
-        to know the feature exists, and the search box is not the place to
-        advertise it.
+        Hidden rather than greyed - see `search_bar.build_interpret`.
         """
         self.interpret_button.setVisible(bool(enabled))
 
     def shutdown(self) -> None:
         """Stop the debounce timers - see `workers.stop_timers`."""
-        stop_timers(self, "_typing_timer", "_idle_timer", "_timer")
+        # The names are found by suffix now; passing them was how this came to
+        # name three timers that never existed. See `workers.stop_timers`.
+        stop_timers(self)
+        self.preview.shutdown()
 
     def focus(self) -> None:
         self.input.setFocus()
@@ -168,16 +173,25 @@ class SearchView(QWidget):
     # -- dispatch -----------------------------------------------------------
 
     def current_scope(self) -> str:
-        return str(self.scope.currentData() or "all")
+        return scope_value(self.scope)
+
+    def set_scope(self, value: str) -> None:
+        """Select a scope by value; unknown values are ignored."""
+        select_scope(self.scope, value)
 
     def _view_changed(self, prefs: Any) -> None:
         self.results.set_view_preferences(prefs)
+        self._apply_preview(prefs)
         self.view_preferences_changed.emit(prefs)
 
     def set_view_preferences(self, prefs: Any) -> None:
         """Applied by the window on startup, from what was saved last time."""
         self.view_button.prefs = prefs
         self.results.set_view_preferences(prefs)
+        self._apply_preview(prefs)
+
+    def _apply_preview(self, prefs: Any) -> None:
+        self.preview.apply_preference(prefs, self.results.current_row())
 
     def _on_scope_changed(self, _index: int) -> None:
         """Re-run immediately rather than waiting for the next keystroke.
@@ -250,7 +264,9 @@ class SearchView(QWidget):
         terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
         summary, status = results_message(response)
         self.status.setText(status or summary)
-        self._announce(response)
+        # The shape of the search, never its text - see `debug_recorder.py`.
+        self.searched.emit(search_shape(
+            response, query_len=len(self.input.text()), scope=self.current_scope()))
 
         if not response.results:
             # **Keep what is on screen.** Mail feels better than this tab
@@ -287,16 +303,13 @@ class SearchView(QWidget):
         """Redraw with the mail subtitles and missing-file marks."""
         if generation != self._shown_generation:
             return                               # a newer search has landed
+        # Same results, a moment later - so this is not a new search and must
+        # not move somebody who has started reading.
         self.results.show_results(
             response.results, terms, summary=summary,
             details=extra.get("details", {}), missing=extra.get("missing", set()),
+            keep_scroll=True,
         )
-
-    def _announce(self, response: Any) -> None:
-        """Emit the shape of a completed search, for the debug recorder."""
-        self.searched.emit(search_shape(
-            response, query_len=len(self.input.text()), scope=self.current_scope()
-        ))
 
     def _on_opened(self, row: Any) -> None:
         """The click is the label: this result was the useful one.
@@ -310,9 +323,20 @@ class SearchView(QWidget):
         self.result_opened.emit(row)
 
         search_id, chunk_id = self._last_search_id, row.chunk_id
+        # `record_open(engine, search_id, chunk_id)` - three arguments.
+        #
+        # **This was passing four**, with `search_options` in front of them, so
+        # every click raised a TypeError inside the worker. The worker caught it,
+        # as it must, and `record_open` swallows failures because a click is
+        # never worth blocking on - so nothing surfaced anywhere and not one
+        # open was ever recorded. Everything Layer 10 is meant to learn from is
+        # derived from these rows, and the table was empty by construction.
+        #
+        # Two safety nets in a row turned a wrong call into silence, which is
+        # the argument for `test_a_worker_is_called_with_arguments_it_accepts`
+        # rather than for removing either net.
         worker = CallableWorker(
-            record_open,
-    search_options, self._engine, search_id, chunk_id,
+            record_open, self._engine, search_id, chunk_id,
             component="ui.search.record")
         run(QThreadPool.globalInstance(), worker)
 
@@ -337,6 +361,16 @@ class SearchView(QWidget):
             self._dispatch(Tier.FULL)
 
     def _interpreted(self, translation: Any) -> None:
+        # **Interpreting used to run the whole pipeline twice.** Writing the
+        # translated query into the box fires `textChanged`, restarting both
+        # debounce timers exactly as typing does - and then this dispatched
+        # immediately. The second run landed 400ms later doing identical work.
+        #
+        # Cancelled here rather than writing the text with signals blocked: the
+        # command popup listens to `textChanged` too and needs to see it.
+        self._interim_timer.stop()
+        self._full_timer.stop()
+
         if translation is not None:
             self.interpreted.emit(translation)
         self._dispatch(Tier.FULL)

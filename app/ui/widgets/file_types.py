@@ -358,6 +358,15 @@ class FileTypesEditor(QGroupBox):
             status = self._statuses.get(extension)
 
             box = QCheckBox()
+            # **The column heading is not the label.** A checkbox in a table
+            # cell has no text of its own, so a screen reader announces sixty
+            # identical "check box, not checked" and the row it belongs to is
+            # visual information only. The extension is the label.
+            box.setAccessibleName(f"Index {extension} files")
+            box.setAccessibleDescription(
+                f"{extension} is read by {row['extractor']}"
+            )
+            box.setToolTip(f"Index {extension} files")
             box.setChecked(bool(row["enabled"]))
             box.stateChanged.connect(lambda _s: self._mark_dirty())
             holder = QWidget()

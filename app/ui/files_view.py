@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.ui.presenter import file_query, file_rows, file_summary
+from app.ui.presenter import FILES_COMMANDS, file_query, file_rows, file_summary
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -101,7 +101,8 @@ class FilesView(QWidget):
         # The same dropdown as the search box. It is wired to a parser here too
         # - see `_run`. Offering a filter the tab then ignores would be worse
         # than not offering it at all.
-        self._popup = attach_to(self.input)
+        # Only what this tab honours - see `command_popup.FILES_COMMANDS`.
+        self._popup = attach_to(self.input, only=FILES_COMMANDS)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")

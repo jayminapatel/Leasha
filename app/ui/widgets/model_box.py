@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QWidget,
@@ -55,6 +56,10 @@ class ModelBox(QGroupBox):
     #: one decision: a model without a budget that fits it looks broken rather
     #: than slow, and either without the switch does nothing at all.
     changed = pyqtSignal(bool, str, int)
+    #: The address, when it has been edited and focus has left the box.
+    #: Separate from `changed` because it persists to `.env` rather than to
+    #: window state, and because a half-typed URL must not be saved.
+    url_changed = pyqtSignal(str)
 
     def __init__(self, client_factory: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("AI query interpretation (optional)", parent)
@@ -81,6 +86,7 @@ class ModelBox(QGroupBox):
         self.enabled.toggled.connect(self._on_toggled)
 
         self.model = QComboBox()
+        self.model.setObjectName("OLLAMA_MODEL")
         self.model.setToolTip(
             "Which model rewrites a sentence into a search query.\n\n"
             "Smaller is usually better here: the job is to turn one sentence into\n"
@@ -113,6 +119,23 @@ class ModelBox(QGroupBox):
         )
         self.test_button.clicked.connect(lambda _c=False: self.test())
 
+        # **Editable, and here rather than in Settings.** It was a read-only box
+        # on the Settings page, which failed the "everything tunable has a UI"
+        # rule by being untunable - and it belongs beside Refresh and Test,
+        # which are the two things that tell you whether the address is right.
+        self.url = QLineEdit()
+        self.url.setObjectName("OLLAMA_URL")
+        self.url.setAccessibleName("Ollama address")
+        self.url.setPlaceholderText("http://127.0.0.1:11434")
+        self.url.setToolTip(
+            "Where Ollama is listening. Only the Interpret button uses it -\n"
+            "search never calls a service, so an unreachable address costs\n"
+            "nothing else.\n\n"
+            "Use Refresh or Test after changing it."
+        )
+        self.url.editingFinished.connect(
+            lambda: self.url_changed.emit(self.url.text().strip()))
+
         self.status = QLabel("")
         self.status.setWordWrap(True)
         self.status.setObjectName("resultsSummary")
@@ -124,6 +147,7 @@ class ModelBox(QGroupBox):
 
         form = QFormLayout(self)
         form.addRow(self.enabled)
+        form.addRow("Address", self.url)
         form.addRow("Model", self.model)
         form.addRow("Give it up to", self.timeout)
         form.addRow(buttons)

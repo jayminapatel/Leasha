@@ -95,10 +95,32 @@ def stop_timers(view: Any, *names: str) -> None:
         view._generation += 1
     if hasattr(view, "_shown_generation"):
         view._shown_generation += 1
-    for name in names or ("_timer",):
+    # **A named timer that does not exist is a mistake, not an absence.**
+    # `search_view` asked for `_typing_timer`, `_idle_timer` and `_timer`; its
+    # timers are called `_interim_timer` and `_full_timer`. Every name missed,
+    # `getattr(..., None)` returned None three times, and `shutdown()` stopped
+    # nothing at all - which is exactly the shutdown race it exists to prevent,
+    # hidden behind a call that looked correct at both ends.
+    #
+    # Stopping every timer the view owns is what makes the argument list an
+    # optimisation rather than a promise, so a rename cannot silently disarm it.
+    stopped = 0
+    for name in names:
         timer = getattr(view, name, None)
         if timer is not None:
             timer.stop()
+            stopped += 1
+
+    for attribute in vars(view):
+        if not attribute.endswith("_timer") or attribute in names:
+            continue
+        timer = getattr(view, attribute, None)
+        if timer is not None and hasattr(timer, "stop"):
+            timer.stop()
+            stopped += 1
+
+    if not stopped:
+        _log.debug("{} had no timers to stop", type(view).__name__)
 
 
 def run(pool: Any, worker: Any) -> Any:

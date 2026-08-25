@@ -35,7 +35,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -43,12 +42,13 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
-from app.ui.presenter import mail_filters, mail_rows
+from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
@@ -108,7 +108,8 @@ class MailView(QWidget):
         )
         self.input.setClearButtonEnabled(True)
         self.input.textChanged.connect(lambda _t: self._timer.start())
-        self._popup = attach_to(self.input)
+        # Only what this tab honours - see `command_popup.MAIL_COMMANDS`.
+        self._popup = attach_to(self.input, only=MAIL_COMMANDS)
 
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")
@@ -208,7 +209,7 @@ class MailView(QWidget):
         self.results.setRowCount(len(display))
         for index, row in enumerate(display):
             for column, (_key, _heading, attribute, right) in enumerate(COLUMNS):
-                item = QTableWidgetItem(getattr(row, attribute))
+                item = SortableItem(getattr(row, attribute))
                 if right:
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -217,9 +218,9 @@ class MailView(QWidget):
                 # "10 KB" sort the wrong way as text, and a date column sorted
                 # alphabetically is worse than one that does not sort at all.
                 if attribute == "sent":
-                    item.setData(Qt.ItemDataRole.UserRole + 1, row.sent_at)
+                    item.setData(SORT_ROLE, row.sent_at)
                 elif attribute == "size":
-                    item.setData(Qt.ItemDataRole.UserRole + 1, row.size_bytes)
+                    item.setData(SORT_ROLE, row.size_bytes)
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row.file_id)
                     item.setToolTip(row.path)
@@ -285,10 +286,41 @@ class MailView(QWidget):
         wanted = file_id.data(Qt.ItemDataRole.UserRole)
         return next((row for row in self._rows if row.file_id == wanted), None)
 
+    def keyPressEvent(self, event: Any) -> None:           # noqa: N802 - Qt's naming
+        """Enter opens the selected message.
+
+        **Mail had no keyboard route at all**: double-click was the only way in,
+        which in a project whose specification requires keyboard-only operation
+        end to end is a plain failure rather than a rough edge. Both Return and
+        Enter, because the numeric keypad sends the other one and somebody using
+        the keypad to move through a list is exactly the person affected.
+        """
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            row = self.selected_row()
+            if row is not None:
+                self._open_selected()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
     def _open_selected(self) -> None:
+        """Show what is inside the selected message.
+
+        **Not "open the file", because there is no file.** A message's path is
+        synthetic - `pst://archive.pst/E12` - so handing it to Explorer opens
+        nothing and reports that nothing is there. Searching inside it is the
+        only way to read a message in this application, so that is what opening
+        one means.
+
+        `opened` is emitted as well, for anything that wants the id rather than
+        the content.
+        """
         row = self.selected_row()
-        if row is not None:
-            self.opened.emit(row.file_id)
+        if row is None:
+            return
+        self.opened.emit(row.file_id)
+        if row.path:
+            self.search_inside_requested.emit(row.path)
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu as the other two lists - see widgets/file_menu.py."""

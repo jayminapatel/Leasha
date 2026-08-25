@@ -53,6 +53,7 @@ class IndexingSettings(QGroupBox):
         # exceeding it pauses rather than fails, or they will set it too high
         # out of fear of losing a run.
         self.schedule = QComboBox()
+        self.schedule.setObjectName("INDEX_SCHEDULE")
         self.schedule.addItem("Only when I ask", "manual")
         self.schedule.addItem("Once, shortly after opening", "startup")
         self.schedule.addItem("Every few hours", "interval")
@@ -60,11 +61,13 @@ class IndexingSettings(QGroupBox):
         self.schedule.currentIndexChanged.connect(self._schedule_changed)
 
         self.interval_hours = QSpinBox()
+        self.interval_hours.setObjectName("INDEX_INTERVAL_HOURS")
         self.interval_hours.setRange(1, 168)
         self.interval_hours.setSuffix(" hours")
         self.interval_hours.valueChanged.connect(self._schedule_changed)
 
         self.daily_at = QTimeEdit()
+        self.daily_at.setObjectName("INDEX_DAILY_AT")
         self.daily_at.setDisplayFormat("HH:mm")
         self.daily_at.timeChanged.connect(self._schedule_changed)
 
@@ -72,6 +75,7 @@ class IndexingSettings(QGroupBox):
         self.schedule_status.setWordWrap(True)
 
         self.workers = QSpinBox()
+        self.workers.setObjectName("INDEX_WORKERS")
         self.workers.setRange(0, 32)
         self.workers.setSpecialValueText("Automatic")
         self.workers.setToolTip(
@@ -81,6 +85,7 @@ class IndexingSettings(QGroupBox):
         )
 
         self.memory_mb = QSpinBox()
+        self.memory_mb.setObjectName("INDEX_MEMORY_MB")
         self.memory_mb.setRange(256, 32_000)
         self.memory_mb.setSingleStep(100)
         self.memory_mb.setSuffix(" MB")
@@ -90,6 +95,7 @@ class IndexingSettings(QGroupBox):
         )
 
         self.cpu_percent = QSpinBox()
+        self.cpu_percent.setObjectName("INDEX_CPU_PERCENT")
         self.cpu_percent.setRange(0, 100)
         self.cpu_percent.setSuffix(" %")
         self.cpu_percent.setSpecialValueText("No limit")
@@ -98,7 +104,18 @@ class IndexingSettings(QGroupBox):
             "of the way of whatever you are doing. 0 turns the check off."
         )
 
+        self.min_free_gb = QSpinBox()
+        self.min_free_gb.setObjectName("MIN_FREE_GB")
+        self.min_free_gb.setRange(1, 500)
+        self.min_free_gb.setSuffix(" GB")
+        self.min_free_gb.setToolTip(
+            "Indexing stops rather than filling the disk, and everything already\n"
+            "indexed is kept - so this is a floor to protect the machine, not a\n"
+            "budget for the index."
+        )
+
         self.pause_on_battery = QCheckBox("Pause while on battery")
+        self.pause_on_battery.setObjectName("INDEX_PAUSE_ON_BATTERY")
         self.theme = QComboBox()
         self.theme.addItem("Follow Windows", "system")
         self.theme.addItem("Always light", "light")
@@ -112,6 +129,7 @@ class IndexingSettings(QGroupBox):
         )
 
         self.low_priority = QCheckBox("Run at low priority")
+        self.low_priority.setObjectName("INDEX_LOW_PRIORITY")
         self.low_priority.setToolTip(
             "Let everything else have the processor and the disk first.\n"
             "Leave this on unless indexing is the only thing this machine does."
@@ -131,13 +149,14 @@ class IndexingSettings(QGroupBox):
 
         for widget in (
             self.workers, self.memory_mb, self.cpu_percent, self.interval_hours,
+            self.min_free_gb,
         ):
             # Typing `1500` otherwise emits at 1, 15, 150 and 1500 - four rounds
             # of writes for one number, three of them values nobody chose.
             widget.setKeyboardTracking(False)
 
         for widget in (
-            self.workers, self.memory_mb, self.cpu_percent,
+            self.workers, self.memory_mb, self.cpu_percent, self.min_free_gb,
         ):
             widget.valueChanged.connect(self._limits_changed)
         self.pause_on_battery.stateChanged.connect(self._limits_changed)
@@ -151,6 +170,7 @@ class IndexingSettings(QGroupBox):
         index_form.addRow("Files at once", self.workers)
         index_form.addRow("Memory ceiling", self.memory_mb)
         index_form.addRow("Pause above", self.cpu_percent)
+        index_form.addRow("Stop below", self.min_free_gb)
         index_form.addRow(self.pause_on_battery)
         index_form.addRow(self.low_priority)
         index_form.addRow("Appearance", self.theme)
@@ -168,7 +188,7 @@ class IndexingSettings(QGroupBox):
         widgets = (
             self.schedule, self.interval_hours, self.daily_at, self.workers,
             self.memory_mb, self.cpu_percent, self.pause_on_battery,
-            self.low_priority, self.theme,
+            self.low_priority, self.theme, self.min_free_gb,
         )
         for widget in widgets:
             widget.blockSignals(True)
@@ -180,6 +200,7 @@ class IndexingSettings(QGroupBox):
             hour, minute = parse_daily_at(str(getattr(settings, "index_daily_at", "02:00"))) or (2, 0)
             self.daily_at.setTime(QTime(hour, minute))
             self.workers.setValue(int(getattr(settings, "index_workers", 0)))
+            self.min_free_gb.setValue(int(getattr(settings, "min_free_gb", 5)))
             self.memory_mb.setValue(int(getattr(settings, "index_memory_mb", 1500)))
             self.cpu_percent.setValue(int(getattr(settings, "index_cpu_percent", 80)))
             self.pause_on_battery.setChecked(bool(getattr(settings, "index_pause_on_battery", True)))
@@ -213,6 +234,7 @@ class IndexingSettings(QGroupBox):
             "index_cpu_percent": int(self.cpu_percent.value()),
             "index_pause_on_battery": bool(self.pause_on_battery.isChecked()),
             "index_low_priority": bool(self.low_priority.isChecked()),
+            "min_free_gb": int(self.min_free_gb.value()),
         }
 
     def _sync_schedule_rows(self) -> None:

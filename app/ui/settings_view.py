@@ -41,6 +41,9 @@ from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
 from app.ui.widgets.model_box import ModelBox
+from app.ui.widgets.search_box import SearchBox
+from app.ui.widgets.storage_box import StorageBox
+from app.ui.widgets.window_box import WindowBox
 
 __all__ = ["SettingsView"]
 
@@ -53,9 +56,20 @@ class SettingsView(QWidget):
     #: (enabled, model, timeout_s) for the Interpret button.
     ollama_model_changed = pyqtSignal(bool, str, int)
     convert_pst_requested = pyqtSignal(str, str)   # archive, destination
+    #: The index-location flow: move it, adopt one already there, or start
+    #: empty. A signal rather than a direct call because the shell owns the
+    #: stores that would have to be closed before anything moves.
+    move_index_requested = pyqtSignal()
+    #: The meaning-model flow. Same shape and the same reason: it invalidates
+    #: every vector, so it states the cost and confirms rather than applying.
+    rebuild_vectors_requested = pyqtSignal()
     rerank_toggled = pyqtSignal(bool)
 
     cloud_toggled = pyqtSignal(bool)
+    #: (minimise_to_tray, close_to_tray)
+    tray_changed = pyqtSignal(bool, bool)
+    #: `{registry key: value}` from any panel whose controls write `.env`.
+    settings_changed = pyqtSignal(dict)
     history_cleared = pyqtSignal(int)
     debug_recording_toggled = pyqtSignal(bool)
     error = pyqtSignal(object)
@@ -83,8 +97,16 @@ class SettingsView(QWidget):
         roots_layout.addLayout(root_buttons)
 
         # --- behaviour
-        self.rerank = QCheckBox("Rerank results (slower, more precise)")
-        self.rerank.setChecked(bool(getattr(settings, "rerank_enabled", True)))
+        # The Search group lives in its own widget: this file crossed the
+        # 250-line guard, and the guard is right - a view that keeps growing is
+        # a view where logic starts to live. The controls are re-exposed below
+        # so callers and tests need not know where they moved to.
+        self.search_box = SearchBox(settings)
+        self.rerank = self.search_box.rerank
+        self.rerank_top_n = self.search_box.rerank_top_n
+        self.rerank_window = self.search_box.rerank_window
+        self.rerank_model = self.search_box.rerank_model
+        self.search_box.changed.connect(self.settings_changed)
         self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
@@ -95,10 +117,15 @@ class SettingsView(QWidget):
         )
         self.cloud.stateChanged.connect(lambda _s: self.cloud_toggled.emit(self.cloud.isChecked()))
 
-        self.data_path = QLineEdit(str(getattr(settings, "data_path", "")))
-        self.data_path.setReadOnly(True)
-        self.ollama_url = QLineEdit(str(getattr(settings, "ollama_url", "")))
-        self.ollama_url.setReadOnly(True)
+        # Index location and the meaning model are flows, not fields - see
+        # StorageBox for why a text box there is a data-loss trap.
+        self.storage_box = StorageBox(settings)
+        self.data_path = self.storage_box.data_path
+        self.required_free_gb = self.storage_box.required_free_gb
+        self.storage_box.move_index_requested.connect(self.move_index_requested)
+        self.storage_box.rebuild_vectors_requested.connect(self.rebuild_vectors_requested)
+        self.storage_box.changed.connect(self.settings_changed)
+
 
         # --- Outlook archives
         self.pst_backend = QComboBox()
@@ -131,12 +158,17 @@ class SettingsView(QWidget):
 
         self.indexing = IndexingSettings()
 
+        # Window behaviour is its own group - see widgets/window_box.py for why
+        # both of these were unreachable until now.
+        self.window_box = WindowBox()
+        self.minimise_to_tray = self.window_box.minimise_to_tray
+        self.close_to_tray = self.window_box.close_to_tray
+        self.window_box.changed.connect(self.tray_changed)
+
         behaviour = QGroupBox("Behaviour")
         form = QFormLayout(behaviour)
-        form.addRow(self.rerank)
         form.addRow(self.cloud)
-        form.addRow("Index location", self.data_path)
-        form.addRow("Ollama (optional)", self.ollama_url)
+
 
         # --- privacy
         self.history_label = QLabel("")
@@ -162,6 +194,13 @@ class SettingsView(QWidget):
         # and a client built once at startup would keep asking the old address.
         self.models = ModelBox(self._make_client)
         self.models.changed.connect(self.ollama_model_changed)
+        # The address moved into the panel that can test it - see model_box.py.
+        # Re-exposed because `_make_client` reads it to build a client against
+        # whatever is currently typed.
+        self.ollama_url = self.models.url
+        self.ollama_url.setText(str(getattr(settings, "ollama_url", "")))
+        self.models.url_changed.connect(
+            lambda url: self.settings_changed.emit({"OLLAMA_URL": url}))
 
         # --- environment and diagnostics (its own widget; see the module)
         self.environment = EnvironmentBox(settings)
@@ -171,7 +210,10 @@ class SettingsView(QWidget):
         layout.addWidget(roots_box)
         layout.addWidget(self.indexing)
         layout.addWidget(pst_box)
+        layout.addWidget(self.search_box)
         layout.addWidget(behaviour)
+        layout.addWidget(self.window_box)
+        layout.addWidget(self.storage_box)
         layout.addWidget(privacy)
         layout.addWidget(self.models)
         layout.addWidget(self.file_types)

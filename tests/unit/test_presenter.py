@@ -416,6 +416,12 @@ def test_a_worker_is_kept_alive_until_it_reports_itself_done() -> None:
     It only bites when the work outlives the function that started it - so it
     appears only when the machine is busy, and looks unrelated to anything.
     """
+    # The rest of this module is deliberately Qt-free, so it runs everywhere.
+    # This one test reaches into `app.ui.workers`, which imports PyQt6 at the
+    # top - without this it fails rather than skips wherever Qt is absent, and
+    # a failure that means "not installed" trains people to ignore failures.
+    pytest.importorskip("PyQt6")
+
     from app.ui import workers as workers_module
 
     class FakeSignal:

@@ -31,7 +31,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
-    "load_prefs", "save_prefs", "build_menu", "apply_to_table", "button",
+    "load_prefs", "save_prefs", "build_menu", "apply_to_table", "apply_to_tree",
+    "button",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics",
@@ -85,6 +86,13 @@ class ViewPreferences:
     #: trust comes from and must stay reachable - but it does not need to be the
     #: second thing the eye lands on, on every row, forever.
     show_scores: bool = False
+    #: The preview pane, beside the results.
+    #:
+    #: **Off by default**, and not out of caution about the widget: a pane that
+    #: appears uninvited halves the width of the list somebody came to read, and
+    #: it reads a file for every row the selection touches. Somebody who wants
+    #: it asks for it, with `Ctrl+P` or the View menu.
+    preview: bool = False
 
     def with_column(self, key: str, shown: bool, *, order: Sequence[str]) -> "ViewPreferences":
         """Turn one column on or off, keeping the canonical column order.
@@ -223,6 +231,7 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
         columns=columns, density=density, font_pt=font_pt,
         group_by_document=flag("group", True),
         show_scores=flag("scores", False),
+        preview=flag("preview", False),
     )
 
 
@@ -234,6 +243,7 @@ def prefs_to_state(prefs: ViewPreferences, prefix: str) -> dict[str, str]:
         f"{prefix}:font_pt": str(int(prefs.font_pt)),
         f"{prefix}:group": "on" if prefs.group_by_document else "off",
         f"{prefix}:scores": "on" if prefs.show_scores else "off",
+        f"{prefix}:preview": "on" if prefs.preview else "off",
     }
 
 
@@ -312,9 +322,14 @@ def build_menu(
         action.setCheckable(True)
         action.setChecked(prefs.density == name)
         group.addAction(action)
+        # `replace`, never the constructor. Building `ViewPreferences(columns,
+        # density, font_pt)` positionally silently drops every field after the
+        # third - so changing the row height turned grouping back on and threw
+        # away "show why each result matched". A dataclass gaining a field is
+        # routine; a constructor call that enumerates fields by position turns
+        # that into a silent reset somewhere else in the file.
         action.triggered.connect(
-            lambda _checked, n=name: on_change(
-                ViewPreferences(prefs.columns, n, prefs.font_pt))
+            lambda _checked, n=name: on_change(replace(prefs, density=n))
         )
         menu.addAction(action)
 
@@ -343,6 +358,18 @@ def build_menu(
             lambda checked: on_change(replace(prefs, show_scores=checked)))
         menu.addAction(scores)
 
+        preview = QAction("Preview pane", menu)
+        preview.setCheckable(True)
+        preview.setChecked(prefs.preview)
+        preview.setShortcut("Ctrl+P")
+        preview.setToolTip(
+            "Read the selected result beside the list, without opening the "
+            "application that owns it."
+        )
+        preview.toggled.connect(
+            lambda checked: on_change(replace(prefs, preview=checked)))
+        menu.addAction(preview)
+
     menu.addSection("Text size")
     box = QWidget(menu)
     row = QHBoxLayout(box)
@@ -354,9 +381,8 @@ def build_menu(
     spin.setValue(prefs.font_pt or FONT_RANGE[0] - 1)
     spin.setKeyboardTracking(False)
     spin.valueChanged.connect(
-        lambda value: on_change(ViewPreferences(
-            prefs.columns, prefs.density,
-            0 if value < FONT_RANGE[0] else value,
+        lambda value: on_change(replace(
+            prefs, font_pt=0 if value < FONT_RANGE[0] else value,
         ))
     )
     row.addWidget(spin)
@@ -475,4 +501,28 @@ def apply_to_table(
         from PyQt6.QtWidgets import QHeaderView
         header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
+    return shown
+
+
+def apply_to_tree(
+    tree: Any, prefs: ViewPreferences, *, columns: Sequence[tuple[str, str]],
+    available: Sequence[str],
+) -> tuple[str, ...]:
+    """The same preferences, on a `QTreeWidget`. Returns what is visible.
+
+    A separate function rather than a branch inside `apply_to_table`, because
+    the one thing that differs is real: a tree has no vertical header, so row
+    height comes from `setUniformRowHeights` and the item delegate's size hint
+    rather than from a default section size. Everything else - which columns,
+    which order, what font - is identical, and shared through `visible_columns`.
+
+    **Density is applied to the font, not to the row.** Qt sizes a uniform tree
+    row from the font, so a compact tree follows from a compact font without a
+    delegate; the alternative is a custom `sizeHint` for a two-pixel difference.
+    """
+    order = [key for key, _heading in columns]
+    shown = visible_columns(prefs, order, available)
+    for index, key in enumerate(order):
+        tree.setColumnHidden(index, key not in shown)
+    apply_font(tree, prefs.font_pt)
     return shown

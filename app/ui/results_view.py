@@ -98,6 +98,19 @@ class ResultsView(QWidget):
         layout.addWidget(self._summary)
         layout.addWidget(self._list, stretch=1)
 
+    def current_row(self) -> Any:
+        """The selected row, or None.
+
+        Exists so the preview pane can draw what is *already* selected the
+        moment it is switched on. Without it the pane opens empty beside a
+        highlighted row, which reads as a broken preview rather than as nothing
+        having been selected since.
+        """
+        index = self._list.currentIndex()
+        if not index.isValid():
+            return None
+        return self._row_for(index.data(ROLE_PAYLOAD))
+
     def set_view_preferences(self, prefs: Any) -> None:
         """Text size, spacing, grouping and whether scores show inline."""
         self._prefs = prefs if isinstance(prefs, ViewPreferences) else ViewPreferences()
@@ -114,29 +127,44 @@ class ResultsView(QWidget):
         summary: str = "",
         details: Optional[dict[int, Any]] = None,
         missing: Optional[set[str]] = None,
+        keep_scroll: bool = False,
     ) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
-        `missing` is the set of paths that no longer exist, computed **on the
-        worker** by `presenter.missing_paths`. It used to be a `Path.exists()`
-        per row here, on the UI thread - twenty stats for a normal page, five
-        hundred for a full one, each of which can block for seconds on a network
-        share. In the virtualisation work, of all places.
+        `keep_scroll` is False here and True in `_rebuild`, and the difference
+        is the whole point. **A new search starts at the top**; carrying the old
+        position over lands somebody mid-list with the best hits scrolled off
+        the screen, looking like the search returned something worse than it
+        did. Toggling a preference or expanding a row is the opposite case -
+        those must not jump - which is why the position is kept there.
+
+        The redraw that adds mail subtitles and missing-file marks arrives a
+        moment after the rows and passes `keep_scroll=True`: it is the same
+        results, so it is not a new search and must not move anybody.
         """
+
+        # `missing` is the set of paths that no longer exist, computed **on the
+        # worker** by `presenter.missing_paths`. It used to be a `Path.exists()`
+        # per row here, on the UI thread - twenty stats for a normal page, five
+        # hundred for a full one, each of which can block for seconds on a
+        # network share. In the virtualisation work, of all places.
         self._rows = to_rows(results, terms)
         self._details = dict(details or {})
         self._missing = set(missing or ())
         self._expanded.clear()
         self._summary.setText(summary)
-        self._rebuild()
+        self._rebuild(keep_scroll=keep_scroll)
 
-    def _rebuild(self) -> None:
-        """Refill the model. Rows are data now, so this is cheap."""
-        # **Scroll position is kept.** Toggling a preference or expanding a row
-        # otherwise jumps the list to the top, losing the place of somebody who
-        # had scrolled to the eighth result to read it.
+    def _rebuild(self, *, keep_scroll: bool = True) -> None:
+        """Refill the model. Rows are data now, so this is cheap.
+
+        Keeps the scroll position by default: toggling a preference or expanding
+        a row otherwise jumps the list to the top, losing the place of somebody
+        who had scrolled to the eighth result to read it. A new search passes
+        False - see `show_results`.
+        """
         bar = self._list.verticalScrollBar()
-        position = bar.value() if bar is not None else 0
+        position = bar.value() if bar is not None and keep_scroll else 0
 
         self._model.clear()
         if self._prefs.group_by_document:

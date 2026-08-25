@@ -184,6 +184,10 @@ OFF_THREAD = {
     "load_prefs", "save_prefs", "_read_state", "_ollama_model_changed",
     "_limits_changed", "_schedule_changed", "_save_roots", "_save_pst_backend",
     "_debug_recording_toggled", "_prefs_changed", "__init__",
+    # The same shape again: one or two keys in `index_state`, written when a
+    # checkbox is clicked. Each was a control that persisted nothing until it
+    # was wired up - see U6 in docs/REVIEW-2026-08-25.md.
+    "_tray_changed", "_cloud_toggled", "_rerank_toggled",
 }
 
 #: Painting and model-filling. A blocking call here runs per row.
@@ -274,7 +278,9 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     ("mail_view.py", "_run"),
     # Opening a result: `explorer /select,` is slow to start and the existence
     # check before it can block on a sleeping drive.
-    ("shell.py", "_open_result"),
+    # `_open_result` is a two-line adapter onto `_open_path`, which is where
+    # the worker is. Naming the adapter here would assert against a docstring.
+    ("shell.py", "_open_path"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
     """Asserted on the *worker*, not the result: the point is that the call

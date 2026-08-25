@@ -23,7 +23,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-__all__ = ["Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES"]
+__all__ = [
+    "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
+    "theme_colours",
+]
 
 SCHEMES = ("system", "light", "dark")
 
@@ -85,10 +88,15 @@ QLineEdit {{
 }}
 QLineEdit:focus {{ border-color: {accent}; }}
 
-QListWidget, QTableWidget, QPlainTextEdit {{
+/* QListView is named explicitly. The results list stopped being a
+   QListWidget when rows became data rather than widgets, and this rule was
+   not updated - so the one list people look at most had no surface, no
+   border and no radius, while every other list did. */
+QListWidget, QListView, QTableWidget, QPlainTextEdit {{
     background: {surface}; border: 1px solid {border}; border-radius: 6px;
 }}
-QListWidget::item:selected, QTableWidget::item:selected {{
+QListWidget::item:selected, QListView::item:selected,
+QTableWidget::item:selected {{
     background: {accent_soft}; color: {text};
 }}
 QHeaderView::section {{
@@ -142,6 +150,11 @@ QComboBox, QSpinBox, QTimeEdit {{
 #resultMeta {{ color: {text_faint}; font-size: 11px; }}
 #resultMissing {{ color: {warning}; font-size: 11px; }}
 #resultSnippet {{ color: {text}; }}
+/* The snippet is painted by `result_delegate`, not laid out by Qt, so no
+   stylesheet rule can reach the matched words - `#resultSnippet b` never
+   applied to a single one. Matches were signalled by weight alone, which is
+   the one cue somebody who cannot distinguish them has no substitute for.
+   The delegate reads `highlight` from `theme_colours()` and draws it. */
 #resultSnippet b {{ color: {highlight}; font-weight: 700; }}
 #searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: 11px; }}
 #indexHeadline, #graphHeadline {{ font-size: 15px; font-weight: 600; }}
@@ -149,6 +162,15 @@ QComboBox, QSpinBox, QTimeEdit {{
 #skipHeading {{ font-weight: 600; }}
 #skipFix {{ color: {text_dim}; }}
 #skipExamples {{ color: {text_faint}; font-size: 11px; }}
+
+/* `index_stats` sets one of these two on every value it shows, and only
+   `statValue` had a rule - so a figure the code had decided was worth warning
+   about rendered identically to one that was fine. The warning was computed,
+   assigned, and invisible. Weight as well as colour, because colour alone is
+   not a signal everybody receives. */
+#statValue {{ color: {text}; font-weight: 600; }}
+#statWarn {{ color: {warning}; font-weight: 700; }}
+#statLabel {{ color: {text_faint}; font-size: 11px; }}
 """
 
 
@@ -183,6 +205,31 @@ def palette_for(preference: str, *, detected: Optional[str] = None) -> dict[str,
     return PALETTES.get(detected or Theme.DARK, PALETTES[Theme.DARK])
 
 
+#: The palette the sheet was last built from.
+#:
+#: **Anything that paints itself must read this.** A `QStyledItemDelegate` draws
+#: with a `QPainter` and never sees the stylesheet, so it has no way to know what
+#: the rest of the window looks like. The obvious substitute - the widget's
+#: `QPalette` - is the operating system's, because nothing here sets one; on a
+#: light-mode machine with the theme forced to dark that painted near-black text
+#: onto a near-black background, and the results list alone was unreadable while
+#: every styled widget looked right.
+_current: dict[str, str] = dict(PALETTES[Theme.DARK])
+
+
+def theme_colours() -> dict[str, str]:
+    """The tokens the current sheet was built from. Never empty."""
+    return dict(_current)
+
+
 def stylesheet(preference: str = "system", *, detected: Optional[str] = None) -> str:
-    """The full Qt stylesheet for a preference."""
-    return _TEMPLATE.format(**palette_for(preference, detected=detected))
+    """The full Qt stylesheet for a preference.
+
+    Records the palette it used, so `theme_colours()` and the sheet can never
+    describe different themes.
+    """
+    global _current
+
+    colours = palette_for(preference, detected=detected)
+    _current = dict(colours)
+    return _TEMPLATE.format(**colours)

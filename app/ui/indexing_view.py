@@ -42,6 +42,7 @@ from app.ui.presenter import (
     when_text,
 )
 from app.ui.widgets.index_stats import IndexStats
+from app.ui.widgets.skip_row import SkipRow
 from app.ui.workers import CallableWorker, IndexWorker, run
 
 __all__ = ["IndexingView"]
@@ -89,6 +90,11 @@ class IndexingView(QWidget):
         self._stopping = False
         self._next_run_text = ""
         self._total_estimate = 0
+        #: The tally the panel is currently showing, and the rows showing it.
+        #: Both exist so a progress tick that changes nothing costs nothing -
+        #: see `show_skips`.
+        self._shown_skips: dict[str, int] = {}
+        self._skip_rows: dict[str, Any] = {}
 
         self.headline = QLabel("Nothing indexed yet.")
         self.headline.setObjectName("indexHeadline")
@@ -302,13 +308,42 @@ class IndexingView(QWidget):
     # -- the skipped panel --------------------------------------------------
 
     def show_skips(self, summary: dict[str, int]) -> None:
+        """Update the skip panel, rebuilding it only when it has to.
+
+        **This ran on every progress tick, for hours.** A 100GB index reports
+        progress constantly, and each report destroyed every `SkipRow` - three
+        or four labels and a button apiece - and built them again, to show
+        numbers that had usually not changed. Widget churn at that rate is the
+        kind of cost that never appears in a profile of one operation and
+        dominates an afternoon.
+
+        Two cheap checks in order: an identical tally does nothing at all, and a
+        tally with the same reasons but different counts updates the labels in
+        place. Only a genuinely new reason rebuilds, which happens a handful of
+        times in a run.
+        """
+        summary = summary or {}
+        if summary == self._shown_skips:
+            return
+
+        groups = group_skips(summary)
+        if {g.code for g in groups} == set(self._skip_rows) and groups:
+            # Same reasons, new numbers.
+            for group in groups:
+                self._skip_rows[group.code].update_count(group)
+            self._skips_box.setTitle(
+                f"{format_count(sum(g.count for g in groups))} files skipped — review"
+            )
+            self._shown_skips = dict(summary)
+            return
+
         while self._skips_layout.count():
             item = self._skips_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-
-        groups = group_skips(summary or {})
+        self._skip_rows.clear()
+        self._shown_skips = dict(summary)
         self._skips_box.setVisible(bool(groups))
         # The scroll area only claims layout space when it has something in it.
         # Left permanently visible it swallowed the whole window when maximised.
@@ -320,39 +355,7 @@ class IndexingView(QWidget):
         self._skips_box.setTitle(f"{format_count(total)} files skipped — review")
 
         for group in groups:
-            self._skips_layout.addWidget(_SkipRow(group, self.retry_requested))
+            row = SkipRow(group, self.retry_requested)
+            self._skip_rows[group.code] = row
+            self._skips_layout.addWidget(row)
         self._skips_layout.addStretch(1)
-
-
-class _SkipRow(QWidget):
-    """One reason, its count, its fix, and a retry button only when one helps."""
-
-    def __init__(self, group: Any, retry_signal: Any, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-
-        heading = QLabel(f"{format_count(group.count)} × {group.message}")
-        heading.setWordWrap(True)
-        heading.setObjectName("skipHeading")
-
-        fix = QLabel(group.suggestion)
-        fix.setWordWrap(True)
-        fix.setObjectName("skipFix")
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.addWidget(heading)
-        layout.addWidget(fix)
-
-        if group.examples:
-            examples = QLabel("e.g. " + ", ".join(group.examples))
-            examples.setWordWrap(True)
-            examples.setObjectName("skipExamples")
-            layout.addWidget(examples)
-
-        if group.retryable:
-            # Only when it can help. A retry button on 4,000 scanned PDFs would
-            # do nothing at all, which is worse than not offering one.
-            button = QPushButton("Retry these")
-            button.setMaximumWidth(140)
-            button.clicked.connect(lambda: retry_signal.emit(group.code))
-            layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)

@@ -56,20 +56,48 @@ SCOPES: tuple[tuple[str, str], ...] = (
     ("Everything", "all"),
     ("Mail only", "mail"),
     ("Documents only", "documents"),
+    ("Code only", "code"),
 )
 
 
 def build_scope(parent: Optional[QWidget], on_change: Any) -> QComboBox:
-    """The scope chips."""
+    """The scope chips.
+
+    **"Everything" is a union, not a fallback.** This box narrows; it never
+    adds. Whatever a focused tab can find, the search box finds too - so a
+    filter learned anywhere works here, and there is never a reason to go to
+    another tab to ask a question this one cannot.
+    """
     scope = QComboBox(parent)
     for label, value in SCOPES:
         scope.addItem(label, value)
     scope.setToolTip(
-        "Narrow the search to mail or to files on disk.\n"
-        "Mail results show who sent it and when instead of a file path."
+        "Narrow the search. Everything searches all of it.\n\n"
+        "Mail only — messages, showing who sent them and when instead of a path.\n"
+        "Documents only — files on disk that are not in a repository.\n"
+        "Code only — anything inside a code repository, whatever its type:\n"
+        "a README in a repository counts, a .py file in Downloads does not.\n\n"
+        "For 'files that look like code' wherever they are, type type:code instead."
     )
     scope.currentIndexChanged.connect(on_change)
     return scope
+
+
+def scope_value(scope: QComboBox) -> str:
+    """The selected scope, defaulting to everything."""
+    return str(scope.currentData() or "all")
+
+
+def select_scope(scope: QComboBox, value: str) -> None:
+    """Select a scope by value. An unknown value is ignored.
+
+    Ignored rather than raised: this is driven across a tab boundary with a
+    plain string - the Code tab asks for `code` when it hands a repository to
+    the search box - and a stale caller must not be able to close the window.
+    """
+    index = scope.findData(value)
+    if index >= 0:
+        scope.setCurrentIndex(index)
 
 
 def build_interpret(parent: Optional[QWidget], on_click: Any) -> QPushButton:

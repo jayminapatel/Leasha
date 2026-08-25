@@ -26,18 +26,25 @@ whatever that returns.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import QEvent, QObject, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
+from app.ui.presenter import CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS
 
-__all__ = ["CommandPopup", "attach_to"]
+__all__ = [
+    "CommandPopup", "attach_to", "CODE_COMMANDS", "FILES_COMMANDS", "MAIL_COMMANDS",
+]
 
 #: Shown per row: what to type, then what it does. Wide enough that the example
 #: and the description both fit without the popup becoming a wall of text.
 _ROW = "{example:<22} {summary}"
+
+# Re-exported from `presenter.py`, which is where they can be tested: the rule
+# they encode - search offers the union, each tab a subset - is about the
+# grammar, not about Qt, and asserting it should not need a display.
 
 
 class CommandPopup(QCompleter):
@@ -50,8 +57,18 @@ class CommandPopup(QCompleter):
 
     chosen = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[Any] = None) -> None:
+    def __init__(self, parent: Optional[Any] = None,
+                 only: Optional[Sequence[str]] = None) -> None:
         super().__init__(parent)
+        #: Command names this box actually honours, or None for all of them.
+        #:
+        #: **A list is not an affordance if half of it does nothing.** Every
+        #: input in this application opens a menu on `/`, and it must, or the
+        #: one that does not looks broken. But a repository list cannot answer
+        #: `/from` or `/subject`, and offering them there would be a dropdown
+        #: full of commands that quietly fail - which is worse than no dropdown
+        #: at all, because it is discovered one disappointment at a time.
+        self._only = tuple(only) if only else None
         self._model = QStringListModel(self)
         self.setModel(self._model)
         self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -67,7 +84,10 @@ class CommandPopup(QCompleter):
 
     def set_prefix(self, prefix: str) -> None:
         """Narrow the list to commands matching what has been typed after `/`."""
-        self._matches = matching(prefix)
+        self._matches = [
+            command for command in matching(prefix)
+            if self._only is None or command.name in self._only
+        ]
         self._model.setStringList([
             _ROW.format(example=f"/{command.name} <{command.name}>",
                         summary=command.summary)
@@ -121,7 +141,8 @@ class _TabAccepts(QObject):
         return False
 
 
-def attach_to(line_edit: QLineEdit) -> CommandPopup:
+def attach_to(line_edit: QLineEdit,
+              only: Optional[Sequence[str]] = None) -> CommandPopup:
     """Wire a `CommandPopup` to a search box. Returns it, for tests and teardown.
 
     Kept as a function rather than a subclass of `QLineEdit` so the search view
@@ -129,7 +150,7 @@ def attach_to(line_edit: QLineEdit) -> CommandPopup:
     button, Enter handling) stays exactly as it was, and removing this feature
     would be deleting one line.
     """
-    popup = CommandPopup(line_edit)
+    popup = CommandPopup(line_edit, only=only)
     popup.setWidget(line_edit)
 
     # **Tab has to pick the highlighted command.**

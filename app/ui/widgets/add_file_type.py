@@ -150,6 +150,7 @@ class AddFileTypeWizard(QDialog):
             "--headless --convert-to txt:Text --outdir {outdir} {input}"
         )
         self.produces = QLineEdit("{stem}.txt")
+        self.produces.setAccessibleName("File the converter produces")
         self.then = QComboBox()
         self.then.addItems(self._readers)
         if "plaintext" in self._readers:

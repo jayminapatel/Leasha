@@ -27,6 +27,7 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
 
 from app.ui.presenter import ResultGroup, group_subtitle, kind_tag, why
+from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
 __all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED"]
@@ -105,13 +106,24 @@ class ResultDelegate(QStyledItemDelegate):
             return
 
         painter.save()
+        # **Painted from the theme's own tokens, not from the widget palette.**
+        #
+        # The palette is the operating system's: nothing in this application
+        # ever sets one, because theming is done with a stylesheet. So on a
+        # light-mode Windows with the theme forced to dark, `palette.text()`
+        # returned near-black and it was painted onto `#1e1f22`. The results
+        # were unreadable and every other widget looked correct, because every
+        # other widget is styled by the sheet and only this one paints itself.
+        #
+        # Reading the same tokens the sheet is built from means the two cannot
+        # drift apart again.
+        colours = theme_colours()
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
-            text_colour = option.palette.highlightedText().color()
+            painter.fillRect(option.rect, QColor(colours["accent_soft"]))
+            text_colour = QColor(colours["text"])
         else:
-            text_colour = option.palette.text().color()
-        faint = QColor(text_colour)
-        faint.setAlpha(150)
+            text_colour = QColor(colours["text"])
+        faint = QColor(colours["text_faint"])
 
         metrics = Metrics.for_density(self.prefs.density)
         name_font, meta_font, body_font = self._fonts(option.font)
@@ -222,9 +234,17 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) 
     """
     if snippet is None or not getattr(snippet, "text", ""):
         return
-    painter.setPen(QPen(colour))
     text = snippet.text
     highlights = sorted(getattr(snippet, "highlights", ()) or ())
+
+    # **Colour as well as weight.** `#resultSnippet b` in the stylesheet was
+    # meant to do this and never could: the snippet is painted here, and no
+    # stylesheet rule reaches a QPainter. So a match was signalled by boldness
+    # alone - the one cue that is invisible to somebody scanning quickly, and
+    # the first thing lost at small text sizes.
+    plain = QPen(colour)
+    matched = QPen(QColor(theme_colours()["highlight"]))
+    painter.setPen(plain)
 
     base = QFont(painter.font())
     bold = QFont(base)
@@ -235,10 +255,14 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) 
     limit = rect.right()
     cursor = 0
     for start, end in [*highlights, (len(text), len(text))]:
-        for piece, font in ((text[cursor:start], base), (text[start:end], bold)):
+        for piece, font, pen in (
+            (text[cursor:start], base, plain),
+            (text[start:end], bold, matched),
+        ):
             if not piece or x >= limit:
                 continue
             painter.setFont(font)
+            painter.setPen(pen)
             advance = QFontMetrics(font).horizontalAdvance(piece)
             if x + advance > limit:
                 piece = QFontMetrics(font).elidedText(
@@ -248,3 +272,4 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) 
             x += advance
         cursor = end
     painter.setFont(base)
+    painter.setPen(plain)

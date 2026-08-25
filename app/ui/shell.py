@@ -24,6 +24,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import QThreadPool
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
+    QDialog,
     QMainWindow,
     QMessageBox,
     QStatusBar,
@@ -32,11 +33,13 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.branding import window_title
+from app.core.errors import to_app_error
 from app.core.logging import logger
 from app.index.resources import limits_from_settings
 from app.llm.ollama import OllamaClient
 from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
 from app.index.schedule import SchedulePolicy
+from app.ui.code_view import CodeView
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
@@ -205,6 +208,16 @@ class MainWindow(QMainWindow):
         self.settings_view.indexing.theme_changed.connect(self._theme_changed)
         self.settings_view.environment.recording.setChecked(self.recorder.enabled)
         self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
+        # **Both of these were emitted into nothing.** The rerank switch looked
+        # like it worked and changed no behaviour at all; the cloud switch was
+        # read live when a run started, so it worked for that run and silently
+        # reset to off at the next launch - which reads as the setting being
+        # ignored, and is the harder of the two to notice.
+        self.settings_view.rerank_toggled.connect(self._rerank_toggled)
+        self.settings_view.cloud_toggled.connect(self._cloud_toggled)
+        self.settings_view.settings_changed.connect(self._settings_changed)
+        self.settings_view.move_index_requested.connect(self._change_index_location)
+        self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
         self.settings_view.error.connect(self._show_error)
         self.settings_view.file_types.changes_saved.connect(
             lambda changes: self.statusBar().showMessage(
@@ -228,6 +241,16 @@ class MainWindow(QMainWindow):
         self.mail_view.error.connect(self._show_error)
         self.mail_view.search_inside_requested.connect(self._search_inside)
 
+        # Repositories are a browser, not a second search - see code_view.py.
+        self.code_view = CodeView(store)
+        self.code_view.error.connect(self._show_error)
+        self.code_view.search_repo_requested.connect(self._search_repo)
+        self.code_view.open_requested.connect(self._open_path)
+        self.code_view.reveal_requested.connect(
+            lambda path: self._open_path(path, reveal=True))
+        self.code_view.indexing_requested.connect(
+            lambda: self._show(self.indexing_view))
+
         self.tabs = QTabWidget()
         # (view, title, wrap in a scroll area?)
         #
@@ -244,6 +267,9 @@ class MainWindow(QMainWindow):
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
             (self.mail_view, "Mail", False),
+            # After Mail and before Indexing: the four "find something" tabs
+            # stay together and the two "manage the app" tabs stay at the end.
+            (self.code_view, "Code", False),
             (self.indexing_view, "Indexing", False),
             (self.settings_view, "Settings", True),
         ):
@@ -268,9 +294,22 @@ class MainWindow(QMainWindow):
         # **Opt-in, and off until asked for.** An application that vanishes
         # from the taskbar when you did not ask it to is alarming: you close a
         # window, it disappears, and there is no obvious way back.
+        # Restore the two switches that persist as window state. Set before the
+        # signals are live would be simpler, but these are connected in the
+        # block above - so the stored value is written back through the same
+        # handler, which is harmless and keeps one path rather than two.
+        self.settings_view.cloud.setChecked(
+            self._read_state("ui:index_cloud", "") == "on")
+        stored_rerank = self._read_state("ui:rerank_enabled", "")
+        if stored_rerank:
+            self.settings_view.rerank.setChecked(stored_rerank == "on")
+
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
         self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
+        self.settings_view.window_box.load(
+            self.tray.minimise_to_tray, self.tray.close_to_tray)
+        self.settings_view.tray_changed.connect(self._tray_changed)
         if self.tray.minimise_to_tray or self.tray.close_to_tray:
             if not self.tray.install():
                 # Never silently: a preference that does nothing is worse than
@@ -418,8 +457,14 @@ class MainWindow(QMainWindow):
         self.scheduler.state_changed.connect(
             lambda text: self.statusBar().showMessage(f"Indexing: {text}", 8_000)
         )
+        # **"Next run" was permanently blank.** `set_next_run` existed, said what
+        # it was for, and nothing ever called it - so the one line answering "is
+        # this thing going to run on its own, and when" showed nothing at all,
+        # on a page whose whole job is to answer that.
+        self.scheduler.state_changed.connect(self.indexing_view.set_next_run)
         self.indexing_view.finished.connect(lambda _stats: self.scheduler.notify_finished())
         self.scheduler.start()
+        self.indexing_view.set_next_run(self.scheduler.status())
 
     def _schedule_changed(self, policy: Any) -> None:
         """Apply a schedule change immediately, and persist it.
@@ -436,6 +481,185 @@ class MainWindow(QMainWindow):
         })
         self.scheduler.set_policy(policy)
         self.settings_view.indexing.set_schedule_status(self.scheduler.status())
+
+    def _rerank_toggled(self, enabled: bool) -> None:
+        """Apply the rerank switch now, and remember it.
+
+        Live where it can be: the engine holds the reranker, and a quality
+        setting that needs a restart to take effect is one people conclude does
+        nothing. Persisted alongside, so the next launch agrees with the box.
+        """
+        reranker = getattr(self._engine, "reranker", None)
+        if reranker is not None:
+            try:
+                reranker.enabled = bool(enabled)
+            except Exception as exc:             # noqa: BLE001 - never fatal
+                _log.warning("could not apply the rerank setting live: {}", exc)
+        self._store.set_state("ui:rerank_enabled", "on" if enabled else "off")
+
+    def _change_index_location(self) -> None:
+        """Ask what to do about the index location, then record the decision.
+
+        **Nothing is moved from here, and nothing is moved while the app is
+        running.** The stores are open; copying a database out from underneath
+        an open connection is how a half-copied index becomes the only index.
+        So the decision is written down and applied by the installer path on the
+        next start, which is the one moment nothing is holding the files.
+
+        `.env` is written by `env_writer`, never by hand - that is the rule the
+        settings work established, and this is the setting most able to do harm.
+        """
+        from app.ui.widgets.index_flows import ADOPT, FRESH, IndexLocationDialog
+
+        if self.indexing_view.is_running():
+            self.statusBar().showMessage(
+                "An index run is in progress. Stop it before moving the index.",
+                8_000)
+            return
+
+        dialog = IndexLocationDialog(Path(self._settings.data_path), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.choice()
+        try:
+            from app.core.env_writer import apply_values
+
+            apply_values(Path(self._settings.env_file), {"DATA_PATH": str(choice.destination)})
+        except Exception as exc:                 # noqa: BLE001
+            self._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        self._store.set_state("index:pending_move", f"{choice.action}:{choice.destination}")
+        self.settings_view.data_path.setText(str(choice.destination))
+
+        if choice.action == ADOPT:
+            what = "will use the index already there"
+        elif choice.action == FRESH:
+            what = "will start a new, empty index there"
+        else:
+            what = "will move the index there"
+        self.statusBar().showMessage(
+            f"Saved: the app {what} the next time it starts. "
+            "Nothing has moved yet.", 12_000)
+
+    def _change_meaning_model(self) -> None:
+        """Confirm the cost of changing the embedding model, then record it."""
+        from app.ui.widgets.index_flows import RebuildVectorsDialog
+
+        if self.indexing_view.is_running():
+            self.statusBar().showMessage(
+                "An index run is in progress. Stop it before changing the model.",
+                8_000)
+            return
+
+        dialog = RebuildVectorsDialog(
+            str(getattr(self._settings, "embed_model", "")),
+            self._chunk_count(),
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            from app.core.env_writer import apply_values
+
+            apply_values(Path(self._settings.env_file),
+                         {"EMBED_MODEL": dialog.chosen_model()})
+        except Exception as exc:                 # noqa: BLE001
+            self._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        self._store.set_state("index:rebuild_vectors", "pending")
+        self.statusBar().showMessage(
+            "Saved. Restart, then run an index to re-embed everything - search "
+            "keeps working on the old vectors until it finishes.", 12_000)
+
+    def _chunk_count(self) -> int:
+        """How many chunks would have to be re-embedded. Never raises.
+
+        A count over `chunks` is one indexed aggregate and runs once, in
+        response to a deliberate click, to put a real number in front of a
+        decision that costs hours. Zero if it cannot be read - the dialog then
+        says "a few minutes", which is the honest thing to say when the size is
+        unknown rather than a number that was guessed.
+        """
+        try:
+            return int(self._store.stats().get("chunks_total", 0))
+        except Exception as exc:                 # noqa: BLE001
+            _log.debug("could not count chunks: {}", exc)
+            return 0
+
+    def _settings_changed(self, values: dict) -> None:
+        """Write `.env` settings a panel has changed, and apply what applies now.
+
+        **The application writes `.env`; the user never does.** That is the rule
+        the settings work established, and the reason `env_writer` exists - it
+        preserves comments and keys this build has never heard of, so a newer
+        installer's settings survive an older window saving one number.
+
+        Debounced upstream, so this runs once when somebody stops adjusting a
+        control rather than once per notch.
+        """
+        if not values:
+            return
+        try:
+            from app.core.env_writer import apply_values
+
+            apply_values(Path(self._settings.env_file), values)
+        except Exception as exc:                 # noqa: BLE001
+            self._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        # Reranking is the one that can take effect without a restart, and the
+        # one people most want to see change - the rest are read when the thing
+        # that uses them next starts.
+        reranker = getattr(self._engine, "reranker", None)
+        if reranker is not None:
+            for key, attribute in (("RERANK_TOP_N", "top_n"),
+                                   ("RERANK_WINDOW_CHARS", "window_chars")):
+                if key in values:
+                    try:
+                        setattr(reranker, attribute, int(values[key]))
+                    except Exception as exc:     # noqa: BLE001 - never fatal
+                        _log.debug("could not apply {} live: {}", key, exc)
+
+        if "RERANK_MODEL" in values:
+            self.statusBar().showMessage(
+                "Saved. The rerank model is loaded at startup, so it changes "
+                "the next time the app opens.", 8_000)
+
+    def _tray_changed(self, minimise: bool, close: bool) -> None:
+        """Apply and persist the tray preferences.
+
+        Installs the icon the moment either is switched on, and says so if the
+        desktop has no tray - a preference that silently does nothing is worse
+        than one that is not offered, and this one was previously both.
+        """
+        self.tray.minimise_to_tray = bool(minimise)
+        self.tray.close_to_tray = bool(close)
+        self._store.set_states({
+            "ui:tray_minimise": "on" if minimise else "off",
+            "ui:tray_close": "on" if close else "off",
+        })
+
+        if (minimise or close) and not self.tray.installed and not self.tray.install():
+            self.tray.minimise_to_tray = self.tray.close_to_tray = False
+            self.settings_view.minimise_to_tray.setChecked(False)
+            self.settings_view.close_to_tray.setChecked(False)
+            self.statusBar().showMessage(
+                "This desktop has no notification area, so the window will "
+                "minimise normally.", 8_000)
+
+    def _cloud_toggled(self, enabled: bool) -> None:
+        """Remember whether to index cloud-only files.
+
+        Read live when a run starts, so it always worked *for that run* - and
+        reset to off at every launch, which looks exactly like a setting being
+        ignored. In `index_state` rather than `.env`: it is a decision about how
+        this window starts a run, and the walker takes it as a parameter.
+        """
+        self._store.set_state("ui:index_cloud", "on" if enabled else "off")
 
     def _limits_changed(self, values: dict) -> None:
         """Persist the resource ceilings. They take effect on the next run.
@@ -563,11 +787,35 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentIndex(index)
 
     def _tab_changed(self, index: int) -> None:
+        """Refresh what the tab shows, then put the cursor where typing goes.
+
+        **Every tab, not one.** Files focused its filter and Search and Mail did
+        not, so switching to the tab whose entire purpose is a text box left the
+        person reaching for the mouse to click into it. The rule is the same one
+        `protect_all` follows: do it once for every view rather than per page,
+        so the one somebody forgets is not the one that matters - and a tab
+        added later gets it without anybody remembering.
+
+        Asked for by capability rather than by name: a view that has nowhere to
+        type has no `focus`, and Settings deliberately does not steal it.
+        """
         if index == self._tab_index.get(self.indexing_view):
             self.indexing_view.refresh_totals(self._store, self._settings)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
-            self.files_view.focus()
+        elif index == self._tab_index.get(self.code_view):
+            # On the way in rather than on a timer: repositories change when an
+            # index run finds one, which is rare and never while somebody is
+            # looking at this tab.
+            self.code_view.refresh()
+
+        # By index rather than by widget: a view inside a scroll area is not the
+        # tab's widget, which is the same trap `_show` exists to avoid.
+        for view in (self.search_view, self.files_view, self.mail_view,
+                     self.code_view):
+            if self._tab_index.get(view) == index:
+                view.focus()
+                break
 
 
     def _focus_search(self) -> None:
@@ -609,8 +857,17 @@ class MainWindow(QMainWindow):
 
         The click now returns immediately and the error, if any, arrives later.
         """
+        self._open_path(row.path, reveal=reveal)
+
+    def _open_path(self, path: str, *, reveal: bool = False) -> None:
+        """The same, for a caller that has a path rather than a result row.
+
+        The Code tree hands up a path: its rows are repositories and files, not
+        search results, and giving it a fake row to satisfy an attribute lookup
+        would be the wrong way round.
+        """
         worker = CallableWorker(
-            open_in_explorer, row.path, select=reveal, component="ui.open")
+            open_in_explorer, path, select=reveal, component="ui.open")
         # `open_in_explorer` returns an AppError rather than raising, so the
         # result - not the failure signal - is what carries a problem.
         worker.signals.finished.connect(
@@ -747,6 +1004,29 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Searching inside {name} - type what you are looking for.", 8_000)
 
+    def _search_repo(self, name: str) -> None:
+        """Found the repository; now find what is in it.
+
+        **The filter stays visible and editable.** It is put in the box rather
+        than applied as hidden state, for the same reason an interpreted query
+        is shown: invisible narrowing makes search unpredictable, and somebody
+        who can see `repo:"leasha"` can delete it or type another. That is the
+        feature, not a leak.
+
+        The name is quoted because repository folders contain spaces more often
+        than anybody would like, and an unquoted value ends at the first one -
+        matching a different repository, or none, with nothing on screen to
+        explain why.
+        """
+        if not name:
+            return
+        self._show(self.search_view)
+        self.search_view.set_scope("code")
+        self.search_view.input.setText(f'repo:"{name}" ')
+        self.search_view.input.setFocus()
+        self.statusBar().showMessage(
+            f"Searching {name} - type what you are looking for.", 8_000)
+
     def _reset_index(self) -> None:
         """Delete everything indexed, after asking, and never the documents.
 
@@ -878,7 +1158,8 @@ class MainWindow(QMainWindow):
         # engine and a store that were being shut. Cancelling first turns a race
         # into an ordinary stop - the same reasoning as asking the index run to
         # stop rather than closing over it.
-        for view in (self.search_view, self.files_view, self.mail_view):
+        for view in (self.search_view, self.files_view, self.mail_view,
+                     self.code_view):
             try:
                 view.shutdown()
             except Exception:                        # noqa: BLE001
@@ -920,7 +1201,15 @@ class MainWindow(QMainWindow):
         deadline = QDeadlineTimer(self.SHUTDOWN_GRACE_MS)
         while pool.activeThreadCount() and not deadline.hasExpired():
             pool.waitForDone(50)
-            QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 10)
+            # **User input excluded.** Pumping *all* events here re-enters the
+            # loop while the window is closing, so a keystroke or a click landing
+            # in that window starts a fresh search against a store that is about
+            # to be shut - the very race `shutdown()` was just called to end.
+            # Paint and timer events are what keep the window alive while the
+            # pool empties; input is not, and there is nothing useful left to do
+            # with it.
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10)
 
         remaining = pool.activeThreadCount()
         if remaining:
