@@ -120,6 +120,32 @@ STOP_SEQUENCES = ["\n"]
 #: against a model that decides to explain itself at length.
 MAX_OUTPUT_CHARS = 400
 
+#: Extensions a `type:` filter may resolve to.
+#:
+#: Built from the same two places the rest of the application uses - the query
+#: parser's groups and the extractor registry - so a format added anywhere
+#: becomes acceptable here without a second list to remember. A hand-kept copy
+#: would drift, and the failure would be a *correct* query rejected.
+def _real_extensions() -> frozenset[str]:
+    from app.search.query import _EXT_GROUPS
+
+    known = {ext for group in _EXT_GROUPS.values() for ext in group}
+    known |= set(_EXT_GROUPS)
+    try:
+        from app.core.formats import DEFAULT_RULES
+
+        known |= {str(ext).lower().lstrip(".") for ext in DEFAULT_RULES}
+    except Exception:                            # noqa: BLE001 - optional
+        pass
+    # The common ones, in case neither source is importable in a cut-down build.
+    known |= {"pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "txt", "md",
+              "csv", "rtf", "odt", "ods", "odp", "html", "htm", "json", "xml",
+              "msg", "eml", "pst", "png", "jpg", "jpeg", "tif", "tiff"}
+    return frozenset(known)
+
+
+_REAL_EXTENSIONS = _real_extensions()
+
 #: The shortest an operator-free answer is allowed to be before the "translation
 #: compresses" rule applies. A few words of pure keywords is a perfectly good
 #: translation of a long sentence, so the rule only bites above this.
@@ -286,6 +312,16 @@ def _rejects(query: str, sentence: str = "") -> Optional[str]:
 
     if parsed.unknown_operators:
         return f"the parser rejected: {', '.join(parsed.unknown_operators)}"
+
+    # **Values, not just operator names.** `type:project` is syntactically
+    # perfect and semantically nonsense - no file has that extension - and it
+    # parsed happily into `ext=('project',)`, producing a search that matched
+    # nothing while looking entirely deliberate. Checking the name of an
+    # operator and not its value is checking half of it.
+    unreal = [ext for ext in parsed.ext if ext not in _REAL_EXTENSIONS]
+    if unreal:
+        return (f"the model asked for file types that do not exist: "
+                f"{', '.join(sorted(unreal))}")
     if not (parsed.has_text or parsed.has_filters):
         return "the translated query is empty"
 

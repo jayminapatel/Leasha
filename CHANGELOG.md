@@ -1,12 +1,58 @@
 # Changelog
 
-**Doc version:** 3.20 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
+**Doc version:** 3.21 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the model invented a file type, and I had removed the list
+
+`a petrorabigh schedule project file` became `type:project schedule from:petro
+project`. `project` is not a file extension; the parser accepted it as one,
+`ext=('project',)` matched nothing, and the query looked entirely deliberate
+while returning nonsense.
+
+**My regression.** Shortening the prompt two commits ago, I dropped every value
+hint — including the list of valid `type:` values. The model had no way to know
+what a file type is, so it guessed. `type:` and `has:` take one of a fixed set
+and are now spelled out in full; the open-ended operators still are not, because
+listing examples for `from:` costs tokens and teaches nothing.
+
+**And the validator checked half of what it should.** `_rejects` verified that
+every operator *name* exists and never looked at the values. It now rejects a
+`type:` that resolves to an extension nothing could have, built from the parser's
+own groups and the extractor registry so a new format is accepted without a
+second list to keep in step.
+
+### Fixed — opening a result was slow because it ran on the UI thread
+
+`explorer /select,` takes a few hundred milliseconds just to start, and the
+`exists()` check before it is a stat that can block for seconds on a network
+share or a sleeping drive. Both ran inline, so the window froze through a launch
+that is nearly free once it is off the critical path. The click returns
+immediately now.
+
+**The guard test from the last commit should have caught this and did not** — it
+banned `subprocess.run` and never named `Popen` or `os.startfile`. A guard that
+lists only the obvious blocking call has a gap the shape of the next bug. All
+four are named now.
+
+### Fixed — indexing had its own worker but not its own thread
+
+It used `QThreadPool.globalInstance()`, the pool every search, filename lookup,
+mail filter and environment check also uses — roughly one thread per core. An
+index run holds a slot for *hours*, so on a four-core machine a quarter of the
+interactive capacity was gone for the duration and a burst of typing could queue
+behind it.
+
+The work was always off the UI thread. It was competing with the work that has
+somebody waiting on it, which is the difference between running in the
+background and running in the background *and you can tell*. Indexing now has a
+dedicated single-thread pool and can never starve a keystroke.
+
 
 ### Fixed — Tab now picks a `/` command
 

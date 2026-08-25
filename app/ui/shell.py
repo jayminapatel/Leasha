@@ -599,9 +599,24 @@ class MainWindow(QMainWindow):
     # -- actions ------------------------------------------------------------
 
     def _open_result(self, row: Any, *, reveal: bool = False) -> None:
-        error = open_in_explorer(row.path, select=reveal)
-        if error is not None:
-            self._show_error(error)
+        """Open the file, or reveal it, without waiting for Explorer.
+
+        **This was the "too slow" report.** `explorer /select,` takes a few
+        hundred milliseconds just to start, and the `exists()` check before it
+        is a stat that can block for seconds on a network share or a sleeping
+        drive - and both ran on the UI thread, so the window sat frozen through
+        a launch that is nearly free once it is off the critical path.
+
+        The click now returns immediately and the error, if any, arrives later.
+        """
+        worker = CallableWorker(
+            open_in_explorer, row.path, select=reveal, component="ui.open")
+        # `open_in_explorer` returns an AppError rather than raising, so the
+        # result - not the failure signal - is what carries a problem.
+        worker.signals.finished.connect(
+            lambda error: self._show_error(error) if error is not None else None)
+        worker.signals.failed.connect(self._show_error)
+        run(QThreadPool.globalInstance(), worker)
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)

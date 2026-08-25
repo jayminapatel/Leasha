@@ -64,7 +64,23 @@ class IndexingView(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._pool = QThreadPool.globalInstance()
+        # **Its own pool, with one thread.**
+        #
+        # This used `QThreadPool.globalInstance()`, which every search, filename
+        # lookup, mail filter and environment check also uses. That pool has
+        # roughly one thread per core, and an index run holds a slot for *hours*
+        # - so on a four-core machine a quarter of the interactive capacity is
+        # gone for the duration, and a burst of typing can queue behind it.
+        #
+        # The work was always on a worker; it was competing with the work that
+        # has somebody waiting on it. A dedicated pool means indexing can never
+        # starve a keystroke, which is what "runs in the background" has to mean
+        # if it is to mean anything.
+        #
+        # One thread because the pipeline manages its own file workers
+        # internally, governed by the memory and CPU ceilings in Settings.
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
         self._worker: Optional[IndexWorker] = None
         self._refreshing = False
         #: True between clicking Stop and the run ending. Stopping can take a

@@ -263,9 +263,32 @@ def grammar_for_model() -> str:
     # characters - most of it explanation the model does not need, and all of it
     # paid for on every single translation. The examples below teach the format
     # far better than prose does, and they cost a fraction of the tokens.
+    from app.search.query import _EXT_GROUPS
+
+    # **Closed sets are spelled out; open ones are not.**
+    #
+    # Shortening this prompt, I dropped every value hint - and the model
+    # immediately produced `type:project` for "a project schedule file".
+    # `project` is not a file extension, the parser accepted it as one, and the
+    # search then matched nothing while looking entirely deliberate.
+    #
+    # `type:` and `has:` take one of a fixed list. A model cannot guess a closed
+    # set and must not be asked to. `from:`, `subject:` and the rest take
+    # arbitrary text, where listing examples costs tokens and teaches nothing.
+    types = sorted({*_EXT_GROUPS, "pdf", "docx", "xlsx", "pptx", "txt", "md", "csv"})
+    closed = {
+        "type": ", ".join(types),
+        "has": "attachment, no-attachment",
+    }
+
     lines = ["Operators (use only these):"]
     for command in COMMANDS:
-        lines.append(f"  {command.name}:<value>  {command.summary}")
+        allowed = closed.get(command.name)
+        if allowed:
+            lines.append(f"  {command.name}:<value>  {command.summary}. "
+                         f"ONLY one of: {allowed}")
+        else:
+            lines.append(f"  {command.name}:<value>  {command.summary}")
     lines += [
         '  "quoted phrase"  exact order',
         "  -word  exclude it",

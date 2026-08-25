@@ -238,6 +238,12 @@ def open_in_explorer(path: str, *, select: bool = True) -> Optional[AppError]:
 
     Windows only in the useful sense; falls back to a plain open elsewhere so
     development on another platform is not blocked.
+
+    **Never call this on the UI thread.** `explorer /select,` takes a few
+    hundred milliseconds to start, and `target.exists()` is a stat that can
+    block for seconds on a network share or a drive that has spun down. Both
+    were happening inline, which is why opening a result felt slow when the
+    work itself is nearly free - see `MainWindow._open_result`.
     """
     import subprocess
     import sys
