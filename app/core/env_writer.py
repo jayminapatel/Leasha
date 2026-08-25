@@ -48,6 +48,15 @@ def render(existing: str, values: Mapping[str, object]) -> str:
     Keys already present are edited where they sit, so a hand-ordered file keeps
     its order and its comments. Keys not present are appended under a marked
     section, so it is obvious which lines the application added.
+
+    **A value of `None` removes the key**, which is the only way to say "use
+    whatever the code decides". Without it a key, once written, was pinned for
+    ever: `.env` always beats the default in `config.py`, so an improved
+    default could never reach anyone whose file mentioned that key. The
+    installer wrote `RERANK_MODEL=BAAI/bge-reranker-base` into every install
+    and froze all of them on a model measured 9.2x slower than the one the code
+    had chosen - and there was no operation, in the UI or anywhere else, that
+    could undo it. Removal is that operation.
     """
     lines = existing.splitlines()
     remaining = dict(values)
@@ -60,9 +69,15 @@ def render(existing: str, values: Mapping[str, object]) -> str:
             continue
         key, _ = pair
         if key in remaining:
-            out.append(f"{key}={_format(remaining.pop(key))}")
+            value = remaining.pop(key)
+            if value is None:
+                continue           # drop the line: fall back to the default
+            out.append(f"{key}={_format(value)}")
         else:
             out.append(line)
+
+    # Removing a key that is not there is not an error, and must not append it.
+    remaining = {key: value for key, value in remaining.items() if value is not None}
 
     if remaining:
         if out and out[-1].strip():
@@ -87,6 +102,9 @@ def _format(value: object) -> str:
 
 def write_env(path: Path, values: Mapping[str, object]) -> Path:
     """Apply `values` to the `.env` at `path`, atomically. Returns the path.
+
+    A value of `None` removes that key, so the default in `config.py` applies
+    again. See `render`.
 
     A missing file is created. Failure raises `ERR_CONFIG_INVALID` naming the
     path, never a bare `OSError` - a settings screen that dies with a traceback

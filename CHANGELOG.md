@@ -8,6 +8,39 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Changed — the model settings are lists with their cost on them, not text boxes
+
+A free-text field for a model name asks somebody to know an exact HuggingFace
+identifier, and says nothing when they get it wrong: the next start fails to
+download it, by which time they have forgotten what they typed.
+
+**The concrete case was expensive.** `config.py` records a `rerank-bench` run on
+this machine — `ms-marco-MiniLM-L-6-v2` at 22ms per result against
+`bge-reranker-base` at 203ms, nine times slower for an ordering measured as
+equivalent at rank 1 — and the default was changed on those numbers. But the
+`.env` written by an earlier install still pinned the slow one, so the
+measurement never reached the machine it was taken on. A search spending 10.7 of
+its 11.8 seconds in rerank looked normal.
+
+Both model settings are editable combo boxes now, each entry carrying what it
+costs: milliseconds per result for the rerankers, dimensions and size for the
+embedding models — because `EMBED_DIM` has to match, and a mismatch is refused
+by the vector store with an error naming a setting nobody typed. Editable, so an
+identifier nobody listed still works.
+
+`test_accessible_names.py` gained the rule: a setting whose value is one of a
+known set may not be a plain text box.
+
+### Fixed — switching tabs left the cursor nowhere
+
+Files focused its filter on arrival; Search and Mail did not — so switching to
+the tab whose entire purpose is a text box left somebody reaching for the mouse
+to click into it.
+
+Now every tab with somewhere to type focuses it, asked for by capability rather
+than by name, so a tab added later gets it without anybody remembering. Settings
+deliberately does not, having nothing to type into first.
+
 ### Fixed — a click on a result was never recorded, for the life of the feature
 
 Not in the review; found by reading beside it. `record_open(engine, search_id,
@@ -276,6 +309,32 @@ wrong: pragmas set on the first connection but not the next (`foreign_keys` is
 per-connection, and the cascade deletes that keep chunks with their file depend
 on it), a worker that never called `connect()`, a closed store quietly
 reopening itself, and migrations running once however many threads arrive.
+
+### Added — `.env` keys can be removed, so a default can reach an existing install
+
+`env_writer.render` could only ever *set* a key. There was no operation, in the
+UI or anywhere else, that removed one — and since `.env` always beats the
+default in `config.py`, **a key written once was pinned for ever**.
+
+That is the general form of the reranker bug below rather than a separate
+problem. The installer pinning `RERANK_MODEL` was one way in; the moment
+anybody changes a setting in the UI, that value is frozen the same way and no
+improved default can ever reach them again.
+
+A value of `None` now removes the key. Removing one that is absent does
+nothing, rather than appending `RERANK_MODEL=None` and pinning the key to a
+model that does not exist.
+
+Five tests, including one end-to-end through `load_settings`: a pinned value,
+removed, and the declared default in effect again. It asserts against
+`Settings.model_fields["rerank_model"].default` rather than a model name, so it
+keeps passing the next time that default changes on a measurement — which is
+the thing it exists to protect.
+
+**The owner's `.env` was fixed with this**, not by hand. `env_writer.py` opens
+with *"Non-negotiable 11: `.env` is written by the application, never by the
+user"*, and the previous note here asking them to delete line 13 was in direct
+breach of it. One line removed, the other nineteen byte-identical.
 
 ### Fixed — the installer pinned the slow reranker into every `.env`
 
