@@ -57,6 +57,7 @@ __all__ = [
     "when_text",
     "doctor_report",
     "doctor_lines",
+    "install_package",
     "search_shape",
     "status_line",
     "results_message",
@@ -1312,6 +1313,49 @@ def doctor_report(timeout_s: int = DOCTOR_TIMEOUT_S) -> dict:
                 r"venv\Scripts\python.exe doctor.py"
             ),
         )) from None
+
+
+def install_package(package: str, version: str = "", timeout_s: int = 600) -> dict:
+    """pip install into this venv. **Blocking - call it from a worker.**
+
+    Lives here rather than in the wizard that wants it, because this module is
+    the one allowed to block: `test_ui_never_blocks` skips it by name and
+    enforces the guarantee at the call site instead. A pip install can take a
+    minute on a cold cache, which on the UI thread is a white window.
+
+    Never raises. The result says what happened and, on failure, the exact
+    command to run by hand - an install that fails quietly leaves a reader that
+    can never work and nobody knowing why.
+    """
+    import subprocess
+
+    target = f"{package}=={version}" if version else package
+    fix = f"venv\\Scripts\\pip install {target}"
+
+    try:
+        finished = subprocess.run(
+            [sys.executable, "-m", "pip", "install", target],
+            capture_output=True, text=True, timeout=timeout_s, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "package": target,
+                "detail": f"pip did not finish within {timeout_s}s",
+                "fix": fix}
+    except Exception as exc:                     # noqa: BLE001 - boundary
+        return {"ok": False, "package": target,
+                "detail": f"{type(exc).__name__}: {exc}", "fix": fix}
+
+    if finished.returncode == 0:
+        return {"ok": True, "package": target, "detail": "", "fix": ""}
+
+    output = (finished.stderr or finished.stdout or "").strip().splitlines()
+    return {
+        "ok": False,
+        "package": target,
+        # The last few lines carry the reason; the rest is resolver noise.
+        "detail": " ".join(output[-3:]) if output else f"pip exited {finished.returncode}",
+        "fix": fix,
+    }
 
 
 def doctor_lines(report: Mapping[str, Any]) -> list[str]:
