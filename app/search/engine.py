@@ -295,7 +295,7 @@ class SearchEngine:
         if want_rerank and fused:
             mark = time.perf_counter()
             before = [hit["chunk_id"] for hit in fused]
-            fused = self.reranker.rerank(parsed.embed_text or raw, fused)
+            fused = self.reranker.rerank(parsed.embed_text or raw, fused, terms=parsed.terms)
             reranked = [hit["chunk_id"] for hit in fused] != before or any(
                 "rerank_score" in hit for hit in fused
             )

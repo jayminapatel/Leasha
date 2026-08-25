@@ -1495,6 +1495,61 @@ def cmd_ollama(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_rerank_bench(args: argparse.Namespace) -> int:
+    """What reranking costs, per model, on this machine.
+
+    Reranking was 8.3 seconds of a 9-second search - 93% of it, against a spec
+    budget of 300ms warm. The default model is 1.04GB; the smallest usable one
+    is 0.08GB. This measures the difference rather than asserting it, because
+    four throughput claims in this project have already been wrong and every one
+    was a number quoted without its conditions.
+    """
+    from app.search.rerank_bench import measure
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    models = [args.model] if getattr(args, "model", None) else []
+    print("Timing a full rerank. The first run of each model downloads it.")
+    print()
+
+    with SqliteStore(settings.fts_db) as store:
+        result = measure(
+            store, models=models, count=args.count,
+            window_chars=args.window, cache_dir=str(settings.model_cache),
+            passes=args.passes,
+        )
+
+    if args.json:
+        print(json.dumps(result.as_dict(), indent=2))
+        return EXIT_OK
+
+    print(f"{result.count} candidates  ·  passages cut to {result.window_chars} "
+          f"chars (mean chunk is {result.mean_passage_chars})")
+    print()
+    print(f"{'model':38} {'size':>8} {'per search':>11} {'per passage':>12}  load")
+    print("-" * 82)
+    for timing in result.timings:
+        if timing.error:
+            print(f"{timing.name:38} {timing.size:>8}   {timing.error}")
+            continue
+        per_passage = timing.median_s / max(1, result.count) * 1000
+        flag = "  UNSTABLE" if timing.unstable else ""
+        print(f"{timing.name:38} {timing.size:>8} {timing.median_s:>10.2f}s "
+              f"{per_passage:>11.0f}ms  {timing.load_s:.1f}s{flag}")
+
+    usable = [t for t in result.timings if t.passes]
+    if usable:
+        best = min(usable, key=lambda t: t.median_s)
+        print()
+        print(f"Fastest here: {best.name} at {best.median_s:.2f}s per search.")
+        print(f"Set it with:  RERANK_MODEL={best.name}   in your .env")
+        print()
+        print("Speed is only half the question. `leasha evaluate --builtin` measures")
+        print("whether the ordering is still good enough on your own corpus.")
+    return EXIT_OK
+
+
 def cmd_formats(args: argparse.Namespace) -> int:
     """What gets indexed, what reads it, and what is switched off.
 
@@ -1820,6 +1875,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to allow the model for --translate (default: %(default)s)"
              % {"default": "30"})
     p_ollama.set_defaults(func=cmd_ollama)
+
+    p_rerank = sub.add_parser(
+        "rerank-bench", parents=[common],
+        help="time reranking per model - it was 93% of one 9-second search")
+    p_rerank.add_argument("--model", help="time only this one")
+    p_rerank.add_argument("--count", type=int, default=30,
+                          help="candidates to score (default: %(default)s)")
+    p_rerank.add_argument("--window", type=int, default=600,
+                          help="characters per passage (default: %(default)s)")
+    p_rerank.add_argument("--passes", type=int, default=3,
+                          help="runs per model, for the spread (default: %(default)s)")
+    p_rerank.set_defaults(func=cmd_rerank_bench)
 
     p_formats = sub.add_parser(
         "formats", parents=[common],

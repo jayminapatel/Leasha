@@ -149,7 +149,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                          cache_dir=str(settings.model_cache)),
                 reranker=Reranker(settings.rerank_model,
                                   cache_dir=str(settings.model_cache),
-                                  enabled=settings.rerank_enabled),
+                                  enabled=settings.rerank_enabled,
+                                  top_n=settings.rerank_top_n,
+                                  window_chars=settings.rerank_window_chars),
             )
             window = MainWindow(settings, store, vectors, engine, debug=debug)
             window.show()

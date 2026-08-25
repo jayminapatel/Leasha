@@ -107,6 +107,10 @@ class Settings(BaseModel):
     embed_dim: int = 384
     rerank_model: str = "BAAI/bge-reranker-base"
     rerank_enabled: bool = True
+    #: Candidates scored, and characters of each shown to the cross-encoder.
+    #: Both multiply into the rerank time, which was 93% of one 9-second search.
+    rerank_top_n: int = 30
+    rerank_window_chars: int = 600
 
     # --- optional Ollama ----------------------------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
@@ -226,6 +230,8 @@ def load_settings(
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
             rerank_model=values.get("RERANK_MODEL") or "BAAI/bge-reranker-base",
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
+            rerank_top_n=int(values.get("RERANK_TOP_N") or 30),
+            rerank_window_chars=int(values.get("RERANK_WINDOW_CHARS") or 600),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),

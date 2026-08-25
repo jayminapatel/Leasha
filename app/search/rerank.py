@@ -27,11 +27,17 @@ import threading
 from typing import Any, Callable, Optional, Sequence
 
 from app.core.logging import logger
+from app.search.window import RERANK_WINDOW_CHARS, windows_for
 
-__all__ = ["Reranker", "RERANK_TOP_N"]
+__all__ = ["Reranker", "RERANK_TOP_N", "RERANK_WINDOW_CHARS"]
 
 #: Candidates reordered. Beyond this the latency cost outgrows the benefit:
 #: anything below rank 30 after fusion is rarely the answer.
+#:
+#: **Measured, and it was costing 8.3 of a 9-second search.** Thirty passages
+#: through a 278M-parameter cross-encoder is 278ms *each* on a CPU. The count is
+#: not the main lever - the model and the passage length are - but it multiplies
+#: both, so it is settable rather than fixed.
 RERANK_TOP_N = 30
 
 _log = logger.bind(component="search.rerank")
@@ -55,11 +61,13 @@ class Reranker:
         top_n: int = RERANK_TOP_N,
         enabled: bool = True,
         scorer: Optional[Scorer] = None,
+        window_chars: int = RERANK_WINDOW_CHARS,
     ) -> None:
         self.model_name = model_name
         self.cache_dir = cache_dir
         self.top_n = top_n
         self.enabled = enabled
+        self.window_chars = int(window_chars)
         self._scorer = scorer
         self._lock = threading.Lock()
         self._unavailable = False       # tried once, failed; do not try again this session
@@ -117,6 +125,7 @@ class Reranker:
         hits: Sequence[dict[str, Any]],
         *,
         text_key: str = "text",
+        terms: Optional[Sequence[str]] = None,
     ) -> list[dict[str, Any]]:
         """Reorder the top `top_n` hits. Returns every hit, always.
 
@@ -133,7 +142,17 @@ class Reranker:
             return results
 
         head, tail = results[: self.top_n], results[self.top_n :]
-        passages = [str(hit.get(text_key, "")) for hit in head]
+
+        # **Only the part worth scoring.** A cross-encoder's cost is at best
+        # linear in passage length and usually worse, and it was being handed
+        # whole chunks - a mean of 1,070 characters, a maximum of 2,734 - to
+        # reach a verdict the sentence around the match already supports. See
+        # `window.py`; the cut is centred on the densest run of query terms.
+        passages = windows_for(
+            (str(hit.get(text_key, "")) for hit in head),
+            list(terms or ()) or query.split(),
+            width=self.window_chars,
+        )
 
         try:
             scores = list(scorer(query, passages))
