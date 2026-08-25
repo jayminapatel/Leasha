@@ -894,6 +894,15 @@ def file_summary(total: int, shown: int = -1, text: str = "") -> str:
     typing the right thing at the right moment.
     """
     if shown >= 0:
+        # **An empty box is browsing, not a search that found nothing.**
+        # It used to read "7 file names contain ''", which is both wrong and
+        # faintly alarming - the list is now filled on open, so this is the
+        # sentence somebody sees first.
+        if not str(text or "").strip():
+            if not shown:
+                return "No files indexed yet — run an index first."
+            return (f"{shown:,} file{'s' if shown != 1 else ''}, most recently "
+                    f"changed first — type to filter")
         if not shown:
             return f"No file name contains '{text}'."
         return f"{shown:,} file name{'s' if shown != 1 else ''} contain '{text}'"

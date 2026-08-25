@@ -159,6 +159,11 @@ class FilesView(QWidget):
 
         self._apply_prefs()
         self.refresh_summary()
+        # **Filled on open, not on the first keystroke.** A blank table cannot
+        # be browsed and is indistinguishable from an empty index - which is the
+        # complaint this answers: *"at startup the code window has a list others
+        # dont"*. The query is the same one typing runs, with an empty name.
+        self._run()
 
     # -- how it looks ----------------------------------------------------------
 
@@ -218,11 +223,14 @@ class FilesView(QWidget):
         #
         # A filter on its own is also a complete request: `/type pdf` means
         # "every PDF", and demanding characters of name as well would refuse it.
-        if not text and not ext:
-            self.results.setRowCount(0)
-            self.refresh_summary()
-            return
-        if len(text) < MIN_NAME_CHARS and not ext:
+        # **An empty box lists everything, newest first.** It used to blank the
+        # table, which cannot be browsed, shows nothing of what is in the index,
+        # and looks exactly like an index that is empty. Asked for: *"initially
+        # should display everything and it filters as you type"*. The store
+        # reads an empty name as "everything" - see `search_files_by_name` - so
+        # this falls through to the same query the rest of the tab uses rather
+        # than becoming a second path that can drift from it.
+        if len(text) < MIN_NAME_CHARS and text and not ext:
             # Too short to be meaningful - one character matches nearly every
             # file - but the previous results stay on screen rather than the
             # table going blank mid-word.

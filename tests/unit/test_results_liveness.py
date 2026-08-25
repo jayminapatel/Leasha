@@ -29,17 +29,22 @@ def source(name: str) -> str:
     return (UI / name).read_text(encoding="utf-8")
 
 
-def test_files_clears_only_when_the_box_is_empty():
-    """An empty box is a real request to show nothing. One character on the way
-    to a word is not."""
+def test_files_never_clears_itself():
+    r"""**An empty box lists everything now**, so nothing blanks the table.
+
+    It used to be a request to show nothing, which was defensible while the tab
+    opened empty. It no longer does - asked for as *"initially should display
+    everything and it filters as you type"* - so the empty case is the browse
+    case and `setRowCount(0)` has no caller left in `_run`.
+    """
     body = source("files_view.py").split("def _run")[1].split("\n    def ")[0]
-    assert "if not text and not ext:" in body
+    assert "setRowCount(0)" not in body
 
 
 def test_files_keeps_its_rows_while_a_query_is_too_short():
     """It says what it is waiting for and leaves the previous rows alone."""
     body = source("files_view.py").split("def _run")[1].split("\n    def ")[0]
-    short = body.split("MIN_NAME_CHARS and not ext")[1]
+    short = body.split("MIN_NAME_CHARS and text and not ext")[1]
     assert "setRowCount(0)" not in short.split("return")[0]
 
 

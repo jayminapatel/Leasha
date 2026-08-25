@@ -166,6 +166,11 @@ class MailView(QWidget):
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)
         self._apply_prefs()
+        # **The list exists on open.** `refresh()` was only reached after an
+        # index run, so the tab opened empty and stayed empty until somebody
+        # typed - with no filters this is the newest few hundred messages,
+        # which is what a mail list should show.
+        self.refresh()
 
     def shutdown(self) -> None:
         """Stop the debounce timers - see `workers.stop_timers`."""

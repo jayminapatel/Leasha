@@ -361,6 +361,29 @@ def load_preview_for(row: Any, *, body_provider: Any = None) -> Preview:
             _log.debug("no body for the selected row: {}", exc)
             body = ""
 
+    # **A message with no stored text says so.** Reported as "mails are not
+    # previewing", and the pane could not tell anybody why: a message has no
+    # file of its own, so with no body it fell through to `load_preview` with a
+    # synthetic path, which reported the *path* as missing - true, useless, and
+    # not the reason. The reason is that this message has no rows in `chunks`:
+    # indexed before bodies were stored, or skipped, or an empty message.
+    #
+    # Checked on `file_id` rather than on the path, because that is what makes
+    # a row a message rather than a file.
+    if not body and getattr(row, "file_id", None) and body_provider is not None:
+        return Preview(
+            kind=KIND_NONE,
+            path=str(getattr(row, "path", "") or ""),
+            title=str(getattr(row, "name", "") or "This message"),
+            body=(
+                "No text was stored for this message, so there is nothing to "
+                "preview.\n\nA message is previewed from the text extracted when "
+                "it was indexed - it has no file of its own to re-read. This "
+                "usually means it was indexed before message bodies were kept, "
+                "or the message is empty.\n\nRe-indexing the archive fills it in."
+            ),
+        )
+
     # **`full_path` first.** A Code row's `path` is shortened for its column and
     # cannot be opened - `full_path` is the real one. Reading `path` blindly
     # previewed every repository file as ERR_FILE_MISSING, which is a plausible

@@ -144,6 +144,24 @@ class PreviewPane(QWidget):
         self.card.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.card.setAccessibleName("File details")
 
+        # **Every word in the pane can be selected and copied.** Asked for:
+        # *"in the preview pane you should be able to select and copy"*.
+        #
+        # `QTextBrowser` already allowed it; the four `QLabel`s did not, and a
+        # label is where the title, the file details and the "why this is not
+        # showing" sentence live. A pane you can read but not copy from is the
+        # wrong half of a preview - the usual reason to look at one is to take
+        # a name, a path or a line out of it.
+        #
+        # Mouse *and* keyboard: the second is what makes Ctrl+C work without a
+        # drag, and this application's specification requires keyboard-only
+        # operation end to end.
+        selectable = (Qt.TextInteractionFlag.TextSelectableByMouse
+                      | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        for label in (self.title, self.subtitle, self.notice, self.card):
+            label.setTextInteractionFlags(selectable)
+            label.setCursor(Qt.CursorShape.IBeamCursor)
+
         self.stack = QStackedWidget()
         for widget in (self.text, self.image, self.card):
             self.stack.addWidget(widget)

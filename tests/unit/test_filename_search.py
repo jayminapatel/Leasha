@@ -103,10 +103,25 @@ def test_the_archive_itself_is_still_findable(store):
 
 def test_a_query_of_one_character_returns_nothing(store):
     """It would match nearly everything, and a hundred arbitrary rows is worse
-    than an empty list."""
+    than an empty list - they would have no relation to what was typed, which
+    looks like a search that worked."""
     assert names(store, "a") == []
-    assert names(store, "") == []
-    assert names(store, "   ") == []
+
+
+def test_an_empty_query_means_everything(store):
+    r"""**Changed by request**: *"initially should display everything and it
+    filters as you type"*.
+
+    An empty box is not a search that found nothing - it is browsing, and it is
+    what the Files tab now opens with. A list that is blank until you type
+    cannot be browsed, shows nothing of what is in the index, and is
+    indistinguishable from an index that is empty.
+
+    One or two characters is still nothing, above: that case has a query and no
+    honest answer to it, which is not the same thing at all.
+    """
+    assert names(store, "") != []
+    assert names(store, "   ") != [], "whitespace is an empty box, not a query"
 
 
 def test_fts_operators_typed_by_accident_cannot_crash_it(store):

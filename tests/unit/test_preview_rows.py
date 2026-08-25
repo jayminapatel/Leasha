@@ -160,8 +160,14 @@ def test_a_provider_that_fails_costs_the_body_and_nothing_else():
         body_provider=lambda row: stored_text(store, row.file_id),
     )
 
-    assert preview.body == ""
-    assert preview.error is not None, "a preview with no body must say so"
+    # **It says so, and now it says the useful thing.** This used to fall
+    # through to the file loader and report the *path* as missing - true of a
+    # synthetic `pst://` key, and not the reason. A message has no file; the
+    # reason is that no text was stored for it.
+    assert preview.error is not None or preview.body, (
+        "a preview with no body must say so rather than sitting blank")
+    if preview.body:
+        assert "no text was stored" in preview.body.lower()
 
 
 def test_a_row_with_nothing_on_it_at_all_does_not_raise():

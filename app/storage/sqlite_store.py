@@ -717,18 +717,30 @@ class SqliteStore:
             # **A filter on its own is a complete request.** `/type pdf` means
             # "every PDF", and refusing it for want of two characters of name
             # makes the dropdown look broken on the simplest thing it offers.
-            # Without any filter at all, though, one or two characters match
-            # nearly everything, and a hundred arbitrary rows is worse than an
-            # empty list.
-            if not ext:
+            #
+            # **And so is an empty box: it means "everything".** Asked for -
+            # *"initially should display everything and it filters as you
+            # type"*. A list that is blank until you type cannot be browsed,
+            # cannot show you what is in the index, and looks identical to an
+            # index that is empty. Newest first, which is the same order the
+            # mail list uses and for the same reason: it is what somebody
+            # scanning a list wants at the top.
+            #
+            # **One or two characters is still nothing**, and that is not the
+            # same case. Those match nearly every file, so answering them with
+            # a hundred arbitrary rows would show results that have no relation
+            # to what was typed - worse than showing none, because it looks
+            # like a search that worked.
+            if cleaned and not ext:
                 return []
-            wanted = [e.lower().lstrip(".") for e in ext]
+            wanted = [e.lower().lstrip(".") for e in (ext or ())]
+            clause = (f"AND ext IN ({','.join('?' * len(wanted))})"
+                      if wanted else "")
             return [dict(row) for row in self.conn.execute(
                 f"""SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
                            source_kind, 0.0 AS score
                     FROM files
-                    WHERE ext IN ({','.join('?' * len(wanted))})
-                      AND source_kind = 'file'
+                    WHERE source_kind = 'file' {clause}
                     ORDER BY mtime_ns DESC
                     LIMIT ?""",
                 [*wanted, max(1, int(limit))],
