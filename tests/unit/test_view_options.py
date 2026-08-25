@@ -376,3 +376,63 @@ def test_every_field_survives_a_change_to_any_other_field():
             assert getattr(updated, other.name) == changed[other.name], (
                 f"changing {field.name} lost {other.name}"
             )
+
+
+# --- the crash that stopped the window opening ------------------------------
+#
+# `MainWindow._apply_theme` sets a stylesheet on the top-level window. Qt
+# re-polishes every child, font metrics change, header sections resize, and
+# `sectionResized` fires from inside Qt's own layout. `remember_widths` saved
+# from there, saving calls `on_change`, and `on_change` re-applies the view -
+# re-entering a layout that had not finished. The process died in C++ during
+# `MainWindow.__init__`: no Python exception, no traceback, no run-log footer,
+# no window. Diagnosed only after enabling faulthandler, whose stack read
+# `__init__ -> _apply_theme -> resized`.
+#
+# `_apply_widths` guards the recursion it starts itself with the APPLYING flag.
+# It cannot guard this one, which arrives with the flag clear.
+
+
+def test_a_header_resize_is_never_saved_from_inside_the_signal():
+    """The save is deferred to the event loop, not run re-entrantly.
+
+    Asserted on the source rather than by driving Qt, because the failure is a
+    native crash: a test that reproduces it takes the runner down with it
+    instead of failing.
+    """
+    import inspect
+
+    from app.ui import view_options
+
+    body = inspect.getsource(view_options.remember_widths)
+    handler = body.split("def resized(")[1]
+
+    assert "singleShot" in handler, (
+        "remember_widths saves directly from sectionResized. That re-enters "
+        "Qt's layout and crashed the window during construction."
+    )
+    code = "\n".join(
+        line for line in handler.splitlines()
+        if not line.strip().startswith("#")
+    )
+    assert "button.remember_width(" not in code, (
+        "the signal handler still calls remember_width directly; deferring the "
+        "call is the whole fix"
+    )
+
+
+def test_the_deferred_save_survives_a_table_that_has_gone_away():
+    """A queued callback outlives the widget that queued it.
+
+    A tab closing between the resize and the next event-loop turn leaves the
+    C++ side deleted, and PyQt raises RuntimeError on touch. Saving a column
+    width is not worth a traceback.
+    """
+    import inspect
+
+    from app.ui import view_options
+
+    body = inspect.getsource(view_options.remember_widths)
+    record = body.split("def record(")[1].split("def resized(")[0]
+
+    assert "RuntimeError" in record

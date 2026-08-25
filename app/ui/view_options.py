@@ -558,6 +558,19 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         return
     order = [key for key, _heading in columns]
 
+    def record(index: int, new: int) -> None:
+        """The actual work, run from the event loop rather than inside Qt."""
+        try:
+            if table.property(APPLYING):
+                return
+            if 0 <= index < len(order) and new > 0:
+                button.remember_width(order[index], int(new))
+        except RuntimeError:
+            # The table's C++ side went away between the resize and this
+            # callback - a tab closing, or shutdown. Nothing to save, and
+            # nothing worth reporting.
+            return
+
     def resized(index: int, _old: int, new: int) -> None:
         # **Ours, or theirs?** `sectionResized` fires for both, and recording a
         # width we set ourselves feeds straight back into setting it again -
@@ -565,6 +578,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         if table.property(APPLYING):
             return
         from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtCore import QTimer
         from PyQt6.QtWidgets import QApplication
 
         # A second, weaker signal for the resizes Qt does on its own - a
@@ -572,8 +586,27 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         # mouse button; a drag does.
         if not (QApplication.mouseButtons() & _Qt.MouseButton.LeftButton):
             return
-        if 0 <= index < len(order) and new > 0:
-            button.remember_width(order[index], int(new))
+
+        # **Never save from inside the signal, and this one crashed the app.**
+        #
+        # `sectionResized` is emitted from the middle of Qt's own layout, and
+        # `remember_width` saves preferences, which calls `on_change`, which
+        # re-applies the whole view - re-entering the layout that is still
+        # running. `_apply_widths` guards its own recursion with the APPLYING
+        # flag, but that only covers resizes *it* starts. This one arrives from
+        # `MainWindow._apply_theme`: setting a stylesheet on the top-level
+        # window re-polishes every child, font metrics change, header sections
+        # resize, and this fires with the flag clear.
+        #
+        # The window then died in C++ during construction with no Python
+        # exception - no traceback, no run-log footer, nothing on screen. The
+        # crash stack, once faulthandler was enabled, was exactly
+        # `__init__ -> _apply_theme -> resized`.
+        #
+        # A zero-delay timer moves the save to the next turn of the event loop,
+        # when Qt has finished laying out and re-entering it is safe. The width
+        # is captured now, so a later drag cannot change what gets recorded.
+        QTimer.singleShot(0, lambda i=index, n=new: record(i, n))
 
     header.sectionResized.connect(resized)
 
