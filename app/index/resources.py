@@ -434,6 +434,13 @@ class ResourceGovernor:
         self._settles = 0
         self.paused_seconds = 0.0
         self.pauses = 0
+        #: Whether the run is waiting **right now**, and why.
+        #:
+        #: `paused_seconds` is a total and answers a different question. Only
+        #: this one can tell a window "we are stopped, here is the reason" -
+        #: without it a pause is a frozen progress bar with no explanation.
+        self.paused = False
+        self.pause_reason = ""
 
     def check(self, now: Optional[float] = None) -> Verdict:
         """One decision, with the busy-timer maintained across calls."""
@@ -495,9 +502,25 @@ class ResourceGovernor:
         while True:
             found = self.check()
             if found.action == "run" or found.action == "stop":
+                # **Cleared on every exit, including the stop path.** A flag
+                # left set makes the window say "paused" for ever after one
+                # pause, which is worse than never saying it.
+                self.paused = False
+                self.pause_reason = ""
                 return found
             if should_stop():
+                self.paused = False
+                self.pause_reason = ""
                 return Verdict("stop", "Stopped at your request.")
+
+            # **Live, not cumulative.** `paused_seconds` says how long the run
+            # has spent waiting in total; nothing said whether it is waiting
+            # *now*. So a governor pause froze the progress bar and its text
+            # with no explanation - six minutes of a real run looking
+            # indistinguishable from a hang, which is what "the progress bar was
+            # not working" meant.
+            self.paused = True
+            self.pause_reason = found.reason or "Waiting for resources."
 
             if found.cause == "memory":
                 rss = self._last_rss

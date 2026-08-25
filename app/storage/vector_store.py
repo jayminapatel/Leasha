@@ -142,9 +142,25 @@ class VectorStore:
     @property
     def db(self) -> Any:
         if self._db is None:
+            # **Two ways to get here, and the message used to name only one.**
+            #
+            # `_db` is None before `connect()` *and* after `close()`, and the
+            # second is by far the more common: a background worker outliving
+            # the window at shutdown. Saying "used before connect()" for a store
+            # that had been open for ten minutes sends the reader looking for a
+            # start-up bug that is not there.
+            #
+            # It also broke the shutdown filter in `ui/workers.py`, which
+            # matches on this text: SqliteStore says ", or after close()" and
+            # this did not, so an ordinary close printed "This is a bug" with a
+            # request to send the log. Closing a window is not a bug.
             raise AppErrorException(make_error(
                 "ERR_UNEXPECTED", "storage.vectors",
-                details="VectorStore used before connect().",
+                details="VectorStore used before connect(), or after close().",
+                suggestion=(
+                    "If this appeared while closing the window, a background "
+                    "search outlived the store and the message is harmless."
+                ),
             ))
         return self._db
 

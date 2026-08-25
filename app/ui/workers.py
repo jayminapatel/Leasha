@@ -48,7 +48,19 @@ _SHUTDOWN_CODES = frozenset({"ERR_SHUTTING_DOWN"})
 #: application's code can label them.
 _SHUTDOWN_DETAILS = (
     "cannot schedule new futures after shutdown",
-    "used before connect(), or after close()",
+    # **The short form, deliberately.** This matched the full sentence
+    # "used before connect(), or after close()", which SqliteStore's main guard
+    # says - but VectorStore said only "used before connect()." and SqliteStore
+    # has a second path that says the same. So a perfectly ordinary window close
+    # printed ERR_UNEXPECTED with "This is a bug... send the log file" and a
+    # traceback, which is exactly what this list exists to prevent.
+    #
+    # Matching the shorter fragment covers every variant, and there is no case
+    # where "used before connect()" in a detail line means something a person
+    # needs to act on: a genuine use-before-connect is a programming error that
+    # fails on the first run, in a test, not in the field.
+    "used before connect()",
+    "was closed while a worker was using it",
 )
 
 

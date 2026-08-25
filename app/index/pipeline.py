@@ -137,6 +137,14 @@ class IndexStats:
     #: is not mistaken for a run that took four hours because it is slow.
     paused_seconds: float = 0.0
     pauses: int = 0
+    #: Waiting right now, and why - as opposed to `paused_seconds`, which is a
+    #: total. A pause used to freeze the progress bar with no explanation.
+    paused: bool = False
+    pause_reason: str = ""
+    #: True once the walker has finished finding files, which is the moment
+    #: `seen` stops being a running tally and becomes a total. Nothing can show
+    #: an honest percentage before it.
+    walk_complete: bool = False
     #: What a worker is reading right now, and for how long. Set from the
     #: extraction threads and read from the consumer - a plain string swap,
     #: which is atomic enough for something only ever displayed.
@@ -168,6 +176,7 @@ class IndexStats:
             "unchanged_documents": self.unchanged_documents,
             "skipped": self.skipped, "deleted": self.deleted, "chunks": self.chunks,
             "paused_s": round(self.paused_seconds, 1), "pauses": self.pauses,
+            "paused": self.paused,
             "current": self.current,
             "bytes_read": self.bytes_read, "elapsed_s": round(self.elapsed_s, 2),
             "files_per_minute": round(self.files_per_minute, 1),
@@ -439,6 +448,8 @@ class Pipeline:
                 verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
                 stats.paused_seconds = self.governor.paused_seconds
                 stats.pauses = self.governor.pauses
+                stats.paused = self.governor.paused
+                stats.pause_reason = self.governor.pause_reason
                 if verdict.action == "stop":
                     # Say why. Breaking silently here would end the run
                     # reporting complete success having indexed nothing - the
@@ -478,6 +489,12 @@ class Pipeline:
             )
             self._log.error("walker stopped early: {}", stats.stopped_early.render())
         finally:
+            # **`seen` only becomes a real total here.** Until the walk ends it
+            # is "what has been found so far", and because the work queue is
+            # bounded the walker can never run more than a queue-length ahead of
+            # the workers - so `done / seen` sits near 1 from the first minute
+            # whatever fraction of the corpus is left. See `progress_for`.
+            stats.walk_complete = True
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
 
@@ -1112,6 +1129,8 @@ class Pipeline:
         found = self.governor.check()
         stats.paused_seconds = self.governor.paused_seconds
         stats.pauses = self.governor.pauses
+        stats.paused = self.governor.paused
+        stats.pause_reason = self.governor.pause_reason
 
         if found.action != "stop":
             return True

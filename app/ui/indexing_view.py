@@ -266,9 +266,14 @@ class IndexingView(QWidget):
             self.stop_button.setEnabled(False)
 
     def _on_progress(self, stats: Any) -> None:
-        # See `presenter.progress_for`: the numerator used to leave out
-        # `indexed`, so a first index of a fresh corpus sat near zero for hours
-        # while the log showed thousands of files done.
+        # See `presenter.progress_for` for both bugs this has had: the numerator
+        # once left out `indexed`, so a fresh corpus sat near zero for hours;
+        # then the denominator was `seen`, which a bounded queue keeps close to
+        # the numerator, so it read 100% within seconds of starting.
+        # `(0, 0)` is Qt's indeterminate range - a moving barber pole - and it
+        # is what `progress_for` returns while the size of the job is genuinely
+        # unknown. No branch is needed: `setValue` on an indeterminate bar is
+        # ignored, so the same two lines serve both cases.
         value, total = progress_for(stats, total_estimate=self._total_estimate)
         self.bar.setRange(0, total)
         self.bar.setValue(value)

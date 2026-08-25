@@ -1011,6 +1011,28 @@ def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
         + int(getattr(stats, "skipped", 0) or 0)
     )
     seen = int(getattr(stats, "seen", 0) or 0)
+
+    # **`seen` is not a total until the walk ends, and using it as one put the
+    # bar at 100% within seconds of starting.**
+    #
+    # The work queue is bounded - that is what stops a fast walker building a
+    # million-entry list in memory - so the walker can never get more than a
+    # queue-length ahead of the workers. `seen` is therefore always roughly
+    # `done` plus a queue, and `done / seen` climbs to near 1 almost immediately
+    # and stays there: at 10,000 files done and 10,256 seen it reads 97%, with
+    # the entire rest of the corpus still to come. The bar was measuring how
+    # full the queue was, not how far through the run it was.
+    #
+    # `(0, 0)` is Qt's indeterminate range: a moving barber pole, which is the
+    # honest answer to "how far through are we" while the size of the job is
+    # still unknown. It is only tolerable because the text beside it carries
+    # live counts - an indeterminate bar on its own does read as stuck.
+    #
+    # A caller that genuinely knows the total - from a counting pre-pass - can
+    # still pass `total_estimate` and get a real percentage from the first tick.
+    if not total_estimate and not getattr(stats, "walk_complete", False):
+        return 0, 0
+
     total = max(int(total_estimate or 0), seen, done, 1)
     # Clamped: `seen` can lag `done` by a tick, and a bar drawn past its own
     # maximum is a Qt warning on the console and a full bar on screen while the
@@ -1054,6 +1076,22 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
             "Stopping after the current file…",
             f"{format_count(getattr(stats, 'indexed', 0))} indexed so far. "
             "Everything indexed is kept.",
+        )
+
+    if getattr(stats, "paused", False):
+        # **A pause froze the bar and said nothing.** The resource governor
+        # waits for memory to settle or for the machine to be idle, and one
+        # observed pause ran for six minutes. Nothing moved and nothing
+        # explained why, which is indistinguishable from a hang - and the
+        # correct response to a hang is to kill the run.
+        #
+        # The reason comes from the governor itself rather than being invented
+        # here, so it names the real ceiling and the real number.
+        return (
+            "Paused - waiting for the machine",
+            f"{getattr(stats, 'pause_reason', '') or 'Waiting for resources.'} "
+            f"{format_count(getattr(stats, 'indexed', 0))} indexed so far; "
+            "it will continue on its own.",
         )
 
     done, _total = progress_for(stats, total_estimate=total_estimate)

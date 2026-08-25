@@ -5,6 +5,11 @@ Layer: L5
 Reported as *"the indexing start stop and progress needs thorough checking as it
 does not feel right"*. It was right not to feel right.
 
+**Two bugs, and they pointed in opposite directions.** The bar left out the
+files being indexed - and once that was fixed it went to 100% within seconds,
+because the denominator was `seen`, which a bounded queue keeps permanently
+close to the numerator. See `progress_for`.
+
 **The bar left out the files being indexed.** The numerator was
 `unchanged + skipped`; a first index of a fresh corpus has nothing unchanged and
 little skipped, so the bar sat near zero for hours while the log showed thousands
@@ -25,6 +30,16 @@ class Stats:
     indexed: int = 0
     unchanged: int = 0
     skipped: int = 0
+    #: **These tests are about the arithmetic, so the walk is over.**
+    #:
+    #: While the walker is still running, `seen` is a running tally rather than
+    #: a total, and `progress_for` deliberately refuses to compute a percentage
+    #: from it - the bounded work queue keeps `seen` about a queue-length ahead
+    #: of `done`, so the ratio read ~97% within the first minute of a run with
+    #: the whole corpus left. That case is covered in
+    #: `test_pause_is_visible.py`; here the denominator is known and the
+    #: question is whether the numerator adds up.
+    walk_complete: bool = True
 
 
 def fraction(stats, **kwargs) -> float:
@@ -90,6 +105,7 @@ def test_missing_attributes_are_treated_as_zero():
     shape must not take the panel down."""
     class Partial:
         seen = 10
+        walk_complete = True
     value, total = progress_for(Partial())
     assert (value, total) == (0, 10)
 
@@ -100,6 +116,7 @@ def test_none_values_do_not_raise():
         indexed = None
         unchanged = 5
         skipped = None
+        walk_complete = True
     assert progress_for(Nones()) == (5, 5)
 
 
@@ -135,3 +152,18 @@ def test_a_failed_run_resets_the_bar():
     text = source()
     failed = text.split("def _on_failed")[1].split("def ")[0]
     assert "self.bar.setValue(0)" in failed
+
+
+def test_a_payload_with_no_walk_complete_field_is_treated_as_still_walking():
+    """**Failing towards the indeterminate bar is the safe direction.**
+
+    An older progress payload, or a caller that has not been updated, does not
+    know whether the walk has finished. Guessing "finished" puts the bar at a
+    percentage that may be a lie; guessing "still going" shows a moving bar and
+    the live counts beside it, which is true either way.
+    """
+    class Old:
+        seen = 100
+        indexed = 100
+
+    assert progress_for(Old()) == (0, 0)
