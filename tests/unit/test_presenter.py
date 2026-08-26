@@ -482,8 +482,9 @@ class _Store:
     def __init__(self, values):
         self._values = list(values)
 
-    def distinct_values(self, kind, *, prefix="", limit=40):
+    def distinct_values(self, kind, *, prefix="", limit=40, within=None):
         assert kind == "ext"
+        self.last_within = within
         return [v for v in self._values if not prefix or prefix in v][:limit]
 
 

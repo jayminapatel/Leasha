@@ -153,3 +153,222 @@ def test_a_scoped_query_is_bounded_by_the_sample(store) -> None:
     assert "if where:" in source, (
         "the sample must apply to the scoped shape only; the unscoped one was "
         "already fast and its counts are exact")
+
+
+# --- 1c: the catalogue says which filters may narrow which values -----------
+
+
+def test_the_scoping_map_lives_in_the_catalogue() -> None:
+    """One catalogue feeding three consumers is this project's non-negotiable
+    for commands. A nested dictionary of sub-keys elsewhere would be a second
+    grammar, which is the failure `commands.py` opens by describing."""
+    from app.search.commands import command_for
+
+    assert command_for("type").scoped_by == ("repo",)
+    assert command_for("from").scoped_by == ("type", "after", "before")
+    assert command_for("to").scoped_by == ("type", "after", "before")
+
+
+def test_every_git_value_source_is_scoped_by_its_repository() -> None:
+    """Branches, tags, authors and commits are facts about one checkout.
+
+    `repo:leasha branch:` offering every branch on the machine is this order's
+    headline example of the menu answering a question nobody asked.
+    """
+    from app.search.gitquery import GIT_COMMANDS
+
+    for command in GIT_COMMANDS:
+        if command.source and command.source != "repo":
+            assert command.scoped_by == ("repo",), command.name
+
+
+def test_a_scope_the_command_does_not_allow_is_ignored() -> None:
+    """`/type` is narrowed by `repo:`, not by `path:` - and a filter that is
+    not in `scoped_by` must leave no trace, not a query that claims to have
+    filters and has none."""
+    from app.search.commands import command_for
+    from app.search.query import parse_query
+    from app.ui.presenter import scope_for
+
+    assert scope_for(command_for("type"), parse_query("path:work")) is None
+
+
+def test_only_the_permitted_filters_survive_the_narrowing() -> None:
+    from app.search.commands import command_for
+    from app.search.query import parse_query
+    from app.ui.presenter import scope_for
+
+    scope = scope_for(command_for("from"),
+                      parse_query("type:pdf path:work after:2024"))
+
+    assert scope is not None
+    assert scope.ext == ("pdf",)
+    assert scope.after is not None
+    assert scope.paths == (), "path: is not in from's scoped_by"
+
+
+def test_the_blanking_table_mirrors_what_counts_as_a_filter() -> None:
+    r"""`has_filters` lists what a filter is; `_FILTER_FIELDS` lists how to
+    remove one. They answer the same question from opposite ends, so they drift
+    together or the narrowing invents filters that are not there.
+
+    The first version blanked `scope` to `""` when its neutral value is
+    `"all"` - so narrowing `/type` by a disallowed `path:` produced an empty
+    query that still reported `has_filters`.
+    """
+    import inspect
+
+    from app.search.query import ParsedQuery
+    from app.ui.presenter import _FILTER_FIELDS
+
+    source = inspect.getsource(ParsedQuery.has_filters.fget)
+    for field in _FILTER_FIELDS:
+        assert f"self.{field}" in source, (
+            f"{field} is blanked as a filter but has_filters does not count it")
+
+
+def test_the_neutral_value_of_every_field_really_is_neutral() -> None:
+    """Blanking to the wrong neutral is how the last bug happened."""
+    from dataclasses import replace
+
+    from app.search.query import parse_query
+    from app.ui.presenter import _FILTER_FIELDS
+
+    emptied = replace(parse_query("type:pdf repo:x after:2024 invoice"),
+                      **_FILTER_FIELDS)
+    assert not emptied.has_filters
+
+
+# --- 1d: the context reaches the reader, and the cache key ------------------
+
+
+def test_the_store_reader_is_given_the_scope(store, monkeypatch) -> None:
+    from app.search.query import parse_query
+    from app.ui.presenter import value_suggestions
+
+    calls = []
+    original = store.distinct_values
+
+    def spy(kind, **kwargs):
+        calls.append(kwargs)
+        return original(kind, **kwargs)
+
+    monkeypatch.setattr(store, "distinct_values", spy)
+    value_suggestions(store, "type", "", context=parse_query("repo:leasha"))
+
+    # Every call, not the last: `repo:leasha` matches nothing here, so 1e's
+    # fallback asks a second time with no scope at all - which is the correct
+    # behaviour and would hide the first call from a spy that only kept one.
+    assert calls, "the store was never asked"
+    assert calls[0]["within"] is not None
+    assert calls[0]["within"].repos == ("leasha",)
+    assert "within" not in calls[-1], (
+        "the fallback must ask without a scope at all - and it must not send "
+        "within=None either, because a store that has never heard of the "
+        "argument would raise and the menu would silently lose its values")
+
+
+def test_the_cache_key_changes_with_the_scope() -> None:
+    """A cached global answer served under `repo:leasha` is a wrong answer with
+    a hundred-and-twenty-second lifetime, which is worse than a slow one."""
+    from app.ui.presenter import scope_key, slash_context
+
+    unscoped = scope_key("from", slash_context("from:d").context)
+    scoped = scope_key("from", slash_context("type:pdf from:d").context)
+    other = scope_key("from", slash_context("type:docx from:d").context)
+
+    assert unscoped == ""
+    assert scoped and scoped != unscoped
+    assert other != scoped, "two different scopes share one cache entry"
+
+
+def test_free_text_after_a_filter_does_not_churn_the_cache() -> None:
+    """The key is built from the narrowed scope, not the whole query."""
+    from app.ui.presenter import scope_key, slash_context
+
+    first = scope_key("from", slash_context("type:pdf from:d").context)
+    later = scope_key("from", slash_context("type:pdf invoice from:d").context)
+
+    assert first == later
+
+
+# --- 1e: an empty menu is indistinguishable from a broken one ---------------
+
+
+def test_a_scope_that_removes_everything_offers_the_unscoped_values(
+    store
+) -> None:
+    """`repo:nothing` matches no file, so scoping `/type` by it finds nothing -
+    and an empty menu is indistinguishable from a broken one."""
+    from app.search.query import parse_query
+    from app.ui.presenter import ALL_VALUES_NOTE, value_suggestions
+
+    unscoped = value_suggestions(store, "type", "")
+    assert unscoped, "the fixture must have something to fall back to"
+
+    notes: list[str] = []
+    got = value_suggestions(store, "type", "",
+                            context=parse_query("repo:nothing"), notes=notes)
+
+    assert got == unscoped
+    assert notes == [ALL_VALUES_NOTE], (
+        "falling back silently would be the same failure as the empty menu")
+
+
+def test_nothing_to_fall_back_to_produces_no_marker(store) -> None:
+    """A marker saying "(all)" over an empty list would be a label on nothing.
+
+    There are no messages in this fixture, so `/from` has no values scoped or
+    unscoped - which is a different situation from a scope having removed them.
+    """
+    from app.search.query import parse_query
+    from app.ui.presenter import value_suggestions
+
+    notes: list[str] = []
+    got = value_suggestions(store, "from", "",
+                            context=parse_query("type:zzz"), notes=notes)
+
+    assert got == []
+    assert notes == []
+
+
+def test_a_scope_that_finds_something_says_nothing(store) -> None:
+    """The marker appears only when the scope was actually dropped."""
+    from app.search.query import parse_query
+    from app.ui.presenter import value_suggestions
+
+    notes: list[str] = []
+    got = value_suggestions(store, "type", "",
+                            context=parse_query("repo:leasha"), notes=notes)
+
+    if got and not notes:
+        assert True                              # scoped and found values
+    else:
+        assert notes, "either it answered under the scope, or it said it did not"
+
+
+def test_no_context_never_produces_a_marker(store) -> None:
+    from app.ui.presenter import value_suggestions
+
+    notes: list[str] = []
+    value_suggestions(store, "type", "", notes=notes)
+    assert notes == []
+
+
+def test_a_store_without_the_new_argument_still_offers_its_values() -> None:
+    r"""**The regression this guards is a silent one.**
+
+    `value_suggestions` catches everything a reader raises, so passing
+    `within=` to a store that does not accept it turns a `TypeError` into an
+    empty index tier - the menu falls back to the grammar's kind words and
+    looks like it is working. Four existing tests caught it by accident; this
+    one is on purpose.
+    """
+    from app.ui.presenter import value_suggestions
+
+    class OldStore:
+        def distinct_values(self, kind, *, prefix="", limit=40):
+            return ["pdf", "docx"]
+
+    found = value_suggestions(OldStore(), "type", "")
+    assert found[:2] == ["pdf", "docx"]

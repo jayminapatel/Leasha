@@ -51,7 +51,7 @@ from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
 from app.ui.presenter import (
-    CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS, slash_context,
+    CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS, scope_key, slash_context,
     value_suggestions,
 )
 from app.ui.widgets.command_icon import icon_for, text_colour
@@ -291,9 +291,12 @@ def attach_to(line_edit: QLineEdit,
                          matcher=matcher)
     popup.setWidget(line_edit)
 
-    def suggest(name: str, partial: str, use_store: bool = True) -> list:
+    def suggest(name: str, partial: str, use_store: bool = True,
+                context: Any = None, notes: Any = None) -> list:
         return value_suggestions(store if use_store else None, name, partial,
-                                 resolve=resolve, lookup=lookup if use_store else None)
+                                 resolve=resolve,
+                                 lookup=lookup if use_store else None,
+                                 context=context, notes=notes)
 
     # **Tab has to pick the highlighted command.**
     #
@@ -309,15 +312,22 @@ def attach_to(line_edit: QLineEdit,
     # first.
     popup.popup().installEventFilter(_TabAccepts(popup))
 
-    #: name -> (fetched_at, values). One query per command per two minutes,
-    #: rather than one per keystroke.
-    cache: dict[str, tuple[float, list[str]]] = {}
+    #: (name, scope) -> (fetched_at, values). One query per command per scope
+    #: per two minutes, rather than one per keystroke.
+    #:
+    #: **The scope is in the key, and that is not tidiness.** Keyed on the name
+    #: alone, the global answer fetched for `/from` would be served under
+    #: `repo:leasha from:` for the next two minutes - a wrong answer with a
+    #: hundred-and-twenty-second lifetime, which is worse than a slow one
+    #: because nothing about it looks wrong.
+    cache: dict[tuple[str, str], tuple[float, list[str]]] = {}
 
-    def offer_values(name: str, partial: str) -> None:
+    def offer_values(name: str, partial: str, context: Any = None) -> None:
         """Show what the grammar knows now, and what the index knows shortly."""
         popup.set_values(name, suggest(name, partial, use_store=False))
 
-        cached = cache.get(name)
+        key = (name, scope_key(name, context, resolve))
+        cached = cache.get(key)
         if cached is not None and time.monotonic() - cached[0] < SUGGEST_TTL_S:
             _deliver(name, partial, cached[1])
             return
@@ -328,18 +338,19 @@ def attach_to(line_edit: QLineEdit,
         from app.ui.workers import CallableWorker, run
 
         worker = CallableWorker(
-            suggest, name, "", component="ui.commands")
+            suggest, name, "", True, context, component="ui.commands")
         worker.signals.finished.connect(
-            lambda found, n=name, p=partial: _fetched(n, p, found))
+            lambda found, k=key, n=name, p=partial: _fetched(k, n, p, found))
         # A menu is a convenience. A store that is mid-index or closed costs
         # the suggestions and nothing else - the static values are already up.
         worker.signals.failed.connect(lambda _error: None)
         run(QThreadPool.globalInstance(), worker)
         _show_or_hide()
 
-    def _fetched(name: str, partial: str, found: Any) -> None:
-        cache[name] = (time.monotonic(), list(found or []))
-        _deliver(name, partial, cache[name][1])
+    def _fetched(key: tuple[str, str], name: str, partial: str,
+                 found: Any) -> None:
+        cache[key] = (time.monotonic(), list(found or []))
+        _deliver(name, partial, cache[key][1])
 
     def _deliver(name: str, partial: str, values: Sequence[str]) -> None:
         # **Only if the box is still asking the same question.** A slow answer
@@ -368,7 +379,7 @@ def attach_to(line_edit: QLineEdit,
             _show_or_hide()
         elif mode == "value":
             name = text.rpartition(" ")[2].partition(":")[0]
-            offer_values(name, partial)
+            offer_values(name, partial, context)
         else:
             popup.popup().hide()
 

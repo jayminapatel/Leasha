@@ -3470,7 +3470,9 @@ def _settled(head: str) -> Any:
 
 def value_suggestions(store: Any, name: str, prefix: str = "",
                       limit: int = VALUE_LIMIT, resolve: Any = None,
-                      lookup: Any = None, catalogue: Any = None) -> list[str]:
+                      lookup: Any = None, catalogue: Any = None,
+                      context: Any = None,
+                      notes: Optional[list[str]] = None) -> list[str]:
     """What to offer after `/type `, `/from `, `/repo `, `/after `…
 
     **The half of the `/` menu that was missing.** The menu said which filters
@@ -3542,12 +3544,31 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     # index can. Taking `lookup` *instead of* the store left `/type` offering
     # nothing on the one tab where code file types matter most - the menu was
     # there, it opened, and it was empty.
+    # **Only the filters this command says may narrow it.** `Command.scoped_by`
+    # is the catalogue's answer, so the dropdown, the CLI and the model grammar
+    # cannot disagree about it. Narrowing only ever removes values, so a wrong
+    # entry there costs a suggestion rather than a wrong answer.
+    scope = scope_for(command, context)
+    repo = _scope_repo(scope)
+
     readers = []
     if lookup is not None:
-        readers.append(lookup)
+        # git's values are per-checkout; `repo:leasha branch:` means leasha's
+        # branches. The lookup already wanted this argument implicitly.
+        readers.append(
+            (lambda kind, prefix, limit: lookup(kind, prefix, limit, repo=repo))
+            if repo and _takes_repo(lookup) else lookup)
     if store is not None:
+        # **`within` is passed only when there is one.** Sending `within=None`
+        # to a store that has never heard of it raises `TypeError`, which the
+        # broad `except` below then swallows - so the menu would quietly lose
+        # every indexed value rather than say anything. That is the silent
+        # degradation this project has a standing rule against, and it showed
+        # up immediately: four existing tests use a double with the old
+        # signature, and all four went from offering `pdf` to offering `word`.
         readers.append(lambda kind, prefix, limit: store.distinct_values(
-            kind, prefix=prefix, limit=limit))
+            kind, prefix=prefix, limit=limit,
+            **({"within": scope} if scope is not None else {})))
 
     # 1. What is actually indexed, commonest first. Still first, because the
     #    extension somebody wants is nearly always one of the three they have
@@ -3559,6 +3580,15 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
             _log.debug("no {} suggestions: {}", command.source, exc)
         if len(found) >= limit:
             break
+
+    # **What the *index* said under the scope**, which is not the same as what
+    # the menu ends up holding: the grammar's own values and the format
+    # catalogue below are facts about the language, and no scope narrows them.
+    # `1e` is about the scoped lookup coming back empty, so this is the number
+    # it has to watch - the first version gated on the merged list, and a
+    # `/type` under a repository with nothing in it still showed `excel` and
+    # `word`, so the fallback could not fire on the case it was written for.
+    from_index = len(found)
 
     # 2. The grammar's own values. **After the index, not before**, which is
     #    the one ordering change here: `type:excel` is a real filter and it
@@ -3603,7 +3633,158 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
         except Exception as exc:                # broad by design - see the docstring
             _log.debug("no format catalogue: {}", exc)
 
+    # **1e: an empty menu is indistinguishable from a broken one.** A scope
+    # that removes everything is the one case where narrowing has made things
+    # worse, so it is undone and said: the unscoped values, with a note the
+    # widget renders as a dimmed "(all)". Silence here would be the failure
+    # this whole widget exists to prevent, arrived at from the other end.
+    if not from_index and scope is not None and command.source:
+        _log.debug("no {} values under the typed filters; offering all",
+                   command.source or command.name)
+        unscoped = value_suggestions(
+            store, name, prefix, limit, resolve, lookup, catalogue,
+            context=None, notes=None)
+        if unscoped:
+            _note_all(notes)
+        return unscoped
+
     return found[:limit]
+
+
+#: What the widget shows when a scope was dropped. One sentence, in the plain
+#: register the rest of the menu uses.
+ALL_VALUES_NOTE = "(all)"
+
+
+def _note_all(notes: Optional[list[str]]) -> None:
+    """Record that the scope was dropped. **Never raises**; it is a label."""
+    if notes is None:
+        return
+    try:
+        if ALL_VALUES_NOTE not in notes:
+            notes.append(ALL_VALUES_NOTE)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return
+
+
+def scope_for(command: Any, context: Any) -> Any:
+    r"""The part of `context` this command is allowed to be narrowed by.
+
+    Returns None when there is nothing to narrow by - which is the same thing
+    `distinct_values` is handed for an unfiltered query, so the unscoped shape
+    stays exactly as it was.
+
+    **Built by blanking the fields, not by re-parsing.** A second parser is the
+    failure this order's opening paragraph names, and `ParsedQuery` is frozen,
+    so `replace` on the fields `scoped_by` does *not* mention is the honest way
+    to say "only these".
+    """
+    if context is None or not getattr(command, "scoped_by", ()):
+        return None
+
+    from dataclasses import replace
+
+    allowed = {name for spelling in command.scoped_by
+               for name in _SCOPE_FIELDS.get(spelling, ())}
+    if not allowed:
+        return None
+
+    try:
+        blanks = {field: neutral for field, neutral in _FILTER_FIELDS.items()
+                  if field not in allowed}
+        narrowed = replace(context, **blanks)
+    except Exception as exc:                     # noqa: BLE001 - a menu, not a search
+        _log.debug("could not narrow the value scope: {}", exc)
+        return None
+
+    return narrowed if getattr(narrowed, "has_filters", False) else None
+
+
+#: Which `ParsedQuery` fields each `scoped_by` name owns. The catalogue speaks
+#: in command names; the parser speaks in field names, and this is the one
+#: place the two are put side by side.
+_SCOPE_FIELDS: dict[str, tuple[str, ...]] = {
+    "repo": ("repos",),
+    "type": ("ext",),
+    "after": ("after",),
+    "before": ("before",),
+    "path": ("paths",),
+    "from": ("senders",),
+    "to": ("recipients",),
+}
+
+#: Every filter field, with the value that means "no restriction".
+#:
+#: **This must mirror `ParsedQuery.has_filters`**, and a test asserts it,
+#: because the two are answering the same question from opposite ends: that
+#: property lists what counts as a filter, and this lists how to remove one.
+#:
+#: `scope` is the one that is not empty when it is neutral - it is `"all"`, and
+#: the first version of this blanked it to `""`, which `has_filters` then read
+#: as a filter. Narrowing `/type` by a `path:` that `scoped_by` does not permit
+#: produced a query with no filters in it that nonetheless claimed to have one.
+_FILTER_FIELDS: dict[str, Any] = {
+    "ext": (),
+    "after": None,
+    "before": None,
+    "paths": (),
+    "repos": (),
+    "senders": (),
+    "recipients": (),
+    "subjects": (),
+    "names": (),
+    "sizes": (),
+    "has_attachment": None,
+    "scope": "all",
+}
+
+
+def scope_key(name: str, context: Any, resolve: Any = None) -> str:
+    """A stable string for the scope `name`'s values would be fetched under.
+
+    The TTL cache in the popup is keyed on this alongside the command name.
+    Keyed on the name alone, a global answer fetched for `/from` would be
+    served under `repo:leasha from:` for the next two minutes - and a wrong
+    answer with a lifetime is worse than a slow one, because nothing about it
+    looks wrong.
+
+    Built from the *narrowed* scope rather than from the whole query, so typing
+    more free text after a filter does not throw the cache away for no reason.
+    """
+    if resolve is None:
+        from app.search.commands import command_for as resolve
+
+    command = resolve(name)
+    if command is None:
+        return ""
+    scope = scope_for(command, context)
+    if scope is None:
+        return ""
+    return "|".join(
+        f"{field}={getattr(scope, field, None)!r}"
+        for field in sorted(_FILTER_FIELDS)
+        if getattr(scope, field, None) != _FILTER_FIELDS[field]
+    )
+
+
+def _scope_repo(scope: Any) -> str:
+    """The single repository a scope names, if it names exactly one."""
+    names = tuple(getattr(scope, "repos", ()) or ())
+    return str(names[0]) if len(names) == 1 else ""
+
+
+def _takes_repo(lookup: Any) -> bool:
+    """Does this reader accept the repository argument it implicitly wanted?
+
+    Asked rather than assumed, because `lookup` is injected by three callers
+    and one of them is a test double.
+    """
+    import inspect
+
+    try:
+        return "repo" in inspect.signature(lookup).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 @dataclass(frozen=True, slots=True)

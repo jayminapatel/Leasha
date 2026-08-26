@@ -50,17 +50,17 @@ PDFs. Today the earlier tokens are parsed and then ignored by the menu.
   cannot be answered bounded (e.g. free-text terms) is *dropped from the
   clause*, never allowed to widen the query cost. Measure both shapes on the
   scale fixture before accepting.
-- [ ] **1c** (Search) `Command` gains `scoped_by: tuple[str, ...]` — which
+- [x] **1c** (Search) `Command` gains `scoped_by: tuple[str, ...]` — which
   earlier filters may narrow this command's values (`branch` ← `repo`;
   `from`/`to` ← `type`, `after`, `before`; `type` ← `repo`). The catalogue
   stays the single source; the model grammar and CLI help are regenerated from
   the same field so all three consumers still agree.
-- [ ] **1d** (UI/presenter) `value_suggestions` passes the context through to
+- [x] **1d** (UI/presenter) `value_suggestions` passes the context through to
   both readers (store `within=`, git lookup gains the repo argument it already
   implicitly wants). The popup's TTL cache key must include the context — a
   cached global answer served under `repo:leasha` is a wrong answer with a
   120-second lifetime.
-- [ ] **1e** Falling back is mandatory: a scoped query that returns nothing
+- [x] **1e** Falling back is mandatory: a scoped query that returns nothing
   offers the *unscoped* values with a dimmed "(all)" marker rather than an empty
   menu — an empty menu is indistinguishable from a broken one, which is the
   failure this whole widget exists to prevent.
@@ -275,3 +275,40 @@ not among the commonest, and typing one more character narrows the candidates -
 so the sample closes on the exact answer as somebody types towards it.
 
 Unscoped lookups are untouched and their counts stay exact.
+
+## 1c, 1d and 1e delivered, 2026-08-27 — §1 complete
+
+**1c** `Command.scoped_by`. `type` <- `repo`; `from` and `to` <- `type`,
+`after`, `before`; and in `gitquery`, every command with a value source -
+`branch`, `tag`, `author`, `committer`, `commit`, `message` - <- `repo`,
+because all of them are facts about one checkout. In the catalogue, so the
+dropdown, the CLI and the model grammar cannot disagree.
+
+`scope_for` narrows by blanking the fields `scoped_by` does not name.
+`_FILTER_FIELDS` holds each field's *neutral* value and mirrors
+`ParsedQuery.has_filters` - a test asserts that, because the two answer the
+same question from opposite ends. The first version blanked `scope` to `""`
+when its neutral value is `"all"`, so narrowing `/type` by a `path:` it does
+not permit produced an empty query that still claimed to have filters.
+
+**1d** the context reaches both readers - `within=` for the store, `repo=` for
+the git lookup where it accepts one - and `scope_key` puts the scope in the
+popup's TTL cache key. Keyed on the command name alone, the global answer for
+`/from` would be served under `repo:leasha from:` for two minutes: a wrong
+answer with a lifetime, which is worse than a slow one because nothing about it
+looks wrong. The key is built from the *narrowed* scope, so typing more free
+text after a filter does not throw the cache away for nothing.
+
+**1e** a scoped lookup that returns nothing offers the unscoped values and says
+so through `notes` (`ALL_VALUES_NOTE`), which the widget renders dimmed. The
+first version gated on the whole merged list and could never fire: the
+grammar's kind words - `excel`, `word` - are facts about the language that no
+scope narrows, so `/type` under a repository with nothing in it still had a
+full-looking menu. It gates on what the *index* returned under the scope.
+
+**One fragility found while testing.** `value_suggestions` catches everything a
+reader raises, so sending `within=` to a store that has never heard of it turns
+a `TypeError` into an empty index tier - the menu silently falls back to kind
+words and looks fine. Four existing tests caught it by accident. `within` is
+now passed only when there is a scope, and a test covers the old signature on
+purpose.

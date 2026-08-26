@@ -242,12 +242,13 @@ class GitPlan:
 
 def _c(name: str, aliases: tuple[str, ...], summary: str, example: str,
        hint: str, icon: str, values: tuple[str, ...] = (),
-       source: str = "") -> Command:
+       source: str = "", scoped_by: tuple[str, ...] = ()) -> Command:
     """One switch. `source` is a key `gitsearch.repo_values` answers, so the
     menu can offer the branches, tags and authors this repository actually
     has - the same reason the index's menu reads the index."""
     return Command(name=name, aliases=aliases, summary=summary, example=example,
-                   value_hint=hint, icon=icon, values=values, source=source)
+                   value_hint=hint, icon=icon, values=values, source=source,
+                   scoped_by=scoped_by)
 
 
 #: Every switch the repository search accepts, in the shape the `/` menu
@@ -259,7 +260,11 @@ GIT_COMMANDS: tuple[Command, ...] = (
        "/repo leasha", "a repository name, as listed in the Code tab", "⌥",
        source="repo"),
     _c("branch", ("b",), "Search these branches instead of the checkout",
-       "/branch develop", "a branch name, or several: develop,release", "⑂", source="branch"),
+       "/branch develop", "a branch name, or several: develop,release", "⑂",
+       source="branch",
+       # The order's headline example: `repo:leasha branch:` offers leasha's
+       # branches, not every branch in every checkout on the machine.
+       scoped_by=("repo",)),
     _c("all-branches", ("allbranches",), "Search every local branch head",
        "/all-branches", "no value needed", "⑂", ("yes",)),
     _c("remote-branches", ("remote",), "Search every remote branch head",
@@ -267,11 +272,11 @@ GIT_COMMANDS: tuple[Command, ...] = (
     _c("history", ("hist",), "Search every commit, not just the current files",
        "/history", "no value needed - this is the slow one", "◷", ("yes",)),
     _c("commit", ("sha", "commits"), "Search one commit, or several",
-       "/commit a1b2c3d", "a commit id, or several: a1b2c3d,b2c3d4e", "◆", source="commit"),
+       "/commit a1b2c3d", "a commit id, or several: a1b2c3d,b2c3d4e", "◆", source="commit", scoped_by=("repo",)),
     _c("range", ("between",), "Search between two commits or tags",
        "/range v5.0..v6.0", "a..b - commits or tags, either way round", "↔"),
     _c("tag", ("release", "tags"), "Search one tag or release",
-       "/tag v5.1", "a tag name, or several: v5.0,v6.0", "⌂", source="tag"),
+       "/tag v5.1", "a tag name, or several: v5.0,v6.0", "⌂", source="tag", scoped_by=("repo",)),
     _c("lifetime", ("everything",), "Every branch, every commit, every tag",
        "/lifetime", "no value needed - the widest and slowest search", "∞",
        ("yes",)),
@@ -310,9 +315,9 @@ GIT_COMMANDS: tuple[Command, ...] = (
 
     # -- who and when --------------------------------------------------------
     _c("author", ("by",), "Only commits by this person",
-       "/author dave", "part of a name or email address", "✎", source="author"),
+       "/author dave", "part of a name or email address", "✎", source="author", scoped_by=("repo",)),
     _c("committer", (), "Only commits committed by this person",
-       "/committer dave", "part of a name or email address", "✎", source="author"),
+       "/committer dave", "part of a name or email address", "✎", source="author", scoped_by=("repo",)),
     # **The commit message, which nothing could search.** `-S` and `-G` search
     # the *content* of a diff; `--grep` searches what the commit said about
     # itself, and they answer different questions - "when did this string
@@ -322,7 +327,7 @@ GIT_COMMANDS: tuple[Command, ...] = (
     # `GitSearch.txt` UC-020, of which only `/author` had been built.
     _c("message", ("msg", "subject"), "Only commits whose message says this",
        "/message licence", "any words from a commit message", "✉",
-       source="commit"),
+       source="commit", scoped_by=("repo",)),
     _c("since", ("after",), "Only commits on or after this date",
        "/since 2025-01-01", "2025-01-01, last month, 30 days ago", "◷"),
     _c("until", ("before",), "Only commits on or before this date",

@@ -91,6 +91,20 @@ class Command:
     #: have to guess at. A value that returns nothing is the commonest way a
     #: working filter looks broken.
     source: str = ""
+    #: Which *earlier* filters may narrow this one's offered values.
+    #:
+    #: `repo:leasha branch:` should offer leasha's branches, not every branch
+    #: in every checkout. This is the field that says so, and it lives here
+    #: because the catalogue is the one place three consumers read from - the
+    #: dropdown, `app.cli commands` and the model grammar. A nested dictionary
+    #: of sub-keys somewhere else would be a second grammar, which is the
+    #: failure this module's opening paragraph exists to prevent.
+    #:
+    #: **Narrowing, never widening.** A name here can only ever remove values
+    #: from a menu, so a wrong entry costs a suggestion and never a wrong
+    #: answer - and `1e` offers the unscoped list rather than an empty menu
+    #: when the scope removes everything.
+    scoped_by: tuple[str, ...] = ()
 
     @property
     def spellings(self) -> tuple[str, ...]:
@@ -107,6 +121,8 @@ COMMANDS: tuple[Command, ...] = (
     Command(
         name="type",
         aliases=("ext", "kind"),
+        # Inside a checkout, `/type` should offer that project's file types.
+        scoped_by=("repo",),
         summary="Only this kind of file",
         example="/type pdf",
         value_hint="an extension, or a kind: excel, mail, code - or several: pdf,docx",
@@ -131,6 +147,9 @@ COMMANDS: tuple[Command, ...] = (
     Command(
         name="from",
         aliases=("sender",),
+        # The people who sent *this kind of thing, in this period* - which is
+        # nearly always how somebody arrives at a name they half-remember.
+        scoped_by=("type", "after", "before"),
         summary="Only email from this person",
         example="/from dave",
         value_hint="part of a name or address; dave matches dave.smith@acme.com",
@@ -140,6 +159,9 @@ COMMANDS: tuple[Command, ...] = (
     Command(
         name="to",
         aliases=("recipient", "cc"),
+        # The people who sent *this kind of thing, in this period* - which is
+        # nearly always how somebody arrives at a name they half-remember.
+        scoped_by=("type", "after", "before"),
         summary="Only email sent to this person",
         example="/to priya",
         value_hint="part of a name or address; matches the To and Cc lines",
