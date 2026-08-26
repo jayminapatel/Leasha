@@ -375,6 +375,7 @@
     <Content Include="config\extractors.toml" />
     <Content Include="config\settings.json" />
     <Content Include="docs\CODE_REVIEW.md" />
+    <Content Include="docs\HANDOFF-github.md" />
     <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
@@ -409,6 +410,7 @@
     <Content Include="run-install.cmd" />
     <Content Include="scripts\README.md" />
     <Content Include="scripts\parse-check.ps1" />
+    <Content Include="scripts\setup-github.ps1" />
     <Content Include="tests\fixtures\README.md" />
   </ItemGroup>
   <ItemGroup>
