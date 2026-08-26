@@ -346,7 +346,7 @@ def attach_to(line_edit: QLineEdit,
         # arriving after somebody has typed on is the stale-result problem every
         # other worker in this application guards against, and here it would
         # replace the menu under their fingers.
-        _head, mode, now = slash_context(line_edit.text(), resolve)
+        _head, mode, now, _context = slash_context(line_edit.text(), resolve)
         if mode != "value" or popup.value_of != name:
             return
         wanted = now.strip().lower()
@@ -362,7 +362,7 @@ def attach_to(line_edit: QLineEdit,
             popup.popup().hide()
 
     def on_text(text: str) -> None:
-        _head, mode, partial = slash_context(text, resolve)
+        _head, mode, partial, context = slash_context(text, resolve)
         if mode == "command":
             popup.set_prefix(partial)
             _show_or_hide()

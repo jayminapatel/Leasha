@@ -30,7 +30,7 @@ import re
 import time as _time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Optional, Sequence
 
 from app.core.logging import logger
 
@@ -3384,8 +3384,24 @@ def enabled_extensions() -> tuple[str, ...]:
     return _CATALOGUE
 
 
-def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
-    """Read the word being typed: `(head, mode, partial)`.
+class SlashContext(NamedTuple):
+    """What the box is asking for, and what it has already been told.
+
+    A NamedTuple rather than a plain tuple because `context` is the fourth
+    element and reading `slash_context(...)[3]` at a call site is how the
+    meaning of a position gets forgotten. Unpacking three still fails loudly,
+    which is the right way for this to change - silently dropping a filter
+    would give a menu that looks right and answers the wrong question.
+    """
+
+    head: str
+    mode: str
+    partial: str
+    context: Any = None
+
+
+def slash_context(text: str, resolve: Any = None) -> SlashContext:
+    """Read the word being typed: `(head, mode, partial, context)`.
 
     `mode` is:
 
@@ -3414,7 +3430,7 @@ def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
         from app.search.commands import command_for as resolve
 
     if not text or text.endswith(" "):
-        return "", "", ""
+        return SlashContext("", "", "")
 
     word = text.rpartition(" ")[2]
     head = text[: len(text) - len(word)]
@@ -3424,12 +3440,32 @@ def slash_context(text: str, resolve: Any = None) -> tuple[str, str, str]:
         # A colon that is not one of ours - `D:/docs`, `http://…`, `12:30` -
         # is somebody's text and is left alone.
         if resolve(name) is not None:
-            return head, "value", partial
-        return "", "", ""
+            return SlashContext(head, "value", partial, _settled(head))
+        return SlashContext("", "", "")
 
     if word.startswith("/"):
-        return head, "command", word[1:]
-    return "", "", ""
+        return SlashContext(head, "command", word[1:])
+    return SlashContext("", "", "")
+
+
+def _settled(head: str) -> Any:
+    """The filters already typed, parsed by the one parser this project has.
+
+    **Parsed only in value mode**, which is where it is used: this function
+    runs on every keystroke on the UI thread, and the command menu has no use
+    for it. Never raises - a half-typed query is the normal state here, and a
+    dropdown that throws while somebody is typing is worse than one that offers
+    unscoped values.
+    """
+    text = (head or "").strip()
+    if not text:
+        return None
+    try:
+        from app.search.query import parse_query
+
+        return parse_query(text)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return None
 
 
 def value_suggestions(store: Any, name: str, prefix: str = "",
