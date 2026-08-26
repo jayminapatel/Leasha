@@ -265,7 +265,10 @@ def test_a4_the_summary_names_the_preset_and_the_arithmetic():
     was that nothing on screen said a filter was active.**"""
     from app.ui.presenter import code_summary
 
-    said = code_summary([1] * 12, [{"files": 340}], hidden=328, preset="build")
+    # The arithmetic is the summary's own: it has the repository totals and the
+    # rows that survived, which is everything the subtraction needs. Handing it
+    # in meant the view doing a sum, in a module a length guard keeps short.
+    said = code_summary([1] * 12, [{"files": 340}], preset="build")
 
     assert "12 files" in said
     assert "328 hidden" in said

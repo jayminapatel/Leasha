@@ -1149,7 +1149,12 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
     )
 
     current = getattr(stats, "current", "") or ""
-    reading = f"  ·  reading {current}" if current else ""
+    # **Say when it is OCR.** A run reading text moves at hundreds of files a
+    # minute; OCR moves at seconds *per page*, so the same progress line reads
+    # as a stall - and a run that looks stalled gets killed, which is how a
+    # four-hour job becomes four hours wasted.
+    verb = "reading" if getattr(stats, "ocr_mode", "") != "images" else "reading with OCR"
+    reading = f"  ·  {verb} {current}" if current else ""
     if current and getattr(stats, "current_item", 0):
         reading += f" [{stats.current_item:,}]"
 
@@ -3063,8 +3068,20 @@ def repo_list_empty(*, indexed_files: int, hidden: int, has_query: bool,
     return "No files to show."
 
 
+def code_preset(store: Any) -> str:
+    """Which code-type preset is in force. Never raises - it is a caption.
+
+    Reads `choice_from` rather than a second state key, so the caption cannot
+    name a preset the filter is not using.
+    """
+    from app.core.code_types import choice_from
+
+    preset, _chosen = choice_from(store)
+    return preset
+
+
 def code_summary(rows: list[Any], repos: list[Any], scope: Any = None,
-                 *, hidden: int = 0, preset: str = "") -> str:
+                 *, preset: str = "") -> str:
     r"""What is on screen, and what there is. Both, because "40 files" over a
     corpus of 48,000 and over one of 40 mean different things.
 
@@ -3076,6 +3093,10 @@ def code_summary(rows: list[Any], repos: list[Any], scope: Any = None,
     """
     total = sum(int(row.get("files", 0) or 0) for row in repos)
     count = len(repos)
+    # **The arithmetic is done here, not handed in.** The view had to compute
+    # it, which put a sum and a `max(0, ...)` into a module the length guard
+    # keeps short - and the numbers it needs are the two already passed.
+    hidden = max(0, total - len(rows)) if preset else 0
     parts = [f"{len(rows):,} file{'s' if len(rows) != 1 else ''}"]
     # **The arithmetic, whenever a type filter is hiding something.**
     #

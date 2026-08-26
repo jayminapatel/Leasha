@@ -504,7 +504,12 @@ def test_picture_heavy_deck_is_flagged_but_still_indexed() -> None:
     document = builder.build()
 
     assert "Title only" in document.text, "still indexed, not skipped"
-    assert [w.code for w in document.warnings] == ["ERR_NO_TEXT_LAYER"]
+    # **Its own code since the OCR strategy work order.** A scanned PDF and a
+    # picture-heavy deck read the same to a person and mean opposite things to
+    # the indexer: one is work the images pass should retry, the other is work
+    # that pass explicitly declines. Sharing `ERR_NO_TEXT_LAYER` would have had
+    # `--only-ocr` queue every infographic in the corpus.
+    assert [w.code for w in document.warnings] == ["ERR_MOSTLY_PICTURES"]
     assert "images rather than text" in document.warnings[0].suggestion
     assert "chars/MB" in document.warnings[0].details
 

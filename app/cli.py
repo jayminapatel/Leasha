@@ -1090,6 +1090,19 @@ def cmd_index(args: argparse.Namespace) -> int:
         print("          They are findable by name; their contents are not "
               "searchable.")
 
+    pictures = stats.warned_by_code.get("ERR_MOSTLY_PICTURES", 0)
+    if pictures:
+        # **The evidence for a decision, not a complaint.** From
+        # `WORKORDER-202626081052-ocr-strategy.md` §5: list the affected
+        # documents rather than reading them, then decide with the number in
+        # hand. Twenty decks: open them. Two thousand: no OCR strategy was ever
+        # going to help, and the honest answer is that they are findable by
+        # name and title only.
+        print()
+        print(f"Pictures  {pictures:,} document(s) are mostly images rather than text")
+        print("          Their titles and headings are searchable; the pictures are not.")
+        print("          Reading them would mean OCR per image - see the OCR work order.")
+
     held = stats.skipped_by_code.get("ERR_OCR_HELD", 0)
     if held:
         # **Named separately from the failures, because it is not one.** A

@@ -367,9 +367,15 @@ def _warn_if_mostly_pictures(
     if density >= MIN_PPTX_CHARS_PER_MB:
         return
 
+    # **Its own code, not `ERR_NO_TEXT_LAYER`.** They read the same to a person
+    # and mean opposite things to the indexer: a scanned PDF is work the images
+    # pass should retry, and a picture-heavy deck is work the OCR strategy
+    # explicitly declines. Sharing the code made the second look like the first,
+    # so `--only-ocr` would have queued every infographic in the corpus. It also
+    # gives §5 its count for free - the two are now countable apart.
     builder.warn(
         make_error(
-            "ERR_NO_TEXT_LAYER",
+            "ERR_MOSTLY_PICTURES",
             "extract.pptx",
             path=str(path),
             suggestion=(

@@ -245,6 +245,17 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Repair it (scanpst.exe for PST files) or leave it skipped. Indexing continues either way.",
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    "ERR_MOSTLY_PICTURES": _Spec(
+        message="Most of '{path}' is pictures rather than text.",
+        suggestion=(
+            "It is indexed, and the text it does have is searchable - a title "
+            "and slide headings usually. Reading the pictures would mean OCR "
+            "per image, which on a deck-heavy corpus costs far more than it "
+            "returns; see docs/WORKORDER-202626081052-ocr-strategy.md."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+
     # --- inside archives -----------------------------------------------------
     #
     # Every one of these is `SKIP_CONTINUE`. From

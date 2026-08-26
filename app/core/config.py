@@ -217,6 +217,14 @@ class Settings(BaseModel):
     #: The largest archive whose members are read, in MB. A 40GB backup zip is
     #: recorded by name with a message saying why, rather than read.
     archive_max_mb: int = 100
+    #: Pages of one scanned PDF to read with OCR. 0 is off.
+    #:
+    #: **A budget rather than a switch**, and the arithmetic is the argument:
+    #: at ~3.6 seconds a page, twenty pages is about a minute a document, and
+    #: the first twenty pages of a manual are its title, contents and
+    #: introduction - most of what makes it findable. All-or-nothing is the
+    #: sixty-hour column.
+    pdf_ocr_pages: int = 0
     #: both | text | images. Which pass an index run is. See `pipeline.
     #: OCR_MODES`: OCR costs about 3.6 seconds a page, so at a terabyte a
     #: single pass means nothing is searchable until everything is.
@@ -339,6 +347,8 @@ def load_settings(
                 "ARCHIVE_READ_INSIDE", values.get("ARCHIVE_READ_INSIDE", "true")),
             archive_max_mb=_as_int(
                 "ARCHIVE_MAX_MB", values.get("ARCHIVE_MAX_MB", "100")),
+            pdf_ocr_pages=_as_int(
+                "PDF_OCR_PAGES", values.get("PDF_OCR_PAGES", "0")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,

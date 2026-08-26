@@ -209,10 +209,41 @@ def _pdf_ocr_pages() -> int:
     is 0: a typo in an environment variable must not silently start a job that
     takes days.
     """
+    raw = os.environ.get(PDF_OCR_PAGES_VAR)
+    if raw is None:
+        # **The environment variable is the override, not the only way in.**
+        # `LEASHA_PDF_OCR_PAGES` was the whole interface, which is
+        # non-negotiable 11 broken: a tunable with no control. The setting is
+        # the ordinary route; the variable still wins so a single run can be
+        # given a different budget without touching anybody's configuration.
+        return _pages_from_settings()
     try:
-        return max(0, int(os.environ.get(PDF_OCR_PAGES_VAR, "0")))
+        return max(0, int(raw))
     except ValueError:
         return 0
+
+
+_SETTINGS_PAGES: object = None
+
+
+def _pages_from_settings() -> int:
+    """`PDF_OCR_PAGES` from Settings. Cached, and never raises.
+
+    Cached because this is asked once per scanned PDF on a worker thread, and
+    re-reading `.env` per document is the shape of cost that turns a run into
+    an afternoon. A missing configuration is 0 - off - which is what this did
+    before it was configurable.
+    """
+    global _SETTINGS_PAGES
+    if _SETTINGS_PAGES is None:
+        try:
+            from app.core.config import load_settings
+
+            settings = load_settings(create_dirs=False, check_writable=False)
+            _SETTINGS_PAGES = max(0, int(getattr(settings, "pdf_ocr_pages", 0) or 0))
+        except Exception:                        # noqa: BLE001 - a budget
+            _SETTINGS_PAGES = 0
+    return int(_SETTINGS_PAGES)
 
 
 def _ocr_pages(document: object, path: Path, builder: object) -> object:

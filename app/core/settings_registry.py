@@ -200,6 +200,16 @@ SETTINGS: tuple[Setting, ...] = (
              "at a time and each one costs what that file would cost on disk.",
     ),
     Setting(
+        key="PDF_OCR_PAGES", label="Pages to read from a scanned PDF",
+        kind="int", default=0, group="Indexing", surface="settings.indexing",
+        minimum=0, maximum=500, unit="pages",
+        help="0 leaves scanned PDFs unread, as they are today. A scanned "
+             "manual is a document whose entire contents are unreachable; at "
+             "about 3.6 seconds a page, 20 pages is roughly a minute a "
+             "document and covers the title, contents and introduction - most "
+             "of what makes it findable. Only the images pass uses this.",
+    ),
+    Setting(
         key="MIN_FREE_GB", label="Stop if free space drops below", kind="int",
         default=5, group="Indexing", surface="settings.indexing",
         minimum=1, maximum=500, unit="GB",

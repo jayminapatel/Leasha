@@ -220,6 +220,17 @@ class IndexStats:
     #: week should say what it can see coming at the start of it, not at hour
     #: sixty when the disk fills.
     notices: list[str] = field(default_factory=list)
+    #: Warning code -> how many documents carried it.
+    #:
+    #: Warnings live on documents that indexed *successfully*, so none of them
+    #: reached `skipped_by_code` and the only record was a log line. That made
+    #: "412 decks are mostly images" - the input to the Office OCR decision -
+    #: a question nobody could answer without grepping.
+    warned_by_code: dict[str, int] = field(default_factory=dict)
+    #: Which pass this is - `both`, `text` or `images`. Carried on the stats so
+    #: the progress line can say "reading with OCR", because seconds per page
+    #: looks exactly like a stall on a line built for hundreds of files a minute.
+    ocr_mode: str = "both"
 
     #: `(monotonic, indexed, bytes_read)` samples, for the windowed rates.
     #: Bounded by time rather than by count in `sample`, so the memory cost is
@@ -302,6 +313,8 @@ class IndexStats:
             "skipped_by_code": dict(self.skipped_by_code),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
+            "warned_by_code": dict(self.warned_by_code),
+            "ocr_mode": self.ocr_mode,
             "stopped_early": self.stopped_early.code if self.stopped_early else None,
         }
 
@@ -532,7 +545,7 @@ class Pipeline:
         *,
         on_progress: Optional[Callable[[IndexStats], None]] = None,
     ) -> IndexStats:
-        stats = IndexStats()
+        stats = IndexStats(ocr_mode=self.config.ocr_mode)
         self._stats_ref = stats          # workers announce the file they are on
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
@@ -795,6 +808,12 @@ class Pipeline:
         # `_narrow_to_images`. Nothing is written for a non-image, because
         # writing a skip row would mark files the *text* pass indexed perfectly
         # well as failures.
+        #
+        # **And a PDF from the ledger is not a non-image.** The images pass
+        # takes its scanned PDFs from `ERR_NO_TEXT_LAYER` rows rather than from
+        # the walk, because whether a PDF needs OCR cannot be known from its
+        # name. Holding them here would refuse the very work this pass exists
+        # to do.
         return None
 
     def _narrow_to_images(self) -> None:
@@ -1024,15 +1043,61 @@ class Pipeline:
         # queue them a second time - doubling the work, double-counting the
         # skips, and retrying a file whose lock is by definition still held.
         retry = list(self._locked_candidates()) if self.config.retry_locked else []
+        # **The images pass reads its work back from the ledger, not from the
+        # walk.** This is the open piece of wiring `WORKORDER-...-ocr-strategy`
+        # §4 names: whether a PDF needs OCR is **not knowable from its
+        # extension**, so `reads_by_ocr` is False for every PDF, the walk is
+        # narrowed to `.png`/`.jpg`, and a scanned manual is never revisited -
+        # however many times somebody runs `--only-ocr`.
+        #
+        # The text pass has already recorded exactly the right rows, as
+        # `ERR_NO_TEXT_LAYER`. Reading them back costs one indexed query;
+        # re-walking a terabyte to find them again costs the walk this pass
+        # exists to avoid.
+        scanned = (list(self._no_text_layer_candidates())
+                   if self.config.ocr_mode == "images" else [])
         walked: set[str] = set()
 
         for candidate in walk(self.config.walk):
             walked.add(str(candidate.path).lower())
             yield candidate
 
-        for candidate in retry:
+        for candidate in (*retry, *scanned):
             if str(candidate.path).lower() not in walked:
+                walked.add(str(candidate.path).lower())
                 yield candidate
+
+    def _no_text_layer_candidates(self) -> Iterator[Candidate]:
+        r"""PDFs the text pass could not read, for the images pass to retry.
+
+        **Whether a PDF needs OCR cannot be known from its name**, which is the
+        whole reason this exists. `reads_by_ocr` asks the resolved extractor and
+        answers False for every `.pdf` - correctly, because most PDFs have a
+        text layer - so narrowing the images walk to image extensions skips
+        every scanned manual in the corpus.
+
+        The text pass already found them and said so: one `ERR_NO_TEXT_LAYER`
+        row each. This reads those rows back, which is an indexed query over a
+        few hundred rows rather than a second walk of 1.5TB.
+
+        A file that has since been deleted or moved is skipped silently - the
+        ordinary prune will deal with the row.
+        """
+        for record in self.store.iter_files(status=FileStatus.SKIPPED):
+            if record.skip_code != "ERR_NO_TEXT_LAYER":
+                continue
+            path = Path(record.path)
+            if path.suffix.lower() != ".pdf":
+                # Belt and braces beside the separate code above: only a PDF is
+                # work this pass can do. A deck is declined by the strategy, and
+                # queueing one would be a decision made by accident.
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            yield Candidate(path=path, size_bytes=stat.st_size,
+                            mtime_ns=stat.st_mtime_ns, priority=0)
 
     def _locked_candidates(self) -> Iterator[Candidate]:
         """Files skipped as locked last time. The program holding them may have
@@ -1561,6 +1626,16 @@ class Pipeline:
 
         for warning in item.warnings:
             self._log.warning("{} | {}", warning.message, warning.suggestion)
+            # **Counted, not only logged.** A warning on a document that indexed
+            # successfully never reached the skip ledger, so "how many decks are
+            # mostly pictures" - the number the Office OCR decision turns on -
+            # was answerable only by grepping a log file. `_warn_if_mostly_
+            # pictures` has been collecting this evidence since it was written;
+            # nothing was reading it.
+            code = str(getattr(warning, "code", "") or "")
+            if code:
+                self._stats_ref.warned_by_code[code] = (
+                    self._stats_ref.warned_by_code.get(code, 0) + 1)
 
         # Deliberately does NOT embed. Embedding one document at a time means a
         # batch of three chunks per email, and ONNX throughput collapses at that

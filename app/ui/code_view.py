@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.presenter import (
+    code_preset,
     REPO_FILE_LIMIT, GitScope, code_route, code_rows_for, code_summary,
     git_result_row, git_summary,
     repo_empty_state, repo_file_rows, repo_root_for,
@@ -268,17 +269,6 @@ class CodeView(QWidget):
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
-    def _code_preset(self) -> str:
-        """Which code-type preset is in force. Never raises - it is a caption.
-
-        `choice_from` rather than a second state key: one reader for the
-        setting, so the caption cannot name a preset the filter is not using.
-        """
-        from app.core.code_types import choice_from
-
-        preset, _chosen = choice_from(self._store)
-        return preset
-
     # -- drawing -------------------------------------------------------------
 
     def _fill(self, rows: list[Any]) -> None:
@@ -292,15 +282,8 @@ class CodeView(QWidget):
         self._fill(rows)
         self._show_state()
         if self._repos:
-            # **What the type filter took out.** The scoped total is what the
-            # repository holds; `rows` is what survived the preset. Saying only
-            # the second is how `README.md` and `package.json` disappear from a
-            # fresh install with nothing on screen to explain it.
-            scoped = sum(int(row.get("files", 0) or 0) for row in self._repos)
-            self.summary.setText(code_summary(
-                rows, self._repos, self._scope,
-                hidden=max(0, scoped - len(rows)),
-                preset=self._code_preset()))
+            self.summary.setText(code_summary(rows, self._repos, self._scope,
+                                              preset=code_preset(self._store)))
 
     def _show_git(self, found: Any, generation: int) -> None:
         if generation != self._generation:
@@ -318,10 +301,8 @@ class CodeView(QWidget):
         self.summary.setText(git_summary(found))
 
     def _show_state(self) -> None:
-        """Two different questions, so two different sentences - see
-        `repo_empty_state`. A corpus with no repositories needs to be told what
-        one is here and that adding its parent as an indexed root is what makes
-        it appear."""
+        """Two questions, two sentences. The reasoning is on `repo_empty_state`,
+        which is where the wording lives."""
         if self._repos:
             self.empty.setVisible(False)
             self.results.setVisible(True)
