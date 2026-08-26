@@ -26,11 +26,16 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+
+from app.core.logging import logger
 from typing import Iterable, Mapping, Optional
 
 from app.core.errors import AppErrorException, make_error
 
 __all__ = ["write_env", "apply_values", "render", "pinned_keys"]
+
+
+_log = logger.bind(component="core.env")
 
 
 def _split(line: str) -> Optional[tuple[str, str]]:
@@ -61,6 +66,29 @@ def render(existing: str, values: Mapping[str, object]) -> str:
     lines = existing.splitlines()
     remaining = dict(values)
     out: list[str] = []
+
+    # **A removal that would stop the application starting is refused here**,
+    # not only in the caller that happens to ask. "Restore defaults" sent
+    # `{key: None}` for every pinned key and this loop deleted `DATA_PATH`,
+    # `VECTOR_PATH`, `FTS_DB`, `CACHE_PATH`, `MODEL_CACHE` and `STATE_PATH` -
+    # keys with no usable default, so `load_settings` then refused to start,
+    # before logging existed to say why.
+    #
+    # The caller is fixed too. This is here because a guard that lives only in
+    # the caller is a guard the next caller does not have, and the blast radius
+    # of this one is "the application never opens again".
+    try:
+        from app.core.settings_registry import protected
+
+        guarded = protected()
+    except Exception:                    # noqa: BLE001 - a guard, never a failure
+        guarded = frozenset()
+    for key in list(remaining):
+        if remaining[key] is None and key in guarded:
+            _log.warning(
+                "refused to remove {} from .env: it has no default to fall "
+                "back to, and the application cannot start without it", key)
+            remaining.pop(key)
 
     for line in lines:
         pair = _split(line)

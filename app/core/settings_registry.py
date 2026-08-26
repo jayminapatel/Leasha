@@ -307,3 +307,70 @@ def needs_restart() -> tuple[Setting, ...]:
     not is worse than one that is refused.
     """
     return tuple(setting for setting in SETTINGS if setting.restart)
+
+
+#: Keys that must never be removed from `.env`, whatever asks.
+#:
+#: **"Restore defaults" deleted every one of these and the application could
+#: not start again.** `defaults.py` sent `{key: None for key in pinned}` and
+#: `env_writer.render` dutifully dropped each line - correct behaviour on its
+#: own, because `None` is how a key gets *unpinned* so a better code default
+#: can reach an existing install. That mechanism exists for `RERANK_MODEL`,
+#: which the installer froze on a model 9.2x slower than the code's choice.
+#:
+#: It is nonsense for a path. `DATA_PATH` has `default=""`, so "restore the
+#: default" means "leave the index location blank", and `load_settings` then
+#: refuses to start with *"'' does not exist"* - before logging is configured,
+#: so with no log line either. The owner's `.env` lost `DATA_PATH`,
+#: `VECTOR_PATH`, `FTS_DB`, `CACHE_PATH`, `MODEL_CACHE` and `STATE_PATH` in one
+#: press, and the only symptom was an application that would not open.
+#:
+#: A setting is protected when it is `destructive` - it changes what the index
+#: *is* - or when it is a path with no usable default. Both mean the same
+#: thing: there is nothing to fall back to, so removal is not an operation.
+#: Where everything lives. **Not all of these are in `SETTINGS`**, and that is
+#: exactly why they are listed by name.
+#:
+#: `DATA_PATH` is a registered setting; `FTS_DB`, `VECTOR_PATH`, `CACHE_PATH`,
+#: `MODEL_CACHE`, `STATE_PATH`, `PROJECT_PATH` and `LOG_PATH` are not - they are
+#: written by the installer and by the index-move flow, and read by
+#: `load_settings`. Deriving the protected set from the registry alone would
+#: therefore have guarded one of the seven and left the application just as
+#: unable to start.
+#:
+#: The owner's `.env` lost six of these and the only symptom was a window that
+#: never appeared - `load_settings` refuses before logging is configured, so
+#: there is not even a line saying which key went.
+#: **Only the roots.** `VECTOR_PATH`, `FTS_DB`, `CACHE_PATH`, `MODEL_CACHE` and
+#: `STATE_PATH` are deliberately *not* here: they derive from `DATA_PATH`, and
+#: `index_move` removes them on purpose - a sub-path left pinned outranks
+#: `DATA_PATH` and silently strands that part of the index on the old drive,
+#: which is the bug that made a move look like a no-op.
+#:
+#: The first version of this set listed all eight, and
+#: `test_the_pinned_subpaths_are_removed_not_rewritten` caught it immediately -
+#: a guard against losing data that would have broken moving data.
+LOCATION_KEYS: frozenset[str] = frozenset({
+    "DATA_PATH", "PROJECT_PATH", "LOG_PATH",
+})
+
+
+def protected() -> frozenset[str]:
+    """Keys nothing may remove from `.env`. See the note above.
+
+    Two sources, deliberately. The registry contributes anything `destructive`
+    or any path with no usable default; `LOCATION_KEYS` contributes the ones
+    that never reached the registry at all. A key belongs here when removing it
+    leaves nothing to fall back to.
+    """
+    from_registry = frozenset(
+        setting.key for setting in SETTINGS
+        if setting.destructive or (setting.kind == "path" and not setting.default)
+    )
+    return from_registry | LOCATION_KEYS
+
+
+def resettable() -> tuple[Setting, ...]:
+    """Everything a "restore defaults" may legitimately unpin."""
+    guarded = protected()
+    return tuple(setting for setting in SETTINGS if setting.key not in guarded)

@@ -129,7 +129,11 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     # alarming, wrong, and buries the real errors it is printed among.
     "ERR_SHUTTING_DOWN": _Spec(
         message="The window is closing, so this search was abandoned.",
-        suggestion="Nothing is wrong and nothing was lost.",
+        suggestion=(
+            "No action needed - nothing is wrong and nothing was lost. Start "
+            "the application again whenever you want; indexing resumes where "
+            "it stopped."
+        ),
         action_type=ActionType.NONE,
     ),
     "ERR_OLLAMA_DOWN": _Spec(
@@ -227,16 +231,23 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     "ERR_OCR_FAILED": _Spec(
         message="Could not read any text from '{path}'.",
         suggestion=(
-            "The image is skipped and indexing continues. Photographs, logos and diagrams "
-            "with no writing in them are the usual reason."
+            (
+            "No action needed - the image is skipped and indexing continues. "
+            "Photographs, logos and diagrams with no writing in them are the "
+            "usual reason. If it does contain text, open it and check it is "
+            "not blank or rotated, then index that folder again."
+        )
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
     "ERR_OCR_LOW_CONFIDENCE": _Spec(
         message="The text read from '{path}' may be unreliable.",
         suggestion=(
-            "It has been indexed anyway and is marked as read by OCR, so searches can still "
-            "find it - but expect mistakes, particularly in numbers and names."
+            (
+            "No action needed - it is indexed and findable, and marked as "
+            "read by OCR. Expect mistakes in numbers and names, so open the "
+            "document to check anything you are relying on."
+        )
         ),
         action_type=ActionType.AUTO_FIX,
     ),
@@ -248,10 +259,13 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     "ERR_MOSTLY_PICTURES": _Spec(
         message="Most of '{path}' is pictures rather than text.",
         suggestion=(
-            "It is indexed, and the text it does have is searchable - a title "
-            "and slide headings usually. Reading the pictures would mean OCR "
-            "per image, which on a deck-heavy corpus costs far more than it "
-            "returns; see docs/WORKORDER-202626081052-ocr-strategy.md."
+            (
+            "No action needed - the title and headings are searchable. To "
+            "read the pictures too, set 'Pages of a scanned PDF' in Settings "
+            "and run `app.cli index --only-ocr`; at roughly 3.6 seconds a "
+            "page that is worth doing for a handful of documents, not a "
+            "corpus."
+        )
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
@@ -299,9 +313,13 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     "ERR_ARCHIVE_UNREADABLE": _Spec(
         message="'{path}' could not be opened as an archive: {reason}.",
         suggestion=(
+            (
             "It is still indexed by name, folder and type, so it remains "
             "findable - only its contents could not be read. Truncated "
-            "downloads and interrupted copies are the usual cause."
+            "downloads and interrupted copies are the usual cause: copy the "
+            "file again, then run `app.cli index --force` on its folder to "
+            "read inside it."
+        )
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
@@ -362,7 +380,12 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     ),
     "ERR_ENCODING": _Spec(
         message="Could not decode '{path}' cleanly.",
-        suggestion="Indexed using replacement characters. The original file is untouched.",
+        suggestion=(
+            "No action needed - it is indexed and searchable, and the "
+            "original file is untouched. If the preview shows the wrong "
+            "characters, re-save the file as UTF-8 and index that folder "
+            "again."
+        ),
         action_type=ActionType.AUTO_FIX,
     ),
     "ERR_CLOUD_ONLY": _Spec(
@@ -426,12 +449,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     ),
     "ERR_NOT_IMPLEMENTED": _Spec(
         message="'{feature}' is not built yet - it arrives in {layer}.",
-        suggestion="See BUILD_SPEC_V2.md for what each layer delivers.",
+        suggestion=(
+            "Nothing to do: this part is not built yet. Check "
+            "BUILD_SPEC_V2.md for what each layer delivers, and use the "
+            "command line for anything it lists as done."
+        ),
         action_type=ActionType.USER_RETRY,
     ),
     "ERR_UNEXPECTED": _Spec(
         message="An unexpected error occurred in {component}.",
-        suggestion="This is a bug. The technical detail below, plus the log file, is what is needed to fix it.",
+        suggestion=(
+            "This is a bug - please report it with the detail below and "
+            "today's file from the logs folder. Settings has a Copy button "
+            "under Recent activity. Restarting is usually enough to carry on "
+            "in the meantime."
+        ),
         action_type=ActionType.USER_RETRY,
     ),
     # Appended, never inserted - the file's own rule, so two threads adding a

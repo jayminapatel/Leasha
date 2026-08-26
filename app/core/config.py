@@ -522,9 +522,37 @@ def _validate_paths(settings: Settings, *, create_dirs: bool, check_writable: bo
         _refuse_foreign_path(key, target)
         if not target.exists():
             if not create_dirs:
+                # **A missing location and a wrong one need different fixes**,
+                # and this fired for both with one sentence. An empty value
+                # means the line is *gone* from `.env` - which is what a
+                # "restore defaults" used to do - and no amount of checking the
+                # path helps, because there is no path to check.
+                #
+                # Reported as *"now the application does not even start says
+                # some path is missing"*, and the message it printed named the
+                # key, said "'' does not exist", and stopped there.
+                blank = not str(target).strip() or str(target) == "."
                 raise AppErrorException(make_error(
                     "ERR_CONFIG_INVALID", "core.config",
-                    key=key, reason=f"'{target}' does not exist",
+                    key=key,
+                    reason=(
+                        f"{key} is not set in .env, so there is nothing to open"
+                        if blank else f"'{target}' does not exist"
+                    ),
+                    details=(
+                        f"Add a line to .env naming the folder, for example:\n"
+                        f"    {key}=D:\\Leasha\\Data\n\n"
+                        f"Every location key must be present: DATA_PATH, "
+                        f"VECTOR_PATH, FTS_DB, CACHE_PATH, MODEL_CACHE, "
+                        f"STATE_PATH, PROJECT_PATH and LOG_PATH. If several are "
+                        f"missing, re-running install.ps1 rewrites them all, "
+                        f"and it does not touch an index that already exists."
+                        if blank else
+                        f"Create the folder, or point {key} at where it "
+                        f"actually is. Moving an index is a flow in Settings; "
+                        f"editing this line by hand only changes where the "
+                        f"application looks."
+                    ),
                 ))
             try:
                 target.mkdir(parents=True, exist_ok=True)

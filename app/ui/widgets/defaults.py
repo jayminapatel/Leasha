@@ -47,14 +47,29 @@ RESET_LABEL = "Restore defaults"
 
 
 def pinned_in(env_file: Any) -> list[str]:
-    """Registry keys this `.env` pins. Never raises - see `env_writer`."""
+    r"""Registry keys this `.env` pins **and that a reset may remove.**
+
+    **`protected()` is why the second half of that sentence exists.** This
+    returned every pinned key, and the restore button sent `{key: None}` for
+    all of them - which deleted `DATA_PATH`, `VECTOR_PATH`, `FTS_DB`,
+    `CACHE_PATH`, `MODEL_CACHE` and `STATE_PATH` in one press. Those have no
+    usable default: `DATA_PATH` is declared `default=""`, so "restore the
+    default" means "leave the index location blank", and `load_settings` then
+    refuses to start before logging is configured to say why.
+
+    The owner pressed it and the application never opened again. Never raises -
+    see `env_writer`.
+    """
     from pathlib import Path
 
     from app.core.env_writer import pinned_keys
+    from app.core.settings_registry import protected
 
     if not env_file:
         return []
-    return pinned_keys(Path(env_file), keys())
+    guarded = protected()
+    return [key for key in pinned_keys(Path(env_file), keys())
+            if key not in guarded]
 
 
 def _describe(key: str) -> str:
@@ -129,7 +144,8 @@ def restore_button(parent: Optional[QWidget], env_file: Any,
             f"install are pinned in .env: {', '.join(pinned)}.\n\n"
             "Restoring removes those lines, so the application's own defaults "
             "apply again - including better ones that arrive in a future "
-            "version. Your index, folders and documents are untouched.\n\n"
+            "version. Your index, folders and documents are untouched, and "
+            "where things are stored is never changed by this.\n\n"
             "Right-click any single control to restore just that one."
         )
         button.clicked.connect(

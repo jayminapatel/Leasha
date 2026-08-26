@@ -124,3 +124,81 @@ def test_app_error_is_serialisable() -> None:
     assert payload["code"] == "ERR_DISK_SPACE"
     assert payload["action_type"] == "USER_RETRY"
     assert AppError(**payload).message == err.message
+
+
+# ---------------------------------------------------------------------------
+# Project rule: an error names a way out
+#
+#   "any such error message should suggest a solution not just message and
+#    disappear .. and the last message is a project rule even when printing
+#    errors it should suggest solutions"
+#
+# Stated by the owner after an application that would not start said only
+# *"'' does not exist"* - true, useless, and gone from the screen a moment
+# later. A message that describes a fault and stops there leaves the reader
+# with the same problem plus the knowledge that the software noticed.
+#
+# `AppError` has carried `suggestion` from the beginning; the rule is that it
+# must be *filled*, and filled with something a person can act on rather than a
+# restatement of the fault.
+# ---------------------------------------------------------------------------
+
+#: Words that describe an action somebody can take. A suggestion containing
+#: none of them is almost always a second sentence about the problem.
+_ACTIONABLE = (
+    "run ", "open", "check", "set ", "add ", "remove", "delete", "close",
+    "free ", "install", "re-run", "rerun", "restart", "choose", "pick",
+    "press", "click", "use ", "try ", "edit", "point ", "move ", "rename",
+    "raise ", "lower", "wait", "stop", "start", "extract", "convert",
+    "re-index", "reindex", "index ", "settings", "app.cli", "leasha",
+    "report", "split", "repair", "restore", "copy", "scanpst",
+)
+
+#: The honest null answer. Some conditions genuinely need nothing done - a
+#: clean shutdown, a logo with no text in it - and saying "no action needed" out
+#: loud is a better suggestion than inventing one. What is refused is silence,
+#: and a second sentence about the problem dressed as advice.
+_NO_ACTION = ("no action needed", "nothing to do", "nothing is wrong")
+
+
+def test_every_error_suggests_something_to_do():
+    r"""**The project rule, enforced rather than remembered.**
+
+    A comment asking for this would be honoured until somebody was in a hurry,
+    which is exactly when a bad error message gets written.
+    """
+    from app.core.errors import ERROR_REGISTRY as ERRORS
+
+    silent = sorted(code for code, spec in ERRORS.items()
+                    if not str(getattr(spec, "suggestion", "") or "").strip())
+
+    assert not silent, (
+        "these errors state a problem and offer no way out:\n  "
+        + "\n  ".join(silent)
+        + "\n\nEvery error carries a suggestion. The reader has the fault "
+          "already; what they lack is the next step."
+    )
+
+
+def test_every_suggestion_names_an_action():
+    r"""A suggestion that restates the problem is not a suggestion.
+
+    *"Two copies cannot share one index safely"* explains; *"close the other
+    copy, then try again"* is the sentence somebody can act on. The first
+    without the second is the failure this rule exists for.
+    """
+    from app.core.errors import ERROR_REGISTRY as ERRORS
+
+    vague = sorted(
+        code for code, spec in ERRORS.items()
+        if not any(word in str(spec.suggestion).lower()
+                   for word in _ACTIONABLE + _NO_ACTION)
+    )
+
+    assert not vague, (
+        "these suggestions describe rather than instruct:\n  "
+        + "\n  ".join(vague)
+        + "\n\nName the thing to do - the command to run, the setting to "
+          "change, the folder to free. If the answer is genuinely 'wait', say "
+          "wait and say for what."
+    )
