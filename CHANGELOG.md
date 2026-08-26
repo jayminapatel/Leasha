@@ -1,12 +1,57 @@
 # Changelog
 
-**Doc version:** 3.46 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.47 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — the search box reaches repository history, not just the index
+
+The other half of *"the main search searches every thing no matter what"*, and
+the half the owner had to say twice: *"it is not just a switch union it is union
+of all data as source too"*.
+
+The search box now offers **all 41 switches** — the eleven index ones and every
+git switch whose spelling the index does not already claim — and a query
+carrying a repository-only switch (`/history`, `/branch`, `/author`, `/class`…)
+runs against the repositories in the index and folds the results into the same
+list, labelled `repository history · leasha · a1b2c3d4 · Dave · 2024-06-01`.
+
+**Three existing guards shaped where this lives, and each was right.**
+
+- `SearchEngine` must stay git-free — it is what answers a keystroke — so
+  federation is `app/search/federate.py`, beside the engine rather than inside
+  it, and the caller joins the two.
+- Nothing on the typing path may import `gitsearch`, so `federate` imports it
+  *inside the function*. That is not a way past the guard; it is what makes the
+  guard true, and a test asserts that importing `federate` does not pull git in.
+- Views are held under 250 lines. `search_view.py` stood at 247, so the guard
+  fired the moment this went in — correctly. The decisions moved to
+  `presenter.git_pass` and `federated_summary`, the worker to
+  `widgets/history_pass.py`, and the construction that was never view logic to
+  `search_bar.build_controls` / `build_toolbar` and
+  `results_view.build_results_pane`.
+
+It runs on the **full tier only** and only when a git switch was typed, as a
+**second** worker: the index answers in milliseconds and history in seconds, so
+its rows are appended to what is already on screen rather than replacing it —
+`ResultsView.append_results`, which never moves the scroll position. Repositories
+are capped at eight, because twenty checkouts is twenty subprocesses.
+
+**Two bugs found by testing rather than reasoning.** The first version of
+`wants_git` compiled its pattern into `_TOKEN`, a name `gitquery` already used
+further down the module; the later definition won, and the function answered "no
+git switches here" for every line ever typed — a feature that silently never
+ran. And `after`/`before` are aliases of git's `/since` and `/until`, so an
+ordinary date filter resolved to a repository switch and would have forked
+`git log` on every search carrying a date. Spellings the index claims now belong
+to the fast engine, the same precedence the Code menu already used.
+
+`app.cli search` federates identically — a feature added for one entry point is
+added for the others.
 
 ### Fixed — one switch vocabulary, and one definition of what a switch means
 

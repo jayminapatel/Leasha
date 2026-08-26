@@ -132,6 +132,7 @@
     <Compile Include="app\search\vector.py" />
     <Compile Include="app\search\window.py" />
     <Compile Include="app\storage\__init__.py" />
+    <Compile Include="app\storage\filters.py" />
     <Compile Include="app\storage\migrations.py" />
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
@@ -308,6 +309,7 @@
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_staging.py" />
+    <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_translate.py" />
@@ -360,6 +362,7 @@
     <Content Include="docs\VISUALSTUDIO.md" />
     <Content Include="docs\VSCODE.md" />
     <Content Include="docs\WORKORDER-202626081052-ocr-strategy.md" />
+    <Content Include="docs\WORKORDER-202626081106-wildcards.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

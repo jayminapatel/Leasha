@@ -21,38 +21,36 @@ import time
 from typing import Any
 
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QWidget
 
 from app.search.commands import expand_slashes
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
     Tier,
+    federated_summary,
     results_message,
     search_options,
     search_shape,
     tier_for,
 )
-from app.ui.results_view import ResultsView
-from app.ui.view_options import button as view_button
+from app.ui.results_view import build_results_pane
+from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import run_interpretation
-from app.ui.widgets.notice_bar import NoticeBar
-from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.search_bar import (
+    build_controls,
     build_input,
-    build_interpret,
-    build_rerank,
-    build_scope,
+    build_toolbar,
     scope_value,
     select_scope,
 )
-from app.ui.workers import SearchWorker, decorate_results_async, record_open_async, run, stop_timers
+from app.ui.workers import (
+    SearchWorker,
+    decorate_results_async,
+    record_open_async,
+    run,
+    stop_timers,
+)
 
 __all__ = ["SearchView"]
 
@@ -95,6 +93,11 @@ class SearchView(QWidget):
         self._shown_anything = False
         self._last_keystroke = time.monotonic()
         self._last_search_id: int | None = None
+        #: How many rows the index answered with. The repository half appends
+        #: to `ResultsView`, which owns the rows; this is only what its ranks
+        #: continue from and what the status line counts.
+        self._index_count = 0
+        self._last_terms: list = []
 
         self.input, self.commands = build_input(
             self, self._on_text_changed, self._on_submitted,
@@ -104,55 +107,20 @@ class SearchView(QWidget):
             # rather than a view that fails to build.
             store=getattr(engine, "store", None))
 
-        # Scope chips. A filter, not a mode: you should never have to decide
-        # whether a thing was an email or a document *before* typing, because
-        # the usual answer is "I do not remember, that is why I am searching".
-        # The four controls beside the box - see `widgets/search_bar.py` for
-        # why each tooltip is load-bearing.
-        self.scope = build_scope(self, self._on_scope_changed)
-        self.interpret_button = build_interpret(self, lambda _c=False: self.interpret())
-        self.rerank_toggle = build_rerank(self, lambda _state: self._dispatch(Tier.FULL))
-        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.interpret)
-        QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.interpret)
+        (self.scope, self.interpret_button, self.rerank_toggle,
+         self.view_button, self.status) = build_controls(
+            self, on_scope=self._on_scope_changed, on_interpret=self.interpret,
+            on_rerank=lambda: self._dispatch(Tier.FULL),
+            on_view=self._view_changed)
 
-        # Text size and spacing for the results pane. Results are the one place
-        # in this window people *read* rather than scan, and the size that suits
-        # a paragraph of snippet is not the size that suits a toolbar - so it is
-        # this pane's own setting rather than an application-wide zoom.
-        #
-        # No columns: a result is not a table. The same widget as the Files and
-        # Mail menus, so all three read identically.
-        self.view_button = view_button(
-            self, None, "", on_change=self._view_changed, grouping=True)
+        self.results, self.preview, self.split = build_results_pane(
+            on_opened=self._on_opened, on_reveal=self.reveal_requested,
+            on_reindex=self.reindex_requested, on_error=self.error)
 
-        self.status = QLabel("")
-        self.status.setObjectName("searchStatus")
-
-        self.results = ResultsView()
-        self.results.opened.connect(self._on_opened)
-        self.results.reveal_requested.connect(self.reveal_requested)
-        self.results.reindex_requested.connect(self.reindex_requested)
-
-        # Off until asked for - `Ctrl+P` or the View menu. See preview.py.
-        self.preview, self.split = attach_preview(
-            self.results, self._on_opened, self.error)
-
-        top = QHBoxLayout()
-        top.addWidget(self.input, stretch=1)
-        top.addWidget(self.interpret_button)
-        top.addWidget(self.scope)
-        top.addWidget(self.rerank_toggle)
-        top.addWidget(self.view_button)
-
-        # Above the results and below the status line: a degradation is about
-        # the results, so it belongs where the eye lands before reading them.
-        self.notices = NoticeBar(self)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(top)
-        layout.addWidget(self.status)
-        layout.addWidget(self.notices)
-        layout.addWidget(self.split, stretch=1)
+        self.notices = build_toolbar(
+            self, status=self.status, body=self.split,
+            controls=(self.interpret_button, self.scope, self.rerank_toggle,
+                      self.view_button))
 
         # Two timers, because the two tiers answer different questions.
         self._interim_timer = QTimer(self)
@@ -247,6 +215,7 @@ class SearchView(QWidget):
         query = expand_slashes(self.input.text().strip())
         if not query:
             self._shown_anything = False
+            self._index_count = 0
             self.results.clear()
             self.status.setText("")
             return
@@ -260,6 +229,24 @@ class SearchView(QWidget):
         worker.signals.finished.connect(self._on_results)
         worker.signals.failed.connect(self.error)
         run(self._pool, worker)
+
+        # The repository half. `run_history_pass` decides nothing: it asks
+        # `presenter.git_pass` and starts a worker if the answer is yes.
+        generation = self._generation
+        run_history_pass(
+            store=getattr(self._engine, "store", None), query=query, tier=tier,
+            shown=self._index_count, pool=self._pool,
+            set_status=self.status.setText,
+            on_rows=lambda rows, g=generation: self._on_git(rows, g),
+        )
+
+    def _on_git(self, rows: Any, generation: int) -> None:
+        """Append the repository rows beneath what is already on screen."""
+        if generation < self._shown_generation or not rows:
+            return
+        total = self.results.append_results(rows, self._last_terms)
+        self.status.setText(
+            federated_summary(self._index_count, total - self._index_count))
 
     # -- results ------------------------------------------------------------
 
@@ -303,6 +290,8 @@ class SearchView(QWidget):
         #
         # The rows are drawn immediately with what is already known, and the
         # subtitles and missing-file marks arrive a moment later.
+        self._index_count = len(response.results)
+        self._last_terms = terms
         self.results.show_results(response.results, terms, summary=summary)
 
         generation = self._shown_generation

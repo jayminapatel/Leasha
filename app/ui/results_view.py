@@ -49,7 +49,7 @@ from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 
-__all__ = ["ResultsView", "KIND_LABELS"]
+__all__ = ["ResultsView", "KIND_LABELS", "build_results_pane"]
 
 class ResultsView(QWidget):
     """A painted list of search results, grouped by document."""
@@ -155,6 +155,29 @@ class ResultsView(QWidget):
         self._summary.setText(summary)
         self._rebuild(keep_scroll=keep_scroll)
 
+    def append_results(self, results: Sequence[Any], terms: Sequence[str]) -> int:
+        r"""Add rows beneath what is already shown. Returns the new total.
+
+        **For a second source answering later**, which today means a repository
+        history search: it takes seconds where the index takes milliseconds, so
+        its rows arrive after somebody has started reading. Appending is the
+        only honest way to show that - replacing would blank a list mid-read,
+        and waiting for both would make every history search look like a hang.
+
+        Here rather than in the view, because this widget already owns "what is
+        on screen": keeping a second copy of the rows in `search_view.py` so it
+        could concatenate them would be two answers to one question, and it is
+        the question this class exists to answer.
+
+        `keep_scroll` is not offered. Rows arriving below the fold must never
+        move somebody who is reading the ones above it.
+        """
+        if not results:
+            return len(self._rows)
+        self._rows = list(self._rows) + to_rows(results, terms)
+        self._rebuild(keep_scroll=True)
+        return len(self._rows)
+
     def _rebuild(self, *, keep_scroll: bool = True) -> None:
         """Refill the model. Rows are data now, so this is cheap.
 
@@ -252,3 +275,25 @@ class ResultsView(QWidget):
             reindex=lambda: self.reindex_requested.emit(row),
             copy=[("Why this result?", why(row))],
         ))
+
+
+def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any,
+                       on_error: Any) -> tuple:
+    r"""A `ResultsView`, wired, with its preview pane attached.
+
+    Returns `(results, preview, split)`.
+
+    Construction rather than behaviour, and here for the same reason
+    `search_bar.build_controls` is there: `search_view.py` sits under a 250-line
+    guard, and four `connect` calls plus a splitter say nothing about how
+    searching works. The preview is off until asked for - `Ctrl+P` or the View
+    menu; see `widgets/preview.py`.
+    """
+    from app.ui.widgets.preview import attach_preview
+
+    results = ResultsView()
+    results.opened.connect(on_opened)
+    results.reveal_requested.connect(on_reveal)
+    results.reindex_requested.connect(on_reindex)
+    preview, split = attach_preview(results, on_opened, on_error)
+    return results, preview, split

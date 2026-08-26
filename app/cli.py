@@ -2597,6 +2597,23 @@ def cmd_search(args: argparse.Namespace) -> int:
             # numbers were being used for.
             engine.warm_up()
             response = engine.search(raw, limit=args.limit)
+            # **The same federation the window does**, because the standing rule
+            # here is that a feature added for one entry point is added for the
+            # others - the shape of bug that gets reported as "it works from the
+            # app and not from the command line". `git_hits` returns `[]` unless
+            # a repository-only switch was typed, so this costs nothing on every
+            # other search.
+            try:
+                from app.search.federate import git_hits
+
+                found = git_hits(
+                    store.repos_list(), raw, limit=args.limit,
+                    start_rank=len(response.results) + 1,
+                )
+                response.results.extend(found)
+            except Exception as exc:              # noqa: BLE001 - one half
+                logger.bind(component="cli.search").warning(
+                    "the repository half of the search failed: {}", exc)
         finally:
             engine.close()
 

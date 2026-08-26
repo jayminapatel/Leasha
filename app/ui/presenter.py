@@ -2093,6 +2093,65 @@ def repo_empty_state(anything_indexed: bool) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class GitPass:
+    """Whether a search should also read repository history, and what to say.
+
+    **A decision, so it lives here.** The view's job is to start a worker; which
+    switches make a search slow, and how to describe that to somebody waiting,
+    are questions with right answers and belong where they can be tested without
+    a display. `search_view.py` is held under 250 lines by
+    `test_every_qt_view_keeps_its_logic_in_the_presenter`, and that guard was
+    right to fire when this logic first went in there.
+    """
+
+    switches: tuple[str, ...] = ()
+    #: Where the git rows' ranks start, so the two halves read as one list.
+    rank_base: int = 1
+
+    @property
+    def wanted(self) -> bool:
+        return bool(self.switches)
+
+    @property
+    def status(self) -> str:
+        if not self.switches:
+            return ""
+        return "Reading repository history for /" + ", /".join(self.switches) + "…"
+
+
+def git_pass(query: str, tier: str, *, shown: int = 0) -> GitPass:
+    r"""Should this search also read history, and from which rank?
+
+    **Full tier only.** `git log -S` walks every commit it is given and takes
+    seconds; the first non-negotiable in this application is that no unbounded
+    work sits behind a keystroke. An interim search is a keystroke by another
+    name, so it never qualifies however the query is written.
+
+    Cheap on the searches that will never touch git, which is nearly all of
+    them: `wants_git` is a regex and two dictionary lookups.
+    """
+    if tier != Tier.FULL:
+        return GitPass()
+
+    from app.search.gitquery import wants_git
+
+    return GitPass(switches=wants_git(query), rank_base=max(0, int(shown)) + 1)
+
+
+def federated_summary(index_rows: int, git_rows: int) -> str:
+    """The status line once both halves have answered.
+
+    Said as two numbers rather than one total, because *"41 results"* hides that
+    thirty of them are commits from 2016 - and which half a result came from is
+    the first thing somebody wants to know when history is involved.
+    """
+    if not git_rows:
+        return ""
+    return (f"{index_rows:,} from the index, "
+            f"{git_rows:,} from repository history")
+
+
 def _switch_catalogue() -> tuple[Any, ...]:
     """`app.search.commands.COMMANDS`, imported at call time.
 
@@ -2198,18 +2257,19 @@ class CodeRoute:
     parsed: Any = None
 
 
-#: Switches only the repository engine has. **Deliberately not "every git
-#: switch"**: `/repo`, `/type`, `/path` and `/file` mean the same thing in both
-#: catalogues, and routing on those would send `type:cs` - the commonest thing
-#: anybody types here - into a git subprocess instead of a 3ms index lookup.
-GIT_ONLY: frozenset[str] = frozenset({
-    "history", "lifetime", "branch", "all-branches", "remote-branches",
-    "commit", "range", "tag", "author", "committer", "since", "until",
-    "merges", "introduced", "removed", "changed", "lifecycle", "file-history",
-    "added-only", "removed-only", "deleted-files", "depth", "regex", "word",
-    "ignore-case", "class", "interface", "function", "symbol", "endpoint",
-    "config",
-})
+#: Switches only the repository engine has. **Moved to `app/search/gitquery.py`**
+#: and re-exported here under the name the Code tab already imports.
+#:
+#: It moved because the main search box needs the same question answered - "is
+#: this line worth a subprocess?" - and asking it should not require importing a
+#: UI module. `gitquery` is pure: a catalogue and a parser, no `git` anywhere.
+def _git_only() -> frozenset[str]:
+    from app.search.gitquery import GIT_ONLY as _names
+
+    return _names
+
+
+GIT_ONLY: frozenset[str] = _git_only()
 
 
 @dataclass(frozen=True, slots=True)

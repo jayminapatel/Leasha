@@ -348,6 +348,67 @@ def git_matching(prefix: str) -> list[Command]:
             if any(spelling.startswith(wanted) for spelling in command.spellings)]
 
 
+#: Switches only the repository engine can answer. **Deliberately not "every git
+#: switch"**: `/repo`, `/type`, `/path` and `/file` mean the same thing in both
+#: catalogues, and routing on those would send `type:cs` - the commonest thing
+#: anybody types - into a git subprocess instead of a 3ms index lookup.
+#:
+#: Defined here rather than in the presenter, where it began, because two
+#: callers now need it and neither should have to import a UI module to ask a
+#: question about grammar. `app/ui/presenter.py` re-exports the name.
+GIT_ONLY: frozenset[str] = frozenset({
+    "history", "lifetime", "branch", "all-branches", "remote-branches",
+    "commit", "range", "tag", "author", "committer", "since", "until",
+    "merges", "introduced", "removed", "changed", "lifecycle", "file-history",
+    "added-only", "removed-only", "deleted-files", "depth", "regex", "word",
+    "ignore-case", "class", "interface", "function", "symbol", "endpoint",
+    "config",
+})
+
+#: `/name` or `name:` at a word boundary. **Named apart from `_TOKEN`**, which
+#: already exists further down this module and is anchored to a whole word: the
+#: first version of this reused that name, was silently shadowed by it, and
+#: `wants_git` answered "no git switches here" for every line ever typed. A
+#: feature that quietly never runs is the worst way for one to fail.
+_SWITCH = re.compile(r"(?:(?<=\s)|^)(?:/([A-Za-z-]+)|([A-Za-z-]+):)")
+
+
+def wants_git(raw: str) -> tuple[str, ...]:
+    r"""The git-only switches in this line, or `()` if there are none.
+
+    **Pure, and that is the requirement.** This is what decides whether a search
+    is worth a subprocess, so it is asked on every full-tier search - including
+    ones that will never touch git. It resolves aliases through
+    `git_command_for` and touches nothing else: no parse, no plan, no `git`.
+
+    Returns the names rather than a bool so the caller can say *why* it is about
+    to be slow, which is the difference between a search that seems to have hung
+    and one that told you it was reading history.
+    """
+    from app.search.commands import COMMANDS
+
+    # **A spelling the index catalogue claims is never a git switch here.**
+    #
+    # `after` and `before` are aliases of git's `/since` and `/until`, so
+    # `after:2024` - an ordinary date filter, one of the commonest things
+    # anybody types - resolved to a repository switch and would have forked a
+    # subprocess on every search carrying a date. The same precedence rule
+    # `widgets/code_commands._merged` applies to the menu applies here to the
+    # routing, and for the same reason: the cheap path must stay cheap, and a
+    # word that means the same thing to both engines belongs to the fast one.
+    claimed = {spelling for command in COMMANDS for spelling in command.spellings}
+
+    found: list[str] = []
+    for slash, colon in _SWITCH.findall(str(raw or "")):
+        spelling = (slash or colon).lower()
+        if spelling in claimed:
+            continue
+        command = git_command_for(spelling)
+        if command is not None and command.name in GIT_ONLY:
+            found.append(command.name)
+    return tuple(sorted(set(found)))
+
+
 # ---------------------------------------------------------------------------
 # Reading what somebody typed
 # ---------------------------------------------------------------------------

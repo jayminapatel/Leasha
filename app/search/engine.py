@@ -81,6 +81,19 @@ class SearchResult:
     #: pipeline produces, and the UI is expected to say so.
     sources: tuple[int, ...] = ()
     rerank_score: Optional[float] = None
+    #: Where this row came from, when it did not come from the index.
+    #:
+    #: **Empty for everything the engine itself produces**, which is why this is
+    #: a label rather than a kind: the engine has exactly one source and does not
+    #: need to say so. A row federated in from somewhere else - today, a
+    #: repository's history - fills it, and `explain()` shows it instead of
+    #: "keyword match", because "keyword match" would be a claim about a
+    #: retriever that never saw this row.
+    #:
+    #: A plain string rather than an enum because it is displayed verbatim and
+    #: carries the commit, author and date that make a historical hit
+    #: identifiable at all.
+    source_label: str = ""
 
     @property
     def found_by_both(self) -> bool:
@@ -88,6 +101,8 @@ class SearchResult:
 
     def explain(self) -> str:
         """Why this result is here, in words. Trust comes from being able to ask."""
+        if self.source_label:
+            return self.source_label
         if self.found_by_both:
             reason = "keyword and meaning both matched"
         elif self.sources == (0,):

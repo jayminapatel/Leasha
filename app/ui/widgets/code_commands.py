@@ -1,4 +1,4 @@
-r"""The Code box's `/` menu: both catalogues, one list.
+r"""Both catalogues, one list - for the Code box and for the search box.
 
 Layer: L5
 
@@ -24,11 +24,19 @@ every commit. Preferring the index entry is what keeps the cheap path cheap.
 The result is a menu where the first eleven rows are the ones used constantly
 and the rest are the history switches, each with the icon its own catalogue gave
 it - so the two halves are told apart by shape rather than by a heading.
+
+**The search box now uses the same list**, which is why this module is no longer
+named for one tab. It was written for Code because Code was the only box that
+could reach both engines; the main search reaches both now too - the index
+directly, and git through `app/search/federate.py` - so *"Search should have all
+switches"* is answered by the list that already existed rather than by a second
+one built beside it. `CODE_CATALOGUE` remains as an alias, because that is the
+name the Code tab imports and renaming it would be churn for nothing.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from app.search.commands import COMMANDS, Command
 from app.search.gitquery import GIT_COMMANDS
@@ -36,6 +44,9 @@ from app.ui.presenter import CODE_COMMANDS
 
 __all__ = [
     "git_values",
+    "ALL_CATALOGUE",
+    "catalogue_command_for",
+    "catalogue_matching",
     "CODE_CATALOGUE",
     "code_command_for",
     "code_matching",
@@ -58,26 +69,34 @@ def _merged() -> tuple[Command, ...]:
     return tuple(out)
 
 
-#: Every switch this box accepts, in the order the menu shows them.
-CODE_CATALOGUE: tuple[Command, ...] = _merged()
+#: Every switch there is, in the order a menu should show them: the eleven used
+#: constantly, then the history ones.
+ALL_CATALOGUE: tuple[Command, ...] = _merged()
+
+#: The name the Code tab imports. Same list.
+CODE_CATALOGUE: tuple[Command, ...] = ALL_CATALOGUE
 
 _BY_SPELLING = {
-    spelling: command for command in CODE_CATALOGUE
+    spelling: command for command in ALL_CATALOGUE
     for spelling in command.spellings
 }
 
 
-def code_command_for(name: str) -> Optional[Command]:
+def catalogue_command_for(name: str) -> Optional[Command]:
     """The switch for any accepted spelling, or None."""
     return _BY_SPELLING.get(str(name).strip().lower().lstrip("/").rstrip(":"))
 
 
-def code_matching(prefix: str) -> list[Command]:
+#: The Code tab's spelling of the same function.
+code_command_for = catalogue_command_for
+
+
+def catalogue_matching(prefix: str) -> list[Command]:
     """Switches whose name or alias starts with `prefix`. For the `/` menu."""
     wanted = str(prefix or "").strip().lower().lstrip("/")
     if not wanted:
-        return list(CODE_CATALOGUE)
-    return [command for command in CODE_CATALOGUE
+        return list(ALL_CATALOGUE)
+    return [command for command in ALL_CATALOGUE
             if any(spelling.startswith(wanted) for spelling in command.spellings)]
 
 
@@ -102,3 +121,7 @@ def git_values(repos: Any, text: str, kind: str, prefix: str, limit: int) -> lis
     if not root:
         return []
     return repo_values(root, kind, prefix=prefix, limit=limit)
+
+
+#: The Code tab's spelling of the same function.
+code_matching = catalogue_matching

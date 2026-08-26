@@ -20,7 +20,10 @@ from typing import Any, Optional
 
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QPushButton, QWidget
 
-__all__ = ["build_input", "build_scope", "build_interpret", "build_rerank", "SCOPES"]
+__all__ = [
+    "build_input", "build_scope", "build_interpret", "build_rerank",
+    "build_controls", "build_toolbar", "SCOPES",
+]
 
 
 def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
@@ -46,11 +49,32 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     box.setClearButtonEnabled(True)
     box.textChanged.connect(on_typed)
     box.returnPressed.connect(on_submit)
+    # **Every switch there is, index and repository alike.** Asked for as
+    # *"Search should have all switches"*, and honest only because the box can
+    # now answer the repository ones: `app/search/federate.py` runs them, on the
+    # full tier, over the repositories in the index. Offering them before that
+    # existed would have been the failure this application keeps finding - a
+    # menu row that quietly does nothing.
+    #
+    # The same list the Code tab uses. One catalogue, because the two boxes now
+    # reach the same two engines and a second list would only be somewhere for
+    # them to disagree.
+    from app.ui.widgets.code_commands import (
+        ALL_CATALOGUE, catalogue_command_for, catalogue_matching,
+    )
+
     # `store` only makes the *value* half of the menu better - which extensions
     # exist, who has sent mail, which repositories were found. Without it the
     # grammar's own values are still offered, so a box with no store is not a
     # box with a broken menu.
-    return box, attach_to(box, store=store)
+    #
+    # No `lookup`: the Code tab can offer real branch and author names because
+    # it knows which repository is selected, and this box does not. The grammar's
+    # own suggestions still appear, which is the honest half of that menu.
+    return box, attach_to(
+        box, store=store, catalogue=ALL_CATALOGUE,
+        matcher=catalogue_matching, resolve=catalogue_command_for,
+    )
 
 #: (label, value). Value travels into `ParsedQuery.scope`.
 #:
@@ -143,3 +167,70 @@ def build_rerank(parent: Optional[QWidget], on_change: Any) -> QCheckBox:
     toggle.setChecked(True)
     toggle.stateChanged.connect(on_change)
     return toggle
+
+
+def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
+    r"""Lay the search page out: the control row, the status line, the results.
+
+    **Assembly, not decision** - and here because this module is already "the
+    search bar and its controls", while `search_view.py` is held under 250 lines
+    by `test_every_qt_view_keeps_its_logic_in_the_presenter`. That guard fired
+    when the repository half was added, and it was right to: a view at its
+    ceiling is one where the next feature has nowhere to go, and the answer is
+    to move what was never view logic rather than to keep squeezing.
+
+    `controls` is the row of widgets to the right of the box, in display order.
+    Returns the notice bar, which the view needs to write degradations into.
+    """
+    from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
+
+    from app.ui.widgets.notice_bar import NoticeBar
+
+    notices = NoticeBar(view)
+    top = QHBoxLayout()
+    top.addWidget(view.input, stretch=1)
+    for widget in controls:
+        top.addWidget(widget)
+
+    layout = QVBoxLayout(view)
+    layout.addLayout(top)
+    layout.addWidget(status)
+    # Above the results and below the status line: a degradation is about the
+    # results, so it belongs where the eye lands before reading them.
+    layout.addWidget(notices)
+    layout.addWidget(body, stretch=1)
+    return notices
+
+
+def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
+                   on_rerank: Any, on_view: Any) -> tuple:
+    r"""The four controls to the right of the box, and the status line.
+
+    Returns `(scope, interpret, rerank, view_button, status)`.
+
+    **The keyboard shortcuts are built here too**, deliberately: `Ctrl+Enter` is
+    the Interpret button by another name, and a shortcut that lives apart from
+    the control it duplicates is how the two come to disagree about whether the
+    feature is switched on.
+
+    The view button carries the results pane's own text size and spacing.
+    Results are the one place in this window people *read* rather than scan, and
+    the size that suits a paragraph of snippet is not the size that suits a
+    toolbar - so it is this pane's setting rather than an application-wide zoom.
+    No columns: a result is not a table.
+    """
+    from PyQt6.QtGui import QKeySequence, QShortcut
+    from PyQt6.QtWidgets import QLabel
+
+    from app.ui.view_options import button as view_button
+
+    scope = build_scope(view, on_scope)
+    interpret = build_interpret(view, lambda _checked=False: on_interpret())
+    rerank = build_rerank(view, lambda _state: on_rerank())
+    for keys in ("Ctrl+Return", "Ctrl+Enter"):
+        QShortcut(QKeySequence(keys), view, activated=on_interpret)
+
+    chooser = view_button(view, None, "", on_change=on_view, grouping=True)
+    status = QLabel("")
+    status.setObjectName("searchStatus")
+    return scope, interpret, rerank, chooser, status

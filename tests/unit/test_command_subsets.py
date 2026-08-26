@@ -42,16 +42,34 @@ def test_every_offered_command_is_a_real_one(tab: str) -> None:
 
 
 def test_the_search_box_is_the_union_of_the_focused_tabs() -> None:
-    """The rule itself: generic search can do anything a specific tab can.
-
-    The search box passes no restriction, so it offers `COMMANDS` entire - this
-    asserts the containment that makes that the right default rather than a
-    coincidence nobody checked.
-    """
+    """The rule itself: generic search can do anything a specific tab can."""
     union: set[str] = set()
     for names in SUBSETS.values():
         union |= set(names)
     assert union <= ALL_NAMES
+
+
+def test_the_search_box_offers_the_repository_switches_too() -> None:
+    r"""*"Search should have all switches"* - including the git ones.
+
+    It used to pass no catalogue at all, so it got `COMMANDS` and stopped at
+    eleven. It now gets the same list the Code box uses, and that is honest only
+    because the box can answer them: `app/search/federate.py` runs the
+    repository half on the full tier. Offering them before that existed would
+    have been the failure this file is about, committed deliberately.
+    """
+    from app.search.gitquery import GIT_COMMANDS
+    from app.ui.widgets.code_commands import ALL_CATALOGUE
+
+    offered = {command.name for command in ALL_CATALOGUE}
+
+    assert ALL_NAMES <= offered
+    assert "history" in offered and "branch" in offered and "author" in offered
+    # Every git switch whose spelling the index does not already claim.
+    claimed = {spelling for command in COMMANDS for spelling in command.spellings}
+    for command in GIT_COMMANDS:
+        if not any(spelling in claimed for spelling in command.spellings):
+            assert command.name in offered, f"/{command.name} is not offered anywhere"
 
 
 def test_no_tab_offers_a_command_it_cannot_honour() -> None:
