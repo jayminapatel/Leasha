@@ -1,12 +1,40 @@
 # Changelog
 
-**Doc version:** 3.55 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.56 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — `.gitattributes`, and a correction about `big.pst`
+
+**There was no `.gitattributes` at all**, which means every file's line endings
+were whatever each machine's `core.autocrlf` happened to be. Invisible with one
+developer; with two it is a diff of the whole repository the first time somebody
+saves a file. And this project has one rule that is *encoding* sensitive:
+PowerShell 5.1 assumes the system code page for a file with no BOM, so a
+BOM-less `.ps1` containing one pasted em dash fails at parse time with no error
+anybody can act on. It killed the installer once already. `working-tree-encoding`
+now carries that rule through a clone, so it survives a machine whose editor has
+never heard of this project.
+
+Adding it caused **no churn** — checked rather than assumed, because a
+renormalising `.gitattributes` on an existing tree is exactly the thing that
+produces a thousand-file diff nobody can review.
+
+**And a correction.** The previous entry called `big.pst` *"a real mailbox"* and
+kept it on disk on that basis. It is not: it is 5,242,880 bytes of the single
+letter `x` — a synthetic fixture, referenced by nothing, and `HANDOFF-github.md`
+had already established this by measurement. It is deleted. Worth recording
+because the reasoning was right and the fact was wrong: I was careful with
+somebody's data and had not checked whether it was data.
+
+Also: `git gc` collected the loose objects left by the interrupted git
+operations of 2026-08-26 — 536 loose objects and three packs down to none and
+one, and the repository from 2,746KB to 2,491KB.
+
 
 ### Changed — the project folder, tidied, and the staged tree brought back in step
 
