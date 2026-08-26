@@ -854,6 +854,35 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     return "\n\n".join(line for line in lines if line)
 
 
+def accessible_text(payload: Any) -> str:
+    r"""One line naming a result, for anything that cannot see it drawn.
+
+    **The delegate migration left the model empty.** Painting moved into
+    `result_delegate`, which reads `ROLE_PAYLOAD` and draws from it - so the
+    item itself no longer carried any text at all. Everything sighted still
+    worked, and a screen reader was handed fifty items that each said nothing.
+    `QAccessible` reads `AccessibleTextRole`, falling back to `DisplayRole`;
+    with neither set there is nothing to fall back to.
+
+    Deliberately not the tooltip: that is two or three lines with the full path
+    and an explanation, which is right to *hover* and wrong to have read aloud
+    for every row while somebody arrows down a list. This is the name, the
+    folder and the date - what a sighted reader takes from the row at a glance.
+    """
+    name = str(getattr(payload, "name", "") or getattr(payload, "title", "") or "")
+    if not name:
+        path = str(getattr(payload, "path", "") or "")
+        name = path.replace("\\", "/").rsplit("/", 1)[-1] or path
+    parts = [name]
+    folder = str(getattr(payload, "folder", "") or "")
+    if folder:
+        parts.append(f"in {folder}")
+    when = str(getattr(payload, "when", "") or getattr(payload, "modified", "") or "")
+    if when:
+        parts.append(when)
+    return ", ".join(part for part in parts if part)
+
+
 def search_options(tier: str, *, scope: str, rerank: bool) -> dict:
     """What to pass the engine for one tier.
 

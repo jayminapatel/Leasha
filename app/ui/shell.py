@@ -257,6 +257,10 @@ class MainWindow(QMainWindow):
         # reset to off at the next launch - which reads as the setting being
         # ignored, and is the harder of the two to notice.
         self.settings_view.rerank_toggled.connect(self._rerank_toggled)
+        # The toolbar box is the one every search reads, so it reports here too.
+        toolbar_rerank = getattr(self.search_view, "rerank_toggle", None)
+        if toolbar_rerank is not None:
+            toolbar_rerank.toggled.connect(self._rerank_toggled)
         self.settings_view.cloud_toggled.connect(self._cloud_toggled)
         self.settings_view.settings_changed.connect(self._settings_changed)
         self.settings_view.move_index_requested.connect(self._change_index_location)
@@ -343,9 +347,15 @@ class MainWindow(QMainWindow):
         # handler, which is harmless and keeps one path rather than two.
         self.settings_view.cloud.setChecked(
             self._read_state("ui:index_cloud", "") == "on")
+        # **Both controls, from one stored value.** The Settings checkbox was
+        # initialised here and the toolbar one was hard-coded True and never
+        # saved, so the two disagreed from the first launch after anybody
+        # changed it - and the toolbar is the one every search actually reads.
         stored_rerank = self._read_state("ui:rerank_enabled", "")
         if stored_rerank:
-            self.settings_view.rerank.setChecked(stored_rerank == "on")
+            wanted = stored_rerank == "on"
+            self.settings_view.rerank.setChecked(wanted)
+            self._set_toolbar_rerank(wanted)
 
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
@@ -581,7 +591,25 @@ class MainWindow(QMainWindow):
                 reranker.enabled = bool(enabled)
             except Exception as exc:             # noqa: BLE001 - never fatal
                 _log.warning("could not apply the rerank setting live: {}", exc)
+        # **Whichever control was used, the other follows.** Signals are blocked
+        # on the way in, or setting one would emit back into this handler and
+        # the two would bounce off each other.
+        self._set_toolbar_rerank(bool(enabled))
+        settings_box = getattr(self.settings_view, "rerank", None)
+        if settings_box is not None and settings_box.isChecked() != bool(enabled):
+            settings_box.blockSignals(True)
+            settings_box.setChecked(bool(enabled))
+            settings_box.blockSignals(False)
         self._store.set_state("ui:rerank_enabled", "on" if enabled else "off")
+
+    def _set_toolbar_rerank(self, enabled: bool) -> None:
+        """Show `enabled` on the search bar's box without re-emitting."""
+        toggle = getattr(self.search_view, "rerank_toggle", None)
+        if toggle is None or toggle.isChecked() == enabled:
+            return
+        toggle.blockSignals(True)
+        toggle.setChecked(enabled)
+        toggle.blockSignals(False)
 
     def _change_index_location(self) -> None:
         """Ask what to do about the index location, then record the decision.

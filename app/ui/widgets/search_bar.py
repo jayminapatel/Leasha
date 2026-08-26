@@ -161,16 +161,26 @@ def build_interpret(parent: Optional[QWidget], on_click: Any) -> QPushButton:
 
 
 def build_rerank(parent: Optional[QWidget], on_change: Any) -> QCheckBox:
-    """The rerank toggle.
+    r"""The rerank toggle.
 
     On by default because it is what makes the top three results worth reading.
     Offered at all because it is the single biggest cost in the pipeline, and
     somebody on a slow machine should be able to trade precision for speed
     without editing configuration or restarting.
+
+    **It is not the source of truth, and pretending otherwise made it lie.**
+    This box was hard-coded checked and never persisted, while the Settings
+    checkbox beside it *was* persisted - so somebody who turned reranking off in
+    Settings came back to a toolbar claiming it was on, and every search from
+    that box asked for it again. Two controls for one setting that never agreed:
+    the same shape as the bug fixed in `set_message` the day before.
+    `shell` now initialises both from `ui:rerank_enabled` and routes both
+    through one handler.
     """
     toggle = QCheckBox("Rerank", parent)
     toggle.setToolTip(
-        "Slower but more precise ordering. Turning it off does not need a restart."
+        "Slower but more precise ordering. Turning it off does not need a "
+        "restart, and it is the same setting as the one on the Settings page."
     )
     toggle.setChecked(True)
     toggle.stateChanged.connect(on_change)

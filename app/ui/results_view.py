@@ -43,7 +43,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.presenter import (
-    KIND_LABELS, ResultGroup, ResultRow, group_results, result_tooltip, to_rows, why,
+    KIND_LABELS, ResultGroup, ResultRow, accessible_text, group_results,
+    result_tooltip, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
@@ -213,6 +214,17 @@ class ResultsView(QWidget):
             result_tooltip(payload,
                            missing=getattr(payload, "path", "") in self._missing),
             int(Qt.ItemDataRole.ToolTipRole))
+        # **Both roles, or the list is empty to a screen reader.** The delegate
+        # paints from `ROLE_PAYLOAD`, so the item carried no text of its own -
+        # and `QAccessible` reads `AccessibleTextRole`, falling back to
+        # `DisplayRole`. With neither set there was nothing to fall back to and
+        # fifty results announced as fifty blanks.
+        #
+        # `DisplayRole` is set too and is harmless: the delegate draws the row
+        # itself and never consults it, so nothing appears twice.
+        spoken = accessible_text(payload)
+        item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
+        item.setData(spoken, int(Qt.ItemDataRole.DisplayRole))
         self._model.appendRow(item)
 
     def clear(self, message: str = "") -> None:
