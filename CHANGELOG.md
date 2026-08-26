@@ -1,12 +1,47 @@
 # Changelog
 
-**Doc version:** 3.50 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.51 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — column widths, again, and this time it was the cap overruling them
+
+Reported in the same words a second time: *"the ui still does not remember
+column widths"*. The last fix corrected two real faults — `setStretchLastSection`
+owning the last column, and a "Fit columns to contents" that did nothing — and
+the widths still did not stick, because a third thing was overruling them.
+
+**`column_cap` is 40% of the viewport, and it was being applied to widths
+somebody had dragged.** On a 900px table sharing its width with a preview pane
+the viewport is around 625px, so the cap is 250px: a column dragged to 321 was
+*stored* as 250 and *restored* as 250. Measured on a real table — the drag saved
+`folder=321` and the column came back 250 on the next launch. Every link in the
+chain was working. The width was saved. It was then trimmed, twice, silently.
+
+The cap exists for a good reason and it is a reason about **fitting**:
+`resizeColumnsToContents` over a corpus of long Windows paths produced a Name
+column that ate the row, which is a measurement nobody asked for. Applying the
+same ceiling to a deliberate drag is a different act — it overrules a choice, and
+the only thing the person sees is a column that will not stay where they put it.
+
+So the cap now governs automatic fitting only. A column with a saved width is
+exempt from it, at both ends: stored as dragged, restored as stored. What still
+bounds a chosen width is the table itself — a column dragged on a wide monitor
+and restored on a narrow one can end up wider than the window and unreachable,
+which is a usability floor rather than a matter of taste.
+
+**The existing test should have caught this and did not**, which is worth as
+much as the fix. `test_a_dragged_width_survives_a_relaunch` drives the whole
+chain — drag, save, close, reopen, fill, restore — and passes, because it drags
+to 320px on a 900px table, which sits just under that table's cap. Right shape,
+one wrong number. The new tests derive the width from `column_cap` itself
+(`cap + 120`) so they cannot be satisfied by a value the cap happens to allow,
+and two of the four fail on the parent commit.
+
 
 ### Fixed — the embedding gap, and it was a window rather than a bug
 

@@ -631,8 +631,29 @@ def _available_width(widget: Any) -> int:
         return 0
 
 
-def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str]) -> None:
-    """Stop any one column from taking the whole row.
+def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str],
+                 chosen: Sequence[str] = ()) -> None:
+    """Stop an *automatically fitted* column from taking the whole row.
+
+    **The cap governs fitting, never choosing, and that distinction is the whole
+    of this function.** It was added because `resizeColumnsToContents` over a
+    corpus of long Windows paths produced a Name column that ate the row - a
+    measurement nobody asked for and nobody wanted. Applying the same ceiling to
+    a width somebody *dragged* is a different act entirely: it overrules a
+    deliberate choice, and it does so silently.
+
+    That is what "the UI still does not remember column widths" turned out to
+    be. The cap is 40% of the **viewport** - on a 900px table that is 250px - so
+    a column dragged to 321 was stored as 250 and restored as 250. It snapped
+    back on every drag and on every launch, which is indistinguishable from the
+    preference never having been saved. It was saved. It was overruled.
+
+    `chosen` is the set of columns with a saved width. They are exempt: a person
+    who drags a column to four fifths of the table has said what they want, and
+    the application's job at that point is to remember it. What stops the stuck
+    case - a width dragged on a wide monitor, restored on a narrow one - is
+    `_bound_to_table`, which is a much higher ceiling and is about usability
+    rather than taste.
 
     **Called with `APPLYING` already set.** `setColumnWidth` emits
     `sectionResized`, which `remember_widths` listens to - see the note in
@@ -640,10 +661,11 @@ def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str]) -> Non
     never sets the flag itself, so that it cannot be called from somewhere the
     guard is missing and appear to work.
 
-    Two columns are deliberately exempt. **The last visible one**, because
-    `setStretchLastSection` owns its width and capping it is a fight this would
-    lose on the next repaint. And **a table showing a single column**, where the
-    cap would mean four fifths of the table is permanently blank.
+    Two columns stay exempt for their own reasons. **The last visible one**,
+    because `setStretchLastSection` owns its width and capping it is a fight
+    this would lose on the next repaint. And **a table showing a single
+    column**, where the cap would mean four fifths of the table is permanently
+    blank.
     """
     visible = [key for key in order if key in shown]
     if len(visible) < 2:
@@ -654,14 +676,33 @@ def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str]) -> Non
         return
 
     last = visible[-1]
+    deliberate = set(chosen)
     for index, key in enumerate(order):
-        if key not in shown or key == last:
+        if key not in shown or key == last or key in deliberate:
             continue
         try:
             if widget.columnWidth(index) > cap:
                 widget.setColumnWidth(index, cap)
         except RuntimeError:                 # the C++ side went away mid-apply
             return
+
+
+def _bound_to_table(width: int, available: int) -> int:
+    """A chosen width, kept usable. **Not the fitting cap.**
+
+    A column wider than the table it lives in cannot be scrolled back into view
+    on some layouts, so a width dragged on a wide monitor and restored on a
+    narrow one arrives genuinely stuck. This is the only ceiling a deliberate
+    width gets, and it is deliberately generous: it says "not wider than the
+    window", not "not wider than we would have chosen".
+    """
+    try:
+        room = int(available)
+    except (TypeError, ValueError):
+        return int(width)
+    if room <= 0:
+        return int(width)                    # not laid out yet; nothing to judge
+    return max(MIN_COLUMN_CAP_PX, min(int(width), room))
 
 
 def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
@@ -686,14 +727,23 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             if table.property(APPLYING):
                 return
             if 0 <= index < len(order) and new > 0:
-                # **Capped on the way in as well as on the way out.** Capping
-                # only at apply time would store the width somebody dragged and
-                # re-cap it on every fill for ever - the preference and the
-                # table permanently disagreeing, and a "Reset widths" that
-                # appears to do nothing because the stored value is still wide.
-                # Storing what will actually be shown keeps the two the same.
-                cap = column_cap(_available_width(table))
-                width = min(int(new), cap) if cap > 0 else int(new)
+                # **Stored as dragged.** This used to apply `column_cap` - 40%
+                # of the viewport - on the way in, so a column dragged to 321px
+                # on a 900px table was stored as 250 and restored as 250. It
+                # snapped back on every drag and every launch, which is exactly
+                # "the UI does not remember column widths": the preference was
+                # saved and then overruled.
+                #
+                # The reasoning behind it was sound and applied to the wrong
+                # thing. Storing what will actually be shown *is* right - a
+                # preference the table contradicts is worse than either - but
+                # the answer is to stop contradicting a deliberate width rather
+                # than to shrink it before saving. `_cap_columns` now leaves
+                # chosen columns alone, so the two agree at the width asked for.
+                #
+                # Bounded only by the table itself, which is about a width being
+                # reachable rather than about it being tasteful.
+                width = _bound_to_table(int(new), _available_width(table))
                 button.remember_width(order[index], width)
                 # **Logged because this is the link that cannot be tested
                 # here.** Everything either side of it is covered - the store
@@ -884,17 +934,16 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
             table.setProperty(FITTED, True)
 
         saved = dict(prefs.widths)
+        room = _available_width(table)
         for index, key in enumerate(order):
             if key in saved and key in shown:
-                table.setColumnWidth(index, saved[key])
+                table.setColumnWidth(index, _bound_to_table(saved[key], room))
 
-        # **After the saved widths, not before.** A width dragged wide in an
-        # earlier version - or on a wider monitor - is exactly the column that
-        # arrives stuck, and capping before restoring it would let the stored
-        # value put it straight back. This is also why the cap is applied on
-        # every fill rather than once: it is what unsticks a table somebody is
-        # already living with, without touching what they have saved.
-        _cap_columns(table, order, shown)
+        # **After the saved widths, not before**, so a column that was fitted
+        # rather than chosen is what gets trimmed. The chosen ones are named so
+        # this leaves them exactly where they were put - see `_cap_columns` for
+        # why overruling them was the whole of the "it forgets my columns" bug.
+        _cap_columns(table, order, shown, chosen=[k for k in saved if k in shown])
     finally:
         table.setProperty(APPLYING, False)
 

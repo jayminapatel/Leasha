@@ -14,6 +14,7 @@ obvious from the feature description, and all three are cheap to get wrong.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -751,3 +752,128 @@ def test_columns_are_measured_once_per_table_not_once_per_fill(monkeypatch):
     assert len(calls) == 1, (
         f"measured {len(calls)} times for four fills - a saved width must not "
         f"turn every redraw into a full re-fit")
+
+
+# ---------------------------------------------------------------------------
+# The cap governs fitting, not choosing
+#
+# Reported a second time, in the same words: *"the ui still does not remember
+# column widths"*. Everything in the chain above was correct and the widths were
+# being saved - `column_cap` was overruling them on the way in and on the way
+# out. 40% of the *viewport*, which on a table sharing its width with a preview
+# pane is a few hundred pixels, so a column dragged wide came back narrow every
+# single time. Indistinguishable from never having been saved.
+#
+# `test_a_dragged_width_survives_a_relaunch` above should have caught it and did
+# not: it drags to 320 on a 900px table, which sits under that table's cap. The
+# test had the right shape and the one wrong number. These pin the property
+# rather than a width, by choosing one that is deliberately over the cap.
+# ---------------------------------------------------------------------------
+
+def _over_the_cap(table) -> int:
+    from app.ui.view_options import _available_width, column_cap
+
+    cap = column_cap(_available_width(table))
+    assert cap > 0, "the fixture table is not laid out; the test proves nothing"
+    return cap + 120
+
+
+def test_a_width_dragged_past_the_cap_is_kept_at_the_width_it_was_dragged_to():
+    r"""**The bug, stated as the property it violates.**
+
+    A person who drags a column to more than 40% of the table has said what they
+    want. The cap exists because `resizeColumnsToContents` over long Windows
+    paths produced a Name column that ate the row - a measurement nobody asked
+    for. Applying that ceiling to a deliberate drag overrules a choice, silently,
+    and the only thing the person sees is a column that will not stay put.
+    """
+    from app.ui.view_options import ViewPreferences, apply_to_table
+
+    app = _qt()
+    table = _table(app)
+    wanted = _over_the_cap(table)
+
+    apply_to_table(table, ViewPreferences(widths=(("path", wanted),)),
+                   columns=COLUMNS_3, available=AVAILABLE_3)
+
+    assert table.columnWidth(1) == wanted, (
+        "the fitting cap trimmed a width somebody chose")
+
+
+def test_a_column_nobody_touched_is_still_capped():
+    """The other half, and the reason the cap exists at all.
+
+    A fitted column may not eat the row. Only a *chosen* one is exempt, so the
+    original incident stays fixed.
+    """
+    from app.ui.view_options import (
+        ViewPreferences, _available_width, apply_to_table, column_cap,
+    )
+
+    app = _qt()
+    table = _table(app, text="a very long value " * 30)
+    cap = column_cap(_available_width(table))
+
+    apply_to_table(table, ViewPreferences(), columns=COLUMNS_3,
+                   available=AVAILABLE_3)
+
+    assert table.columnWidth(0) <= cap, "an automatic fit ate the row"
+
+
+def test_a_dragged_width_is_stored_as_dragged_rather_than_pre_trimmed():
+    r"""Saved verbatim, so the preference and the screen say the same thing.
+
+    Trimming on the way in was the more insidious half: the stored number was
+    already wrong, so even removing the cap from the restore would have left the
+    column narrow, and "Reset widths" appeared to do nothing because the value it
+    reset to was the trimmed one.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.view_options import apply_to_table, button as view_button
+    import tempfile
+
+    app = _qt()
+    table = _table(app)
+    wanted = _over_the_cap(table)
+
+    original = QApplication.mouseButtons
+    QApplication.mouseButtons = staticmethod(lambda: Qt.MouseButton.LeftButton)
+    try:
+        with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
+            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                                  on_change=lambda _p: None, table=table)
+            apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
+                           available=AVAILABLE_3)
+            app.processEvents()                      # the deferred connect()
+            table.horizontalHeader().resizeSection(1, wanted)
+            app.processEvents()                      # the deferred record()
+
+            assert dict(chooser.prefs.widths).get("path") == wanted
+    finally:
+        QApplication.mouseButtons = original
+
+
+def test_a_width_wider_than_the_table_is_brought_back_within_it():
+    r"""The stuck case, which is what the ceiling on a chosen width is *for*.
+
+    A column dragged on a wide monitor and restored on a narrow one can be wider
+    than the window, and on some layouts cannot be scrolled back into view. That
+    is a usability floor rather than a matter of taste, so the bound is the table
+    itself and not a share of it.
+    """
+    from app.ui.view_options import (
+        ViewPreferences, _available_width, apply_to_table,
+    )
+
+    app = _qt()
+    table = _table(app)
+    room = _available_width(table)
+
+    apply_to_table(table, ViewPreferences(widths=(("path", room * 4),)),
+                   columns=COLUMNS_3, available=AVAILABLE_3)
+
+    assert table.columnWidth(1) <= room
+    assert table.columnWidth(1) > 0
