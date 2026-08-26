@@ -120,7 +120,9 @@ class XlsExtractor:
 
                 if sheet.nrows > MAX_SHEET_ROWS:
                     builder.warn(make_error(
-                        "ERR_FILE_CORRUPT", "extract.xls", path=str(path),
+                        # Copied from office.py, mistake and all - see the note
+                        # there. A capped sheet is not a damaged file.
+                        "ERR_FILE_TRUNCATED", "extract.xls", path=str(path),
                         suggestion=(
                             f"Sheet '{name}' has more than {MAX_SHEET_ROWS:,} rows. The first "
                             f"{MAX_SHEET_ROWS:,} were indexed; the rest were not, to stop one "

@@ -245,6 +245,15 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Repair it (scanpst.exe for PST files) or leave it skipped. Indexing continues either way.",
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    "ERR_FILE_TRUNCATED": _Spec(
+        message="Only part of '{path}' was indexed.",
+        suggestion=(
+            "The file was read successfully - it is simply large enough that one "
+            "part of it was capped so it cannot dominate the index. Split it, or "
+            "export the part you search for, if the rest matters."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     "ERR_FILE_LOCKED": _Spec(
         message="'{path}' is locked by another program.",
         suggestion="Close the program holding it. The file is retried automatically on the next incremental pass.",

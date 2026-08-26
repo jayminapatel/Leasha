@@ -264,6 +264,13 @@ class ProjectExtractor:
             yield _metadata_document(
                 path, "project",
                 "Microsoft Project files have no open format specification. "
+                "Reading the tasks needs the mpxj package, which runs a Java "
+                "virtual machine inside this process - and a JVM fault kills "
+                "the whole indexing run rather than skipping one file, which "
+                "is why it is off by default. Set LEASHA_ENABLE_JVM=1 to turn "
+                "it on. The plan is indexed by name and properties either way."
+                if not _jvm_allowed() else
+                "Microsoft Project files have no open format specification. "
                 "Reading the tasks needs the mpxj package, which is a Java "
                 "library and needs a JVM.",
             )
@@ -337,6 +344,44 @@ def _mpp_reader():
     return None
 
 
+#: Environment switch that turns the JVM-backed `.mpp` reader on.
+#:
+#: **Off by default, and it took a five-hour run dying to justify it.**
+#:
+#: `mpxj` runs a Java virtual machine *inside this process* through JPype. A JVM
+#: fault is therefore not a Python exception - it is a Windows access violation
+#: that kills the interpreter where it stands. Observed:
+#:
+#:     # A fatal error has been detected by the Java Runtime Environment:
+#:     #  EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=..., pid=44512
+#:     #  Problematic frame: C  [python312.dll+0x76c49]
+#:
+#: That ended an index run at 1,880 documents after five hours. Nothing in this
+#: application could have caught it: `except Exception` does not see a segfault.
+#:
+#: **The hazard was already known.** `pyproject.toml` excludes JVM tests from
+#: the default run for exactly this reason - *"JPype's startJVM can hard-crash
+#: the host process... A crash in one optional integration must not cost the
+#: report for everything else."* The same sentence applies with far more force
+#: to a multi-day index over 600GB, where the cost is not a test report.
+#:
+#: So the reasoning that protected the test suite now protects the index run.
+#: A `.mpp` is still indexed by name, author and title - which is what makes it
+#: findable - and the task list is available to anybody who accepts the risk:
+#:
+#:     $env:LEASHA_ENABLE_JVM=1
+#:
+#: The real fix is to run mpxj in a subprocess, where a crash costs one file
+#: instead of the run. Until that exists, this is the honest default.
+JVM_SWITCH = "LEASHA_ENABLE_JVM"
+
+
+def _jvm_allowed() -> bool:
+    import os
+
+    return bool(os.environ.get(JVM_SWITCH))
+
+
 def _mpp_tasks(path: Path) -> Optional[list[str]]:
     """Task names via mpxj, or None if it cannot be read that way.
 
@@ -344,6 +389,9 @@ def _mpp_tasks(path: Path) -> Optional[list[str]]:
     must lead to different documents - one says why it is unreadable, the other
     would silently claim the plan is empty.
     """
+    if not _jvm_allowed():
+        return None
+
     reader = _mpp_reader()
     if reader is None:
         return None

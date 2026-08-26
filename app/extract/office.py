@@ -126,8 +126,35 @@ class XlsxExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        import warnings
+
         import openpyxl
 
+        # **openpyxl warns on stderr, straight through the progress line.**
+        #
+        # "Unknown extension is not supported and will be removed", "Data
+        # Validation extension...", "Print area cannot be set to Defined
+        # name..." - none of which a person indexing a corpus can act on, and
+        # all of which are perfectly normal for a real spreadsheet. On a long
+        # run they arrive mid-line and split the progress display in half,
+        # which is how an index that is working looks broken:
+        #
+        #     1,880 docs ... 37,063 chunks | 4/min | nov07pilot.ppt [59
+        #     venv\Lib\site-packages\openpyxl\...\_reader.py:329: UserWarning:
+        #
+        # Suppressed here rather than globally: this is the library that emits
+        # them, this is the call that triggers them, and a blanket filter would
+        # also hide a warning worth reading from somewhere else.
+        # **`yield from`, not `return`.** This is a generator: `return` would
+        # hand back an unstarted iterator and leave the `with` block before a
+        # single row was read, so every warning would fire anyway. The filter
+        # has to span the iteration, which is what `yield from` inside the
+        # block does.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            yield from self._read(path, openpyxl)
+
+    def _read(self, path: Path, openpyxl: Any) -> Iterable[Document]:
         try:
             workbook = openpyxl.load_workbook(
                 str(path), read_only=True, data_only=True, keep_links=False
@@ -160,7 +187,13 @@ class XlsxExtractor:
                 if truncated:
                     builder.warn(
                         make_error(
-                            "ERR_FILE_CORRUPT",
+                            # **Not ERR_FILE_CORRUPT.** That renders as "Cannot
+                            # read '<path>' - it is encrypted or damaged", which
+                            # is then followed by a detail line saying the first
+                            # 5,000 rows WERE indexed. The two contradict each
+                            # other, and the headline is the false one: the file
+                            # read perfectly and was capped on purpose.
+                            "ERR_FILE_TRUNCATED",
                             "extract.xlsx",
                             path=str(path),
                             suggestion=(
