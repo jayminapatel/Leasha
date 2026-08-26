@@ -167,3 +167,49 @@ def test_asking_whether_anything_is_indexed_does_not_count_anything(
     # 0.003ms against stats() at 4.4ms on this fixture, and the gap widens
     # with the index: stats() scans, this stops at the first row.
     assert cheap < 5, f"an existence check took {cheap:.2f}ms"
+
+
+# --- the wildcard vocabulary lookup -----------------------------------------
+#
+# The wildcards order asked for "a timed test over a realistic vocabulary" and
+# it was the one box in that order nothing covered - which is how `BUDGET_S`
+# could sit there being measured after the fact rather than enforced, for as
+# long as it did.
+
+
+@pytest.mark.slow
+def test_a_wildcard_lookup_over_a_realistic_vocabulary_stays_bounded(
+    tmp_path_factory
+) -> None:
+    """The order measured 77ms over 399,851 terms on the owner's machine.
+
+    This builds 60,000 - as many as fit in a test without the fixture becoming
+    the slow part - and asserts the lookup is bounded, and that the budget cuts
+    it short when it is not. The wall-clock floor is generous on purpose; the
+    assertion that matters is the second one, because an unenforced budget was
+    the actual fault.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    path = tmp_path_factory.mktemp("vocab") / "vocab.db"
+    with SqliteStore(path) as store:
+        file_id = store.upsert_file(
+            "C:/corpus/vocab.txt", size_bytes=1, mtime_ns=1,
+            status="INDEXED", source_kind="file",
+        )
+        words = [f"vocab{n:06d}word" for n in range(60_000)]
+        store.replace_chunks(file_id, [
+            {"ordinal": i, "text": " ".join(words[i * 400:(i + 1) * 400]),
+             "char_start": 0, "char_end": 1}
+            for i in range(150)
+        ])
+
+        took = elapsed_ms(lambda: store.vocabulary_terms("%word", limit=200))
+        assert took < 1_000, (
+            f"a suffix wildcard over 60,000 terms took {took:.0f}ms")
+
+        problems: list[str] = []
+        cut = elapsed_ms(lambda: store.vocabulary_terms(
+            "%a%", limit=200, budget_s=took / 1000 / 5, problems=problems))
+        assert cut < took, "the budget did not shorten the scan"
+        assert problems, "cut short and said nothing"

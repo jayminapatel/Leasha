@@ -74,50 +74,50 @@ for filenames, which are tiny. Wrong for content.
 
 ### 3.1 The vocabulary table
 
-- [ ] `CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab('chunks_fts', 'row')`
+- [x] `CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab('chunks_fts', 'row')`
       in a migration. It is a **view over existing data** - no rows are written,
       nothing is rebuilt, and an existing index gains it instantly.
-- [ ] The `'row'` form gives `term`, `doc` and `cnt`, which is what 3.3 needs for
+- [x] The `'row'` form gives `term`, `doc` and `cnt`, which is what 3.3 needs for
       ordering.
 
 ### 3.2 Parsing
 
-- [ ] `*` anywhere -> `%`, `?` -> `_`, in a `LIKE` pattern.
-- [ ] Escape a literal `%` or `_` typed by the person, or a search for `100%`
+- [x] `*` anywhere -> `%`, `?` -> `_`, in a `LIKE` pattern.
+- [x] Escape a literal `%` or `_` typed by the person, or a search for `100%`
       becomes a search for everything.
-- [ ] A term with **no** wildcard takes none of this path. Ordinary searches must
+- [x] A term with **no** wildcard takes none of this path. Ordinary searches must
       not get slower or stranger, and they are almost every search.
-- [ ] A bare `*` or `?` alone stays as it is today: nothing, rather than
+- [x] A bare `*` or `?` alone stays as it is today: nothing, rather than
       everything.
 
 ### 3.3 Expansion
 
-- [ ] Stem the literal fragments before matching, so the pattern meets the stored
+- [x] Stem the literal fragments before matching, so the pattern meets the stored
       form. Reuse the same Porter implementation FTS5 uses, or accept the
       approximation and document it.
-- [ ] `SELECT term FROM chunks_vocab WHERE term LIKE ? ORDER BY doc DESC LIMIT ?`
+- [x] `SELECT term FROM chunks_vocab WHERE term LIKE ? ORDER BY doc DESC LIMIT ?`
       - **ordered by document frequency**, so if the cap bites, the commonest
       real words survive rather than an arbitrary alphabetical slice.
-- [ ] **Cap at 200 terms.** An uncapped expansion of `*a*` is every term in the
+- [x] **Cap at 200 terms.** An uncapped expansion of `*a*` is every term in the
       corpus in one `OR` expression, which is how a search box becomes a way to
       hang the application.
-- [ ] Build `("invoic" OR "voic" OR "voicemail")` and hand it to the existing
+- [x] Build `("invoic" OR "voic" OR "voicemail")` and hand it to the existing
       query path. Everything downstream - ranking, fusion, filters, the `symbols`
       column - keeps working untouched.
-- [ ] A pattern matching nothing returns no results, **not** a fallback to the
+- [x] A pattern matching nothing returns no results, **not** a fallback to the
       literal text. Quietly searching for something else is the bug this work
       order exists to remove.
 
 ### 3.4 Cost control
 
-- [ ] **Minimum two literal characters** outside the wildcards. `*a*` is a
+- [x] **Minimum two literal characters** outside the wildcards. `*a*` is a
       vocabulary scan returning everything and helps nobody - the same reasoning
       already applied to one and two-character filename queries.
-- [ ] A time budget on the vocabulary lookup. If it exceeds it, return what was
+- [x] A time budget on the vocabulary lookup. If it exceeds it, return what was
       found and say the expansion was cut short.
-- [ ] Cache the expansion for the session, keyed on the pattern. Somebody
+- [x] Cache the expansion for the session, keyed on the pattern. Somebody
       refining a query re-runs the same wildcard repeatedly.
-- [ ] Wildcards are for the keyword half only. The vector half embeds the query
+- [x] Wildcards are for the keyword half only. The vector half embeds the query
       text as typed; `*voice` is not a sentence and must not reach the embedder.
 
 ### 3.5 Saying what happened
@@ -125,29 +125,29 @@ for filenames, which are tiny. Wrong for content.
 **The whole point.** The current failure is silence, and an expansion that is
 capped or approximate is silence with extra steps.
 
-- [ ] `matched 8 terms: invoice, invoicing, voicemail...` under the results.
-- [ ] When capped: *"more than 200 terms matched - showing the 200 most
+- [x] `matched 8 terms: invoice, invoicing, voicemail...` under the results.
+- [x] When capped: *"more than 200 terms matched - showing the 200 most
       common"*, with the count.
-- [ ] When stemming widened it: say so once, plainly. *"`*voice` also matches
+- [x] When stemming widened it: say so once, plainly. *"`*voice` also matches
       words sharing its stem, such as invoicing."*
-- [ ] When nothing matched: *"no words in the index match that pattern"* - which
+- [x] When nothing matched: *"no words in the index match that pattern"* - which
       is a different sentence from "no documents matched", and the difference is
       the whole diagnosis.
 
 ## 4. Tests
 
-- [ ] `*voice` finds a document containing only `invoice`.
-- [ ] `inv?ice` matches `invoice` and not `invice`.
-- [ ] `pass*word` matches `password`.
-- [ ] A term with no wildcard produces **byte-identical** SQL to today. This is
+- [x] `*voice` finds a document containing only `invoice`.
+- [x] `inv?ice` matches `invoice` and not `invice`.
+- [x] `pass*word` matches `password`.
+- [x] A term with no wildcard produces **byte-identical** SQL to today. This is
       the regression that matters: almost every search takes that path.
-- [ ] `100%` searches for `100%`, not for everything.
-- [ ] `*a*` is refused for having too little to go on, with a message.
-- [ ] An expansion is capped at 200 and says so.
-- [ ] A pattern matching no vocabulary returns nothing rather than falling back.
-- [ ] The vocabulary table exists after migration on a database created before
+- [x] `100%` searches for `100%`, not for everything.
+- [x] `*a*` is refused for having too little to go on, with a message.
+- [x] An expansion is capped at 200 and says so.
+- [x] A pattern matching no vocabulary returns nothing rather than falling back.
+- [x] The vocabulary table exists after migration on a database created before
       it, and the migration is re-runnable.
-- [ ] **A timed test over a realistic vocabulary**, asserting the lookup stays
+- [x] **A timed test over a realistic vocabulary**, asserting the lookup stays
       inside its budget. The 77ms above is from a synthetic 400k-term index;
       re-measure against the real one once it exists and record the number here.
 
@@ -175,3 +175,26 @@ capped or approximate is silence with extra steps.
 - **Order the expansion by document frequency**, so a cap keeps the useful terms.
 - **The defect being fixed is silence.** `*voice` returning results for "voice"
   looks like a wildcard search that worked.
+
+---
+
+## Audited and ticked, 2026-08-27
+
+All 29 boxes verified against the code and its tests before ticking, not
+assumed from the changelog. `tests/unit/test_wildcards.py` covers the design
+and acceptance lists item for item: the vocabulary path, the `LIKE` translation
+and its escaping, stemming only the fragments, the cap, the cache, the refusals
+and their wording, and that a wildcard never reaches the embedder. The
+vocabulary table's presence after migration was checked directly against a
+fresh database.
+
+Two things were **not** true when this audit started, and are now:
+
+* *"A time budget on the vocabulary lookup"* was measured after the query
+  returned and logged - a stopwatch, not a budget, so `*a*` over a large
+  vocabulary ran to completion regardless. A SQLite progress handler aborts the
+  statement at the deadline now, and being cut short is reported rather than
+  silently returning fewer terms. See the remediation order's §3 note.
+* *"A timed test over a realistic vocabulary"* did not exist. It is in
+  `tests/unit/test_perf_floors.py`, and it asserts both the bound and that the
+  budget actually shortens a scan.
