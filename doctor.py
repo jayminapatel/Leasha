@@ -262,6 +262,74 @@ def index_privacy(data_path: str) -> str:
     return "shared location"
 
 
+def compute_profile_lines() -> list[str]:
+    r"""The machine, verbatim, plus which backend that implies and why.
+
+    **1b's whole point is that a wrong detection is visible before it can be
+    argued with.** A profile printed only when something goes wrong is a
+    profile nobody has read when it matters, so this prints on every run.
+
+    Imported lazily: `doctor` is dependency-free by design and must work on a
+    half-built venv, and `compute_profile` reaches for `psutil`.
+    """
+    try:
+        from app.core.compute_profile import ComputeProfile, detect
+    except Exception as exc:                     # noqa: BLE001
+        return [f"  (the compute profile could not be read: {exc})"]
+
+    try:
+        profile = detect(env_path("DATA_PATH") or None)
+    except Exception as exc:                     # noqa: BLE001
+        return [f"  (detection failed: {exc})"]
+
+    cores = f"{profile.physical_cores} cores / {profile.logical_processors} threads"
+    if profile.hybrid:
+        cores += (f"  ({profile.performance_cores}P + "
+                  f"{profile.efficiency_cores}E - a thread on an E-core does "
+                  f"a fraction of a P-core's work)")
+
+    lines = [
+        f"  CPU    {cores}",
+        f"  RAM    {profile.ram_mb / 1024:.1f} GB" if profile.ram_mb
+        else "  RAM    unknown",
+        f"  AVX2   {'yes' if profile.avx2 else 'no'}",
+        f"  Disk   index volume is {profile.index_disk or 'unknown'}",
+    ]
+    for gpu in profile.gpus:
+        vram = f"{gpu.vram_mb:,} MB" if gpu.vram_mb else "VRAM unknown"
+        usable = "DirectML available" if gpu.directml else "no DirectML provider"
+        lines.append(f"  GPU    {gpu.name} - {vram}, {usable}")
+    if not profile.gpus:
+        lines.append("  GPU    none detected")
+
+    lines.append(f"  Backend that would be chosen: {_backend_choice(profile)}")
+    if profile.overridden:
+        lines.append(f"  ** OVERRIDDEN by {os.environ.get('COMPUTE_PROFILE_OVERRIDE')} "
+                     f"- these are not this machine's numbers **")
+    if profile.unknowns:
+        # **Said out loud.** A silent gap in a profile is a wrong number
+        # waiting to be believed by everything that derives from it.
+        lines.append("  Could not detect: " + ", ".join(profile.unknowns))
+    lines.append(f"  Fingerprint: {profile.fingerprint()}")
+    return lines
+
+
+def _backend_choice(profile: Any) -> str:
+    """Which embedding backend `auto` would pick here, and the reason.
+
+    The reason matters more than the answer: somebody looking at a slow index
+    run wants to know *why* it is on the CPU, and "no DirectML provider in this
+    installation" and "no DX12 adapter" send them to different places.
+    """
+    if not profile.gpus:
+        return "CPU (no display adapter detected)"
+    if not profile.directml_available:
+        return ("CPU (an adapter is present, but this installation has no "
+                "DirectML provider - `pip install onnxruntime-directml`)")
+    return ("GPU would be tried first, then measured against the CPU - see "
+            "the index-tuning order's 5a")
+
+
 def check_index_location() -> Check:
     """One line saying where the index is and who else can read it.
 
@@ -685,6 +753,12 @@ def run_all(quick: bool = False) -> list[Check]:
         check_fts5(),
         check_sqlite_wal(),
     ]
+    # The machine, before the checks that depend on it - so a wrong detection
+    # is read first rather than inferred from a surprising result below.
+    print()
+    print("Machine")
+    for line in compute_profile_lines():
+        print(line)
     checks.append(check_index_location())
     checks += check_data_paths()
     checks += [
