@@ -122,3 +122,9 @@ requests==2.34.2      # only used for optional Ollama calls
 # wrong on a machine nobody can log into.
 rapidocr-onnxruntime==1.4.4
 pillow==12.3.0
+
+# `leasha shell` - the interactive session with a dropdown (slash-menu order
+# §4g). Pure Python, one effective transitive dependency (wcwidth), and
+# first-class Windows console support, which is why it was chosen over the
+# alternatives for a product that ships to Windows.
+prompt_toolkit==3.0.53

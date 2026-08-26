@@ -2359,6 +2359,57 @@ def cmd_commands(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_shell(args: argparse.Namespace) -> int:
+    r"""An interactive session with a real dropdown.
+
+    **The only way a terminal gets one.** A shell prompt is owned by the shell,
+    so no completer script can draw a menu that follows the keystrokes; a
+    session can. And because it is a persistent process with the store already
+    open, completion is an in-process call - no sidecar, no cold-start budget,
+    and the scoping from §1 works, because the parser is right here.
+    """
+    from app.index.embedder import Embedder
+    from app.search.engine import SearchEngine
+    from app.search.rerank import Reranker
+    from app.shell.repl import run_shell
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    if not settings.fts_db.is_file():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.shell",
+            key="index", reason="there is no index yet",
+            suggestion="Run `leasha index` first, or open the window and "
+                       "choose a folder to index.",
+        ), args.json)
+
+    embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
+                        cache_dir=str(settings.model_cache))
+    reranker = Reranker(settings.rerank_model,
+                        cache_dir=str(settings.model_cache),
+                        enabled=settings.rerank_enabled)
+
+    with SqliteStore(settings.fts_db) as store, \
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+        # Warmed before the first prompt, for the reason `search` warms before
+        # its clock starts: the first query would otherwise pay for two model
+        # loads and look like the session is slow.
+        try:
+            engine.warm_up()
+        except Exception as exc:                 # noqa: BLE001 - optional
+            _log_shell_warmup(exc)
+        return run_shell(engine, settings)
+
+
+def _log_shell_warmup(exc: BaseException) -> None:
+    """A model that will not load costs the meaning half, not the session."""
+    logger.bind(component="cli.shell").debug("warm-up failed: {}", exc)
+
+
 def cmd_completions(args: argparse.Namespace) -> int:
     r"""Emit or install the PowerShell tab completer.
 
@@ -2843,36 +2894,49 @@ def cmd_search(args: argparse.Namespace) -> int:
             print(json.dumps(response.as_dict(), indent=2, default=str))
             return EXIT_OK if response.results else EXIT_ERROR
 
-        if response.parsed and response.parsed.unknown_operators:
-            print(f"  (ignored: {', '.join(response.parsed.unknown_operators)})")
-
-        # **Before the results, and on the way out too.** A search that quietly
-        # returned worse results is the failure nobody reports, because it
-        # looks exactly like one that worked.
-        for notice in response.notices:
-            print(f"  ! {notice.message}")
-        if response.notices:
-            print()
-
-        if not response.results:
-            print(f"No results for {raw!r}.")
-            if response.parsed and response.parsed.has_filters:
-                print("  The filters may be excluding everything - try without them.")
+        if not print_response(response, raw):
             return EXIT_ERROR
-
-        for result in response.results:
-            page = f" p{result.page}" if result.page is not None else ""
-            print(f"{result.rank:>3}. {result.path}{page}")
-            print(f"     {result.explain()}   score {result.score:.4f}")
-            print(f"     {_preview(result.text, 200)}")
-            print()
-
-        print(f"{len(response.results)} result(s) in {response.elapsed_ms:.0f}ms"
-              f"{' (cached)' if response.from_cache else ''}"
-              f"{', reranked' if response.reranked else ''}")
-        if response.timings:
-            print("  " + "  ".join(f"{k} {v:.0f}ms" for k, v in response.timings.items()))
     return EXIT_OK
+
+
+def print_response(response: Any, raw: str = "") -> bool:
+    """Print one search's results. Returns False when there were none.
+
+    **Extracted so there is exactly one renderer.** `leasha shell` prints
+    through this rather than repeating it - the order's rule is "no second
+    renderer", and a copy that starts identical is the thing that stops being
+    identical. It was inline in `cmd_search` until the REPL needed it.
+    """
+    if response.parsed and response.parsed.unknown_operators:
+        print(f"  (ignored: {', '.join(response.parsed.unknown_operators)})")
+
+    # **Before the results, and on the way out too.** A search that quietly
+    # returned worse results is the failure nobody reports, because it
+    # looks exactly like one that worked.
+    for notice in response.notices:
+        print(f"  ! {notice.message}")
+    if response.notices:
+        print()
+
+    if not response.results:
+        print(f"No results for {raw!r}." if raw else "No results.")
+        if response.parsed and response.parsed.has_filters:
+            print("  The filters may be excluding everything - try without them.")
+        return False
+
+    for result in response.results:
+        page = f" p{result.page}" if result.page is not None else ""
+        print(f"{result.rank:>3}. {result.path}{page}")
+        print(f"     {result.explain()}   score {result.score:.4f}")
+        print(f"     {_preview(result.text, 200)}")
+        print()
+
+    print(f"{len(response.results)} result(s) in {response.elapsed_ms:.0f}ms"
+          f"{' (cached)' if response.from_cache else ''}"
+          f"{', reranked' if response.reranked else ''}")
+    if response.timings:
+        print("  " + "  ".join(f"{k} {v:.0f}ms" for k, v in response.timings.items()))
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -3181,6 +3245,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to allow the model for --translate (default: %(default)s)"
              % {"default": "30"})
     p_ollama.set_defaults(func=cmd_ollama)
+
+    p_shell = sub.add_parser(
+        "shell", parents=[common],
+        help="interactive search with a dropdown (Ctrl+D to leave)")
+    p_shell.set_defaults(func=cmd_shell)
 
     p_completions = sub.add_parser(
         "completions", parents=[common],

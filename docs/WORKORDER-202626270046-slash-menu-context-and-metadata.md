@@ -140,7 +140,7 @@ half-typed query inside a PowerShell script block to condition the values is a
 second parser in a second language, which is exactly the drift §5 forbids.
 Scoped completion in a terminal is 4g's job.
 
-- [ ] **4g** (CLI) `leasha shell` — an interactive session on **prompt_toolkit**,
+- [x] **4g** (CLI) `leasha shell` — an interactive session on **prompt_toolkit**,
   and **the primary deliverable of this section**: it is the only way a
   terminal gets a real dropdown. A shell prompt is owned by the shell — no
   completer script can draw a menu that follows the keystrokes — so the asked-
@@ -169,37 +169,37 @@ Scoped completion in a terminal is 4g's job.
 
   The full feature list for 4g, each its own tick:
 
-  - [ ] **4g-1 dropdown**: opens as you type — on `/` for commands, stays open
+  - [x] **4g-1 dropdown**: opens as you type — on `/` for commands, stays open
     for values once a `name:` is settled, exactly the two-menu behaviour of the
     GUI popup; substring matching identical to `value_suggestions` (one
     matching rule, tested once). Arrow keys and Tab select, Escape dismisses,
     Enter with the menu closed runs the search.
-  - [ ] **4g-2 rows**: value + dimmed count (from 2a) + the catalogue summary
+  - [x] **4g-2 rows**: value + dimmed count (from 2a) + the catalogue summary
     as the description column; command rows keep their glyph from
     `command_icon`'s catalogue field. What the GUI shows and what the REPL
     shows come from the same presenter call — a drift test compares them.
-  - [ ] **4g-3 scoping**: the completer passes the settled tokens (1a's
+  - [x] **4g-3 scoping**: the completer passes the settled tokens (1a's
     `context`) into `value_suggestions`, so `repo:leasha branch:<Tab>` offers
     leasha's branches in the terminal. The 1e fallback rule (never an empty
     menu when unscoped values exist) applies unchanged.
-  - [ ] **4g-4 responsiveness**: completion runs through prompt_toolkit's
+  - [x] **4g-4 responsiveness**: completion runs through prompt_toolkit's
     `ThreadedCompleter` so a store read never blocks a keystroke — the same
     non-negotiable the GUI popup honours with its worker, kept by the same
     means: bounded `distinct_values`, TTL cache shared with the popup's
     presenter-side cache, never per-keystroke unbounded work.
-  - [ ] **4g-5 toolbar**: a bottom toolbar shows the current command's
+  - [x] **4g-5 toolbar**: a bottom toolbar shows the current command's
     `value_hint` while a value is being typed, the 2c resolved-date hint for
     date commands, and the index health notice (`semantic_health`) when
     degraded — the CLI's NoticeBar, one line, never a modal-style interruption.
-  - [ ] **4g-6 history**: `FileHistory` stored beside the index (not the repo),
+  - [x] **4g-6 history**: `FileHistory` stored beside the index (not the repo),
     with grey inline auto-suggest from history, right-arrow to accept. History
     is queries only; it must never record anything but what was typed.
-  - [ ] **4g-7 running a search**: Enter parses with `parse_query` and runs the
+  - [x] **4g-7 running a search**: Enter parses with `parse_query` and runs the
     real `SearchEngine`, printing through the existing CLI renderers —
     result line, count summary, and notices exactly as `app.cli search` prints
     them today; no second renderer. `/help` prints `help_lines`; `/quit` and
     Ctrl+D leave; Ctrl+C clears the line, never kills the session.
-  - [ ] **4g-8 tests**: completer parity with `COMMANDS` (names, aliases,
+  - [x] **4g-8 tests**: completer parity with `COMMANDS` (names, aliases,
     subsets); the `slash_context` inertness cases (`D:/docs`, `12/03`,
     `http://`) re-asserted through the REPL completer; a no-Qt-import guard on
     every `app/cli*` shell module; scoped-completion and empty-fallback cases
@@ -508,3 +508,38 @@ somebody's own file.
 says how to do it later when declined. Skipped entirely under `-SkipOptional`
 and `-Preflight`: the first means "do not ask me about the extras" and the
 second must change nothing at all.
+
+## 4g delivered, 2026-08-27 — §4 complete, and so is this order
+
+`leasha shell`. `app/shell/completer.py` and `app/shell/repl.py`, 9 boxes,
+28 tests in `tests/unit/test_shell.py`.
+
+**It decides nothing, and that is the whole design.** `slash_context` decides
+whether a menu opens, `value_suggestions` decides what is in it, `value_rows`
+decides how a row reads, `parse_query` reads the filters, and `print_response`
+prints the results. The `D:/docs` and `12/03` cases are re-asserted through the
+REPL completer - not because they might behave differently, but to prove the
+terminal asks the same function rather than a second one that agrees today.
+
+**One renderer, made true rather than intended.** The result printing was
+inline in `cmd_search`; it is now `cli.print_response`, called by both. A copy
+that starts identical is the thing that stops being identical.
+
+**Scoping works**, which is why this exists alongside the tab completer:
+`repo:leasha type:<Tab>` offers that checkout's file types, because the parser
+is in the same process. 1e's fallback applies unchanged - never an empty menu
+when unscoped values exist, and never a silent one.
+
+Threaded completion (`ThreadedCompleter`), so a store read never blocks a
+keystroke - the same non-negotiable the Qt popup keeps with its worker, kept by
+the same means. History is a `FileHistory` **beside the index**: a repository
+that gets re-cloned or a project folder the installer rebuilds must not take
+somebody's history with it. Ctrl+C clears the line and never kills the session.
+
+`prompt_toolkit==3.0.53` is in `requirements.txt` with the reasoning beside it.
+
+**Two things I had wrong.** `semantic_health` reads a *response*, not a store -
+the condition it reports is a fact about one search, so the toolbar can only
+say it once one has run. And a scoping test I wrote first asserted that
+`path:home type:` narrows, which it does not and must not: `type` is scoped by
+`repo` alone. Asserting it would have been asserting a bug.

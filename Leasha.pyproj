@@ -130,6 +130,7 @@
     <Compile Include="app\search\gitquery.py" />
     <Compile Include="app\search\gitsearch.py" />
     <Compile Include="app\search\keyword.py" />
+    <Compile Include="app\search\pwsh_completer.py" />
     <Compile Include="app\search\query.py" />
     <Compile Include="app\search\rerank.py" />
     <Compile Include="app\search\rerank_bench.py" />
