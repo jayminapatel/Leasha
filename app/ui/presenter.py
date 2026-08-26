@@ -28,8 +28,8 @@ from __future__ import annotations
 import os
 import re
 import time as _time
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from app.core.logging import logger
@@ -1914,6 +1914,200 @@ def folder_size(path: Any) -> Optional[int]:
     except OSError:
         return None
     return total or None
+
+
+#: Suffixes a log folder may contain. **An allow-list, not a deny-list**, and
+#: that direction is the whole safety of `clear_logs`: LOG_PATH defaults to a
+#: folder inside the project, an owner may well point it somewhere sharing space
+#: with something else, and a routine that deletes "everything here" would one
+#: day be pointed at a folder that was not only logs. Anything not named here
+#: survives, including `README.txt`, which describes the folder structure and is
+#: regenerated rather than discarded.
+LOG_SUFFIXES: frozenset[str] = frozenset({".log", ".jsonl", ".zip", ".json"})
+
+
+def log_files(log_path: Any) -> list:
+    """Every log file under `log_path`, at any depth. Never raises.
+
+    Returns paths rather than a count, because both callers - the summary and
+    the deletion - must agree exactly about what counts as a log, and the only
+    way to guarantee that is for them to ask the same function.
+    """
+    from pathlib import Path as _Path
+
+    if not log_path:
+        return []
+    found = []
+    try:
+        for item in _Path(log_path).rglob("*"):
+            try:
+                if item.is_file() and item.suffix.lower() in LOG_SUFFIXES:
+                    found.append(item)
+            except OSError:
+                continue
+    except OSError:
+        return []
+    return found
+
+
+def logs_summary(log_path: Any) -> str:
+    """The sentence beside the Clear button: how much is there, and where.
+
+    Named before it is deleted. "Clear logs" with no indication of what that
+    means is a button people either never press or press and regret, and the
+    number is also the answer to *"is this what is filling my disk"*, which is
+    the question that makes somebody look for the button at all.
+    """
+    files = log_files(log_path)
+    if not files:
+        return f"No log files in {log_path}."
+    total = 0
+    for item in files:
+        try:
+            total += item.stat().st_size
+        except OSError:
+            continue
+    return (f"{len(files):,} log file{'' if len(files) == 1 else 's'}, "
+            f"{format_size(total)}, in {log_path}")
+
+
+def clear_logs(log_path: Any, *, keep: Any = ()) -> dict[str, Any]:
+    """Delete the log files under `log_path`. Returns what happened.
+
+    **Today's files are kept, and not out of caution.** The application is
+    writing to them at the moment the button is pressed: on Windows an open file
+    cannot be unlinked, so deleting the current run log fails, and deleting the
+    current *day's* application log would succeed on POSIX and leave loguru
+    writing into a file with no directory entry - the session's own logging
+    silently going nowhere. `keep` is how the caller names those.
+
+    Empty folders are left in place. `ensure_log_dirs` would recreate them on
+    the next start, so removing them buys nothing and risks racing a writer.
+
+    Never raises. A file that will not delete is counted and named; the rest are
+    still removed, because "clear the logs" failing wholesale over one locked
+    file is the least useful outcome available.
+    """
+    from pathlib import Path as _Path
+
+    protected = {_Path(one).resolve() for one in (keep or ()) if one}
+    removed = 0
+    freed = 0
+    failed: list[str] = []
+
+    kept = 0
+    for item in log_files(log_path):
+        try:
+            if item.resolve() in protected:
+                # Counted where it is skipped, not from `len(keep)`: a caller
+                # may name a file that does not exist yet - the errors sink
+                # writes nothing until the first warning - and claiming to have
+                # kept a file that was never there is a small lie in the one
+                # sentence somebody reads to check what happened.
+                kept += 1
+                continue
+            size = item.stat().st_size
+            item.unlink()
+        except OSError as exc:
+            failed.append(f"{item.name} ({exc.strerror or exc})")
+            continue
+        removed += 1
+        freed += size
+
+    return {"removed": removed, "freed": freed, "failed": failed, "kept": kept}
+
+
+def logs_cleared_message(outcome: Any) -> str:
+    """What to say afterwards. **Always names the next thing to do or know.**
+
+    Three outcomes, three sentences - and the one that matters most is the
+    middle: files that would not delete are almost always the ones this session
+    is writing to, which is not a fault and must not read as one.
+    """
+    if not isinstance(outcome, dict):
+        return "The logs were cleared."
+    removed = int(outcome.get("removed") or 0)
+    freed = int(outcome.get("freed") or 0)
+    failed = list(outcome.get("failed") or ())
+    kept = int(outcome.get("kept") or 0)
+
+    if not removed and not failed:
+        return "There were no old log files to remove."
+
+    said = f"Removed {removed:,} log file{'' if removed == 1 else 's'}"
+    if freed:
+        said += f", {format_size(freed)} freed"
+    if kept == 1:
+        said += ". One file this session is still writing to was kept"
+    elif kept:
+        said += f". {kept} files this session is still writing to were kept"
+    if failed:
+        shown = ", ".join(failed[:3])
+        said += (f". {len(failed)} could not be removed ({shown}) - they are in "
+                 f"use by another program; close it and clear again")
+    return said + "."
+
+
+def index_bytes(store: Any, settings: Any) -> int:
+    """What the index itself weighs: the database, its journal, the vectors.
+
+    **Not `folder_size(data_path)`, and that difference is the whole point.**
+    The Indexing page shows the size of the entire data folder, which includes
+    the ~130MB embedding-model cache - and the model cache correctly survives a
+    reset, since throwing it away would turn the next start into a silent
+    download. So on a modest index the headline number barely moves after a
+    reset, which is exactly what was reported: *"i reset the index the index
+    size remained the same"*.
+
+    This weighs only the two things a reset removes, so the difference across
+    one is a true statement about what was given back. Never raises: it exists
+    to make a sentence, and no sentence is better than a failed reset.
+    """
+    total = 0
+    try:
+        total += int(store.file_bytes())
+    except Exception:                            # noqa: BLE001 - one number
+        pass
+    # Uncapped, unlike `folder_size`: a LanceDB table is a handful of large
+    # files, not the thousands that cap exists to bound.
+    try:
+        from pathlib import Path as _Path
+
+        for item in _Path(str(getattr(settings, "vector_path", "") or ".")).rglob("*"):
+            try:
+                if item.is_file():
+                    total += item.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return total
+
+
+def cleared_message(outcome: Any) -> str:
+    """What the status bar says after a reset. **Always names an amount.**
+
+    Three different things can have happened and they need three different
+    sentences. "Index cleared - 0 documents removed" after resetting an index
+    that was already empty reads as a failure; a reset that removed thousands of
+    documents and freed nothing is a real fault worth pointing at the log for;
+    and the ordinary case should say how much disk came back, because that is
+    the question somebody resets an index to answer.
+    """
+    if not isinstance(outcome, dict):            # an older signal shape
+        outcome = {"removed": int(outcome or 0), "freed": 0}
+    removed = int(outcome.get("removed") or 0)
+    freed = int(outcome.get("freed") or 0)
+
+    if not removed:
+        return "The index was already empty - there was nothing to remove."
+    if freed <= 0:
+        return (
+            f"Index cleared - {removed:,} documents removed, but the disk space "
+            "has not come back yet. Close any other Leasha window or command "
+            "line run and reset again; the log line says which step failed.")
+    return (f"Index cleared - {removed:,} documents removed, "
+            f"{format_size(freed)} freed. Press Start indexing to rebuild.")
 
 
 def when_text(iso: str) -> str:

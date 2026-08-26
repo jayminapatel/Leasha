@@ -17,6 +17,7 @@ the one paying the one-to-two second ONNX load.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -56,7 +57,9 @@ from app.core.run_lock import GUI
 # **Worker bodies live in the presenter**, not here: `test_ui_never_blocks`
 # reads this file and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
-from app.ui.presenter import _read_external_run, _scan_and_save
+from app.ui.presenter import (
+    _read_external_run, _scan_and_save, cleared_message, index_bytes,
+)
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -1417,20 +1420,26 @@ class MainWindow(QMainWindow):
         self.recorder.event("click", what="reset_index")
         self.statusBar().showMessage("Clearing the index…")
 
-        def clear() -> int:
+        def clear() -> dict:
+            # **Measured, because "it did nothing" was the report.** The size on
+            # the Indexing page is the whole of DATA_PATH, which includes the
+            # 130MB model cache and deliberately survives a reset - so on a
+            # small index the number barely moves and there is nothing saying
+            # why. Weighing the two things a reset actually removes, before and
+            # after, turns that into a sentence.
+            before = index_bytes(self._store, self._settings)
             removed = self._store.clear_index()
             self._vectors.drop()
-            return removed
+            return {"removed": removed,
+                    "freed": max(0, before - index_bytes(self._store, self._settings))}
 
         worker = CallableWorker(clear, component="ui.reset")
         worker.signals.finished.connect(self._index_cleared)
         worker.signals.failed.connect(self._show_error)
         run(QThreadPool.globalInstance(), worker)
 
-    def _index_cleared(self, removed: int) -> None:
-        self.statusBar().showMessage(
-            f"Index cleared - {removed:,} documents removed. "
-            "Press Start indexing to rebuild.", 15_000)
+    def _index_cleared(self, outcome: Any) -> None:
+        self.statusBar().showMessage(cleared_message(outcome), 20_000)
         self.indexing_view.refresh_totals(self._store, self._settings)
         self.files_view.refresh_summary()
         self._refresh_status()
@@ -1508,6 +1517,26 @@ class MainWindow(QMainWindow):
             return
 
         self.recorder.event("closing")
+        # **Every stage is timed, and the total is logged.** The window was
+        # reported as "lingering" after close, and the run log could not confirm
+        # or deny it: there was no line between "entering the event loop" and
+        # "the event loop returned", so a shutdown that took twenty seconds and
+        # one that took two looked identical. The single-instance lock is held
+        # for all of that time - correctly, the stores are still open - so a
+        # slow close is what a relaunch runs into. Timing each stage means the
+        # next slow one names itself instead of being guessed at.
+        began = time.monotonic()
+        _log.info("closing: stopping timers and background work")
+        stages: list[tuple[str, float]] = []
+
+        def stage(name: str, action: Any) -> None:
+            started = time.monotonic()
+            try:
+                action()
+            except Exception as exc:                     # noqa: BLE001
+                _log.warning("closing: {} failed, continuing: {}", name, exc)
+            stages.append((name, time.monotonic() - started))
+
         # **Stop new work before tearing anything down.** Twelve threads were
         # still running at close, and the debounce timers kept firing into an
         # engine and a store that were being shut. Cancelling first turns a race
@@ -1515,30 +1544,21 @@ class MainWindow(QMainWindow):
         # stop rather than closing over it.
         for view in (self.search_view, self.files_view, self.mail_view,
                      self.code_view):
-            try:
-                view.shutdown()
-            except Exception:                        # noqa: BLE001
-                pass
+            stage(type(view).__name__, view.shutdown)
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
         # the sluggishness the debounce was added to fix.
-        try:
-            self.settings_view.indexing.flush_pending()
-        except Exception:                                # noqa: BLE001
-            pass
-        self.indexing_view.stop()
-        try:
-            self.scheduler.stop()
-        except Exception:                                # noqa: BLE001
-            pass
+        stage("settings", self.settings_view.indexing.flush_pending)
+        stage("indexing", self.indexing_view.stop)
+        stage("scheduler", self.scheduler.stop)
+        stage("workers", self._drain_workers)
+        stage("recorder", self.recorder.close)
+        stage("engine", self._engine.close)
 
-        self._drain_workers()
-        self.recorder.close()
-
-        try:
-            self._engine.close()
-        except Exception:                                # noqa: BLE001
-            pass
+        slow = ", ".join(f"{name} {seconds:.1f}s"
+                         for name, seconds in stages if seconds >= 0.2)
+        _log.info("closing: took {:.1f}s{}", time.monotonic() - began,
+                  f" ({slow})" if slow else "")
         super().closeEvent(event)
 
     def _drain_workers(self) -> None:

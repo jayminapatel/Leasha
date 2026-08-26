@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,7 +24,7 @@ from loguru import logger
 from app.core.errors import AppError
 
 __all__ = ["setup_logging", "log_app_error", "logger", "recent_lines",
-           "RECENT_LIMIT"]
+           "RECENT_LIMIT", "open_log_files"]
 
 #: How many recent lines are kept in memory for the debug pane in Settings.
 #:
@@ -235,6 +236,46 @@ def setup_logging(
 
     _configured = True
     return pattern
+
+
+def open_log_files() -> list[Path]:
+    """The log files this process is writing to right now.
+
+    **Asked, not reconstructed.** The Clear-logs button needs to leave these
+    alone, and working out which they are from the folder listing would be wrong
+    in two ordinary cases: the run log's name carries a timestamp and a process
+    id rather than today's date, and a session started before midnight is still
+    writing into yesterday's application log. A rule based on the date would
+    delete the current run's own evidence on one side of midnight and keep a
+    stale file on the other.
+
+    Loguru does not publish its sinks' paths, so the two dated ones are derived
+    from the same `ensure_log_dirs` layout that created them and the run log is
+    taken from `runlog.current()`, which knows its own file. Returns whatever
+    can be established; a file missed here is a file that will not delete, which
+    `clear_logs` already reports rather than treats as a fault.
+    """
+    found: list[Path] = []
+    try:
+        from app.core.runlog import current as _current_run
+
+        run = _current_run()
+        if run is not None and getattr(run, "path", None):
+            found.append(Path(run.path))
+    except Exception:                            # noqa: BLE001
+        pass
+
+    try:
+        from app.core.config import log_dir_for
+
+        root = Path(log_dir_for())
+        stamp = datetime.now().strftime("%Y-%m-%d")
+        found.append(root / "app" / f"app_{stamp}.log")
+        found.append(root / "errors" / f"errors_{stamp}.jsonl")
+    except Exception:                            # noqa: BLE001
+        pass
+
+    return [item for item in found if item]
 
 
 def component_logger(component: str) -> Any:

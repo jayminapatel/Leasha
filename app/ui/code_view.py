@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
@@ -50,7 +50,7 @@ from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.git_tree import (
     GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
-    start_git_search,
+    paint_repo_state, start_git_search,
 )
 from app.ui.workers import CallableWorker, run, stop_timers
 
@@ -101,11 +101,15 @@ class CodeView(QWidget):
         )
 
         self.run_button = QPushButton("Search history")
-        self.run_button.setToolTip(
+        # Kept, because `_show_state` swaps in a different sentence while there
+        # is nothing to search and has to be able to put this one back. Reading
+        # the tooltip back off the widget would work exactly once.
+        self._run_hint = (
             "Run the repository search now.\n\n"
             "Typing already searches the indexed files. Switches that read "
             "history - /history, /introduced, /branch - need this, or Enter: "
             "git diffs every commit it walks, so they take seconds.")
+        self.run_button.setToolTip(self._run_hint)
         self.run_button.clicked.connect(self.start)
 
         self.summary = QLabel("", objectName="resultsSummary", wordWrap=True)
@@ -164,7 +168,11 @@ class CodeView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
-        layout.addWidget(self.empty)
+        # Given the list's stretch and pinned to the top, so the explanation
+        # sits where the first row would be rather than floating in the middle
+        # of the page. Only one of these two is ever visible, so the two stretch
+        # factors never compete - a hidden widget is skipped by the layout.
+        layout.addWidget(self.empty, 1, Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.git_split, 1)
         self._apply_prefs()
 
@@ -278,18 +286,28 @@ class CodeView(QWidget):
             draw_git_result(self, found)
 
     def _show_state(self) -> None:
-        """Two questions, two sentences. The reasoning is on `repo_empty_state`,
-        which is where the wording lives."""
-        if self._repos:
-            self.empty.setVisible(False)
-            self.results.setVisible(True)
-            self.input.setVisible(True)
-            return
-        self.input.setVisible(False)
-        self.results.setVisible(False)
-        self.empty.setVisible(True)
-        self.summary.setText("")
-        self.empty.setText(repo_empty_state(self._anything_indexed()))
+        """Two questions, two sentences - and **the search box never goes away.**
+
+        This used to call `self.input.setVisible(False)` when no repositories
+        were found, which is how the tab came to be reported as *"screwed, it
+        does not have a search box or nothing"*. Hiding the one control a page
+        exists for removes the only affordance and explains nothing: somebody
+        looking at it cannot tell whether the tab is broken, still loading, or
+        working perfectly and simply empty.
+
+        It is worse than cosmetic, because `_repos` is *also* empty when
+        `repos_list` fails - that worker's failure is deliberately swallowed,
+        since a heading is not worth an error dialog - so a database problem
+        presented itself as a page with nothing on it at all.
+
+        The box stays, always. What changes is the list: hidden, with a sentence
+        in its place saying why there is nothing in it. The wording is on
+        `repo_empty_state`, which is where it can be read without a display.
+        """
+        has_repos = bool(self._repos)
+        paint_repo_state(
+            self, has_repos=has_repos,
+            message="" if has_repos else repo_empty_state(self._anything_indexed()))
 
     def _anything_indexed(self) -> bool:
         """Cheap and guarded. Only decides which of two sentences to show."""

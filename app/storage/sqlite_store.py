@@ -1512,19 +1512,66 @@ class SqliteStore:
             # generation counter exists to prevent, and it would be at its most
             # convincing right after a reset, when the results still look right.
             self._bump_generation(conn)
-        self._vacuum_quietly()
+        self.reclaim_space()
         return count
 
-    def _vacuum_quietly(self) -> None:
-        """Give the space back. A failure here is not worth reporting.
+    def file_bytes(self) -> int:
+        """The database **and its journal**, as they sit on disk right now.
 
-        Without it the database file stays the size it was, and somebody who
-        just deleted a 4GB index to free space would find they had not.
+        The `-wal` file is not an implementation detail here: deleting a large
+        index writes every one of those deletions into it first, so immediately
+        after a reset the write-ahead log can be larger than the database ever
+        was. Counting only `knowledge.db` would report a reset that freed
+        nothing as having freed a great deal, or the reverse.
         """
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                total += Path(str(self.db_path) + suffix).stat().st_size
+            except OSError:
+                continue
+        return total
+
+    def reclaim_space(self) -> int:
+        """Return deleted space to the filesystem. Answers with bytes freed.
+
+        **Three steps, and the reset needed all three.** `VACUUM` alone was what
+        this did, and the owner reported *"i reset the index the index size
+        remained the same"*.
+
+        * The **first checkpoint** folds the deletions out of the write-ahead
+          log and truncates it. In WAL mode a `DELETE FROM files` over a large
+          index leaves every removed page sitting in `knowledge.db-wal`, so
+          without this the file group can be no smaller after a reset than
+          before - and on a big index, visibly larger.
+        * `VACUUM` rebuilds the database itself, which is what actually returns
+          the freed pages. Without it SQLite keeps the file at its high-water
+          mark and reuses the space later.
+        * The **second checkpoint** truncates the log `VACUUM` has just written.
+
+        Failure is reported at `warning` with something to do about it, not
+        swallowed at `debug`. This is the step whose silence made a reset look
+        like it had not happened, and a locked database is a real and fixable
+        cause: the space comes back on the next reset once whatever holds it
+        has let go. Never raises - the index *is* cleared either way, and the
+        rebuild is what the person came for.
+        """
+        before = self.file_bytes()
         try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self.conn.execute("VACUUM")
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except sqlite3.Error as exc:
-            _log.debug("vacuum after reset skipped: {}", exc)
+            _log.warning(
+                "could not give the disk space back after clearing the index: "
+                "{}. The index is empty and searching is correct; only the file "
+                "size is wrong. Another process still has the database open - "
+                "close any other Leasha window and any command line run, then "
+                "reset again to reclaim it.", exc)
+            return 0
+        freed = before - self.file_bytes()
+        _log.info("reclaimed {} bytes from {}", max(0, freed), self.db_path.name)
+        return max(0, freed)
 
     def count_searches(self) -> int:
         """How many searches are recorded. One row out, not all of them.

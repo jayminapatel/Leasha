@@ -345,9 +345,20 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # **This is only ever seen after a twelve-second wait.** `SingleInstance`
+    # holds off for `HANDOVER_WAIT_S` before raising, because the usual reason
+    # the lock is held is a copy that is still closing - and telling somebody to
+    # close the window they have just closed is a suggestion that instructs
+    # nothing. Having waited, the two remaining explanations are a window that
+    # is genuinely open and a process that has hung, so the fix names both.
     "ERR_DB_LOCKED": _Spec(
-        message="Another copy of the application is already running.",
-        suggestion="Close the other copy, then try again. Two copies cannot share one index safely.",
+        message="Another copy of Leasha is already running.",
+        suggestion=(
+            "Switch to the open window and close it, then start Leasha again. "
+            "If you cannot see one, a previous copy has hung: open Task Manager, "
+            "end 'pythonw.exe', and start Leasha again. Two copies cannot share "
+            "one index safely, which is why the second one stops here."
+        ),
         action_type=ActionType.USER_RETRY,
     ),
     # **Not `ERR_DB_LOCKED`, and the difference is the whole point of the

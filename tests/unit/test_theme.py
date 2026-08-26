@@ -170,3 +170,46 @@ def test_the_pane_is_pulled_under_the_tab_bar():
     from app.ui.theme import stylesheet
 
     assert "top: -1px" in stylesheet("dark")
+
+
+def test_a_checkbox_is_tall_enough_for_its_own_label():
+    r"""**"some of the check boxes are cut"** - the owner, looking at Settings.
+
+    The cause was one declaration, `QCheckBox { spacing: 7px; }`. A *geometry*
+    property in a stylesheet moves the widget onto `QStyleSheetStyle`'s sizing,
+    which derives the height from the check indicator and ignores the text
+    entirely: the size hint came out a flat 16 pixels whatever font was set,
+    against a label needing 15. One pixel of slack, so it looked correct on the
+    machine it was written on and clipped a descender on the machine it was
+    used on - which is why only *some* boxes were reported.
+
+    **This asserts the rule, not the pixel count.** A test pinning the height to
+    21 would pass on a wrong sheet that happened to say 21, and would fail the
+    next time the type scale moved for a perfectly good reason. What must always
+    hold is that a checkbox is at least as tall as the text inside it, and it
+    has to be measured on a *polished* widget - the stylesheet is applied during
+    polish, so anything read before that is the unstyled answer.
+
+    Both schemes and both classes, because a rule can easily be added to one
+    selector and not its twin.
+    """
+    pytest.importorskip("PyQt6")
+    from PyQt6.QtGui import QFontMetrics
+    from PyQt6.QtWidgets import QApplication, QCheckBox, QRadioButton
+
+    app = QApplication.instance() or QApplication([])
+    # A label with descenders, because those are the pixels that go first.
+    label = "Closing the window keeps it running there"
+    try:
+        for scheme in (Theme.LIGHT, Theme.DARK):
+            app.setStyleSheet(stylesheet(scheme))
+            for cls in (QCheckBox, QRadioButton):
+                widget = cls(label)
+                widget.ensurePolished()
+                needed = QFontMetrics(widget.font()).height()
+                assert widget.sizeHint().height() >= needed, (
+                    f"{scheme} {cls.__name__}: {widget.sizeHint().height()}px tall "
+                    f"for text needing {needed}px - the label will be clipped")
+    finally:
+        # Left applied, every later test in this process would inherit it.
+        app.setStyleSheet("")

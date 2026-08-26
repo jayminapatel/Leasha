@@ -248,6 +248,7 @@
     <Compile Include="tests\unit\test_embedder.py" />
     <Compile Include="tests\unit\test_embedding_gap.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
+    <Compile Include="tests\unit\test_env_never_loses_paths.py" />
     <Compile Include="tests\unit\test_errors.py" />
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />

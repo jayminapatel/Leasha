@@ -16,17 +16,37 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 from types import TracebackType
 from typing import Optional, Type
 
 from app.core.errors import AppErrorException, make_error
 
-__all__ = ["SingleInstance", "DEFAULT_MUTEX_NAME"]
+__all__ = ["SingleInstance", "DEFAULT_MUTEX_NAME", "HANDOVER_WAIT_S"]
 
 DEFAULT_MUTEX_NAME = "Local.KnowledgeGraph.V2.SingleInstance"
 
 _ERROR_ALREADY_EXISTS = 183
+
+#: How long a starting window waits for a closing one to let go.
+#:
+#: **This is a handover, not a retry loop.** Closing Leasha is not instant: the
+#: debounce timers are stopped, the thread pool is given up to four seconds to
+#: empty, the recorder is flushed and two stores are closed. The lock is held
+#: through all of it, correctly - the index is still open. But from the outside
+#: the window has *gone*, so double-clicking the shortcut is the natural next
+#: thing to do, and it was answered with "another copy is already running",
+#: which is true, useless, and looks like the application is broken.
+#:
+#: Twelve seconds is three times the shutdown grace in `shell._drain_workers`,
+#: so an ordinary close always fits inside it and a genuinely open second window
+#: still refuses within a delay nobody mistakes for a hang.
+HANDOVER_WAIT_S = 12.0
+
+#: How often to re-ask while waiting. Short enough to feel immediate once the
+#: other copy lets go; long enough to cost nothing.
+_RETRY_S = 0.25
 
 
 class SingleInstance:
@@ -50,15 +70,38 @@ class SingleInstance:
 
     # -- acquisition ---------------------------------------------------------
 
-    def acquire(self) -> "SingleInstance":
+    def acquire(self, *, wait_s: float = 0.0) -> "SingleInstance":
+        """Take the lock, optionally waiting for a copy that is letting go.
+
+        `wait_s` defaults to zero, which is the behaviour every caller had and
+        the behaviour `run_lock.is_indexing` needs - it probes this on a timer,
+        and a probe that blocks is a window that stutters once a second.
+
+        Pass `HANDOVER_WAIT_S` from a start-up path, where the overwhelmingly
+        likely reason the lock is held is that the copy the person just closed
+        has not finished closing. See that constant for why waiting is the right
+        answer rather than a nicer error message.
+        """
         if self.acquired:
             return self
+
+        deadline = time.monotonic() + max(0.0, float(wait_s))
+        while True:
+            try:
+                self._acquire_once()
+            except AppErrorException:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(_RETRY_S)
+                continue
+            self.acquired = True
+            return self
+
+    def _acquire_once(self) -> None:
         if sys.platform == "win32":
             self._acquire_windows()
         else:
             self._acquire_posix()
-        self.acquired = True
-        return self
 
     def _acquire_windows(self) -> None:
         import ctypes

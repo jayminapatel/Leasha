@@ -1,12 +1,83 @@
 # Changelog
 
-**Doc version:** 3.58 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.59 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — five of the six things reported at once
+
+> *"i rest the index the index size remained the same, look at alignment of
+> things on settings page some of the check boxes are cut, there needs to be a
+> button to clear logs, change model has only one model, the code tab is
+> screwed it does not have a search box or nothing, when you close the app it
+> lingers for a while because if i start it it says it is running"*
+
+**The Code tab was hiding its own search box.** `_show_state` called
+`input.setVisible(False)` whenever `repos_list` returned no repositories, so the
+page lost the one control it exists for and explained nothing. Worse than
+cosmetic: that list is *also* empty when the query fails — the worker's failure
+is swallowed deliberately, a heading being no reason for an error dialog — so a
+database problem presented as a page with nothing on it. The box now always
+stays; the list is what disappears, with a sentence in its place. The two
+buttons that need repositories are disabled rather than removed, and their
+tooltips say which of the two things has happened.
+
+**The window was not lingering, it was closing — and the log could not say so.**
+Read from the run files rather than guessed: pid 30200's event loop did not
+return until 21:20:59, and the two launches at 21:20:47 and 21:20:58 were
+refused inside that interval while the one at 21:21:00 opened normally. The
+single-instance lock is held for the whole of shutdown, correctly, because the
+stores are still open — but the window has already gone from the screen, so
+trying again is the natural thing to do. Two changes: a start now **waits**
+twelve seconds for a closing copy to let go before refusing, and `closeEvent`
+**times every stage and logs the total**, so the next slow shutdown names itself
+instead of being inferred a week later. `ERR_DB_LOCKED` was rewritten to match —
+after a twelve-second wait, *"close the other copy"* is the thing the person has
+already done, so it now covers the case where no window can be seen at all.
+
+**Resetting the index kept the file size.** `clear_index` did call `VACUUM`, so a
+test of the mechanism would have passed. What it did not do was checkpoint the
+write-ahead log: in WAL mode a large `DELETE` leaves every removed page sitting
+in `knowledge.db-wal`, and the file group ends up no smaller — sometimes larger.
+`reclaim_space` now checkpoints, vacuums, and checkpoints again, **reports what
+it freed**, and logs a failure at `warning` with a fix rather than swallowing it
+at `debug`. The status bar says how many bytes came back, because the headline
+figure on the Indexing page is the whole data folder — which includes the model
+cache, and that survives a reset by design.
+
+**A button to clear the logs**, in Settings → Environment, beside a line saying
+how much is there. An allow-list of suffixes rather than "everything in this
+folder": `LOG_PATH` is a location somebody chooses, and `README.txt` describes
+the layout. Files this session is writing to are named by `open_log_files()` and
+kept — on Windows they cannot be unlinked, and on POSIX deleting one leaves
+loguru writing into a file with no directory entry.
+
+**The model list showed one model, and was right.** One model was installed. But
+a dropdown with a single row cannot be told apart from a probe that failed, and
+nothing on the panel said which it was. Known-good alternatives are now listed
+greyed out, carrying `ollama pull …` — the same treatment embedding models
+already had on that control. `"1 models installed."` is gone with it.
+
+**The checkbox rule in `theme.py` was pinning the height.** Measured:
+`spacing: 7px` moves a `QCheckBox` onto `QStyleSheetStyle`'s sizing, which
+derives the height from the check indicator and never looks at the text — a flat
+16 pixels whatever font is set, against a label needing 15. One pixel of slack.
+Removed, so the height follows the font again (21 pixels for the same label);
+`color` alone was measured to leave the size hint identical to the unstyled one.
+**Not claimed as the owner's bug**: reproducing that needs Windows font metrics,
+and the page renders correctly here either way. The rule goes regardless — a
+height that ignores its own font is wrong whether or not it is today's fault.
+
+New tests: `test_the_owners_seven.py` states each report as the rule it was
+(twelve, all failing against the previous commit), and `test_settings_layout.py`
+lays out the real Settings page and checks that nothing on it is smaller than
+the words inside it. `test_tray`'s close-order guard was rewritten to read
+statements rather than search for the literal string `"indexing_view.stop()"`,
+which broke the moment the call was rearranged without the rule changing.
 
 ### Fixed — slow and crashing on first load (issue #1), and column widths, third time
 

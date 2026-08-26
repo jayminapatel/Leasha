@@ -43,7 +43,7 @@ from app.ui.presenter import GitScope
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
-           "ROLE_SCOPE"]
+           "ROLE_SCOPE", "paint_repo_state"]
 
 _log = logger.bind(component="ui.gittree")
 
@@ -252,6 +252,50 @@ def _read_repo(root: str) -> dict:
     except Exception as exc:                     # noqa: BLE001 - see the docstring
         _log.debug("no git detail for {}: {}", root, exc)
         return {}
+
+
+def paint_repo_state(view: Any, *, has_repos: bool, message: str) -> None:
+    r"""Show the Code page with or without a list - **but always with its box.**
+
+    The version of this that lived in `code_view._show_state` called
+    `self.input.setVisible(False)` when no repositories were found, and the tab
+    was reported as *"screwed, it does not have a search box or nothing"*.
+
+    Hiding the one control a page exists for is never the right answer to having
+    nothing to show. It removes the only affordance, and it explains nothing:
+    somebody looking at the result cannot tell whether the tab is broken, still
+    loading, or working perfectly and simply empty. It is worse than cosmetic
+    here, because `_repos` is *also* empty when `repos_list` fails - that
+    worker's failure is swallowed deliberately, a heading being no reason for an
+    error dialog - so a database problem presented as a page with nothing on it.
+
+    So the box stays, always. What changes is the list: hidden, with `message`
+    in its place saying why there is nothing in it. The two buttons that need
+    repositories are disabled rather than removed, and say which of the two
+    things has happened - nothing to search, as against having stopped working.
+
+    Here rather than in the view because `code_view.py` sits on the 250-line
+    guard, and this is a widget arrangement rather than a decision: what to say
+    is `presenter.repo_empty_state`, and it is passed in already decided.
+    """
+    view.input.setVisible(True)
+    view.results.setVisible(True)
+    view.git_split.setVisible(has_repos)
+    view.empty.setVisible(not has_repos)
+
+    view.git_button.setEnabled(has_repos)
+    view.run_button.setEnabled(has_repos)
+    view.git_button.setToolTip(
+        GIT_VIEW_HINT if has_repos else
+        "No repositories are indexed yet, so there is no tree to show.")
+    view.run_button.setToolTip(
+        view._run_hint if has_repos else
+        "No repositories are indexed yet, so there is no history to search.")
+
+    if has_repos:
+        return
+    view.summary.setText("")
+    view.empty.setText(message)
 
 
 def attach_git_tree(results: Any):

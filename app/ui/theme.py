@@ -224,7 +224,34 @@ QToolButton:pressed, QToolButton:checked {{
 }}
 QToolButton:focus {{ border-color: {focus_ring}; }}
 
-QCheckBox, QRadioButton {{ spacing: 7px; color: {text}; }}
+/* **Colour only: a geometry property here stops the height following the font.**
+
+   This said `spacing: 7px; color: {text};`, and "some of the check boxes are
+   cut" was reported against it. What is measured, and what is only suspected,
+   are worth separating.
+
+   Measured: with `spacing` present a QCheckBox's size hint is a flat **16
+   pixels** high whatever font it is given, because a geometry property moves
+   the widget onto QStyleSheetStyle's own sizing, which derives the height from
+   the check indicator and never looks at the text. Without it the hint is 21
+   and tracks the font. On this machine the label needs 15, so the old rule left
+   exactly one pixel of slack - and `color` on its own was checked the same way
+   and leaves the size hint identical to the unstyled one, so the colour is free
+   and only the geometry costs anything.
+
+   Not measured, and not claimed: that this is what the owner saw. Reproducing
+   it needs Windows - Segoe UI's metrics at the same 13px are taller than the
+   fallback here, and a scaled display is taller again, which would put that one
+   pixel of slack under water and would explain why only *some* boxes looked
+   wrong. It could not be confirmed on Linux, where the page renders correctly
+   either way.
+
+   The rule goes regardless. It buys nothing that colour does not, and a height
+   that ignores its own font is wrong whether or not it is today's bug.
+   `test_theme.test_a_checkbox_is_tall_enough_for_its_own_label` asserts that
+   rule rather than the number, so the next declaration added here cannot
+   quietly pin the height again. */
+QCheckBox, QRadioButton {{ color: {text}; }}
 QCheckBox:disabled, QRadioButton:disabled {{ color: {text_faint}; }}
 
 QSplitter::handle {{ background: {divider}; }}

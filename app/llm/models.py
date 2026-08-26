@@ -32,9 +32,40 @@ __all__ = [
     "suggested_timeout_s",
     "choose",
     "rank",
+    "with_suggestions",
+    "install_hint",
     "EMBEDDING_HINTS",
+    "SUGGESTED",
     "TIMEOUT_RANGE",
 ]
+
+#: Models worth having for this job, whether or not they are installed.
+#:
+#: **Because a dropdown with one entry reads as broken.** Reported as *"change
+#: model has only one model"* - and the list was correct: Ollama had exactly one
+#: model pulled. Correct and useless. A person looking at a one-line dropdown
+#: cannot tell whether the application failed to find the others, whether there
+#: are no others, or what they would have to do to get any, and nothing on the
+#: panel said.
+#:
+#: These are listed alongside the installed ones and shown greyed out with the
+#: command that would install them - the same treatment embedding models
+#: already get, and for the same reason: seeing something you cannot pick, with
+#: the reason attached, beats an absence you have to interpret.
+#:
+#: Kept deliberately short. This is a recommendation, and a recommendation of
+#: fifteen things is a list. All three are small, because Interpret rewrites one
+#: sentence and a larger model does that no better and much slower.
+SUGGESTED: tuple[str, ...] = (
+    "qwen2.5:1.5b",
+    "llama3.2:3b",
+    "phi3.5:3.8b",
+)
+
+
+def install_hint(name: str) -> str:
+    """The command that would make `name` available."""
+    return f"ollama pull {name}"
 
 #: Substrings marking a model that cannot answer a prompt at all. Offering one
 #: for Interpret produces a confusing failure several seconds later, and
@@ -61,14 +92,19 @@ class ModelChoice:
     #: selectable: seeing it greyed out with a reason beats wondering why the
     #: model you can see in `ollama list` is missing here.
     embedding_only: bool = False
+    #: False for a suggestion that is not pulled yet. Also listed, also not
+    #: selectable, and labelled with the command that would change that - see
+    #: `SUGGESTED`.
+    installed: bool = True
 
     @property
     def label(self) -> str:
-        return describe(self.name, self.billions, self.embedding_only)
+        return describe(self.name, self.billions, self.embedding_only,
+                        installed=self.installed)
 
     @property
     def selectable(self) -> bool:
-        return not self.embedding_only
+        return self.installed and not self.embedding_only
 
 
 def parameter_billions(name: str) -> Optional[float]:
@@ -126,13 +162,19 @@ def suggested_timeout_s(billions: Optional[float]) -> int:
     return 150
 
 
-def describe(name: str, billions: Optional[float] = None, embedding_only: bool = False) -> str:
+def describe(name: str, billions: Optional[float] = None, embedding_only: bool = False,
+             *, installed: bool = True) -> str:
     """One line: the name, and what it will cost you.
 
     The hint is the point. A bare list of names asks somebody to guess at the
     speed difference, and guessing at it is what produced a five-second budget
     for a thirty-second job.
+
+    A model that is *not* installed carries the command instead of the speed
+    note - what it would cost is the wrong question until it exists.
     """
+    if not installed:
+        return f"{name} — not installed:  {install_hint(name)}"
     if embedding_only:
         return f"{name} — makes vectors, cannot answer questions"
     if billions is None:
@@ -172,6 +214,36 @@ def rank(names: Iterable[str]) -> list[ModelChoice]:
             choice.name,
         ),
     )
+
+
+def with_suggestions(installed: Iterable[str]) -> list[ModelChoice]:
+    """`rank(installed)`, then the suggestions that are not installed.
+
+    **So the dropdown is never a single line with no explanation.** With one
+    model pulled the list was one row long and correct, and read as a fault -
+    *"change model has only one model"*. There was nothing on the panel saying
+    whether others existed, whether the probe had failed, or what would produce
+    more.
+
+    The additions are shown and not selectable, carrying `ollama pull …` in the
+    label. That is exactly how embedding models are already handled, and the
+    reasoning carries across: a name you cannot choose, with the reason
+    attached, answers the question. An absence does not.
+
+    Matching ignores the tag, because `qwen2.5:1.5b` installed as
+    `qwen2.5:1.5b-instruct-q4_0` is the same suggestion already taken, and
+    offering to pull something somebody has is worse than offering nothing.
+    """
+    ranked = rank(installed)
+    have = {choice.name for choice in ranked}
+    have |= {choice.name.split(":")[0] for choice in ranked}
+
+    extra = [
+        ModelChoice(name=name, billions=parameter_billions(name), installed=False)
+        for name in SUGGESTED
+        if name not in have and name.split(":")[0] not in have
+    ]
+    return ranked + extra
 
 
 def choose(configured: str, installed: Sequence[str]) -> tuple[str, str]:

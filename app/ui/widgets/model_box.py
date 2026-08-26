@@ -42,7 +42,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.llm.models import TIMEOUT_RANGE, choose, rank, suggested_timeout_s
+from app.llm.models import (
+    TIMEOUT_RANGE,
+    choose,
+    rank,
+    suggested_timeout_s,
+    with_suggestions,
+)
 from app.search.translate import TEST_SENTENCE
 from app.ui.workers import CallableWorker, run
 
@@ -239,7 +245,11 @@ class ModelBox(QGroupBox):
 
         with _quiet(self.model):
             self.model.clear()
-            for choice in rank(names):
+            # `with_suggestions`, not `rank`: the installed models, then the
+            # ones worth having, greyed out with the command that installs
+            # them. See `llm/models.SUGGESTED` for why a one-line dropdown was
+            # the bug even when it was accurate.
+            for choice in with_suggestions(names):
                 self.model.addItem(choice.label, choice.name)
                 if not choice.selectable:
                     # Shown but not choosable, with the reason in the label.
@@ -261,6 +271,15 @@ class ModelBox(QGroupBox):
         self.status.setText(note or self._speed_note(names, selected))
 
     def _speed_note(self, installed: list[str], selected: str) -> str:
+        """One line under the dropdown: how many there are, and what to do.
+
+        **"1 models installed." was the whole of it**, which is ungrammatical
+        and, worse, says nothing about the thing the reader is looking at - a
+        list with one usable row in it. The greyed-out suggestions now explain
+        themselves in the list; this says the same thing in a sentence, because
+        a dropdown has to be opened before it can be read.
+        """
+        count = len(installed)
         smaller = [
             choice for choice in rank(installed)
             if choice.selectable and choice.billions is not None and choice.billions <= 2
@@ -268,10 +287,17 @@ class ModelBox(QGroupBox):
         ]
         if smaller:
             return (
-                f"{len(installed)} models installed. Interpret only rewrites one "
+                f"{count} models installed. Interpret only rewrites one "
                 f"sentence, so {smaller[0].name} would likely do the same job faster."
             )
-        return f"{len(installed)} models installed." if installed else ""
+        if count == 1:
+            return (
+                "One model installed, which is all this needs - Interpret "
+                "rewrites a single sentence. The greyed-out entries in the list "
+                "are alternatives, with the command that installs them.")
+        if count:
+            return f"{count} models installed."
+        return ""
 
     # -- changing --------------------------------------------------------------
 

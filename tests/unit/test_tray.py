@@ -132,14 +132,65 @@ def test_quit_clears_close_to_tray_first():
 
 
 def test_the_close_path_checks_the_flag_before_tearing_anything_down():
-    """Close-to-tray is a *hide*: nothing is shut, and the lock stays held
+    r"""Close-to-tray is a *hide*: nothing is shut, and the lock stays held
     deliberately. That check has to come first or the stores close underneath a
-    window that is still alive."""
+    window that is still alive.
+
+    **Read as statements rather than as a string.** The first version of this
+    searched the source text for the literal `"indexing_view.stop()"`, and broke
+    the moment `closeEvent` started timing its shutdown stages and the call
+    became `stage("indexing", self.indexing_view.stop)`. Nothing about the rule
+    had changed - only the spelling - which is the failure mode of a test that
+    reads prose instead of code, and the same one that made
+    `test_narrowing_the_tree_runs_no_subprocess` fail on its own docstring.
+
+    So: parse `closeEvent`, take its top-level statements in order, and require
+    that the one mentioning the flag comes before any that shuts something down.
+    That survives any rearrangement that keeps the rule and fails any that does
+    not.
+    """
+    import ast
+
     shell = (ROOT / "app" / "ui" / "shell.py").read_text(encoding="utf-8")
-    body = shell.split("def closeEvent")[1].split("\n    def ")[0]
-    hide_at = body.index("close_to_tray")
-    stop_at = body.index("indexing_view.stop()")
-    assert hide_at < stop_at, "the tray check must precede shutdown"
+    tree = ast.parse(shell)
+    close_event = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "closeEvent"
+    )
+
+    #: Names that only appear where something is being dismantled.
+    teardown = {"shutdown", "stop", "_drain_workers", "flush_pending"}
+
+    def names_in(statement) -> set:
+        """Every attribute and identifier the statement *uses*.
+
+        Deliberately not the unparsed text: this function's own docstring
+        contains the words "shutdown" and "stop", and so does a log line saying
+        what it is about to do. A test that cannot tell a call from a sentence
+        about a call is a test that fails for the wrong reason.
+        """
+        used = set()
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Attribute):
+                used.add(node.attr)
+            elif isinstance(node, ast.Name):
+                used.add(node.id)
+        return used
+
+    guard_at = teardown_at = None
+    for position, statement in enumerate(close_event.body):
+        used = names_in(statement)
+        if guard_at is None and "close_to_tray" in used:
+            guard_at = position
+        if teardown_at is None and (used & teardown):
+            teardown_at = position
+
+    assert guard_at is not None, "closeEvent no longer checks close_to_tray at all"
+    assert teardown_at is not None, "closeEvent tears nothing down; has it moved?"
+    assert guard_at < teardown_at, (
+        f"the tray check is statement {guard_at} and the first teardown is "
+        f"{teardown_at}: a close-to-tray hide would shut the stores under a "
+        f"window that is still alive")
 
 
 def test_restore_brings_the_window_back():
