@@ -280,3 +280,66 @@ def test_warm_up_is_idempotent_and_thread_safe() -> None:
 
     assert len(attempts) == 1
     assert embedder.loaded
+
+
+# --- P9: the arithmetic moved to numpy, and must not have moved the answers --
+
+
+def test_numpy_normalisation_agrees_with_the_python_it_replaced() -> None:
+    """The old path is the specification; numpy is an implementation of it.
+
+    Written because the first version used float32 and changed two answers -
+    unit length came back as 1.0000000015 against a 1e-9 tolerance, and a
+    vector the code promises to leave alone came back altered in the eighth
+    decimal. A speed-up that changes results is not a speed-up.
+    """
+    import math
+
+    import numpy as np
+
+    from app.index.embedder import Embedder, l2_normalise
+
+    rng = np.random.default_rng(11)
+    raw = [rng.random(384, dtype=np.float32) for _ in range(64)]
+
+    def the_old_way() -> list[list[float]]:
+        out = []
+        for vector in raw:
+            widened = list(map(float, vector))
+            magnitude = math.sqrt(sum(v * v for v in widened))
+            out.append(widened if abs(magnitude - 1.0) <= 1e-3
+                       else l2_normalise(widened))
+        return out
+
+    embedder = Embedder(encoder=lambda _texts: raw)
+    got = embedder.embed(["x"] * len(raw))
+
+    assert np.allclose(np.asarray(got), np.asarray(the_old_way()), atol=1e-12)
+
+
+def test_an_already_unit_vector_is_returned_bit_for_bit() -> None:
+    """"Left alone" has to mean untouched, or the guard is a rounding step."""
+    import numpy as np
+
+    from app.index.embedder import Embedder
+
+    vector = np.zeros(384, dtype=np.float64)
+    vector[0] = 1.0
+    vector[1] = 0.0
+    embedder = Embedder(encoder=lambda _texts: [vector])
+
+    assert embedder.embed(["x"])[0] == list(vector)
+
+
+def test_a_zero_vector_is_not_divided_by(tmp_path) -> None:
+    """`l2_normalise` promises this and numpy would happily return nan."""
+    import numpy as np
+
+    from app.index.embedder import Embedder
+
+    zeros = np.zeros(384, dtype=np.float64)
+    embedder = Embedder(encoder=lambda _texts: [zeros])
+
+    got = embedder.embed(["x"])[0]
+    assert got == [0.0] * 384
+    assert not any(g != g for g in got), "nan reached the index"

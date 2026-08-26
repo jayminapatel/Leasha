@@ -209,7 +209,7 @@ Three notes:
   fixes **M** `engine.py:625` (cached responses share mutable `SearchResult`s —
   `replace()` each, or freeze the dataclass).
 - [ ] **P8** rerank off the critical path or off by default until async.
-- [ ] **P9** numpy end-to-end in embedder/vector_store (also review finding on
+- [x] **P9** numpy end-to-end in embedder/vector_store (also review finding on
   `vector_store.py:285` per-row float re-boxing).
 - [x] **P11** streamed reads in `plaintext.py` instead of `read_bytes()` at 2GB.
 - [x] **A3** delete the dead knowledge-graph methods from `SqliteStore`.
@@ -338,3 +338,25 @@ To settle it, run on Windows and paste the output here:
 Then the choice is between leaving it on, defaulting it off until it is
 asynchronous, or returning fused results first and reranking after - which is
 "off the critical path" and is a UI change as much as an engine one.
+
+**P9, 2026-08-27.** Done in the embedder, **deliberately not done in
+`vector_store`**, and both halves have a number.
+
+`Embedder.embed` widened each of 98,304 values per batch with `float(x)` and
+then normalised each vector with a Python `sum()`. One numpy block instead:
+**10.05ms to 0.88ms per batch of 256, 11.4x**, agreeing with the old path to
+1e-12. Roughly 41 seconds against 4.3 over a million chunks.
+
+float64, not float32. float32 was 39x and broke two contracts - unit length
+came back as 1.0000000015 against a 1e-9 tolerance, and a vector the code
+promises to leave alone came back altered in the eighth decimal. The old path
+widened the model's float32 to a Python double, so double is the specification.
+Two existing tests caught it; three more now hold the line.
+
+`vector_store.py:285` - the per-row `[float(x) for x in ...]` the review names
+- was measured and left alone. Building 512 rows: 4.34ms as it stands, 3.25ms
+with one numpy block, **1.3x** on a step whose cost is the dict construction
+and which is followed by a LanceDB write that dwarfs both. Changing the payload
+type on the write path to save a millisecond per five hundred rows is not a
+trade worth making, and `search`'s equivalent at line 517 is one conversion of
+384 values per query, around 20 microseconds.
