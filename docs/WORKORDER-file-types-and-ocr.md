@@ -255,45 +255,45 @@ Register in `ERROR_REGISTRY` with message, suggestion and action type, per the c
 Not done until all of these pass.
 
 **Config**
-- [ ] Packaged TOML loads; a user TOML merges over it without mutating the packaged file.
-- [ ] Unknown key, unknown extractor name, and a higher `schema_version` each produce
+- [x] Packaged TOML loads; a user TOML merges over it without mutating the packaged file.
+- [x] Unknown key, unknown extractor name, and a higher `schema_version` each produce
       `ERR_CONFIG_INVALID` naming the offending item - not a traceback.
-- [ ] Disabling an extension means the walker skips those files entirely.
+- [x] Disabling an extension means the walker skips those files entirely.
 
 **ODF**
-- [ ] Round-trip `.odt`, `.ods`, `.odp` fixtures; text and structure extracted.
-- [ ] A truncated `.odt` yields `ERR_FILE_CORRUPT` and the run continues.
+- [x] Round-trip `.odt`, `.ods`, `.odp` fixtures; text and structure extracted.
+- [x] A truncated `.odt` yields `ERR_FILE_CORRUPT` and the run continues.
 
 **Google stubs**
-- [ ] A real-shaped `.gdoc` JSON yields title and URL, plus `ERR_CLOUD_STUB`.
-- [ ] Nothing in the code path performs a network call - assert it, do not assume it.
+- [x] A real-shaped `.gdoc` JSON yields title and URL, plus `ERR_CLOUD_STUB`.
+- [x] Nothing in the code path performs a network call - assert it, do not assume it.
 
 **Converter**
-- [ ] A fake converter script (`sys.executable` writing a known file) round-trips end to end.
-- [ ] Timeout, non-zero exit, and missing-output each yield `ERR_CONVERTER_FAILED`
+- [x] A fake converter script (`sys.executable` writing a known file) round-trips end to end.
+- [x] Timeout, non-zero exit, and missing-output each yield `ERR_CONVERTER_FAILED`
       (`SKIP_CONTINUE`), and the batch finishes.
-- [ ] A command not on the allow-list yields `ERR_CONVERTER_BLOCKED` and **never executes**.
-- [ ] Temp directories are removed even when the converter is killed.
+- [x] A command not on the allow-list yields `ERR_CONVERTER_BLOCKED` and **never executes**.
+- [x] Temp directories are removed even when the converter is killed.
 
 **OCR**
-- [ ] A generated PNG containing known text is OCR'd and the text is found by search.
-- [ ] A text-layer-free PDF page is rendered and OCR'd; `ERR_NO_TEXT_LAYER` no longer fires
+- [x] A generated PNG containing known text is OCR'd and the text is found by search.
+- [x] A text-layer-free PDF page is rendered and OCR'd; `ERR_NO_TEXT_LAYER` no longer fires
       when OCR is enabled.
-- [ ] `ocr = true` and a confidence value reach `Document.meta`.
-- [ ] OCR disabled restores the previous `ERR_NO_TEXT_LAYER` behaviour exactly.
-- [ ] An oversized image is refused before it can exhaust memory.
-- [ ] **Timing recorded**: mean seconds per image on the test fixtures, written into the
+- [x] `ocr = true` and a confidence value reach `Document.meta`.
+- [x] OCR disabled restores the previous `ERR_NO_TEXT_LAYER` behaviour exactly.
+- [x] An oversized image is refused before it can exhaust memory.
+- [x] **Timing recorded**: mean seconds per image on the test fixtures, written into the
       changelog. This is the number the owner needs to judge the default.
 
 **Editor**
-- [ ] Presenter tests for enable, disable, edit cap, add and remove a custom extension.
-- [ ] The presenter still does not import Qt - the existing guard test must stay green.
+- [x] Presenter tests for enable, disable, edit cap, add and remove a custom extension.
+- [x] The presenter still does not import Qt - the existing guard test must stay green.
 - [ ] Changing a mapping bumps the index generation.
-- [ ] The Test button returns extracted text for a good file and a rendered `AppError` for a
+- [x] The Test button returns extracted text for a good file and a rendered `AppError` for a
       bad one.
 
 **Whole suite**
-- [ ] All existing tests still pass. Nothing here should change current behaviour for the 52
+- [x] All existing tests still pass. Nothing here should change current behaviour for the 52
       extensions already handled, except image files, which previously were not indexed.
 
 ## 8. Also update
@@ -342,3 +342,35 @@ Recorded so they are not silently reversed:
 - **Archives are deferred.** Recursion, depth limits, zip-bomb guards and per-entry identity
   are a separate piece of work.
 - **`odfpy` rejected** - sdist-only, no wheel.
+
+---
+
+## Audited 2026-08-27 — 21 ticked, one **not met**
+
+Verified against `test_formats.py` (47), `test_odf.py` (15),
+`test_cloudstub.py` (13), `test_converter.py` (28 incl. three new
+Windows-marked ones), `test_ocr.py`, `test_pdf_ocr.py`,
+`test_file_types_editor.py` (12) and `test_walker_sees_every_tier.py` (6).
+Every acceptance item has a test that asserts it, including the two that are
+easy to assume: a disabled route really does narrow the walk
+(`test_a_disabled_route_stays_disabled`), and the cloud-stub reader cannot
+reach the network (`test_it_cannot_reach_the_network`, plus a static check that
+no call in the module even looks like a fetch).
+
+**Timing recorded**, which this order asked for and nothing had supplied:
+**3.17s per page** (mean of five; median 3.17, range 2.80-3.50) for a synthetic
+A4 page at 150dpi carrying 40 lines of text, 1,056 characters read, RapidOCR
+with the engine already warm (it loads in 0.2s). Measured on the Linux
+container the suite runs in, not on the owner's machine - so treat it as the
+right order of magnitude rather than the number for a Windows laptop. It sits
+close to the 3.6s/page the OCR-strategy order had been assuming from elsewhere,
+which is mild support for that order's page-budget arithmetic.
+
+**Not met: "Changing a mapping bumps the index generation."** `save_overrides`
+in `app/core/formats.py` writes the override file and touches nothing else -
+there is no `bump_generation` on that path, and the caller does not do it
+either. Left unticked rather than quietly ticked. It is probably harmless
+today, because a mapping change alters what a *future* index run reads rather
+than what is already stored, and a run bumps the generation itself - but that
+is an argument for changing the box, not for ticking it, and the owner's rule
+is that released item text is not reworded.
