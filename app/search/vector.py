@@ -87,7 +87,8 @@ def search(
     if not text:
         return []
 
-    if allowed_file_ids is not None and not allowed_file_ids:
+    eligible = _as_eligibility(allowed_file_ids)
+    if eligible is not None and eligible.excludes_everything:
         return []                      # filters excluded everything; nothing to search
 
     try:
@@ -107,13 +108,15 @@ def search(
         return []
 
     try:
-        if allowed_file_ids is None or len(allowed_file_ids) <= MAX_PREFILTER_IDS:
-            # Fast path: no filter, or one small enough to push down whole.
-            rows = vectors.search(
-                query_vector, k=limit, where=_id_clause(allowed_file_ids)
-            )
+        pushdown = eligible.ids if eligible is not None else None
+        if pushdown is not None and len(pushdown) <= MAX_PREFILTER_IDS:
+            # Fast path: a filter small enough to push down whole.
+            rows = vectors.search(query_vector, k=limit, where=_id_clause(pushdown))
             return [_normalise(row) for row in rows]
-        return _search_large_filter(vectors, query_vector, limit, allowed_file_ids)
+        if eligible is None:
+            rows = vectors.search(query_vector, k=limit, where=None)
+            return [_normalise(row) for row in rows]
+        return _search_large_filter(vectors, query_vector, limit, eligible)
     except AppErrorException as exc:
         _log.error("ANN search failed, continuing with keyword results only: {}",
                    exc.error.message)
@@ -143,7 +146,7 @@ def _search_large_filter(
     vectors: Any,
     query_vector: Sequence[float],
     limit: int,
-    allowed_file_ids: set[int],
+    eligible: Any,
 ) -> list[dict[str, Any]]:
     """The eligible top-`limit` when the id list is too big to push down cheaply.
 
@@ -156,10 +159,14 @@ def _search_large_filter(
     for factor in OVERFETCH_FACTORS:
         k = limit * factor
         rows = vectors.search(query_vector, k=k)
-        results = [
-            row for row in (_normalise(r) for r in rows)
-            if row["file_id"] in allowed_file_ids
-        ]
+        # **One question about the candidates, not a list of the eligible.**
+        # `keeps` intersects a held set when the filter is narrow and asks
+        # SQLite about these few hundred ids when it is broad - which is what
+        # stops a `type:pdf` over a large corpus paying 383ms to build a
+        # quarter of a million ids nothing then wanted.
+        candidates = [_normalise(r) for r in rows]
+        allowed = eligible.keeps([row["file_id"] for row in candidates])
+        results = [row for row in candidates if row["file_id"] in allowed]
         if len(results) >= limit or len(rows) < k:
             # A full page of eligible hits, or the table itself is exhausted:
             # either way the eligible top-k is complete.
@@ -171,12 +178,52 @@ def _search_large_filter(
 
     # Last rung: the exact prefilter, however large. This is the query the cap
     # exists to avoid, paid only when the cheap attempts could not fill a page.
-    _log.debug(
-        "over-fetch exhausted; pushing down full {}-id prefilter",
-        len(allowed_file_ids),
-    )
-    rows = vectors.search(query_vector, k=limit, where=_id_clause(allowed_file_ids))
+    ids = eligible.ids
+    if ids is None:
+        # **A filter too broad to list, and the ladder still did not fill a
+        # page.** There is no id list to push down - building one is the cost
+        # this path exists to avoid - so take the widest over-fetch and answer
+        # with what is eligible in it. Short of a full page rather than wrong,
+        # and only reachable when the filter is broad *and* the query matches
+        # almost nothing that passes it.
+        rows = vectors.search(query_vector, k=limit * OVERFETCH_FACTORS[-1])
+        candidates = [_normalise(r) for r in rows]
+        allowed = eligible.keeps([row["file_id"] for row in candidates])
+        return [row for row in candidates if row["file_id"] in allowed][:limit]
+
+    _log.debug("over-fetch exhausted; pushing down full {}-id prefilter", len(ids))
+    rows = vectors.search(query_vector, k=limit, where=_id_clause(ids))
     return [_normalise(row) for row in rows]
+
+
+class _SetEligibility:
+    """An `Eligibility` face over a plain set of ids.
+
+    `vector.search` is called with a bare set by six regression tests and by
+    anybody experimenting at a REPL, and those calls are worth keeping working.
+    One adapter here is cheaper than a second code path inside the search.
+    """
+
+    __slots__ = ("ids",)
+
+    def __init__(self, ids: set[int]) -> None:
+        self.ids = {int(f) for f in ids}
+
+    @property
+    def excludes_everything(self) -> bool:
+        return not self.ids
+
+    def keeps(self, file_ids: Sequence[int]) -> set[int]:
+        return {int(f) for f in file_ids} & self.ids
+
+
+def _as_eligibility(allowed: Any) -> Any:
+    """None, an `Eligibility`, or a set - normalised to the first two."""
+    if allowed is None:
+        return None
+    if hasattr(allowed, "keeps"):
+        return allowed
+    return _SetEligibility(allowed)
 
 
 def _id_clause(allowed_file_ids: Optional[set[int]]) -> Optional[str]:

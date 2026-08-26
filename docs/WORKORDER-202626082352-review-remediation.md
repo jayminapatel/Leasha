@@ -447,3 +447,33 @@ two ways once `evaluate` has run:
 Next action, one command, models now cached:
 
     venv\Scripts\python.exe -m app.cli rerank-bench --model Xenova/ms-marco-MiniLM-L-6-v2
+
+## H5's remainder, 2026-08-27
+
+H5's box was ticked for stopping `keyword.search` materialising every row. The
+other half of the same fault stayed: `file_ids_matching` built a Python set of
+**every** file id the filters allowed, before either retriever started.
+
+Measured on 500,000 files:
+
+| query | matches | before | after |
+|---|---|---|---|
+| `type:pdf` | 250,000 | 362ms, 45.6MB | **10.9ms, 0.2MB** |
+| `path:d/1234` | 111 | 35ms | 35ms (unchanged) |
+
+**33x faster and 228x less memory on the broad case**, nothing on the narrow
+one - which is right, because a narrow filter is the case the list is *for*.
+
+`Eligibility` replaces it. It stops at `ELIGIBLE_CAP`, and the cap is
+`vector.MAX_PREFILTER_IDS` because above that the ids are not pushed down
+anyway: the list was being built and then not used. Past the cap the filter
+travels as SQL and is applied to the candidates - a few hundred - by
+`keeps()`, which is the "move the eligibility check into the join" this item
+asked for. The over-fetch ladder that guarantees the eligible top-k already
+existed and is untouched.
+
+**Not listing them does not mean not filtering.** The pushdown is an
+optimisation; `keeps()` enforces the filter and is asked in both shapes. A test
+asserts a `.txt` cannot survive `type:pdf` on the unlisted path, and another
+holds `ELIGIBLE_CAP` and `MAX_PREFILTER_IDS` to the same number - stated as a
+literal in `keyword` because importing `vector` there would be a cycle.

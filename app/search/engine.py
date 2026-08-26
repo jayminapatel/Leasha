@@ -486,7 +486,13 @@ class SearchEngine:
         # Both retrievers at once: independent, so the slower one sets the floor
         # rather than the sum setting it.
         mark = time.perf_counter()
-        allowed = keyword.file_ids_matching(self.store, parsed)
+        # **The eligible files, without listing them when there are too many.**
+        # This used to be `file_ids_matching`, which materialised every
+        # matching id before either retriever started: measured at 383ms and
+        # 46MB for `type:pdf` over 500,000 files, against a 300ms budget for
+        # the whole search. `Eligibility` stops at ELIGIBLE_CAP and answers the
+        # only question anything downstream actually asks.
+        allowed = keyword.Eligibility(self.store, parsed)
         # **Why the vector half came back empty, if it did.** It no longer
         # raises when the embedding model is broken - see `vector.search` - so
         # without this the failure that most deserves saying out loud would be

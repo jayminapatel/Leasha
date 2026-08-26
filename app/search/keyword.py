@@ -28,7 +28,7 @@ from app.core.logging import logger
 from app.search.query import ParsedQuery, _fts_quote
 from app.storage.filters import epoch_ns, file_filter_sql
 
-__all__ = ["search", "KEYWORD_LIMIT"]
+__all__ = ["search", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP"]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 KEYWORD_LIMIT = 100
@@ -284,13 +284,101 @@ def unmatched_terms(store: Any, terms: Sequence[str], *, limit: int = 6) -> tupl
     return tuple(missing)
 
 
+#: Eligible file ids listed before the list itself becomes the cost.
+#:
+#: **Measured on 500,000 files, 2026-08-27.** `type:pdf` matches half of them,
+#: and building that set took **383ms and 46MB** - before either retriever
+#: started, on the critical path of every filtered search, against a 300ms
+#: budget for the whole search. At the ten million this is designed for it is
+#: seconds and most of a gigabyte.
+#:
+#: Nothing downstream wanted the list anyway. `vector.MAX_PREFILTER_IDS` is the
+#: point above which the ids stop being pushed down, so a list longer than that
+#: is built and then not used; past it the search only ever asks "are these few
+#: hundred candidates eligible?", which SQLite answers over a few hundred ids
+#: far faster than Python answers it over a quarter of a million it first had
+#: to be handed.
+#:
+#: **So the cap is `MAX_PREFILTER_IDS`, and a test holds the two together.**
+#: Stated as a literal because `keyword` importing `vector` would be a cycle,
+#: which is exactly the kind of drift the test exists to catch.
+ELIGIBLE_CAP = 2_000
+
+
+class Eligibility:
+    """Which files the filters allow, answered at whatever size that is.
+
+    Two shapes behind one question, because a broad filter and a narrow one
+    want opposite things:
+
+    * **narrow** - the ids fit, so they are held and pushed down into the ANN
+      search, which is the fastest thing available;
+    * **broad** - listing them costs more than the search, so they are not
+      listed. The filter travels as SQL and is applied to the *candidates*, of
+      which there are a few hundred.
+
+    `ids` is None in the broad case, which is deliberately the same thing an
+    unfiltered query hands to LanceDB: no pushdown. Correctness does not rest
+    on the pushdown - `keeps()` is what enforces the filter, and it is asked in
+    both shapes.
+    """
+
+    __slots__ = ("ids", "_store", "_where", "_params", "_filtered")
+
+    def __init__(self, store: Any, parsed: ParsedQuery,
+                 cap: int = ELIGIBLE_CAP) -> None:
+        self._store = store
+        self._filtered = bool(parsed.has_filters)
+        self.ids: Optional[set[int]] = None
+        self._where, self._params = ("", [])
+        if not self._filtered:
+            return
+
+        self._where, self._params = _filter_sql(parsed)
+        rows = store.conn.execute(
+            f"SELECT id FROM files f WHERE 1=1{self._where} LIMIT ?",
+            [*self._params, cap + 1],
+        ).fetchall()
+        if len(rows) <= cap:
+            self.ids = {int(row["id"]) for row in rows}
+
+    @property
+    def filtered(self) -> bool:
+        return self._filtered
+
+    @property
+    def excludes_everything(self) -> bool:
+        """A filter that matched nothing, which is not the same as no filter."""
+        return self.ids is not None and not self.ids
+
+    def keeps(self, file_ids: Sequence[int]) -> set[int]:
+        """Which of `file_ids` the filters allow. **Bounded by what is asked.**
+
+        The narrow case is a set intersection. The broad case is one query
+        against the ids in hand - a few hundred - rather than against the
+        quarter of a million the filter matches, which is the whole point.
+        """
+        if not self._filtered:
+            return {int(f) for f in file_ids}
+        wanted = {int(f) for f in file_ids}
+        if not wanted:
+            return set()
+        if self.ids is not None:
+            return wanted & self.ids
+        placeholders = ", ".join("?" for _ in wanted)
+        rows = self._store.conn.execute(
+            f"SELECT id FROM files f WHERE f.id IN ({placeholders}){self._where}",
+            [*wanted, *self._params],
+        ).fetchall()
+        return {int(row["id"]) for row in rows}
+
+
 def file_ids_matching(store: Any, parsed: ParsedQuery) -> Optional[set[int]]:
     """File ids the filters allow, or None when there are no filters.
 
-    The vector side needs this: LanceDB cannot join to `files`, so a filtered
-    ANN search has to be told which file ids are eligible. None means "no
-    restriction", which is different from an empty set, and conflating the two
-    would turn every unfiltered search into one that returns nothing.
+    **Kept for callers that genuinely want the whole list**, and for the tests
+    that assert the filter grammar. The search path uses `Eligibility`, which
+    refuses to build a list nobody needed - see `ELIGIBLE_CAP`.
     """
     if not parsed.has_filters:
         return None

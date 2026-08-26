@@ -146,3 +146,122 @@ def test_results_are_normalised():
     store = FakeVectorStore(_rows([(1, 5)]))
     hits = vector_search.search(store, FakeEmbedder(), _query(), limit=LIMIT)
     assert "distance" in hits[0] and "_distance" not in hits[0]
+
+
+# ---------------------------------------------------------------------------
+# H5's remainder: the eligible set is not built when it is not wanted
+#
+# `file_ids_matching` materialised every matching file id before either
+# retriever started. Measured on 500,000 files, 2026-08-27: `type:pdf` matched
+# half of them and cost **362ms and 45.6MB**, on the critical path of every
+# filtered search, against a 300ms budget for the whole search. `Eligibility`
+# stops at `ELIGIBLE_CAP`: the same query costs **10.9ms and 0.2MB**, which is
+# 33x faster and 228x less memory, and a narrow filter is unchanged.
+# ---------------------------------------------------------------------------
+
+from app.search.keyword import ELIGIBLE_CAP, Eligibility   # noqa: E402
+from app.search.vector import MAX_PREFILTER_IDS            # noqa: E402
+
+
+def _store_with(count: int, ext: str = "pdf"):
+    from app.storage.sqlite_store import SqliteStore
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    store = SqliteStore(_Path(tempfile.mkdtemp()) / "e.db").connect()
+    store.conn.execute("BEGIN IMMEDIATE")
+    store.conn.executemany(
+        "INSERT INTO files (path, parent_dir, ext, size_bytes, mtime_ns, "
+        "status, source_kind) VALUES (?, 'C:/d', ?, 1, 1, 'INDEXED', 'file')",
+        [(f"C:/d/{i}.{ext}", ext) for i in range(count)],
+    )
+    store.conn.execute("COMMIT")
+    return store
+
+
+def test_the_cap_matches_the_point_where_pushdown_stops() -> None:
+    """Listing more ids than can be pushed down is work nothing uses.
+
+    Stated as a literal in `keyword` because importing `vector` there would be
+    a cycle - so this is what keeps the two numbers the same one.
+    """
+    assert ELIGIBLE_CAP == MAX_PREFILTER_IDS
+
+
+def test_a_narrow_filter_is_still_listed_and_pushed_down() -> None:
+    """The fast path must survive the fix: a small filter is the best case for
+    the ANN search and nothing about it should change."""
+    from app.search.query import parse_query
+
+    store = _store_with(50)
+    try:
+        eligible = Eligibility(store, parse_query("type:pdf"))
+        assert eligible.ids is not None
+        assert len(eligible.ids) == 50
+    finally:
+        store.close()
+
+
+def test_a_broad_filter_is_not_listed_at_all() -> None:
+    from app.search.query import parse_query
+
+    store = _store_with(ELIGIBLE_CAP + 500)
+    try:
+        eligible = Eligibility(store, parse_query("type:pdf"))
+        assert eligible.ids is None, (
+            "the whole point is not building this list")
+        assert eligible.filtered
+        assert not eligible.excludes_everything
+    finally:
+        store.close()
+
+
+def test_a_broad_filter_still_answers_the_question_correctly() -> None:
+    """**Not listing them must not mean not filtering.** The pushdown is an
+    optimisation; `keeps` is what enforces the filter, and it is asked in both
+    shapes."""
+    from app.search.query import parse_query
+
+    store = _store_with(ELIGIBLE_CAP + 500)
+    try:
+        store.upsert_file("C:/d/odd.txt", size_bytes=1, mtime_ns=1,
+                          status="INDEXED", source_kind="file")
+        odd = store.get_file("C:/d/odd.txt")
+        eligible = Eligibility(store, parse_query("type:pdf"))
+
+        candidates = [1, 2, 3, odd.id]
+        kept = eligible.keeps(candidates)
+        assert odd.id not in kept, "a .txt survived a type:pdf filter"
+        assert {1, 2, 3} <= kept
+    finally:
+        store.close()
+
+
+def test_no_filters_keeps_everything() -> None:
+    """None means no restriction, which is not the same as an empty set - and
+    conflating the two turns every unfiltered search into one returning
+    nothing."""
+    from app.search.query import parse_query
+
+    store = _store_with(5)
+    try:
+        eligible = Eligibility(store, parse_query("invoice"))
+        assert eligible.ids is None
+        assert not eligible.filtered
+        assert eligible.keeps([1, 2, 3]) == {1, 2, 3}
+        assert not eligible.excludes_everything
+    finally:
+        store.close()
+
+
+def test_a_filter_matching_nothing_still_says_so() -> None:
+    from app.search.query import parse_query
+
+    store = _store_with(5)
+    try:
+        eligible = Eligibility(store, parse_query("type:zzz"))
+        assert eligible.ids == set()
+        assert eligible.excludes_everything
+    finally:
+        store.close()
