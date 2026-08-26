@@ -202,6 +202,12 @@ class IndexStats:
     current_item: int = 0
     stopped_early: Optional[AppError] = None
     skipped_by_code: dict[str, int] = field(default_factory=dict)
+    #: Skips this run **left alone**, by code, because the file has not changed
+    #: since it was skipped. Reported for the same reason `skipped_roots` is:
+    #: settling them is right, and settling them in silence would make a corpus
+    #: of 100k unreadable PDFs disappear from every summary. A number that
+    #: stopped being printed reads as a problem that stopped existing.
+    settled_by_code: dict[str, int] = field(default_factory=dict)
     #: Archival roots this run did not walk, as `RootPlan.as_dict()`. Reported
     #: rather than merely acted on: *"skip cheaply, but never silently"*. A root
     #: skipped in silence is indistinguishable from one that was never indexed,
@@ -327,6 +333,7 @@ class IndexStats:
             "name_only": self.name_only,
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
+            "settled_by_code": dict(self.settled_by_code),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
             "warned_by_code": dict(self.warned_by_code),
@@ -364,6 +371,17 @@ class PipelineConfig:
     #: Retry files previously skipped as locked - the program holding them may
     #: well have closed since.
     retry_locked: bool = True
+    #: Re-parse every skipped and failed file, even one whose date and size have
+    #: not moved. **Off, because leaving it on was H1**: an unchanged file
+    #: cannot produce a different outcome, and re-reading 100k known failures on
+    #: every incremental pass costs hours and finds nothing.
+    #:
+    #: On is the answer when the *environment* has changed in a way no pass
+    #: knows how to announce - LibreOffice installed after a run recorded
+    #: thousands of `ERR_CONVERTER_MISSING`, a Python library added, a size
+    #: ceiling raised. Cheaper and far more targeted than `--force`, which
+    #: re-indexes the whole corpus including everything that succeeded.
+    retry_skipped: bool = False
     #: Which pass this is. See `OCR_MODES` and `_ocr_gate`.
     #:
     #: **OCR is the schedule, not a feature.** At 3.6 seconds a page, 100,000
@@ -510,6 +528,16 @@ class Pipeline:
             on_state_change=self._on_throttle,
         )
         self._log = logger.bind(component="index.pipeline")
+        #: Skips left alone this run, by code. **Counted so the fix for H1 does
+        #: not become a silence of its own.** Before it, every run re-parsed
+        #: these files and reported them in `skipped_by_code`, so the size of
+        #: the problem was at least visible. Settling them without saying so
+        #: would make 100k unreadable PDFs vanish from every summary, and
+        #: somebody would reasonably conclude they had been fixed.
+        #:
+        #: Written by the producer thread only, in `_classify`, and read once
+        #: at the end of the run.
+        self._settled_skips: dict[str, int] = {}
         # Repository roots the walk finds, as `root_path -> kind`. Written by
         # the producer thread inside `walk()`, read by the consumer when it
         # attributes a file. Safe because the only write is `setdefault` and
@@ -663,6 +691,22 @@ class Pipeline:
             self._record_archive_pass(stats)
 
         stats.elapsed_s = time.perf_counter() - started
+        # **Said out loud, every run.** These files were skipped by an earlier
+        # run and left alone by this one, which is the right thing to do and
+        # also the thing nobody would otherwise know had happened. See
+        # `_settled_skips`, and `retry_skipped` for the way to make a run look
+        # at them again once the environment has changed.
+        stats.settled_by_code = dict(self._settled_skips)
+        if self._settled_skips:
+            worst = sorted(self._settled_skips.items(), key=lambda kv: -kv[1])[:3]
+            self._log.info(
+                "left {} previously-skipped file(s) alone - unchanged since they "
+                "were skipped, so re-reading them would find the same thing: {}. "
+                "Use --retry-skipped after installing something that would change "
+                "the answer.",
+                sum(self._settled_skips.values()),
+                ", ".join(f"{code} ({count:,})" for code, count in worst),
+            )
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
         self.vectors.maybe_create_index()
@@ -821,6 +865,37 @@ class Pipeline:
         self._log.warning("{}", notice)
 
     # -- the two passes ------------------------------------------------------
+
+    #: Skip codes that mean **"another pass will do this"**, not "this cannot be
+    #: done". A row carrying one of these is a queue entry wearing a skip's
+    #: clothes, so settling it would delete the queue.
+    #:
+    #: `ERR_OCR_HELD` is the one that caught this out. The two functions the
+    #: review named - `_locked_candidates` and `_no_text_layer_candidates` -
+    #: re-queue explicitly and can flag their candidates, so the first version
+    #: of H1 relied on that flag alone. But a held *image* is picked up by the
+    #: ordinary walk on the images pass, by extension, with no re-queue function
+    #: involved and therefore no flag. Settling it turned OCR off entirely, and
+    #: `test_ocr_passes` said so immediately.
+    #:
+    #: `ERR_FILE_LOCKED` is here as well as on its candidates: a lock is
+    #: transient by definition, so it is never a settled answer regardless of
+    #: which route the file arrives by.
+    DEFERRED_SKIP_CODES = frozenset({"ERR_OCR_HELD", "ERR_FILE_LOCKED"})
+
+    def _is_deferred(self, skip_code: Optional[str]) -> bool:
+        """Is this skip a queue entry that the current pass should honour?
+
+        `ERR_NO_TEXT_LAYER` is the case that needs the mode: it is a settled
+        answer during a text pass - nothing there can read a scanned page - and
+        it is precisely the work during any pass that can run OCR. The same code
+        means opposite things depending on who is asking, which is why this is a
+        method and not a constant.
+        """
+        code = str(skip_code or "")
+        if code in self.DEFERRED_SKIP_CODES:
+            return True
+        return code == "ERR_NO_TEXT_LAYER" and self.config.ocr_mode != "text"
 
     def _ocr_gate(self, candidate: Candidate) -> Optional[AppError]:
         """`ERR_OCR_HELD` if this file belongs to the *other* pass, else None.
@@ -1137,8 +1212,12 @@ class Pipeline:
                 stat = path.stat()
             except OSError:
                 continue
+            # `retry=True`: these rows are settled - an unchanged `ERR_NO_TEXT_LAYER`
+            # is exactly what `_classify` now declines to re-parse - and this pass
+            # exists to read them anyway. The images pass is the one thing that
+            # can do what the text pass could not.
             yield Candidate(path=path, size_bytes=stat.st_size,
-                            mtime_ns=stat.st_mtime_ns, priority=0)
+                            mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
 
     def _locked_candidates(self) -> Iterator[Candidate]:
         """Files skipped as locked last time. The program holding them may have
@@ -1152,7 +1231,8 @@ class Pipeline:
             except OSError:
                 continue
             yield Candidate(path=path, size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns,
-                            priority=0)          # retried first: they are few and cheap
+                            priority=0,          # retried first: they are few and cheap
+                            retry=True)          # settled row, deliberately reopened
 
     def _classify(self, candidate: Candidate) -> Optional[str]:
         """`UNCHANGED` to skip the file; otherwise its content hash, or None.
@@ -1250,6 +1330,45 @@ class Pipeline:
         # anyone why. The unreadable case never gets this far; it is answered
         # above without a read.
         if not changed and record is not None and record.status == FileStatus.INDEXED:
+            return UNCHANGED
+
+        # **A skip is settled while the file has not moved, and this was H1.**
+        #
+        # `_classify` returned `UNCHANGED` only for `INDEXED`, so a SKIPPED or
+        # FAILED row with an identical date and size fell straight through: the
+        # file was re-queued, fully re-parsed, failed again for the same reason,
+        # and its row was rewritten. Every incremental pass. For ever. A corpus
+        # with 100k scanned PDFs recorded as `ERR_NO_TEXT_LAYER` pays hours
+        # every night to rediscover failures it already knows about.
+        #
+        # Nothing about the file has changed, so nothing about the outcome can.
+        # What *can* change is the environment - a lock released, an OCR pass
+        # that reads what the text pass could not, a converter finally
+        # installed - and that is what `candidate.retry` and `config.retry_skipped`
+        # are for. Neither is a guess about the skip code: the pass that
+        # re-queues a file is the only thing that knows why, so it says.
+        #
+        # The existence of `_locked_candidates` is the evidence this
+        # fall-through was never intended. A pass built to re-queue locked files
+        # is pointless if every skipped file is re-queued anyway.
+        # **Date and size, not `changed`.** `has_changed` compares the content
+        # hash when `verify_hash` is on, and a skipped file has no content hash
+        # - nothing ever read it. So `changed` is unconditionally True for every
+        # skip, and gating on it would have left this fix doing nothing at all
+        # while every test of the *mechanism* passed. The first version did
+        # exactly that, and only a test that asserted the outcome caught it.
+        #
+        # mtime and size are what the NAME_ONLY branch above compares, for the
+        # same reason and in the same situation.
+        settled = (FileStatus.SKIPPED, FileStatus.FAILED)
+        if (record is not None and record.status in settled
+                and record.mtime_ns == candidate.mtime_ns
+                and record.size_bytes == candidate.size_bytes
+                and not self._is_deferred(record.skip_code)
+                and not getattr(candidate, "retry", False)
+                and not self.config.retry_skipped):
+            self._settled_skips[record.skip_code or "unknown"] = (
+                self._settled_skips.get(record.skip_code or "unknown", 0) + 1)
             return UNCHANGED
         return digest
 
@@ -1752,10 +1871,21 @@ class Pipeline:
         ]
 
     def _store_message_meta(self, file_id: int, meta: dict[str, Any]) -> None:
+        # **`quoted_removed` is in this tuple, and leaving it out killed the
+        # feature it belongs to.** Schema v12 added the column, extraction
+        # measured the value, the preview was built to read it - and this
+        # dictionary comprehension, which is the only thing that writes message
+        # metadata, never listed the key. So the column was NULL for every
+        # message ever indexed, and the mail preview could not have shown "480
+        # characters of quoted thread removed" on any corpus, ever.
+        #
+        # A column added, populated at one end and never written at the other is
+        # the quietest possible failure: nothing raises, the schema is correct,
+        # the extractor is correct, and the feature simply does not exist.
         fields = {
             key: meta.get(key)
             for key in ("store_path", "entry_id", "conversation", "subject",
-                        "sender", "recipients", "sent_at")
+                        "sender", "recipients", "sent_at", "quoted_removed")
             if meta.get(key) is not None
         }
         if not fields:

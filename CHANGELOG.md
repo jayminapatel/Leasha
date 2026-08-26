@@ -1,12 +1,81 @@
 # Changelog
 
-**Doc version:** 3.61 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.62 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — §1 of the review-remediation work order: correctness and data safety
+
+`docs/WORKORDER-202626082352-review-remediation.md` §1, all eight items, each with the
+test that would have caught it in `tests/unit/test_review_2026_08_26.py`.
+
+**H4 — a broken embedding model took the whole search down.** Both boundaries in
+`vector.search` caught `Exception` and then re-raised `AppErrorException`, which is exactly
+what `Embedder.embed` raises for a model that is missing, corrupt or half-downloaded. So the
+one failure most worth degrading through was the one exempted from degrading: hybrid search
+failed outright and threw away the keyword hits computed alongside it. It now returns `[]`
+and carries the reason out through a `problems` sink, which becomes a `NOTICE_NO_VECTORS`
+naming the cause — machinery that existed all along and could never fire for this.
+
+**H10 — `.doc` conversion was dead on Windows while Settings said it worked.**
+`convert()` used bare `shutil.which`; `resolve_binary` exists precisely because LibreOffice
+never puts itself on `PATH` there. Every *reporting* path used the right one and the path
+that *executes* did not, so `doctor` said "route enabled" and every conversion raised
+`ERR_CONVERTER_MISSING`. The same fault had been found and fixed once before — where it was
+reported rather than where it ran. A test now refuses any `shutil.which` call outside
+`resolve_binary`.
+
+**H1 — every skipped file was re-parsed on every run, for ever.** `_classify` returned
+`UNCHANGED` only for `INDEXED`, so a SKIPPED row with identical date and size fell through,
+was fully re-parsed, failed identically and was rewritten — every incremental pass. A corpus
+with 100k scanned PDFs pays hours nightly to rediscover known failures. The existence of
+`_locked_candidates` was the evidence it was unintended.
+
+**Not the allow-list of skip codes the work order specified, and it could not be.** The same
+code means opposite things depending on the pass: `ERR_NO_TEXT_LAYER` is a settled answer
+during a text pass and is precisely the work during an OCR one. So a skip is settled unless
+the pass says otherwise. The first attempt relied on a `retry` flag set by the two
+re-queueing functions, and **switched OCR off completely** — a held image reaches the images
+pass through the ordinary walk, with no re-queue function to set any flag. `test_ocr_passes`
+said so within seconds. `--retry-skipped` is the escape hatch for when the *machine* changed
+rather than the file, and settled files are counted into `settled_by_code` so a corpus of
+unreadable PDFs cannot quietly vanish from every summary.
+
+**H2 — migration v10 permanently dropped two indexes.** `DROP TABLE files` takes its indexes
+and the recreate list held six of the eight, so any database carried through v10 lost
+`idx_files_mtime` and `idx_files_source_kind` for good — the first being what v5 documents as
+the **6.30ms → 0.04ms** fix for date-ordered and date-filtered searches. It survived because a
+*fresh* database never runs that rebuild, so every test starting from an empty file saw eight
+indexes. v10 is fixed, and **schema v13** repairs the databases already damaged, with an
+`ANALYZE` — recreating an index the planner has been told is useless changes only disk usage.
+
+**H3 — migration v7 loaded the whole corpus into RAM.** One `fetchall()` over `chunks`,
+inside `connect()`: tens of gigabytes at 20-30M chunks, so the upgrade exhausted memory
+before the window opened, with no backup and a database stuck between versions. Now keyset
+pagination — not `OFFSET`, which gets quadratically slower — with logged progress.
+**A second fault surfaced while testing it**: the store opens connections in autocommit, so
+`executemany` over a batch was five thousand separate transactions and ten thousand rows did
+not finish inside a minute. Each batch is one explicit transaction now. The old version had
+the same fault, hidden behind the larger one.
+
+**M7 — `quoted_removed` was never written.** Schema v12 added the column, extraction measured
+it, the mail preview was built to read it, and the one function that writes message metadata
+did not list the key. NULL for every message ever indexed; the feature could not have worked
+on any corpus. One word in a tuple.
+
+**M1 — the shutdown guard had never run.** It sat inside `if use_cache and self.cache is not
+None:`, and no cache is ever configured, so the guard documenting a thrice-reported crash was
+unreachable. It is the first statement of `search()` now.
+
+**M9 — clearing the search box left the results on screen.** `_dispatch` has always had a
+branch that clears the list and the status line, and typing could never reach it:
+`_maybe_dispatch` dispatches only when `tier_for` returns something other than `Tier.NONE`,
+and `tier_for("")` returns exactly `Tier.NONE`. An empty box is now handled as the
+instruction it is.
 
 ### Documentation — the state documents said things that were no longer true
 

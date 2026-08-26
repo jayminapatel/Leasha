@@ -119,6 +119,23 @@ class Candidate:
     #: its name, path, size and date so it is findable - see
     #: `WalkConfig.name_only` - and nothing opens it.
     readable: bool = True
+    #: This file was **deliberately** put back in the queue, so its settled row
+    #: must not send it home again.
+    #:
+    #: A skipped file whose date and size have not moved is settled: whatever
+    #: could not read it last time cannot read it now, and re-parsing 100k
+    #: scanned PDFs on every incremental run to rediscover known failures is
+    #: hours per night for nothing. Two passes contradict that on purpose -
+    #: `_locked_candidates`, because the program holding the file may have
+    #: closed, and `_no_text_layer_candidates`, because the OCR pass exists to
+    #: read exactly the files the text pass could not. Both set this.
+    #:
+    #: **A flag rather than an allow-list of skip codes**, because the code
+    #: alone cannot answer it: `ERR_NO_TEXT_LAYER` is settled during the text
+    #: pass and precisely the work during the images pass. The pass that
+    #: re-queues the file is the only thing that knows, so it is the thing that
+    #: says.
+    retry: bool = False
 
     @property
     def ext(self) -> str:

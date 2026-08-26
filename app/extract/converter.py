@@ -330,7 +330,21 @@ def convert(
             ),
         ))
 
-    binary_path = shutil.which(binary_name)
+    # **`resolve_binary`, not `shutil.which` - and this line was the bug.**
+    #
+    # `resolve_binary` exists because LibreOffice never puts itself on `PATH` on
+    # Windows; that is the whole reason `_WINDOWS_LOCATIONS` was written. Every
+    # *reporting* path already used it - Settings, `doctor`, `available_binaries`
+    # - and this one, the path that actually runs the thing, did not. So the
+    # application confidently said "soffice: found, .doc route enabled" on the
+    # platform it ships on, and every real conversion raised
+    # `ERR_CONVERTER_MISSING` naming a binary the same application had just
+    # reported as present.
+    #
+    # The "two lookups, two answers" fault was found once before and fixed where
+    # it was *reported* rather than where it *executes*, which is why it
+    # survived. One function answers the question now, for both.
+    binary_path = resolve_binary(binary_name)
     if not binary_path:
         raise AppErrorException(make_error(
             "ERR_CONVERTER_MISSING", "extract.converter",

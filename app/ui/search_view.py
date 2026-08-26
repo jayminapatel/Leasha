@@ -194,7 +194,19 @@ class SearchView(QWidget):
         """
         self._dispatch(Tier.FULL)
 
-    def _on_text_changed(self, _text: str) -> None:
+    def _on_text_changed(self, text: str) -> None:
+        # **An empty box is an instruction, not a search to debounce.**
+        # `_dispatch` has always had a branch that clears the list and the
+        # status line, and typing could never reach it: `_maybe_dispatch` only
+        # dispatches when `tier_for` returns something other than `Tier.NONE`,
+        # and `tier_for("")` returns exactly `Tier.NONE`. So clearing the box -
+        # or pressing Esc - left the previous results on screen under a status
+        # line still claiming a count for a query that no longer existed.
+        if not text.strip():
+            self._interim_timer.stop()
+            self._full_timer.stop()
+            self._dispatch(Tier.FULL)          # the empty branch; the tier is unread
+            return
         self._last_keystroke = time.monotonic()
         self._interim_timer.start()
         self._full_timer.start()

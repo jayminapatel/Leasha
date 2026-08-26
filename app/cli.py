@@ -985,6 +985,7 @@ def cmd_index(args: argparse.Namespace) -> int:
         verify_hash=not args.fast,
         prune_missing=not args.no_prune,
         force=bool(getattr(args, "force", False)),
+        retry_skipped=bool(getattr(args, "retry_skipped", False)),
         # A folder marked as an archive is walked once and then checked
         # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
         # hatch that ignores the modes entirely without touching the records.
@@ -2940,6 +2941,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-roots", action="store_true",
         help="ignore the Live/Archive modes for this run only, without\n"
              "updating any archive's record")
+    p_index.add_argument(
+        "--retry-skipped", action="store_true",
+        help="re-read files an earlier run skipped, even unchanged ones.\n"
+             "Normally a skip is settled: an unchanged file cannot produce a\n"
+             "different answer, and re-parsing thousands of known failures every\n"
+             "run costs hours. Use this after changing what the machine can do -\n"
+             "installing LibreOffice, adding a library, raising a size ceiling.\n"
+             "Far cheaper than --force, which re-indexes everything.")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
     p_index.set_defaults(func=cmd_index)
 

@@ -55,13 +55,33 @@ def search(
     *,
     limit: int = VECTOR_LIMIT,
     allowed_file_ids: Optional[set[int]] = None,
+    problems: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
-    """ANN hits for a parsed query, nearest first.
+    r"""ANN hits for a parsed query, nearest first.
 
     Returns [] when there is nothing to embed, when the index is empty, or when
     the filters exclude everything. All three are ordinary states rather than
     errors: searching before the first index run is normal, and a filter that
     matches nothing should produce no results, not a failure.
+
+    **And [] when this half breaks, which is the fourth reason and was the bug.**
+    Both boundaries below used to re-raise `AppErrorException` while catching
+    everything else - and `Embedder.embed` raises exactly that for a model that
+    is missing, corrupt or half-downloaded. So a broken embedding model did not
+    degrade hybrid search to keyword search; it failed the **whole** search and
+    discarded the keyword hits that had already been computed alongside it.
+
+    That contradicted this module's own comment two lines further down - *"a
+    vector-store hiccup must not"* stop the search - and it contradicted
+    `engine.NOTICE_NO_VECTORS`, machinery built precisely to tell somebody that
+    they are looking at keyword-only results. The notice could never fire for
+    the one failure it describes best.
+
+    `problems` is how the cause survives the degradation. Returning [] silently
+    would trade a loud wrong behaviour for a quiet one, and this codebase has a
+    standing rule against exactly that: *"for all things it should not fail
+    silently it should notify in some way."* Append-only, optional, and
+    unexamined here - the caller decides what to do with the words.
     """
     text = parsed.embed_text
     if not text:
@@ -72,10 +92,18 @@ def search(
 
     try:
         query_vector = embedder.embed([text])[0]
-    except AppErrorException:
-        raise
+    except AppErrorException as exc:
+        # The model itself. Named separately from a generic failure because it
+        # is the one with an action attached - the AppError already carries a
+        # suggestion, and dropping it here would waste the best sentence
+        # available to whoever is looking at half a search.
+        _log.error("query embedding failed, continuing with keyword results "
+                   "only: {}", exc.error.message)
+        _note(problems, exc.error.suggestion or exc.error.message)
+        return []
     except Exception as exc:           # noqa: BLE001 - boundary
         _log.error("query embedding failed: {}", exc)
+        _note(problems, f"The query could not be embedded ({exc}).")
         return []
 
     try:
@@ -86,11 +114,29 @@ def search(
             )
             return [_normalise(row) for row in rows]
         return _search_large_filter(vectors, query_vector, limit, allowed_file_ids)
-    except AppErrorException:
-        raise
+    except AppErrorException as exc:
+        _log.error("ANN search failed, continuing with keyword results only: {}",
+                   exc.error.message)
+        _note(problems, exc.error.suggestion or exc.error.message)
+        return []
     except Exception as exc:           # noqa: BLE001 - a vector-store hiccup must not
         _log.error("ANN search failed, continuing with keyword results only: {}", exc)
+        _note(problems, f"The vector store could not be searched ({exc}).")
         return []
+
+
+def _note(problems: Optional[list[str]], text: str) -> None:
+    """Record why this half produced nothing. **Never raises.**
+
+    A sink that throws would take down the search this function exists to keep
+    alive, which would be an absurd way to lose it.
+    """
+    if problems is None:
+        return
+    try:
+        problems.append(str(text))
+    except Exception:                  # noqa: BLE001
+        return
 
 
 def _search_large_filter(

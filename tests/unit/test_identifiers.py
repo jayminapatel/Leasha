@@ -231,6 +231,16 @@ def test_upgrading_needs_no_re_extraction(tmp_path):
 
     from app.storage import migrations
 
-    source = inspect.getsource(migrations._v7_identifier_tokens)
+    # **Both halves, because the backfill moved out of the migration.**
+    # `_v7_identifier_tokens` still owns the FTS rebuild; the row-by-row fill
+    # is now `_backfill_symbols`, which does it in batches with per-batch
+    # commits rather than materialising the whole corpus - see
+    # `test_review_2026_08_26.test_the_identifier_backfill_reads_in_batches`.
+    #
+    # The rule this test states is unchanged and is the one that matters:
+    # upgrading rewrites the `symbols` column and rebuilds the FTS index from
+    # `chunks`, and at no point re-reads a file from disk.
+    source = (inspect.getsource(migrations._v7_identifier_tokens)
+              + inspect.getsource(migrations._backfill_symbols))
     assert "'rebuild'" in source
     assert "UPDATE chunks SET symbols" in source

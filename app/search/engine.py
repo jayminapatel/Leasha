@@ -334,6 +334,20 @@ class SearchEngine:
         scope: str = "all",
     ) -> SearchResponse:
         """The full pipeline. What runs when someone stops typing or presses Enter."""
+        # **First line, and it was buried three hundred lines down inside
+        # `if use_cache and self.cache is not None:`.** No cache is ever
+        # configured - `cache=` is passed at none of the four constructions - so
+        # the guard that documents fixing a thrice-reported crash has never once
+        # run. A search in flight when the window closes still reached
+        # `self._pool.submit` on a shut-down executor.
+        #
+        # Nothing below this point is safe after `close()`: the executor is
+        # gone, the stores are being shut, and the work is for a window that has
+        # already disappeared. So the question is asked once, at the top, where
+        # its answer cannot depend on an unrelated feature being switched on.
+        if self._closed:
+            raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
+
         started = time.perf_counter()
         timings: dict[str, float] = {}
 
@@ -356,9 +370,9 @@ class SearchEngine:
         cache_key = self._cache_key(raw, parsed, want_rerank, limit)
 
         if use_cache and self.cache is not None:
-            # Checked here, not only at entry: the window can close while the
-            # embedder is mid-call, and the next thing this method does is
-            # submit to an executor that no longer exists.
+            # Checked again, not only at entry: the window can close while the
+            # wildcard expansion above is mid-query, and the next thing this
+            # method does is submit to an executor that may no longer exist.
             if self._closed:
                 raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
             cached = self._cache_get(cache_key)
@@ -371,9 +385,15 @@ class SearchEngine:
         # rather than the sum setting it.
         mark = time.perf_counter()
         allowed = keyword.file_ids_matching(self.store, parsed)
+        # **Why the vector half came back empty, if it did.** It no longer
+        # raises when the embedding model is broken - see `vector.search` - so
+        # without this the failure that most deserves saying out loud would be
+        # the one that looks exactly like a filter-only query.
+        vector_problems: list[str] = []
         keyword_future = self._pool.submit(keyword.search, self.store, parsed)
         vector_future = self._pool.submit(
-            vector.search, self.vectors, self.embedder, parsed, allowed_file_ids=allowed
+            vector.search, self.vectors, self.embedder, parsed,
+            allowed_file_ids=allowed, problems=vector_problems,
         )
         keyword_hits = keyword_future.result()
         raw_vector_hits = vector_future.result()
@@ -480,7 +500,21 @@ class SearchEngine:
         # requires the two conditions that make silence surprising: something
         # was embedded, and the filters left something to find.
         asked_the_vector_half = bool(parsed.embed_text.strip())
-        if keyword_hits and not vector_hits and asked_the_vector_half:
+        if vector_problems:
+            # **A broken half is said whether or not the other half found
+            # anything.** The conditions below exist to stop a *guess* being
+            # shouted sixty times in a row; this is not a guess, it is the
+            # vector half reporting its own failure with the reason attached.
+            # Gating it behind "but only if keyword found something" would hide
+            # it in exactly the case that looks worst - no results at all.
+            _log.warning("meaning-based search is degraded: {}",
+                         "; ".join(vector_problems))
+            notices.append(Notice(
+                NOTICE_NO_VECTORS,
+                "These are keyword matches only - meaning-based search is not "
+                "working. " + " ".join(vector_problems),
+            ))
+        elif keyword_hits and not vector_hits and asked_the_vector_half:
             # Worth a line in the log every time. Meaning-based search returning
             # nothing while keyword search returns plenty is not a normal state -
             # it means the vector store is empty, the embedder failed, or a

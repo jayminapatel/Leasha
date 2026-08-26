@@ -31,7 +31,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 12
+CURRENT_VERSION = 13
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -292,16 +292,7 @@ def _v7_identifier_tokens(conn: sqlite3.Connection) -> None:
     # open and every test that touches one failed at setup.
     from app.core.identifiers import symbol_tokens
 
-    rows = conn.execute(
-        "SELECT id, text FROM chunks WHERE symbols = '' AND text IS NOT NULL"
-    ).fetchall()
-    updates = []
-    for chunk_id, text in rows:
-        tokens = symbol_tokens(text or "")
-        if tokens:
-            updates.append((tokens, chunk_id))
-    if updates:
-        conn.executemany("UPDATE chunks SET symbols = ? WHERE id = ?", updates)
+    _backfill_symbols(conn, symbol_tokens)
 
     conn.execute("DROP TRIGGER IF EXISTS chunks_ai")
     conn.execute("DROP TRIGGER IF EXISTS chunks_ad")
@@ -522,6 +513,25 @@ def _v10_name_only_status(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_files_kind_ext ON files(source_kind, ext)",
         "CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo_id) "
         "WHERE repo_id IS NOT NULL",
+        # **These two were missing, and dropping them was permanent.**
+        #
+        # `DROP TABLE files` takes every index on it. This list recreated six of
+        # the eight, so any database that passed through v10 lost
+        # `idx_files_mtime` and `idx_files_source_kind` for good - and v5, which
+        # created them, had already run, so nothing would ever put them back.
+        #
+        # `idx_files_mtime` is the one v5 documents as the **6.30ms to 0.04ms**
+        # fix for the filter-only scan: "newest first", `after:` and `before:`
+        # all full-scan `files` without it. `idx_files_source_kind` is what
+        # `filters.py:133` names for the same reason.
+        #
+        # It survived because a *fresh* database never runs this rebuild - it is
+        # created at the current schema with every index present - so every test
+        # that starts from an empty file sees eight indexes and passes. Only a
+        # real database, carried forward, loses them. See `_v13_repair_indexes`,
+        # which puts them back on the databases that already have.
+        "CREATE INDEX IF NOT EXISTS idx_files_source_kind ON files(source_kind)",
+        "CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime_ns)",
     ]
 
     conn.execute("PRAGMA foreign_keys = OFF")
@@ -594,6 +604,132 @@ def _v11_wildcard_vocabulary(conn: sqlite3.Connection) -> None:
         _log.warning("wildcard vocabulary unavailable: {}", exc)
 
 
+#: Chunks read, split and written per batch during the v7 backfill. Large
+#: enough that the per-batch overhead is noise, small enough that the working
+#: set is a few megabytes rather than the corpus.
+_BACKFILL_BATCH = 5_000
+
+
+def _backfill_symbols(conn: sqlite3.Connection, split: Callable[[str], str]) -> None:
+    r"""Fill `chunks.symbols`, in batches, without loading the corpus into RAM.
+
+    **This was one `fetchall()` over `chunks`, and it ran inside `connect()`.**
+    At twenty to thirty million chunks that is tens of gigabytes of text
+    materialised as a Python list before a single row is written - so upgrading
+    a real index did not run slowly, it exhausted memory and died. Before the
+    window opened, with no backup taken and no progress reported, on a database
+    now stuck between two schema versions.
+
+    Three changes, and each is load-bearing.
+
+    **Keyset pagination, not `LIMIT/OFFSET`.** `OFFSET n` makes SQLite walk and
+    discard n rows every batch, so the backfill gets quadratically slower the
+    further it gets - the classic way a paginated migration appears to hang at
+    80%. Carrying the last id forward is an index seek each time.
+
+    **Committed per batch.** An interrupted upgrade then keeps the work it has
+    done: `symbols = ''` is the predicate for "not yet filled", so re-running
+    resumes rather than restarts. It also lets SQLite release the pages instead
+    of growing one enormous transaction.
+
+    **Progress is logged.** An upgrade that will take twenty minutes must say
+    so; silence is indistinguishable from the hang this used to cause.
+    """
+    total = 0
+    last_id = 0
+    while True:
+        rows = conn.execute(
+            "SELECT id, text FROM chunks "
+            "WHERE id > ? AND symbols = '' AND text IS NOT NULL "
+            "ORDER BY id LIMIT ?",
+            (last_id, _BACKFILL_BATCH),
+        ).fetchall()
+        if not rows:
+            break
+
+        # **`last_id` advances over every row read, not every row written.**
+        # A chunk whose text yields no tokens is skipped for the update, and if
+        # the cursor only followed updates it would be read again in the next
+        # batch - for ever, on a corpus where nothing splits.
+        last_id = rows[-1][0]
+        updates = [(split(text or ""), chunk_id) for chunk_id, text in rows]
+        updates = [pair for pair in updates if pair[0]]
+        if updates:
+            # **One explicit transaction per batch, and it is not decoration.**
+            # The store opens its connections with `isolation_level=None`, so
+            # sqlite3 is in autocommit: without a `BEGIN` around it, this
+            # `executemany` is five thousand separate transactions and five
+            # thousand fsyncs. Measured while writing the test for this - ten
+            # thousand rows did not finish inside a minute.
+            #
+            # The old `fetchall()` version had the same fault and it was hidden
+            # behind the far larger one of loading the corpus into memory.
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.executemany("UPDATE chunks SET symbols = ? WHERE id = ?", updates)
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+        total += len(rows)
+        if total % (_BACKFILL_BATCH * 10) == 0:
+            _log.info("schema v7: split identifiers in {:,} chunks so far", total)
+
+    if total:
+        _log.info("schema v7: identifier backfill complete, {:,} chunks", total)
+
+
+def _v13_repair_indexes(conn: sqlite3.Connection) -> None:
+    r"""Put back the two indexes v10 dropped, and re-plan against them.
+
+    **A repair, not a feature.** `_v10_name_only_status` rebuilds `files` to
+    widen a CHECK constraint, and `DROP TABLE files` takes every index with it.
+    Its recreate list held six of the eight, so `idx_files_mtime` and
+    `idx_files_source_kind` were gone from that moment on - permanently, since
+    `_v5_missing_indexes` had already run and migrations never run twice.
+
+    The cost is not subtle. v5's own docstring records `idx_files_mtime` as the
+    **6.30ms to 0.04ms** fix for the filter-only scan; without it every "newest
+    first", every `after:` and every `before:` full-scans `files`. On a corpus
+    of a few thousand rows nobody notices. At twenty million it is the query.
+
+    v10 is fixed too, so a database migrating from v9 today never loses them.
+    This exists for the ones that already did, and there is no way to tell those
+    apart from a fresh database after the fact - so it simply asserts the end
+    state. `IF NOT EXISTS` makes that free where nothing is missing.
+
+    **`ANALYZE` is half the point.** SQLite's planner chooses from
+    `sqlite_stat1`, and those statistics were gathered while the indexes did not
+    exist. Recreating an index that the planner has been told is useless is a
+    disk-space change and nothing else.
+
+    Never raises. A database that cannot be re-analysed is still a correct
+    database, and refusing to open one over a query-plan optimisation would turn
+    a slow search into no search at all.
+    """
+    for name, definition in (
+        ("idx_files_source_kind", "files(source_kind)"),
+        ("idx_files_mtime", "files(mtime_ns)"),
+    ):
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {definition}")
+        except sqlite3.Error as exc:            # a table mid-recovery
+            _log.warning(
+                "could not restore {}: {}. Searches ordered or filtered by date "
+                "will scan the whole file table until it exists - re-run the "
+                "application once nothing else has the database open.", name, exc)
+            return
+
+    try:
+        conn.execute("ANALYZE")
+    except sqlite3.Error as exc:
+        _log.warning(
+            "could not re-analyse the index after restoring the date indexes: "
+            "{}. They exist but the query planner may keep ignoring them; "
+            "running `app.cli stats` later will re-analyse.", exc)
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -617,6 +753,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     10: _v10_name_only_status,
     11: _v11_wildcard_vocabulary,
     12: _v12_quoted_removed,
+    13: _v13_repair_indexes,
 }
 
 

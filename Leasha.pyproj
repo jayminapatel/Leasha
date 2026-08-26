@@ -383,6 +383,7 @@
     <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
+    <Content Include="docs\REVIEW-2026-08-26.md" />
     <Content Include="docs\TROUBLESHOOTING.md" />
     <Content Include="docs\VERSIONING.md" />
     <Content Include="docs\VISUALSTUDIO.md" />

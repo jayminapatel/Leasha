@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.5 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 4.6 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,7 +62,7 @@ verified* - three of them carry a check nobody has run yet, and those are §11's
 | Layer | What it is | State |
 |---|---|---|
 | L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - acceptance suite passes |
-| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - schema at v12, acceptance suite passes |
+| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - schema at v13, acceptance suite passes |
 | L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
 | L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - never run at real scale |
 | L4 | Search: BM25 + ANN, RRF fusion, rerank, filters | **Code-complete** - measured, §3b. One acceptance box open: first search under 3s needs the real ONNX load |
