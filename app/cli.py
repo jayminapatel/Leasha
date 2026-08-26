@@ -2420,7 +2420,6 @@ def cmd_completions(args: argparse.Namespace) -> int:
     Generated from the catalogue every time, so regenerating after a change to
     the filters is the whole update path.
     """
-    from app.core.config import project_root
     from app.search.pwsh_completer import completer_script, install_into
 
     root = project_root()

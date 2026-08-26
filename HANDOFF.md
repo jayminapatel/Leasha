@@ -264,6 +264,34 @@ After the review's open search items (H5, H6) are closed:
     reworks `pipeline.py`/`resources.py`/`embedder.py`/`vector_store.py` — do not
     interleave it with other pipeline work.
 
+0c. **`docs/WORKORDER-202626270157-search-experience.md`** (RELEASED by the
+    owner) — after index tuning: the universal first tab (typo tolerance,
+    visible relaxation, plain notices, recency + version folding), the
+    per-surface `SearchPolicy` seam with every behaviour on-by-default and
+    switch-off-able, the rules-based translator (built now, tuned later — the
+    owner's agenda puts tuning after indexing), coder search (paste-an-error
+    verbatim routing, open-in-editor at line, `/changed` pickaxe), more-like-
+    this, attachment-first results, and tooltips-state-the-effect everywhere.
+    Its §0 carries the owner's product principles; read them before starting.
+
+0d. **`docs/WORKORDER-202626270257-privacy-defaults.md`** (RELEASED by the
+    owner) — small and self-contained, schedulable into any gap: new installs
+    default the index to `%LOCALAPPDATA%\Leasha` (choosable as today), roots
+    start empty with own-profile suggestions, the shared-computer paragraph
+    goes into README and installer, and the owner's existing install is
+    grandfathered untouched. Its decisions are settled by the owner — do not
+    relitigate them.
+
+0e. **`docs/WORKORDER-202626270326-workspace-features.md`** (RELEASED by the
+    owner, full scope) — after the search-experience order: colour-coded
+    actionable log with pop-out + stay-on-top, copy-not-move pop-out previews
+    (find/print/zoom/rotate incl. PDFs, per-file rotation memory), global-
+    hotkey mini-search, drag-out, pinned working set, timeline strip, viewer
+    upgrades (SVG/TIFF/Markdown/spreadsheet grids/EPUB/HEIC/LibreOffice
+    full-layout button), and DWG via the user-installed converter path —
+    subprocess only, never LibreDWG's bindings (licence rule, enforced by
+    test). Everything view-only: no code path writes to a user file.
+
 Owner, 2026-08-27: the `cli.py` package split (review §"Priority plan" item 12 /
 remediation order §7) is deliberately **last** — after every order above has
 landed, when nothing else is feeding the file. Do not fold it into the

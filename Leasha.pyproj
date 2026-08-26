@@ -46,6 +46,7 @@
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
     <Folder Include="app\search" />
+    <Folder Include="app\shell" />
     <Folder Include="app\storage" />
     <Folder Include="app\ui" />
     <Folder Include="app\ui\widgets" />
@@ -138,6 +139,9 @@
     <Compile Include="app\search\vector.py" />
     <Compile Include="app\search\wildcards.py" />
     <Compile Include="app\search\window.py" />
+    <Compile Include="app\shell\__init__.py" />
+    <Compile Include="app\shell\completer.py" />
+    <Compile Include="app\shell\repl.py" />
     <Compile Include="app\storage\__init__.py" />
     <Compile Include="app\storage\filters.py" />
     <Compile Include="app\storage\like.py" />
@@ -340,6 +344,7 @@
     <Compile Include="tests\unit\test_settings_reachable.py" />
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />
+    <Compile Include="tests\unit\test_shell.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_staging.py" />

@@ -1,6 +1,26 @@
 # Changelog
 
-**Doc version:** 3.66 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.67 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## The `/` menu answers the query you are building — and the CLI gets one too
+
+- **Values are narrowed by what is already typed.** `repo:leasha branch:` offers
+  that checkout's branches; `type:pdf from:` offers the people who sent PDFs.
+  Which filters may narrow which is a field on the catalogue, so the dropdown,
+  the CLI help and the model prompt cannot disagree.
+- **Rows carry a count** — `pdf   12,431 files` — shown only when it is exact,
+  and **dates show what they resolve to**: `30d   (since 28 Jul 2026)`.
+- **`last month` could not be picked before.** Choosing it inserted
+  `after:last month`, which parses as `after:last` — not a date, so no filter —
+  plus a search for the word "month". Values with spaces are quoted now.
+- **A kind word opens its extensions** as a second page, and the date menu ends
+  with `custom…`, because typing a date by hand always worked and nothing said
+  so.
+- **`leasha shell`** — an interactive session with a real dropdown, scoped
+  completion, counts, resolved dates and your history beside the index.
+- **Tab completion in PowerShell**: `leasha completions install --path $PROFILE`.
+  It reads a small file the indexer writes, so a Tab press starts no process at
+  all; the fallback that does answers in 35ms.
 
 ## Privacy defaults - a per-account index and an offer that adds nothing
 

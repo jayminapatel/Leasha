@@ -148,9 +148,16 @@ def test_no_help_string_has_an_unescaped_percent():
                     if problem:
                         bad.append(f"{entry.dest}: {entry.help!r} ({problem})")
 
-            for choice_name, sub in (getattr(action, "choices", None) or {}).items():
-                if isinstance(sub, argparse.ArgumentParser):
-                    check(sub, choice_name)
+            # **Only a subparser's `choices` is a mapping.** An ordinary
+            # argument with `choices=["a", "b"]` has a *list* there, and
+            # walking it as a dict raises `AttributeError` from inside a test
+            # about percent signs - which is a confusing way to learn that
+            # somebody added `choices` to a positional.
+            choices = getattr(action, "choices", None)
+            if isinstance(choices, dict):
+                for choice_name, sub in choices.items():
+                    if isinstance(sub, argparse.ArgumentParser):
+                        check(sub, choice_name)
 
     check(parser, "top level")
     assert not bad, "escape the percent sign as %% in:\n  " + "\n  ".join(bad)
