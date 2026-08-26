@@ -152,9 +152,29 @@ def test_no_reranker_at_all_still_produces_a_key():
 
 
 def test_case_and_padding_do_not_split_the_cache():
+    """Two strings that parse the same are the same search.
+
+    The key no longer contains the raw text at all - it is built from the parse,
+    which already folds case and whitespace for ordinary words. See the test
+    below for the case where folding was actively wrong.
+    """
     engine = _engine("m")
 
     assert key(engine, "Quarterly Report") == key(engine, "  quarterly report ")
+
+
+def test_capitalised_operators_are_a_different_search():
+    r"""**`raw.lower()` in the key made these one entry, and they are two.**
+
+    `AND`, `OR` and `NOT` are operators only in capitals - that is precisely how
+    the parser tells them from the English words people search for constantly.
+    `pump AND valve` demands both terms; `pump and valve` is three ordinary
+    words joined the default way. Folding the raw text meant whichever ran first
+    answered for the other, for as long as the index generation held.
+    """
+    engine = _engine("m")
+
+    assert key(engine, "pump AND valve") != key(engine, "pump and valve")
 
 
 def test_a_closing_store_short_circuits_rather_than_raising():
@@ -166,9 +186,11 @@ def test_a_closing_store_short_circuits_rather_than_raising():
 
 
 def test_the_key_version_was_bumped():
-    """`v2` keys were built without the model and must never be read as `v3`.
+    """A key format change must never let old entries be read as new ones.
 
-    Without the bump, every entry cached before this change would be served
-    against the new key format - which is the stale read this fixes.
+    `v2` was built without the reranker model; `v3` folded the raw query's case,
+    so `pump AND valve` and `pump and valve` shared an entry. Each bump exists
+    because entries written under the previous format would otherwise be served
+    against the new one - which is the stale read the version guards against.
     """
-    assert key(_engine("m")).startswith("v3|")
+    assert key(_engine("m")).startswith("v4|")

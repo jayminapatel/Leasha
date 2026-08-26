@@ -178,9 +178,24 @@ def test_unparseable_date_is_reported_not_silently_dropped() -> None:
 
 
 def test_reversed_date_range_is_swapped() -> None:
+    r"""A typo, not an intent - and the swap covers the same span as the
+    correctly-ordered form.
+
+    **The expected values changed with the partial-date fix, and the rule did
+    not.** `before:2024` used to resolve to 1 January 2024, so this asked for
+    2024-01-01 to 2025-01-01 - a range that excludes all of 2025 while claiming
+    to include it. A partial date names a *period*, and which edge is meant
+    depends on which side of the range it sits: `after:` takes the first day,
+    `before:` the last. Swapping the two resolved days would have produced 31
+    December 2024 to 1 January 2025 - two days, from a query plainly meaning two
+    whole years - so both are re-resolved against their new side.
+    """
     q = parse_query("after:2025 before:2024", today=TODAY)
     assert q.after == date(2024, 1, 1)
-    assert q.before == date(2025, 1, 1)
+    assert q.before == date(2025, 12, 31)
+    # The whole point: a reversed range is the same search as the right one.
+    correct = parse_query("after:2024 before:2025", today=TODAY)
+    assert (q.after, q.before) == (correct.after, correct.before)
 
 
 def test_path_and_sender_operators() -> None:

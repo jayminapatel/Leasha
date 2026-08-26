@@ -31,7 +31,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 13
+CURRENT_VERSION = 14
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -680,6 +680,72 @@ def _backfill_symbols(conn: sqlite3.Connection, split: Callable[[str], str]) -> 
         _log.info("schema v7: identifier backfill complete, {:,} chunks", total)
 
 
+#: The mail columns people search by name, and their folded twins.
+_FOLDED_COLUMNS = (("sender", "sender_lc"), ("recipients", "recipients_lc"),
+                   ("subject", "subject_lc"))
+
+
+def _v14_folded_mail_columns(conn: sqlite3.Connection) -> None:
+    r"""Case-folded copies of the mail fields, so `from:josé` finds `JOSÉ@…`.
+
+    **SQLite cannot do this, and neither can `LOWER()`.** Measured rather than
+    assumed:
+
+        SELECT 'Dave@x' LIKE '%dave%'   -> 1
+        SELECT 'José@x' LIKE '%josé%'   -> 1
+        SELECT 'JOSÉ@x' LIKE '%josé%'   -> 0
+        SELECT lower('JOSÉ@x')          -> 'josÉ@x'
+
+    `LIKE` is case-insensitive for ASCII only, and the built-in `lower()` is
+    too - so `É` never folds, and there is no expression over the existing
+    column that fixes it. Worse, the *other half of the same search* disagrees:
+    FTS5's `unicode61` tokeniser folds properly, so a query naming a colleague
+    with an accent matched the message body and missed the sender field.
+
+    Python's `str.lower()` does fold Unicode, so the fold is done once at write
+    time and stored. Additive and nullable, which is what makes it safe: the
+    filters read `COALESCE(sender_lc, sender)`, so an interrupted backfill
+    degrades to exactly today's behaviour rather than losing rows.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    for _source, folded in _FOLDED_COLUMNS:
+        if folded not in existing:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {folded} TEXT")
+
+    # Batched, for the reason `_backfill_symbols` documents at length: a mail
+    # archive is tens of millions of rows and this runs inside `connect()`.
+    last_id = 0
+    filled = 0
+    while True:
+        rows = conn.execute(
+            "SELECT file_id, sender, recipients, subject FROM messages "
+            "WHERE file_id > ? AND sender_lc IS NULL "
+            "ORDER BY file_id LIMIT ?",
+            (last_id, _BACKFILL_BATCH),
+        ).fetchall()
+        if not rows:
+            break
+        last_id = rows[-1][0]
+        updates = [
+            (str(sender or "").lower(), str(recipients or "").lower(),
+             str(subject or "").lower(), file_id)
+            for file_id, sender, recipients, subject in rows
+        ]
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.executemany(
+                "UPDATE messages SET sender_lc = ?, recipients_lc = ?, "
+                "subject_lc = ? WHERE file_id = ?", updates)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        filled += len(rows)
+
+    if filled:
+        _log.info("schema v14: folded the mail fields of {:,} messages", filled)
+
+
 def _v13_repair_indexes(conn: sqlite3.Connection) -> None:
     r"""Put back the two indexes v10 dropped, and re-plan against them.
 
@@ -754,6 +820,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     11: _v11_wildcard_vocabulary,
     12: _v12_quoted_removed,
     13: _v13_repair_indexes,
+    14: _v14_folded_mail_columns,
 }
 
 

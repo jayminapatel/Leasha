@@ -118,6 +118,45 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append("REPLACE(f.path, f.parent_dir, '') LIKE ?")
         params.append(f"%{name.lower()}%")
 
+    # --- the negated halves -------------------------------------------------
+    #
+    # **`-type:pdf` used to return only PDFs.** The parser lost the minus, so
+    # every exclusion arrived here as its opposite - see `query._OPERATOR`.
+    # Each clause below is the mirror of the positive one directly above it,
+    # deliberately written out rather than generated: a loop over
+    # `(field, negated)` pairs would put the sense of the comparison in a
+    # variable, and getting that wrong is exactly the bug being fixed.
+    #
+    # `NOT LIKE` is NULL-safe here because none of these columns is nullable
+    # except `repo_id`, which is handled by its own `IS NULL` below.
+    if getattr(parsed, "not_ext", ()):
+        placeholders = ", ".join("?" for _ in parsed.not_ext)
+        clauses.append(f"f.ext NOT IN ({placeholders})")
+        params.extend(ext.lstrip(".").lower() for ext in parsed.not_ext)
+
+    for folder in getattr(parsed, "not_paths", ()):
+        clauses.append("f.path NOT LIKE ?")
+        params.append(f"%{folder.lower()}%")
+
+    for name in getattr(parsed, "not_names", ()):
+        clauses.append("REPLACE(f.path, f.parent_dir, '') NOT LIKE ?")
+        params.append(f"%{name.lower()}%")
+
+    if getattr(parsed, "not_repos", ()):
+        # **`OR f.repo_id IS NULL` is the whole difference.** Most files belong
+        # to no repository at all, and `repo_id NOT IN (...)` is NULL - not
+        # true - for every one of them. Without it, excluding one checkout
+        # would also exclude the entire rest of the corpus, which is a far
+        # bigger wrong answer than the one being fixed.
+        conditions = " OR ".join(
+            "name = ? COLLATE NOCASE OR root_path LIKE ?" for _ in parsed.not_repos
+        )
+        clauses.append(
+            f"(f.repo_id IS NULL OR f.repo_id NOT IN "
+            f"(SELECT id FROM repos WHERE {conditions}))")
+        for repo in parsed.not_repos:
+            params.extend((repo, f"%{repo}%"))
+
     for comparison, size in parsed.sizes:
         # The comparison came from `_parse_size`, which only ever returns one of
         # these five - so it can go into the SQL text safely, and never from
@@ -162,7 +201,7 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # rather than strict. Every mail field below matches on any part.
     for sender in parsed.senders:
         clauses.append(
-            "f.id IN (SELECT file_id FROM messages WHERE sender LIKE ?)"
+            "f.id IN (SELECT file_id FROM messages WHERE COALESCE(sender_lc, sender) LIKE ?)"
         )
         params.append(f"%{sender.lower()}%")
 
@@ -171,13 +210,36 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         # an address is distinctive, and parsing JSON per row to do it properly
         # would cost far more than it could ever save.
         clauses.append(
-            "f.id IN (SELECT file_id FROM messages WHERE recipients LIKE ?)"
+            "f.id IN (SELECT file_id FROM messages WHERE COALESCE(recipients_lc, recipients) LIKE ?)"
         )
         params.append(f"%{recipient.lower()}%")
 
     for subject in parsed.subjects:
         clauses.append(
-            "f.id IN (SELECT file_id FROM messages WHERE subject LIKE ?)"
+            "f.id IN (SELECT file_id FROM messages WHERE COALESCE(subject_lc, subject) LIKE ?)"
+        )
+        params.append(f"%{subject.lower()}%")
+
+    # The negated mail fields. **`NOT IN` rather than `IN (... NOT LIKE ...)`**:
+    # the second form asks "is there any message row whose sender is not this",
+    # which is true for almost every file in the index and excludes nothing.
+    # The question is whether *this* file's message matches, so the negation
+    # belongs outside the subquery.
+    for sender in getattr(parsed, "not_senders", ()):
+        clauses.append(
+            "f.id NOT IN (SELECT file_id FROM messages WHERE COALESCE(sender_lc, sender) LIKE ?)"
+        )
+        params.append(f"%{sender.lower()}%")
+
+    for recipient in getattr(parsed, "not_recipients", ()):
+        clauses.append(
+            "f.id NOT IN (SELECT file_id FROM messages WHERE COALESCE(recipients_lc, recipients) LIKE ?)"
+        )
+        params.append(f"%{recipient.lower()}%")
+
+    for subject in getattr(parsed, "not_subjects", ()):
+        clauses.append(
+            "f.id NOT IN (SELECT file_id FROM messages WHERE COALESCE(subject_lc, subject) LIKE ?)"
         )
         params.append(f"%{subject.lower()}%")
 

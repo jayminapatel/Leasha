@@ -29,7 +29,8 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
@@ -52,7 +53,89 @@ FUSED_LIMIT = 50
 #: The interim tier's size. Deliberately small: it is a glance, not an answer.
 INTERIM_LIMIT = 20
 
+#: Seconds either retriever may take before the other's answer is served alone.
+#:
+#: **Forty times the whole budget, on purpose.** This is not a performance
+#: setting - a search that takes twelve seconds is already broken and this will
+#: not save it. It is a liveness setting: the pool has two workers, so a future
+#: that never returns takes one of them for ever, the next search takes the
+#: other, and everything after that waits behind both. One wedged LanceDB scan
+#: used to end searching for the rest of the session.
+#:
+#: High enough that a genuinely slow first query on a cold index - the ONNX load
+#: alone is seconds - is never cut off and reported as a failure.
+RETRIEVER_TIMEOUT_S = 12.0
+
 _log = logger.bind(component="search.engine")
+
+
+#: Searches remembered per session. Fifty is generous for the thing this
+#: actually serves - somebody refining one query, or flicking between scope
+#: chips - and small enough that the memory is a rounding error beside one
+#: ONNX model.
+CACHE_ENTRIES = 50
+
+
+class _LruCache:
+    """The smallest cache that is honestly a cache. Not thread-safe by design.
+
+    `SearchEngine` submits retrieval to a pool but calls `search()` from one
+    thread at a time, and a lock here would cost more than the dictionary it
+    protects. The worst a race could do is evict an entry twice.
+    """
+
+    __slots__ = ("_entries", "_limit")
+
+    def __init__(self, limit: int = CACHE_ENTRIES) -> None:
+        self._entries: "OrderedDict[str, Any]" = OrderedDict()
+        self._limit = max(1, int(limit))
+
+    def get(self, key: str) -> Any:
+        if key not in self._entries:
+            return None
+        self._entries.move_to_end(key)
+        return self._entries[key]
+
+    def set(self, key: str, value: Any) -> None:
+        self._entries[key] = value
+        self._entries.move_to_end(key)
+        while len(self._entries) > self._limit:
+            self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
+def _fold(values: Any) -> tuple:
+    """Lowercase a tuple of strings for the cache key. See `_cache_key`."""
+    return tuple(str(value).lower() for value in (values or ()))
+
+
+def _wait(future: Any, half: str, problems: list[str]) -> list:
+    """One retriever's results, or `[]` if it does not answer in time.
+
+    Abandoned rather than cancelled: a future that has started cannot be
+    cancelled, and killing a thread mid-read would risk the very stores this is
+    protecting. It finishes into nothing and its worker comes back.
+
+    The failure is recorded rather than swallowed - half a search that does not
+    say it is half a search is the thing this codebase keeps being corrected
+    for.
+    """
+    try:
+        return future.result(timeout=RETRIEVER_TIMEOUT_S)
+    except FutureTimeout:
+        _log.warning("{} search did not answer within {}s; serving the other "
+                     "half", half, RETRIEVER_TIMEOUT_S)
+        problems.append(
+            f"The {half} half of this search did not answer within "
+            f"{RETRIEVER_TIMEOUT_S:.0f} seconds, so these results are from the "
+            f"other half only. Try again - if it keeps happening, run "
+            f"`app.cli doctor`.")
+        return []
 
 
 @dataclass
@@ -242,7 +325,23 @@ class SearchEngine:
         self.vectors = vectors
         self.embedder = embedder
         self.reranker = reranker
-        self.cache = cache
+        # **A cache by default, at last.** `cache=` is passed at none of the
+        # four constructions, so for a year every review has recorded "no warm
+        # search" against machinery that was complete, correct and unreachable:
+        # the key already carries the index generation, `_cache_get` already
+        # returns a copy so callers cannot mutate a stored response, and both
+        # halves already degrade to no-cache on any error.
+        #
+        # The choice was to build it or delete it, because a third year of
+        # reviews saying the same thing is worse than either. Built - and small,
+        # bounded and in-memory rather than `diskcache`: a repeated search is
+        # repeated within a session, the whole value is skipping an ONNX
+        # embedding and two retrievers, and a cache on disk would add a
+        # dependency and a file to invalidate for a benefit nobody measured.
+        #
+        # `cache=False` switches it off; anything else is used as given, so a
+        # test can still hand in its own.
+        self.cache = _LruCache() if cache is None else (cache or None)
         self.rrf_k = rrf_k
         #: (keyword, vector). Equal today; Layer 10 is where these stop being a
         #: guess and start being measured against this corpus.
@@ -256,6 +355,9 @@ class SearchEngine:
         #: the vocabulary cannot change underneath it without an index write -
         #: which bumps the generation and clears the result cache in any case.
         self._wildcard_cache: dict = {}
+        #: The index generation the wildcard cache was filled against. See
+        #: `_expand_wildcards`.
+        self._wildcard_generation: int = -1
 
     @property
     def closed(self) -> bool:
@@ -395,8 +497,18 @@ class SearchEngine:
             vector.search, self.vectors, self.embedder, parsed,
             allowed_file_ids=allowed, problems=vector_problems,
         )
-        keyword_hits = keyword_future.result()
-        raw_vector_hits = vector_future.result()
+        # **Bounded, because the pool has two workers and no queue.** A hung
+        # LanceDB scan or a wedged SQLite read used to block `result()` for
+        # ever: that worker never returns, the next search takes the other one,
+        # and the third waits behind both. One stuck query froze searching for
+        # the rest of the session.
+        #
+        # A timed-out future is abandoned rather than cancelled - a running
+        # future cannot be cancelled, and killing a thread mid-read is worse
+        # than leaking one - so it finishes into nothing and the worker comes
+        # back. What matters is that the person gets the half that answered.
+        keyword_hits = _wait(keyword_future, "keyword", vector_problems)
+        raw_vector_hits = _wait(vector_future, "meaning-based", vector_problems)
         timings["retrieve"] = (time.perf_counter() - mark) * 1000
 
         mark = time.perf_counter()
@@ -556,6 +668,18 @@ class SearchEngine:
         response.search_id = self._log_search(raw, parsed, response, want_rerank)
         return response
 
+    def _generation_now(self) -> int:
+        """The store's write generation, or -1 if it cannot be read.
+
+        Never raises: this only decides whether to drop a cache, and a search
+        that fails because a cache-invalidation probe threw would be an absurd
+        trade.
+        """
+        try:
+            return int(self.store.generation)
+        except Exception:                        # noqa: BLE001
+            return -1
+
     def _expand_wildcards(self, parsed: ParsedQuery) -> tuple[ParsedQuery, list]:
         r"""Turn `*voice` into the terms the index actually holds.
 
@@ -574,6 +698,21 @@ class SearchEngine:
         patterns = [term for term in parsed.terms if needs_expansion(term)]
         if not patterns:
             return parsed, []
+
+        # **Dropped when the index changes, which the comment above claimed
+        # already happened and did not.** The expansion is a snapshot of the
+        # vocabulary: `*voice` resolves to the words the corpus held at the
+        # moment it was first asked. An index run adds words, so the invariant
+        # "the vocabulary cannot change underneath it" is simply false for any
+        # session that spans a run - and the window is exactly such a session,
+        # because it indexes without restarting.
+        #
+        # Clearing on a generation change rather than keying every entry by it
+        # keeps the cache small: the old entries can never be wanted again.
+        generation = self._generation_now()
+        if generation != self._wildcard_generation:
+            self._wildcard_cache.clear()
+            self._wildcard_generation = generation
 
         found = []
         expansions: list[tuple[str, tuple[str, ...]]] = []
@@ -649,11 +788,40 @@ class SearchEngine:
         if rerank:
             model = str(getattr(self.reranker, "model_name", "") or "")
 
+        # **Not `raw.lower()`, and the case is not cosmetic.** `AND`, `OR` and
+        # `NOT` are operators only in capitals - that is precisely how they are
+        # told apart from the English words - so `pump AND valve` and
+        # `pump and valve` are two different searches that folded to one key.
+        # Whichever ran first answered for both.
+        #
+        # **The parse identifies the search; the raw text is not in the key at
+        # all.** Two strings that parse identically have identical answers by
+        # construction - `Quarterly Report` and `  quarterly report ` are the
+        # same query, and splitting the cache on typing is pure waste. Two that
+        # parse differently, `pump AND valve` among them, now differ here
+        # because `explicit_and` and the term tuples differ, which is exactly
+        # the distinction lowercasing the raw string destroyed.
+        # Text is folded, structure is not. FTS5 and every `LIKE` here are
+        # case-insensitive, so `Quarterly` and `quarterly` retrieve the same
+        # rows and must share an entry - while `explicit_and`, the shape of
+        # `or_groups` and the exclusion lists carry the operators, which are
+        # case-sensitive by design and now genuinely distinguish two searches.
         return "|".join([
-            "v3", str(generation), raw.strip().lower(),
-            repr(parsed.ext), repr(parsed.after), repr(parsed.before),
-            repr(parsed.paths), repr(parsed.senders), parsed.scope,
-            "r" if rerank else "-", model, str(limit),
+            "v4", str(generation),
+            repr(_fold(parsed.terms)), repr(_fold(parsed.phrases)),
+            repr(_fold(parsed.excluded)),
+            repr(tuple(_fold(group) for group in parsed.or_groups)),
+            repr(parsed.explicit_and),
+            repr(_fold(parsed.ext)), repr(parsed.after), repr(parsed.before),
+            repr(_fold(parsed.paths)), repr(_fold(parsed.senders)),
+            repr(_fold(parsed.recipients)), repr(_fold(parsed.subjects)),
+            repr(_fold(parsed.names)), repr(_fold(parsed.repos)),
+            repr(parsed.sizes), repr(parsed.has_attachment), repr(parsed.sort),
+            repr(_fold(parsed.not_ext)), repr(_fold(parsed.not_paths)),
+            repr(_fold(parsed.not_names)), repr(_fold(parsed.not_senders)),
+            repr(_fold(parsed.not_recipients)), repr(_fold(parsed.not_subjects)),
+            repr(_fold(parsed.not_repos)), repr(_fold(parsed.not_phrases)),
+            parsed.scope, "r" if rerank else "-", model, str(limit),
         ])
 
     def _cache_get(self, key: str) -> Optional[SearchResponse]:

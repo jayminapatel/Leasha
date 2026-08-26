@@ -315,6 +315,7 @@
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_review_2026_08_26.py" />
+    <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />

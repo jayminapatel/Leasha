@@ -1381,10 +1381,25 @@ class SqliteStore:
                    # for a message indexed before schema v12, which the preview
                    # reads as "not known" rather than as zero - see
                    # `migrations._v12_quoted_removed`.
-                   "quoted_removed")
+                   "quoted_removed",
+                   # **Folded copies, written here and nowhere else.** SQLite's
+                   # LIKE and its `lower()` are both ASCII-only, so `from:josé`
+                   # could never match `JOSÉ@…` however the query was written -
+                   # while the FTS half of the same search folded it correctly
+                   # and disagreed. Python's `str.lower()` does fold Unicode;
+                   # doing it once at write time is the only place it can be
+                   # done. See `migrations._v14_folded_mail_columns`.
+                   "sender_lc", "recipients_lc", "subject_lc")
         # has_attach is NOT NULL DEFAULT 0, so it cannot be passed through as
         # None when the caller omits it.
         defaults: dict[str, Any] = {"has_attach": 0}
+        # Derived, never passed in: a caller that supplied its own fold would
+        # be free to disagree with the one the filters assume.
+        for source, folded in (("sender", "sender_lc"),
+                               ("recipients", "recipients_lc"),
+                               ("subject", "subject_lc")):
+            value = fields.get(source)
+            fields[folded] = str(value).lower() if value is not None else None
         values = [
             fields.get(name, defaults.get(name)) if fields.get(name) is not None
             else defaults.get(name)

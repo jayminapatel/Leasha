@@ -72,12 +72,25 @@ _FIELD_ALIASES = {
 # operator in the first place. The words simply became search terms, and the
 # filter silently did nothing - exactly the shape of failure this project keeps
 # finding. One list, one place.
+#
+# **The leading `-` or `!` is captured, and losing it was a wrong answer.**
+# `\b` sits between `-` and `t` in `-type:pdf`, so the operator matched, the
+# minus stayed behind in the free text and was dropped as punctuation - and a
+# request to *exclude* PDFs returned nothing but PDFs. The user cannot see that
+# from the results; it looks like a search that simply worked.
+#
+# The lookbehind lives inside the optional group on purpose. It constrains only
+# the negated form to a token start, so `some-type:pdf` keeps matching exactly
+# as it always did rather than suddenly reading as a negation.
 _OPERATOR = re.compile(
+    r'(?:(?<!\S)(?P<neg>[-!]))?'
     r'\b(?P<field>' + "|".join(sorted(_FIELD_ALIASES, key=len, reverse=True)) + r')'
     r':(?P<value>"[^"]*"|\S+)',
     re.IGNORECASE,
 )
-_PHRASE = re.compile(r'"([^"]*)"')
+#: Same treatment for a quoted run: `-"annual report"` asked for the phrase to
+#: be absent and was read as requiring it.
+_PHRASE = re.compile(r'(?:(?<!\S)(?P<pneg>[-!]))?"(?P<body>[^"]*)"')
 #: Two or more stars together mean nothing more than one does.
 _STAR_RUN = re.compile(r"\*{2,}")
 # Unicode-aware word run. Keeps intra-word . _ - ' so that "v1.2", "some_file" and
@@ -193,6 +206,24 @@ class ParsedQuery:
     #: answers "which folder"; this answers "what is it called", and they are
     #: different questions that people ask for different reasons.
     names: tuple[str, ...] = ()
+    #: The negated halves of the filters above - `-type:pdf`, `-from:noreply`,
+    #: `-"annual report"`. **Each one used to be read as its opposite**: `\b`
+    #: matched the operator with the minus still outside it, the minus was then
+    #: dropped as punctuation, and a request to exclude PDFs returned only PDFs.
+    #: A wrong answer that looks exactly like a right one.
+    #:
+    #: `after`, `before`, `size`, `has` and `sort` have no negated form and are
+    #: reported in `unknown_operators` instead - `-after:2024` is a confusing
+    #: way of writing `before:`, and guessing at it would be worse than saying
+    #: it was not understood.
+    not_phrases: tuple[str, ...] = ()
+    not_ext: tuple[str, ...] = ()
+    not_paths: tuple[str, ...] = ()
+    not_repos: tuple[str, ...] = ()
+    not_senders: tuple[str, ...] = ()
+    not_recipients: tuple[str, ...] = ()
+    not_subjects: tuple[str, ...] = ()
+    not_names: tuple[str, ...] = ()
     #: `(comparison, bytes)` pairs, e.g. `(">=", 1048576)`.
     sizes: tuple[tuple[str, int], ...] = ()
     #: Terms grouped by `OR`. Within a group terms are ANDed, between groups
@@ -318,8 +349,29 @@ def _norm_ext(value: str) -> tuple[str, ...]:
     return tuple(p for p in parts if p.isalnum())
 
 
-def _parse_date(value: str, *, today: Optional[date] = None) -> Optional[date]:
-    """ISO dates, partial ISO, and plain-English relatives. Never raises."""
+def _end_of(year: int, month: Optional[int] = None) -> date:
+    """The last day of a year or a month."""
+    if month is None:
+        return date(year, 12, 31)
+    following = date(year + (month // 12), (month % 12) + 1, 1)
+    return following - timedelta(days=1)
+
+
+def _parse_date(value: str, *, today: Optional[date] = None,
+                end: bool = False) -> Optional[date]:
+    r"""ISO dates, partial ISO, and plain-English relatives. Never raises.
+
+    **`end` is what makes `before:2024` mean the whole year.** A partial date
+    names a *period*, and which edge of it is meant depends entirely on which
+    side of the range it is on: `after:2024` is the first moment of 2024 and
+    `before:2024` is the last. Both used to resolve to 1 January, so
+    `before:2024` excluded the entire year bar one day, and
+    `after:2024 before:2024` matched only New Year's Day - a range that reads as
+    "everything in 2024" and returned almost nothing.
+
+    Full dates and relatives are unaffected: a day is already a single day, and
+    `7d` already means a moment.
+    """
     today = today or date.today()
     v = value.strip().strip('"').lower()
     if not v:
@@ -336,11 +388,21 @@ def _parse_date(value: str, *, today: Optional[date] = None) -> Optional[date]:
     if span:
         return today - timedelta(days=int(span.group(1)) * _SPAN_DAYS[span.group(2).lower()])
 
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m", "%Y"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
         try:
             return datetime.strptime(v, fmt).date()
         except ValueError:
             continue
+
+    # The partial forms, which name a period rather than a day.
+    for fmt, whole in (("%Y-%m", "month"), ("%Y", "year")):
+        try:
+            found = datetime.strptime(v, fmt).date()
+        except ValueError:
+            continue
+        if not end:
+            return found                       # the first day of the period
+        return _end_of(found.year, found.month if whole == "month" else None)
     return None
 
 
@@ -358,6 +420,17 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     recipients: list[str] = []
     subjects: list[str] = []
     names: list[str] = []
+    # The negated halves. Separate lists rather than a sign on each value: every
+    # consumer has to build a different SQL clause for them, and a tuple of
+    # `(value, negated)` pairs would make every one of those call sites test the
+    # flag - which is how one of them ends up not testing it.
+    not_ext: list[str] = []
+    not_paths: list[str] = []
+    not_repos: list[str] = []
+    not_senders: list[str] = []
+    not_recipients: list[str] = []
+    not_subjects: list[str] = []
+    not_names: list[str] = []
     # Terms grouped by OR. One group is the ordinary case and produces exactly
     # the AND-joined expression this has always built.
     groups: list[list[str]] = []
@@ -370,11 +443,44 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     sort_order = ""
     after: Optional[date] = None
     before: Optional[date] = None
+    # The text each was parsed from, kept only so a reversed range can be
+    # re-resolved against the correct edge of its period - see the swap below.
+    raw_after = ""
+    raw_before = ""
 
     def _take_operator(match: re.Match[str]) -> str:
         nonlocal after, before, has_attachment, sort_order
+        nonlocal raw_after, raw_before
         fld = _FIELD_ALIASES.get(match.group("field").lower())
         val = match.group("value").strip('"')
+        negated = bool(match.group("neg"))
+
+        # **Negation is answered first, and only where it means something.**
+        # `-after:2024` is not a filter, it is a confusing way to write
+        # `before:`, and `-sort:newest` is nothing at all - so those fall
+        # through to the positive handling below rather than being silently
+        # accepted as an exclusion nobody could have meant.
+        if negated:
+            target = {
+                "ext": not_ext, "path": not_paths, "repo": not_repos,
+                "sender": not_senders, "recipient": not_recipients,
+                "subject": not_subjects, "name": not_names,
+            }.get(fld or "")
+            if target is not None:
+                if fld == "ext":
+                    target.extend(_norm_ext(val))
+                elif fld == "repo":
+                    target.extend(part.strip().lower()
+                                  for part in val.split(",") if part.strip())
+                elif val:
+                    target.append(val if fld == "path" else val.lower())
+                return " "
+            # A negation on a field that cannot express one is reported rather
+            # than dropped: acting on half of what was typed, silently, is the
+            # failure this whole file keeps being corrected for.
+            unknown.append(match.group(0))
+            return " "
+
         if fld == "ext":
             ext.extend(_norm_ext(val))
         elif fld == "path":
@@ -437,12 +543,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             parsed = _parse_date(val, today=today)
             if parsed:
                 after = parsed
+                raw_after = val
             else:
                 unknown.append(match.group(0))
         elif fld == "before":
-            parsed = _parse_date(val, today=today)
+            # `end=True`: `before:2024` means the end of 2024, not its start.
+            parsed = _parse_date(val, today=today, end=True)
             if parsed:
                 before = parsed
+                raw_before = val
             else:
                 unknown.append(match.group(0))
         return " "                                  # remove from the free text
@@ -451,10 +560,12 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
 
     # Phrases next, so their contents are not re-split into bare terms.
     phrases: list[str] = []
-    for body in _PHRASE.findall(working):
-        cleaned = " ".join(body.split())
-        if cleaned:
-            phrases.append(cleaned)
+    not_phrases: list[str] = []
+    for found in _PHRASE.finditer(working):
+        cleaned = " ".join(found.group("body").split())
+        if not cleaned:
+            continue
+        (not_phrases if found.group("pneg") else phrases).append(cleaned)
     working = _PHRASE.sub(" ", working)
 
     # An odd number of quotes leaves a dangling one. Drop it rather than trip on it.
@@ -515,8 +626,16 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         groups.append(current_group)
 
     # after:2025 before:2024 is a typo, not an intent. Swap rather than return nothing.
+    #
+    # **Re-resolved from the raw text, not just exchanged.** A partial date names
+    # a period, and which edge of it is meant depends on which side of the range
+    # it ends up on. Swapping the two resolved days would turn
+    # `after:2025 before:2024` into 31 December 2024 to 1 January 2025 - two
+    # days, from a query that plainly means those two whole years. Parsing each
+    # raw value again against its new side gives the outer edges.
     if after and before and after > before:
-        after, before = before, after
+        after = _parse_date(raw_before, today=today) or before
+        before = _parse_date(raw_after, today=today, end=True) or after
 
     text = " ".join([*phrases, *terms]).strip()
 
@@ -535,6 +654,14 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         recipients=tuple(recipients),
         subjects=tuple(subjects),
         names=tuple(names),
+        not_phrases=tuple(not_phrases),
+        not_ext=tuple(dict.fromkeys(not_ext)),
+        not_paths=tuple(not_paths),
+        not_repos=tuple(dict.fromkeys(not_repos)),
+        not_senders=tuple(not_senders),
+        not_recipients=tuple(not_recipients),
+        not_subjects=tuple(not_subjects),
+        not_names=tuple(not_names),
         sizes=tuple(sizes),
         or_groups=tuple(tuple(g) for g in groups if g),
         explicit_and=explicit_and,
@@ -796,7 +923,10 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
     )
 
     # NOT needs a left operand in FTS5, so exclusions only apply to a real query.
+    # Bare `-word` and `-"quoted phrase"` alike. A phrase is quoted as one
+    # token so FTS5 excludes the sequence rather than each word in it.
     negatives = [q for q in (_fts_quote(t) for t in parsed.excluded) if q]
+    negatives += [q for q in (_fts_quote(p) for p in parsed.not_phrases) if q]
     if negatives:
         expression = f"({expression}) NOT ({' OR '.join(negatives)})"
     return expression

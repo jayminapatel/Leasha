@@ -1,12 +1,70 @@
 # Changelog
 
-**Doc version:** 3.63 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.64 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — §3: wrong answers that looked exactly like right ones
+
+Every item in this section returned a plausible page of results for a question
+nobody asked, with nothing on screen to say so.
+
+**`-type:pdf` returned only PDFs.** `\b` matched the operator with the minus
+still outside it, the minus was then dropped as punctuation, and every negated
+filter arrived as its exact opposite. `-from:noreply`, `-name:draft`,
+`-repo:tools`, `-"annual report"` — all of them, all inverted. Now honoured
+end to end, in the parser and in the SQL.
+
+**Excluding a repository nearly excluded the corpus.** `repo_id NOT IN (...)` is
+NULL for every file that belongs to no repository, and NULL is not true — so the
+obvious clause would have hidden everything outside the named checkout. `OR
+f.repo_id IS NULL` is the whole difference between the fix and a much larger
+version of the bug being fixed.
+
+**`before:2024` excluded all of 2024 but New Year's Day.** A partial date names a
+*period*, and which edge is meant depends on which side of the range it sits;
+both resolved to the first day. `after:2024 before:2024` — a range that reads as
+"everything in 2024" — matched exactly one day. A reversed range is also
+re-resolved rather than merely swapped, so `after:2025 before:2024` now covers
+the same span as the correctly-ordered form instead of collapsing to two days.
+
+**`from:josé` could never match `JOSÉ@…`, and no query could fix it.** Measured:
+`SELECT 'JOSÉ@x' LIKE '%josé%'` is 0, and SQLite's own `lower('JOSÉ@x')` is
+`'josÉ@x'` — `LIKE` and `LOWER()` both fold ASCII only. Meanwhile FTS5's
+`unicode61` tokeniser folds correctly, so the two halves of one search disagreed
+about the same name. **Schema v14** stores Python-folded copies of sender,
+recipients and subject; the filters read `COALESCE(sender_lc, sender)` so an
+interrupted backfill degrades to the old behaviour rather than losing rows.
+
+**A hung retriever ended searching for the session.** The pool has two workers
+and `result()` had no timeout, so one wedged LanceDB scan took a worker for ever,
+the next search took the other, and everything after waited behind both. Bounded
+now, with the surviving half served and the failure said out loud.
+
+**The wildcard cache never noticed an index run.** Its comment asserted that the
+vocabulary could not change underneath it; the window indexes without restarting,
+so it plainly could. Dropped on a generation change.
+
+**Two permanent latches replaced with budgets.** One rerank failure disabled
+reranking until restart. Worse, one OCR engine load failure latched — and then
+every image was recorded `ERR_NO_TEXT_LAYER`, which is a claim about the *file*:
+a corpus of scanned documents came back as thousands of blank photographs, in
+exactly the skip code the OCR pass takes its work from, so it would never look at
+them again. That is now `ERR_OCR_UNAVAILABLE`, which says what actually happened.
+
+**The cache question is settled after two reviews: built, not deleted.** The
+machinery was complete and correct — index generation in the key, copies handed
+out on read, both halves degrading to no-cache on error — and simply unreachable,
+because `cache=` was passed at none of the four constructions. A bounded
+in-memory LRU is the default now; `cache=False` switches it off. The key was
+fixed first: it lowercased the raw query, so `pump AND valve` and `pump and
+valve` — different searches by design, since operators are capitals — shared one
+entry. The raw text is out of the key entirely now; the parse identifies the
+search.
 
 ### Fixed — §2 of the review-remediation order: everything the scale run needs
 

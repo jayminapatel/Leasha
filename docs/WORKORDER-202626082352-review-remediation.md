@@ -107,19 +107,40 @@ Two corrections to what this section assumed:
 
 ## 3. Search correctness and semantics
 
-- [ ] **M2** (Search) `engine.py:619` — cache key must not lowercase the raw query
+**Done** as of 2026-08-27, tests in `tests/unit/test_review_section_three.py`.
+Only `wildcards.py:74`'s budget remains, which is a documentation correction
+rather than a wrong answer.
+
+Three notes:
+
+* **M20 needed a schema change**, not an expression. `LIKE` folds ASCII only and
+  so does SQLite's own `LOWER()` - `SELECT lower('JOSÉ@x')` is `'josÉ@x'` - so
+  no query over the stored column could ever match. Schema **v14** adds folded
+  copies written by Python's `str.lower()`, and the filters read
+  `COALESCE(sender_lc, sender)` so an interrupted backfill degrades to today's
+  behaviour rather than losing rows.
+* **M2 went further than lowercasing the key.** The raw text is out of the key
+  entirely: the parse identifies a search, so `Quarterly Report` and
+  `  quarterly report ` share an entry while `pump AND valve` and
+  `pump and valve` no longer do.
+* **The cache question is settled: built, not deleted.** The machinery was
+  complete and correct - generation in the key, copies on read, guarded writes -
+  and simply unreachable, because `cache=` was passed nowhere. A bounded
+  in-memory LRU is now the default; `cache=False` switches it off.
+
+- [x] **M2** (Search) `engine.py:619` — cache key must not lowercase the raw query
   (`pump AND valve` ≠ `pump and valve`). Fix *before* wiring any cache.
-- [ ] **M3** (Search) `engine.py:253` / `wildcards.py:236` — wildcard expansion cache
+- [x] **M3** (Search) `engine.py:253` / `wildcards.py:236` — wildcard expansion cache
   keyed on `store.generation`, or cleared when it changes.
-- [ ] **M4** (Search) `query.py:75` — `-type:pdf` must exclude, not include;
+- [x] **M4** (Search) `query.py:75` — `-type:pdf` must exclude, not include;
   `-"phrase"` must exclude, not require. Honour or report the negation.
-- [ ] **M5** (Search) `engine.py:374` — `result(timeout=…)` on retrieval futures;
+- [x] **M5** (Search) `engine.py:374` — `result(timeout=…)` on retrieval futures;
   keyword-only degrade + notice on timeout.
-- [ ] **M20** (Storage) `filters.py:84` — lowercase shadow columns so `from:josé`
+- [x] **M20** (Storage) `filters.py:84` — lowercase shadow columns so `from:josé`
   matches `José@…`; LIKE is ASCII-only case-insensitive and the FTS half disagrees.
-- [ ] **L** (Search) `query.py:321` — `before:` with a partial date resolves to the
+- [x] **L** (Search) `query.py:321` — `before:` with a partial date resolves to the
   period's end, not its start.
-- [ ] **L** (Search) `rerank.py:159` — retry budget instead of permanent latch on one
+- [x] **L** (Search) `rerank.py:159` — retry budget instead of permanent latch on one
   transient scorer failure. Same pattern for **M15** (Extract) `ocr.py:118` — raise
   `ERR_OCR_UNAVAILABLE` instead of recording every image as `ERR_NO_TEXT_LAYER`.
 - [ ] **L** (Search) `wildcards.py:74` — make `BUDGET_S` a real budget
@@ -167,7 +188,7 @@ Two corrections to what this section assumed:
 
 ## 6. Carried over, still open from the 2026-08-25 review
 
-- [ ] **Decide the cache question once** (Search): build the generation-keyed LRU the
+- [x] **Decide the cache question once** (Search): build the generation-keyed LRU the
   engine anticipates — after M2 — or delete the dead `_cache_key` apparatus. Also
   fixes **M** `engine.py:625` (cached responses share mutable `SearchResult`s —
   `replace()` each, or freeze the dataclass).

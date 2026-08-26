@@ -29,6 +29,12 @@ from typing import Any, Callable, Optional, Sequence
 from app.core.logging import logger
 from app.search.window import RERANK_WINDOW_CHARS, windows_for
 
+#: Consecutive scoring failures before reranking is given up on for the
+#: session. **Consecutive**, and reset by any success: the fault this replaces
+#: was a single transient disabling reranking permanently, with nothing but a
+#: restart to undo it.
+RERANK_FAILURE_BUDGET = 3
+
 __all__ = ["Reranker", "RERANK_TOP_N", "RERANK_WINDOW_CHARS"]
 
 #: Candidates reordered. Beyond this the latency cost outgrows the benefit:
@@ -70,7 +76,9 @@ class Reranker:
         self.window_chars = int(window_chars)
         self._scorer = scorer
         self._lock = threading.Lock()
-        self._unavailable = False       # tried once, failed; do not try again this session
+        self._unavailable = False       # set once the failure budget is spent
+        #: Consecutive scoring failures. See `RERANK_FAILURE_BUDGET`.
+        self._failures = 0
         self._warned = False
 
     @property
@@ -157,9 +165,20 @@ class Reranker:
         try:
             scores = list(scorer(query, passages))
         except Exception as exc:        # noqa: BLE001 - a scoring failure is not a search failure
-            self._unavailable = True
+            # **A budget, not a latch.** One failure used to disable reranking
+            # for the rest of the session: a single transient - a model file
+            # being written, a moment of memory pressure, one malformed passage
+            # - and every later search silently returned weaker ordering, with
+            # the notice explaining it only on the first one. Nothing ever
+            # tried again, so the only cure was restarting the application.
+            self._failures += 1
+            self._unavailable = self._failures >= RERANK_FAILURE_BUDGET
             self._warn_once(exc)
             return results
+
+        # A run that works clears the debt: the budget is for *consecutive*
+        # trouble, not for a machine that had one bad minute an hour ago.
+        self._failures = 0
 
         if len(scores) != len(head):
             _log.error(

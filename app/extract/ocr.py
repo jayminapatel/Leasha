@@ -72,7 +72,7 @@ _engine_failed = False
 class OcrResult:
     """Text read from one image, with what it cost and how sure it was."""
 
-    __slots__ = ("text", "lines", "elapsed_s", "mean_confidence")
+    __slots__ = ("text", "lines", "elapsed_s", "mean_confidence", "engine_missing")
 
     def __init__(
         self,
@@ -80,7 +80,13 @@ class OcrResult:
         lines: int = 0,
         elapsed_s: float = 0.0,
         mean_confidence: float = 0.0,
+        engine_missing: bool = False,
     ) -> None:
+        #: **The difference between "nothing to read" and "nothing read it".**
+        #: An empty result means a blank image; this means the engine never
+        #: ran, and the two must not share a skip code - one is a fact about
+        #: the file and the other is a fact about this machine.
+        self.engine_missing = engine_missing
         self.text = text
         self.lines = lines
         self.elapsed_s = elapsed_s
@@ -89,6 +95,17 @@ class OcrResult:
     @property
     def empty(self) -> bool:
         return not self.text.strip()
+
+
+#: How many times a failing engine load is retried before OCR is treated as
+#: absent for this run. Small: the common cause is a package that is not
+#: installed, and paying an import per image for that would be absurd. Larger
+#: than one, because the *other* cause is transient and used to cost the whole
+#: corpus.
+ENGINE_LOAD_ATTEMPTS = 3
+
+#: Failed load attempts so far. See `_load_engine`.
+_engine_attempts = 0
 
 
 def available() -> bool:
@@ -128,8 +145,28 @@ def _load_engine() -> Any:
             _engine = RapidOCR()
             log.info("OCR engine loaded in {:.1f}s", time.monotonic() - started)
         except Exception as exc:                 # noqa: BLE001 - absence is normal
-            _engine_failed = True
-            log.info("OCR unavailable: {}: {}", type(exc).__name__, exc)
+            # **A retry budget, not a permanent latch.**
+            #
+            # This set `_engine_failed = True` on the first failure and never
+            # cleared it, so one transient load - a locked model file mid-copy,
+            # a moment of memory pressure, an antivirus scan holding the ONNX
+            # blob - turned OCR off for the whole run. Every image after that
+            # was recorded `ERR_NO_TEXT_LAYER`, which is not "the engine is
+            # broken", it is *"this is a photograph of a wall"*. A corpus of
+            # scanned documents came back as thousands of blank pages, and the
+            # skip ledger agreed with itself all the way down.
+            #
+            # `_engine_attempts` lets the next few images try again, and after
+            # the budget the absence is treated as settled - which is the right
+            # answer when the package genuinely is not installed, and is what
+            # keeps a missing dependency from costing an import per image.
+            global _engine_attempts
+            _engine_attempts += 1
+            _engine_failed = _engine_attempts >= ENGINE_LOAD_ATTEMPTS
+            level = log.info if _engine_failed else log.warning
+            level("OCR engine did not load (attempt {} of {}): {}: {}",
+                  _engine_attempts, ENGINE_LOAD_ATTEMPTS,
+                  type(exc).__name__, exc)
     return _engine
 
 
@@ -147,7 +184,7 @@ def ocr_image(
     """
     run = engine or _load_engine()
     if run is None:
-        return OcrResult()
+        return OcrResult(engine_missing=True)
 
     started = time.monotonic()
     try:
@@ -224,6 +261,19 @@ class OcrExtractor:
             return
 
         result = ocr_image(path)
+        if result.engine_missing:
+            # **`ERR_OCR_UNAVAILABLE`, never `ERR_NO_TEXT_LAYER`.** The engine
+            # could not run, so nothing was read and nothing is known about
+            # this image. Recording it as "no text" is a claim about the file -
+            # and a wrong one that puts it in the same bucket as genuinely
+            # blank photographs, where the OCR pass will never look at it
+            # again.
+            raise_error(
+                "ERR_OCR_UNAVAILABLE", "extract.ocr", path=str(path),
+                details="the OCR engine could not be loaded on this run",
+            )
+            return
+
         if result.empty:
             # Nothing readable. `base.extract` turns an empty yield into
             # ERR_NO_TEXT_LAYER, which is the honest answer for a photograph of
