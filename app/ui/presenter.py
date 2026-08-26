@@ -1196,12 +1196,10 @@ def _scan_and_save(store: Any, roots: list[str]) -> dict:
     one - and the reason a GUI-started index never had a percentage.
     """
     import json
-    import time as _time
-    from pathlib import Path as _Path
 
     from app.index.scan import SCAN_STATE_KEY, ScanConfig, scan
 
-    result = scan(ScanConfig(roots=[_Path(root) for root in roots]))
+    result = scan(ScanConfig(roots=[Path(root) for root in roots]))
     store.set_states({SCAN_STATE_KEY: json.dumps({
         "at": int(_time.time()),
         "roots": list(result.roots),
@@ -3521,8 +3519,6 @@ def git_result_row(row: Any, repo_root: str) -> Any:
     result, which reads as a broken preview rather than as a file that is
     genuinely gone.
     """
-    from pathlib import Path
-
     historical = bool(row.commit) and row.kind != "content"
     full = ("" if historical or not row.path
             else str(Path(repo_root) / row.path) if repo_root else row.path)

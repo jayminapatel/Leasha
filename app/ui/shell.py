@@ -53,6 +53,10 @@ from app.ui.view_options import load_prefs, save_prefs
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.scroll import wrap_if_needed
 from app.core.run_lock import GUI
+# **Worker bodies live in the presenter**, not here: `test_ui_never_blocks`
+# reads this file and refuses any store call it cannot prove is inside a
+# worker, and it cannot prove that of a module-level function defined here.
+from app.ui.presenter import _read_external_run, _scan_and_save
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -375,8 +379,13 @@ class MainWindow(QMainWindow):
         # when the widget tree is complete and Qt is idle. Nothing about the
         # window waits for any of them, so the only visible difference is that
         # the file counts appear a frame later.
-        from PyQt6.QtCore import QTimer
-
+        #
+        # **`QTimer` is imported at the top of this module, not here.** It used
+        # to be imported on this line, and that was harmless right up until the
+        # watch timer above needed it too: a function-local `import` makes the
+        # name local for the *entire* function, so a use earlier in `__init__`
+        # raised `UnboundLocalError` and the window would not open at all.
+        # Python binds by function, not by line.
         QTimer.singleShot(0, lambda: self._start_background_work(store, settings))
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
@@ -1460,7 +1469,6 @@ class MainWindow(QMainWindow):
                 and self.tray.installed):
             # Deferred: hiding inside the state-change handler leaves Qt
             # half-way through a transition it has not finished describing.
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._hide_to_tray)
 
     def _hide_to_tray(self) -> None:
@@ -1531,7 +1539,7 @@ class MainWindow(QMainWindow):
         we would be back to Task Manager. Pumping events while waiting keeps
         the window painting until the threads are actually finished.
         """
-        from PyQt6.QtCore import QDeadlineTimer, QEventLoop, QThreadPool
+        from PyQt6.QtCore import QDeadlineTimer, QEventLoop
         from PyQt6.QtWidgets import QApplication
 
         pool = QThreadPool.globalInstance()

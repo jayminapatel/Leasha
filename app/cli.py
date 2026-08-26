@@ -388,8 +388,6 @@ def cmd_lock(args: argparse.Namespace) -> int:
 
 
 def _pid() -> int:
-    import os
-
     return os.getpid()
 
 
@@ -465,7 +463,6 @@ def _iter_targets(paths: Sequence[str],
         if not path.is_dir():
             found.append(path)                       # let the extractor report it missing
             continue
-        import os
 
         for directory, subdirectories, filenames in os.walk(path):
             subdirectories[:] = [

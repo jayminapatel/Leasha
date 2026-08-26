@@ -1,12 +1,49 @@
 # Changelog
 
-**Doc version:** 3.56 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.57 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the window would not open, and nothing had ever tried to open it
+
+Reported by typing `leasha` and getting nothing. Two faults, both in
+`MainWindow.__init__`, both mine from this session, and **neither caught by a
+green suite of two thousand tests** — because nothing in it had ever constructed
+`MainWindow`. Every UI test builds a single view or greps a source file.
+
+    UnboundLocalError: cannot access local variable 'QTimer'
+
+The trap, and worth stating in full: `__init__` used `QTimer` at line 207, and
+four hundred lines later — still inside the same function — sat a redundant
+`from PyQt6.QtCore import QTimer`. **Python binds names per function, not per
+line**, so that import made `QTimer` local for the whole of `__init__` and the
+earlier use referred to a variable that did not exist yet. The import had been
+harmless for months; it became fatal the moment somebody used the same name
+earlier in the same function. Seven more of that shape were found across `app/`,
+every one redundant, every one waiting for the same trigger. A test now refuses
+the shape outright.
+
+    NameError: name '_read_external_run' is not defined
+
+The second was simpler and just as invisible: the worker bodies moved to the
+presenter, and the import that should have followed them was written against an
+import block `shell.py` does not have — so the edit silently did nothing.
+
+**`tests/unit/test_window_opens.py` is the real fix.** It builds the window,
+turns the event loop, and selects every tab. All three fail on the parent commit
+with the exact errors above.
+
+One property of the harness worth recording: building and tearing down
+`MainWindow` repeatedly in one process **segfaults inside Qt** — a window owns
+threads, timers and a tray icon, and Python's collector does not destroy the C++
+side in the order Qt expects. The fixture is module-scoped and deliberately does
+not close the window. That is a fact about the test process, not the
+application, which builds one window and keeps it.
+
 
 ### Added — `.gitattributes`, and a correction about `big.pst`
 

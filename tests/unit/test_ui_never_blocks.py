@@ -354,3 +354,64 @@ def test_progress_reaches_the_screen_through_a_signal():
     one, which is how "is it doing anything?" becomes a support question."""
     text = source(UI / "indexing_view.py")
     assert "signals.progress.connect" in text
+
+
+# ---------------------------------------------------------------------------
+# A function-local import that shadows a module-level one
+#
+# **`UnboundLocalError: cannot access local variable 'QTimer'`, and the window
+# would not open at all.** `MainWindow.__init__` used `QTimer` at line 207; four
+# hundred lines later, still inside the same function, sat a redundant
+# `from PyQt6.QtCore import QTimer`. Python binds names per *function*, not per
+# line, so that import made `QTimer` local for the whole of `__init__` and the
+# earlier use referred to a variable that did not exist yet.
+#
+# The import had been harmless for months. It became fatal the moment somebody
+# used the same name earlier in the function - which is the definition of a trap
+# rather than a bug: correct today, and waiting.
+#
+# Five more were found in `app/ui` and two in `app/cli.py`, every one redundant.
+# ---------------------------------------------------------------------------
+
+def test_no_function_reimports_a_name_the_module_already_has():
+    r"""Every one of these is an `UnboundLocalError` waiting for a caller.
+
+    Local imports are fine and this project uses them deliberately - to break
+    cycles, and to keep a heavy module off the start-up path. What is refused is
+    a local import of a name the *module* already imports, which buys nothing
+    and changes the scope of that name for the entire function.
+    """
+    import ast
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[2] / "app"
+    offences: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_level = {
+            alias.asname or alias.name.split(".")[0]
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        }
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                    continue
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    if name in module_level:
+                        offences.append(
+                            f"{path.name}:{node.lineno} {function.name}() "
+                            f"re-imports {name}")
+
+    assert not offences, (
+        "these local imports shadow a module-level name:\n  "
+        + "\n  ".join(offences)
+        + "\n\nThe module already imports it, so the local import buys nothing "
+          "and makes the name local to the whole function - any use of it "
+          "earlier in that function raises UnboundLocalError. Delete the local "
+          "import."
+    )

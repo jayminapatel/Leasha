@@ -265,9 +265,7 @@ def attach_git_tree(results: Any):
     Here rather than in the view because `code_view.py` is at the 250-line
     guard, and a splitter assembled in three places would drift.
     """
-    from PyQt6.QtWidgets import (
-        QLabel, QSplitter, QVBoxLayout, QWidget,
-    )
+    from PyQt6.QtWidgets import QLabel, QSplitter, QVBoxLayout
 
     tree = GitTree()
 
