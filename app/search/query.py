@@ -29,10 +29,15 @@ from typing import Optional, Sequence
 
 from app.core.identifiers import expand_term, has_case_boundary
 
+# Re-exported below. Imported here rather than mid-file so the import block is
+# the import block.
+from app.storage.filters import MAIL_KINDS
+
 __all__ = [
     "ParsedQuery",
     "parse_query",
     "to_fts_match",
+    "MAIL_KINDS",
     "MAX_QUERY_CHARS",
     "MAX_TERMS",
 ]
@@ -121,7 +126,12 @@ _SPAN_DAYS = {"d": 1, "day": 1, "days": 1, "w": 7, "week": 7, "weeks": 7,
 SCOPES = ("all", "mail", "documents", "code")
 
 #: `files.source_kind` values that count as mail.
-MAIL_KINDS = ("pst_message", "eml")
+#:
+#: **Defined in `app/storage/filters.py`** and re-exported here under the name
+#: everything already imports. It is a fact about what the `files` table stores
+#: rather than about how a query is written, and the SQL builder that needs it
+#: now sits below this layer - so defining it here would have meant Layer 1
+#: importing Layer 4 to find out what its own column can contain.
 
 
 @dataclass(frozen=True)

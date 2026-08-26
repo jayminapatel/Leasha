@@ -73,6 +73,17 @@ class FakeStore:
         self.asked.append((text, repo, tuple(ext or ()), limit))
         return list(self._files)
 
+    def browse_files(self, parsed, *, limit=500, extra_ext=None):
+        # Recorded in `code_files`' shape so the assertions below still read as
+        # "what did the tab ask for", which is what they are about.
+        self.asked.append((
+            parsed.text,
+            parsed.repos[0] if parsed.repos else "",
+            tuple(parsed.ext) or tuple(extra_ext or ()),
+            limit,
+        ))
+        return list(self._files)
+
     def distinct_values(self, _kind, *, prefix="", limit=40):
         return []
 

@@ -353,7 +353,16 @@ def test_t8_the_code_scope_is_repository_membership_not_file_type(stores, tmp_pa
 # --- T9 ---------------------------------------------------------------------
 
 def test_t9_migrating_v5_to_v6_preserves_every_file_row(tmp_path):
-    """The path that happens for real: an existing index, not a fresh one."""
+    r"""The path that happens for real: an existing index, not a fresh one.
+
+    **Asserted against `CURRENT_VERSION`, not against 6.** Pinning the number
+    made this fail the moment the schema reached v7, for a reason that has
+    nothing to do with what it tests - which is that forty file rows survive an
+    upgrade from v5. Every migration after v6 runs here too, and that is the
+    point rather than an accident: this is the only test that carries a
+    populated pre-v6 database all the way to today's schema.
+    """
+    from app.storage.migrations import CURRENT_VERSION
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -373,7 +382,7 @@ def test_t9_migrating_v5_to_v6_preserves_every_file_row(tmp_path):
 
     apply_migrations(conn)
 
-    assert read_version(conn) == 6
+    assert read_version(conn) == CURRENT_VERSION
     assert conn.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 40
     assert conn.execute(
         "SELECT COUNT(*) FROM files WHERE repo_id IS NULL").fetchone()[0] == 40

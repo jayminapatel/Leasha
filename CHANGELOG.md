@@ -1,12 +1,67 @@
 # Changelog
 
-**Doc version:** 3.45 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.46 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — one switch vocabulary, and one definition of what a switch means
+
+Reported from the window: *"the switches Search should have all switches, files
+should have all switches (files, Mail and Code), mail should have mail switches,
+code same switches has files — this is not the case, and the results should be
+same across but only applicable to the tab — this is not the case."*
+
+Both halves had one cause. **Each tab wrote its own filtering**, so each had its
+own idea of which switches existed. Files honoured `type:` and a name and
+dropped the other nine one function above the store call. Code honoured three —
+and silently ignored two of those, because `CodeRoute` carried `text`, `repo`
+and `extensions` and the dropdown offered `/name` and `/path` anyway. Mail knew
+its five columns and nothing about the file a message came from. The menus were
+trimmed to match, which made the gap read as deliberate rather than missing.
+
+`app/storage/filters.py` now holds `file_filter_sql` — moved out of
+`keyword._filter_sql`, which was private to Layer 4 and therefore reachable only
+by the generic search. It is the single definition of what every switch means
+against `files`, and all four surfaces compose it. **A tab decides which rows it
+is about and never what `size:>1mb` means**, which is exactly "same across, but
+only applicable to the tab".
+
+What that buys, concretely:
+
+- **Files** honours all eleven. `/from dave` is not a mail search here — it
+  narrows to the mail *files* on disk whose sender matches, which is a question
+  about files.
+- **Files matches contents as well as names and folders**, asked for directly.
+  `SqliteStore.browse_files` unions the filename index with BM25 over chunks, so
+  the same words typed in Files and in Search no longer give two different sets.
+  `/name` narrows back to filenames with **no mode flag and no second code
+  path** — it is an ordinary conjunctive filter on the basename, so a row that
+  matched only on its contents cannot satisfy it and the content half falls away
+  on its own.
+- **Code** is one query rather than two. The tree's selection is injected into
+  the parse as `repos`, so a repository picked on the left and one typed as
+  `/repo` reach the filter by the same route; `scoped("code")` is what keeps the
+  tab about repositories.
+- **Mail** keeps its own columns for the mail fields — the trigram header index
+  is faster, and `after:`/`before:` belong on `sent_at` rather than the file's
+  mtime, which for a PST is one date shared by every message inside it. The
+  file-level switches are appended to the join it already had.
+
+**A bug the union nearly hid.** SQLite refuses `MIN(bm25(...))` — an auxiliary
+function is only defined on a row of the FTS query itself — and the refusal
+arrives as `OperationalError`, which the fallback caught. The tab went on
+returning name-only matches while looking entirely healthy. Each half is now
+scored in its own subquery, and the fallback is narrowed to a genuinely missing
+table so it cannot hide this again.
+
+Also fixed: `test_t9_migrating_v5_to_v6_preserves_every_file_row` asserted the
+schema lands at 6, so it failed the moment NAME_ONLY took it to 10 — for a
+reason unrelated to what it tests. It asserts `CURRENT_VERSION` now, which also
+makes it the one test carrying a populated pre-v6 database all the way forward.
 
 ### Added — `scan` reports what is inside the archives, without opening any of it
 

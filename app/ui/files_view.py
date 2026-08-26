@@ -211,7 +211,17 @@ class FilesView(QWidget):
         self._timer.start()
 
     def _run(self) -> None:
-        text, ext = file_query(self.input.text())
+        parsed = file_query(self.input.text())
+        # The free text, as the store will see it. Kept here only to decide
+        # whether the box is too short to answer and what to put in the summary
+        # - the *filtering* is entirely the store's, through the one definition
+        # every tab now shares.
+        text = " ".join(parsed.terms).strip() or (parsed.text or "").strip()
+        filtered = any((
+            parsed.ext, parsed.paths, parsed.names, parsed.sizes, parsed.repos,
+            parsed.senders, parsed.recipients, parsed.subjects,
+            parsed.after, parsed.before, parsed.has_attachment is not None,
+        ))
 
         # **Only an empty box clears the list.**
         #
@@ -230,7 +240,7 @@ class FilesView(QWidget):
         # reads an empty name as "everything" - see `search_files_by_name` - so
         # this falls through to the same query the rest of the tab uses rather
         # than becoming a second path that can drift from it.
-        if len(text) < MIN_NAME_CHARS and text and not ext:
+        if len(text) < MIN_NAME_CHARS and text and not filtered:
             # Too short to be meaningful - one character matches nearly every
             # file - but the previous results stay on screen rather than the
             # table going blank mid-word.
@@ -250,8 +260,7 @@ class FilesView(QWidget):
         generation = self._generation
 
         worker = CallableWorker(
-            self._store.search_files_by_name, text, limit=200, ext=ext or None,
-            component="ui.files",
+            self._store.browse_files, parsed, limit=200, component="ui.files",
         )
         worker.signals.finished.connect(
             lambda rows, g=generation: self._show(rows, g, text)

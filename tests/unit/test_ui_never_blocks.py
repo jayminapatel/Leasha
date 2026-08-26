@@ -163,7 +163,8 @@ FILESYSTEM = {"exists", "is_file", "is_dir", "stat", "glob", "rglob", "iterdir"}
 
 #: Methods that reach the database. Every one is a query.
 STORE_CALLS = {
-    "messages_for", "search_files_by_name", "browse_messages", "count_messages",
+    "messages_for", "search_files_by_name", "browse_files", "browse_messages",
+    "count_messages",
     "count_named_files", "record_open", "all_state", "set_states",
 }
 

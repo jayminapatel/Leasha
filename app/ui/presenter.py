@@ -759,25 +759,29 @@ def interpret_message(translation: Any) -> tuple[Optional[str], str]:
     return None, str(getattr(translation, "note", "") or "")
 
 
-def file_query(raw: str) -> tuple[str, list[str]]:
-    """A Files-tab query as `(name text, extensions)`.
+def file_query(raw: str) -> Any:
+    r"""One typed line, parsed - **the whole of it, not the part a tab liked.**
 
-    **The `/` commands are parsed, not merely offered.** The dropdown arrived
-    here as a copy of the search box's, so `/type pdf` was inserted as
-    `type:pdf` and then handed to a trigram index as a literal string - matching
-    nothing, with a dropdown cheerfully suggesting it. An offer the application
-    does not honour is worse than no offer at all.
+    This used to return `(text, extensions)`, which is a fair summary of what
+    the Files tab could do at the time and the reason it could do no more.
+    `/path`, `/after`, `/size`, `/repo` and every mail field were parsed
+    correctly and then thrown away here, one function above the store call - so
+    the dropdown offered filters that did nothing, and the same query typed in
+    Files and in Search returned two different sets.
 
-    Only the filters this tab can apply survive: `type:` becomes the `ext`
-    argument the store already takes. Everything else in the parse is about
-    document *contents*, which this tab never reads.
+    Now the parse travels intact to `SqliteStore.browse_files`, which applies
+    every switch through the one definition in `storage/filters.py`. The tab
+    decides which rows it is about; it no longer decides what a switch means.
+
+    Note what is *not* here any more: the old special-casing that folded
+    `parsed.names` into the free text. `/name` is an ordinary filter on the
+    basename, and leaving it as one is what makes it narrow a content search to
+    filenames without a mode flag.
     """
     from app.search.commands import expand_slashes
     from app.search.query import parse_query
 
-    parsed = parse_query(expand_slashes((raw or "").strip()))
-    text = " ".join((*parsed.terms, *parsed.names)).strip() or (parsed.text or "").strip()
-    return text, list(parsed.ext)
+    return parse_query(expand_slashes((raw or "").strip()))
 
 
 #: A short tag per kind, rather than an icon font or bundled SVGs.
@@ -1362,6 +1366,34 @@ def mail_filters(parsed: Any) -> dict[str, Any]:
         "subject": first(getattr(parsed, "subjects", ())),
         "has_attachment": getattr(parsed, "has_attachment", None),
     }
+
+    # **The file-level switches, which this tab never had.** A message is a row
+    # in `messages` joined to the file it came from, so `/type msg`, `/path`,
+    # `/name` and `/size` are all answerable here and were simply never asked.
+    # Built by the same `file_filter_sql` every other surface uses, so they mean
+    # the same thing on this tab as on the others.
+    #
+    # The mail columns are cleared first, and both reasons matter: `sender` and
+    # friends are already handled above through the trigram header index, which
+    # is faster than the subquery this would emit; and `after`/`before` belong
+    # on `m.sent_at` here - the date a message was *sent* - not on the file's
+    # modification time, which for a PST is the date the whole archive last
+    # changed and would filter every message in it identically.
+    file_where, file_params = "", []
+    try:
+        from dataclasses import replace as _replace
+
+        from app.storage.filters import file_filter_sql
+
+        file_where, file_params = file_filter_sql(_replace(
+            parsed, senders=(), recipients=(), subjects=(),
+            has_attachment=None, after=None, before=None,
+        ))
+    except Exception:                    # noqa: BLE001 - a filter, not the tab
+        file_where, file_params = "", []
+    if file_where:
+        filters["file_where"] = file_where
+        filters["file_params"] = file_params
 
     # Dates arrive as `date` objects and the column holds epoch seconds.
     # `before` is exclusive in the store, so a `before:2024-06-01` excludes the
@@ -2061,6 +2093,19 @@ def repo_empty_state(anything_indexed: bool) -> str:
     )
 
 
+def _switch_catalogue() -> tuple[Any, ...]:
+    """`app.search.commands.COMMANDS`, imported at call time.
+
+    A module-level import would put Layer 4 into the import graph of a module
+    that runs on every keystroke, which
+    `test_nothing_that_runs_on_a_keystroke_imports_this` exists to prevent.
+    Called once, at import, to build `ALL_COMMANDS`.
+    """
+    from app.search.commands import COMMANDS
+
+    return COMMANDS
+
+
 # -- what each box offers on `/` ---------------------------------------------
 #
 # **The search box is the union; the focused tabs are subsets of it.** Search is
@@ -2073,18 +2118,39 @@ def repo_empty_state(anything_indexed: bool) -> str:
 # against the field its tab's query function actually consumes, and that check
 # should not need a display to run.
 
-#: Files. `file_query` turns `type:` into the `ext` argument the store takes and
-#: matches names; the rest of the parse is about document *contents*, which this
-#: tab never reads.
-FILES_COMMANDS = ("type", "name")
+#: Every switch there is, in the catalogue's own order.
+#:
+#: **The subsets used to be much smaller, and that was the bug.** Files offered
+#: two of eleven and Code three; the other eight were typed, parsed, and then
+#: dropped on the floor by a tab that had no idea what to do with them. The
+#: owner's report was exactly that: *"the switches Search should have all
+#: switches, files should have all switches... and the results should be same
+#: across but only applicable to the tab, this is not the case"*.
+#:
+#: What made the subsets necessary was that each tab wrote its own filtering.
+#: Now they share one - `storage/filters.file_filter_sql` - so a switch means
+#: the same thing everywhere and the only question left is which *rows* a tab is
+#: about. That question has an answer for every switch on every tab, so the
+#: subsets collapse into this.
+#: Read from the catalogue rather than restated, so a switch added there is
+#: offered everywhere without a second list to remember.
+ALL_COMMANDS: tuple[str, ...] = tuple(
+    command.name for command in _switch_catalogue()
+)
 
-#: Mail. Precisely the columns `messages` has - `browse_messages` takes senders,
-#: recipients, subjects, attachments and a date range, and nothing else.
-MAIL_COMMANDS = ("from", "to", "subject", "has", "after", "before")
+#: Files: every file row. A `/from` here is not a mail search - it narrows to
+#: the mail *files* on disk whose sender matches, which is a question about
+#: files and belongs on the tab about files.
+FILES_COMMANDS = ALL_COMMANDS
 
-#: Code. `repo:` picks the repository; `type:` and `name:` narrow the files
-#: underneath it. Before the tree listed files, this was `repo` alone.
-CODE_COMMANDS = ("repo", "type", "name")
+#: Mail: every switch too, for the same reason in reverse. The five mail
+#: columns are what `browse_messages` was built for, and the file-level ones
+#: narrow by the message's own file - its name, folder, type and size.
+MAIL_COMMANDS = ALL_COMMANDS
+
+#: Code: what Files offers. `repo:` is not special here, it is simply the switch
+#: this tab is most often used with - and it worked on the other tabs already.
+CODE_COMMANDS = ALL_COMMANDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -2117,6 +2183,19 @@ class CodeRoute:
     extensions: tuple[str, ...] = ()
     #: Why it chose git, for the line above the results. Empty for the index.
     because: str = ""
+    #: The whole parse, for the index engine. **Added because `text`, `repo`
+    #: and `extensions` were not enough and quietly pretended to be.**
+    #:
+    #: The Code dropdown offered `/name` and `/path`; `parse_query` filled
+    #: `names` and `paths` correctly; and this route carried neither, so both
+    #: narrowed nothing while looking like they had. `test_command_subsets.py`
+    #: could not catch it - it asserts the *parser* fills a field, not that the
+    #: tab consumes it.
+    #:
+    #: `None` on the git path, where the raw line is re-read by
+    #: `parse_git_query` instead. Typed `Any` because `ParsedQuery` is Layer 4
+    #: and this module runs on a keystroke.
+    parsed: Any = None
 
 
 #: Switches only the repository engine has. **Deliberately not "every git
@@ -2179,7 +2258,7 @@ class GitScope:
 
 def git_rows_matching(
     rows: Any, *, text: str = "", extensions: Any = (),
-    types: Any = None,
+    types: Any = None, paths: Any = (), names: Any = (),
 ) -> list[Any]:
     r"""Narrow git-sourced rows by the same switches the index path honours.
 
@@ -2193,6 +2272,11 @@ def git_rows_matching(
     configured "what counts as code" set, used only when they typed nothing -
     the same precedence as the index path, so a branch and the working tree
     filter identically.
+
+    `paths` and `names` are `/path` and `/name`, and they are here because the
+    Code dropdown has always offered both while nothing consumed either. They
+    are the same two questions the index path asks and must be asked the same
+    way: `/path` is any part of the folder, `/name` is the basename only.
 
     Matching is substring and case-insensitive on the whole path, because
     `order` should find `src/OrderService.cs` - the rule `code_files` already
@@ -2212,7 +2296,17 @@ def git_rows_matching(
                     else getattr(row, "path", "")) or "")
         if not path:
             continue
-        if wanted and wanted not in path.lower():
+        lowered = path.lower()
+        if wanted and wanted not in lowered:
+            continue
+        # `/path` asks about the folder, so the basename is cut off first -
+        # otherwise `path:service` matches `OrderService.cs` sitting in the
+        # repository root, which is the answer to the other switch.
+        folder = lowered.replace("\\", "/").rpartition("/")[0]
+        if any(str(one).lower() not in folder for one in (paths or ())):
+            continue
+        base = lowered.replace("\\", "/").rpartition("/")[2]
+        if any(str(one).lower() not in base for one in (names or ())):
             continue
         if allowed:
             # The same two questions `indexed_ext` answers, in the same order:
@@ -2253,15 +2347,43 @@ def code_rows_for(store: Any, scope: Any, route: Any,
     types = code_type_filter(store)
     text = str(getattr(route, "text", "") or "")
     typed = tuple(getattr(route, "extensions", ()) or ())
+    parsed = getattr(route, "parsed", None)
 
     if cached is not None:
         return git_rows_matching(
-            cached, text=text, extensions=typed, types=types)[:limit]
+            cached, text=text, extensions=typed, types=types,
+            paths=tuple(getattr(parsed, "paths", ()) or ()),
+            names=tuple(getattr(parsed, "names", ()) or ()),
+        )[:limit]
 
-    return list(store.code_files(
-        text, repo=str(getattr(scope, "repo", "") or "")
-        or str(getattr(route, "repo", "") or ""),
-        ext=list(typed) or types, limit=limit))
+    repo = (str(getattr(scope, "repo", "") or "")
+            or str(getattr(route, "repo", "") or ""))
+    if parsed is None:                   # a git route: no parse to apply
+        return list(store.code_files(
+            text, repo=repo, ext=list(typed) or types, limit=limit))
+
+    # **One query, and that is the point.** `code_files` understood `repo`,
+    # `text` and `ext`; `browse_files` understands every switch, through the
+    # same definition Files and the search box use. Keeping both would have
+    # meant two answers to "what does `/path` mean here", which is the split
+    # this whole change exists to close.
+    #
+    # The tree's selection is injected as `repos` rather than passed beside the
+    # parse, so a repository chosen on the left and one typed as `/repo` reach
+    # the filter by the same route and cannot disagree.
+    #
+    # **Scoped to `code`, which is what keeps this the Code tab.**
+    # `file_filter_sql` reads that scope as `f.repo_id IS NOT NULL` - "in a
+    # repository", the same narrowing the search box's Code chip applies.
+    # Without it this would list the whole index, which is the one thing a tab
+    # about repositories must not do.
+    if repo:
+        from dataclasses import replace as _replace
+
+        parsed = _replace(parsed, repos=(repo,))
+    return list(store.browse_files(
+        parsed.scoped("code"), limit=limit,
+        extra_ext=None if typed else types))
 
 
 def code_type_filter(store: Any) -> Optional[list[str]]:
@@ -2346,6 +2468,7 @@ def code_route(text: str) -> CodeRoute:
         text=(parsed.text or "").strip(),
         repo=(parsed.repos[0] if getattr(parsed, "repos", ()) else ""),
         extensions=tuple(getattr(parsed, "ext", ()) or ()),
+        parsed=parsed,
     )
 
 

@@ -142,14 +142,33 @@ class FakeStore:
 
     def code_files(self, text, *, repo="", ext=None, limit=500):
         self.asked.append({"text": text, "repo": repo, "ext": ext})
+        return self._rows()
+
+    def browse_files(self, parsed, *, limit=500, extra_ext=None):
+        # **The tab calls this now**, and the repository arrives inside the
+        # parse rather than beside it - so a repository picked in the tree and
+        # one typed as `/repo` cannot take different routes to the filter.
+        self.asked.append({
+            "text": parsed.text, "repo": (parsed.repos[0] if parsed.repos else ""),
+            "ext": tuple(parsed.ext), "scope": parsed.scope,
+        })
+        return self._rows()
+
+    @staticmethod
+    def _rows():
         return [{"path": r"D:\Repo\leasha\Indexed.cs", "ext": "cs",
                  "repo": "leasha", "size_bytes": 10, "mtime_ns": 1,
                  "status": "INDEXED"}]
 
 
 class Route:
-    def __init__(self, text="", extensions=(), repo=""):
+    def __init__(self, text="", extensions=(), repo="", raw=""):
         self.text, self.extensions, self.repo = text, extensions, repo
+        # The whole parse travels with the route now. `code_rows_for` reads it
+        # to apply the switches the route's three fields could never carry.
+        from app.search.commands import expand_slashes
+        from app.search.query import parse_query
+        self.parsed = parse_query(expand_slashes(raw or text))
 
 
 def test_a_repository_scope_uses_the_index(monkeypatch):
@@ -159,6 +178,8 @@ def test_a_repository_scope_uses_the_index(monkeypatch):
     rows = code_rows_for(store, GitScope(kind="repo", repo="leasha"), Route())
 
     assert store.asked and store.asked[0]["repo"] == "leasha"
+    # Scoped to repositories, or the Code tab would list the whole index.
+    assert store.asked[0]["scope"] == "code"
     assert rows[0]["status"] == "INDEXED"
 
 

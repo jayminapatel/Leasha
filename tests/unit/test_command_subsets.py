@@ -1,15 +1,23 @@
-"""Which `/` commands each box offers, and why that is not a free choice.
+r"""Which `/` commands each box offers, and why that is not a free choice.
 
-**The generic search is the union; the focused tabs are subsets.** Search is
-where somebody types before they know which tab they want, so it must offer
-everything. A focused tab offers what it can honour - no more, because a
-dropdown full of commands that quietly do nothing is discovered one
-disappointment at a time, and no less, because a tab that could answer `/type`
-and does not offer it is a feature nobody finds.
+**Every box offers every switch, and that is the change.** The rule has not
+moved - a tab offers what it can honour, no more and no less - but the answer
+to "what can this tab honour" has, because the tabs stopped each writing their
+own filtering. `storage/filters.file_filter_sql` is now the single definition of
+what a switch means, and each tab composes it, so there is no switch any tab has
+to decline.
 
-These are assertions about a relationship, not about a list. A command added to
-the catalogue and to no tab will fail here, which is the point: it forces the
-question "which tabs can honour this?" to be answered rather than forgotten.
+What that fixes is the owner's report: *"the switches Search should have all
+switches, files should have all switches (files, Mail and Code), mail should
+have mail switches, code same switches has files - this is not the case, and the
+results should be same across but only applicable to the tab"*. Files offered
+two of eleven; Code offered three and silently ignored two of those.
+
+The half of the rule that still bites is the second one. A command offered and
+not honoured is discovered one disappointment at a time, so the tests below
+check each tab against the function that actually runs - not against the parser,
+which was the gap that let `/name` and `/path` sit in the Code menu doing
+nothing for as long as they did.
 """
 
 from __future__ import annotations
@@ -74,19 +82,57 @@ def test_no_tab_offers_a_command_it_cannot_honour() -> None:
                 f"{tab} offers /{name}, which the parser does not recognise")
 
 
-def test_mail_offers_exactly_the_columns_its_store_query_takes() -> None:
-    """`browse_messages` takes these and nothing else; drift would be silent."""
-    assert set(MAIL_COMMANDS) == {"from", "to", "subject", "has", "after", "before"}
+def test_every_tab_offers_every_switch() -> None:
+    r"""The rule, stated once.
 
-
-def test_code_offers_type_because_its_tree_lists_files() -> None:
-    """It offered `repo` alone while the tab was a flat list of repositories.
-
-    The moment the tree grew file children, `/type` became answerable - and an
-    offer that lags behind what the tab can do is the same failure as an offer
-    that runs ahead of it.
+    Not an aspiration: it holds because `file_filter_sql` defines each switch
+    once and all three tabs compose it. If a future switch cannot be answered
+    on some tab, this fails and the honest fix is to make that tab answer it or
+    to say plainly why it cannot - which is the conversation the old subsets
+    quietly avoided by shrinking the menu instead.
     """
-    assert "type" in CODE_COMMANDS and "repo" in CODE_COMMANDS
+    for tab, names in SUBSETS.items():
+        assert set(names) == ALL_NAMES, f"{tab} is missing {sorted(ALL_NAMES - set(names))}"
+
+
+def test_mail_still_uses_its_own_columns_for_the_mail_fields() -> None:
+    r"""**Offering everything must not mean answering everything the same way.**
+
+    `browse_messages` handles `from`, `to`, `subject` and `has` natively, on the
+    trigram header index, and `after`/`before` against `m.sent_at`. The shared
+    fragment must therefore arrive with those cleared - otherwise a date filter
+    would land on the file's mtime, which for a PST is when the whole archive
+    last changed and would match every message in it identically.
+    """
+    from app.ui.presenter import mail_filters
+
+    filters = mail_filters(parse_query(expand_slashes(
+        "/from dave /after 2024-01-01 /type msg /path 2024")))
+
+    assert filters["sender"] == "dave"
+    assert "after" in filters                     # on sent_at, natively
+    where = filters.get("file_where", "")
+    assert "f.ext" in where and "f.path" in where  # the file-level half
+    assert "sender" not in where and "mtime_ns" not in where
+
+
+def test_code_narrows_by_name_and_path_rather_than_merely_offering_them() -> None:
+    r"""**The gap the old contract could not see.**
+
+    `test_no_tab_offers_a_command_it_cannot_honour` asks whether the *parser*
+    fills a field. It does, for `/name` and `/path`, and had for as long as the
+    Code menu had offered them - while `CodeRoute` carried neither, so both
+    narrowed nothing and looked healthy doing it. This asks the filter that
+    actually runs.
+    """
+    from app.ui.presenter import git_rows_matching
+
+    rows = [{"path": "src/OrderService.cs"}, {"path": "service/main.py"}]
+
+    assert [r["path"] for r in git_rows_matching(rows, paths=("service",))] == [
+        "service/main.py"]
+    assert [r["path"] for r in git_rows_matching(rows, names=("service",))] == [
+        "src/OrderService.cs"]
 
 
 def test_the_popup_shows_only_what_it_was_restricted_to() -> None:

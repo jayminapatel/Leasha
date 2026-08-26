@@ -44,6 +44,14 @@ _log = logger.bind(component="storage.sqlite")
 #: find. Chosen so the worst bucket stays under a second.
 MERGE_BUCKET_LIMIT = 400
 
+#: Characters of free text below which a browse returns nothing rather than
+#: everything. **Two, and the reason is not the index.** One or two characters
+#: match nearly every file, so answering them with a screenful of arbitrary rows
+#: shows results that have no relation to what was typed - which reads as a
+#: search that worked and gave the wrong answer. An *empty* box is a different
+#: request and means "everything", newest first.
+NAME_MIN_CHARS = 2
+
 
 def _basename(path: str) -> str:
     """The last component of a path, whichever separator it uses.
@@ -594,6 +602,8 @@ class SqliteStore:
         has_attachment: Optional[bool] = None,
         after: Optional[int] = None,
         before: Optional[int] = None,
+        file_where: str = "",
+        file_params: Sequence[Any] = (),
         limit: int = 500,
     ) -> list[dict[str, Any]]:
         """Mail as a table: newest first, filtered by its own columns.
@@ -663,14 +673,22 @@ class SqliteStore:
             clauses.append("m.sent_at < ?")
             params.append(int(before))
 
-        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else " WHERE 1=1"
+        # **The file-level switches, built by the one shared definition.**
+        # `browse_messages` has always joined `files`, so `/type`, `/path`,
+        # `/name`, `/size` and `/repo` cost nothing to honour here - they were
+        # simply never passed. The mail columns are deliberately *not* in this
+        # fragment: the caller clears them, because `sender` and friends above
+        # can use the trigram header index and `after`/`before` belong on
+        # `m.sent_at` - the date the message was sent - rather than on the
+        # file's mtime.
         sql = f"""
             SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
                    m.has_attach, m.store_path, m.conversation,
                    f.path, f.size_bytes, f.status
             FROM messages m
             JOIN files f ON f.id = m.file_id
-            {where}
+            {where} {file_where}
             -- `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
             -- 3.30. The bundled version is newer, but the version a user's
             -- Python happens to ship is not something this should depend on,
@@ -678,6 +696,7 @@ class SqliteStore:
             ORDER BY m.sent_at IS NULL, m.sent_at DESC, m.file_id DESC
             LIMIT ?
         """
+        params.extend(file_params or ())
         params.append(max(1, int(limit)))
         return [dict(row) for row in self.conn.execute(sql, params)]
 
@@ -788,6 +807,140 @@ class SqliteStore:
             # is the right answer; taking the window down with it is not.
             return []
         return [dict(row) for row in rows]
+
+    def browse_files(
+        self,
+        parsed: Any,
+        *,
+        limit: int = 200,
+        extra_ext: Optional[Sequence[str]] = None,
+    ) -> list[dict[str, Any]]:
+        r"""Files matching a whole parsed query - **every switch, one meaning.**
+
+        `search_files_by_name` answers "what is this file called". This answers
+        the question the Files and Code tabs are actually asked, which is the
+        same one the search box is asked, narrowed to file rows:
+
+          * free text matches the **name, the folder, or the contents** - asked
+            for directly, so that typing the same words in Files and in Search
+            does not quietly produce two different sets;
+          * every `/switch` is applied through `filters.file_filter_sql`, the
+            one definition, so `path:`, `after:`, `size:`, `repo:` and the mail
+            fields work here exactly as they do in the generic search.
+
+        **`/name` needs no special case, and that is the nice part.** It is an
+        ordinary conjunctive filter on the basename, so a row that matched only
+        on its *contents* cannot satisfy it. Typing `/name invoice` therefore
+        narrows to filenames without any mode flag, second code path, or switch
+        that means something different here than it does anywhere else.
+
+        `extra_ext` is the Code tab's configured "what counts as code" set. It
+        is deliberately separate from `parsed.ext`: a typed `/type cs` must beat
+        the configuration rather than intersect with it, so the caller passes
+        one or the other and never both.
+
+        Ordering is deliberate and mixed. A row that matched by name is ranked
+        by the name index; one that matched only by content carries its BM25
+        score; a query with no text at all is newest-first, because that is a
+        list somebody is browsing rather than searching.
+        """
+        from app.storage.filters import file_filter_sql
+
+        where, params = file_filter_sql(parsed)
+        wanted = [e.lower().lstrip(".") for e in (extra_ext or ())]
+        if wanted and not getattr(parsed, "ext", ()):
+            where += f" AND f.ext IN ({','.join('?' * len(wanted))})"
+            params.extend(wanted)
+
+        cleaned = " ".join(
+            str(part) for part in (
+                *(getattr(parsed, "terms", ()) or ()),
+            )
+        ).strip() or str(getattr(parsed, "text", "") or "").strip()
+        capped = max(1, int(limit))
+
+        if len(cleaned) < NAME_MIN_CHARS:
+            # **An empty box means everything, and a filter alone is a complete
+            # request.** Both were settled when the Files tab was built; this
+            # keeps them, and adds that one or two characters still mean
+            # nothing rather than a hundred arbitrary rows.
+            if cleaned:
+                return []
+            return [dict(row) for row in self.conn.execute(
+                f"""SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
+                           f.status, f.skip_code, f.source_kind, 0.0 AS score
+                    FROM files f
+                    WHERE f.source_kind = 'file' {where}
+                    ORDER BY f.mtime_ns DESC
+                    LIMIT ?""",
+                [*params, capped],
+            )]
+
+        # Quoted whole, exactly as `search_files_by_name` does: a trigram index
+        # takes its query as a literal, so nothing a person types ever reaches
+        # the FTS expression parser.
+        literal = '"' + cleaned.replace('"', '""') + '"'
+        # **`bm25()` cannot be wrapped in an aggregate.** SQLite refuses it with
+        # "unable to use function bm25 in the requested context", because an
+        # auxiliary function is only defined on a row of the FTS query itself.
+        # So each half is scored in its own subquery, where `bm25` is legal, and
+        # the outer statement only ever sees a plain number.
+        #
+        # This mattered more than a syntax error usually does: the refusal was
+        # an `OperationalError`, the fallback below caught it, and the tab went
+        # on returning name-only matches while looking entirely healthy. The
+        # fallback is now narrow enough that it cannot hide this again.
+        sql = f"""
+            SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
+                   source_kind, MIN(score) AS score
+            FROM (
+                SELECT f.id AS id, f.path AS path, f.ext AS ext,
+                       f.size_bytes AS size_bytes, f.mtime_ns AS mtime_ns,
+                       f.status AS status, f.skip_code AS skip_code,
+                       f.source_kind AS source_kind,
+                       bm25(files_fts, 10.0, 1.0) AS score
+                FROM files_fts
+                JOIN files f ON f.id = files_fts.rowid
+                WHERE files_fts MATCH ? {where}
+
+                UNION ALL
+
+                SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
+                       f.status, f.skip_code, f.source_kind,
+                       bm25(chunks_fts) AS score
+                FROM chunks_fts
+                JOIN chunks c ON c.id = chunks_fts.rowid
+                JOIN files  f ON f.id = c.file_id
+                WHERE chunks_fts MATCH ? AND f.source_kind = 'file' {where}
+            )
+            GROUP BY id
+            ORDER BY score
+            LIMIT ?
+        """
+        try:
+            rows = self.conn.execute(
+                sql, [literal, *params, literal, *params, capped]
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            # **Only a missing table.** An index built before `chunks_fts` or
+            # `files_fts` existed is a real case and the name half alone is a
+            # far better answer than a broken window. Anything else is a fault
+            # in the statement above, and swallowing it is how a tab quietly
+            # stops searching contents - so it is raised.
+            if "no such table" not in str(exc).lower():
+                raise
+            _log.warning("browse_files fell back to names only: {}", exc)
+            return self.search_files_by_name(
+                cleaned, limit=capped,
+                ext=list(getattr(parsed, "ext", ()) or wanted) or None,
+            )
+        # `UNION` can return one row per branch for a file that matched both.
+        # The better score wins, and the first is the better one after ORDER BY.
+        best: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            record = dict(row)
+            best.setdefault(int(record["id"]), record)
+        return list(best.values())
 
     def count_named_files(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM files_fts").fetchone()

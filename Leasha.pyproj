@@ -207,6 +207,7 @@
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_archive_run.py" />
+    <Compile Include="tests\unit\test_archive_scan.py" />
     <Compile Include="tests\unit\test_archives.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
@@ -258,6 +259,7 @@
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
+    <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
@@ -272,6 +274,7 @@
     <Compile Include="tests\unit\test_ocr_passes.py" />
     <Compile Include="tests\unit\test_odf.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
+    <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
     <Compile Include="tests\unit\test_preview_loader.py" />
@@ -356,6 +359,7 @@
     <Content Include="docs\VERSIONING.md" />
     <Content Include="docs\VISUALSTUDIO.md" />
     <Content Include="docs\VSCODE.md" />
+    <Content Include="docs\WORKORDER-202626081052-ocr-strategy.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

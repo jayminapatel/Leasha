@@ -44,7 +44,7 @@ def test_files_never_clears_itself():
 def test_files_keeps_its_rows_while_a_query_is_too_short():
     """It says what it is waiting for and leaves the previous rows alone."""
     body = source("files_view.py").split("def _run")[1].split("\n    def ")[0]
-    short = body.split("MIN_NAME_CHARS and text and not ext")[1]
+    short = body.split("MIN_NAME_CHARS and text and not filtered")[1]
     assert "setRowCount(0)" not in short.split("return")[0]
 
 
@@ -55,10 +55,19 @@ def test_files_still_refuses_a_query_too_short_to_mean_anything():
 
 
 def test_a_filter_alone_is_a_complete_request():
-    """`/type pdf` means "every PDF". Demanding characters of name as well would
-    refuse the simplest thing the dropdown offers."""
+    r"""`/type pdf` means "every PDF". Demanding characters of name as well would
+    refuse the simplest thing the dropdown offers.
+
+    **`filtered`, not `ext`.** The guard used to ask whether a *type* had been
+    chosen, because `type:` was the only switch this tab honoured. Now that
+    every switch works here, `/path leeds` and `/from dave` are equally complete
+    requests, and asking about one field would refuse them.
+    """
     body = source("files_view.py").split("def _run")[1].split("\n    def ")[0]
-    assert "and not ext" in body
+    assert "and not filtered" in body
+    # Every switch counts, not merely the one that used to.
+    for field in ("parsed.paths", "parsed.sizes", "parsed.senders", "parsed.repos"):
+        assert field in body
 
 
 def test_search_keeps_results_when_a_later_search_finds_nothing():
