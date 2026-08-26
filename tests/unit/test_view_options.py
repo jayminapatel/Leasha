@@ -877,3 +877,124 @@ def test_a_width_wider_than_the_table_is_brought_back_within_it():
 
     assert table.columnWidth(1) <= room
     assert table.columnWidth(1) > 0
+
+
+# ---------------------------------------------------------------------------
+# The rule, as the owner finally had to state it outright
+#
+#   "when you first launch it should auto fit to content if no previous history
+#    else remember column widths.. this i have told you multiple times"
+#
+# Three attempts before this one, and each fixed something real:
+#   1. `setStretchLastSection(True)` owned the last column outright.
+#   2. `column_cap` - 40% of the viewport - trimmed a width somebody dragged.
+#   3. `_bound_to_table` had `max(MIN_COLUMN_CAP_PX, ...)` in it: a *floor*,
+#      which forced every stored width up to 140px.
+#
+# All three are the same mistake in three costumes: a guard I wrote overruling
+# the person it was meant to serve, and doing it silently. The tests each time
+# checked the mechanism I had just changed rather than the rule above, so each
+# fix shipped green and the report came back unchanged.
+#
+# These test the rule. Not the cap, not the stretch, not the floor - the two
+# sentences the owner wrote.
+# ---------------------------------------------------------------------------
+
+def test_a_dragged_width_is_stored_exactly_as_dragged():
+    r"""**The bug the owner's log caught, in one assertion.**
+
+        column seen width saved as 140
+        column size width saved as 140
+        ... five columns, five drags, one number
+
+    140 is `MIN_COLUMN_CAP_PX`, applied as a floor to every saved width. A width
+    somebody chose needs no floor: a 40px column showing an icon is a choice.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.view_options import apply_to_table, button as view_button
+    import tempfile
+
+    app = _qt()
+    table = _table(app)
+
+    original = QApplication.mouseButtons
+    QApplication.mouseButtons = staticmethod(lambda: Qt.MouseButton.LeftButton)
+    try:
+        with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
+            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                                  on_change=lambda _p: None, table=table)
+            apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
+                           available=AVAILABLE_3)
+            app.processEvents()                       # the deferred connect()
+
+            for dragged in (40, 90, 137, 300):
+                table.horizontalHeader().resizeSection(1, dragged)
+                app.processEvents()                   # the deferred record()
+
+                assert dict(chooser.prefs.widths).get("path") == dragged, (
+                    f"dragged to {dragged}, stored as "
+                    f"{dict(chooser.prefs.widths).get('path')}")
+    finally:
+        QApplication.mouseButtons = original
+
+
+def test_no_saved_width_means_fit_to_contents():
+    """First half of the rule: nothing remembered, so measure the content."""
+    from app.ui.view_options import ViewPreferences, apply_to_table
+
+    app = _qt()
+    narrow = _table(app, text="x")
+    wide = _table(app, text="a considerably longer value in every cell")
+
+    apply_to_table(narrow, ViewPreferences(), columns=COLUMNS_3,
+                   available=AVAILABLE_3)
+    apply_to_table(wide, ViewPreferences(), columns=COLUMNS_3,
+                   available=AVAILABLE_3)
+
+    assert wide.columnWidth(0) > narrow.columnWidth(0), (
+        "with nothing saved the columns must be measured from their contents")
+
+
+def test_a_saved_width_beats_the_fit():
+    """Second half: something remembered, so use it rather than measuring."""
+    from app.ui.view_options import ViewPreferences, apply_to_table
+
+    app = _qt()
+    table = _table(app, text="x")
+
+    apply_to_table(table, ViewPreferences(widths=(("path", 260),)),
+                   columns=COLUMNS_3, available=AVAILABLE_3)
+
+    assert table.columnWidth(1) == 260
+
+
+def test_nothing_between_the_drag_and_the_store_may_change_the_number():
+    r"""**A guard against the whole class**, since three of them got through.
+
+    Every previous fix removed one thing that sat between "somebody dragged a
+    column" and "a number was stored". This refuses the shape: `record` may
+    bound nothing, cap nothing and floor nothing. The one legitimate bound - a
+    column wider than its table cannot be reached - belongs at restore, where it
+    is judged against the window actually on screen.
+    """
+    import ast
+    import inspect
+
+    from app.ui import view_options
+
+    source = inspect.getsource(view_options.remember_widths)
+    tree = ast.parse(source.strip())
+    called = {
+        getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+
+    assert "column_cap" not in called, (
+        "the fitting cap must not touch a width somebody dragged")
+    assert "_bound_to_table" not in called, (
+        "bounding belongs at restore, against the window then on screen")
+    assert not {"max", "min"} & called, (
+        "record stores what was dragged; arithmetic here is how it stops doing that")

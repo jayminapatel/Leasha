@@ -692,13 +692,29 @@ def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str],
 
 
 def _bound_to_table(width: int, available: int) -> int:
-    """A chosen width, kept usable. **Not the fitting cap.**
+    r"""A chosen width, kept reachable. **A ceiling only, never a floor.**
 
-    A column wider than the table it lives in cannot be scrolled back into view
-    on some layouts, so a width dragged on a wide monitor and restored on a
-    narrow one arrives genuinely stuck. This is the only ceiling a deliberate
-    width gets, and it is deliberately generous: it says "not wider than the
-    window", not "not wider than we would have chosen".
+    This had `max(MIN_COLUMN_CAP_PX, ...)` in it, and that one call is the whole
+    of the third column-width bug. It is a *floor*: it forced every stored width
+    up to at least 140px. The owner's log said so in five consecutive lines -
+
+        column seen width saved as 140
+        column size width saved as 140
+        column kind width saved as 140
+        column repo width saved as 140
+        column name width saved as 140
+
+    - five different columns, five different drags, one number. Saved, restored
+    faithfully, and wrong, which from the outside is indistinguishable from not
+    being saved at all. That is the third report of "it does not remember my
+    columns" and the second time my own guard was the thing overruling the
+    person it was meant to serve.
+
+    **A width somebody dragged to needs no floor.** If they want a 40px column
+    showing an icon, that is a choice. The only defensible bound is a ceiling,
+    and only because a column wider than its table cannot always be scrolled
+    back into view - so a width chosen on a wide monitor and restored on a
+    narrow one would arrive genuinely stuck.
     """
     try:
         room = int(available)
@@ -706,7 +722,7 @@ def _bound_to_table(width: int, available: int) -> int:
         return int(width)
     if room <= 0:
         return int(width)                    # not laid out yet; nothing to judge
-    return max(MIN_COLUMN_CAP_PX, min(int(width), room))
+    return min(int(width), room)
 
 
 def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
@@ -745,9 +761,12 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
                 # than to shrink it before saving. `_cap_columns` now leaves
                 # chosen columns alone, so the two agree at the width asked for.
                 #
-                # Bounded only by the table itself, which is about a width being
-                # reachable rather than about it being tasteful.
-                width = _bound_to_table(int(new), _available_width(table))
+                # **Stored raw.** Bounding belongs at *restore*, against the
+                # window that is on screen then - not here, against whatever the
+                # window happened to be when the drag happened. Doing it here is
+                # how a value gets baked in wrong and stays wrong: the store and
+                # the screen then agree on a number the person never chose.
+                width = int(new)
                 button.remember_width(order[index], width)
                 # **Logged because this is the link that cannot be tested
                 # here.** Everything either side of it is covered - the store
@@ -756,7 +775,8 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
                 # and no offscreen test can hold a mouse button down. One DEBUG
                 # line turns "it does not remember" into a question the run log
                 # answers.
-                _log.debug("column {} width saved as {}", order[index], width)
+                _log.debug("column {} width saved as {} (table {}px)",
+                           order[index], width, _available_width(table))
         except RuntimeError:
             # The table's C++ side went away between the resize and this
             # callback - a tab closing, or shutdown. Nothing to save, and

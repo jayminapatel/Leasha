@@ -1,12 +1,64 @@
 # Changelog
 
-**Doc version:** 3.57 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.58 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — slow and crashing on first load (issue #1), and column widths, third time
+
+**Issue #1, "Unresponsive Application"** — *"The screen is slow and unresponsive
+on first loading up. The application also crashed a few times."* Both symptoms,
+one cause, and it was mine.
+
+`MainWindow.__init__` states a rule forty lines from where I broke it:
+*"**Nothing runs on a background thread until construction is over.**"* It was
+earned — a worker opening SQLite while the main thread is inside `_apply_theme`,
+which re-polishes every widget in the tree, produced a **Windows access
+violation** with no Python exception, no traceback and no window. That is why
+`refresh_totals` and the two warm-ups were moved to `_start_background_work` on
+the next turn of the event loop.
+
+The watch timer for a run in another process was then started from `__init__`,
+and `_poll_external_run` starts exactly such a worker. Straight back into the
+race the application had already been debugged out of once. The timer is built
+in `__init__` and started in `_start_background_work` now, and a test enforces
+the rule that a comment could not.
+
+### Fixed — the column widths, and this time the log said it outright
+
+Third report, and the owner had to state the rule plainly: *"when you first
+launch it should auto fit to content if no previous history else remember column
+widths.. this i have told you multiple times."*
+
+The log answered it in five lines:
+
+    column seen width saved as 140
+    column size width saved as 140
+    column kind width saved as 140
+    column repo width saved as 140
+    column name width saved as 140
+
+Five columns, five drags, **one number** — and 140 is `MIN_COLUMN_CAP_PX`.
+`_bound_to_table` had `max(MIN_COLUMN_CAP_PX, min(width, room))` in it: a
+*floor*, forcing every stored width up to 140. The width was saved and restored
+faithfully, and wrong, which from the outside is identical to not being saved.
+
+A width somebody dragged to needs no floor — a 40px column showing an icon is a
+choice. Widths are stored exactly as dragged now, and the only bound is a
+ceiling applied at *restore*, judged against the window then on screen rather
+than the one that happened to be open during the drag.
+
+**All three attempts were the same mistake in three costumes**: a guard I wrote
+overruling the person it was meant to serve, silently. `setStretchLastSection`,
+then `column_cap`, then this floor. Each time the test I added checked the
+mechanism I had just changed rather than the rule, so each fix shipped green and
+the report came back unchanged. The tests now assert the owner's two sentences,
+and one of them refuses any arithmetic at all between the drag and the store.
+
 
 ### Fixed — the window would not open, and nothing had ever tried to open it
 

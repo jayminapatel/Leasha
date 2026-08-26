@@ -402,3 +402,95 @@ def test_every_view_with_timers_stops_them_on_shutdown():
         assert "stop_timers" in source, (
             f"{path.name}.shutdown must call stop_timers - see workers.py"
         )
+
+
+# ---------------------------------------------------------------------------
+# Nothing runs on a background thread until construction is over
+#
+# The rule is stated in `MainWindow.__init__` and it was earned: a worker
+# opening SQLite while the main thread was inside `_apply_theme` - which
+# re-polishes every widget in the tree - produced a **Windows access violation**
+# with no Python exception, no traceback and no window. The faulthandler dump
+# named `_apply_theme` on one thread and `read_index_summary -> stats ->
+# _new_connection` on another.
+#
+# `refresh_totals`, `_warm_translator` and `_warm_models` were moved to
+# `_start_background_work`, on the next turn of the event loop, and the crash
+# stopped. Then the watch timer for a run in another process was added, started
+# from `__init__`, and put the application straight back into the same race -
+# reported as "the program crashed when it started and it is unresponsive when
+# it opens".
+#
+# A comment did not hold the line. This does.
+# ---------------------------------------------------------------------------
+
+def _init_body_calls() -> set[str]:
+    """Calls made *directly* by `MainWindow.__init__`.
+
+    Lambdas are skipped deliberately: a call inside one is connected to a
+    signal, so it happens when that signal fires rather than during
+    construction, which is the whole distinction being tested.
+    """
+    import ast
+    from pathlib import Path as _P
+
+    source = (_P(__file__).resolve().parents[2] / "app" / "ui" / "shell.py")
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    init = next(
+        node for cls in ast.walk(tree)
+        if isinstance(cls, ast.ClassDef) and cls.name == "MainWindow"
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+
+    found: set[str] = set()
+
+    class Visitor(ast.NodeVisitor):
+        def visit_Lambda(self, node):        # noqa: N802 - ast's name
+            return                           # deferred to a signal; not our concern
+
+        def visit_Call(self, node):          # noqa: N802 - ast's name
+            name = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+            if name:
+                found.add(name)
+            self.generic_visit(node)
+
+    Visitor().visit(init)
+    return found
+
+
+def test_construction_starts_no_background_work():
+    r"""**The rule the window's own comment states, enforced.**
+
+    Anything that opens the store or takes a thread belongs in
+    `_start_background_work`, which runs on the next turn of the event loop with
+    the widget tree complete and Qt idle.
+    """
+    called = _init_body_calls()
+
+    forbidden = {
+        "run": "starts a QRunnable on a thread pool",
+        "refresh_totals": "opens the store on a worker",
+        "_poll_external_run": "starts a worker that reads the store and a mutex",
+        "_warm_translator": "starts a worker",
+        "_warm_models": "starts a worker",
+        "_scan_corpus": "walks the filesystem on a worker",
+    }
+    offences = sorted(f"{name} - {why}" for name, why in forbidden.items()
+                      if name in called)
+
+    assert not offences, (
+        "MainWindow.__init__ starts background work:\n  " + "\n  ".join(offences)
+        + "\n\nMove it into _start_background_work. A worker touching SQLite "
+          "while __init__ is still running - and _apply_theme still to come - "
+          "is an access violation with no Python exception and no window."
+    )
+
+
+def test_the_watch_timer_is_built_in_init_but_started_later():
+    """Built early so nothing can forget it; started late so nothing can race."""
+    called = _init_body_calls()
+
+    assert "setInterval" in called, "the watch timer should be configured in __init__"
+    assert "_poll_external_run" not in called, "and polled only once running"

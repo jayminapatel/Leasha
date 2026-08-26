@@ -208,11 +208,17 @@ class MainWindow(QMainWindow):
         # updates twice per checkpoint is smooth enough for something measured
         # in hours. The read is one row and it is skipped entirely while this
         # window is running its own index.
+        # **Built here, started in `_start_background_work`.** Starting it here
+        # broke the rule stated forty lines below - *"nothing runs on a
+        # background thread until construction is over"* - which exists because
+        # a worker opening SQLite while the main thread is inside
+        # `_apply_theme` produced an access violation with no Python exception
+        # and no window. `_poll_external_run` starts exactly such a worker, and
+        # calling it from `__init__` put this application back into the same
+        # race it had already been debugged out of once.
         self._watch_timer = QTimer(self)
         self._watch_timer.setInterval(4_000)
         self._watch_timer.timeout.connect(self._poll_external_run)
-        self._watch_timer.start()
-        self._poll_external_run()
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -395,6 +401,10 @@ class MainWindow(QMainWindow):
         problem, and one that refuses to open is a total one.
         """
         try:
+            # The watch for a run another process is doing. Here rather than in
+            # `__init__` for the reason this whole method exists.
+            self._watch_timer.start()
+            self._poll_external_run()
             self.indexing_view.refresh_totals(store, settings)
             self._refresh_status()
             self._start_scheduler()
