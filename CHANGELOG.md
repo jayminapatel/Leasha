@@ -1,12 +1,46 @@
 # Changelog
 
-**Doc version:** 3.54 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.55 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — the project folder, tidied, and the staged tree brought back in step
+
+Asked for as *"organise the local files and folders they have to be of
+professional grade and remove things we dont need"*.
+
+**A 5MB `.pst` was committed and referenced by nothing.** Not a fixture, not
+named in any test — a real mailbox sitting in the repository root and carried in
+every clone. It is untracked and gitignored now, and **left on disk**, because it
+is the owner's file: getting it out of git is the fix, deleting somebody's
+mailbox is not. It stays in history; rewriting that is a separate decision.
+
+Removed from the working folder, all of it already gitignored and all of it
+regenerable: two JVM crash dumps (`hs_err_pid*.log`), Visual Studio's
+`UpgradeLog.htm` and its `Backup\` copy of the solution, `.vs\`, and four cache
+folders. The `.gitignore` now names the crash dumps explicitly — they were
+already caught by `*.log`, and naming them means the next person to find one
+knows what it is instead of deleting a file that might have mattered.
+
+Both logos moved into `assets\` beside the icons, renamed to say what they are.
+`CODE_REVIEW.md` joined the other documents in `docs\`.
+
+**`BUILD_SPEC_V2.md`, `HANDOFF.md`, `LOCAL_KNOWLEDGE_GRAPH_V2.md` and
+`GitSearch.txt` stay at the root**, deliberately. Each is named by path in tests
+and referenced from twenty-odd places; moving them would be churn with breakage
+attached and no gain beyond a shorter listing.
+
+**And the staged tree was rebuilt.** `Leasha\` — the gitignored run-as-installed
+copy — held **no `walk_complete` at all**, which is the whole of an earlier
+progress-bar fix: in that copy the bar reaches ~97% within seconds and stays
+there. Anyone launching `Leasha\leasha.cmd` was running code from before several
+sessions of fixes and seeing bugs that had already been repaired. It now carries
+the run lock, the debug pane and the rest.
+
 
 ### Changed — a quieter, denser look, and tooltips that were only half there
 

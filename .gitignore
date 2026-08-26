@@ -65,6 +65,22 @@ tests/output/
 UpgradeLog*.htm
 Backup/
 
+# **A JVM crash dump, and nothing else.** Written beside the executable by the
+# Java runtime `tika`/`libpff` may start; each is a few hundred KB of thread
+# stacks describing a crash that has already been logged properly. `*.log`
+# already covered these, and naming them means the next person to find one knows
+# what it is rather than deleting a file that might have mattered.
+hs_err_pid*.log
+replay_pid*.log
+
+# Test data somebody put in the project folder. **A 5MB .pst was committed and
+# referenced by nothing** - not a fixture, not named in a test, just a real
+# mailbox sitting in the repository. Kept on disk because it is the owner's, and
+# out of git because a binary nobody can review does not belong in history.
+/big.pst
+*.pst
+!tests/fixtures/**/*.pst
+
 # Written by Settings when an index move is chosen, consumed by the next start.
 # Per-machine state about one pending operation - see app/core/index_move.py.
 pending-move.json
