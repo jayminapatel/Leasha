@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS files (
     skip_code     TEXT,                      -- AppError.code when SKIPPED/FAILED
     skip_detail   TEXT,
     indexed_at    INTEGER,
-    source_kind   TEXT    NOT NULL,          -- file | pst_message | eml
+    source_kind   TEXT    NOT NULL,          -- file | pst_message | eml | archive
     repo_id       INTEGER REFERENCES repos(id) ON DELETE SET NULL,
     -- NAME_ONLY: the file exists and is findable by name; its contents
     -- were never read. A status, not a failure - see FileStatus.

@@ -109,6 +109,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\pipeline.py" />
+    <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resources.py" />
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
@@ -290,6 +291,7 @@
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_quoting.py" />
+    <Compile Include="tests\unit\test_repo_attribution.py" />
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
@@ -367,7 +369,9 @@
     <Content Include="docs\VISUALSTUDIO.md" />
     <Content Include="docs\VSCODE.md" />
     <Content Include="docs\WORKORDER-202626081052-ocr-strategy.md" />
+    <Content Include="docs\WORKORDER-202626081059-search-quality.md" />
     <Content Include="docs\WORKORDER-202626081106-wildcards.md" />
+    <Content Include="docs\WORKORDER-202626081149-code-tab.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

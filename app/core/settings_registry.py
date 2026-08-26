@@ -184,6 +184,22 @@ SETTINGS: tuple[Setting, ...] = (
              "first two.",
     ),
     Setting(
+        key="ARCHIVE_READ_INSIDE", label="Read inside .zip archives", kind="bool",
+        default=True, group="Indexing", surface="settings.indexing",
+        help="Files inside a .zip become searchable by their contents, not "
+             "only by the archive's name. Encrypted members, anything nested "
+             "more than two deep, and anything claiming an implausible "
+             "expansion are recorded by name and never opened.",
+    ),
+    Setting(
+        key="ARCHIVE_MAX_MB", label="Largest archive to read inside",
+        kind="int", default=100, group="Indexing", surface="settings.indexing",
+        minimum=1, maximum=10000, unit="MB",
+        help="A 40GB backup zip is indexed by name rather than read. Raising "
+             "this is a decision about time: an archive's members are read one "
+             "at a time and each one costs what that file would cost on disk.",
+    ),
+    Setting(
         key="MIN_FREE_GB", label="Stop if free space drops below", kind="int",
         default=5, group="Indexing", surface="settings.indexing",
         minimum=1, maximum=500, unit="GB",

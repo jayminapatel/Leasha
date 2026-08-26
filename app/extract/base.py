@@ -56,6 +56,15 @@ class SourceKind:
     FILE = "file"
     PST_MESSAGE = "pst_message"
     EML = "eml"
+    #: A file *inside* an archive, and the archive's own marker row.
+    #:
+    #: **Not `FILE`, and the reason is `pipeline._prune_missing`.** That deletes
+    #: any `file` row whose path is not on disk, and a member's path -
+    #: `backup.zip/q3/report.docx` - never is. Members written as `file` were
+    #: therefore indexed and then deleted at the end of the same run, leaving
+    #: four documents indexed, one chunk, and nothing findable. `.pst` avoids it
+    #: with `PST_MESSAGE` for exactly the same reason.
+    ARCHIVE = "archive"
 
 
 @dataclass(frozen=True)

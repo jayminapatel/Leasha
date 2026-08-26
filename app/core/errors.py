@@ -245,6 +245,40 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Repair it (scanpst.exe for PST files) or leave it skipped. Indexing continues either way.",
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # --- inside archives -----------------------------------------------------
+    #
+    # Every one of these is `SKIP_CONTINUE`. From
+    # `docs/WORKORDER-zip-archives.md` §4: "one bad archive must not end a
+    # five-day index", and none of these is a fault in the archive - a
+    # password-protected member is somebody's deliberate choice, and a 40GB
+    # expansion is a decision about cost.
+    "ERR_ARCHIVE_TOO_LARGE": _Spec(
+        message="'{member}' in '{path}' was not read: {reason}.",
+        suggestion=(
+            "The archive itself is indexed by name and its other members are "
+            "read as usual. Raise the limit in Settings if this is a file you "
+            "need searchable."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_ARCHIVE_TOO_DEEP": _Spec(
+        message="'{member}' in '{path}' is nested too deeply to read.",
+        suggestion=(
+            "Archives are read {depth} level(s) down. Anything further is "
+            "recorded by name only - extract it if you need its contents "
+            "searchable."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_ARCHIVE_ENCRYPTED": _Spec(
+        message="'{member}' in '{path}' is password-protected.",
+        suggestion=(
+            "It is recorded by name; its contents cannot be read without the "
+            "password. Extract it by hand if you need it searchable - this "
+            "never prompts and never guesses."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     "ERR_FILE_TRUNCATED": _Spec(
         message="Only part of '{path}' was indexed.",
         suggestion=(

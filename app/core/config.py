@@ -208,6 +208,15 @@ class Settings(BaseModel):
     #: at all. Off for somebody indexing a media drive who does not want two
     #: million video files in their index.
     index_name_only: bool = True
+    #: Read the contents of files inside `.zip` archives.
+    #:
+    #: **On, with a ceiling** - `WORKORDER-zip-archives.md` §4.6 is explicit
+    #: that "off by default is wrong and on by default is dangerous", so this
+    #: is a switch beside a number rather than either on its own.
+    archive_read_inside: bool = True
+    #: The largest archive whose members are read, in MB. A 40GB backup zip is
+    #: recorded by name with a message saying why, rather than read.
+    archive_max_mb: int = 100
     #: both | text | images. Which pass an index run is. See `pipeline.
     #: OCR_MODES`: OCR costs about 3.6 seconds a page, so at a terabyte a
     #: single pass means nothing is searchable until everything is.
@@ -326,6 +335,10 @@ def load_settings(
                 "INDEX_NAME_ONLY", values.get("INDEX_NAME_ONLY", "true")),
             archive_recheck_days=_as_int(
                 "ARCHIVE_RECHECK_DAYS", values.get("ARCHIVE_RECHECK_DAYS", "30")),
+            archive_read_inside=_as_bool(
+                "ARCHIVE_READ_INSIDE", values.get("ARCHIVE_READ_INSIDE", "true")),
+            archive_max_mb=_as_int(
+                "ARCHIVE_MAX_MB", values.get("ARCHIVE_MAX_MB", "100")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,
