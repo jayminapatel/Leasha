@@ -210,13 +210,17 @@ def test_the_page_budget_has_a_control_and_not_only_an_environment_variable():
     r"""`LEASHA_PDF_OCR_PAGES` was the whole interface, which is a tunable with
     no control. The variable still wins, so one run can be given a different
     budget without touching anybody's configuration."""
-    from app.core.settings_registry import by_key
+    from app.core.settings_registry import SURFACES, by_key
 
     setting = by_key("PDF_OCR_PAGES")
 
     assert setting is not None
     assert setting.default == 0                  # off unless asked for
-    assert setting.surface == "settings.indexing"
+    # It moved from Indexing to the Index Tuning screen's Coverage group with
+    # the rest of "what gets read" - index-tuning §4c-3. The point of this
+    # assertion is that it has *a* surface somebody can reach, not which one,
+    # so the surface it names is checked against the registry's own list.
+    assert setting.surface in SURFACES
 
 
 def test_the_environment_variable_still_overrides(monkeypatch):

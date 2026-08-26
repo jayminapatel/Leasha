@@ -40,11 +40,15 @@ UI = PROJECT_ROOT / "app" / "ui"
 #: knowledge of the UI - it is a declaration of intent, not a wiring diagram.
 SURFACE_MODULES = {
     "settings.search": ("settings_view.py", "widgets/search_box.py"),
-    # `long_run_box` too: the two settings that only matter at a terabyte -
-    # which pass to run, and how long an archive is trusted - are their own
-    # group inside the Indexing panel, because `indexing_settings.py` is under
-    # the 250-line guard and because neither is worth a thought at 100GB.
-    "settings.indexing": ("indexing_settings.py", "widgets/long_run_box.py"),
+    # Only *when* a run happens. Everything about how fast it goes moved to
+    # `settings.tuning` - see §4 of the index-tuning order.
+    "settings.indexing": ("indexing_settings.py",),
+    # The Index Tuning screen. Four group boxes and a mode switch, all under
+    # `widgets/` because the page they sit on is at the 250-line guard.
+    # `long_run_box` is the Coverage group: it was already the panel for what
+    # gets read, so it moved screen rather than being rebuilt.
+    "settings.tuning": ("widgets/tuning_box.py", "widgets/tuning_groups.py",
+                        "widgets/long_run_box.py"),
     "settings.reading": ("settings_view.py", "widgets/file_types.py"),
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.

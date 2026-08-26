@@ -37,11 +37,13 @@ from app.ui.presenter import (
     read_index_summary,
     when_text,
 )
+from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.archived_roots import ArchivedRoots
 from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.index_stats import IndexStats
 from app.ui.widgets.skips_panel import SkipsPanel
+from app.ui.widgets.tuning_box import TuningBox
 from app.ui.workers import CallableWorker, IndexWorker, run
 
 __all__ = ["IndexingView"]
@@ -157,6 +159,15 @@ class IndexingView(QWidget):
         self.archives = ArchivedRoots()
         self.archives.rescan_requested.connect(self.rescan_archives_requested)
 
+        # **On this page rather than in Settings, and next to the schedule.**
+        # Tuning is watched, not configured once: somebody changes a ceiling
+        # because of what the bar in front of them is doing, and a screen that
+        # makes them go and find another tab to do it is a screen they use
+        # once. The controls themselves are widgets, because this file is at
+        # the 250-line guard - see `widgets/tuning_box.py`.
+        self.schedule_box = IndexingSettings()
+        self.tuning = TuningBox()
+
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         layout.addWidget(self.headline)
@@ -168,6 +179,8 @@ class IndexingView(QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.archives)
         layout.addWidget(self.skips, stretch=1)
+        layout.addWidget(self.schedule_box)
+        layout.addWidget(self.tuning)
         layout.addStretch(1)
 
     # -- running ------------------------------------------------------------

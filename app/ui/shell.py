@@ -245,10 +245,22 @@ class MainWindow(QMainWindow):
         self.settings_view.models.load(
             model, int(translator.timeout_s), enabled=interpret_on)
         self.settings_view.convert_pst_requested.connect(self._convert_pst)
-        self.settings_view.indexing.load_indexing(settings)
-        self.settings_view.indexing.schedule_changed.connect(self._schedule_changed)
-        self.settings_view.indexing.limits_changed.connect(self._limits_changed)
-        self.settings_view.indexing.theme_changed.connect(self._theme_changed)
+        # The schedule and the tuning screen both live on the Indexing page
+        # now - one place to watch a run and to change how it goes. See §4 of
+        # the index-tuning order for why they were separated from Settings.
+        self.indexing_view.schedule_box.load_indexing(settings)
+        self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
+        self.indexing_view.tuning.load(settings)
+        # **Both arrive as registry keys**, which `_limits_changed` wants as
+        # `Settings` field names - it upper-cases them for `.env` and applies
+        # them to the live object, and that second half is what makes a change
+        # reach the *next run in this session* rather than the next launch.
+        self.indexing_view.tuning.changed.connect(
+            lambda values: self._limits_changed(
+                {key.lower(): value for key, value in values.items()}))
+        self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
+        self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
+        self.settings_view.theme_changed.connect(self._theme_changed)
         self.settings_view.environment.recording.setChecked(self.recorder.enabled)
         self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
         # **Both of these were emitted into nothing.** The rerank switch looked
@@ -361,7 +373,8 @@ class MainWindow(QMainWindow):
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
         self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
         self.settings_view.window_box.load(
-            self.tray.minimise_to_tray, self.tray.close_to_tray)
+            self.tray.minimise_to_tray, self.tray.close_to_tray,
+            theme=self._theme_preference)
         self.settings_view.tray_changed.connect(self._tray_changed)
         if self.tray.minimise_to_tray or self.tray.close_to_tray:
             if not self.tray.install():
@@ -426,6 +439,12 @@ class MainWindow(QMainWindow):
             self.settings_view.refresh_slow_labels()
             self._refresh_status()
             self._start_scheduler()
+            # **Detection shells out to PowerShell**, so it happens here for
+            # exactly the reason this method exists. Until it answers, the
+            # tuning screen shows the envelope's answers for an unknown
+            # machine, which are the cautious ones.
+            self.indexing_view.tuning.start_detection(settings.data_path)
+            self.indexing_view.tuning.set_last_run(self._last_run_record())
             self._warm_translator()
             self._warm_models()
         except Exception as exc:                 # noqa: BLE001
@@ -495,7 +514,7 @@ class MainWindow(QMainWindow):
         self.settings_view.roots_changed.connect(
             lambda roots: record("roots_changed", count=len(roots))
         )
-        self.settings_view.indexing.theme_changed.connect(
+        self.settings_view.theme_changed.connect(
             lambda pref: record("theme_changed", preference=pref)
         )
 
@@ -586,7 +605,7 @@ class MainWindow(QMainWindow):
             "ui:index_daily_at": f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}",
         })
         self.scheduler.set_policy(policy)
-        self.settings_view.indexing.set_schedule_status(self.scheduler.status())
+        self.indexing_view.schedule_box.set_schedule_status(self.scheduler.status())
 
     def _rerank_toggled(self, enabled: bool) -> None:
         """Apply the rerank switch now, and remember it.
@@ -926,6 +945,91 @@ class MainWindow(QMainWindow):
 
     def _save_last_index_time(self, when: datetime) -> None:
         self._store.set_state("index:last_run", when.isoformat(timespec="seconds"))
+
+    # -- the tuning screen's evidence ---------------------------------------
+
+    def _last_run_record(self) -> Optional[dict]:
+        r"""What the last run measured, for the tuning footer.
+
+        **Read from what the run itself wrote**, so the footer cannot disagree
+        with the run log about what happened. `stats` are stored as a `repr`
+        of a plain dict of numbers and strings, which `literal_eval` reads
+        without executing anything - a `pickle` here would be a file on disk
+        that runs code, for a progress figure.
+
+        Stage timings are not recorded yet; the footer says so rather than
+        inventing a split. §6a is where they start being measured.
+        """
+        raw = self._read_state("last_run_stats", "")
+        if not raw:
+            return None
+        try:
+            import ast
+
+            stats = ast.literal_eval(raw)
+            if not isinstance(stats, dict):
+                return None
+        except (ValueError, SyntaxError) as exc:
+            _log.debug("the last run's stats could not be read: {}", exc)
+            return None
+
+        elapsed = float(stats.get("elapsed_s") or 0.0)
+        chunks = float(stats.get("chunks") or 0.0)
+        return {
+            "stages": stats.get("stages") or {},
+            "chunks_per_minute": (chunks / elapsed * 60) if elapsed > 0 else 0,
+            "resolved": {
+                "workers": stats.get("workers") or self._settings.index_workers,
+                "batch": stats.get("embed_batch") or self._settings.embed_batch,
+                "device": stats.get("device") or self._settings.embed_device,
+            },
+        }
+
+    def _benchmark_models(self) -> None:
+        """Time the embedding model on this machine, off the UI thread.
+
+        **The one question the specification sheet cannot answer.** Whether 96
+        Iris Xe execution units beat this particular processor on a small embed
+        model is not knowable from the numbers on the box, and §0 of the
+        index-tuning order says so; this is how somebody finds out.
+        """
+        from app.index.embed_bench import providers, run_benchmark
+
+        def measure() -> Any:
+            return providers(run_benchmark(
+                self._settings.embed_model,
+                Path(self._settings.model_cache),
+                passes=3,
+            ))
+
+        self.statusBar().showMessage(
+            "Timing the model on this machine - about half a minute…", 60_000)
+        worker = CallableWorker(measure, component="ui.tuning")
+        worker.signals.finished.connect(self._benchmarked)
+        worker.signals.failed.connect(self._show_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _benchmarked(self, result: Any) -> None:
+        """Report a benchmark, **including how much to trust it**.
+
+        A single pass swung 44% between two runs on the same machine, which is
+        why `BenchResult` carries a spread at all. Printing a throughput figure
+        without saying it was unstable is how a number nobody should act on
+        gets quoted for a year.
+        """
+        rates = getattr(result, "throughput", {}) or {}
+        if getattr(result, "error", ""):
+            self.statusBar().showMessage(
+                f"The benchmark could not run: {result.error}", 15_000)
+            return
+        best = max(rates.values()) if rates else 0.0
+        unstable = getattr(result, "unstable", []) or []
+        caveat = (" - the machine was busy, so treat this as approximate"
+                  if unstable else "")
+        self.statusBar().showMessage(
+            f"{best:.1f} passages a second on "
+            f"{', '.join(getattr(result, 'available_providers', [])) or 'this machine'}"
+            f"{caveat}", 30_000)
 
     def _focus_files(self) -> None:
         """Ctrl+P, the shortcut every editor uses for "go to file"."""
@@ -1597,7 +1701,8 @@ class MainWindow(QMainWindow):
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
         # the sluggishness the debounce was added to fix.
-        stage("settings", self.settings_view.indexing.flush_pending)
+        stage("schedule", self.indexing_view.schedule_box.flush_pending)
+        stage("tuning", self.indexing_view.tuning.flush_pending)
         stage("indexing", self.indexing_view.stop)
         stage("scheduler", self.scheduler.stop)
         stage("workers", self._drain_workers)

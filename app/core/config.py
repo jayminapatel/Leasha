@@ -202,6 +202,32 @@ class Settings(BaseModel):
     #: Run below normal CPU and I/O priority.
     index_low_priority: bool = True
 
+    # --- indexing: how fast, and how it is decided -------------------------
+    #
+    # `defaults | auto | manual`. **Which of the three is in force decides
+    # whether the numbers below are read at all**, and that is the point of
+    # having a mode rather than a scatter of sentinels: in Defaults and
+    # Auto-tune the envelope's answer wins, and a value somebody typed once in
+    # Manual stays stored but inert. Experimenting is then reversible, which is
+    # what makes people willing to experiment.
+    index_tuning_mode: str = "defaults"
+    #: Intra-op threads for one ONNX session. 0 = decided per machine.
+    onnx_intra_op_threads: int = 0
+    #: Chunks per embedding call. 0 = decided per machine's memory. When set,
+    #: it overrides `embedder.EMBED_BATCH`.
+    embed_batch: int = 0
+    #: Prefer the quantised model file: smaller and faster on a processor, no
+    #: gain on a graphics card, a small cost in ranking quality.
+    embed_quantised: bool = False
+    #: Words searchable as soon as a file is read, meaning catching up behind.
+    index_two_phase: bool = True
+    #: `auto | on | off`. Build the word index once at the end of a big run.
+    index_bulk_fts: str = "auto"
+    #: Send each distinct passage to the model once and reuse the result.
+    embed_dedup: bool = True
+    #: `with-run | after-run | manual`. When the images pass happens.
+    index_ocr_pass: str = "with-run"
+
     # --- indexing: when it runs --------------------------------------------
     #: manual | startup | interval | daily
     index_schedule: str = "manual"
@@ -281,7 +307,15 @@ SETTING_KEYS: tuple[str, ...] = (
     "RERANK_WINDOW_CHARS",
     "OLLAMA_URL",
     "OLLAMA_MODEL",
+    "INDEX_TUNING_MODE",
     "INDEX_WORKERS",
+    "ONNX_INTRA_OP_THREADS",
+    "EMBED_BATCH",
+    "EMBED_QUANTISED",
+    "INDEX_TWO_PHASE",
+    "INDEX_BULK_FTS",
+    "EMBED_DEDUP",
+    "INDEX_OCR_PASS",
     "INDEX_MEMORY_MB",
     "INDEX_CPU_PERCENT",
     "INDEX_PAUSE_ON_BATTERY",
@@ -384,7 +418,20 @@ def load_settings(
                 "RERANK_WINDOW_CHARS", values.get("RERANK_WINDOW_CHARS") or "600"),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
+            index_tuning_mode=(
+                values.get("INDEX_TUNING_MODE") or "defaults").strip().lower(),
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),
+            onnx_intra_op_threads=_as_int(
+                "ONNX_INTRA_OP_THREADS", values.get("ONNX_INTRA_OP_THREADS", "0")),
+            embed_batch=_as_int("EMBED_BATCH", values.get("EMBED_BATCH", "0")),
+            embed_quantised=_as_bool(
+                "EMBED_QUANTISED", values.get("EMBED_QUANTISED", "false")),
+            index_two_phase=_as_bool(
+                "INDEX_TWO_PHASE", values.get("INDEX_TWO_PHASE", "true")),
+            index_bulk_fts=(values.get("INDEX_BULK_FTS") or "auto").strip().lower(),
+            embed_dedup=_as_bool("EMBED_DEDUP", values.get("EMBED_DEDUP", "true")),
+            index_ocr_pass=(
+                values.get("INDEX_OCR_PASS") or "with-run").strip().lower(),
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
@@ -440,6 +487,24 @@ def load_settings(
             key="EMBED_DEVICE",
             reason=f"must be auto, cpu or gpu, got {settings.embed_device!r}",
         ))
+
+    # The other closed sets, checked the same way and for the same reason: a
+    # typed value that silently falls back to the default leaves somebody
+    # certain they switched something on. The tuples are written out rather
+    # than imported from the registry so this stays a self-contained L0 check;
+    # `test_settings_registry` holds the two lists to each other.
+    for key, value, allowed in (
+        ("INDEX_TUNING_MODE", settings.index_tuning_mode,
+         ("defaults", "auto", "manual")),
+        ("INDEX_BULK_FTS", settings.index_bulk_fts, ("auto", "on", "off")),
+        ("INDEX_OCR_PASS", settings.index_ocr_pass,
+         ("with-run", "after-run", "manual")),
+    ):
+        if value not in allowed:
+            raise AppErrorException(make_error(
+                "ERR_CONFIG_INVALID", "core.config", key=key,
+                reason=f"must be one of {', '.join(allowed)}, got {value!r}",
+            ))
 
     if not settings.ollama_url.startswith(("http://", "https://")):
         raise AppErrorException(make_error(

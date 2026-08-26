@@ -25,10 +25,29 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox,
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox,
 )
 
+from app.ui.tuning import cost_hint
+
 __all__ = ["LongRunBox"]
+
+
+def _cost(key: str) -> QLabel:
+    """The one-line "what this costs" under a coverage control.
+
+    **Under the control, never in a modal** - §4e's rule. A cost that
+    interrupts you is a cost you dismiss without reading; a cost that sits
+    beside the switch is one you weigh.
+
+    The wording comes from `tuning.cost_hint`, which is pure and refuses to
+    invent a figure it has not measured.
+    """
+    label = QLabel(cost_hint(key))
+    label.setWordWrap(True)
+    label.setObjectName("costHint")
+    label.setEnabled(False)              # renders as the muted secondary text
+    return label
 
 
 class LongRunBox(QGroupBox):
@@ -37,7 +56,11 @@ class LongRunBox(QGroupBox):
     changed = pyqtSignal()
 
     def __init__(self, parent: Optional[Any] = None) -> None:
-        super().__init__("Large corpora", parent)
+        # **Renamed rather than rebuilt.** §4c-3 asks for a Coverage group and
+        # this widget already *was* one: what gets read, and therefore how long
+        # a run takes. The controls, their object names and their tooltips are
+        # untouched; it moved screen and gained a cost line per control.
+        super().__init__("Coverage - what gets read", parent)
 
         # **Three choices, not two checkboxes.** "Skip OCR" and "Only OCR" as
         # separate switches have a fourth state that means nothing, and neither
@@ -137,10 +160,13 @@ class LongRunBox(QGroupBox):
 
         form = QFormLayout(self)
         form.addRow(self.name_only)
+        form.addRow(_cost("INDEX_NAME_ONLY"))
         form.addRow("Images and scans", self.ocr_mode)
+        form.addRow(_cost("INDEX_OCR_MODE"))
         form.addRow("Pages of a scanned PDF", self.pdf_ocr_pages)
         form.addRow("Re-check archives every", self.archive_recheck_days)
         form.addRow(self.archive_read_inside)
+        form.addRow(_cost("ARCHIVE_READ_INSIDE"))
         form.addRow("Largest archive to read", self.archive_max_mb)
 
     def load(self, settings: Any) -> None:

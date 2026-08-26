@@ -37,7 +37,6 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.ui.indexing_settings import IndexingSettings
 from app.ui.presenter import (
     history_label_text, pst_status_text, settings_labels,
 )
@@ -84,6 +83,11 @@ class SettingsView(QWidget):
     cloud_toggled = pyqtSignal(bool)
     #: (minimise_to_tray, close_to_tray)
     tray_changed = pyqtSignal(bool, bool)
+    #: system | light | dark. Appearance moved here from the indexing
+    #: panel, where it was neither an indexing setting nor findable by
+    #: anybody looking for one. The name is unchanged, so the window's
+    #: handler did not have to move with it.
+    theme_changed = pyqtSignal(str)
     #: `{registry key: value}` from any panel whose controls write `.env`.
     settings_changed = pyqtSignal(dict)
     history_cleared = pyqtSignal(int)
@@ -135,7 +139,6 @@ class SettingsView(QWidget):
         # StorageBox for why a text box there is a data-loss trap.
         self.storage_box = StorageBox(settings)
         self.data_path = self.storage_box.data_path
-        self.required_free_gb = self.storage_box.required_free_gb
         self.storage_box.move_index_requested.connect(self.move_index_requested)
         self.storage_box.rebuild_vectors_requested.connect(self.rebuild_vectors_requested)
         self.storage_box.changed.connect(self.settings_changed)
@@ -170,14 +173,15 @@ class SettingsView(QWidget):
         pst_layout.addWidget(self.pst_status)
         pst_layout.addWidget(convert)
 
-        self.indexing = IndexingSettings()
-
         # Window behaviour is its own group - see widgets/window_box.py for why
-        # both of these were unreachable until now.
+        # both of these were unreachable until now, and why Appearance moved in
+        # there from the indexing panel it was never part of.
         self.window_box = WindowBox()
         self.minimise_to_tray = self.window_box.minimise_to_tray
         self.close_to_tray = self.window_box.close_to_tray
+        self.theme = self.window_box.theme
         self.window_box.changed.connect(self.tray_changed)
+        self.window_box.theme_changed.connect(self.theme_changed)
 
         behaviour = QGroupBox("Behaviour")
         form = QFormLayout(behaviour)
@@ -244,7 +248,6 @@ class SettingsView(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self.roots_box)
         layout.addWidget(self.code_types)
-        layout.addWidget(self.indexing)
         layout.addWidget(pst_box)
         layout.addWidget(self.search_box)
         layout.addWidget(behaviour)

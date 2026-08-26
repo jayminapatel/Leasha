@@ -14,24 +14,35 @@ different things, and only one of them was implemented.
 Its own group because window behaviour is not indexing behaviour and not a
 search preference, and because `settings_view.py` is at its length limit - the
 rule that keeps views short being the rule that keeps logic out of them.
+
+**Appearance lives here now.** It spent a while on the indexing panel, between
+the memory ceiling and the low-priority switch, where it was neither an
+indexing setting nor findable by anybody looking for one. Whether the window
+follows the Windows light/dark setting is window behaviour, and this is the
+window group; §4c-4 of the index-tuning order settled it so nobody has to
+settle it again. The signal keeps its name, so nothing that listens changed.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QGroupBox, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QVBoxLayout, QWidget,
+)
 
 __all__ = ["WindowBox"]
 
 
 class WindowBox(QGroupBox):
-    """Minimise and close behaviour for the notification area."""
+    """Minimise and close behaviour, and which colours the window uses."""
 
     #: (minimise_to_tray, close_to_tray). Both together, because the window
     #: applies them as a pair and installing the tray icon depends on either.
     changed = pyqtSignal(bool, bool)
+    #: system | light | dark
+    theme_changed = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Window", parent)
@@ -52,14 +63,43 @@ class WindowBox(QGroupBox):
             box.stateChanged.connect(lambda _s: self.changed.emit(
                 self.minimise_to_tray.isChecked(), self.close_to_tray.isChecked()))
 
+        self.theme = QComboBox()
+        self.theme.addItem("Follow Windows", "system")
+        self.theme.addItem("Always light", "light")
+        self.theme.addItem("Always dark", "dark")
+        self.theme.setToolTip(
+            "The app follows your Windows light/dark setting by default,\n"
+            "and switches immediately when you change it."
+        )
+        self.theme.currentIndexChanged.connect(
+            lambda _i: self.theme_changed.emit(
+                str(self.theme.currentData() or "system"))
+        )
+
+        appearance = QFormLayout()
+        appearance.addRow("Appearance", self.theme)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.minimise_to_tray)
         layout.addWidget(self.close_to_tray)
+        layout.addLayout(appearance)
 
-    def load(self, minimise: bool, close: bool) -> None:
+    def load(self, minimise: bool, close: bool,
+             theme: Optional[Any] = None) -> None:
         """Show the stored preferences without emitting on the way in."""
         for box, value in ((self.minimise_to_tray, minimise),
                            (self.close_to_tray, close)):
             box.blockSignals(True)
             box.setChecked(bool(value))
             box.blockSignals(False)
+        if theme is not None:
+            self.set_theme(theme)
+
+    def set_theme(self, preference: Any) -> None:
+        """Show a stored theme choice without emitting."""
+        self.theme.blockSignals(True)
+        try:
+            found = self.theme.findData(str(preference or "system"))
+            self.theme.setCurrentIndex(found if found >= 0 else 0)
+        finally:
+            self.theme.blockSignals(False)

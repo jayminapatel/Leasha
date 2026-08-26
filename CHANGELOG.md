@@ -1,6 +1,46 @@
 # Changelog
 
-**Doc version:** 3.68 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.69 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## One Index Tuning screen, on the page where you watch the run
+
+- **Everything that decides how fast a run goes is in one place**, beside the
+  progress bar rather than three tabs away. These numbers interact - workers
+  and model threads multiply, a batch is memory and so is the ceiling that
+  governs it - and spread across three panels somebody raises one control, gets
+  a slower run, and has nowhere to see why.
+- **Defaults · Auto-tune · Manual.** Defaults uses what the machine's
+  specification implies; Auto-tune refines that with what past runs measured;
+  Manual lets you set anything, within what the machine allows. **Switching
+  back keeps your manual values stored but inert**, so trying it costs nothing.
+- **A control shows the number it chose**: `Auto (4)`, not `0`. "0 means we
+  decided something and are not telling you what" is the settings-screen
+  failure this whole piece of work exists to end.
+- **A machine card in plain words** - "10 cores (2 fast, 8 efficient) / 12
+  threads · 32 GB · SSD · no graphics card" - with Re-detect and Benchmark now.
+  Both run off the interface thread, because detection shells out to PowerShell
+  and can take seconds on a sleeping disk.
+- **Whether the graphics card is actually faster is not knowable from the
+  specification sheet**, so there is a button that measures it - and the result
+  says when the machine was too busy for the number to be trusted.
+- **Four new strategy controls**, each one only a control because its right
+  answer depends on the corpus: make text searchable first, bulk-load the word
+  index, embed repeated text once, and when to read images.
+- **A floor larger than the disk was settable.** Both free-space figures are
+  now bounded by what the index drive actually has, with the reason printed
+  under them.
+- **Every ceiling says what happens when it is reached** - pauses, stops, or
+  warns - because a ceiling whose consequence is unstated is one people set far
+  too high out of fear, and then it protects nothing.
+- **A footer shows where the last run's time went**, so Manual mode is tunable
+  by evidence rather than folklore.
+- Appearance left the indexing panel, where it was neither an indexing setting
+  nor findable by anybody looking for one, and joined the Window group.
+- Found by running it: **opening the window rewrote `.env`.** Narrowing a spin
+  box's range clamps its value, a clamp emits a change, and the writer duly
+  saved a number nobody chose - on a machine whose cores could not be detected,
+  somebody's six workers became one just by looking at the screen. Two tests
+  now stand over that.
 
 ## The machine is looked at, and one setting decides which processor runs the models
 

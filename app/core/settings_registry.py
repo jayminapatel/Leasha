@@ -44,13 +44,19 @@ __all__ = [
 SURFACES = (
     "settings.search",
     "settings.indexing",
+    #: The Index Tuning screen. Everything that decides **how fast a run goes
+    #: and how much of the machine it takes**, in one place, because tuning by
+    #: hunting across three panels is how a setting ends up changed twice and
+    #: understood never. `settings.indexing` keeps what is left: *when* a run
+    #: happens, which is a different question.
+    "settings.tuning",
     "settings.reading",
     "settings.models",
     "settings.storage",
 )
 
 #: Display order of the groups in Settings.
-GROUPS = ("Search", "Indexing", "Reading", "Models", "Storage")
+GROUPS = ("Search", "Indexing", "Tuning", "Reading", "Models", "Storage")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,36 +114,7 @@ SETTINGS: tuple[Setting, ...] = (
         help="How much of each result the reranker reads.",
     ),
 
-    # --- Indexing ----------------------------------------------------------
-    Setting(
-        key="INDEX_WORKERS", label="Indexing workers", kind="int", default=0,
-        group="Indexing", surface="settings.indexing", minimum=0, maximum=32,
-        unit="threads",
-        help="0 chooses a sensible number for this machine. Raise it only if "
-             "indexing is slow and the machine is otherwise idle.",
-    ),
-    Setting(
-        key="INDEX_MEMORY_MB", label="Memory ceiling", kind="int", default=4000,
-        group="Indexing", surface="settings.indexing", minimum=256, maximum=16384,
-        unit="MB",
-        help="Indexing pauses rather than exceeding this.",
-    ),
-    Setting(
-        key="INDEX_CPU_PERCENT", label="CPU ceiling", kind="int", default=80,
-        group="Indexing", surface="settings.indexing", minimum=10, maximum=100,
-        unit="%",
-        help="Lower this to keep the machine responsive while indexing runs.",
-    ),
-    Setting(
-        key="INDEX_LOW_PRIORITY", label="Run at low priority", kind="bool",
-        default=True, group="Indexing", surface="settings.indexing",
-        help="Lets everything else on the machine go first.",
-    ),
-    Setting(
-        key="INDEX_PAUSE_ON_BATTERY", label="Pause on battery", kind="bool",
-        default=True, group="Indexing", surface="settings.indexing",
-        help="Indexing is expensive; on a laptop this stops it draining the battery.",
-    ),
+    # --- Indexing: *when* a run happens. How fast it goes is Tuning. -------
     Setting(
         key="INDEX_SCHEDULE", label="When to index", kind="choice",
         default="manual", group="Indexing", surface="settings.indexing",
@@ -155,9 +132,121 @@ SETTINGS: tuple[Setting, ...] = (
         default="02:00", group="Indexing", surface="settings.indexing",
         help="24-hour time. Used when the schedule is set to daily.",
     ),
+
+    # --- Tuning: how fast a run goes, and how much of the machine it takes --
+    #
+    # **One screen for the lot**, because these numbers interact. Workers and
+    # ONNX threads multiply; a batch is memory and so is the ceiling that
+    # governs it; and what gets *read* decides the length of a run as surely
+    # as how quickly it is read. Split across three panels, somebody raises one
+    # and is slower, and has no way to see why.
+    #
+    # Every one of them is bounded per machine by `app/core/envelope.py`, and
+    # every bound carries its reason. See §3 of the index-tuning order.
+    Setting(
+        key="INDEX_TUNING_MODE", label="Tuning", kind="choice",
+        default="defaults", group="Tuning", surface="settings.tuning",
+        choices=("defaults", "auto", "manual"),
+        help="Defaults uses what this machine's specification implies. "
+             "Auto-tune refines that with what past runs actually measured. "
+             "Manual lets you set every control by hand, within the limits "
+             "this machine allows. Switching back keeps your manual values "
+             "stored but inert, so experimenting is reversible.",
+    ),
+    Setting(
+        key="INDEX_WORKERS", label="Files read at once", kind="int", default=0,
+        group="Tuning", surface="settings.tuning", minimum=0, maximum=32,
+        unit="threads",
+        help="0 chooses a sensible number for this machine. Raise it only if "
+             "indexing is slow and the machine is otherwise idle.",
+    ),
+    Setting(
+        key="ONNX_INTRA_OP_THREADS", label="Threads per model call",
+        kind="int", default=0, group="Tuning", surface="settings.tuning",
+        minimum=0, maximum=64, unit="threads",
+        help="0 chooses for this machine: roughly the cores the file readers "
+             "have not already taken. Threads beyond that contend rather than "
+             "help, which is the commonest way a tuning screen makes a machine "
+             "slower while every control reads faster.",
+    ),
+    Setting(
+        key="EMBED_BATCH", label="Chunks per model call", kind="int",
+        default=0, group="Tuning", surface="settings.tuning",
+        minimum=0, maximum=1024, unit="chunks",
+        help="0 chooses for this machine's memory. A batch is text held in "
+             "memory all at once, so the ceiling is what stops a large one "
+             "ending a run on a small machine.",
+    ),
+    Setting(
+        key="EMBED_QUANTISED", label="Use the smaller model file", kind="bool",
+        default=False, group="Tuning", surface="settings.tuning",
+        restart=True,
+        help="A quantised model is a few times smaller and faster on a "
+             "processor, at a small cost in ranking quality. It buys nothing "
+             "on a graphics card, so it is unavailable when one is in use.",
+    ),
+    Setting(
+        key="INDEX_MEMORY_MB", label="Memory ceiling", kind="int", default=4000,
+        group="Tuning", surface="settings.tuning", minimum=256, maximum=16384,
+        unit="MB",
+        help="Indexing PAUSES rather than exceeding this. It does not fail, "
+             "and nothing already indexed is lost.",
+    ),
+    Setting(
+        key="INDEX_CPU_PERCENT", label="CPU ceiling", kind="int", default=80,
+        group="Tuning", surface="settings.tuning", minimum=10, maximum=100,
+        unit="%",
+        help="Indexing PAUSES while the whole machine is busier than this, so "
+             "it gets out of the way of whatever you are doing.",
+    ),
+    Setting(
+        key="INDEX_LOW_PRIORITY", label="Run at low priority", kind="bool",
+        default=True, group="Tuning", surface="settings.tuning",
+        help="Lets everything else on the machine have the processor and the "
+             "disk first.",
+    ),
+    Setting(
+        key="INDEX_PAUSE_ON_BATTERY", label="Pause on battery", kind="bool",
+        default=True, group="Tuning", surface="settings.tuning",
+        help="Indexing is the fastest way to flatten a laptop battery. It "
+             "resumes on its own when you plug in; nothing is lost by waiting.",
+    ),
+    Setting(
+        key="INDEX_TWO_PHASE", label="Make text searchable first", kind="bool",
+        default=True, group="Tuning", surface="settings.tuning",
+        help="Words become searchable as soon as a file is read, and the "
+             "meaning model catches up behind. On a large corpus that is the "
+             "difference between search being useful on day one and on day "
+             "fourteen. Nothing is skipped either way.",
+    ),
+    Setting(
+        key="INDEX_BULK_FTS", label="Bulk-load the word index", kind="choice",
+        default="auto", group="Tuning", surface="settings.tuning",
+        choices=("auto", "on", "off"),
+        help="For a large first run, the word index is built once at the end "
+             "rather than kept up to date file by file - much faster, but "
+             "nothing is searchable until the run finishes. Automatic uses it "
+             "only when the run is big enough to be worth it.",
+    ),
+    Setting(
+        key="EMBED_DEDUP", label="Embed repeated text once", kind="bool",
+        default=True, group="Tuning", surface="settings.tuning",
+        help="Signatures, disclaimers and boilerplate repeat across thousands "
+             "of documents. Each distinct passage is sent to the model once "
+             "and the result reused, which changes no result and saves the "
+             "time.",
+    ),
+    Setting(
+        key="INDEX_OCR_PASS", label="When to read images", kind="choice",
+        default="with-run", group="Tuning", surface="settings.tuning",
+        choices=("with-run", "after-run", "manual"),
+        help="Reading text out of an image costs about 3.6 seconds a page, so "
+             "on a large corpus it decides how long a run takes. After-run "
+             "leaves the rest of the index usable while the images are done.",
+    ),
     Setting(
         key="INDEX_OCR_MODE", label="Images and scans", kind="choice",
-        default="both", group="Indexing", surface="settings.indexing",
+        default="both", group="Tuning", surface="settings.tuning",
         choices=("both", "text", "images"),
         help="Reading text out of an image takes about 3.6 seconds a page - "
              "roughly eight times what everything else costs - so on a large "
@@ -167,7 +256,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="INDEX_NAME_ONLY", label="Index every file by name", kind="bool",
-        default=True, group="Indexing", surface="settings.indexing",
+        default=True, group="Tuning", surface="settings.tuning",
         help="Records a row for every file, including the ones nothing can "
              "read - .zip, .mp4, .exe. They are findable by name; their "
              "contents are not searchable, and nothing is opened. Switch it "
@@ -176,7 +265,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="ARCHIVE_RECHECK_DAYS", label="Re-check archived folders every",
-        kind="int", default=30, group="Indexing", surface="settings.indexing",
+        kind="int", default=30, group="Tuning", surface="settings.tuning",
         minimum=0, maximum=365, unit="days",
         help="A folder marked as an archive is walked once and then left alone. "
              "It is still re-walked when the folder itself changes, when you "
@@ -185,7 +274,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="ARCHIVE_READ_INSIDE", label="Read inside .zip archives", kind="bool",
-        default=True, group="Indexing", surface="settings.indexing",
+        default=True, group="Tuning", surface="settings.tuning",
         help="Files inside a .zip become searchable by their contents, not "
              "only by the archive's name. Encrypted members, anything nested "
              "more than two deep, and anything claiming an implausible "
@@ -193,7 +282,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="ARCHIVE_MAX_MB", label="Largest archive to read inside",
-        kind="int", default=100, group="Indexing", surface="settings.indexing",
+        kind="int", default=100, group="Tuning", surface="settings.tuning",
         minimum=1, maximum=10000, unit="MB",
         help="A 40GB backup zip is indexed by name rather than read. Raising "
              "this is a decision about time: an archive's members are read one "
@@ -201,7 +290,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="PDF_OCR_PAGES", label="Pages to read from a scanned PDF",
-        kind="int", default=0, group="Indexing", surface="settings.indexing",
+        kind="int", default=0, group="Tuning", surface="settings.tuning",
         minimum=0, maximum=500, unit="pages",
         help="0 leaves scanned PDFs unread, as they are today. A scanned "
              "manual is a document whose entire contents are unreachable; at "
@@ -211,7 +300,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="MIN_FREE_GB", label="Stop if free space drops below", kind="int",
-        default=5, group="Indexing", surface="settings.indexing",
+        default=5, group="Tuning", surface="settings.tuning",
         minimum=1, maximum=500, unit="GB",
         help="Indexing pauses rather than filling the disk. Progress is kept.",
     ),
@@ -263,7 +352,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="EMBED_DEVICE", label="Run models on", kind="choice",
-        default="auto", group="Models", surface="settings.models",
+        default="auto", group="Tuning", surface="settings.tuning",
         choices=("auto", "cpu", "gpu"), restart=True,
         help="Which processor runs the meaning model, the reranker and OCR. "
              "Automatic uses the graphics card when this machine has one that "
@@ -283,7 +372,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="REQUIRED_FREE_GB", label="Free space needed to index", kind="int",
-        default=300, group="Storage", surface="settings.storage",
+        default=300, group="Tuning", surface="settings.tuning",
         minimum=1, maximum=10000, unit="GB",
         help="Checked before a run starts, on the index drive.",
     ),
