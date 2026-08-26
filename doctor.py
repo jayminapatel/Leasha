@@ -233,6 +233,49 @@ def check_sqlite_wal() -> Check:
                      fix="Check that %TEMP% points at a writable local drive.")
 
 
+def index_privacy(data_path: str) -> str:
+    r"""Whether the index sits somewhere private to this account, or shared.
+
+    **Factual, and it does not judge.** A shared location is a legitimate
+    choice - the owner's own install is `D:\Leasha\Data` and stays that way.
+    What was missing is anybody being *told* which one they have, on a machine
+    where two people share a login and one of them assumed otherwise.
+
+    `%LOCALAPPDATA%` and a per-user profile are ACL'd by Windows to one
+    account. Anything else - another drive, a `C:\ProgramData`, a network
+    share - is readable by whoever can read that path.
+    """
+    if not data_path:
+        return ""
+    lowered = data_path.replace("/", "\\").lower().rstrip("\\")
+
+    for key in ("LOCALAPPDATA", "APPDATA", "USERPROFILE"):
+        root = os.environ.get(key, "")
+        if root and lowered.startswith(root.replace("/", "\\").lower().rstrip("\\")):
+            return "private to this account"
+
+    if sys.platform != "win32":
+        home = os.path.expanduser("~").replace("/", "\\").lower().rstrip("\\")
+        if home and lowered.startswith(home):
+            return "private to this account"
+
+    return "shared location"
+
+
+def check_index_location() -> Check:
+    """One line saying where the index is and who else can read it.
+
+    Always passes: this reports, it does not gate. An installation on a shared
+    drive is a choice somebody may have made deliberately, and `doctor` failing
+    over it would be `doctor` having an opinion about the owner's own machine.
+    """
+    data_path = env_path("DATA_PATH")
+    if not data_path:
+        return Check("Index location", True, "not set yet")
+    where = index_privacy(data_path)
+    return Check("Index location", True, f"{data_path} ({where})")
+
+
 def check_data_paths() -> list[Check]:
     out: list[Check] = []
     data_path = env_path("DATA_PATH")
@@ -642,6 +685,7 @@ def run_all(quick: bool = False) -> list[Check]:
         check_fts5(),
         check_sqlite_wal(),
     ]
+    checks.append(check_index_location())
     checks += check_data_paths()
     checks += [
         check_disk(),

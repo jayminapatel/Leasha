@@ -56,6 +56,19 @@ One question: where to build the index. Then:
 venv\Scripts\python.exe doctor.py     # must print READY
 ```
 
+The index defaults to `%LOCALAPPDATA%\Leasha`, which is private to your Windows
+account. Any other location is accepted; re-running the installer on a machine that
+already has one leaves it exactly where it is.
+
+**Leasha and shared computers.** Everything Leasha indexes and everything you
+search stays on this computer - nothing is ever sent anywhere. On a computer
+with separate Windows accounts, each account gets its own private index: you
+find your files, others find theirs, and Windows keeps them apart. On a
+computer where people share one login, Leasha works like the rest of that login
+- anyone using it can find anything it can read. If that matters in your home,
+give each person their own Windows account before installing, or choose the
+folders Leasha indexes so shared spaces stay shared and private ones stay out.
+
 Full detail, including every installer parameter, in `LOCAL_KNOWLEDGE_GRAPH_V2.md`.
 
 ## Developing

@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.index.archives import ARCHIVE, LIVE, normalise
+from app.ui.presenter import nothing_indexed_yet, suggested_roots
 
 __all__ = ["RootsBox"]
 
@@ -110,11 +111,77 @@ class RootsBox(QGroupBox):
         )
         self.note.setWordWrap(True)
 
+        # **The first-run offer. Offered, never taken.** Nothing is ever added
+        # to somebody's index without them clicking it - see the privacy
+        # defaults order. Hidden the moment there is a root, so an existing
+        # install never sees this at all.
+        self.empty = QLabel(nothing_indexed_yet([]))
+        self.empty.setWordWrap(True)
+
+        self.suggestions = QHBoxLayout()
+        self.suggest_all = QPushButton("Add all four")
+        self.suggest_all.setToolTip(
+            "Add Documents, Desktop, Downloads and Pictures.\n\n"
+            "You can remove any of them afterwards, and nothing is indexed "
+            "until you press Index.")
+        self.suggest_all.clicked.connect(self._add_every_suggestion)
+
         layout = QVBoxLayout(self)
+        layout.addWidget(self.empty)
+        layout.addLayout(self.suggestions)
         layout.addWidget(self.tree)
         layout.addLayout(buttons)
         layout.addWidget(self.note)
+        self._offer_suggestions()
         self._sync_rescan()
+
+    # -- the first-run offer ------------------------------------------------
+
+    def _offer_suggestions(self) -> None:
+        """One button per profile folder that exists, plus "add all four".
+
+        The list comes from the presenter, which is where the rule that none of
+        them may point outside this account lives - a view deciding that for
+        itself is how a default ends up in somebody else's profile.
+        """
+        while self.suggestions.count():
+            item = self.suggestions.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        self._suggested = suggested_roots()
+        for folder in self._suggested:
+            button = QPushButton(folder)
+            button.setToolTip(f"Add {folder} to the folders Leasha indexes.")
+            button.clicked.connect(
+                lambda _checked=False, path=folder: self._accept_suggestion(path))
+            self.suggestions.addWidget(button)
+        if self._suggested:
+            self.suggestions.addWidget(self.suggest_all)
+        self.suggestions.addStretch(1)
+
+    def _accept_suggestion(self, folder: str) -> None:
+        if self.add_root(folder):
+            self._sync_empty()
+
+    def _add_every_suggestion(self) -> None:
+        added = False
+        for folder in list(self._suggested):
+            added = self.add_root(folder) or added
+        if added:
+            self._sync_empty()
+
+    def _sync_empty(self) -> None:
+        """Show the offer only while there is nothing to search."""
+        empty = self.tree.topLevelItemCount() == 0
+        self.empty.setText(nothing_indexed_yet(self.current_roots()))
+        self.empty.setVisible(empty)
+        self.suggest_all.setVisible(empty and bool(getattr(self, "_suggested", ())))
+        for index in range(self.suggestions.count()):
+            widget = self.suggestions.itemAt(index).widget()
+            if widget is not None:
+                widget.setVisible(empty)
 
     # -- filling it in ------------------------------------------------------
 
@@ -134,6 +201,7 @@ class RootsBox(QGroupBox):
                 self._append(root, modes.get(normalise(root), LIVE))
         finally:
             self.tree.blockSignals(False)
+        self._sync_empty()
         self._sync_rescan()
 
     def _append(self, root: str, mode: str = LIVE) -> QTreeWidgetItem:

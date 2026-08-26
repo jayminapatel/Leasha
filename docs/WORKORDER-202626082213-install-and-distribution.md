@@ -180,3 +180,23 @@ application is not yet ready for people who did not build it.
 
 **Packaging something users can install is a week. Packaging something they keep using needs
 the search to be good first.**
+
+---
+
+## Note appended 2026-08-27 — [FINALISE 2] and [FINALISE 3] partly answered
+
+`WORKORDER-202626270257-privacy-defaults.md` settled where the index goes by
+default, and that answer carries part of the per-user question with it:
+
+* **[FINALISE 3]** the default is now `%LOCALAPPDATA%\Leasha`, chosen at
+  install exactly as before. Any other path is still accepted.
+* **[FINALISE 2]** per-account follows from it for the *index* - Windows' own
+  ACLs on `%LOCALAPPDATA%` separate two accounts with no extra machinery. It
+  does **not** settle where the *application* is installed, which is still open
+  here.
+
+An existing `.env` with a valid `DATA_PATH` is respected without a prompt, so
+nothing about this changes an install that already exists.
+
+This is a note, not an edit: the [FINALISE] items above are left exactly as the
+owner wrote them.

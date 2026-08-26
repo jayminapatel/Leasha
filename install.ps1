@@ -82,6 +82,23 @@ function Write-Title($text) {
     Write-Host ("  " + ("-" * $text.Length)) -ForegroundColor DarkGray
 }
 
+function Write-SharedComputerNotice {
+    # **Owner-approved wording. Do not edit without the owner.** The same
+    # paragraph appears in README.md, and a test holds the two to each other -
+    # a promise about privacy that says two different things in two places is
+    # worse than one that says nothing.
+    Write-Host "  Leasha and shared computers." -ForegroundColor White
+    Write-Host "  Everything Leasha indexes and everything you search stays on this" -ForegroundColor Gray
+    Write-Host "  computer - nothing is ever sent anywhere. On a computer with separate" -ForegroundColor Gray
+    Write-Host "  Windows accounts, each account gets its own private index: you find" -ForegroundColor Gray
+    Write-Host "  your files, others find theirs, and Windows keeps them apart. On a" -ForegroundColor Gray
+    Write-Host "  computer where people share one login, Leasha works like the rest of" -ForegroundColor Gray
+    Write-Host "  that login - anyone using it can find anything it can read. If that" -ForegroundColor Gray
+    Write-Host "  matters in your home, give each person their own Windows account" -ForegroundColor Gray
+    Write-Host "  before installing, or choose the folders Leasha indexes so shared" -ForegroundColor Gray
+    Write-Host "  spaces stay shared and private ones stay out." -ForegroundColor Gray
+}
+
 function Write-Utf8NoBom {
     param([string]$Path, [string]$Content)
     # PS 5.1's Set-Content -Encoding UTF8 writes a BOM, which breaks some
@@ -304,12 +321,44 @@ Invoke-Step -Name "Check winget is available" `
 # The ONE question: where to build the index
 # ---------------------------------------------------------------------------
 
+# **An existing install is left exactly as it is.** If .env already names a
+# DATA_PATH, that is the answer: no question, no prompt, no warning, no
+# migration. Somebody re-running the installer to repair a venv must not be
+# asked where their index lives, and must certainly not be defaulted onto a new
+# location that would silently start a second one.
+$ExistingDataPath = ""
+$EnvFile = Join-Path $ProjectPath ".env"
+if ((-not $DataPath) -and (Test-Path -LiteralPath $EnvFile)) {
+    foreach ($line in (Get-Content -LiteralPath $EnvFile -ErrorAction SilentlyContinue)) {
+        if ($line -match '^\s*DATA_PATH\s*=\s*(.+?)\s*$') {
+            $candidate = $Matches[1].Trim().Trim('"')
+            if ($candidate) {
+                $ExistingDataPath = $candidate
+                $DataPath = $candidate
+            }
+            break
+        }
+    }
+}
+
+if ($ExistingDataPath) {
+    Write-Title "Index location"
+    Write-Host "  Keeping the location already in .env: $ExistingDataPath" -ForegroundColor Gray
+    Write-Host "  Nothing is moved and nothing is re-indexed." -ForegroundColor DarkGray
+}
+
 if (-not $DataPath) {
     Write-Title "Index location"
     Write-Host "  The index (vectors + full-text + cache + models) is large." -ForegroundColor Gray
     Write-Host "  Needs ~${RequiredFreeGB}GB free for a 100GB corpus, ideally on an SSD." -ForegroundColor Gray
     Write-Host ""
-    $default = "D:\KnowledgeGraphData"
+    Write-SharedComputerNotice
+    Write-Host ""
+    # **Per-account by default.** %LOCALAPPDATA% is ACL'd to this Windows
+    # account, so two people on one machine get two private indexes with no
+    # extra machinery - Windows' own permissions do the separating. Any other
+    # path is still accepted; this is the default, not a restriction.
+    $default = Join-Path $env:LOCALAPPDATA "Leasha"
     $answer  = Read-Host "  Index location [Enter for $default]"
     if ([string]::IsNullOrWhiteSpace($answer)) {
         $DataPath = $default

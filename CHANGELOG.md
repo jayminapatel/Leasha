@@ -1,6 +1,23 @@
 # Changelog
 
-**Doc version:** 3.65 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.66 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Privacy defaults - a per-account index and an offer that adds nothing
+
+- **The index defaults to `%LOCALAPPDATA%\Leasha`**, which Windows ACLs to one
+  account. Two people on one machine get two private indexes and nothing had to
+  be built to separate them. Any other location is still accepted.
+- **An existing install is left exactly as it is.** The installer reads `.env`
+  for a `DATA_PATH` before it offers anything and, finding one, says so and
+  asks nothing - no prompt, no warning, no migration.
+- **A first run offers folders and adds none.** Documents, Desktop, Downloads
+  and Pictures appear as one-click adds with an "add all four"; the offer
+  disappears once any folder is present, so an existing install never sees it.
+  Nothing outside your own Windows profile is ever suggested.
+- **The shared-computer paragraph** is in the README and on the installer's
+  index-location step, and a test holds the two copies to each other.
+- **`doctor` says where the index is and who can read it** - one factual line,
+  which always passes: a shared location is a choice, not a fault.
 
 ## Review remediation, sections 6 and 8
 

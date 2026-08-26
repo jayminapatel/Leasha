@@ -2162,6 +2162,82 @@ def index_bytes(store: Any, settings: Any) -> int:
     return total
 
 
+#: The profile folders offered on a first run, in the order they are shown.
+#:
+#: Ordinary places ordinary documents live. Not the whole profile, which drags
+#: in AppData and every cache in it, and not a drive.
+SUGGESTED_FOLDERS = ("Documents", "Desktop", "Downloads", "Pictures")
+
+
+def owns_path(candidate: str, home: Optional[str] = None) -> bool:
+    r"""Is `candidate` inside *this* account's profile?
+
+    The guard behind "no root that resolves inside another user's profile is
+    ever *suggested*". Typing one in stays allowed - the machine belongs to the
+    person using it - but a default that reaches into `C:\Users\someone-else`
+    is the one thing this order exists to make impossible.
+
+    Compared case-insensitively and separator-insensitively, because
+    `C:/Users/jaymin` and `C:\Users\Jaymin` are the same folder and a string
+    comparison that says otherwise would wave through exactly the case that
+    matters.
+    """
+    if not candidate:
+        return False
+    root = (home if home is not None else os.path.expanduser("~"))
+    if not root:
+        return False
+
+    def flatten(value: str) -> str:
+        return value.replace("/", "\\").rstrip("\\").lower()
+
+    flat_root, flat = flatten(root), flatten(candidate)
+    return flat == flat_root or flat.startswith(flat_root + "\\")
+
+
+def suggested_roots(home: Optional[str] = None,
+                    exists: Optional[Any] = None) -> list[str]:
+    r"""Folders to offer on a first run. **Offered, never added.**
+
+    Returns only those that exist, in `SUGGESTED_FOLDERS` order, and only ones
+    inside this account's own profile - so the list is safe to present without
+    anybody checking it, which is the point of computing it here rather than in
+    a view.
+
+    `exists` is injectable so this is testable without creating directories,
+    and `home` so a test can pretend to be somebody else.
+    """
+    root = home if home is not None else os.path.expanduser("~")
+    if not root:
+        return []
+    here = exists if exists is not None else (lambda p: Path(p).is_dir())
+
+    # Joined with the separator the root already uses rather than with
+    # `Path`, which on Linux leaves `C:\Users\jaymin/Documents` - correct
+    # enough to open, and not something to show anybody.
+    separator = "\\" if "\\" in root else "/"
+    out: list[str] = []
+    for name in SUGGESTED_FOLDERS:
+        candidate = root.rstrip("\\/") + separator + name
+        if not owns_path(candidate, home=root):
+            continue                     # unreachable today; the guard is the point
+        if here(candidate):
+            out.append(candidate)
+    return out
+
+
+def nothing_indexed_yet(roots: Sequence[str]) -> str:
+    """What the window says when no folder has been chosen.
+
+    **A blank list and a broken app look identical**, which is the failure this
+    project keeps finding in other places. One sentence, and it says what to do.
+    """
+    if roots:
+        return ""
+    return ("No folders are being indexed yet, so there is nothing to search. "
+            "Choose a folder below and Leasha will index it.")
+
+
 def index_counts(store: Any) -> str:
     """The status bar's sentence. **Runs on a worker; see `_refresh_status`.**
 
