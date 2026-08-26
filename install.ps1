@@ -655,6 +655,41 @@ if ($null -eq $doctorExit) { $doctorExit = 0 }
 }
 
 # ---------------------------------------------------------------------------
+# Tab completion - the one optional question, asked after everything works
+# ---------------------------------------------------------------------------
+#
+# **Asked, never assumed.** A PowerShell profile is somebody's own file, and
+# writing to it uninvited is the kind of thing that gets an application
+# uninstalled. Declining costs a convenience and nothing else, and
+# `leasha completions install --path $PROFILE --remove` undoes it later.
+#
+# No administrator rights: a profile lives under the user's own Documents,
+# which is the same rule `add-to-path.ps1` follows.
+
+# `-SkipOptional` already means "do not ask me about the extras", and this is
+# one; `-Preflight` checks without changing anything, so it must not write to a
+# profile either.
+if (-not $SkipOptional -and -not $Preflight) {
+    Write-Title "Tab completion (optional)"
+    Write-Host "  Press Tab after `leasha ` to complete filters and their values" -ForegroundColor Gray
+    Write-Host "  from what is actually in your index. Adds two lines to your" -ForegroundColor Gray
+    Write-Host "  PowerShell profile; nothing else on the machine changes." -ForegroundColor Gray
+    Write-Host ""
+    $answer = Read-Host "  Set it up? [y/N]"
+    if ($answer -match '^(y|yes)$') {
+        Invoke-Step -Name "Install tab completion into `$PROFILE" -Optional `
+            -Fix "Run it by hand later: venv\Scripts\python.exe -m app.cli completions install --path `$PROFILE" `
+            -Action {
+                & "$ProjectPath\venv\Scripts\python.exe" -m app.cli `
+                    completions install --path $PROFILE
+                if ($LASTEXITCODE -ne 0) { throw "completions install exited $LASTEXITCODE" }
+            }
+    } else {
+        Write-Host "  Skipped. `leasha completions install --path `$PROFILE` sets it up later." -ForegroundColor DarkGray
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

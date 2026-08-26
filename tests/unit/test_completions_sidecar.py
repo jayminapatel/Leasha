@@ -280,3 +280,178 @@ def test_the_standalone_suggester_agrees_with_the_store(indexed) -> None:
                   if line]
         mine = store.distinct_values(source, limit=40)
         assert theirs == mine, source
+
+
+# --- 4a and 4d: the PowerShell completer ------------------------------------
+
+
+def test_the_script_names_every_filter_the_catalogue_does() -> None:
+    r"""**Generated, never hand-written.** A completer typed out by hand is a
+    second copy of the grammar, and one catalogue feeding every consumer is
+    this project's non-negotiable for commands. Regenerating is the update
+    path, and this is what makes that true rather than intended.
+    """
+    from app.search.commands import COMMANDS
+    from app.search.pwsh_completer import completer_script
+
+    script = completer_script(project_path="D:/SearchProject")
+
+    for command in COMMANDS:
+        assert f"Name = '{command.name}'" in script, command.name
+
+
+def test_each_row_carries_its_summary_as_the_tooltip() -> None:
+    """The CLI's inline metadata, and the same words the dropdown shows."""
+    from app.search.commands import command_for
+    from app.search.pwsh_completer import completer_script
+
+    script = completer_script(project_path="D:/SearchProject")
+    summary = command_for("type").summary
+
+    assert f"Tip = '{summary}'" in script
+
+
+def test_the_subcommands_come_from_the_parser() -> None:
+    """From `build_parser` rather than a list, for the reason the module
+    exists: a hand-written second copy is what drifts."""
+    from app.search.pwsh_completer import _subcommands, completer_script
+
+    verbs = _subcommands()
+    script = completer_script(project_path="D:/SearchProject")
+
+    assert "search" in verbs and "index" in verbs
+    for verb in verbs:
+        assert f"'{verb}'" in script, verb
+
+
+def test_the_sidecar_is_read_before_python_is_started() -> None:
+    """The whole design in one ordering: a file first, a process only when the
+    file has no answer."""
+    from app.search.pwsh_completer import completer_script
+
+    script = completer_script(project_path="D:/SearchProject")
+    sidecar_at = script.index("completions.json")
+    fallback_at = script.index("suggest.py")
+
+    assert sidecar_at < fallback_at
+
+
+def test_a_quote_in_a_summary_cannot_break_the_script() -> None:
+    """Somebody's apostrophe must not end a PowerShell string."""
+    from app.search.pwsh_completer import completer_script
+
+    class Awkward:
+        name = "odd"
+        source = "ext"
+        summary = "Dave's files"
+
+    script = completer_script(commands=[Awkward()], subcommands=("search",),
+                              project_path="D:/x")
+
+    assert "Tip = 'Dave''s files'" in script
+
+
+def test_installing_is_idempotent(tmp_path) -> None:
+    """Somebody who runs it twice must not get two completers."""
+    from app.search.pwsh_completer import install_into
+
+    profile = tmp_path / "profile.ps1"
+    profile.write_text("Set-Alias ll Get-ChildItem\n", encoding="utf-8")
+
+    first = install_into(profile, tmp_path / "gen.ps1")
+    assert first is not None
+    profile.write_text(first, encoding="utf-8")
+
+    assert install_into(profile, tmp_path / "gen.ps1") is None
+
+
+def test_removing_puts_the_profile_back_exactly(tmp_path) -> None:
+    """A profile is somebody's own file. This takes out what it put in and
+    touches nothing else."""
+    from app.search.pwsh_completer import install_into
+
+    profile = tmp_path / "profile.ps1"
+    original = "Set-Alias ll Get-ChildItem\nfunction prompt { 'PS> ' }\n"
+    profile.write_text(original, encoding="utf-8")
+
+    profile.write_text(install_into(profile, tmp_path / "gen.ps1"),
+                       encoding="utf-8")
+    back = install_into(profile, tmp_path / "gen.ps1", remove=True)
+
+    assert back == original
+
+
+def test_removing_when_it_was_never_there_changes_nothing(tmp_path) -> None:
+    from app.search.pwsh_completer import install_into
+
+    profile = tmp_path / "profile.ps1"
+    profile.write_text("Set-Alias ll Get-ChildItem\n", encoding="utf-8")
+
+    assert install_into(profile, tmp_path / "gen.ps1", remove=True) is None
+
+
+def test_the_profile_gets_a_dot_source_not_the_whole_script(tmp_path) -> None:
+    """So regenerating after a catalogue change does not need the profile
+    edited again - the shape `add-to-path.ps1` uses."""
+    from app.search.pwsh_completer import install_into
+
+    profile = tmp_path / "profile.ps1"
+    profile.write_text("", encoding="utf-8")
+
+    added = install_into(profile, tmp_path / "leasha-completions.ps1")
+
+    assert "Register-ArgumentCompleter" not in added
+    assert ". '" in added
+
+
+def test_the_tab_completer_offers_unscoped_values() -> None:
+    r"""Deliberate, and the order says why: conditioning on the half-typed
+    query would mean parsing it inside a PowerShell script block - a second
+    parser in a second language. Scoped completion in a terminal is what
+    `leasha shell` is for.
+    """
+    from app.search.pwsh_completer import completer_script
+
+    script = completer_script(project_path="D:/SearchProject")
+
+    assert "within" not in script
+    assert "scoped" not in script.lower()
+
+
+# --- 4d: the installer asks, once, and never assumes -------------------------
+
+INSTALLER = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+
+def test_the_installer_offers_it_as_a_question() -> None:
+    """A PowerShell profile is somebody's own file. Writing to it uninvited is
+    the kind of thing that gets an application uninstalled."""
+    assert "Tab completion (optional)" in INSTALLER
+    assert "Set it up? [y/N]" in INSTALLER, "the default must be no"
+
+
+def test_it_is_skipped_when_the_extras_are() -> None:
+    """`-SkipOptional` already means "do not ask me about the extras", and
+    `-Preflight` checks without changing anything - so neither may write to a
+    profile."""
+    block = INSTALLER[INSTALLER.index("Tab completion (optional)") - 400:
+                      INSTALLER.index("Tab completion (optional)")]
+    assert "-not $SkipOptional" in block
+    assert "-not $Preflight" in block
+
+
+def test_declining_says_how_to_do_it_later() -> None:
+    """A skip that leaves somebody without the way back is a skip they cannot
+    undo."""
+    assert "completions install" in INSTALLER
+
+
+def test_the_installer_still_parses() -> None:
+    """`run-install.cmd` parse-checks before running. This is the cheapest
+    approximation available without PowerShell."""
+    import re
+
+    stripped = re.sub(r"#.*", "", INSTALLER)
+    assert stripped.count("{") == stripped.count("}")
+    assert stripped.count("(") == stripped.count(")")
+    assert INSTALLER.count('@"') == INSTALLER.count('"@')

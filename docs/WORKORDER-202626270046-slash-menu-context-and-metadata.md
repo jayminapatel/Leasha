@@ -102,7 +102,7 @@ constraint the GUI popup never faces: a Tab press expects an answer in tens of
 milliseconds, and a cold Python start with the app's imports costs hundreds.
 So the design splits static from dynamic, and pre-computes the dynamic half.
 
-- [ ] **4a** (CLI) `leasha completions --powershell` emits a
+- [x] **4a** (CLI) `leasha completions --powershell` emits a
   `Register-ArgumentCompleter -CommandName leasha` script **generated from the
   catalogue at run time** — subcommands and flags from `build_parser`, filter
   names, aliases, value hints and summaries from `COMMANDS` (summaries become
@@ -124,7 +124,7 @@ So the design splits static from dynamic, and pre-computes the dynamic half.
   the same bounded `distinct_values`, and prints one value per line. Budget:
   measured under 300ms cold on the scale fixture, or the fallback is dropped
   and the sidecar is the whole answer.
-- [ ] **4d** (Install) `leasha completions install` appends the completer to the
+- [x] **4d** (Install) `leasha completions install` appends the completer to the
   user's PowerShell profile, `-Remove` undoes it — the exact contract
   `add-to-path.ps1` already established, and the same no-admin-rights rule.
   `run-install.cmd` offers it as the one optional question after the index
@@ -476,3 +476,35 @@ when somebody asks.
 `recipient` was added to the store's value shapes to fill it. It offers the
 `recipients` field as stored rather than parsing the JSON array per row, which
 is what `to:` matches against anyway.
+
+## 4a and 4d delivered, 2026-08-27
+
+**4a** `leasha completions --powershell` emits a `Register-ArgumentCompleter`
+generated from the catalogue: every filter name, its value source, and its
+summary as the `CompletionResult` tooltip - which is this shell's inline
+metadata, the same words the dropdown shows. Subcommands come from
+`build_parser` rather than a list, for the reason the module exists at all. A
+test asserts the emitted script names every command `COMMANDS` does, so
+regenerating after a catalogue change is the whole update path.
+
+The script reads `completions.json` first and only starts `suggest.py` when the
+sidecar has no entry for a source; a test asserts that ordering, because it is
+the design rather than an implementation detail. Summaries are escaped for
+PowerShell's single-quoted strings - an apostrophe in *"Dave's files"* would
+otherwise end the string and take the script with it.
+
+It offers **unscoped** values, as this order requires: conditioning them on the
+half-typed query means parsing that query inside a script block, which is a
+second parser in a second language.
+
+**4d** `leasha completions install --path $PROFILE`, with `--remove` to undo.
+The profile gets a two-line dot-source of a generated file rather than the
+script itself, so regenerating does not need the profile edited again - the
+shape `add-to-path.ps1` established. Installing twice changes nothing;
+removing restores the profile exactly, byte for byte, because a profile is
+somebody's own file.
+
+`install.ps1` asks once, after everything else works, defaulting to **no**, and
+says how to do it later when declined. Skipped entirely under `-SkipOptional`
+and `-Preflight`: the first means "do not ask me about the extras" and the
+second must change nothing at all.
