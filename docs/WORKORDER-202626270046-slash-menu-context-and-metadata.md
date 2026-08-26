@@ -69,13 +69,13 @@ PDFs. Today the earlier tokens are parsed and then ignored by the menu.
 
 - [x] **2a** (Storage) `distinct_values` returns `(value, count)` pairs (it is
   already a GROUP BY; the count is free). Callers that want strings unpack.
-- [ ] **2b** (UI) the value menu shows the count dimmed beside each value —
+- [x] **2b** (UI) the value menu shows the count dimmed beside each value —
   `pdf   12,431 files`, `dave@…   316 messages` — through the same
   `QStandardItemModel` the popup already builds; a second column role plus the
   existing delegate treatment, painted in the palette's colours like
   `command_icon` does. Counts are of the *scoped* set when a context applies,
   which is what makes 1b and 2a one query, not two.
-- [ ] **2c** (UI) date commands show the resolved range as the hint —
+- [x] **2c** (UI) date commands show the resolved range as the hint —
   `/after 30d   (since 28 Jul)` — computed by the presenter, Qt-free, so it can
   be tested without a display.
 
@@ -338,3 +338,36 @@ sample's. It is exact whenever the query was unscoped, and whenever a scoped
 one finished inside the sample - which is most real scopes, since one
 repository or one folder is far under twenty thousand files. **2b** shows the
 count when `exact` is True and omits it when it is not.
+
+## 2b and 2c delivered, 2026-08-27 — and a defect they exposed
+
+**2b** value rows carry their count: `pdf   12,431 files`,
+`dave@acme.com   316 messages`. Built by `presenter.value_rows`, Qt-free, in
+the same padded-column shape the command rows already use (`_ROW`) - the two
+lists share a popup, and a second alignment would read as a bug. No delegate
+was added: this widget has never had one, and the convention it does have
+already does the job.
+
+Shown **only when the count is exact**, per 2a. Singular when it is one: "1
+files" is what makes a careful interface look careless, and this row sits under
+somebody's cursor. Senders are counted in messages, not files.
+
+**2c** date rows show what they resolve to: `30d   (since 28 Jul 2026)`. No
+`%-d` in the formatting - that is a glibc extension which strips the leading
+zero on Linux and raises `ValueError` on Windows, the only platform this ships
+to.
+
+**The defect 2c exposed, which is the point of 2c.** `RELATIVE_DATES` offers
+`last month`. Picking it inserted `after:last month`, and the tokenizer splits
+on whitespace - so that parses as `after:last`, which is not a date and
+therefore no filter at all, plus a loose search for the word *month*. Somebody
+chose a date from a list and got a query that filtered nothing and searched for
+something else, with nothing on screen to say so. `as_typed_value` quotes a
+value that contains a space, and a test now walks every spelling in
+`RELATIVE_DATES` and asserts it parses back - the catalogue's own rule is that
+a value offered here which the parser rejects is a promise the application
+breaks.
+
+`value_for_row` maps a row back to its value by position rather than by
+splitting the text, because `last month` and `Site Photos 2024` do not survive
+a `split()` and that string goes into the query.

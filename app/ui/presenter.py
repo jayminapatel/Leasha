@@ -3472,7 +3472,8 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
                       limit: int = VALUE_LIMIT, resolve: Any = None,
                       lookup: Any = None, catalogue: Any = None,
                       context: Any = None,
-                      notes: Optional[list[str]] = None) -> list[str]:
+                      notes: Optional[list[str]] = None,
+                      counts: Optional[dict] = None) -> list[str]:
     """What to offer after `/type `, `/from `, `/repo `, `/after `…
 
     **The half of the `/` menu that was missing.** The menu said which filters
@@ -3519,6 +3520,11 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
     limit = max(int(limit or 0), 1)
     found: list[str] = []
 
+    #: value -> the `ValueCount` it came from, when it came from one. The
+    #: merged list stays strings so every existing caller keeps working; the
+    #: counts ride alongside for `value_rows` to pick up.
+    counted: dict[str, Any] = {}
+
     def offer(values: Any, cap: Optional[int] = None) -> None:
         """Add what matches the prefix, keeping the first spelling seen.
 
@@ -3531,11 +3537,14 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
         for value in values or ():
             if cap is not None and added >= cap:
                 return
-            text = str(value).strip()
+            plain = isinstance(value, str)
+            text = (value if plain else str(getattr(value, "value", value))).strip()
             if not text or (wanted and wanted not in text.lower()):
                 continue
             if text not in found:
                 found.append(text)
+                if not plain:
+                    counted[text] = value
                 added += 1
 
     # **Both readers, in order, not one or the other.** The Code tab is a
@@ -3566,9 +3575,8 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
         # degradation this project has a standing rule against, and it showed
         # up immediately: four existing tests use a double with the old
         # signature, and all four went from offering `pdf` to offering `word`.
-        readers.append(lambda kind, prefix, limit: store.distinct_values(
-            kind, prefix=prefix, limit=limit,
-            **({"within": scope} if scope is not None else {})))
+        readers.append(lambda kind, prefix, limit: _counted_values(
+            store, kind, prefix, limit, scope))
 
     # 1. What is actually indexed, commonest first. Still first, because the
     #    extension somebody wants is nearly always one of the three they have
@@ -3648,7 +3656,25 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
             _note_all(notes)
         return unscoped
 
+    if counts is not None:
+        counts.update(counted)
     return found[:limit]
+
+
+def _counted_values(store: Any, kind: str, prefix: str, limit: int,
+                    scope: Any) -> list[Any]:
+    """`ValueCount`s where the store offers them, strings where it does not.
+
+    A store that predates `distinct_value_counts` - a test double, an older
+    object - still answers `distinct_values`, and losing its values because it
+    has not grown a method is the silent degradation `within=` already had to
+    be taught to avoid.
+    """
+    extra = {"within": scope} if scope is not None else {}
+    counts_of = getattr(store, "distinct_value_counts", None)
+    if callable(counts_of):
+        return counts_of(kind, prefix=prefix, limit=limit, **extra)
+    return store.distinct_values(kind, prefix=prefix, limit=limit, **extra)
 
 
 #: What the widget shows when a scope was dropped. One sentence, in the plain
@@ -3737,6 +3763,132 @@ _FILTER_FIELDS: dict[str, Any] = {
     "has_attachment": None,
     "scope": "all",
 }
+
+
+#: A value row: the value, then whatever is worth knowing about it.
+#:
+#: The same shape the command rows use (`_ROW` in `command_popup`), because the
+#: two lists sit in the same popup and a second alignment would read as a bug.
+VALUE_ROW = "{value:<30} {meta}"
+
+#: What a count counts, per value source. `dave@acme.com  316 files` would be
+#: wrong in a way somebody would notice and not be able to explain.
+VALUE_NOUNS: dict[str, str] = {
+    "sender": "messages",
+    "repo": "files",
+    "ext": "files",
+    "folder": "files",
+}
+
+
+def value_row(value: str, *, count: Optional[int] = None, exact: bool = True,
+              noun: str = "files", hint: str = "") -> str:
+    """One row of the value menu.
+
+    **The count is shown only when it is exact.** A scoped menu counts the
+    first `VALUE_SAMPLE` matching rows, and at that ceiling the number is a
+    fraction of the truth - `pdf   200 files` for a corpus holding five
+    thousand. Omitting it loses information; printing it states something
+    false, and this project's rule is that a label says what is so.
+
+    `hint` wins when both are available, because a date's resolved range says
+    more than a count of the files that would match it.
+    """
+    text = str(value or "")
+    meta = str(hint or "")
+    if not meta and count is not None and exact:
+        number = int(count)
+        # "1 files" is the kind of thing that makes a careful interface look
+        # careless, and this row sits under somebody's cursor.
+        word = noun[:-1] if number == 1 and noun.endswith("s") else noun
+        meta = f"{number:,} {word}"
+    if not meta:
+        return text
+    return VALUE_ROW.format(value=text, meta=meta).rstrip()
+
+
+def value_rows(name: str, values: Sequence[Any], *, resolve: Any = None,
+               today: Any = None) -> list[str]:
+    r"""The value menu's rows, from either strings or `ValueCount`s.
+
+    Both, because the menu is filled twice: once instantly from the grammar
+    with no store, and again from the index on a worker. The first pass has no
+    counts to show and must not wait for any.
+
+    Qt-free, so the wording is testable without a display.
+    """
+    if resolve is None:
+        from app.search.commands import command_for as resolve
+
+    command = resolve(name)
+    is_date = bool(getattr(command, "is_date", False))
+    noun = VALUE_NOUNS.get(getattr(command, "source", "") or "", "files")
+
+    rows = []
+    for entry in values or ():
+        # **`isinstance` before `getattr`.** A plain string has a `.count` -
+        # the method - so `getattr(entry, "count", None)` returns a callable
+        # for every value on the instant pass, and `f"{int(count):,}"` then
+        # raises. The two shapes are told apart by what they are, not by which
+        # attributes they happen to answer to.
+        plain = isinstance(entry, str)
+        value = entry if plain else str(getattr(entry, "value", entry))
+        rows.append(value_row(
+            value,
+            count=None if plain else getattr(entry, "count", None),
+            exact=True if plain else bool(getattr(entry, "exact", True)),
+            noun=noun,
+            hint=resolved_date(value, today=today) if is_date else "",
+        ))
+    return rows
+
+
+def as_typed_value(value: str) -> str:
+    r"""A value, spelled so the parser reads it back as one value.
+
+    **Quoted when it contains a space**, because the tokenizer splits on
+    whitespace: picking `last month` from the menu inserted `after:last month`,
+    which parses as `after:last` - not a date, so no filter at all - plus a
+    loose search for the word *month*. Somebody chose a date from a list and
+    got a query that filtered nothing and searched for the wrong thing, with
+    nothing on screen to say so.
+
+    Found while building the resolved-date hint (`2c`), which is the point of
+    that hint: showing what a value resolves to is how a value that resolves to
+    nothing becomes visible.
+    """
+    text = str(value or "").strip()
+    if not text or ('"' in text):
+        return text
+    return f'"{text}"' if any(c.isspace() for c in text) else text
+
+
+def resolved_date(value: str, *, today: Any = None) -> str:
+    r"""What a date value actually means, for the hint beside it.
+
+    `/after 30d   (since 28 Jul)`. Qt-free and here rather than in the widget,
+    so the wording can be checked without a display - the same reason the rest
+    of the menu's decisions live in this file.
+
+    `""` when the value is not a date the parser accepts, which is the honest
+    answer and is what tells somebody that `after:lst week` is not going to do
+    what they meant.
+    """
+    from app.search.query import _parse_date
+
+    text = str(value or "").strip().strip('"')
+    if not text:
+        return ""
+    try:
+        found = _parse_date(text, today=today)
+    except Exception:                            # noqa: BLE001 - a hint
+        return ""
+    if found is None:
+        return ""
+    # **No `%-d`.** That is a glibc extension: it strips the leading zero on
+    # Linux and raises `ValueError` on Windows, which is the only platform this
+    # ships to. The day is formatted by hand instead.
+    return f"(since {found.day} {found:%b %Y})"
 
 
 def scope_key(name: str, context: Any, resolve: Any = None) -> str:

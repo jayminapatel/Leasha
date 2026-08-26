@@ -51,7 +51,8 @@ from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
 from app.ui.presenter import (
-    CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS, scope_key, slash_context,
+    CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS, as_typed_value, scope_key,
+    slash_context, value_rows,
     value_suggestions,
 )
 from app.ui.widgets.command_icon import icon_for, text_colour
@@ -146,6 +147,7 @@ class CommandPopup(QCompleter):
         #: view needs it to know what a chosen row means.
         self.value_of = ""
         self._values: list[str] = []
+        self._rows: list[str] = []
 
         self._model = QStandardItemModel(self)
         self.setModel(self._model)
@@ -205,12 +207,20 @@ class CommandPopup(QCompleter):
         """
         self.value_of = str(name or "")
         self._matches = []
-        self._values = [str(value) for value in values]
+        # **The bare value is what gets inserted; the row is what is read.**
+        # A `ValueCount` carries a number the row shows and the query must
+        # never contain, so the two are kept apart here rather than stripped
+        # apart again in `on_activated`.
+        self._values = [
+            value if isinstance(value, str) else str(getattr(value, "value", value))
+            for value in values
+        ]
+        self._rows = value_rows(self.value_of, list(values or ()))
         # A value list can be forty long where the command list is eleven.
         # Capped rather than sized to it: a menu taller than the window is not
         # more discoverable, and scrolling is the right answer past a dozen.
         self.setMaxVisibleItems(max(1, min(len(self._values), 12)))
-        self._fill([(VALUE_ICON, value) for value in self._values])
+        self._fill([(VALUE_ICON, row) for row in self._rows])
 
     def _fill(self, rows: Sequence[tuple[str, str]]) -> None:
         ink = text_colour(self.popup())
@@ -227,6 +237,19 @@ class CommandPopup(QCompleter):
         if 0 <= row < len(self._matches):
             return self._matches[row]
         return None
+
+    def value_for_row(self, row_text: str) -> str:
+        """The value a row stands for, without the metadata beside it.
+
+        Matched by position rather than by splitting the text: a value with two
+        spaces in it - `last month`, a folder called `Site Photos 2024` - would
+        not survive a `split()`, and this is the string that goes into the
+        query.
+        """
+        try:
+            return self._values[self._rows.index(str(row_text))]
+        except (ValueError, IndexError):
+            return str(row_text).strip()
 
     @property
     def has_matches(self) -> bool:
@@ -293,10 +316,17 @@ def attach_to(line_edit: QLineEdit,
 
     def suggest(name: str, partial: str, use_store: bool = True,
                 context: Any = None, notes: Any = None) -> list:
-        return value_suggestions(store if use_store else None, name, partial,
-                                 resolve=resolve,
-                                 lookup=lookup if use_store else None,
-                                 context=context, notes=notes)
+        """The values, carrying their counts where the store supplied any.
+
+        Strings for anything the grammar or the catalogue contributed - those
+        are facts about the language and have nothing to count.
+        """
+        counts: dict = {}
+        found = value_suggestions(store if use_store else None, name, partial,
+                                  resolve=resolve,
+                                  lookup=lookup if use_store else None,
+                                  context=context, notes=notes, counts=counts)
+        return [counts.get(value, value) for value in found]
 
     # **Tab has to pick the highlighted command.**
     #
@@ -393,7 +423,13 @@ def attach_to(line_edit: QLineEdit,
             # A value: complete the whole `name:value` and get out of the way.
             # The trailing space is what says "this filter is finished" - and
             # it is also what stops `_tail` reopening the menu immediately.
-            line_edit.setText(f"{head}{popup.value_of}:{row_text} ")
+            # `row_text` is the row, which may carry a count or a resolved
+            # date; the value is the first column. And it is quoted when it
+            # holds a space - picking `last month` used to insert
+            # `after:last month`, which parses as `after:last` plus a loose
+            # search for the word *month*.
+            chosen = as_typed_value(popup.value_for_row(row_text))
+            line_edit.setText(f"{head}{popup.value_of}:{chosen} ")
             line_edit.setCursorPosition(len(line_edit.text()))
             popup.popup().hide()
             return

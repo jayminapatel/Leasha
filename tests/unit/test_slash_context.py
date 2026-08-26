@@ -247,13 +247,16 @@ def test_the_store_reader_is_given_the_scope(store, monkeypatch) -> None:
     from app.ui.presenter import value_suggestions
 
     calls = []
-    original = store.distinct_values
+    original = store.distinct_value_counts
 
     def spy(kind, **kwargs):
         calls.append(kwargs)
         return original(kind, **kwargs)
 
-    monkeypatch.setattr(store, "distinct_values", spy)
+    # The counts method, because that is the one the reader prefers now - a spy
+    # on `distinct_values` would sit there recording nothing and the test would
+    # pass by never being reached.
+    monkeypatch.setattr(store, "distinct_value_counts", spy)
     value_suggestions(store, "type", "", context=parse_query("repo:leasha"))
 
     # Every call, not the last: `repo:leasha` matches nothing here, so 1e's
@@ -431,3 +434,130 @@ def test_a_count_taken_from_a_spent_sample_says_it_is_not_exact(
         assert rows
         assert not rows[0].exact, "a sampled count claimed to be the truth"
         assert rows[0].count <= VALUE_SAMPLE
+
+
+# --- 2b and 2c: what a value row says ---------------------------------------
+
+
+def test_a_count_sits_beside_the_value() -> None:
+    from app.ui.presenter import value_row
+
+    assert value_row("pdf", count=12431).startswith("pdf")
+    assert "12,431 files" in value_row("pdf", count=12431)
+
+
+def test_a_count_of_one_is_singular() -> None:
+    """"1 files" is what makes a careful interface look careless, and this row
+    sits under somebody's cursor."""
+    from app.ui.presenter import value_row
+
+    assert "1 file" in value_row("pdf", count=1)
+    assert "1 files" not in value_row("pdf", count=1)
+    assert "1 message" in value_row("sam@x.io", count=1, noun="messages")
+
+
+def test_a_sampled_count_is_not_shown_at_all() -> None:
+    """Omitting it loses information; printing it states something false."""
+    from app.ui.presenter import value_row
+
+    assert value_row("pdf", count=200, exact=False) == "pdf"
+
+
+def test_senders_are_counted_in_messages_not_files() -> None:
+    """`dave@acme.com  316 files` is wrong in a way somebody would notice and
+    not be able to explain."""
+    from app.storage.sqlite_store import ValueCount
+    from app.ui.presenter import value_rows
+
+    row = value_rows("from", [ValueCount("dave@acme.com", 316, True)])[0]
+    assert "316 messages" in row
+
+
+def test_a_date_row_shows_what_it_resolves_to() -> None:
+    """2c: `/after 30d   (since 28 Jul 2026)`."""
+    import datetime
+
+    from app.ui.presenter import value_rows
+
+    rows = value_rows("after", ["30d", "last month"],
+                      today=datetime.date(2026, 8, 27))
+
+    assert "(since 28 Jul 2026)" in rows[0]
+    assert "(since 27 Jul 2026)" in rows[1]
+
+
+def test_the_date_hint_never_uses_a_glibc_only_format() -> None:
+    r"""`%-d` strips the leading zero on Linux and raises `ValueError` on
+    Windows, which is the only platform this ships to."""
+    import ast
+    import inspect
+    import textwrap
+
+    from app.ui import presenter
+
+    # **Against the code, not the prose.** The comment above the fix names the
+    # directive it forbids, so a plain substring search matches the
+    # explanation - which this project has now been caught by four times.
+    tree = ast.parse(textwrap.dedent(inspect.getsource(presenter.resolved_date)))
+    node = tree.body[0]
+    node.body = node.body[1:]                    # drop the docstring
+    assert "%-d" not in ast.unparse(node)
+
+
+def test_a_value_that_is_not_a_date_gets_no_hint() -> None:
+    """Which is how `after:lst week` becomes visibly wrong instead of quietly
+    matching nothing."""
+    import datetime
+
+    from app.ui.presenter import resolved_date
+
+    assert resolved_date("lst week", today=datetime.date(2026, 8, 27)) == ""
+
+
+def test_the_instant_pass_shows_plain_values() -> None:
+    """The menu is filled twice, and the first pass has no store to count
+    with. `getattr(entry, "count", None)` on a string returns the *method*,
+    which formatted as an integer and raised - so the shapes are told apart by
+    what they are."""
+    from app.ui.presenter import value_rows
+
+    assert value_rows("type", ["pdf", "docx"]) == ["pdf", "docx"]
+
+
+# --- the value that could not be typed --------------------------------------
+
+
+def test_a_value_with_a_space_is_quoted_when_it_is_inserted() -> None:
+    r"""**Picking `last month` produced a query that did neither thing.**
+
+    The tokenizer splits on whitespace, so `after:last month` parses as
+    `after:last` - not a date, so no filter at all - plus a loose search for
+    the word *month*. Somebody chose a date from a list and got a query that
+    filtered nothing and searched for something else, with nothing on screen to
+    say so. Found while building 2c's hint, which is the point of that hint.
+    """
+    from app.search.query import parse_query
+    from app.ui.presenter import as_typed_value
+
+    assert as_typed_value("last month") == '"last month"'
+    assert as_typed_value("pdf") == "pdf"
+
+    assert parse_query(f"after:{as_typed_value('last month')}").after is not None
+    assert parse_query("after:last month").after is None, (
+        "the unquoted form is what was broken")
+
+
+def test_every_offered_date_can_be_typed_back(store) -> None:
+    r"""The catalogue's own rule: a value offered here that the parser rejects
+    is worse than one that is merely undocumented - it is a promise the
+    application breaks."""
+    import datetime
+
+    from app.search.commands import RELATIVE_DATES
+    from app.search.query import parse_query
+    from app.ui.presenter import as_typed_value
+
+    for spelling in RELATIVE_DATES:
+        typed = f"after:{as_typed_value(spelling)}"
+        assert parse_query(typed, today=datetime.date(2026, 8, 27)).after, (
+            f"{spelling!r} is offered by the menu and does not parse as {typed}")
