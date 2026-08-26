@@ -1,6 +1,36 @@
 # Changelog
 
-**Doc version:** 3.64 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.65 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Review remediation, sections 6 and 8
+
+- **Fifteen dead knowledge-graph methods removed** from `SqliteStore` - 303
+  lines that nothing in `app/`, `tests/` or `scripts/` called.
+- **`filters.py` escapes `%` and `_` like the rest of the storage layer.** A
+  literal `%` was a wildcard there and a literal everywhere else: `name:Q1_2024`
+  matched `Q1x2024`, and `name:50%` matched everything. The escaping now lives
+  in `app/storage/like.py`, which both modules import.
+- **Plain text is read in blocks with a ceiling on the text one file may
+  produce.** The streaming alone saves nothing - measured, 43.2MB either way,
+  because `str.join` holds the pieces and the result at once - but it is what
+  lets the ceiling bind before a 2GB file has already been allocated.
+- **The embedder normalises in numpy**: 10.05ms to 0.88ms per batch of 256,
+  agreeing with the old arithmetic to 1e-12. float64, not float32, because
+  float32 changed two answers.
+- **Performance floors** for the chunker, the keyword path and the filename
+  lookup - the category whose absence let a quadratic chunker and a linear
+  keyword path both ship green.
+- **The UI-thread scanner reads the store's API instead of a list of names**,
+  and found a live fault while doing it: `stats()` is three `COUNT(*)`, about
+  460ms at ten million chunks, and ran on the UI thread in three places. The
+  Code tab now asks `has_any_files()`, and the status bar counts on a worker.
+- **The converter's real-conversion tests no longer skip on Windows.** They
+  were gated on `shutil.which("soffice")`, which is None there because
+  LibreOffice is not on PATH - the exact shadow the `.doc` bug lived in.
+
+Still open in that order: the reranker's place on the critical path, which
+needs a measurement from a machine that can download the model, and the
+structural splits, which the owner deferred.
 
 ## Review remediation, section 5 - core, extract, CLI and storage
 
