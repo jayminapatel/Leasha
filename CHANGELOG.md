@@ -1,12 +1,67 @@
 # Changelog
 
-**Doc version:** 3.52 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.53 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the git tree listed every repository whatever you typed
+
+`WORKORDER-202626081801` §2. *"when search criteria is typed in git view it
+should only show gits that have documents which match not all gits"*.
+
+`show_repos` was handed the full list and drew it. Type a term matching files in
+one checkout and the other three sat there as though they matched too — and a
+tree is read as *"these are the repositories that have what you asked for"*,
+which made it the most misleading pane in the application. The same fault as
+`code_type_filter` and the empty-list states in the code-tab order, and worse
+here because of what a tree implies.
+
+**The count comes from the same query the list ran**, which is the whole design.
+`repos_with_matches` composes `file_filter_sql` exactly as `browse_files` does —
+same filter, different projection — so if that definition changes both move
+together. A separately-worded count is how a tree and a list come to disagree.
+
+It is deliberately **uncapped** where the list is capped at 500: *"does this
+repository hold a match"* is not a question about the first 500 rows. And both
+halves are fetched in **one worker**, so nothing reaches the store on the
+keystroke path and a branch scope is still answered from the listing already
+fetched — never a fresh `git ls-tree`.
+
+A repository with no match is **hidden, not greyed** — a tree of four with three
+inert rows is the noise being removed — and the count above it says `2 of 4
+repositories match`, because a tree that has silently shrunk is as bad as one
+that silently shows everything.
+
+### Fixed — mail previews now show the message rather than the index
+
+`WORKORDER-202626081801` §3. *"also the mails dont preview properly"*. Three
+things had happened to a message before it reached the pane, and none of them
+had been decided — they fell out of reusing the indexed text for display.
+
+**No headers.** From, To, Sent and Subject are columns in the table and the
+preview had none of them, so a message read on its own had no context at all.
+They are on the row already, so this is presentation rather than a new query.
+
+**The quoted thread was gone, silently.** `strip_quoted` removes quoted replies
+and signatures at index time — correctly, or a thread quoted twenty times is
+indexed twenty times — so a reply previewed as though it had been sent with no
+context. The amount removed has been *measured* since quoting was built and only
+ever logged: the overnight run reported *"stripped 38,609 chars"* against a
+message, into a file nobody reads while looking at that message. Schema v12
+stores it, and the pane says *"Quoted reply and signature removed — 38,609
+characters"* on its notice line. **`None` is not zero**: a message indexed before
+v12 does not know, and claiming nothing was removed would be an invention.
+
+**Chunk boundaries were paragraph breaks.** `"\n\n".join(...)` put a blank line
+at every seam, so a long message read as arbitrarily broken paragraphs in places
+decided by a 512-token window. Chunks are contiguous slices, so joining them
+with nothing restores the text as extracted; a single newline goes in only where
+a trimmed seam would otherwise run two words together.
+
 
 ### Fixed — one lock was doing two jobs, and the smaller one was winning
 

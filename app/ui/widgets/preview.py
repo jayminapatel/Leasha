@@ -111,6 +111,11 @@ class PreviewPane(QWidget):
         #: hundred thousand messages in one file and there is nothing on disk to
         #: open for any one of them. **Called on the worker**, never here.
         self.body_provider: Any = None
+        #: Optional, set by the view. A sentence about what the body is *not*
+        #: showing - Mail uses it to say that a quoted thread was stripped at
+        #: index time, which is otherwise invisible and makes a reply read as a
+        #: message sent with no context. Called on the worker, like the body.
+        self.notice_provider: Any = None
 
         self.title = QLabel("")
         self.title.setObjectName("resultName")
@@ -278,6 +283,7 @@ class PreviewPane(QWidget):
         worker = CallableWorker(
             load_preview_for, self._row,
             body_provider=self.body_provider,
+            notice_provider=self.notice_provider,
             component="ui.preview",
         )
         worker.signals.finished.connect(

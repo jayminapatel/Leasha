@@ -91,8 +91,20 @@ class GitTree(QTreeWidget):
 
     # -- filling it in -------------------------------------------------------
 
-    def show_repos(self, repos: Any) -> None:
-        """Draw the repositories. Instant: they come from the index."""
+    def show_repos(self, repos: Any, matching: Any = None) -> None:
+        r"""Draw the repositories. Instant: they come from the index.
+
+        `matching` is the set of names holding a match, or `None` for *"nothing
+        was asked, show everything"*. The tree used to be given the full list
+        and draw it whatever was typed, so a term matching files in one checkout
+        left the other three sitting there as though they matched too - and a
+        tree is read as *"these are the repositories that have what you asked
+        for"*.
+
+        **Hidden, not greyed.** A tree of four with three inert rows is the
+        noise being removed, not a different arrangement of it. The count above
+        it says how many were left out, so a shrunken tree is never silent.
+        """
         self.clear()
         self._loaded.clear()
 
@@ -104,6 +116,8 @@ class GitTree(QTreeWidget):
             name = str(_get(repo, "name") or "")
             root = str(_get(repo, "root_path") or "")
             if not name:
+                continue
+            if matching is not None and name not in matching:
                 continue
             count = int(_get(repo, "files") or 0)
             item = QTreeWidgetItem([f"{name}   ({count:,} files)"])
@@ -241,7 +255,7 @@ def _read_repo(root: str) -> dict:
 
 
 def attach_git_tree(results: Any):
-    """Build the tree, put it left of `results`, and return `(tree, splitter)`.
+    """Build the tree, put it left of `results`, return `(tree, splitter, note)`.
 
     The same shape as `attach_preview`, and for the same reasons: the splitter
     exists whether or not the tree is shown, so toggling is a repaint rather
@@ -251,17 +265,38 @@ def attach_git_tree(results: Any):
     Here rather than in the view because `code_view.py` is at the 250-line
     guard, and a splitter assembled in three places would drift.
     """
-    from PyQt6.QtWidgets import QSplitter
+    from PyQt6.QtWidgets import (
+        QLabel, QSplitter, QVBoxLayout, QWidget,
+    )
 
     tree = GitTree()
+
+    # **The note lives with the tree, in the tree's own column.** A tree that
+    # has silently shrunk is as bad as one that shows everything: without this
+    # line somebody cannot tell whether three repositories are missing or were
+    # never there. Assembled here rather than in the view for the same reason
+    # the splitter is - `code_view.py` is at the 250-line guard.
+    note = QLabel("")
+    note.setObjectName("settingsHint")
+    note.setWordWrap(True)
+    note.setVisible(False)
+
+    left = QWidget()
+    column = QVBoxLayout(left)
+    column.setContentsMargins(0, 0, 0, 0)
+    column.setSpacing(4)
+    column.addWidget(note)
+    column.addWidget(tree, 1)
+
     split = QSplitter(Qt.Orientation.Horizontal)
-    split.addWidget(tree)
+    split.addWidget(left)
     split.addWidget(results)
     split.setStretchFactor(0, 1)
     split.setStretchFactor(1, 3)
     split.setChildrenCollapsible(False)
+    left.setVisible(False)
     tree.setVisible(False)
-    return tree, split
+    return tree, split, note
 
 
 def scope_rows(scope: Any) -> list:
@@ -317,3 +352,95 @@ def scope_rows(scope: Any) -> list:
             "mtime_ns": 0,
         })
     return shaped
+
+
+def draw_matches(view: Any, matching: Any) -> None:
+    r"""Show only the repositories holding a match, and say how many.
+
+    **The tree used to list every repository whatever was typed.** A term
+    matching files in one checkout left the other three sitting there as though
+    they matched too - and a tree is read as *"these are the repositories that
+    have what you asked for"*, which made it the most misleading pane here.
+
+    `matching` is computed in the same worker that fetched the rows - see
+    `presenter.code_rows_and_repos` - which is what stops the tree and the list
+    answering differently, and keeps the aggregate off the UI thread. `None`
+    means nothing was asked, so every repository is shown and no count claimed.
+
+    Here rather than in `code_view.py` because that view is at its 250-line
+    guard, and because every decision this draws is already in the presenter.
+    """
+    from app.ui.presenter import repo_tree_summary
+
+    if not view.git_tree.isVisible() or not view._repos:
+        return
+
+    view.git_tree.show_repos(view._repos, matching)
+
+    note = repo_tree_summary(matching, len(view._repos))
+    if note:
+        view.git_tree.setToolTip(note)
+        view.tree_note.setText(note)
+    view.tree_note.setVisible(bool(note))
+
+
+def draw_git_result(view: Any, found: Any) -> None:
+    """Draw what `git` returned, or say plainly why it could not run.
+
+    Extracted from `code_view.py` under the 250-line guard, and it belongs
+    beside the tree: everything it renders is a git row rather than an indexed
+    one, and `git_result_row` is the shape both panes agree on.
+    """
+    from app.ui.presenter import code_route, git_result_row, git_summary, repo_root_for
+
+    if not found.ok:
+        # Never silent: git's own message about a bad revision or pattern is the
+        # useful one, and the command makes it reproducible.
+        view.summary.setText(f"git could not run that: {found.error}\n"
+                             f"{' '.join(found.command)}")
+        view._fill([])
+        return
+
+    root = repo_root_for(view._repos, code_route(view.input.text()).repo)
+    view._fill([git_result_row(row, root) for row in found.rows])
+    view.summary.setText(git_summary(found))
+
+
+def start_git_search(view: Any, route: Any) -> None:
+    """Run the slow one: a real `git` invocation, on a worker.
+
+    Extracted from `code_view.start` under the 250-line guard. It belongs here
+    for the same reason `draw_git_result` does - none of it is about the list,
+    all of it is about a checkout, and the view's job is to say Enter was
+    pressed rather than to know what `/class OrderService` means.
+    """
+    # `CallableWorker`, `run` and `QThreadPool` come from this module's own
+    # imports. Re-importing them locally shadowed the module attributes, which
+    # made `monkeypatch.setattr("...git_tree.run", ...)` bind a name this
+    # function never looked at - so the test saw nothing start, correctly.
+    from app.search.gitquery import build, parse_git_query
+    from app.search.gitsearch import run_query
+    from app.ui.presenter import repo_root_for
+
+    root = repo_root_for(view._repos, route.repo)
+    if not root:
+        view.summary.setText(
+            "Name a repository first — /repo <name> — so git knows which "
+            "checkout to read. The Repository column lists them."
+            if view._repos else
+            "No repositories are indexed yet, so there is no history to search.")
+        return
+
+    # **The raw line, not `route.text`.** `parse_git_query` is the module that
+    # knows what `/class OrderService` means; re-deriving half of it in the view
+    # is how the two come to disagree.
+    query = parse_git_query(view.input.text())
+    view._generation += 1
+    generation = view._generation
+    view.summary.setText(f"Searching {build(query).explain}…")
+
+    worker = CallableWorker(run_query, root, query, component="ui.code.git")
+    worker.signals.finished.connect(
+        lambda found, g=generation: view._show_git(found, g))
+    worker.signals.failed.connect(view.error.emit)
+    run(QThreadPool.globalInstance(), worker)

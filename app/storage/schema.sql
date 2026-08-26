@@ -135,7 +135,11 @@ CREATE TABLE IF NOT EXISTS messages (
     sender       TEXT,
     recipients   TEXT,                       -- JSON array
     sent_at      INTEGER,
-    has_attach   INTEGER NOT NULL DEFAULT 0
+    has_attach   INTEGER NOT NULL DEFAULT 0,
+    -- How much of the body was a quoted reply or a signature, so the preview
+    -- can say what it is not showing. NULL means "indexed before v12, not
+    -- known" - which the pane reads differently from a genuine zero.
+    quoted_removed INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv   ON messages(conversation);

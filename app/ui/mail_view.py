@@ -42,7 +42,7 @@ from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
 from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows, mail_summary
-from app.ui.preview_loader import stored_text
+from app.ui.preview_loader import mail_body, quoted_notice
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -155,7 +155,15 @@ class MailView(QWidget):
         # for any one of them.
         self.preview, self.split = attach_preview(
             self.results, lambda _row: self._open_selected(), self.error.emit)
-        self.preview.body_provider = lambda row: stored_text(store, row.file_id)
+        # **The message, not the indexed text on its own.** `stored_text`
+        # returns what the index holds - so a reply arrived with its headers
+        # missing, its quoted thread gone with nothing saying so, and a blank
+        # line at every chunk boundary. `mail_body` puts From/To/Sent/Subject
+        # above it and joins the chunks without inventing paragraphs; the
+        # stripped-quote notice goes on the pane's own notice line.
+        self.preview.body_provider = lambda row: mail_body(store, row)
+        self.preview.notice_provider = lambda row: quoted_notice(
+            getattr(row, "quoted_removed", None))
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)

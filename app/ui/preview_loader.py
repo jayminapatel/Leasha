@@ -332,10 +332,93 @@ def stored_text(store: Any, file_id: Any) -> str:
     except Exception as exc:                    # noqa: BLE001
         _log.debug("no stored text for file {}: {}", file_id, exc)
         return ""
-    return "\n\n".join(chunk.text for chunk in chunks)
+    return join_chunks(chunks)
 
 
-def load_preview_for(row: Any, *, body_provider: Any = None) -> Preview:
+def join_chunks(chunks: Any) -> str:
+    r"""One document's chunks back into one body. **No invented paragraphs.**
+
+    This was `"\n\n".join(...)`, which put a blank line at every chunk
+    boundary - so a long message read as arbitrarily broken paragraphs, in
+    places decided by a 512-token window rather than by whoever wrote it.
+    Chunking is an indexing decision and has no business being visible.
+
+    Chunks are contiguous slices of the original, so joining them with nothing
+    restores the text as extracted, including its real paragraph breaks. A
+    single newline is inserted only where the seam would otherwise run two
+    words together, which happens when a chunker trims trailing whitespace.
+    """
+    out: list[str] = []
+    for chunk in chunks or ():
+        text = str(getattr(chunk, "text", "") or "")
+        if not text:
+            continue
+        if out and not out[-1].endswith(("\n", " ")) and not text.startswith(("\n", " ")):
+            out.append("\n")
+        out.append(text)
+    return "".join(out)
+
+
+#: Field order for the header block above a message body.
+#:
+#: **From, To, Sent, Subject - the order every mail client uses**, so it is read
+#: without being studied. They are columns in the table already; the preview had
+#: none of them, so a message opened on its own had no context at all.
+MAIL_HEADERS: tuple[tuple[str, str], ...] = (
+    ("From", "sender"),
+    ("To", "recipients"),
+    ("Sent", "sent"),
+    ("Subject", "subject"),
+)
+
+
+def mail_header(row: Any) -> str:
+    """The block above the body. Everything comes off the row already."""
+    lines = []
+    for label, field in MAIL_HEADERS:
+        value = str(getattr(row, field, "") or "").strip()
+        if value:
+            lines.append(f"{label}: {value}")
+    attached = str(getattr(row, "attachment", "") or "").strip()
+    if attached:
+        lines.append(f"Attached: {attached}")
+    return "\n".join(lines)
+
+
+def quoted_notice(removed: Any) -> str:
+    r"""What the preview is not showing, and how much of it.
+
+    **The honesty this pane owed and did not pay.** A mail preview draws the
+    *indexed* text, and quoted replies and signatures are stripped at index
+    time - correctly, because a thread quoted twenty times would otherwise be
+    indexed twenty times. The consequence is that a reply appears with the
+    conversation it is replying to gone, and with nothing saying so it reads as
+    a message that was sent without context.
+
+    `None` is not zero. A message indexed before schema v12 genuinely does not
+    know, and claiming "nothing was removed" would be an invention.
+    """
+    try:
+        count = int(removed)
+    except (TypeError, ValueError):
+        return ""
+    if count <= 0:
+        return ""
+    return (f"Quoted reply and signature removed — {count:,} characters. "
+            f"The index holds only what this message itself added.")
+
+
+def mail_body(store: Any, row: Any) -> str:
+    """Header block, then the message. Runs on a worker - see `stored_text`."""
+    body = stored_text(store, getattr(row, "file_id", 0))
+    header = mail_header(row)
+    if not header:
+        return body
+    return f"{header}\n\n{'-' * 40}\n\n{body}" if body else header
+
+
+def load_preview_for(row: Any, *, body_provider: Any = None,
+                     notice_provider: Any = None) -> Preview:
     """`load_preview` for a result row, whatever kind of row it is.
 
     **Which fields of a row become which arguments is a decision, so it is
@@ -399,4 +482,18 @@ def load_preview_for(row: Any, *, body_provider: Any = None) -> Preview:
     name = str(getattr(row, "name", "") or "")
     if body and name:
         preview = replace(preview, title=name)
+
+    # **What the body is not showing.** The pane already has a notice line for
+    # "remote content was removed"; mail owes the same honesty about a quoted
+    # thread stripped at index time. Appended rather than replacing, because a
+    # message could legitimately have both.
+    if notice_provider is not None:
+        try:
+            note = str(notice_provider(row) or "")
+        except Exception as exc:            # noqa: BLE001 - a notice, not a body
+            _log.debug("no notice for the selected row: {}", exc)
+            note = ""
+        if note:
+            joined = f"{preview.notice}  {note}" if preview.notice else note
+            preview = replace(preview, notice=joined)
     return preview

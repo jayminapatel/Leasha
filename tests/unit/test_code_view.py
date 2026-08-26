@@ -216,7 +216,10 @@ def test_enter_with_a_named_repository_starts_a_git_run(view, monkeypatch):
     find its repository at all and answered "name a repository first" to a line
     that named one."""
     started: dict = {}
-    monkeypatch.setattr("app.ui.code_view.run",
+    # **Patched where the call now lives.** The git dispatch moved out of
+    # `code_view.start` into `widgets.git_tree.start_git_search` under the
+    # 250-line guard; this caught the move, which is the test doing its job.
+    monkeypatch.setattr("app.ui.widgets.git_tree.run",
                         lambda _pool, worker: started.setdefault("work", worker))
     view.input.setText("/repo leasha CustomerId /history")
     view.start()

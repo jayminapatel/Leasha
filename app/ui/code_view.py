@@ -39,7 +39,7 @@ from app.core.logging import logger
 from app.ui.presenter import (
     code_preset,
     REPO_FILE_LIMIT, GitScope, code_route, code_rows_for, code_summary,
-    git_result_row, git_summary,
+    code_rows_and_repos,
     repo_empty_state, repo_file_rows, repo_root_for,
 )
 from app.ui.view_options import button as view_button
@@ -48,7 +48,10 @@ from app.ui.widgets.code_commands import (
 )
 from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.command_popup import attach_to
-from app.ui.widgets.git_tree import GIT_VIEW_HINT, attach_git_tree
+from app.ui.widgets.git_tree import (
+    GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
+    start_git_search,
+)
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["CodeView", "COLUMNS", "PREFS_KEY"]
@@ -132,7 +135,8 @@ class CodeView(QWidget):
         # The repository tree, and the button that reveals it. Off by default:
         # it costs a subprocess per repository expanded, and somebody who wants
         # to browse branches asks for it - the same posture as the preview pane.
-        self.git_tree, self.git_split = attach_git_tree(self.results)
+        (self.git_tree, self.git_split,
+         self.tree_note) = attach_git_tree(self.results)
         self.git_tree.scoped.connect(self._scoped)
         self.git_button = QPushButton("Git view")
         self.git_button.setCheckable(True)
@@ -210,9 +214,11 @@ class CodeView(QWidget):
         # One call for both engines - see `presenter.code_rows_for`. The tree
         # says where to look, the box says what to look for, and a typed
         # `/type` still beats the configured code types on either path.
+        # **Both halves in one worker**, so the tree and the list are answered
+        # by the same query and neither reaches the store on the UI thread.
         worker = CallableWorker(
-            code_rows_for, self._store, self._scope, route,
-            cached=self._scoped_rows, limit=REPO_FILE_LIMIT,
+            code_rows_and_repos, self._store, self._scope, route,
+            cached=self._scoped_rows, repos=self._repos, limit=REPO_FILE_LIMIT,
             component="ui.code",
         )
         worker.signals.finished.connect(
@@ -225,7 +231,13 @@ class CodeView(QWidget):
         a list still narrowed to a branch with nothing saying so is the worst
         of both panes."""
         self.git_tree.setVisible(on)
-        self.git_tree.show_repos(self._repos) if on else self._scoped(GitScope())
+        self.git_tree.parentWidget().setVisible(on)
+        self.tree_note.setVisible(False)
+        if on:
+            self.git_tree.show_repos(self._repos)
+            self._typed()                # narrows it, on a worker
+        else:
+            self._scoped(GitScope())
 
     def _scoped(self, scope: Any, rows: Any = None) -> None:
         """The tree has chosen, and has already read a branch if it needed to."""
@@ -236,38 +248,10 @@ class CodeView(QWidget):
     def start(self) -> None:
         """Enter: run whatever the line asks for, including the slow one."""
         route = code_route(self.input.text())
-        if route.engine != "git":
+        if route.engine == "git":
+            start_git_search(self, route)
+        else:
             self._search_index(route)
-            return
-
-        root = repo_root_for(self._repos, route.repo)
-        if not root:
-            self.summary.setText(
-                "Name a repository first — /repo <name> — so git knows which "
-                "checkout to read. The Repository column lists them."
-                if self._repos else
-                "No repositories are indexed yet, so there is no history to "
-                "search.")
-            return
-
-        from app.search.gitquery import build, parse_git_query
-
-        # **The raw line, not `route.text`.** `parse_git_query` is the module
-        # that knows what `/class OrderService` means; re-deriving half of it
-        # here is how the two come to disagree.
-        query = parse_git_query(self.input.text())
-        plan = build(query)
-        self._generation += 1
-        generation = self._generation
-        self.summary.setText(f"Searching {plan.explain}…")
-
-        from app.search.gitsearch import run_query
-
-        worker = CallableWorker(run_query, root, query, component="ui.code.git")
-        worker.signals.finished.connect(
-            lambda found, g=generation: self._show_git(found, g))
-        worker.signals.failed.connect(self.error.emit)
-        run(QThreadPool.globalInstance(), worker)
 
     # -- drawing -------------------------------------------------------------
 
@@ -275,30 +259,23 @@ class CodeView(QWidget):
         self.results.show_rows(rows, self.view_button.prefs)
         self.view_button.available = self.results.available
 
-    def _show_files(self, records: Any, generation: int) -> None:
+    def _show_files(self, payload: Any, generation: int) -> None:
         if generation != self._generation:
             return
+        records = payload.get("rows") if isinstance(payload, dict) else payload
         rows = repo_file_rows(list(records or [])[:REPO_FILE_LIMIT])
         self._fill(rows)
         self._show_state()
+        if isinstance(payload, dict):
+            draw_matches(self, payload.get("matching"))
         if self._repos:
             self.summary.setText(code_summary(rows, self._repos, self._scope,
                                               preset=code_preset(self._store)))
 
     def _show_git(self, found: Any, generation: int) -> None:
-        if generation != self._generation:
-            return
-        if not found.ok:
-            # Never silent: git's own message about a bad revision or pattern
-            # is the useful one, and the command makes it reproducible.
-            self.summary.setText(f"git could not run that: {found.error}\n"
-                                 f"{' '.join(found.command)}")
-            self._fill([])
-            return
-        root = repo_root_for(self._repos, code_route(self.input.text()).repo)
-        rows = [git_result_row(row, root) for row in found.rows]
-        self._fill(rows)
-        self.summary.setText(git_summary(found))
+        """Draw a git result. See `widgets.git_tree.draw_git_result`."""
+        if generation == self._generation:
+            draw_git_result(self, found)
 
     def _show_state(self) -> None:
         """Two questions, two sentences. The reasoning is on `repo_empty_state`,

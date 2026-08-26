@@ -729,7 +729,7 @@ class SqliteStore:
         direction = "ASC" if str(sort or "").lower() == "oldest" else "DESC"
         sql = f"""
             SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
-                   m.has_attach, m.store_path, m.conversation,
+                   m.has_attach, m.store_path, m.conversation, m.quoted_removed,
                    f.path, f.size_bytes, f.status
             FROM messages m
             JOIN files f ON f.id = m.file_id
@@ -1079,6 +1079,91 @@ class SqliteStore:
             best.setdefault(int(record["id"]), record)
         return list(best.values())
 
+    def repos_with_matches(
+        self,
+        parsed: Any,
+        *,
+        extra_ext: Optional[Sequence[str]] = None,
+    ) -> set[int]:
+        r"""Which repositories hold at least one file matching this query.
+
+        **The same filter as `browse_files`, a different projection.** That is
+        the whole design: the git tree used to list every repository whatever
+        was typed, so a term matching files in one checkout left the other three
+        sitting there as though they matched too - a tree reads as *"these are
+        the repositories that have what you asked for"*, which made it the most
+        misleading pane in the application.
+
+        A second, differently-worded filter would let the tree and the list
+        disagree, which is the fault `WORKORDER-202626081149-code-tab.md` §5 is
+        about. So this composes `file_filter_sql` exactly as `browse_files`
+        does, and if that definition changes both move together.
+
+        **Deliberately uncapped**, unlike the list. "Does this repository hold a
+        match" is not a question about the first 500 rows, and answering it from
+        a capped list would hide a repository whose matches fell past the cap.
+        One aggregate over an indexed column costs nothing worth saving here.
+
+        No subprocess, ever - this runs on a keystroke. A branch scope is
+        answered from the listing the tree already fetched, never from a fresh
+        `git ls-tree`; see `presenter.code_rows_for`.
+        """
+        from app.storage.filters import file_filter_sql
+
+        where, params = file_filter_sql(parsed)
+        wanted = [e.lower().lstrip(".") for e in (extra_ext or ())]
+        if wanted and not getattr(parsed, "ext", ()):
+            where += f" AND f.ext IN ({','.join('?' * len(wanted))})"
+            params.extend(wanted)
+
+        cleaned = " ".join(
+            str(part) for part in (getattr(parsed, "terms", ()) or ())
+        ).strip() or str(getattr(parsed, "text", "") or "").strip()
+
+        base = ("SELECT DISTINCT f.repo_id AS repo_id FROM files f "
+                f"WHERE f.repo_id IS NOT NULL {where}")
+
+        if len(cleaned) < NAME_MIN_CHARS:
+            # No text, or too little to mean anything: the switches alone decide,
+            # which is the same reading `browse_files` gives an empty box.
+            if cleaned:
+                return set()
+            rows = self.conn.execute(base, params)
+            return {int(row["repo_id"]) for row in rows}
+
+        # With text, a repository matches if any of its files matches by name or
+        # by contents - the same two halves `browse_files` unions, so a file
+        # that would appear in the list cannot fail to light up its repository.
+        literal = '"' + cleaned.replace('"', '""') + '"'
+        sql = f"""
+            SELECT DISTINCT repo_id FROM (
+                SELECT f.repo_id AS repo_id
+                FROM files_fts JOIN files f ON f.id = files_fts.rowid
+                WHERE files_fts MATCH ? AND f.repo_id IS NOT NULL {where}
+
+                UNION
+
+                SELECT f.repo_id
+                FROM chunks_fts
+                JOIN chunks c ON c.id = chunks_fts.rowid
+                JOIN files  f ON f.id = c.file_id
+                WHERE chunks_fts MATCH ? AND f.repo_id IS NOT NULL {where}
+            )
+        """
+        try:
+            rows = self.conn.execute(sql, [literal, *params, literal, *params])
+            return {int(row["repo_id"]) for row in rows if row["repo_id"] is not None}
+        except sqlite3.OperationalError as exc:
+            # An index built before one of the FTS tables existed. The tree
+            # showing everything is the old behaviour and a safe answer; a tree
+            # showing nothing would read as "no repositories match", which is a
+            # different and wrong claim.
+            if "no such table" not in str(exc).lower():
+                raise
+            _log.warning("repo matching fell back to all repositories: {}", exc)
+            rows = self.conn.execute(base, params)
+            return {int(row["repo_id"]) for row in rows}
+
     def count_named_files(self) -> int:
         """How many files the Files tab can find by name.
 
@@ -1257,7 +1342,12 @@ class SqliteStore:
     def set_message(self, file_id: int, **fields: Any) -> None:
         """Attach email metadata to a file row."""
         columns = ("store_path", "entry_id", "conversation", "subject",
-                   "sender", "recipients", "sent_at", "has_attach")
+                   "sender", "recipients", "sent_at", "has_attach",
+                   # How much of the body was a quoted reply or signature. NULL
+                   # for a message indexed before schema v12, which the preview
+                   # reads as "not known" rather than as zero - see
+                   # `migrations._v12_quoted_removed`.
+                   "quoted_removed")
         # has_attach is NOT NULL DEFAULT 0, so it cannot be passed through as
         # None when the caller omits it.
         defaults: dict[str, Any] = {"has_attach": 0}

@@ -1369,6 +1369,10 @@ class MailRow:
     #: message was headed with its synthetic path, which is the one string here
     #: that means nothing to anybody.
     name: str = ""
+    #: How much of the body was a quoted reply or signature, or `None` for a
+    #: message indexed before schema v12. **`None` is not zero** - the preview
+    #: says nothing rather than claiming nothing was removed.
+    quoted_removed: Optional[int] = None
     #: Sortable originals, so the table can sort by real values rather than by
     #: the formatted strings. "3 KB" and "10 KB" sort the wrong way as text, and
     #: a date column sorted alphabetically is worse than no sorting at all.
@@ -1485,6 +1489,7 @@ def mail_rows(
             sent_at=sent_at,
             size_bytes=size_bytes,
             has_attachment=attached,
+            quoted_removed=row.get("quoted_removed"),
         ))
     return out
 
@@ -2726,6 +2731,105 @@ def code_rows_for(store: Any, scope: Any, route: Any,
     return list(store.browse_files(
         parsed.scoped("code"), limit=limit,
         extra_ext=None if typed else types))
+
+
+def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = None,
+                        repos: Any = (), limit: int = 500) -> dict:
+    r"""The Code list **and** which repositories hold a match, in one worker.
+
+    Two things the panes need, fetched together on purpose. The order's
+    constraint is that *"the count must come from the same query the list ran"* -
+    a second, separately-scheduled count is how a tree and a list come to
+    disagree, which is the code-tab order's §5.
+
+    It also keeps the aggregate off the UI thread. Narrowing the tree in the
+    slot that paints the rows would put a store read on the keystroke path,
+    which `test_ui_never_blocks` refuses and is right to.
+    """
+    rows = code_rows_for(store, scope, route, cached=cached, limit=limit)
+    return {"rows": rows,
+            "matching": matching_repos(store, route, cached=cached, repos=repos)}
+
+
+def matching_repos(store: Any, route: Any, *, cached: Any = None,
+                   repos: Any = ()) -> Optional[set]:
+    r"""Which repositories hold a match, or None for "no criteria - show all".
+
+    **The git tree listed every repository whatever was typed.** Type a term
+    matching files in one checkout and the other three sat there as though they
+    matched too - and a tree is read as *"these are the repositories that have
+    what you asked for"*, which made it the most misleading pane here. Same
+    fault as `code_type_filter` and the empty-list states in the code-tab order:
+    a pane showing something the query did not ask for, with nothing saying why.
+
+    `None` rather than "all of them" is the distinction that matters. An empty
+    box asks nothing, so every repository is shown and no count is claimed; a
+    box with criteria narrows, and says `2 of 4`. Collapsing the two would put
+    a meaningless "4 of 4" on screen for somebody who has typed nothing.
+
+    **Never a subprocess.** A branch scope is answered from the listing the tree
+    already fetched for the selection - `cached` - because fetching one per
+    keystroke is the first non-negotiable broken, and the guard in
+    `test_nothing_that_runs_on_a_keystroke_imports_this` caught exactly that
+    once already.
+    """
+    parsed = getattr(route, "parsed", None)
+    text = str(getattr(route, "text", "") or "").strip()
+    typed = tuple(getattr(route, "extensions", ()) or ())
+    has_criteria = bool(text or typed or (parsed is not None and parsed.has_filters))
+    if not has_criteria:
+        return None
+
+    if cached is not None:
+        # A branch listing, already in memory. Filtering it is the same work the
+        # list does, so the two cannot disagree.
+        rows = git_rows_matching(
+            cached, text=text, extensions=typed,
+            types=code_type_filter(store),
+            paths=tuple(getattr(parsed, "paths", ()) or ()),
+            names=tuple(getattr(parsed, "names", ()) or ()),
+        )
+        found = {str(row.get("repo") or "") for row in rows}
+        return {name for name in found if name}
+
+    if parsed is None:
+        return None                      # a git route: the tree is not narrowed
+
+    try:
+        ids = store.repos_with_matches(
+            parsed.scoped("code"),
+            extra_ext=None if typed else code_type_filter(store))
+    except Exception as exc:             # noqa: BLE001 - a tree, not a search
+        _log.debug("could not narrow the repository tree: {}", exc)
+        return None
+
+    def field(row: Any, key: str) -> Any:
+        """Rows arrive as `sqlite3.Row` here and as objects in the tests."""
+        try:
+            return row[key]
+        except (TypeError, KeyError, IndexError):
+            return getattr(row, key, None)
+
+    by_id = {int(field(repo, "id") or 0): str(field(repo, "name") or "")
+             for repo in (repos or ())}
+    return {by_id[one] for one in ids if one in by_id and by_id[one]}
+
+
+def repo_tree_summary(matching: Optional[set], total: int) -> str:
+    """`2 of 4 repositories match`, or `""` when nothing was asked.
+
+    Said out loud because a tree that has silently shrunk is the same fault as
+    one that silently shows everything - the person cannot tell whether three
+    repositories are missing or were never there.
+    """
+    if matching is None or total <= 0:
+        return ""
+    count = len(matching)
+    if count == total:
+        return f"All {total} repositories match"
+    if count == 0:
+        return f"No repositories match — {total} indexed"
+    return f"{count} of {total} repositories match"
 
 
 def code_type_filter(store: Any) -> Optional[list[str]]:

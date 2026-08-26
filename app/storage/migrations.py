@@ -31,7 +31,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 11
+CURRENT_VERSION = 12
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -540,6 +540,32 @@ def _v10_name_only_status(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _v12_quoted_removed(conn: sqlite3.Connection) -> None:
+    r"""How much of each message was a quoted reply or a signature.
+
+    **Measured since quoting was built, and only ever logged.** `StripResult`
+    has carried `removed_chars` from the start - the overnight run reported
+    *"stripped 38,609 chars of quoted"* on a single message - and the number
+    went to a file nobody reads while looking at that message.
+
+    It is needed on screen. A mail preview shows the *indexed* text, so a reply
+    appears with the thread it is replying to gone; without a line saying so,
+    the preview looks like a message that was sent without context. Storing the
+    amount is what lets the pane say what happened rather than imply that
+    nothing did.
+
+    One nullable integer on an existing table, so an index built before this
+    keeps working and simply says nothing about older messages - which is
+    honest, because for those the answer genuinely is not known.
+    """
+    # `row[1]`, not `row["name"]` - a migration runs against whatever connection
+    # it is handed, and that one may have no `row_factory`. The two migrations
+    # above already index positionally for the same reason.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "quoted_removed" not in columns:
+        conn.execute("ALTER TABLE messages ADD COLUMN quoted_removed INTEGER")
+
+
 def _v11_wildcard_vocabulary(conn: sqlite3.Connection) -> None:
     r"""A view over the terms FTS5 already stores, for wildcard expansion.
 
@@ -590,6 +616,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     9: _v9_forget_dragged_column_widths,
     10: _v10_name_only_status,
     11: _v11_wildcard_vocabulary,
+    12: _v12_quoted_removed,
 }
 
 

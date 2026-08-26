@@ -181,10 +181,30 @@ def test_a_row_with_nothing_on_it_at_all_does_not_raise():
 
 # --- the store helper -------------------------------------------------------
 
-def test_stored_text_joins_the_chunks_in_order():
+def test_stored_text_joins_the_chunks_without_inventing_paragraphs():
+    r"""**Chunking is an indexing decision and must not be visible.**
+
+    This asserted `"one\n\ntwo\n\nthree"` - a blank line at every chunk
+    boundary - so a long message read as arbitrarily broken paragraphs, in
+    places decided by a 512-token window rather than by whoever wrote it.
+    Reported by the owner as *"the mails dont preview properly"*.
+
+    Chunks are contiguous slices of the original, so joining them with nothing
+    restores the text as extracted, real paragraph breaks and all.
+    """
     store = FakeStore([Chunk("one"), Chunk("two"), Chunk("three")])
 
-    assert stored_text(store, 5) == "one\n\ntwo\n\nthree"
+    assert stored_text(store, 5) == "one\ntwo\nthree"
+
+
+def test_a_seam_that_would_run_two_words_together_gets_one_newline():
+    """A chunker that trims trailing whitespace must not create `onetwo`."""
+    from app.ui.preview_loader import join_chunks
+
+    assert join_chunks([Chunk("ends here"), Chunk("starts here")]) == (
+        "ends here\nstarts here")
+    assert join_chunks([Chunk("ends here\n"), Chunk("starts here")]) == (
+        "ends here\nstarts here")
 
 
 def test_stored_text_survives_a_store_that_raises():

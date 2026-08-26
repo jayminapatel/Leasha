@@ -178,6 +178,12 @@ def build_email_document(
             "store_path": store_path,
             "has_attach": 1 if attachments else 0,
             "attachment_names": attachments,
+            # **Measured here, shown in the preview.** The amount has been
+            # computed since quoting was built and only ever logged - and the
+            # mail preview shows the *indexed* text, so a reply arrives with
+            # its thread gone. Without this the pane cannot say so, and a
+            # message looks as though it was sent with no context.
+            "quoted_removed": stripped.removed_chars,
         }
     )
     return builder.build()
