@@ -110,13 +110,13 @@ So the design splits static from dynamic, and pre-computes the dynamic half.
   a hand-written list; regenerating after a catalogue change is the update
   path, and a test asserts the emitted script names every command the
   catalogue does.
-- [ ] **4b** (Index) the pipeline writes a **completions sidecar** at the end of
+- [x] **4b** (Index) the pipeline writes a **completions sidecar** at the end of
   every run (and after prune): `<index>/completions.json` holding the top
   values per source — extensions, senders, recipients, repos, branches — with
   counts, from the same `distinct_values` call the popup uses. Bounded, a few
   KB, atomic-rename write. This is the brief's "dynamic data loading" made
   shell-fast: the completer reads a file, never starts Python.
-- [ ] **4c** (CLI) the emitted completer resolves values in two steps: the
+- [x] **4c** (CLI) the emitted completer resolves values in two steps: the
   sidecar first (instant, covers nearly every Tab press), and only when the
   sidecar has no entry for the source, a fallback call to
   `leasha suggest <source> <prefix>` — a new subcommand that lazy-imports
@@ -426,3 +426,53 @@ grouped into one line now:
     Narrow when the sentence says so: type with repo; from/to with type, after, before.
 
 Still generated from `scoped_by`, and a second test keeps it to one line.
+
+## 4b and 4c delivered, 2026-08-27 — with the budget measured
+
+**The numbers this section turns on**, taken on the container the suite runs in:
+
+| | cold |
+|---|---|
+| bare interpreter | 14ms |
+| `sqlite3` + `json` | 20ms |
+| `import app` | 62ms |
+| **`import app.cli`** | **243ms** |
+| **`suggest.py`, end to end** | **35ms** |
+
+243ms is most of a 300ms budget spent before anything is opened, which is why
+4c specifies the `doctor.py` discipline. `suggest.py` therefore lives at the
+repo root, outside the `app` package, and imports `sqlite3`, `os`, `sys` and
+`pathlib` and nothing else. Measured end to end at **35ms**.
+
+It restates the value queries, and that is a second copy of something. The
+alternative was importing the store, which costs 228ms - the whole point of the
+file. `test_the_standalone_suggester_agrees_with_the_store` runs both against
+one database and compares the answers, which is the honest way to keep two
+copies honest rather than a hidden way to let them drift.
+
+It opens the database **read-only**: a completer must never be the thing that
+locks an index run out of its own index. It prints nothing and exits 0 on every
+failure, because a completer offers whatever it is handed and an error message
+would become a completion.
+
+**4b** `app/search/completions.py` writes `<DATA_PATH>/completions.json` at the
+end of every run, from `distinct_value_counts` - the same call the popup uses,
+so the two offer the same words. Bounded at `TOP_PER_SOURCE` (50) per source
+and to the five sources named in the file; 264 bytes on the test fixture.
+Written to a temporary file in the same directory and renamed over, because a
+completer reading a half-written file raises at the exact moment somebody
+pressed Tab, and because a rename across filesystems is not atomic and the
+index may be on another drive from the temp folder.
+
+A source with nothing in it is **left out** rather than written empty, so the
+completer can tell "no such source" from "nothing indexed yet" and fall back
+for the first and not the second.
+
+`branch` is deliberately not in the sidecar: branches come from git, and
+answering them would mean walking every checkout at the end of every index run
+- minutes of subprocesses for a menu. 4g answers them in-process, once,
+when somebody asks.
+
+`recipient` was added to the store's value shapes to fill it. It offers the
+`recipients` field as stored rather than parsing the JSON array per row, which
+is what `to:` matches against anyway.

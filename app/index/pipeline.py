@@ -375,6 +375,14 @@ class PipelineConfig:
     #: restores it without holding much text in memory.
     embed_batch: int = EMBED_BATCH
     min_free_gb: int = 5
+    #: Where the completions sidecar goes - `DATA_PATH`, normally.
+    #:
+    #: Passed rather than derived because the pipeline has no `Settings`: it is
+    #: given a store and a vector store and nothing else, deliberately, so it
+    #: can be driven from a test with two temporary directories. `None` falls
+    #: back to the folder above the SQLite file, which is `DATA_PATH` for every
+    #: layout this application creates.
+    sidecar_dir: Optional[Path] = None
     #: Re-hash files whose mtime moved, rather than trusting mtime alone.
     verify_hash: bool = True
     #: Remove rows for files that no longer exist. Off for a partial run over a
@@ -755,8 +763,30 @@ class Pipeline:
         # day, each one leaving fragments behind forever.
         self.vectors.maybe_compact(force=True)
         self._optimise_keyword_index(stats)
+        self._write_completions()
         self._log.info("index run: {}", stats.as_dict())
         return stats
+
+    def _write_completions(self) -> None:
+        """The shell's completion sidecar, refreshed at the end of the run.
+
+        **Here rather than in the CLI**, because it must also be refreshed by a
+        run started from the window and by one started by the scheduler - and
+        because the values it holds are exactly what this run has just changed.
+
+        Never raises: a sidecar is a convenience, and a run of several days
+        must not end in an exception over a menu.
+        """
+        from app.search.completions import write_sidecar
+
+        target = self.config.sidecar_dir
+        if target is None:
+            database = getattr(self.store, "db_path", None)
+            if database is None:
+                return
+            # `<DATA_PATH>/fts/knowledge.db` -> `<DATA_PATH>`.
+            target = Path(database).parent.parent
+        write_sidecar(self.store, target)
 
     def _optimise_keyword_index(self, stats: IndexStats) -> None:
         r"""Merge the FTS5 segments, after a run that wrote enough to matter.

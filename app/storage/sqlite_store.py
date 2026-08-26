@@ -171,6 +171,15 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "sender": _ValueShape(
         "messages m JOIN files f ON f.id = m.file_id", "m.sender", "COUNT(*)",
         "m.sender IS NOT NULL AND m.sender <> ''", "m.sender"),
+    # **Whole field, not parsed.** `recipients` is a JSON array, and splitting
+    # it per row to offer individual addresses would cost a parse per message
+    # behind a keystroke. The completer offers the string as stored, which is
+    # what `to:` matches against anyway - `filters.py` searches inside it for
+    # the same reason.
+    "recipient": _ValueShape(
+        "messages m JOIN files f ON f.id = m.file_id", "m.recipients",
+        "COUNT(*)", "m.recipients IS NOT NULL AND m.recipients <> ''",
+        "m.recipients"),
     "repo": _ValueShape(
         "repos r LEFT JOIN files f ON f.repo_id = r.id", "r.name",
         "COUNT(f.id)", "r.name <> ''", "r.id, r.name"),
