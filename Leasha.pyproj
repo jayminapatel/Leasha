@@ -138,6 +138,7 @@
     <Compile Include="app\search\window.py" />
     <Compile Include="app\storage\__init__.py" />
     <Compile Include="app\storage\filters.py" />
+    <Compile Include="app\storage\like.py" />
     <Compile Include="app\storage\migrations.py" />
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
@@ -293,6 +294,7 @@
     <Compile Include="tests\unit\test_odf.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
+    <Compile Include="tests\unit\test_perf_floors.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
     <Compile Include="tests\unit\test_preview_loader.py" />
@@ -315,6 +317,7 @@
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_review_2026_08_26.py" />
+    <Compile Include="tests\unit\test_review_section_five.py" />
     <Compile Include="tests\unit\test_review_section_four.py" />
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
