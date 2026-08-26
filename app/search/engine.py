@@ -43,7 +43,7 @@ from app.search.rerank import Reranker
 __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
     "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
-    "NOTICE_WILDCARD",
+    "NOTICE_WILDCARD", "NOTICE_SORTED",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -135,6 +135,8 @@ NOTICE_RERANK_UNAVAILABLE = "NOTICE_RERANK_UNAVAILABLE"
 #: whether stemming widened it. **The deliverable of the wildcard feature**, not
 #: decoration: an expansion nobody can see is the silence it was built to fix.
 NOTICE_WILDCARD = "NOTICE_WILDCARD"
+#: The results were re-ordered by date, so relevance order was abandoned.
+NOTICE_SORTED = "NOTICE_SORTED"
 
 
 @dataclass(frozen=True)
@@ -398,6 +400,22 @@ class SearchEngine:
             )
             timings["rerank"] = (time.perf_counter() - mark) * 1000
 
+        # **Sorted after reranking, deliberately, and it abandons the order.**
+        #
+        # *"Which is the latest"* was unanswerable by any mechanism this
+        # application had: eleven filters that all narrow, and nothing that
+        # orders. Re-sorting the final set is cheap, gives Interpret something
+        # to emit for a phrase people use constantly, and is honest about the
+        # trade - relevance order is discarded, because the person asked for
+        # recency and cannot have both.
+        #
+        # After the reranker rather than instead of it: reranking still decides
+        # *which* fifty results these are, and a date sort over the best fifty
+        # is a far better answer than a date sort over an arbitrary fifty.
+        if parsed.sort:
+            fused.sort(key=lambda hit: int(hit.get("mtime_ns") or 0),
+                       reverse=parsed.sort != "oldest")
+
         results = [
             self._to_result(hit, rank, tuple(hit.get("sources", ())), hit.get("rrf_score", 0.0))
             for rank, hit in enumerate(fused, start=1)
@@ -430,6 +448,16 @@ class SearchEngine:
         # this feature exists to remove is silence about exactly that.
         notices.extend(
             Notice(NOTICE_WILDCARD, found.message()) for found in wildcards)
+        if parsed.sort:
+            # **Said on screen, every time.** A list silently ordered by date
+            # while somebody believes it is ordered by relevance is worse than
+            # not having the feature: they read the top three, conclude the
+            # search is poor, and never learn that they asked for this.
+            notices.append(Notice(
+                NOTICE_SORTED,
+                f"Sorted by date, {parsed.sort} first — not by best match. "
+                f"Remove /{parsed.sort} to rank by relevance again.",
+            ))
         if unmatched:
             notices.append(Notice(
                 NOTICE_UNMATCHED_TERMS,

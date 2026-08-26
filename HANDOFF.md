@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.2 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 4.3 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -200,16 +200,36 @@ gets lost by accident.
 
 ### What is **Next**
 
-In order, and the first two need the owner rather than the code:
+In order. Items 1 and 2 were **raised by the owner from the window on 2026-08-26** and are
+ahead of everything else because they are about whether the application does its one job.
 
-1. **Open the window and use it.** Every UI fault in this project was found by somebody
-   clicking, never by a test. Eleven so far.
-2. **Index one full 200K-message PST.** The only thing that has never been done at scale, and
+1. **`WORKORDER-202626081059-search-quality.md`** - *"I am not happy with what the search
+   does."* Seven verified findings, each checked by running the real parser over the real
+   query. Its items 1-3 are about half a day and fix the parsing faults outright: thirteen
+   instruction words are searched as document content, underscores are stripped from bare
+   terms, and the vector-degradation warning has fired 60 times and been wrong 60 times.
+   Items 4-6 - a `/newest` operator, a kind-word suggestion, an Interpret hint - are the ones
+   the owner will notice.
+2. **`WORKORDER-202626081149-code-tab.md`** - repository attribution **cannot be undone**.
+   Three independent mechanisms prevent it and no command exists, so a `.git` copied into a
+   data folder attributed 44% of this corpus to a repository and the only route back was
+   deleting the index. Read its §2 before anything else in it.
+3. **Finish `WORKORDER-inbound-ui-fixes.md`.** The code landed in `4f2b92c`; what is
+   outstanding is verification - the suite on Windows rather than the non-Qt subset,
+   `doctor.py`, and somebody opening the window and using the capped columns and the tabs.
+4. **Index one full 200K-message PST.** The only thing that has never been done at scale, and
    the one that will find what the fixtures cannot.
-3. **Decide chunk size and model precision** - §7, question 1. Both are far cheaper now than
-   after 100GB is indexed, and both should be settled by `app.cli evaluate` before and after
-   rather than by argument.
-4. **Layer 9**: hardening and packaging.
+5. **Decide chunk size and model precision** - §7, question 1. Both should be settled by
+   `app.cli evaluate` before and after rather than by argument.
+6. **Layer 9**: hardening and packaging.
+
+**Open the window and use it** is no longer a numbered item because it is now continuous, and
+it is still how every UI fault here has been found - eleven by clicking, none by a test. Items
+1 and 2 both came from the owner doing exactly that.
+
+**In flight:** the owner is resetting and rebuilding the index overnight on 2026-08-26, with
+the stray `D:\SearchData\.git` removed. `app.cli repos` afterwards is the check that item 2's
+§1 is closed, and its output belongs in this document.
 
 The file-type work order is **complete** - all six steps, plus the follow-on work in 0.3.3.
 OpenDocument and Google Drive pointers read natively, Tier 2 converters cover a dozen dead

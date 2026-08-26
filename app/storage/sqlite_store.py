@@ -639,6 +639,7 @@ class SqliteStore:
         before: Optional[int] = None,
         file_where: str = "",
         file_params: Sequence[Any] = (),
+        sort: str = "",
         limit: int = 500,
     ) -> list[dict[str, Any]]:
         """Mail as a table: newest first, filtered by its own columns.
@@ -649,6 +650,12 @@ class SqliteStore:
         useful order is chronological. Ranking a mailbox by BM25 puts an
         eight-year-old thread above this morning's, which is never what somebody
         scanning a list wants.
+
+        `sort` is `parsed.sort` - `""`, `"newest"` or `"oldest"`. Newest is what
+        this already did, so only `/oldest` changes anything; it is accepted so
+        that a switch the tab **offers** is a switch the tab **honours**, which
+        is the whole contract behind the shared catalogue. A command that parses
+        and then does nothing is worse than one that is not offered at all.
 
         Every filter is a plain LIKE or comparison against an indexed column, so
         this stays fast without touching a single chunk of text. Searching what
@@ -717,6 +724,9 @@ class SqliteStore:
         # can use the trigram header index and `after`/`before` belong on
         # `m.sent_at` - the date the message was sent - rather than on the
         # file's mtime.
+        # Not interpolated from anything a person typed: the parser only ever
+        # produces `newest` or `oldest`, and anything else is newest.
+        direction = "ASC" if str(sort or "").lower() == "oldest" else "DESC"
         sql = f"""
             SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
                    m.has_attach, m.store_path, m.conversation,
@@ -728,7 +738,7 @@ class SqliteStore:
             -- 3.30. The bundled version is newer, but the version a user's
             -- Python happens to ship is not something this should depend on,
             -- and the two forms cost the same.
-            ORDER BY m.sent_at IS NULL, m.sent_at DESC, m.file_id DESC
+            ORDER BY m.sent_at IS NULL, m.sent_at {direction}, m.file_id {direction}
             LIMIT ?
         """
         params.extend(file_params or ())
@@ -950,10 +960,24 @@ class SqliteStore:
         by the name index; one that matched only by content carries its BM25
         score; a query with no text at all is newest-first, because that is a
         list somebody is browsing rather than searching.
+
+        **`parsed.sort` overrides all of that**, which is the point of it. The
+        catalogue offers `/newest` and `/oldest` on every tab, so every tab has
+        to honour them - a switch that parses cleanly and then changes nothing
+        is the kind of quiet lie that makes somebody stop trusting the rest of
+        the switches too.
         """
         from app.storage.filters import file_filter_sql
 
         where, params = file_filter_sql(parsed)
+        # Only ever `newest` or `oldest` out of the parser, so this is a choice
+        # between two constants rather than anything interpolated.
+        wants_sort = str(getattr(parsed, "sort", "") or "").lower()
+        # Two spellings of one order: the listing below reads `files` directly,
+        # while the scored query orders the *outer* select, where the column has
+        # already been projected and `f.` no longer resolves.
+        _dir = "ASC" if wants_sort == "oldest" else "DESC"
+        by_date, by_date_outer = f"f.mtime_ns {_dir}", f"mtime_ns {_dir}"
         wanted = [e.lower().lstrip(".") for e in (extra_ext or ())]
         if wanted and not getattr(parsed, "ext", ()):
             where += f" AND f.ext IN ({','.join('?' * len(wanted))})"
@@ -978,7 +1002,7 @@ class SqliteStore:
                            f.status, f.skip_code, f.source_kind, 0.0 AS score
                     FROM files f
                     WHERE f.source_kind = 'file' {where}
-                    ORDER BY f.mtime_ns DESC
+                    ORDER BY {by_date}
                     LIMIT ?""",
                 [*params, capped],
             )]
@@ -1021,7 +1045,7 @@ class SqliteStore:
                 WHERE chunks_fts MATCH ? AND f.source_kind = 'file' {where}
             )
             GROUP BY id
-            ORDER BY score
+            ORDER BY {by_date_outer if wants_sort else 'score'}
             LIMIT ?
         """
         try:
@@ -1037,12 +1061,18 @@ class SqliteStore:
             if "no such table" not in str(exc).lower():
                 raise
             _log.warning("browse_files fell back to names only: {}", exc)
-            return self.search_files_by_name(
+            named = self.search_files_by_name(
                 cleaned, limit=capped,
                 ext=list(getattr(parsed, "ext", ()) or wanted) or None,
             )
+            if wants_sort:
+                named.sort(key=lambda row: int(row.get("mtime_ns") or 0),
+                           reverse=wants_sort != "oldest")
+            return named
         # `UNION` can return one row per branch for a file that matched both.
         # The better score wins, and the first is the better one after ORDER BY.
+        # Under `/newest` both rows carry the same mtime, so the first is still
+        # the right one to keep - the file is one file however it matched.
         best: dict[int, dict[str, Any]] = {}
         for row in rows:
             record = dict(row)

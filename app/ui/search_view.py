@@ -29,14 +29,14 @@ from app.ui.presenter import (
     TYPING_DEBOUNCE_MS,
     Tier,
     federated_summary,
-    results_message,
+    result_view_state,
     search_options,
     search_shape,
     tier_for,
 )
 from app.ui.results_view import build_results_pane
 from app.ui.widgets.history_pass import run_history_pass
-from app.ui.widgets.interpret import run_interpretation
+from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.search_bar import (
     build_controls,
     build_input,
@@ -121,6 +121,7 @@ class SearchView(QWidget):
             self, status=self.status, body=self.split,
             controls=(self.interpret_button, self.scope, self.rerank_toggle,
                       self.view_button))
+        self.notices.chosen.connect(self._apply_suggestion)
 
         # Two timers, because the two tiers answer different questions.
         self._interim_timer = QTimer(self)
@@ -240,6 +241,13 @@ class SearchView(QWidget):
             on_rows=lambda rows, g=generation: self._on_git(rows, g),
         )
 
+    def _apply_suggestion(self, href: str) -> None:
+        """Apply a suggestion the person clicked. **Only on a click.**"""
+        if not str(href).startswith("apply:"):
+            return
+        self.input.setText(f"{self.input.text().strip()} {href[6:]}".strip())
+        self._dispatch(Tier.FULL)
+
     def _on_git(self, rows: Any, generation: int) -> None:
         """Append the repository rows beneath what is already on screen."""
         if generation < self._shown_generation or not rows:
@@ -263,11 +271,12 @@ class SearchView(QWidget):
         # **The window's half of "nothing fails silently".** The engine decides
         # a search was degraded; until this line the only place that reached
         # was a log file.
-        self.notices.show_notices(getattr(response, "notices", ()))
+        notices, terms, summary, status = result_view_state(
+            response, self.input.text(),
+            interpret_enabled=self.interpret_button.isVisible())
+        self.notices.show_notices(notices)
         self._shown_anything = self._shown_anything or bool(response.results)
-        terms = list(response.parsed.terms) + list(response.parsed.phrases) if response.parsed else []
-        summary, status = results_message(response)
-        self.status.setText(status or summary)
+        self.status.setText(status)
         # The shape of the search, never its text - see `debug_recorder.py`.
         self.searched.emit(search_shape(
             response, query_len=len(self.input.text()), scope=self.current_scope()))
@@ -301,16 +310,20 @@ class SearchView(QWidget):
 
     def _decorated(self, extra: Any, generation: int, terms: Any,
                    summary: str, response: Any) -> None:
-        """Redraw with the mail subtitles and missing-file marks."""
+        """Redraw with the mail subtitles and missing-file marks.
+
+        Same results a moment later, so `keep_scroll` - this is not a new
+        search and must not move somebody who has started reading.
+        """
         if generation != self._shown_generation:
             return                               # a newer search has landed
-        # Same results, a moment later - so this is not a new search and must
-        # not move somebody who has started reading.
         self.results.show_results(
-            response.results, terms, summary=summary,
-            details=extra.get("details", {}), missing=extra.get("missing", set()),
-            keep_scroll=True,
-        )
+            response.results, terms, summary=summary, keep_scroll=True,
+            details=extra.get("details", {}), missing=extra.get("missing", set()))
+
+    def interpret(self) -> None:
+        """Translate the sentence in the box, then search what it produced."""
+        interpret_into(self)
 
     def _on_opened(self, row: Any) -> None:
         """The click is the label: this result was the useful one.
@@ -330,35 +343,3 @@ class SearchView(QWidget):
 
     # -- interpreting a sentence --------------------------------------------
 
-    def interpret(self) -> None:
-        """Translate the sentence in the box, then search what it produced.
-
-        The feature lives in `widgets/interpret.py`; this is the wiring. Every
-        outcome ends in a search - see that module for why.
-        """
-        started = run_interpretation(
-            translator=self._translator,
-            sentence=self.input.text(),
-            button=self.interpret_button,
-            pool=self._pool,
-            set_text=self.input.setText,
-            set_status=self.status.setText,
-            on_done=self._interpreted,
-        )
-        if not started:
-            self._dispatch(Tier.FULL)
-
-    def _interpreted(self, translation: Any) -> None:
-        # **Interpreting used to run the whole pipeline twice.** Writing the
-        # translated query into the box fires `textChanged`, restarting both
-        # debounce timers exactly as typing does - and then this dispatched
-        # immediately. The second run landed 400ms later doing identical work.
-        #
-        # Cancelled here rather than writing the text with signals blocked: the
-        # command popup listens to `textChanged` too and needs to see it.
-        self._interim_timer.stop()
-        self._full_timer.stop()
-
-        if translation is not None:
-            self.interpreted.emit(translation)
-        self._dispatch(Tier.FULL)

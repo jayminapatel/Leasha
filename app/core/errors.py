@@ -290,6 +290,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # **Not `ERR_NO_TEXT_LAYER`, and the distinction is the same one that split
+    # `ERR_MOSTLY_PICTURES` out.** An archive that cannot be opened at all and
+    # an archive that opened and held nothing worth reading look identical in a
+    # report and mean opposite things: one is a damaged file somebody should be
+    # told about, the other is an empty container and entirely fine. Sharing a
+    # code also puts a corrupt zip in the queue that `--only-ocr` reads back.
+    "ERR_ARCHIVE_UNREADABLE": _Spec(
+        message="'{path}' could not be opened as an archive: {reason}.",
+        suggestion=(
+            "It is still indexed by name, folder and type, so it remains "
+            "findable - only its contents could not be read. Truncated "
+            "downloads and interrupted copies are the usual cause."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     "ERR_FILE_TRUNCATED": _Spec(
         message="Only part of '{path}' was indexed.",
         suggestion=(

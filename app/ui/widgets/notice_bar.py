@@ -43,6 +43,8 @@ class NoticeBar(QWidget):
     """Zero or more notices, or nothing at all when the search was healthy."""
 
     dismissed = pyqtSignal()
+    #: A link inside a notice was clicked, with its `href`.
+    chosen = pyqtSignal(str)
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
@@ -56,8 +58,14 @@ class NoticeBar(QWidget):
                                  QSizePolicy.Policy.Preferred)
         # Selectable: the message names a command to run, and a message you
         # cannot copy is a message you have to retype.
+        # **Links, because one of these notices is an offer.** The kind-word
+        # suggestion is only honest if applying it is one visible click; a
+        # sentence telling somebody to retype their query is not an offer.
         self.label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.label.setOpenExternalLinks(False)
+        self.label.linkActivated.connect(self.chosen.emit)
 
         self.close_button = QPushButton("Dismiss")
         self.close_button.setObjectName("noticeDismiss")

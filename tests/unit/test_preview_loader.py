@@ -173,15 +173,38 @@ def test_an_enormous_image_is_declined_with_a_reason(tmp_path: Path):
 
 
 def test_an_unknown_type_offers_the_card_rather_than_an_error(tmp_path: Path):
+    """A type nothing can read is a card, not a failure.
+
+    This used a `bundle.zip` until reading inside archives was built. A `.zip`
+    is no longer an unknown type - something now tries to open it - so the case
+    needs a file that genuinely has no reader, which is what it was always
+    about. The archive half is the test below.
+    """
+    clip = tmp_path / "holiday.mp4"
+    clip.write_bytes(b"\x00" * 64)
+
+    preview = load_preview(str(clip))
+
+    assert preview.kind == KIND_NONE
+    assert preview.error is None, "not being previewable is not a failure"
+    assert preview.title == "holiday.mp4"
+    assert preview.subtitle, "the card still says how big it is and when"
+
+
+def test_an_archive_that_will_not_open_says_why(tmp_path: Path):
+    """**And here an error is the right answer**, which is the distinction.
+
+    "There is no reader for this" and "the reader could not open it" look the
+    same on screen and are not the same fact. A truncated download deserves to
+    be told about; a `.mp4` does not.
+    """
     archive = tmp_path / "bundle.zip"
     archive.write_bytes(b"PK\x03\x04")
 
     preview = load_preview(str(archive))
 
-    assert preview.kind == KIND_NONE
-    assert preview.error is None, "not being previewable is not a failure"
-    assert preview.title == "bundle.zip"
-    assert preview.subtitle, "the card still says how big it is and when"
+    assert preview.error is not None
+    assert preview.error.code == "ERR_ARCHIVE_UNREADABLE"
 
 
 # --- never raising ----------------------------------------------------------

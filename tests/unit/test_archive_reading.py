@@ -295,14 +295,36 @@ def test_the_name_text_does_not_carry_the_containers_whole_path(tmp_path):
 
 
 def test_a_corrupt_archive_is_a_skip_rather_than_a_crash(tmp_path):
+    r"""**A skip with its own name, not an empty result.**
+
+    This returned `[]` until the corrupt case was traced through the pipeline.
+    Yielding nothing is indistinguishable from an empty archive, so the run
+    reached "extracted successfully but produced no text" and filed a damaged
+    file under `ERR_NO_TEXT_LAYER` - a statement about a document that opened
+    fine, and the queue `--only-ocr` reads back.
+
+    `SKIP_CONTINUE`, so this is still one line in a report and never the run.
+    """
+    from app.core.errors import ActionType, AppErrorException
+
     path = tmp_path / "broken.zip"
     path.write_bytes(b"PK\x03\x04" + b"garbage" * 20)
 
-    assert list(read_archive(path)) == []
+    with pytest.raises(AppErrorException) as raised:
+        list(read_archive(path))
+
+    assert raised.value.error.code == "ERR_ARCHIVE_UNREADABLE"
+    assert raised.value.error.action_type == ActionType.SKIP_CONTINUE
 
 
 def test_a_missing_archive_is_a_skip(tmp_path):
-    assert list(read_archive(tmp_path / "not-here.zip")) == []
+    """Deleted between the walk and the read - the same skip, not a crash."""
+    from app.core.errors import AppErrorException
+
+    with pytest.raises(AppErrorException) as raised:
+        list(read_archive(tmp_path / "not-here.zip"))
+
+    assert raised.value.error.code == "ERR_ARCHIVE_UNREADABLE"
 
 
 # --- §4.6 the ceiling, and the switch ---------------------------------------

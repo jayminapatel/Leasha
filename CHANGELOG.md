@@ -1,12 +1,202 @@
 # Changelog
 
-**Doc version:** 3.48 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.49 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Added — `/newest`, and the two tabs that were sorting by relevance in silence
+
+`WORKORDER-202626081059` F6 and F7, and the rest of the search-quality order.
+
+**Nothing in this application could answer "which is the latest one".** Every
+result list was ranked by relevance and there was no way to ask for anything
+else, on a corpus where the newest version of a document is very often the
+question. `/newest` and `/oldest` are one command with three spellings — `/sort
+date` still works — and the sort happens **after** reranking, so the set is
+still the best matches and only the order changes. The notice says so, because
+a list that stops being ranked without saying it looks like broken ranking.
+
+The interesting half was the tabs. The engine sorts the fused hits, which covers
+Search; Files, Code and Mail never reach the engine — they read the store
+directly — so `/newest` parsed cleanly there and then did nothing whatsoever.
+`browse_files` and `browse_messages` honour it now. That is the contract set
+when the switch vocabulary was unified — *a tab offers what it can honour, no
+more and no less* — and a switch that parses and then changes nothing is the
+kind of quiet lie that costs the other forty switches their credibility too.
+
+A sort is deliberately **not** a filter. `has_filters` decides whether a query
+with no text is worth running, and counting `/newest` would turn a bare one into
+"everything, newest first" — a listing, not a search. The test that checks every
+command's example is copy-pasteable now checks the sort field for this one.
+
+### Added — the window says when a search was degraded, and offers the fix
+
+Same order, F6/F7. `SearchResponse.notices` has existed since repositories were
+added and the only place it reached was a log file, so every degraded search —
+a wildcard that hit its cap, a stemmed expansion, an ANN index that answered
+nothing — looked like an ordinary disappointing result.
+
+Three things now surface above the results. A **kind-word chip**: typing "get me
+all excel files" offers `type:excel` as a link, because the word for the file
+type is in the sentence and the filter is one click away. An **Interpret hint**,
+shown only where it would pay — a long query, no operators already, a kind word
+in it — because a button whose value is invisible until pressed does not get
+pressed, and a hint on every search is a hint nobody reads. And the engine's own
+notices, drawn.
+
+Suggestions are applied **only on a click**. Appending a filter to somebody's
+query on their behalf is the behaviour that makes a search box feel possessed.
+
+### Added — OCR where it pays: `--only-ocr` retries the rows the text pass wrote
+
+`WORKORDER-202626081052-ocr-strategy` §4–§6. §3's measurement — one folder,
+timed, on the owner's machine — is the owner's and no unit test stands in for it.
+
+Whether a PDF needs OCR is not knowable from its extension. `reads_by_ocr` asks
+the resolved extractor and answers False for every `.pdf` — correctly, because
+most have a text layer — so the images pass narrowed its walk to `.png`/`.jpg`
+and never revisited a scanned manual, however many times somebody ran
+`--only-ocr`. The text pass had already found them and said so, one
+`ERR_NO_TEXT_LAYER` row each; the images pass reads those rows back. An indexed
+query over a few hundred rows, not a second walk of 1.5TB.
+
+A picture-heavy `.pptx` was warned with the same code as a scanned PDF. They
+read identically to a person and mean opposite things to the indexer — one is
+work to retry, the other is work this strategy explicitly declines at 150 hours
+for logos and icons — so sharing the code would have had `--only-ocr` queue
+every infographic in the corpus. `ERR_MOSTLY_PICTURES` now, counted into the run
+summary, which makes *"412 decks are mostly images"* a number rather than a grep.
+
+`PDF_OCR_PAGES` is in Settings, defaulting to 0; the environment variable still
+wins so one run can be given a different budget. A budget rather than a switch:
+at ~3.6s a page, twenty pages is about a minute a document and covers the title,
+contents and introduction, where all-or-nothing is the sixty-hour column. The
+progress line says "reading with OCR" during that pass — OCR moves at seconds
+per page where the text pass moves at hundreds of files a minute, and a run that
+looks stalled gets killed.
+
+### Added — reading inside `.zip` archives, with every guard the cost needs
+
+`WORKORDER-zip-archives` §3. §1a made every archive findable by name; this makes
+what is inside one findable by its contents. The §6 gate — *do this after the
+first full index* — was waived by the owner.
+
+The shape was not invented: `.pst` already solved "one file on disk producing
+thousands of documents", so `source_kind`, `virtual_path` as `container/member`,
+per-document digests and `unchanged_documents` are all reused. `zipfile` is in
+the standard library, so `.zip` costs no dependency; `.7z` and `.rar` do, and
+stay out of scope until `scan` says the corpus holds enough of them.
+
+Most of this is guards, for the reason §4 opens with — *every one of these is a
+way an archive takes down a run that would otherwise have finished*. Bombs are
+refused from the central directory, where both sizes are in the header, with a
+size floor because a 5KB log of one repeated line compresses a thousand to one
+and is harmless. One byte budget per archive, shared with everything nested
+inside it. Depth 2, absolute rather than adaptive — zip quines exist. Encrypted
+members read from the flag bits before anything is attempted. Traversal names
+refused rather than sanitised, and checked again where the bytes land. Members
+extracted one at a time and deleted immediately, through a context manager so an
+early return cannot skip it.
+
+Three new `SKIP_CONTINUE` codes: one bad archive is a line in a report, never the
+end of a five-day index. `ARCHIVE_READ_INSIDE` and `ARCHIVE_MAX_MB` in Settings,
+because off by default is wrong and on by default is dangerous.
+
+**Two bugs that twenty-nine passing unit tests could not see**, both found by
+driving the real pipeline. The extractor was registered as a class rather than an
+instance, so every call was an unbound `extract(path)` — the feature could not
+run at all, while the tests, which call `read_archive` directly, all passed. And
+members written with `source_kind='file'` were indexed and then deleted in the
+same run, because `_prune_missing` removes any file row whose path is not on
+disk and `backup.zip/q3/report.docx` never is: four documents indexed, one chunk,
+nothing findable, no error anywhere. Both now have tests that drive the pipeline
+rather than the module.
+
+### Fixed — repository attribution can be undone, and the Code tab says what it hides
+
+`WORKORDER-202626081149-code-tab`. The owner reported a UI symptom — *"in git
+view i dont see the files"* — and investigating it produced a data-integrity
+finding.
+
+A copy of this project's own `.git` had been dragged into `D:\SearchData`, a
+document archive, with its working tree emptied. Detection found the `.git` and
+adopted the folder, so **1,179 of 2,677 indexed files — 44% of the corpus** —
+were attributed to a repository. `scope:code` is `repo_id IS NOT NULL`, so "Code
+only" matched the whole archive.
+
+Attribution was a one-way door, by three independent mechanisms, and all three
+are fixed. Nothing pruned `repos` — `prune_repos` now does, but only for roots
+the walk actually reached, because a repository on an unmounted drive has not
+disappeared. Nothing ever set `files.repo_id` back to NULL — `forget_repo` does,
+keeping every row, chunk and vector, since what a file loses is only the claim
+that it is code. And `COALESCE(excluded.repo_id, files.repo_id)` meant even
+`index --force` could not clear one; that guard is right on its own, so it stays
+and `NO_REPO` overrides it. A defensive guard that cannot be overridden is not a
+guard.
+
+An ignore list, because forgetting is otherwise undone a minute later — finding
+a `.git` **is** how a repository is registered, so "I have looked at this and it
+is not a checkout" has to be recorded where detection reads. Reversible with
+`repos --remember`.
+
+`app/index/repo_health.py` flags a repository whose indexed files are
+overwhelmingly not code, or whose tree reads as deleted. It reports rather than
+refuses: a real checkout full of documentation must not silently stop being code.
+
+Separately, `DEFAULT_PRESET` is `build`, which excludes `.md`, `.txt`, `.json`,
+`.yml` and `.csv` — so `README.md`, `package.json` and `requirements.txt` were
+filtered off the Code tab on a fresh install with nothing on screen saying a
+filter was active. The summary names the preset and the arithmetic now, and the
+three kinds of empty — no indexed files, all hidden by the filter, the query
+excluded them — each have their own sentence instead of rendering identically as
+nothing.
+
+### Added — wildcards that work, and three parsing faults behind them
+
+`WORKORDER-202626081106` and `WORKORDER-202626081059` F1, F4 and F5. One pass
+over the parser, because they edit the same two regexes.
+
+A trailing `*` was always real FTS5 prefix matching; the other two things people
+type failed silently. `*voice` had its star dropped and searched for "voice" — a
+wildcard search that looks like it worked — and `inv?ice` split into `inv` and
+`ice`, two unrelated words.
+
+`fts5vocab` costs nothing: a virtual table over the term dictionary FTS5 already
+stores, so migration 11 adds it to an existing index instantly, with no rebuild
+and no disk. A wildcard becomes a LIKE over the vocabulary and the matching terms
+become an ordinary OR group, so ranking, fusion, filters and the symbols column
+are untouched.
+
+**The design constraint was found by testing, not by reading.** The vocabulary
+holds Porter stems, so `LIKE '%voice'` matches nothing at all — the stored form
+is `voic`. Fragments are stemmed by asking FTS5 itself through a scratch table
+with the same tokenizer, rather than by putting a second Porter implementation in
+Python that would agree with SQLite until the day it did not. Suffix wildcards
+are therefore approximate — `*voice` also reaches `invoicing` — and the notice
+says so.
+
+Bounded on four sides, because a search box that can be made to hang is not a
+search box: 200 terms ordered by document frequency so the cap keeps the useful
+ones, a floor of two literal characters, a time budget, and a per-session cache.
+Wildcards never reach the embedder — `*voice` is not a sentence.
+
+Three parsing faults fixed alongside. Thirteen instruction words — find, show,
+get, latest, newest — went into the FTS expression as content, so *"find a
+project execution plan"* searched for `find`, which in an archive of project
+documents matches thousands of files and drags the ranking with it; they are a
+second list rather than more stopwords, applied only while something else
+survives, because a stopword is never worth searching for alone and `latest`
+frequently is. `_TERM` excluded underscore, so `DF_` searched for `DF` and
+`__init__.py` searched for `init` and `py` — which matters more since this
+application went from 34 source types to 405. And the no-vectors warning had
+fired sixty times in the owner's log and been wrong sixty times: `vector.search`
+returns `[]` for three reasons and two of them are ordinary. It now requires that
+something was actually embedded. A warning that is wrong sixty times out of sixty
+trains everyone to ignore it, and this one guards a real failure.
 
 ### Fixed — column widths, and the menu item that was supposed to restore them
 

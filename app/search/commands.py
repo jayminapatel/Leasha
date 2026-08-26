@@ -209,6 +209,15 @@ COMMANDS: tuple[Command, ...] = (
         icon="▫",
     ),
     Command(
+        name="sort",
+        aliases=("newest", "latest", "oldest"),
+        summary="Newest first, instead of best match first",
+        example="/newest",
+        value_hint="no value needed - or /oldest for the other direction",
+        icon="↓",
+        values=("newest", "oldest"),
+    ),
+    Command(
         name="size",
         aliases=("bigger", "smaller"),
         summary="Only files above or below a size",
@@ -230,6 +239,15 @@ EXTRAS: tuple[tuple[str, str, str], ...] = (
     ("NOT word", "Same as -word", "NOT draft"),
     ("word*", "Starts with", "install*"),
 )
+
+#: **Spellings** that carry their meaning in their own name and take no
+#: argument. `git`'s catalogue has the same idea and calls it `FLAGS`.
+#:
+#: Keyed on the spelling rather than on the command, because the two differ
+#: here: `/newest` needs no value and `/sort date` does, and they are the same
+#: command. Keying on the name made `/sort date` expand to `sort:sort` and the
+#: value it was given became a search term.
+VALUELESS = frozenset({"newest", "latest", "oldest"})
 
 _BY_SPELLING = {
     spelling: command for command in COMMANDS for spelling in command.spellings
@@ -278,7 +296,16 @@ def expand_slashes(text: str) -> str:
     """
     def replace(match: re.Match[str]) -> str:
         command = command_for(match.group(1))
-        return f"{command.name}:" if command else match.group(0)
+        if command is None:
+            return match.group(0)
+        if match.group(1).lower() in VALUELESS:
+            # **A switch with no value must not eat the next word.** `/newest
+            # pump` expanded to `newest:` and the collapse below then glued
+            # `pump` on as its argument - so the sort switch consumed the
+            # search term and the query became a sort of nothing. The spelling
+            # already carries the value; there is nothing to supply.
+            return f"{match.group(1).lower()}:{match.group(1).lower()} "
+        return f"{command.name}:"
 
     # The space between `/type` and `pdf` is collapsed by the parser's own
     # tokeniser, so `type: pdf` and `type:pdf` are the same query to it.
@@ -293,7 +320,14 @@ def help_lines() -> list[str]:
     for command in COMMANDS:
         out.append(f"  {command.example.ljust(width)}   {command.summary}")
         out.append(f"  {' ' * width}   {command.value_hint}")
-        others = ", ".join(f"/{alias}" for alias in command.aliases)
+        # **The canonical name, when the example does not contain it.**
+        # `/newest` is the natural example for `sort`, and rendering only that
+        # left the word `sort` nowhere in the help at all - so `sort:date`,
+        # which the parser accepts, was undiscoverable.
+        spellings = list(command.aliases)
+        if command.name not in command.example:
+            spellings.insert(0, command.name)
+        others = ", ".join(f"/{alias}" for alias in spellings)
         if others:
             out.append(f"  {' ' * width}   also: {others}")
         out.append("")

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-__all__ = ["run_interpretation"]
+__all__ = ["interpret_into", "run_interpretation"]
 
 
 def run_interpretation(
@@ -77,3 +77,42 @@ def run_interpretation(
     worker.signals.done.connect(lambda: button.setEnabled(True))
     run(pool, worker)
     return True
+
+
+def interpret_into(view: Any) -> None:
+    r"""Run one interpretation for a search view, and search whatever comes back.
+
+    **The wiring, not the feature** - and here rather than in the view because
+    `search_view.py` is held under 250 lines by
+    `test_every_qt_view_keeps_its_logic_in_the_presenter`, which fired when the
+    kind-word suggestion was added. Every outcome ends in a search; see
+    `run_interpretation` for why that is one callback rather than two.
+
+    **Both debounce timers are stopped before dispatching**, and that is the
+    part worth keeping written down. Writing the translated query into the box
+    fires `textChanged`, which restarts both timers exactly as typing does - so
+    interpreting used to run the whole pipeline twice, the second landing 400ms
+    later doing identical work. Cancelled here rather than written with signals
+    blocked, because the command popup listens to `textChanged` too and needs
+    to see it.
+    """
+    from app.ui.presenter import Tier
+
+    def done(translation: Optional[Any]) -> None:
+        for timer in (view._interim_timer, view._full_timer):
+            timer.stop()
+        if translation is not None:
+            view.interpreted.emit(translation)
+        view._dispatch(Tier.FULL)
+
+    started = run_interpretation(
+        translator=view._translator,
+        sentence=view.input.text(),
+        button=view.interpret_button,
+        pool=view._pool,
+        set_text=view.input.setText,
+        set_status=view.status.setText,
+        on_done=done,
+    )
+    if not started:
+        view._dispatch(Tier.FULL)

@@ -46,6 +46,13 @@ def test_every_documented_spelling_is_one_the_parser_accepts():
 def test_every_example_actually_parses(command):
     """Each example is copy-pasteable. One that does not work is a trap."""
     parsed = parse_query(expand_slashes(command.example))
+    if command.name == "sort":
+        # **A sort is not a filter, and must not become one.** `has_filters`
+        # decides whether a query with no text is worth running at all;
+        # counting `/newest` would turn it into "everything, newest first",
+        # which is a listing rather than a search.
+        assert parsed.sort, f"{command.example!r} produced no sort"
+        return
     assert parsed.has_filters, f"{command.example!r} produced no filter"
 
 

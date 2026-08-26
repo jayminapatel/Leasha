@@ -1370,6 +1370,10 @@ def mail_filters(parsed: Any) -> dict[str, Any]:
         "recipient": first(getattr(parsed, "recipients", ())),
         "subject": first(getattr(parsed, "subjects", ())),
         "has_attachment": getattr(parsed, "has_attachment", None),
+        # `/newest` is what this tab already did, so only `/oldest` changes the
+        # order - but it is passed either way, because the catalogue offers the
+        # switch here and a switch that is offered has to be honoured.
+        "sort": str(getattr(parsed, "sort", "") or "") or None,
     }
 
     # **The file-level switches, which this tab never had.** A message is a row
@@ -2155,6 +2159,134 @@ def federated_summary(index_rows: int, git_rows: int) -> str:
         return ""
     return (f"{index_rows:,} from the index, "
             f"{git_rows:,} from repository history")
+
+
+#: Words next to which a kind word means a file type rather than a subject.
+#:
+#: *"excel formula"* and *"word count"* are real searches about spreadsheets and
+#: writing; *"excel file"* and *"as a word document"* are somebody naming a type.
+#: The difference is the noun beside it, which is why this exists rather than a
+#: bare list of kind words.
+_DOCUMENT_NOUNS = frozenset({
+    "document", "documents", "doc", "docs", "file", "files", "format",
+    "attachment", "attachments", "spreadsheet", "presentation", "deck",
+})
+
+
+def kind_suggestion(raw: str) -> tuple[str, str]:
+    r"""`(kind word, the switch to offer)`, or `("", "")`.
+
+    From `WORKORDER-202626081059-search-quality.md` F2. `_EXT_GROUPS` has known
+    twelve kind words - `excel`, `word`, `mail`, `code` - since Layer 4, and
+    `/type excel` works perfectly. **"get me all excel files" does nothing**: the
+    word sits in `terms` and no `ext` filter is produced. The vocabulary is
+    there; the bridge from prose to filter is not, and that bridge is what the
+    owner expected.
+
+    **This offers, and never applies.** A non-negotiable says a query the
+    application altered must be visible and editable, because invisible
+    narrowing makes search unpredictable - and silently filtering on a guessed
+    word is how somebody loses a document and never learns why. So this returns
+    something to *show*; applying it is a click.
+
+    The kind word must sit next to a document noun, which is what separates
+    *"as a word document"* from *"word count"*.
+    """
+    from app.search.query import _EXT_GROUPS
+
+    words = [word.strip(".,;:!?").lower() for word in str(raw or "").split()]
+    for index, word in enumerate(words):
+        if word not in _EXT_GROUPS:
+            continue
+        neighbours = words[max(0, index - 1):index] + words[index + 1:index + 2]
+        if any(near in _DOCUMENT_NOUNS for near in neighbours):
+            return word, f"type:{word}"
+    return "", ""
+
+
+def interpret_hint(raw: str, *, enabled: bool) -> str:
+    r"""Whether to point at the Interpret button, and what to say.
+
+    F7: Interpret is the designed answer to a sentence like *"find a project
+    execution plan as a word document"* - turning it into `type:docx` is
+    precisely its job - and the owner did not press it. **That is a
+    discoverability fault, not a user error**: a button whose value is invisible
+    until pressed will not be pressed.
+
+    Offered only when it would actually help: a long query, no operators
+    already typed, and a kind word in it. Anything looser is a hint on every
+    search, which is a hint nobody reads.
+
+    This does not replace the parsing fixes. Search must work with Ollama
+    stopped - that is the first non-negotiable - so Interpret makes good queries
+    better rather than making bad parsing acceptable.
+    """
+    text = str(raw or "").strip()
+    if not enabled or len(text.split()) < 5 or ":" in text or "/" in text:
+        return ""
+    if not kind_suggestion(text)[0]:
+        return ""
+    return "This looks like a sentence — press Interpret to turn it into filters."
+
+
+#: Codes for the two notices the *window* raises, as opposed to the engine.
+NOTICE_KIND_SUGGESTION = "NOTICE_KIND_SUGGESTION"
+NOTICE_INTERPRET_HINT = "NOTICE_INTERPRET_HINT"
+
+
+@dataclass(frozen=True, slots=True)
+class _Hint:
+    """Shaped like `engine.Notice`, because the bar branches on `code`."""
+
+    code: str
+    message: str
+
+
+def result_view_state(response: Any, raw: str, *,
+                      interpret_enabled: bool = False) -> tuple:
+    """Everything the results handler needs, decided in one place.
+
+    Returns `(notices, terms, summary, status)`. Four small decisions that were
+    four statements in the view - and `search_view.py` is held under 250 lines
+    by `test_every_qt_view_keeps_its_logic_in_the_presenter`, which fired when
+    the kind-word suggestion went in. None of these needs a window to compute
+    and none of them was ever view logic.
+    """
+    parsed = getattr(response, "parsed", None)
+    notices = [
+        *getattr(response, "notices", ()),
+        *window_notices(raw, parsed, interpret_enabled=interpret_enabled),
+    ]
+    terms = (list(parsed.terms) + list(parsed.phrases)) if parsed else []
+    summary, status = results_message(response)
+    return notices, terms, summary, (status or summary)
+
+
+def window_notices(raw: str, parsed: Any = None, *,
+                   interpret_enabled: bool = False) -> list[Any]:
+    r"""The suggestions the window adds to the engine's own notices.
+
+    Both are **offers**, and that is the whole design. A non-negotiable says a
+    query the application altered must be visible and editable; silently
+    filtering on a guessed kind word is how somebody loses a document and never
+    learns why. So these are things to show, and applying one is a click.
+
+    Nothing is suggested once the person has already said it - a query carrying
+    `type:` needs no help choosing a type, and a hint on every search is a hint
+    nobody reads.
+    """
+    found: list[Any] = []
+    if not getattr(parsed, "ext", ()):
+        word, switch = kind_suggestion(raw)
+        if word:
+            found.append(_Hint(
+                NOTICE_KIND_SUGGESTION,
+                f'Search <a href="apply:{switch}">{word} files only</a>? '
+                f"Your results are not filtered by type."))
+    hint = interpret_hint(raw, enabled=interpret_enabled)
+    if hint:
+        found.append(_Hint(NOTICE_INTERPRET_HINT, hint))
+    return found
 
 
 def _switch_catalogue() -> tuple[Any, ...]:

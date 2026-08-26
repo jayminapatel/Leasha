@@ -60,6 +60,7 @@ _FIELD_ALIASES = {
     "has": "has",
     "name": "name", "filename": "name", "file": "name",
     "size": "size", "bigger": "size", "smaller": "size",
+    "sort": "sort", "newest": "sort", "latest": "sort", "oldest": "sort",
 }
 
 # field:value, where value is either "a quoted string" or a bare run of non-space.
@@ -221,6 +222,16 @@ class ParsedQuery:
     #: query through fusion, the cache key and the usage log rather than being
     #: a second argument every layer has to remember to pass on.
     scope: str = "all"
+    #: `"newest"`, `"oldest"`, or `""` for relevance order.
+    #:
+    #: **The one finding in the search-quality work order that was a missing
+    #: feature rather than a defect.** The complete filter set narrowed and
+    #: nothing sorted, so *"which is the latest"* was unanswerable by any
+    #: mechanism the application had - and Interpret could not rescue it
+    #: either, because translation may only emit operators that exist. The word
+    #: `latest` became a search term and quietly made the results worse.
+    sort: str = ""
+
     unknown_operators: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -356,11 +367,12 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     sizes: list[tuple[str, int]] = []
     has_attachment: Optional[bool] = None
     unknown: list[str] = []
+    sort_order = ""
     after: Optional[date] = None
     before: Optional[date] = None
 
     def _take_operator(match: re.Match[str]) -> str:
-        nonlocal after, before, has_attachment
+        nonlocal after, before, has_attachment, sort_order
         fld = _FIELD_ALIASES.get(match.group("field").lower())
         val = match.group("value").strip('"')
         if fld == "ext":
@@ -393,6 +405,20 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             parsed_size = _parse_size(val)
             if parsed_size is not None:
                 sizes.append(parsed_size)
+            else:
+                unknown.append(match.group(0))
+        elif fld == "sort":
+            # **The spelling carries the value**, so `/newest` needs no argument
+            # and `/sort date` still works. `newest`, `latest` and `oldest` are
+            # all aliases of the same field; which one was typed decides the
+            # direction, which is why the raw operator is read rather than the
+            # resolved field name.
+            typed = match.group("field").lower()
+            wanted = "oldest" if typed == "oldest" else (
+                "oldest" if val.lower() in ("oldest", "asc", "old") else "newest")
+            if typed in ("newest", "latest", "oldest") or val.lower() in (
+                    "date", "newest", "latest", "oldest", "asc", "desc", "recent"):
+                sort_order = wanted
             else:
                 unknown.append(match.group(0))
         elif fld == "has":
@@ -513,6 +539,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         or_groups=tuple(tuple(g) for g in groups if g),
         explicit_and=explicit_and,
         has_attachment=has_attachment,
+        sort=sort_order,
         unknown_operators=tuple(unknown),
     )
 

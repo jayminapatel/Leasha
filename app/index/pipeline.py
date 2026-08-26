@@ -1726,6 +1726,17 @@ class Pipeline:
         pending.clear()
 
     def _record_skip(self, item: _Extracted) -> None:
+        r"""A file something tried to read and could not. **Still findable.**
+
+        `ext` and `parent_dir` are filled here for the same reason
+        `_write_name_only` fills them: §1a's promise is that every file in an
+        indexed folder is findable by its **name, its folder and its type**, and
+        none of those three depend on whether the contents could be read. They
+        were simply never passed, so a corrupt archive or a locked document
+        answered to its name and then vanished from `/type zip` and from a
+        search on the folder holding it - which reads as the index having lost
+        the file rather than having failed to open it.
+        """
         assert item.error is not None
         candidate = item.candidate
         with self.store.batch():
@@ -1735,6 +1746,8 @@ class Pipeline:
                 mtime_ns=candidate.mtime_ns,
                 content_hash=item.content_hash,
                 status=FileStatus.PENDING,
+                parent_dir=str(candidate.path.parent),
+                ext=indexed_ext(candidate.path),
             )
             self.store.mark_skipped(file_id, item.error)
 

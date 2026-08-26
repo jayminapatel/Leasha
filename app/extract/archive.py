@@ -50,7 +50,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-from app.core.errors import AppError, make_error
+from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
 from app.extract.base import Document, SourceKind, register
 
@@ -268,10 +268,19 @@ def read_archive(
                     return
                 yield from _member(archive, entry, path, key, depth, budget)
     except (zipfile.BadZipFile, OSError) as exc:
-        # Corrupt, truncated, or gone between the walk and here. Reported on the
-        # archive's row through the ordinary skip path, not raised.
+        # Corrupt, truncated, or gone between the walk and here.
+        #
+        # **Raised rather than returned empty.** Yielding nothing let the
+        # pipeline reach its "extracted successfully but produced no text"
+        # branch, so a damaged archive was reported as `ERR_NO_TEXT_LAYER` -
+        # which is a statement about a document that opened fine, and is the
+        # queue `--only-ocr` reads back. `SKIP_CONTINUE`, so this still costs
+        # one line in a report and never the run.
         log.info("could not read {}: {}", path, exc)
-        return
+        raise AppErrorException(make_error(
+            "ERR_ARCHIVE_UNREADABLE", "extract.archive",
+            path=str(path), reason=str(exc) or exc.__class__.__name__,
+        )) from exc
 
 
 def _member(archive: Any, entry: Any, path: Path, key: str,
@@ -336,7 +345,6 @@ def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Docum
     reader with its own idea of how to read a `.docx` is a second, worse copy of
     Layer 2 that drifts from the first the moment either is fixed.
     """
-    from app.core.errors import AppErrorException
     from app.extract.base import extract
 
     try:

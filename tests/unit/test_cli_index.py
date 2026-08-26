@@ -255,14 +255,48 @@ def test_files_nothing_can_read_are_reported_as_names_not_skips(
     do next.
     """
     (corpus / "holiday.mp4").write_bytes(b"\x00" * 64)
-    (corpus / "backup.zip").write_bytes(b"PK\x03\x04" + b"\x00" * 60)
+    (corpus / "clip.mov").write_bytes(b"\x00" * 64)
 
     _code, out, _err = run(capsys, *env, "index", str(corpus), "--quiet")
 
     assert "By name   2 file(s) indexed by name only" in out
-    assert ".mp4 x1" in out and ".zip x1" in out
+    assert ".mp4 x1" in out and ".mov x1" in out
     assert "their contents are not searchable" in out
     assert "Skipped   0" in out            # nothing went wrong, and it says so
+
+
+def test_an_archive_that_cannot_be_opened_says_so_and_stays_findable(
+    capsys, env: list[str], corpus: Path, temp_env: Path
+) -> None:
+    r"""**A damaged archive is a skip, and the two must not share a code.**
+
+    `backup.zip` was in the fixture above until reading inside archives was
+    built, at which point a `.zip` stopped being "nothing can read this" and
+    became "something tried and failed" - a different fact that deserves its own
+    sentence.
+
+    It reached the pipeline's "extracted successfully but produced no text"
+    branch and was reported as `ERR_NO_TEXT_LAYER`, which is a statement about a
+    document that opened perfectly well, and is the queue `--only-ocr` reads
+    back. Exactly the confusion that split `ERR_MOSTLY_PICTURES` out.
+
+    §1a's promise survives either way: name, folder and type are facts about a
+    file on disk and do not depend on anybody managing to open it.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    (corpus / "backup.zip").write_bytes(b"PK\x03\x04" + b"\x00" * 60)
+
+    _code, out, _err = run(capsys, *env, "index", str(corpus), "--quiet")
+
+    assert "ERR_ARCHIVE_UNREADABLE" in out
+    assert "ERR_NO_TEXT_LAYER" not in out
+
+    index = temp_env.parent / "index_data" / "fts" / "knowledge.db"
+    with SqliteStore(index) as store:
+        found = store.search_files_by_name("backup")
+        assert [Path(row["path"]).name for row in found] == ["backup.zip"]
+        assert found[0]["ext"] == "zip", "a skipped file still has a type"
 
 
 def test_the_by_name_block_is_absent_when_everything_was_read(
