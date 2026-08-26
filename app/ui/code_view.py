@@ -268,6 +268,17 @@ class CodeView(QWidget):
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
+    def _code_preset(self) -> str:
+        """Which code-type preset is in force. Never raises - it is a caption.
+
+        `choice_from` rather than a second state key: one reader for the
+        setting, so the caption cannot name a preset the filter is not using.
+        """
+        from app.core.code_types import choice_from
+
+        preset, _chosen = choice_from(self._store)
+        return preset
+
     # -- drawing -------------------------------------------------------------
 
     def _fill(self, rows: list[Any]) -> None:
@@ -281,7 +292,15 @@ class CodeView(QWidget):
         self._fill(rows)
         self._show_state()
         if self._repos:
-            self.summary.setText(code_summary(rows, self._repos, self._scope))
+            # **What the type filter took out.** The scoped total is what the
+            # repository holds; `rows` is what survived the preset. Saying only
+            # the second is how `README.md` and `package.json` disappear from a
+            # fresh install with nothing on screen to explain it.
+            scoped = sum(int(row.get("files", 0) or 0) for row in self._repos)
+            self.summary.setText(code_summary(
+                rows, self._repos, self._scope,
+                hidden=max(0, scoped - len(rows)),
+                preset=self._code_preset()))
 
     def _show_git(self, found: Any, generation: int) -> None:
         if generation != self._generation:

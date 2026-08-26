@@ -52,6 +52,21 @@ MERGE_BUCKET_LIMIT = 400
 #: request and means "everything", newest first.
 NAME_MIN_CHARS = 2
 
+#: Passed as `repo_id` to mean **"this file is in no repository"**, as opposed
+#: to `None`, which means "I have no opinion".
+#:
+#: From `WORKORDER-202626081149-code-tab.md` §2. Attribution was a one-way door:
+#: nothing pruned `repos`, nothing ever set `files.repo_id` back to NULL, and the
+#: COALESCE in `upsert_file` meant a NULL could not overwrite an attribution -
+#: so even `index --force` would not clear one. Each of the three is defensible
+#: alone; together the only route back was deleting the whole index, which is
+#: what the owner did for what was a bookkeeping error.
+#:
+#: Negative because every real id is positive, and a distinct object rather than
+#: a bare -1 at each call site because "what does minus one mean here" is a
+#: question nobody should have to answer twice.
+NO_REPO = -1
+
 
 def _basename(path: str) -> str:
     """The last component of a path, whichever separator it uses.
@@ -414,16 +429,27 @@ class SqliteStore:
         source_kind: str = "file",
         repo_id: Optional[int] = None,
     ) -> int:
-        """Insert or update one file row. Returns its id.
+        r"""Insert or update one file row. Returns its id.
 
         `repo_id` is additive and optional: every existing caller keeps working
         and writes NULL, which is what a file outside any repository is.
+
+        **`NO_REPO` is how a caller says "no repository" and means it.** NULL
+        cannot: the `ON CONFLICT` below COALESCEs it so that callers which know
+        nothing about repositories - `_record_skip`, the PST path, every test -
+        cannot blank an attribution the indexer established. That guard is
+        right on its own and became a trap in combination with two others; see
+        `forget_repo`. A defensive default that cannot be overridden is not a
+        guard, it is a one-way door, so this is the door's handle.
         """
         if status not in FileStatus.ALL:
             raise AppErrorException(make_error(
                 "ERR_UNEXPECTED", "storage.sqlite",
                 details=f"Invalid file status '{status}'.",
             ))
+
+        clearing = 1 if repo_id == NO_REPO else 0
+        stored_repo = None if clearing else repo_id
 
         as_path = Path(path)
         # **Normalised here, not trusted from the caller.** `files.ext` is stored
@@ -453,10 +479,19 @@ class SqliteStore:
                     -- COALESCE, so a caller that does not know about
                     -- repositories - `_record_skip`, the PST path, any test -
                     -- does not blank an attribution the indexer established.
-                    repo_id      = COALESCE(excluded.repo_id, files.repo_id)
+                    -- **The flag, not the value.** `NO_REPO` cannot travel as
+                    -- -1 in `repo_id` itself: the column has a foreign key to
+                    -- `repos(id)`, so inserting a new row with -1 would be
+                    -- refused. It is translated to a bound flag in Python and
+                    -- the value bound as NULL, which the INSERT accepts and
+                    -- this CASE can still tell apart from "did not say".
+                    repo_id      = CASE
+                        WHEN ? = 1 THEN NULL
+                        ELSE COALESCE(excluded.repo_id, files.repo_id)
+                    END
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
-                 content_hash, status, source_kind, repo_id),
+                 content_hash, status, source_kind, stored_repo, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
             file_id = int(row["id"])
@@ -1849,6 +1884,113 @@ class SqliteStore:
             params,
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def forget_repo(self, root_path: str) -> int:
+        r"""Disown one repository. Returns how many files were released.
+
+        **The way back from the accident in `WORKORDER-202626081149-code-tab.md`
+        §1.** A copy of a project's `.git` was dragged into a document archive,
+        and 1,179 files - 44% of the corpus - were attributed to a repository
+        that was never a checkout anybody worked in. `scope:code` then matched
+        the whole archive, and there was no command, flag or control anywhere
+        that could undo it. The only route back was deleting the index, which
+        is what the owner did, for what was a bookkeeping error.
+
+        Three things happen together and all three are necessary:
+
+        * every file's `repo_id` goes back to NULL - the attribution released;
+        * the `repos` row goes, so nothing lists it or offers it again;
+        * **the index generation is bumped**, so the search cache cannot serve
+          results built while those files were code. Without it the first
+          search after forgetting still answers from the old attribution, which
+          reads as the command having done nothing.
+
+        The root is remembered in the ignore list by the caller - see
+        `ignored_repo_roots` - because detection would otherwise re-adopt it on
+        the very next walk.
+        """
+        root = str(root_path or "").rstrip("\\/")
+        if not root:
+            return 0
+        with self.write() as conn:
+            row = conn.execute(
+                "SELECT id FROM repos WHERE root_path = ? COLLATE NOCASE", (root,)
+            ).fetchone()
+            if row is None:
+                return 0
+            repo_id = int(row["id"])
+            released = conn.execute(
+                "UPDATE files SET repo_id = NULL WHERE repo_id = ?", (repo_id,)
+            ).rowcount
+            conn.execute("DELETE FROM repos WHERE id = ?", (repo_id,))
+            self._bump_generation(conn)
+        _log.info("forgot repository {} and released {} file(s)", root, released)
+        return int(released or 0)
+
+    #: Where the disowned roots live. `index_state`, not `.env`: it is a fact
+    #: about this index rather than configuration anybody maintains.
+    IGNORED_REPOS_KEY = "repos:ignored"
+
+    def ignored_repo_roots(self) -> list[str]:
+        """Roots that must never be adopted as repositories again."""
+        raw = self.get_state(self.IGNORED_REPOS_KEY, "") or ""
+        return [line.strip() for line in str(raw).splitlines() if line.strip()]
+
+    def ignore_repo_root(self, root_path: str) -> None:
+        r"""Remember that this root is not a repository.
+
+        **Without this, forgetting is undone by the next walk.** Detection finds
+        a `.git` and adopts it; that is the whole of how repositories are
+        registered, and it is right. So "I have looked at this and it is not a
+        checkout" has to be recorded somewhere detection reads, or the command
+        that releases 1,179 files is silently reversed a minute later.
+        """
+        root = str(root_path or "").rstrip("\\/")
+        if not root:
+            return
+        known = self.ignored_repo_roots()
+        if any(root.lower() == one.lower() for one in known):
+            return
+        self.set_state(self.IGNORED_REPOS_KEY, "\n".join([*known, root]))
+
+    def unignore_repo_root(self, root_path: str) -> bool:
+        """Stop ignoring a root. True if it was being ignored.
+
+        A decision somebody can reverse; the alternative is a setting that can
+        only ever be added to, which is how a corpus quietly shrinks.
+        """
+        root = str(root_path or "").rstrip("\\/").lower()
+        known = self.ignored_repo_roots()
+        kept = [one for one in known if one.lower() != root]
+        if len(kept) == len(known):
+            return False
+        self.set_state(self.IGNORED_REPOS_KEY, "\n".join(kept))
+        return True
+
+    def prune_repos(self, alive: Sequence[str]) -> list[str]:
+        r"""Remove repositories whose root is no longer one. Returns their roots.
+
+        **Deleted files are pruned and repositories were not**, which is the
+        second of the three mechanisms that made attribution permanent. A `.git`
+        that has been removed or renamed left its row, its name in the tree and
+        its `repo_id` on every file, for ever.
+
+        `alive` is what the walk just found. Only roots the walk actually
+        covered can be judged - a repository on an unmounted drive has not
+        disappeared, it is simply not being looked at, and pruning it would
+        release every one of its files the moment somebody indexed a different
+        folder. The caller passes the roots it walked under; this removes the
+        known repositories beneath them that were not seen.
+        """
+        seen = {str(root).rstrip("\\/").lower() for root in alive or ()}
+        gone: list[str] = []
+        for row in self.repos_list():
+            root = str(row.get("root_path") or "").rstrip("\\/")
+            if root and root.lower() not in seen:
+                gone.append(root)
+        for root in gone:
+            self.forget_repo(root)
+        return gone
 
     def repos_list(self) -> list[dict[str, Any]]:
         """Every known repository with its indexed file count, most files first.

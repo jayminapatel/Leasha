@@ -3024,7 +3024,47 @@ def repo_root_for(repos: Iterable[Mapping[str, Any]], name: str) -> str:
     return ""
 
 
-def code_summary(rows: list[Any], repos: list[Any], scope: Any = None) -> str:
+def preset_label(preset: str) -> str:
+    """A preset's name, in words. `""` for one nobody configured."""
+    from app.core.code_types import PRESET_LABELS
+
+    return PRESET_LABELS.get(str(preset or ""), "your code-type filter")
+
+
+def repo_list_empty(*, indexed_files: int, hidden: int, has_query: bool,
+                    preset: str = "") -> str:
+    r"""Why this repository's list is empty. Three states, three sentences.
+
+    From `WORKORDER-202626081149-code-tab.md` §5. All three used to render
+    identically, as nothing:
+
+    * the repository has no indexed files at all - its folder is probably not
+      under an indexed root, which is a *configuration* problem;
+    * it has files and the type filter hid every one - a *setting* problem, and
+      the number is the thing that makes it obvious;
+    * it has matching files and the query excluded them - which is search
+      working correctly.
+
+    `repo_empty_state` already does exactly this one level up, for *no
+    repositories at all*, and its docstring explains why a generic "no results"
+    would waste the answer that matters. The same care had not been applied
+    here.
+    """
+    if indexed_files <= 0:
+        return ("No indexed files in this repository.\n\n"
+                "Its folder may not be under an indexed root — add the folder "
+                "above it in Settings, then index again.")
+    if hidden and hidden >= indexed_files:
+        return (f"0 of {indexed_files:,} shown — all hidden by "
+                f"{preset_label(preset).lower()}.\n\n"
+                f"Change it with the code-types button above.")
+    if has_query:
+        return "No file matches that query in this repository."
+    return "No files to show."
+
+
+def code_summary(rows: list[Any], repos: list[Any], scope: Any = None,
+                 *, hidden: int = 0, preset: str = "") -> str:
     r"""What is on screen, and what there is. Both, because "40 files" over a
     corpus of 48,000 and over one of 40 mean different things.
 
@@ -3037,6 +3077,18 @@ def code_summary(rows: list[Any], repos: list[Any], scope: Any = None) -> str:
     total = sum(int(row.get("files", 0) or 0) for row in repos)
     count = len(repos)
     parts = [f"{len(rows):,} file{'s' if len(rows) != 1 else ''}"]
+    # **The arithmetic, whenever a type filter is hiding something.**
+    #
+    # `DEFAULT_PRESET` is `build`, which excludes `.md`, `.txt`, `.json`, `.yml`
+    # and `.csv` - so `README.md`, `package.json` and `requirements.txt` are
+    # filtered out of the list on a fresh install and nothing on screen says a
+    # filter is active. `code_type_filter`'s own docstring warns that "a Code
+    # tab that has silently hidden a language is far harder to notice than one
+    # showing a stray PDF", and then the default did exactly that. Combined
+    # with a repository holding no indexed files it is the second reason the
+    # owner saw an empty list and could not tell why.
+    if hidden > 0:
+        parts.append(f"{hidden:,} hidden by {preset_label(preset).lower()}")
     if scope is not None and str(getattr(scope, "kind", "")):
         parts.append(scope.describe())
     if len(rows) >= REPO_FILE_LIMIT:

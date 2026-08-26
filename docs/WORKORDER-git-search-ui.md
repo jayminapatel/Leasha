@@ -320,7 +320,8 @@ nothing to write.
 |---|---|
 | A search input on the Code tab | It is the search tab's job, and the bridge is how you get there. Two search boxes is two grammars eventually |
 | Branch pickers, commit-range fields, scope dropdowns | The sixty-switch design. Every filter this application has is typed in one grammar and works everywhere |
-| Add / remove / configure a repository | Repositories are found, not registered. A missing one means a missing indexed root, and the empty state says so |
+| Add / configure a repository | Repositories are found, not registered. A missing one means a missing indexed root, and the empty state says so |
+| ~~Remove a repository~~ | **Corrected.** This said repositories are never removed, and `WORKORDER-202626081149-code-tab.md` §2 shows that was wrong: attribution was a one-way door out of which the only route was deleting the whole index. `repos --forget` exists, and so does pruning when a `.git` has gone |
 | A commit list, a diff view, blame, a file-history timeline | All of it needs phase 2, which is not authorised and is gated on a measurement - backend order §14 |
 | Per-repository settings | Nothing to set |
 

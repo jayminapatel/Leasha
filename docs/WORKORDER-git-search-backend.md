@@ -182,6 +182,17 @@ enumeration - so per non-negotiable 11, it is a constant and not a control. A re
 found under an indexed root is indexed exactly as it was before this work order; the only
 difference is that the app now knows what it is looking at.
 
+> **Corrected by `WORKORDER-202626081149-code-tab.md` §2.** Detection needing no
+> setting was right; *"found, not registered - no add, no remove"* was not. A
+> copy of a `.git` dragged into a document archive attributed 1,179 files to a
+> repository, and nothing in the application could undo it: nothing pruned
+> `repos`, nothing set `files.repo_id` back to NULL, and the COALESCE above
+> meant even `index --force` would not clear it. The only route back was
+> deleting the index. `repos --forget` and an ignore list exist now, and
+> `NO_REPO` is the sentinel that makes the third mechanism overridable. A
+> defensive guard that cannot be overridden is not a guard, it is a one-way
+> door.
+
 ## 5. The `repo:` filter
 
 Two lines, one table, per the comment at `app/search/query.py:58` - the field list is built

@@ -131,6 +131,7 @@
     <Compile Include="app\search\rerank_bench.py" />
     <Compile Include="app\search\translate.py" />
     <Compile Include="app\search\vector.py" />
+    <Compile Include="app\search\wildcards.py" />
     <Compile Include="app\search\window.py" />
     <Compile Include="app\storage\__init__.py" />
     <Compile Include="app\storage\filters.py" />
@@ -329,6 +330,7 @@
     <Compile Include="tests\unit\test_vs_project.py" />
     <Compile Include="tests\unit\test_walker.py" />
     <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
+    <Compile Include="tests\unit\test_wildcards.py" />
     <Compile Include="tests\unit\test_winfs.py" />
     <Compile Include="tests\unit\test_worker_calls.py" />
     <Compile Include="tests\unit\test_write_batching.py" />

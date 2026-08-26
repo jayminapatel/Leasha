@@ -1540,6 +1540,46 @@ def cmd_gitmeasure(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _forget_repo(settings: Any, root: str, *, as_json: bool = False) -> int:
+    r"""Disown one repository, and say exactly what changed.
+
+    From `WORKORDER-202626081149-code-tab.md` §2. Attribution was a one-way
+    door: nothing pruned `repos`, nothing set `files.repo_id` back to NULL, and
+    the COALESCE in `upsert_file` meant even `index --force` could not clear
+    one. The only route back was deleting the whole index, for what is a
+    bookkeeping error.
+
+    **Nothing is deleted and nothing is re-indexed.** Every file keeps its row,
+    its chunks and its vectors; what it loses is the claim that it is code. That
+    is why this is safe to offer as a one-line command rather than behind a
+    confirmation: the expensive half of the accident is the re-index, and this
+    avoids it entirely.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    target = str(Path(root).expanduser()).rstrip("\\/")
+    with SqliteStore(settings.fts_db) as store:
+        released = store.forget_repo(target)
+        # Recorded even when nothing was attributed: the point is that the next
+        # walk must not adopt it, and a folder can be a repository the index has
+        # not reached yet.
+        store.ignore_repo_root(target)
+        remaining = len(store.repos_list())
+
+    if as_json:
+        print(json.dumps({"forgot": target, "files_released": released,
+                          "repositories_left": remaining}, indent=2))
+        return EXIT_OK
+
+    if released:
+        print(f"Released {released:,} file(s) from {target}.")
+    else:
+        print(f"{target} had no files attributed to it.")
+    print("They are still indexed and still searchable - they are no longer code.")
+    print(f"It will not be adopted again. Undo with: repos --remember \"{target}\"")
+    return EXIT_OK
+
+
 def cmd_repos(args: argparse.Namespace) -> int:
     """Every code repository found under an indexed root.
 
@@ -1558,8 +1598,19 @@ def cmd_repos(args: argparse.Namespace) -> int:
         return _scan_for_repos([Path(p).expanduser() for p in args.scan],
                                as_json=args.json)
 
+    if args.forget:
+        return _forget_repo(settings, args.forget, as_json=args.json)
+
+    if args.remember:
+        with SqliteStore(settings.fts_db) as store:
+            known = store.unignore_repo_root(args.remember)
+        print(f"{args.remember} may be adopted again on the next index run."
+              if known else f"{args.remember} was not being ignored.")
+        return EXIT_OK
+
     with SqliteStore(settings.fts_db) as store:
         repos = store.repos_list()
+        ignored = store.ignored_repo_roots()
 
     if args.json:
         print(json.dumps({"repositories": repos, "count": len(repos)},
@@ -1568,6 +1619,12 @@ def cmd_repos(args: argparse.Namespace) -> int:
 
     if not repos:
         print("No code repositories found under the indexed folders.")
+        if ignored:
+            print()
+            print("Disowned, and never adopted again:")
+            for root in ignored:
+                print(f"  {root}")
+            print("  Undo with: app.cli repos --remember <root>")
         return EXIT_OK
 
     name_width = max(len("NAME"), max(len(str(r["name"])) for r in repos))
@@ -2881,6 +2938,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--scan", nargs="+", metavar="PATH",
         help="look for repositories under these folders without indexing "
              "anything, and report what a run would find")
+    p_repos.add_argument(
+        "--forget", metavar="ROOT",
+        help="stop treating this folder as a code repository: release every "
+             "file attributed to it, remove it from the list, and never adopt "
+             "it again. Nothing is deleted and nothing is re-indexed")
+    p_repos.add_argument(
+        "--remember", metavar="ROOT",
+        help="undo --forget, so the next index run may adopt this folder again")
     p_repos.set_defaults(func=cmd_repos)
 
     p_eval = sub.add_parser(

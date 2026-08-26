@@ -943,8 +943,23 @@ class Pipeline:
         repository. A walk that only looks downwards attributes none of them.
 
         One `stat` per ancestor per root, once per run.
+
+        **Roots the owner has disowned are never adopted.** `repos --forget`
+        releases 1,179 files and detection would re-adopt the same folder on the
+        very next walk, because finding a `.git` is the whole of how a
+        repository is registered. The ignore list is where "I have looked at
+        this and it is not a checkout" is recorded.
         """
         self.config.walk.repo_sink = self._repo_roots
+        try:
+            self._ignored_repos = {
+                root.rstrip("\\/").lower()
+                for root in self.store.ignored_repo_roots()
+            }
+        except Exception as exc:              # noqa: BLE001 - never fail a run
+            self._log.debug("could not read the ignored repositories: {}", exc)
+            self._ignored_repos = set()
+
         for root in self.config.walk.roots:
             found = enclosing_repo(Path(root))
             if found is None:
@@ -990,7 +1005,14 @@ class Pipeline:
         this only recorded the ones that were attributed, the Code tab would
         disagree with the walker for reasons nobody could see.
         """
-        for root, kind in self._repo_roots.items():
+        ignored = getattr(self, "_ignored_repos", set())
+        for root, kind in list(self._repo_roots.items()):
+            if str(root).rstrip("\\/").lower() in ignored:
+                # Disowned deliberately. Dropped from the run's own map too, so
+                # `_repo_id_for` cannot attribute a file to it either.
+                self._repo_roots.pop(root, None)
+                self._log.debug("ignoring disowned repository {}", root)
+                continue
             try:
                 self._repo_ids[root] = self.store.upsert_repo(root, kind=kind)
             except Exception as exc:      # detection may never fail a run
