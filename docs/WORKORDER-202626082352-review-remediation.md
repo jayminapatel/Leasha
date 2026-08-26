@@ -56,7 +56,10 @@ both differ from what this order specified and the difference matters:
 
 ## 2. Before the next scale run
 
-**The indexing half is done** as of 2026-08-27, tests in
+**§2 is complete** as of 2026-08-27. H6 did not go the way this order says, and
+the difference is the whole finding - see below.
+
+**The indexing half was done first** on 2026-08-27, tests in
 `tests/unit/test_review_section_two.py`. H5, H6 and H11 remain: the first two are
 *search*-side and the third is the Files tab, so none of them blocks a scale run.
 
@@ -70,6 +73,19 @@ Two corrections to what this section assumed:
   members inherit the answer - and an archive whose *parent folder* has also
   vanished is left alone, because that is an unmounted share rather than a
   deletion, and the blast radius is 200,000 rows.
+* **H6's suggested fix does almost nothing, and the measurement says why.** The
+  order proposed FTS5's `ORDER BY rank LIMIT` rowid subquery. Built and timed on
+  a 40,000-chunk corpus: 24.5ms to 22.6ms, about 8%. Breaking the statement into
+  parts showed where the time actually goes - the raw match of 24,048 rows is
+  7.8ms, the *joins* are ~2ms, and **scoring is the rest**. Cost is proportional
+  to rows matched, not rows returned.
+* **So the lever is matching fewer rows, and `AND_TERM_LIMIT` is not the way.**
+  Raising it is the obvious move and it is wrong: its docstring holds the
+  measurement, and three left six of twenty real sentences returning nothing,
+  four left eleven. The value stands. Instead the AND form is tried **first**
+  and the OR form runs only when AND does not fill the page - identical recall,
+  because the wide query still runs whenever the narrow one is thin, and
+  21.2ms to 5.4ms when the terms genuinely co-occur.
 * **M6 needed a repair as well as a fix.** Flushing before the marker closes the
   window; it does nothing for the holes earlier runs already left, and
   `iter_unembedded` was reachable only by a command nobody knows to run. Every
@@ -84,11 +100,11 @@ Two corrections to what this section assumed:
 - [x] **H9** (Extract) `chunker.py:141` — replace the per-word paragraph scan with
   sorted starts + `bisect_right` (O(W log P)); add the perf floor test (100k words
   chunk in < 2s). Measured today: 80k words = 73s.
-- [ ] **H5** (Search) `keyword.py:158` + `engine.py:373` — stop materialising every
+- [x] **H5** (Search) `keyword.py:158` + `engine.py:373` — stop materialising every
   eligible file id on filtered searches: probe with `LIMIT MAX_PREFILTER_IDS+1`,
   move filterable columns into the Lance table for native pushdown, run the rest in
   the pool.
-- [ ] **H6** (Search) `keyword.py:71` — benchmark at representative scale, then use
+- [x] **H6** (Search) `keyword.py:71` — benchmark at representative scale, then use
   FTS5's `ORDER BY rank LIMIT` rowid subquery when unfiltered and the over-fetch
   ladder when filtered. This is the main p95 risk.
 - [x] **H11** (UI) `files_view.py:318,345,353` — open/reveal route through

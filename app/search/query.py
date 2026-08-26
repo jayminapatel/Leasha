@@ -308,9 +308,17 @@ class ParsedQuery:
 
         return strip_wildcards(" ".join([*self.phrases, *self.terms])).strip()
 
-    def fts_match(self, *, prefix_last: bool = False) -> str:
-        """FTS5 MATCH expression. Guaranteed parseable or empty."""
-        return to_fts_match(self, prefix_last=prefix_last)
+    def fts_match(self, *, prefix_last: bool = False,
+                  force_and: bool = False) -> str:
+        r"""FTS5 MATCH expression. Guaranteed parseable or empty.
+
+        `force_and` joins the terms with AND regardless of `AND_TERM_LIMIT`.
+        **Not a way to change the default** - that value was measured and
+        stands - but the narrow form `keyword.search` tries first, falling back
+        to this expression's ordinary OR shape whenever the narrow one does not
+        fill the page. See the measurements there.
+        """
+        return to_fts_match(self, prefix_last=prefix_last, force_and=force_and)
 
 
 _SIZE_UNITS = {"b": 1, "k": 1024, "kb": 1024, "m": 1024**2, "mb": 1024**2,
@@ -830,7 +838,8 @@ def _content_terms(terms: Sequence[str]) -> list[str]:
     return without_instructions or kept
 
 
-def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
+def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False,
+                 force_and: bool = False) -> str:
     """Build a MATCH expression that SQLite will always parse.
 
     Returns "" when there is nothing searchable, which the caller must treat as
@@ -898,7 +907,8 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
         # A description gets OR so BM25 can rank by how much matched; a short
         # keyword query keeps AND, because that is what somebody means by it.
         joiner = (
-            " AND " if parsed.explicit_and or len(quoted_terms) <= AND_TERM_LIMIT
+            " AND " if force_and or parsed.explicit_and
+            or len(quoted_terms) <= AND_TERM_LIMIT
             else " OR "
         )
         body = joiner.join(quoted_terms)

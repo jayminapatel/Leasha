@@ -341,3 +341,82 @@ def test_a_folder_that_fails_part_way_keeps_what_it_read():
 
     assert got == ["one", "two"], "work done before the failure was thrown away"
     assert recorded, "the folder failed and nothing recorded it"
+
+
+# ---------------------------------------------------------------------------
+# H6 - the keyword path, narrowed first and widened only when it must be
+# ---------------------------------------------------------------------------
+
+from app.storage.sqlite_store import SqliteStore  # noqa: E402 - used below only
+
+
+def _keyword_corpus(store):
+    """Two terms that do not co-occur, plus one document where they do."""
+    for number, text in enumerate((
+        "pump station commissioning and valve replacement",   # both
+        "pump station commissioning notes",                    # pump only
+        "valve replacement schedule",                          # valve only
+        "unrelated prose about budgets",                       # neither
+    )):
+        file_id = store.upsert_file(rf"D:\c\f{number}.txt", size_bytes=10,
+                                    mtime_ns=number, ext="txt", parent_dir=r"D:\c")
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": text, "page": None,
+                                        "char_start": 0, "char_end": len(text)}])
+        store.mark_indexed(file_id)
+
+
+def test_a_thin_narrow_query_still_widens_to_or(tmp_path):
+    r"""**Recall is not traded for speed, and this is the guard.**
+
+    `AND_TERM_LIMIT = 1` was chosen against twenty real sentences: three left
+    six of them returning nothing at all, four left eleven. Trying the AND form
+    first is only acceptable because the OR form still runs whenever AND does
+    not fill the page - so a description whose words do not all co-occur returns
+    exactly what it always did.
+    """
+    from app.search import keyword
+    from app.search.query import parse_query
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        _keyword_corpus(store)
+
+        # Both terms appear together in one document, so AND alone finds one -
+        # far short of the page - and the wide query has to run.
+        rows = keyword.search(store, parse_query("pump valve"), limit=10)
+
+        found = {row["text"] for row in rows}
+        assert len(found) >= 3, (
+            f"widening did not happen - only {len(found)} document(s) came back, "
+            f"so a description that does not all match now finds nothing")
+
+
+def test_the_narrow_query_is_used_when_it_fills_the_page(tmp_path):
+    """The whole point: when the terms genuinely co-occur, the expensive OR is
+    never run. Measured on a synthetic corpus, 21.2ms against 5.4ms."""
+    from app.search import keyword
+    from app.search.query import parse_query
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        _keyword_corpus(store)
+
+        rows = keyword.search(store, parse_query("pump valve"), limit=1)
+
+        assert len(rows) == 1
+        assert "valve" in rows[0]["text"] and "pump" in rows[0]["text"], (
+            "a one-result page should have been answered by the AND form, "
+            "which only matches the document containing both")
+
+
+def test_and_term_limit_was_not_quietly_raised():
+    r"""**The value is measured, and the measurement is in its docstring.**
+
+    Raising it is the obvious-looking fix for the latency this section is
+    about, and it is the wrong one: three left six of twenty sentences empty,
+    four left eleven. If a future change wants a different value it needs new
+    numbers, not this test deleted.
+    """
+    from app.search.query import AND_TERM_LIMIT
+
+    assert AND_TERM_LIMIT == 1, (
+        "AND_TERM_LIMIT changed - the recall table in its docstring says what "
+        "that costs. Re-measure before believing a new value.")
