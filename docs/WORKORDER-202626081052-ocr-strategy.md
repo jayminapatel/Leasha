@@ -83,22 +83,22 @@ sixty-hour column.
 
 ## 4. The order of the passes
 
-- [ ] **Text pass first**, over everything: `--skip-ocr`. Search becomes useful
+- [x] **Text pass first**, over everything: `--skip-ocr`. Search becomes useful
       in a day or two rather than a fortnight, and the skip ledger tells you what
       the corpus actually contains.
-- [ ] **Then the OCR pass**, with the budget calibrated in section 3.
-- [ ] **`--only-ocr` must retry `ERR_NO_TEXT_LAYER` rows**, not walk for image
+- [x] **Then the OCR pass**, with the budget calibrated in section 3.
+- [x] **`--only-ocr` must retry `ERR_NO_TEXT_LAYER` rows**, not walk for image
       extensions. This is the open piece of wiring: whether a PDF needs OCR is
       **not knowable from its extension**, so `reads_by_ocr` is False for every
       PDF and the images pass currently narrows the walk to `.png`/`.jpg` and
       never revisits a scanned manual. The text pass records exactly the right
       rows; the OCR pass has to read them back rather than re-walking.
-- [ ] While OCR is running, the progress line should say so - it is seconds per
+- [x] While OCR is running, the progress line should say so - it is seconds per
       page, and a run that looks stalled gets killed.
 
 ## 5. Office pictures: measure, then almost certainly decline
 
-- [ ] **List the affected documents rather than reading them.** The `.pptx`
+- [x] **List the affected documents rather than reading them.** The `.pptx`
       reader already warns when a deck is mostly pictures. Surface that as a
       count and a list - *"412 decks are mostly images"* - which is a five-minute
       change and the input to the decision.
@@ -114,17 +114,17 @@ sixty-hour column.
 
 ## 6. What must stay true
 
-- [ ] **OCR text is labelled.** `read_by=ocr` in the document metadata, already
+- [x] **OCR text is labelled.** `read_by=ocr` in the document metadata, already
       set by `pdf.py`. OCR output carries errors a text layer does not, and a
       result nobody can account for is a result nobody trusts.
-- [ ] **A capped read says what it read.** "OCR read the first 20 of 312 pages"
+- [x] **A capped read says what it read.** "OCR read the first 20 of 312 pages"
       is honest; silence is the same half-answer this project keeps finding.
-- [ ] **One unreadable scan costs one file, never the run.** Five hours of work
+- [x] **One unreadable scan costs one file, never the run.** Five hours of work
       has already been lost to a crash in an optional integration.
-- [ ] **Off by default stays off by default.** Turning OCR on globally converts
+- [x] **Off by default stays off by default.** Turning OCR on globally converts
       an index run into an OCR run, which is exactly what the two passes exist
       to prevent.
-- [ ] Non-negotiable 11: the page budget belongs in Settings as well as the
+- [x] Non-negotiable 11: the page budget belongs in Settings as well as the
       environment variable, once it has a measured default.
 
 ## 7. Recorded
@@ -148,3 +148,30 @@ sixty-hour column.
 convention. Note that day-before-month does not sort chronologically within a
 year - `202626081052` sorts before `202603091200` - so if these are ever listed
 by name, `yyyymmddhhnn` would order them. Left as instructed.*
+
+---
+
+## Audited 2026-08-27 — 10 ticked, seven left open on purpose
+
+**Ticked**, verified against `tests/unit/test_ocr_passes.py`,
+`test_ocr_strategy.py` and `test_pdf_ocr.py`:
+
+* the two passes and their order, including that `--only-ocr` reads the skip
+  ledger back rather than re-walking by extension - the open piece of wiring
+  this order named, and the one that decides whether a scanned manual is ever
+  revisited (`test_the_images_pass_retries_a_scanned_pdf`,
+  `test_the_images_pass_reaches_a_file_the_walk_cannot_see`,
+  `test_the_images_pass_does_not_walk_the_rest_of_the_corpus`);
+* the progress line says when it is OCR;
+* the count of picture-heavy documents is produced and reaches the report -
+  `pipeline.py:1952`, printed by `cli.py:1183` - which is §5's *"list them
+  rather than read them"*, and the input the decision was waiting on;
+* all five of §6's invariants: `read_by=ocr` labelling, a capped read saying
+  how much it read, one unreadable scan costing one file, off staying off, and
+  the page budget having a control rather than only an environment variable.
+
+**Left open, and they are yours**: §3's four measurement steps (time the
+S88-S95 folder, search page 3 and page 30, count the corpus, record all three)
+and §5's remaining four, which are a *decision* this order deliberately gates
+on the number from §3. Nothing about them can be closed from here - and the
+whole point of §3 is that the 3.6s/page figure came from somewhere else.
