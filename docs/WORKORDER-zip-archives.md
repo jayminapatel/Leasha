@@ -66,26 +66,26 @@ were never walked.
 
 ### What to change
 
-- [ ] **The walker records every file it sees.** Extension routing decides
+- [x] **The walker records every file it sees.** Extension routing decides
       whether the *contents* are read, not whether the file exists. A file with
       no extractor becomes a row with its name, path, size, mtime and extension,
       and `files_fts` gets its name so filename search finds it.
-- [ ] **Extraction stays exactly as selective as it is now.** This must not
+- [x] **Extraction stays exactly as selective as it is now.** This must not
       turn into "try to read a 40GB ISO". The cost of a name-only row is one
       `stat()` the walk already does and one INSERT - nothing is opened.
-- [ ] **A distinct status, not a failure.** `INDEXED` means content was read;
+- [x] **A distinct status, not a failure.** `INDEXED` means content was read;
       these need something like `NAME_ONLY` so the two are never confused. A row
       with no chunks that claims to be INDEXED is exactly the bug that made
       `--force` necessary, and it must not be recreated deliberately.
-- [ ] **The skip ledger says why**, grouped: *"18,402 files indexed by name only
+- [x] **The skip ledger says why**, grouped: *"18,402 files indexed by name only
       - no reader for .mp4, .exe, .iso"*, with the count per extension. That
       turns an invisible absence into a number somebody can act on, and it is
       how you discover that a corpus is 30% `.dwg`.
-- [ ] **The Files tab shows them plainly.** They are ordinary rows; the only
+- [x] **The Files tab shows them plainly.** They are ordinary rows; the only
       difference is that opening a preview says the contents were not read.
       Search results from content queries are unaffected - a file with no chunks
       cannot match a content search and does not need to.
-- [ ] **Cheap to switch off.** Somebody indexing a media drive may not want two
+- [x] **Cheap to switch off.** Somebody indexing a media drive may not want two
       million video files in their index. One setting, defaulting to on, because
       *"where is that file"* is the most common question anybody asks a search
       tool.
@@ -130,14 +130,14 @@ UI, the skip ledger and the change detector all handle that today.
 
 `app/extract/archive.py`, registering `.zip` and `.jar`/`.nupkg` (both are zips).
 
-- [ ] Enumerate members with `zipfile.ZipFile.infolist()`.
-- [ ] For each member whose extension has a registered extractor, extract it to
+- [x] Enumerate members with `zipfile.ZipFile.infolist()`.
+- [x] For each member whose extension has a registered extractor, extract it to
       a temp file and run the normal `extract()` path over it. **Reuse the
       extractor registry**; an archive reader that reimplements text extraction
       is a second, worse copy of Layer 2.
-- [ ] Yield one `Document` per member, with `source_kind` set so the pipeline
+- [x] Yield one `Document` per member, with `source_kind` set so the pipeline
       treats it as a container child.
-- [ ] Members whose type has no extractor are recorded by name, not silently
+- [x] Members whose type has no extractor are recorded by name, not silently
       dropped: an archive of `.dwg` files should say what is in it.
 
 `zipfile` is in the standard library, and `odf.py`, `ebook.py` and `diagrams.py`
@@ -160,18 +160,18 @@ A 40KB file that expands to 5GB. This is not theoretical: it is a well-known
 denial-of-service shape, and a 600GB corpus of unknown provenance will
 eventually contain one by accident if not by malice.
 
-- [ ] **Check `ZipInfo.file_size` before reading**, not after. The header
+- [x] **Check `ZipInfo.file_size` before reading**, not after. The header
       carries the uncompressed size, so the gigabyte is refused without being
       allocated. `odf.py` already does exactly this - copy the reasoning.
-- [ ] **Per-member ceiling**, defaulting to the existing `max_bytes` for that
+- [x] **Per-member ceiling**, defaulting to the existing `max_bytes` for that
       member's type. A `.txt` inside a zip gets the same cap as a `.txt` on disk.
-- [ ] **Per-archive ceiling on total uncompressed bytes**, because a thousand
+- [x] **Per-archive ceiling on total uncompressed bytes**, because a thousand
       members of 50MB each passes every per-member check and still costs 50GB.
-- [ ] **Compression-ratio ceiling.** A member whose `file_size / compress_size`
+- [x] **Compression-ratio ceiling.** A member whose `file_size / compress_size`
       exceeds roughly 200:1 is refused on that basis alone, with its own skip
       code. Ordinary text compresses about 5:1; 1000:1 is a bomb and nothing
       else.
-- [ ] Refusal is `ERR_ARCHIVE_TOO_LARGE` with `SKIP_CONTINUE`, naming the member
+- [x] Refusal is `ERR_ARCHIVE_TOO_LARGE` with `SKIP_CONTINUE`, naming the member
       and the number. **The run continues** - one bad archive must not end a
       five-day index.
 
@@ -180,74 +180,74 @@ eventually contain one by accident if not by malice.
 A zip inside a zip inside a zip. Without a limit an index run never finishes,
 and with a naive limit a legitimate `nupkg` inside a `zip` stops working.
 
-- [ ] **Depth limit, default 2**, counted from the file on disk. Depth 1 is the
+- [x] **Depth limit, default 2**, counted from the file on disk. Depth 1 is the
       archive itself; depth 2 is an archive inside it. Deeper is recorded by name
       with `ERR_ARCHIVE_TOO_DEEP`.
-- [ ] **A member that is a zip is not automatically recursed into.** It is
+- [x] **A member that is a zip is not automatically recursed into.** It is
       recursed only if depth allows *and* the total-bytes budget for the outer
       archive has room left. The budget is shared, not per level.
-- [ ] **Guard against self-reference.** A zip whose member is itself, and quines,
+- [x] **Guard against self-reference.** A zip whose member is itself, and quines,
       exist. The depth limit covers this, which is why the limit is absolute
       rather than "keep going while it looks reasonable".
 
 ### 4.3 Encrypted members
 
-- [ ] Detected from the flag bits, **before** attempting to read. An encrypted
+- [x] Detected from the flag bits, **before** attempting to read. An encrypted
       member is `ERR_ARCHIVE_ENCRYPTED` as `SKIP_CONTINUE`, indexed by name.
-- [ ] **Not a failure and not silence.** The skip ledger groups these, so
+- [x] **Not a failure and not silence.** The skip ledger groups these, so
       "412 files in encrypted archives" is one row with a plain explanation.
       Somebody with the password can decide whether to extract them by hand; the
       indexer does not prompt and does not guess.
 
 ### 4.4 Path traversal
 
-- [ ] A member named `..\..\Windows\System32\evil.dll` must never be written
+- [x] A member named `..\..\Windows\System32\evil.dll` must never be written
       outside the temp directory. **Resolve the target and confirm it is inside**
       before writing, rather than trusting the name - `zipfile.extract` sanitises
       in modern Python, but this code writes its own temp files and the check
       belongs where the write is.
-- [ ] Absolute member paths and drive letters are refused the same way.
+- [x] Absolute member paths and drive letters are refused the same way.
 
 ### 4.5 Change detection
 
-- [ ] The archive's own row keeps mtime and size, as any file does. A changed
+- [x] The archive's own row keeps mtime and size, as any file does. A changed
       mtime means re-reading members.
-- [ ] **Each member gets a text digest**, exactly as PST messages do, so
+- [x] **Each member gets a text digest**, exactly as PST messages do, so
       re-reading a changed archive re-writes only the members whose text moved.
       Reported as `unchanged_documents` - the number that makes a 2GB archive
       with one new file cheap rather than a full re-index of its contents.
-- [ ] A member that has disappeared from the archive is deleted from the index
+- [x] A member that has disappeared from the archive is deleted from the index
       when its container is re-read.
 
 ### 4.6 Cost, and the ability to say no
 
-- [ ] **Off by default is wrong and on by default is dangerous**, so this is a
+- [x] **Off by default is wrong and on by default is dangerous**, so this is a
       setting with a real number attached: *"Read inside archives up to N MB"*,
       default something like 100MB. A 40GB backup zip is skipped by name with a
       message saying why and how to change it.
-- [ ] Non-negotiable 11: it appears in Settings, not only in `extractors.toml`.
-- [ ] Members are extracted to the system temp directory and **deleted
+- [x] Non-negotiable 11: it appears in Settings, not only in `extractors.toml`.
+- [x] Members are extracted to the system temp directory and **deleted
       immediately after reading**, one at a time. Never the whole archive at
       once: that is how a 20GB zip becomes 20GB of temp files on the index drive.
-- [ ] Respect the resource governor between members, as the pipeline does
+- [x] Respect the resource governor between members, as the pipeline does
       between files. An archive is not an excuse to ignore the memory ceiling.
 
 ## 5. Tests
 
-- [ ] A zip of three documents yields three documents, with the right paths.
-- [ ] A nested zip is read at depth 2 and refused at depth 3, by code.
-- [ ] **A zip bomb is refused without allocating its expansion** - assert on the
+- [x] A zip of three documents yields three documents, with the right paths.
+- [x] A nested zip is read at depth 2 and refused at depth 3, by code.
+- [x] **A zip bomb is refused without allocating its expansion** - assert on the
       ratio check, and use a real high-ratio fixture rather than a mock.
-- [ ] The per-archive byte budget stops a thousand-member archive.
-- [ ] An encrypted member is skipped with its own code and the others in the
+- [x] The per-archive byte budget stops a thousand-member archive.
+- [x] An encrypted member is skipped with its own code and the others in the
       same archive are still read.
-- [ ] A traversal name cannot write outside the temp directory.
-- [ ] A member with no extractor is recorded by name rather than dropped.
-- [ ] Re-indexing an archive with one changed member reports one indexed and the
+- [x] A traversal name cannot write outside the temp directory.
+- [x] A member with no extractor is recorded by name rather than dropped.
+- [x] Re-indexing an archive with one changed member reports one indexed and the
       rest `unchanged_documents`.
-- [ ] A corrupt or truncated zip is `ERR_FILE_CORRUPT`, `SKIP_CONTINUE`, and the
+- [x] A corrupt or truncated zip is `ERR_FILE_CORRUPT`, `SKIP_CONTINUE`, and the
       run continues.
-- [ ] `.zip` appears in `resolved_extensions()` - the guard that would have
+- [x] `.zip` appears in `resolved_extensions()` - the guard that would have
       caught the whole tier-1/tier-2 walker bug.
 
 ## 6. Do this after the first full index
@@ -281,3 +281,26 @@ expensive.
   both known before a single byte is decompressed.
 - **`.zip` needs no dependency; `.7z` and `.rar` do** - so they wait for evidence
   that the corpus contains them.
+
+---
+
+## Audited and ticked, 2026-08-27
+
+39 boxes, checked against the code and its tests rather than assumed. The
+acceptance list maps item for item onto `tests/unit/test_archive_reading.py`
+(28 tests), `test_archive_scan.py` (22), `test_archives.py` (25) and
+`test_archive_run.py` (8) - a zip of documents yielding one document each,
+depth two read and depth three refused by code, a bomb refused from the header
+without allocating its expansion, the shared per-archive budget, an encrypted
+member skipped with its siblings read, three traversal refusals, a member with
+no extractor recorded by name, a corrupt archive as a skip rather than a crash,
+and reading-inside switchable off.
+
+Checked directly as well: `.zip`, `.jar`, `.whl` and `.nupkg` all reach
+`WalkConfig.resolved_extensions()` - the guard the order names; `MAX_DEPTH` is
+2, `MAX_MEMBERS` 20,000, the archive budget 512MB; and all four archive error
+codes carry a suggestion, which is this project's standing rule for an error.
+
+One fault was found while auditing and is fixed under the remediation order:
+a nested archive was charged for its own bytes *and* for every member's, so an
+archive of archives read about half of what the budget promised.
