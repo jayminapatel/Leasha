@@ -415,3 +415,14 @@ dependency on the CLI work, so doing it while its context was open cost nothing
 and left §4 undisturbed. 4e and 4f are likewise independent of 4g. The rest of
 §4 - the sidecar, the PowerShell completer and the `leasha shell` REPL - is
 untouched and is the next unit of work.
+
+**4f, corrected the same day.** The first version wrote one line per scoped
+command and pushed the translation prompt to 1,928 characters against the 1,901
+that `test_the_prompt_got_shorter_despite_gaining_examples` holds - the same
+ceiling that had the value hints taken out of this prompt, and for the same
+reason: it is paid for on every translation. Commands sharing a partner set are
+grouped into one line now:
+
+    Narrow when the sentence says so: type with repo; from/to with type, after, before.
+
+Still generated from `scoped_by`, and a second test keeps it to one line.

@@ -422,13 +422,22 @@ def grammar_for_model() -> str:
     # Phrased as an instruction rather than an observation: a small model
     # follows "add X when the sentence says so" and ignores "X means more with
     # Y", which is the same lesson `examples_for_model` records below.
-    scoped = [c for c in COMMANDS if c.scoped_by]
-    if scoped:
-        lines.append("")
-        lines.append("Narrowing (add the partner when the sentence gives one):")
-        for command in scoped:
-            partners = ", ".join(f"{name}:" for name in command.scoped_by)
-            lines.append(f"  {command.name}: is narrowed by {partners}")
+    #
+    # **One line, because the prompt is paid for on every translation.** Four
+    # lines put it over the ceiling `test_the_prompt_got_shorter_despite_
+    # gaining_examples` guards, and that ceiling is the reason the value hints
+    # were dropped from here in the first place. Commands sharing a partner set
+    # are grouped rather than listed one per line.
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for command in COMMANDS:
+        if command.scoped_by:
+            groups.setdefault(command.scoped_by, []).append(command.name)
+    if groups:
+        pairs = "; ".join(
+            f"{'/'.join(names)} with {', '.join(partners)}"
+            for partners, names in groups.items()
+        )
+        lines.append(f"Narrow when the sentence says so: {pairs}.")
 
     lines += [
         "",

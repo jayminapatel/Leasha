@@ -628,10 +628,25 @@ def test_the_model_prompt_mentions_scoping() -> None:
 
     prompt = grammar_for_model()
 
-    assert "Narrowing" in prompt
+    assert "Narrow when the sentence says so" in prompt
+    line = next(l for l in prompt.splitlines() if l.startswith("Narrow when"))
     for command in COMMANDS:
         if command.scoped_by:
-            assert f"{command.name}: is narrowed by" in prompt, command.name
+            assert command.name in line, command.name
+            for partner in command.scoped_by:
+                assert partner in line, (command.name, partner)
+
+
+def test_the_scoping_sentence_is_one_line() -> None:
+    """The prompt is paid for on every translation, and there is a test that
+    holds its length - the same ceiling that had the value hints removed from
+    here. Four lines went over it; grouping by partner set fits."""
+    from app.search.commands import grammar_for_model
+
+    narrowing = [l for l in grammar_for_model().splitlines()
+                 if l.startswith("Narrow when")]
+    assert len(narrowing) == 1
+    assert len(narrowing[0]) < 120, narrowing[0]
 
 
 def test_the_scoping_sentence_is_generated_not_written() -> None:
