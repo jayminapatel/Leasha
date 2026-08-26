@@ -190,7 +190,13 @@ class Embedder:
     # -- guards -------------------------------------------------------------
 
     def _check_dimension(self, vector: Sequence[float]) -> None:
-        """Assert the model's width matches the store's, once per Embedder.
+        """Assert the model's width matches `EMBED_DIM`, once per Embedder.
+
+        **`self.dim` is `EMBED_DIM`, not the width of anything stored.** Nothing
+        here opens the vector table; `VectorStore._verify_dimension` is what
+        compares against what is on disk, and it has its own message. Keeping
+        the two apart matters because they have different fixes: this one is a
+        one-line edit to `.env`, and that one may require dropping the vectors.
 
         Checked on the first batch rather than at load, because a model can load
         happily and still be the wrong shape - which is exactly what changing
@@ -201,13 +207,23 @@ class Embedder:
         if len(vector) != self.dim:
             raise AppErrorException(make_error(
                 "ERR_MODEL_LOAD", "index.embedder",
+                # **Was "but this index stores {self.dim}", and that was wrong.**
+                # It named the index for a value that came from `.env`, and the
+                # suggestion then sent somebody to "rebuild the index from
+                # scratch" - which cannot affect this check, because this check
+                # never reads the index. Reported from the window on
+                # 2026-08-26 after a reset and rebuild that could not have
+                # helped and did not. An error that misnames its own cause
+                # costs more than no error, because it is acted on.
                 details=f"{self.model_name} returns {len(vector)} dimensions, "
-                        f"but this index stores {self.dim}",
+                        f"but EMBED_DIM is {self.dim}",
                 suggestion=(
-                    f"EMBED_MODEL and EMBED_DIM in .env disagree, or EMBED_MODEL was changed "
-                    f"after the index was built. Set EMBED_DIM={len(vector)} and rebuild the "
-                    f"index from scratch, or put EMBED_MODEL back to a {self.dim}-dimension "
-                    f"model. Vectors of different widths cannot share an index."
+                    f"Set EMBED_DIM={len(vector)} in .env to match "
+                    f"{self.model_name}, or put EMBED_MODEL back to a "
+                    f"{self.dim}-dimension model. Nothing needs re-indexing for "
+                    f"this. If vectors were already stored at the old width, "
+                    f"the vector store will say so separately - they are "
+                    f"derived data and can be rebuilt with 'app.cli reembed'."
                 ),
             ))
         self._checked_dim = True

@@ -1080,7 +1080,22 @@ class SqliteStore:
         return list(best.values())
 
     def count_named_files(self) -> int:
-        row = self.conn.execute("SELECT COUNT(*) AS n FROM files_fts").fetchone()
+        """How many files the Files tab can find by name.
+
+        **Joined to `files`, not a bare count of the FTS table.** `files_fts` is
+        standalone, so a row in it outlives its file unless something deletes it
+        by hand - and the list this labels joins `files` (see
+        `search_files_by_name`), so a bare count could report more than the list
+        could ever show. It did exactly that after a reset: an emptied index
+        with the old number under it.
+
+        The join is what makes the label and the list answer the same question,
+        which is the only reason to show a count at all.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM files_fts "
+            "JOIN files f ON f.id = files_fts.rowid"
+        ).fetchone()
         return int(row["n"]) if row else 0
 
     def delete_file(self, file_id: int) -> None:
@@ -1363,11 +1378,32 @@ class SqliteStore:
         """
         with self.write() as conn:
             count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
-            # `files` cascades to chunks, messages and the FTS tables; the
-            # entity tables are deprecated and empty but are cleared anyway so
-            # a reset means what it says.
+            # `files` cascades to chunks and messages, and their triggers clear
+            # `chunks_fts` and `messages_fts` - both are external-content tables
+            # with `content=`, so that is genuinely automatic. The entity tables
+            # are deprecated and empty but are cleared anyway so a reset means
+            # what it says.
+            #
+            # **`files_fts` and `repos` are here because nothing else removes
+            # them.** `files_fts` is a *standalone* FTS table - no `content=`,
+            # no triggers - so nothing cascades into it, which `delete_file`
+            # already documents and handles by hand. `repos` has no owner at
+            # all: no cascade, no pruning, and no command to forget one. Both
+            # were added to the schema (v4 and v6), wired into writes, and not
+            # added to this list, which is the failure this loop keeps having.
+            #
+            # Reported by the owner as a rule: *"when an index is reset all data
+            # must be reset, i.e. all db with nothing."* The surviving `repos`
+            # rows were also why a reset did not clear a wrong repository
+            # attribution, which had been recorded as "the only route back" when
+            # in fact there was none.
+            #
+            # `test_a_reset_leaves_every_table_empty` enumerates `sqlite_master`
+            # rather than repeating this list, so the next table to be added is
+            # covered without anybody remembering to come back here.
             for table in ("entity_mentions", "entity_edges", "entities",
-                          "search_hits", "searches", "files"):
+                          "search_hits", "searches", "files",
+                          "files_fts", "repos"):
                 try:
                     conn.execute(f"DELETE FROM {table}")
                 except sqlite3.OperationalError:
@@ -1380,6 +1416,12 @@ class SqliteStore:
             conn.execute(
                 "DELETE FROM index_state WHERE key LIKE 'graph:%' OR key LIKE 'index:%'"
             )
+            # **In the same transaction as the delete.** The search cache is
+            # keyed on this, so without it a cache built from the index that was
+            # just destroyed keeps answering - which is the exact failure the
+            # generation counter exists to prevent, and it would be at its most
+            # convincing right after a reset, when the results still look right.
+            self._bump_generation(conn)
         self._vacuum_quietly()
         return count
 

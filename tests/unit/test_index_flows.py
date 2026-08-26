@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.widgets.index_flows import (  # noqa: E402
     ADOPT,
+    EMBED_MODELS,
     FRESH,
     MOVE,
     IndexLocationDialog,
@@ -215,3 +216,89 @@ def test_an_unknown_chunk_count_does_not_invent_a_duration(qapp):
     dialog.model.setEditText("b/model")
 
     assert "hour" not in dialog.cost.text()
+
+
+# -- the width travels with the model ----------------------------------------
+#
+# Reported from the window on 2026-08-26: the model was changed from the GUI
+# and nothing else touched. `EMBED_MODEL` was written alone, `EMBED_DIM` kept
+# describing the previous model, and the mismatch surfaced only after a 219MB
+# download as ERR_MODEL_LOAD naming a setting the owner had never edited.
+
+def test_every_listed_model_carries_its_width_as_a_number():
+    """It used to live in the note text - "set EMBED_DIM to 768" - which is an
+    instruction, not a value, and instructions in a dropdown are not followed."""
+    for entry in EMBED_MODELS:
+        identifier, dim, note = entry
+        assert isinstance(identifier, str) and identifier
+        assert isinstance(dim, int) and dim > 0, f"{identifier} has no width"
+        assert isinstance(note, str)
+        assert "EMBED_DIM" not in note, (
+            f"{identifier}: the width is data now, not an instruction in prose")
+
+
+def test_choosing_a_listed_model_answers_with_that_models_width(qapp):
+    """The regression, exactly as it happened: 384 in use, bge-base chosen."""
+    dialog = RebuildVectorsDialog(
+        "BAAI/bge-small-en-v1.5", chunk_count=39_306, current_dim=384)
+    dialog.model.setCurrentIndex(dialog.model.findData("BAAI/bge-base-en-v1.5"))
+
+    assert dialog.chosen_model() == "BAAI/bge-base-en-v1.5"
+    assert dialog.chosen_dim() == 768, "the old width would break the index"
+
+
+def test_a_listed_model_never_asks_for_a_number_it_knows(qapp):
+    """A question with one right answer is a question that gets typed wrongly."""
+    dialog = RebuildVectorsDialog("a/model", chunk_count=10, current_dim=384)
+    dialog.model.setCurrentIndex(dialog.model.findData("BAAI/bge-base-en-v1.5"))
+
+    assert dialog.known_dim() == 768
+    assert not dialog.dim_row.isVisibleTo(dialog), "asked for a known width"
+
+
+def test_an_unlisted_model_asks_rather_than_guesses(qapp):
+    """An unlisted model is a legitimate choice and its width cannot be known.
+    Guessing it is the bug; asking is the fix."""
+    dialog = RebuildVectorsDialog("a/model", chunk_count=10, current_dim=384)
+    dialog.model.setEditText("somebody/typed-this")
+
+    assert dialog.known_dim() is None
+    assert dialog.dim_row.isVisibleTo(dialog), "guessed a width it cannot know"
+
+    dialog.dim.setValue(1024)
+    assert dialog.chosen_dim() == 1024
+
+
+def test_changing_only_the_width_still_counts_as_a_change(qapp):
+    """A custom model at a new width is as destructive as a new model, and the
+    button was enabled on the name alone."""
+    dialog = RebuildVectorsDialog("a/model", chunk_count=10, current_dim=384)
+    dialog.model.setEditText("a/model")
+    dialog.dim.setValue(768)
+
+    ok = dialog.buttons.button(dialog.buttons.StandardButton.Ok)
+    assert ok.isEnabled()
+
+
+def test_a_width_change_says_the_store_is_rebuilt_from_empty(qapp):
+    """Re-embedding replaces the contents of the vector table; changing the
+    width replaces the table. Somebody told only the first has not been told
+    that semantic search returns nothing until the run finishes."""
+    dialog = RebuildVectorsDialog(
+        "BAAI/bge-small-en-v1.5", chunk_count=39_306, current_dim=384)
+    dialog.model.setCurrentIndex(dialog.model.findData("BAAI/bge-base-en-v1.5"))
+
+    said = dialog.cost.text().lower()
+    assert "384" in said and "768" in said
+    assert "rebuil" in said or "from empty" in said
+    assert "returns nothing" in said or "until" in said
+
+
+def test_the_cost_states_the_rate_it_assumed(qapp):
+    """`CHUNKS_PER_SECOND` is a constant, and a duration derived from an
+    unstated assumption cannot be checked against the machine it is shown on."""
+    dialog = RebuildVectorsDialog("a/model", chunk_count=39_306, current_dim=384)
+    dialog.model.setEditText("somebody/typed-this")
+
+    assert "chunks/sec" in dialog.cost.text()
+    assert "embed-bench" in dialog.cost.text()

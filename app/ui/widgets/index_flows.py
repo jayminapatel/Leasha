@@ -39,10 +39,12 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -52,20 +54,26 @@ __all__ = [
     "MOVE", "ADOPT", "FRESH", "EMBED_MODELS",
 ]
 
-#: Embedding models, with the one number that decides whether a swap can work.
+#: Embedding models: identifier, output width, and what the size costs.
 #:
-#: **The width is not a detail.** `EMBED_DIM` has to match the model, and a
-#: mismatch is refused by the vector store with an error naming a setting the
-#: person never typed. Listing the width beside the name is the difference
-#: between choosing wrongly and being told afterwards.
+#: **The width is data, not prose, and that is the fix.** It used to live only
+#: in the note - `"768 dimensions, ~440MB - set EMBED_DIM to 768"` - so the one
+#: number the swap depends on was a sentence asking the person to go and edit
+#: `.env` by hand, from inside the flow whose whole job is to change the model
+#: safely. They did not, because nobody reads a dropdown as an instruction; the
+#: window then downloaded 219MB and failed with `ERR_MODEL_LOAD` naming a
+#: setting they had never typed. Reported from the window, 2026-08-26.
+#:
+#: Held here so `chosen_dim()` can write `EMBED_DIM` alongside `EMBED_MODEL`.
+#: A model that is *not* in this list has an unknown width - see `chosen_dim`.
 #:
 #: `bge-small-en-v1.5` is what this project ships and measures against; the
 #: others are the common alternatives at each size. Editable, so anything else
 #: still works.
-EMBED_MODELS: tuple[tuple[str, str], ...] = (
-    ("BAAI/bge-small-en-v1.5", "384 dimensions, ~130MB - the shipped default"),
-    ("BAAI/bge-base-en-v1.5", "768 dimensions, ~440MB - set EMBED_DIM to 768"),
-    ("sentence-transformers/all-MiniLM-L6-v2", "384 dimensions, ~90MB"),
+EMBED_MODELS: tuple[tuple[str, int, str], ...] = (
+    ("BAAI/bge-small-en-v1.5", 384, "~130MB - the shipped default"),
+    ("BAAI/bge-base-en-v1.5", 768, "~440MB - better quality, slower"),
+    ("sentence-transformers/all-MiniLM-L6-v2", 384, "~90MB"),
 )
 
 MOVE = "move"
@@ -256,6 +264,8 @@ class RebuildVectorsDialog(QDialog):
         current_model: str,
         chunk_count: int,
         parent: Optional[QWidget] = None,
+        *,
+        current_dim: int = 384,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Change the meaning model")
@@ -278,8 +288,9 @@ class RebuildVectorsDialog(QDialog):
         self.model.setAccessibleName("Meaning model")
         self.model.setEditable(True)
         self.model.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        for identifier, note in EMBED_MODELS:
-            self.model.addItem(f"{identifier}   —   {note}", identifier)
+        for identifier, dim, note in EMBED_MODELS:
+            self.model.addItem(f"{identifier}   —   {dim} dimensions, {note}",
+                               identifier)
         index = self.model.findData(current_model)
         if index >= 0:
             self.model.setCurrentIndex(index)
@@ -287,6 +298,27 @@ class RebuildVectorsDialog(QDialog):
             self.model.setEditText(current_model)
         self.model.currentTextChanged.connect(lambda _t: self._refresh())
         self._current = current_model
+
+        # **Only for a model this list does not know.** A listed model carries
+        # its width in `EMBED_MODELS` and the person is never asked for a
+        # number they would have to look up. An unlisted one is a legitimate
+        # choice and its width cannot be guessed - and guessing is the failure
+        # being fixed here, so it is asked for instead of assumed.
+        self.dim = QSpinBox()
+        self.dim.setObjectName("EMBED_DIM")
+        self.dim.setAccessibleName("Meaning model dimensions")
+        self.dim.setRange(1, 8192)
+        self.dim.setValue(int(current_dim) or 384)
+        self.dim.valueChanged.connect(lambda _v: self._refresh())
+
+        self.dim_row = QWidget()
+        dim_layout = QHBoxLayout(self.dim_row)
+        dim_layout.setContentsMargins(0, 0, 0, 0)
+        dim_label = QLabel("Output dimensions:")
+        dim_label.setBuddy(self.dim)
+        dim_layout.addWidget(dim_label)
+        dim_layout.addWidget(self.dim)
+        dim_layout.addStretch(1)
 
         self.cost = QLabel("")
         self.cost.setWordWrap(True)
@@ -310,10 +342,12 @@ class RebuildVectorsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(explanation)
         layout.addWidget(self.model)
+        layout.addWidget(self.dim_row)
         layout.addWidget(self.cost)
         layout.addWidget(self.buttons)
 
         self._chunks = max(0, int(chunk_count))
+        self._current_dim = int(current_dim) or 384
         self._refresh()
 
     def chosen_model(self) -> str:
@@ -339,23 +373,98 @@ class RebuildVectorsDialog(QDialog):
             return str(self.model.itemData(index) or text)
         return text.split("   —   ")[0].strip()
 
+    def known_dim(self) -> int | None:
+        """The listed width for the chosen model, or None if it is not listed."""
+        chosen = self.chosen_model()
+        for identifier, dim, _note in EMBED_MODELS:
+            if identifier == chosen:
+                return dim
+        return None
+
+    def chosen_dim(self) -> int:
+        """The width to write to `EMBED_DIM`, always alongside `EMBED_MODEL`.
+
+        **Never returns the old width for a new model.** The bug this closes was
+        `EMBED_MODEL` being written on its own: the index kept `EMBED_DIM=384`,
+        the 768-wide model loaded fine, and the mismatch surfaced only on the
+        first batch - after a 219MB download - as an error naming a setting the
+        person had never touched.
+
+        A listed model answers from `EMBED_MODELS`. An unlisted one cannot be
+        guessed, so the spin box answers, and it is on screen precisely in that
+        case.
+        """
+        known = self.known_dim()
+        return int(known) if known is not None else int(self.dim.value())
+
     def _refresh(self) -> None:
-        changed = self.chosen_model() and self.chosen_model() != self._current
+        chosen = self.chosen_model()
+        known = self.known_dim()
+        # The number is not asked for when it is already known - that is a
+        # question with one right answer, and asking it is how it gets typed
+        # wrongly.
+        self.dim_row.setVisible(known is None)
+        if known is not None and self.dim.value() != known:
+            # **Signals blocked while this module drives its own control.**
+            # `setValue` emits `valueChanged`, which is wired back into this
+            # function. It would settle after one extra pass here, but this
+            # project has already lost a process to exactly that shape in
+            # `view_options._apply_widths`, and the guard costs one line.
+            blocked = self.dim.blockSignals(True)
+            try:
+                self.dim.setValue(known)
+            finally:
+                self.dim.blockSignals(blocked)
+
+        changed = bool(chosen) and (
+            chosen != self._current or self.chosen_dim() != self._current_dim)
         hours = self._chunks / self.CHUNKS_PER_SECOND / 3600 if self._chunks else 0
+        width_changes = self.chosen_dim() != self._current_dim
 
         if not changed:
             self.cost.setText("This is the model already in use.")
-        elif hours >= 1:
-            self.cost.setText(
-                f"{self._chunks:,} chunks to re-embed - roughly {hours:.0f} "
-                "hour(s). Search keeps working on the old vectors until the "
-                "run finishes, and their answers will be poor until it does."
-            )
         else:
-            self.cost.setText(
-                f"{self._chunks:,} chunks to re-embed - a few minutes."
+            # **The assumed rate is stated.** A duration derived from a constant
+            # nobody can see cannot be checked against the machine it is shown
+            # on - and this one has been wrong by two orders of magnitude on a
+            # CPU-only fp16 build, where the true rate was nearer 1/sec than
+            # 200. Naming the figure turns a promise into something falsifiable,
+            # and names the command that measures it.
+            rate = (f"at ~{self.CHUNKS_PER_SECOND} chunks/sec - measure yours "
+                    f"with  app.cli embed-bench")
+            duration = (
+                f"{self._chunks:,} chunks to re-embed - roughly {hours:.0f} "
+                f"hour(s) {rate}."
+                if hours >= 1 else
+                f"{self._chunks:,} chunks to re-embed - a few minutes {rate}."
             )
+
+            if width_changes:
+                # **A width change is a different and larger thing**, and the
+                # old text did not distinguish them: re-embedding replaces the
+                # *contents* of the vector table, changing the width replaces
+                # the table. The reassurance below - that search keeps working
+                # on the old vectors - is true of the first and false of the
+                # second, so it must not be shown here. Two costs, two
+                # sentences; saying both would contradict itself.
+                self.cost.setText(
+                    f"The vector store is rebuilt from empty: "
+                    f"{self._current_dim} to {self.chosen_dim()} dimensions, and "
+                    f"vectors of different widths cannot share an index. "
+                    f"Meaning-based search returns nothing until the run "
+                    f"finishes; keyword search is unaffected.\n\n{duration}"
+                )
+            elif hours >= 1:
+                self.cost.setText(
+                    f"{duration} Search keeps working on the old vectors until "
+                    "the run finishes, and their answers will be poor until it "
+                    "does."
+                )
+            else:
+                self.cost.setText(duration)
 
         ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
             ok.setEnabled(bool(changed))
+            ok.setText("Rebuild the vector store" if width_changes
+                       else "Re-embed everything")

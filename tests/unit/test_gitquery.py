@@ -338,3 +338,74 @@ def test_a_history_plan_never_claims_to_be_the_checkout():
     commits of results is the kind of wrong nobody double-checks."""
     assert "checkout" not in plan("/file-history a.py").explain
     assert "checkout" not in plan("x /lifecycle").explain
+
+
+# -- /message: the commit's own words ----------------------------------------
+#
+# From `docs/WORKORDER-202626081801-git-sharpness-and-mail-preview.md` §1.
+# Raised by the owner: *"the code does not search ability to search through the
+# search commit messages"*. It could not: `-S` and `-G` search the content of a
+# diff, `--grep` searches what the commit said about itself, and only the first
+# had a switch. `GitSearch.txt` UC-020 asks for both.
+
+def test_a_message_search_greps_the_log_rather_than_the_diff():
+    plan = build(parse_git_query("/message licence"))
+
+    assert "--grep=licence" in plan.argv
+    assert not any(a.startswith(("-S", "-G")) for a in plan.argv), (
+        "a message search must not walk diffs")
+
+
+def test_a_message_search_is_history_but_is_not_slow():
+    """**The one history search that costs nothing much.** `--grep` reads the
+    commit header; `-S` diffs every commit it walks - 1.59s for 75 commits, the
+    measurement that made history a separate explicit job. Billing a header
+    scan as slow puts a confirmation in front of a search that does not need
+    one."""
+    query = parse_git_query("/message licence")
+
+    assert query.wants_history(), "git grep has nowhere to put a commit message"
+    assert query.is_message_only()
+    assert build(query).slow is False
+
+
+def test_a_message_and_a_pattern_ask_git_for_both():
+    """`/message licence CustomerId` is "said licence *and* touched
+    CustomerId". git ANDs them, which is the useful reading."""
+    plan = build(parse_git_query("CustomerId /message licence"))
+
+    assert "--grep=licence" in plan.argv
+    assert "-SCustomerId" in plan.argv
+    assert plan.slow is True, "it walks diffs again, so it costs again"
+
+
+def test_a_message_search_composes_with_who_when_and_where():
+    plan = build(parse_git_query(
+        "/message licence /author dave /since 2025-01-01 /branch develop"))
+
+    assert "--grep=licence" in plan.argv
+    assert "--author=dave" in plan.argv
+    assert "--since=2025-01-01" in plan.argv
+    assert "develop" in plan.argv
+
+
+def test_the_aliases_work():
+    for line in ("/msg fix", "/subject fix"):
+        assert "--grep=fix" in build(parse_git_query(line)).argv, line
+
+
+def test_the_explanation_says_which_question_was_asked():
+    """"No matches" means nothing until you know whether it read messages or
+    diffs."""
+    explain = build(parse_git_query("/message licence")).explain
+
+    assert "message" in explain.lower()
+    assert "licence" in explain
+
+
+def test_a_message_switch_is_git_only():
+    """It has no meaning against the index, so the router must send it to git
+    rather than searching the corpus for the word "message"."""
+    from app.search.gitquery import GIT_ONLY
+
+    assert "message" in GIT_ONLY

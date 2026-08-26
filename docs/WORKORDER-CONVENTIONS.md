@@ -219,7 +219,9 @@ somebody looked first.
 | `WORKORDER-git-search-ui.md` | **UI** | Not started. **Blocked** on the backend order above - it needs `repos`, `repo:` and the `code` scope |
 | `WORKORDER-inbound-ui-fixes.md` | One thread | §2 patch **applied and committed** (`4f2b92c`); §3, §4, §6 and §7 **done**; §5 partly - `mail_view` reclaimed, `search_view` still at 247. Outstanding: the Windows suite, `doctor.py`, and opening the window |
 | `WORKORDER-202626081059-search-quality.md` | One thread | **Not started. Raised by the owner** - "I am not happy with what the search does". Seven verified findings; items 1-3 are half a day and fix the parsing outright |
-| `WORKORDER-202626081149-code-tab.md` | One thread | **Not started.** Repository attribution cannot be undone - three mechanisms, no command. §8 parks the two-view redesign pending the owner's scenarios |
+| `WORKORDER-202626081149-code-tab.md` | One thread | §2 and §3 landed (`forget_repo`, `prune_repos`, `NO_REPO`, `repo_health`). §4-§6 outstanding. §8 parks the two-view redesign pending the owner's scenarios. **§2 needs correcting** - see the reset order below |
+| `WORKORDER-202626081439-reset-leaves-nothing.md` | One thread | **Done** - `repos` and `files_fts` were surviving a reset. A1-A7 pass, zero regressions. Windows suite and `doctor.py` still to run |
+| `WORKORDER-202626081801-git-sharpness-and-mail-preview.md` | One thread | **Not started.** Owner-raised: no commit-message search at all (`--grep` used nowhere), the git tree lists every repository whatever was typed, and mail previews show reassembled index text with the quoted thread stripped |
 | `WORKORDER-terabyte-scale.md` | One thread | **Complete** (`4780c4b`). §7's own list - scan the corpus, time a 20-30GB subtree with and without OCR, then decide whether 600GB is one run or a phased one - is measurement the owner has to run |
 | `REVIEW-2026-08-25.md` | Both | See below |
 

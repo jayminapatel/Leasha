@@ -147,6 +147,11 @@ class GitQuery:
     # -- who and when --------------------------------------------------------
     author: str = ""
     committer: str = ""
+    #: `/message`: words from the commit's own message, for `git log --grep`.
+    #: Held apart from `text` because they search different things - `text`
+    #: becomes a pickaxe over the diff, this becomes a match on the header -
+    #: and a query may legitimately carry both.
+    message: str = ""
     since: str = ""
     until: str = ""
     #: "any" | "only" | "none"
@@ -184,7 +189,24 @@ class GitQuery:
             # and answer a wider question than the one typed, without saying
             # so. That is the failure this whole module is careful about.
             or self.author or self.committer or self.since or self.until
+            # A commit message is a property of a commit, so `git grep` has
+            # nowhere to put it either - the same reason `/author` is here.
+            or self.message
             or self.merges != "any"
+        )
+
+    def is_message_only(self) -> bool:
+        """True when this asks about commit messages and nothing in a diff.
+
+        **The one history search that is not expensive.** `--grep` reads the
+        commit header; `-S` and `-G` diff every commit they walk, which is the
+        1.59s-for-75-commits that made history a separate, explicit job. A
+        message search has none of that cost and must not be billed as though
+        it does, or it will sit behind a confirmation it does not need.
+        """
+        return bool(self.message) and not (
+            self.text or self.declaration or self.lifecycle
+            or self.added_only or self.removed_only or self.deleted_files_only
         )
 
 
@@ -291,6 +313,16 @@ GIT_COMMANDS: tuple[Command, ...] = (
        "/author dave", "part of a name or email address", "✎", source="author"),
     _c("committer", (), "Only commits committed by this person",
        "/committer dave", "part of a name or email address", "✎", source="author"),
+    # **The commit message, which nothing could search.** `-S` and `-G` search
+    # the *content* of a diff; `--grep` searches what the commit said about
+    # itself, and they answer different questions - "when did this string
+    # appear" against "which commit claimed to fix the licence bug". Only the
+    # first had a switch. Raised by the owner: *"the code does not search
+    # ability to search through the search commit messages"*, and it is
+    # `GitSearch.txt` UC-020, of which only `/author` had been built.
+    _c("message", ("msg", "subject"), "Only commits whose message says this",
+       "/message licence", "any words from a commit message", "✉",
+       source="commit"),
     _c("since", ("after",), "Only commits on or after this date",
        "/since 2025-01-01", "2025-01-01, last month, 30 days ago", "◷"),
     _c("until", ("before",), "Only commits on or before this date",
@@ -358,7 +390,7 @@ def git_matching(prefix: str) -> list[Command]:
 #: question about grammar. `app/ui/presenter.py` re-exports the name.
 GIT_ONLY: frozenset[str] = frozenset({
     "history", "lifetime", "branch", "all-branches", "remote-branches",
-    "commit", "range", "tag", "author", "committer", "since", "until",
+    "commit", "range", "tag", "author", "committer", "message", "since", "until",
     "merges", "introduced", "removed", "changed", "lifecycle", "file-history",
     "added-only", "removed-only", "deleted-files", "depth", "regex", "word",
     "ignore-case", "class", "interface", "function", "symbol", "endpoint",
@@ -601,6 +633,7 @@ def _assemble(words, seen, flags, single, depth) -> GitQuery:
         exclude_files=tuple(seen["exclude_files"]),
         author=single.get("author", ""),
         committer=single.get("committer", ""),
+        message=single.get("message", ""),
         since=single.get("since", ""),
         until=single.get("until", ""),
         merges=merges,
@@ -706,6 +739,12 @@ def _explain(query: GitQuery) -> str:
         parts.append("as a regular expression")
     elif query.method == "word":
         parts.append("whole words only")
+    if query.message:
+        # **Said before the author and the dates**, because it is the strongest
+        # narrowing in the line and because a message search reads nothing in a
+        # diff - somebody judging "no matches" needs to know which of the two
+        # questions was asked.
+        parts.append(f'whose message mentions "{query.message}"')
     if query.author:
         parts.append(f"by {query.author}")
     if query.since or query.until:
@@ -779,6 +818,12 @@ def _history_plan(query: GitQuery) -> GitPlan:
         argv.append(f"--author={query.author}")
     if query.committer:
         argv.append(f"--committer={query.committer}")
+    if query.message:
+        # **`--grep` is the message; `-S` below is the diff.** Both can be
+        # present, and then git ANDs them, which is the useful reading of
+        # `/message licence CustomerId`: the commit said "licence" *and*
+        # touched "CustomerId".
+        argv.append(f"--grep={query.message}")
     if query.since:
         argv.append(f"--since={query.since}")
     if query.until:
@@ -831,7 +876,11 @@ def _history_plan(query: GitQuery) -> GitPlan:
     argv += _revisions(query)
     argv += _pathspecs(query)
     return GitPlan(
-        kind=kind, argv=argv, explain=_explain(query), slow=True,
+        kind=kind, argv=argv, explain=_explain(query),
+        # See `is_message_only`: a header scan is not a diff walk, and marking
+        # it slow would put a confirmation in front of a search that does not
+        # need one.
+        slow=not query.is_message_only(),
         first_only=query.lifecycle == "introduced",
         line_filter="+" if query.added_only else ("-" if query.removed_only else ""),
     )

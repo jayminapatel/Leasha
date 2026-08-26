@@ -78,6 +78,7 @@
     <Compile Include="app\core\identifiers.py" />
     <Compile Include="app\core\index_move.py" />
     <Compile Include="app\core\logging.py" />
+    <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
     <Compile Include="app\core\scaffold.py" />
     <Compile Include="app\core\settings_registry.py" />
@@ -169,8 +170,10 @@
     <Compile Include="app\ui\widgets\command_icon.py" />
     <Compile Include="app\ui\widgets\command_popup.py" />
     <Compile Include="app\ui\widgets\debounce.py" />
+    <Compile Include="app\ui\widgets\debug_pane.py" />
     <Compile Include="app\ui\widgets\defaults.py" />
     <Compile Include="app\ui\widgets\environment_box.py" />
+    <Compile Include="app\ui\widgets\external_run.py" />
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
@@ -233,6 +236,7 @@
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_debounce.py" />
+    <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
     <Compile Include="tests\unit\test_diagnostics.py" />
     <Compile Include="tests\unit\test_diagrams.py" />
@@ -244,6 +248,7 @@
     <Compile Include="tests\unit\test_embedding_gap.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
     <Compile Include="tests\unit\test_errors.py" />
+    <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
     <Compile Include="tests\unit\test_federated_search.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
@@ -299,12 +304,14 @@
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
+    <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
     <Compile Include="tests\unit\test_resources.py" />
     <Compile Include="tests\unit\test_result_delegate.py" />
     <Compile Include="tests\unit\test_result_fields.py" />
     <Compile Include="tests\unit\test_result_groups.py" />
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
+    <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
     <Compile Include="tests\unit\test_scaffold.py" />
@@ -377,6 +384,8 @@
     <Content Include="docs\WORKORDER-202626081059-search-quality.md" />
     <Content Include="docs\WORKORDER-202626081106-wildcards.md" />
     <Content Include="docs\WORKORDER-202626081149-code-tab.md" />
+    <Content Include="docs\WORKORDER-202626081439-reset-leaves-nothing.md" />
+    <Content Include="docs\WORKORDER-202626081801-git-sharpness-and-mail-preview.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
