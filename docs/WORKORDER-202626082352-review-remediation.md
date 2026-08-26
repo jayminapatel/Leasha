@@ -56,13 +56,32 @@ both differ from what this order specified and the difference matters:
 
 ## 2. Before the next scale run
 
-- [ ] **H7** (Index) `pipeline.py:1977` — prune in batches: one chunked
+**The indexing half is done** as of 2026-08-27, tests in
+`tests/unit/test_review_section_two.py`. H5, H6 and H11 remain: the first two are
+*search*-side and the third is the Files tab, so none of them blocks a scale run.
+
+Two corrections to what this section assumed:
+
+* **H8's premise was wrong.** `source_kind="archive"` is not "the archive file";
+  it is every row that came *out* of one, marker and members alike. The first
+  version treated them all as containers, found that `backup.zip/q3/plan.dwg` is
+  not a path on disk, and deleted the members of healthy archives.
+  `test_archive_reading` caught it at once. Containers are now decided first and
+  members inherit the answer - and an archive whose *parent folder* has also
+  vanished is left alone, because that is an unmounted share rather than a
+  deletion, and the blast radius is 200,000 rows.
+* **M6 needed a repair as well as a fix.** Flushing before the marker closes the
+  window; it does nothing for the holes earlier runs already left, and
+  `iter_unembedded` was reachable only by a command nobody knows to run. Every
+  run now drains them at the start and says how many it filled.
+
+- [x] **H7** (Index) `pipeline.py:1977` — prune in batches: one chunked
   `delete_by_file_ids(doomed)`, SQLite deletes inside `store.batch()`. Today it is
   one Lance version + one transaction per file.
-- [ ] **H8** (Index) `pipeline.py:1970` — prune deleted archives/PSTs: missing archive
+- [x] **H8** (Index) `pipeline.py:1970` — prune deleted archives/PSTs: missing archive
   path → cascade-delete marker, `path LIKE archive_path || '#%'` rows, and their
   vectors. Today a deleted 30GB PST stays searchable forever.
-- [ ] **H9** (Extract) `chunker.py:141` — replace the per-word paragraph scan with
+- [x] **H9** (Extract) `chunker.py:141` — replace the per-word paragraph scan with
   sorted starts + `bisect_right` (O(W log P)); add the perf floor test (100k words
   chunk in < 2s). Measured today: 80k words = 73s.
 - [ ] **H5** (Search) `keyword.py:158` + `engine.py:373` — stop materialising every
@@ -74,16 +93,16 @@ both differ from what this order specified and the difference matters:
   ladder when filtered. This is the main p95 risk.
 - [ ] **H11** (UI) `files_view.py:318,345,353` — open/reveal route through
   `CallableWorker`; `selected_path()` reads the row object, not the store.
-- [ ] **M6** (Index) `pipeline.py:1467-1825` — flush `pending_vectors` before
+- [x] **M6** (Index) `pipeline.py:1467-1825` — flush `pending_vectors` before
   `_write_marker`; drain `iter_unembedded` at run start. Closes the permanent
   silent vector-coverage holes.
-- [ ] **M8** (Storage) `vector_store.py:393` — no synchronous IVF_PQ retrain from
+- [x] **M8** (Storage) `vector_store.py:393` — no synchronous IVF_PQ retrain from
   `add()`: keep the end-of-run call only, or set a "building index" pause reason.
-- [ ] **M16** (Extract) `email_pst.py:281` — iterate `folder.items()` lazily; stop
+- [x] **M16** (Extract) `email_pst.py:281` — iterate `folder.items()` lazily; stop
   materialising 100k-message folders.
-- [ ] **M17** (Index) `pipeline.py:622` + `walker.py:419` — one shared seen-path set
+- [x] **M17** (Index) `pipeline.py:622` + `walker.py:419` — one shared seen-path set
   instead of three (~1GB each at 5M files).
-- [ ] **M18** (Index) `walker.py:484` — count stat failures into stats; probe the
+- [x] **M18** (Index) `walker.py:484` — count stat failures into stats; probe the
   Windows long-path policy in doctor (paths >260 chars are currently invisible).
 
 ## 3. Search correctness and semantics

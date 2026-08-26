@@ -36,6 +36,7 @@ pass a real per-word `count_tokens` if exactness ever matters.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
@@ -125,10 +126,31 @@ class _Atom:
 
 
 def _atomise(text: str, count_tokens: Callable[[str], float]) -> list[_Atom]:
-    """Split into words with spans, tagging the boundary that precedes each."""
-    paragraph_starts: set[int] = {0}
+    r"""Split into words with spans, tagging the boundary that precedes each.
+
+    **This was quadratic, and it was measured rather than suspected**: 20,000
+    words took 4.2 seconds and 80,000 took 73. A 1MB log or CSV spent minutes
+    here; a 10MB one effectively hung the extraction worker, which on a corpus
+    full of exports is a run that never finishes and never says why.
+
+    The cause was one line. `paragraph_starts` was a **set**, and deciding
+    whether a word begins a paragraph asked
+    `any(start >= position > previous_end for position in paragraph_starts)` -
+    a scan of every paragraph in the document, for every word in it. W words
+    times P paragraphs.
+
+    Sorted starts plus `bisect_right` makes the same question one binary
+    search: `O(W log P)`. `extract/base.py:129` already resolves page offsets
+    exactly this way, so the idiom was in the codebase, one file away.
+
+    `test_review_2026_08_26` holds the floor - 100k words in under two seconds -
+    because the reason this survived is that nothing in the suite timed
+    anything.
+    """
+    starts: list[int] = [0]
     for match in _PARAGRAPH_BREAK.finditer(text):
-        paragraph_starts.add(match.end())
+        starts.append(match.end())
+    starts.sort()
 
     atoms: list[_Atom] = []
     previous_word: Optional[str] = None
@@ -138,7 +160,11 @@ def _atomise(text: str, count_tokens: Callable[[str], float]) -> list[_Atom]:
         start, end = match.start(), match.end()
         word = match.group()
 
-        if any(start >= position > previous_end for position in paragraph_starts) or start == 0:
+        # Is there a paragraph start in `(previous_end, start]`? `bisect_right`
+        # gives the first one strictly greater than `previous_end`; it counts
+        # only if it also falls at or before this word.
+        nearest = bisect_right(starts, previous_end)
+        if start == 0 or (nearest < len(starts) and starts[nearest] <= start):
             level = _BREAK_PARAGRAPH
         elif previous_word is not None and _SENTENCE_END.search(previous_word):
             level = _BREAK_SENTENCE

@@ -305,7 +305,23 @@ class VectorStore:
         self._approx_rows += len(rows)
         self._since_compact += len(rows)
 
-        self.maybe_create_index()
+        # **`maybe_create_index()` is deliberately NOT called here any more.**
+        #
+        # Training IVF_PQ is minutes at 6.4M rows and tens of minutes at 12.8M,
+        # and it ran *synchronously on the consumer thread* the moment a batch
+        # happened to cross a growth threshold. The queues into that thread are
+        # bounded, so every extraction worker blocks behind it, the progress
+        # numbers stop moving, and the window reads as hung - with no pause
+        # reason on screen, because nothing knew a pause had begun.
+        #
+        # Nothing needs the index mid-run. An unindexed table answers correctly
+        # by brute force, which is what it was doing for the whole run up to
+        # that point anyway. `Pipeline.run` already calls `maybe_create_index()`
+        # at the end, where the wait is expected and nothing is queued behind
+        # it, and `reembed` does the same.
+        #
+        # Compaction stays: it is bounded, incremental, and the fragmentation it
+        # prevents makes the *rest of the run* slower if it is deferred.
         self.maybe_compact()
         return len(rows)
 

@@ -208,6 +208,16 @@ class IndexStats:
     #: of 100k unreadable PDFs disappear from every summary. A number that
     #: stopped being printed reads as a problem that stopped existing.
     settled_by_code: dict[str, int] = field(default_factory=dict)
+    #: Chunks an earlier run left without a vector, filled in at the start of
+    #: this one. Non-zero means coverage was incomplete and has been repaired -
+    #: worth saying, because the only previous symptom was search quietly
+    #: getting worse. See `Pipeline._drain_unembedded`.
+    vectors_repaired: int = 0
+    #: Files the walk could not `stat`, by reason. **Not skips**: a skip has
+    #: a row explaining itself, and these have no row at all. Reported so
+    #: that files invisible to the whole application are at least a number -
+    #: see `walker._record_stat_failure`.
+    unreachable_by_reason: dict[str, int] = field(default_factory=dict)
     #: Archival roots this run did not walk, as `RootPlan.as_dict()`. Reported
     #: rather than merely acted on: *"skip cheaply, but never silently"*. A root
     #: skipped in silence is indistinguishable from one that was never indexed,
@@ -334,6 +344,8 @@ class IndexStats:
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
             "settled_by_code": dict(self.settled_by_code),
+            "vectors_repaired": self.vectors_repaired,
+            "unreachable_by_reason": dict(self.unreachable_by_reason),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
             "warned_by_code": dict(self.warned_by_code),
@@ -538,6 +550,10 @@ class Pipeline:
         #: Written by the producer thread only, in `_classify`, and read once
         #: at the end of the run.
         self._settled_skips: dict[str, int] = {}
+        #: Every path this run has covered, lowercased. **One set, shared**
+        #: between the walker, `_candidates` and `_produce` - see M17 in
+        #: `_candidates`. Replaced at the start of each run.
+        self._seen_paths: set[str] = set()
         # Repository roots the walk finds, as `root_path -> kind`. Written by
         # the producer thread inside `walk()`, read by the consumer when it
         # attributes a file. Safe because the only write is `setdefault` and
@@ -628,6 +644,9 @@ class Pipeline:
         # meaning-based indexing to do, and finding that out before anything is
         # written is the whole point.
         self._warm_embedder()
+        # **Anything left without a vector by a previous run is filled first.**
+        # See `_drain_unembedded`.
+        self._drain_unembedded(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
@@ -647,7 +666,11 @@ class Pipeline:
         work: queue.PriorityQueue = queue.PriorityQueue(maxsize=self.config.queue_size)
         results: queue.Queue = queue.Queue(maxsize=self.config.queue_size)
 
-        seen_paths: set[str] = set()
+        # The one shared set - see `_candidates`. Reset per run rather than
+        # created here, because `_candidates` and the walker both write to it
+        # and they only have `self` in common.
+        self._seen_paths = set()
+        seen_paths = self._seen_paths
         producer = threading.Thread(
             target=self._produce, args=(work, stats, seen_paths), name="walker", daemon=True
         )
@@ -696,6 +719,22 @@ class Pipeline:
         # also the thing nobody would otherwise know had happened. See
         # `_settled_skips`, and `retry_skipped` for the way to make a run look
         # at them again once the environment has changed.
+        # **What the walk could not even look at.** See `WalkConfig.stat_failures`:
+        # `except OSError: continue` used to make those files vanish with no
+        # number anywhere, and on Windows a path over 260 characters is exactly
+        # that case.
+        unreachable = dict(getattr(self.config.walk, "stat_failures", {}) or {})
+        if unreachable:
+            stats.unreachable_by_reason = unreachable
+            self._log.warning(
+                "{} file(s) could not be read at all and have no row in the "
+                "index: {}. A count over 260 characters means Windows long-path "
+                "support is off; `app.cli doctor` reports the setting.",
+                sum(unreachable.values()),
+                ", ".join(f"{why} ({count:,})"
+                          for why, count in sorted(unreachable.items(),
+                                                   key=lambda kv: -kv[1])),
+            )
         stats.settled_by_code = dict(self._settled_skips)
         if self._settled_skips:
             worst = sorted(self._settled_skips.items(), key=lambda kv: -kv[1])[:3]
@@ -760,6 +799,11 @@ class Pipeline:
             for candidate in self._candidates():
                 if self._stop.is_set():
                     break
+                # `_candidates` and the walker have already recorded this path
+                # in the same set - see M17. Kept as a no-op `add` rather than
+                # removed, because `_produce` is also called with a private set
+                # by tests, and a set that is only *sometimes* filled is the
+                # kind of thing that makes a prune pass delete a live file.
                 seen.add(str(candidate.path).lower())
                 stats.seen += 1
 
@@ -1172,15 +1216,21 @@ class Pipeline:
         # exists to avoid.
         scanned = (list(self._no_text_layer_candidates())
                    if self.config.ocr_mode == "images" else [])
-        walked: set[str] = set()
 
-        for candidate in walk(self.config.walk):
-            walked.add(str(candidate.path).lower())
-            yield candidate
+        # **One set, shared with the walker and with `_produce`.** This used to
+        # keep its own `walked`, the walker kept its own `seen`, and `_produce`
+        # kept a third for the prune pass - three copies of every lowercased
+        # path in the corpus, about a gigabyte each at five million files, all
+        # answering the same question. `walk()` adds to it as it yields; the
+        # prune pass reads it at the end.
+        seen = self._seen_paths
+
+        yield from walk(self.config.walk, seen)
 
         for candidate in (*retry, *scanned):
-            if str(candidate.path).lower() not in walked:
-                walked.add(str(candidate.path).lower())
+            key = str(candidate.path).lower()
+            if key not in seen:
+                seen.add(key)
                 yield candidate
 
     def _no_text_layer_candidates(self) -> Iterator[Candidate]:
@@ -1584,8 +1634,23 @@ class Pipeline:
                 continue
 
             if item.file_marker:
-                # No chunks, no embedding, no count - just the record that says
-                # "this archive was read at this size and time".
+                # **Its messages are embedded before it is marked done.**
+                #
+                # The marker says "this archive was read at this size and time",
+                # and the walker trusts it: a marked archive is not opened
+                # again. But up to `embed_batch` of its own messages could still
+                # be sitting in `pending_vectors` at this moment, with their
+                # chunks committed and no vectors written. A crash, a stop, or
+                # an embedding failure in that window left the archive
+                # permanently marked complete with a hole in its vector
+                # coverage - and nothing drains it: `iter_unembedded` is reached
+                # only by a manual `app.cli reembed` that nobody knows to run.
+                #
+                # Flushing first costs one early batch per archive and closes
+                # the window: the marker is written after the vectors exist.
+                if pending_vectors:
+                    self._embed_pending(pending_vectors)
+                    pending_vectors = []
                 self._write_marker(item)
                 continue
 
@@ -1718,6 +1783,50 @@ class Pipeline:
             ext=indexed_ext(candidate.path),
             repo_id=self._repo_id_for(candidate.path),
         )
+
+    def _drain_unembedded(self, stats: IndexStats) -> None:
+        r"""Embed chunks a previous run committed and never vectorised.
+
+        **The hole had no route out.** Chunks are written first and vectorised a
+        batch later, so any interruption in that window - a crash, a stop, the
+        disk floor, an embedding failure - leaves rows with text and no vector.
+        The file is INDEXED and unchanged, so every later run correctly skips
+        it, and `iter_unembedded` was reached only by `app.cli reembed`, which
+        is a command nobody runs because nothing ever says it is needed.
+
+        So coverage could only fall. The M6 flush above closes the window for
+        archives; this repairs what earlier runs already lost, at the start of
+        every run, where the model is loaded and nothing is queued behind it.
+
+        Bounded and never fatal. On a healthy index the first query returns
+        nothing and this costs one indexed lookup. If it fails, the run
+        continues - a run that indexes new files is worth more than one that
+        refuses to start because old ones are incomplete.
+        """
+        try:
+            batches = self.store.iter_unembedded(batch_size=self.config.embed_batch)
+        except Exception as exc:                 # noqa: BLE001 - a repair, not the job
+            self._log.warning("could not check for unembedded chunks: {}", exc)
+            return
+
+        filled = 0
+        try:
+            for batch in batches:
+                if self._stop.is_set():
+                    break
+                pending = [(chunk.id, chunk.file_id, chunk.text) for chunk in batch]
+                self._embed_pending(pending)
+                filled += len(pending)
+        except Exception as exc:                 # noqa: BLE001
+            self._log.warning(
+                "could not finish filling in missing vectors: {}. Indexing "
+                "continues; run `app.cli reembed` when the cause is fixed.", exc)
+
+        if filled:
+            stats.vectors_repaired = filled
+            self._log.info(
+                "filled in {} chunk(s) that an earlier run left without vectors - "
+                "they were searchable by keyword but not by meaning", filled)
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
@@ -2104,9 +2213,112 @@ class Pipeline:
             and (not archived or files_under(record.path, archived) is None)
             and not Path(record.path).exists()
         ]
-        for file_id in doomed:
-            self.vectors.delete_by_file_ids([file_id])
-            self.store.delete_file(file_id)
+        # **The archive's contents go with the archive**, which nothing did.
+        # The loop above only ever looked at `source_kind="file"`, and no other
+        # deletion path exists for `archive`, `pst_message` or `eml` rows - so
+        # deleting a 30GB `.pst` removed the marker row and left two hundred
+        # thousand messages searchable for ever, every one of them opening to
+        # nothing. Collected before deleting, for the same reason as above.
+        doomed.extend(self._doomed_inside_archives(seen, archived))
+        return self._delete_in_batches(doomed)
+
+    def _doomed_inside_archives(self, seen: set[str], archived: Any) -> list[int]:
+        r"""Ids of the marker **and the contents** of an archive that has gone.
+
+        **`source_kind="archive"` is not "the archive file".** It is every row
+        that came out of one - the container's marker *and* each member - which
+        is the thing the first version of this got wrong: it treated every such
+        row as a container, found that `backup.zip/q3/plan.dwg` is not a path on
+        disk, and deleted the members of perfectly healthy archives.
+        `test_archive_reading` caught it immediately.
+
+        A member's path is its container's path plus a separator, so the two are
+        told apart by asking which paths are real files. Anything under a
+        container that is still on disk is alive, whatever its own path says.
+
+        **The parent folder must still exist**, and that guard is the difference
+        between pruning and data loss. One missing `.pst` is 200,000 rows; a
+        disconnected network drive or an unmounted volume makes *every* path
+        under it stop existing at once. If the folder is there and the archive
+        is not, it was deleted. If the folder has gone too, this run knows
+        nothing and does nothing.
+        """
+        from app.index.archives import files_under
+
+        rows = [(record.id, str(record.path))
+                for record in self.store.iter_files(source_kind="archive")]
+        if not rows:
+            return []
+
+        def prefixes(paths: Any) -> tuple:
+            """Each path as the two forms a member of it could start with."""
+            return tuple(
+                str(path).rstrip("\\/") + sep
+                for path in paths for sep in ("\\", "/")
+            )
+
+        # **Containers are decided first, members follow.** A member cannot be
+        # judged on its own: its path is never a file on disk, and its parent
+        # folder is the container - which is exactly the evidence the
+        # offline-drive guard below is looking at. Ask about the container, then
+        # let everything inside inherit the answer.
+        every_prefix = prefixes(path for _id, path in rows)
+        containers = [(file_id, path) for file_id, path in rows
+                      if not path.startswith(every_prefix)]
+
+        doomed_paths: list[str] = []
+        gone: list[int] = []
+        for file_id, path in containers:
+            if Path(path).exists():
+                continue                      # still here; its members are fine
+            if path.lower() in seen:
+                continue                      # this walk covered it; the walk decides
+            if archived and files_under(path, archived) is not None:
+                continue                      # inside a folder this run skipped
+            if not Path(path).parent.exists():
+                # The folder, the drive or the share is missing - not the
+                # archive. Deleting on that evidence is how an offline network
+                # drive costs somebody their mail index, 200,000 rows at a time.
+                continue
+            gone.append(file_id)
+            doomed_paths.append(path)
+
+        if doomed_paths:
+            inside = prefixes(doomed_paths)
+            gone.extend(file_id for file_id, path in rows
+                        if path.startswith(inside))
+        return gone
+
+    #: Rows per delete. One `IN (...)` list of a million ids is a query nobody
+    #: can plan; a few thousand is one statement and one Lance version.
+    PRUNE_BATCH = 2_000
+
+    def _delete_in_batches(self, doomed: list[int]) -> int:
+        r"""Remove these files, their chunks and their vectors. **In batches.**
+
+        This was `for file_id in doomed:` with a `delete_by_file_ids([file_id])`
+        and a `delete_file(file_id)` inside it - one LanceDB **dataset version**
+        and one SQLite write transaction per file. Deleting a folder of ten
+        thousand files produced ten thousand Lance versions, which is precisely
+        the fragmentation `COMPACT_EVERY_ROWS` exists to prevent, and ten
+        thousand commits at the very end of a run.
+
+        Batched, that is five Lance deletes and five transactions.
+
+        The order within a batch is deliberate and matches `_embed_pending`:
+        vectors first, then SQLite. A crash between them leaves vectors for rows
+        that still exist - harmless, they are simply re-deleted next time - where
+        the reverse leaves vectors whose file row has gone, which is the
+        orphaned-vector state that has no route back.
+        """
+        if not doomed:
+            return 0
+        for start in range(0, len(doomed), self.PRUNE_BATCH):
+            batch = doomed[start:start + self.PRUNE_BATCH]
+            self.vectors.delete_by_file_ids(batch)
+            with self.store.batch():
+                for file_id in batch:
+                    self.store.delete_file(file_id)
         return len(doomed)
 
 

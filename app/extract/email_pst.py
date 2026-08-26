@@ -277,16 +277,19 @@ def _walk_folder(
         return
 
     produced = 0
-    try:
-        items = list(folder.items())
-    except Exception as exc:                              # noqa: BLE001 - Outlook closed or busy
-        # One unreachable folder, not a failed run. The remaining folders are
-        # still walked, and the next incremental pass retries this one.
-        yield from ()
-        _record_busy(store, folder, exc)
-        items = []
-
-    for item in items:
+    # **Iterated lazily, not `list(folder.items())`.**
+    #
+    # That materialised every message in the folder at once - including every
+    # body - and a 100,000-message Inbox is the corpus this exists for. It is
+    # the memory profile that makes a 30GB PST run swap: the peak was one whole
+    # folder, when the working set only ever needs to be one message.
+    #
+    # The `try` still has to wrap the *iteration* rather than a single call,
+    # because a COM enumerator can fail part-way through - Outlook closing
+    # mid-walk is the ordinary case - and a generator that raises from inside a
+    # `for` gives no chance to record it. `_iter_folder_items` keeps the guard
+    # and the laziness together.
+    for item in _iter_folder_items(store, folder):
         if item.is_empty:
             continue
         key = _message_key(store, item)
@@ -348,6 +351,35 @@ def _walk_folder(
 #: one closed Outlook does not end a walk that has already produced thousands of
 #: messages; the caller reports them at the end.
 _BUSY_FOLDERS: list[AppError] = []
+
+
+def _iter_folder_items(store: MapiStore, folder: MapiFolder) -> Iterator[Any]:
+    """One message at a time, with the same failure handling as before.
+
+    A COM enumerator can fail at any point - Outlook being closed mid-walk is
+    the ordinary case, not an edge one - and it may do so after yielding
+    thousands of messages. Everything read up to that point is kept; the folder
+    is recorded as busy and the next incremental pass retries it.
+
+    Guarding the whole loop rather than one call is the point: the previous
+    version's `list(...)` made the failure atomic by making the memory cost the
+    whole folder.
+    """
+    try:
+        iterator = iter(folder.items())
+    except Exception as exc:                              # noqa: BLE001 - Outlook closed or busy
+        _record_busy(store, folder, exc)
+        return
+
+    while True:
+        try:
+            item = next(iterator)
+        except StopIteration:
+            return
+        except Exception as exc:                          # noqa: BLE001 - mid-enumeration
+            _record_busy(store, folder, exc)
+            return
+        yield item
 
 
 def _record_busy(store: MapiStore, folder: MapiFolder, exc: BaseException) -> None:

@@ -197,6 +197,18 @@ class WalkConfig:
     #: Costs one `stat` the walk already performs and one INSERT. Nothing is
     #: opened, hashed or extracted - see `Candidate.readable`.
     name_only: bool = True
+    #: Files the walk could not `stat`, counted by reason. **A sink, written by
+    #: the walk and read by the pipeline at the end of the run**, on the same
+    #: pattern as `Pipeline._repo_roots`.
+    #:
+    #: It exists because `except OSError: continue` made a file disappear
+    #: completely - no row, no skip, no count, nothing in any log. That is fine
+    #: for the common case, a file deleted between the listing and the stat, and
+    #: it is not fine for the other one: on stock Windows every path longer than
+    #: 260 characters fails here, so a deep tree can lose thousands of files
+    #: with no number moving anywhere. A count is the difference between "this
+    #: corpus has no such files" and "nobody ever looked".
+    stat_failures: dict[str, int] = field(default_factory=dict)
     #: Repository roots found during the walk, written here as they are seen,
     #: as `root_path -> kind`.
     #:
@@ -418,7 +430,32 @@ def _priority_for(path: Path, priority_roots: Sequence[Path]) -> int:
     return 100
 
 
-def walk(config: WalkConfig) -> Iterator[Candidate]:
+#: Windows' classic path ceiling. A path at or over this that will not `stat`
+#: is almost certainly refused for its length rather than because it is gone -
+#: `ERROR_PATH_NOT_FOUND` is what Windows returns for both, which is why the
+#: length has to be checked rather than the error code.
+_WINDOWS_PATH_LIMIT = 260
+
+
+def _record_stat_failure(config: WalkConfig, path: Path, exc: OSError) -> None:
+    """Count one unreadable file, classified so the number means something.
+
+    "4,812 files could not be read" is a fact nobody can act on. "4,812 files
+    have paths too long for Windows" names the setting to change.
+    """
+    text = str(path)
+    if len(text) >= _WINDOWS_PATH_LIMIT:
+        reason = "path over 260 characters"
+    elif isinstance(exc, PermissionError):
+        reason = "permission denied"
+    elif isinstance(exc, FileNotFoundError):
+        reason = "vanished during the walk"
+    else:
+        reason = type(exc).__name__
+    config.stat_failures[reason] = config.stat_failures.get(reason, 0) + 1
+
+
+def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candidate]:
     """Yield every indexable file under `config.roots`.
 
     Lazy by design: a 100GB tree must start producing work immediately rather
@@ -428,12 +465,24 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
     Directories that cannot be read are skipped silently. A permission error on
     one folder is not a reason to abandon a walk, and the file-level errors that
     matter are raised where they can be attributed to a file.
+
+    **`seen` is shared, not private, and that is a memory fix.** Every path the
+    walk yields was being held three times over: here, to stop overlapping roots
+    double-indexing; in `Pipeline._candidates`, to stop a re-queued file being
+    yielded twice; and in `Pipeline._produce`, for the prune pass to know what
+    this run covered. Three sets of the same several million lowercased strings,
+    roughly a gigabyte each at five million files, all for one question.
+
+    Passing one set in answers it once. Callers that do not care keep their own
+    private set by omitting the argument, so `walk(config)` behaves exactly as
+    it always did.
     """
+    if seen is None:
+        seen = set()
     extensions = config.resolved_extensions()
     names = config.resolved_names()
     # Normalised once for the whole walk, not per directory entry.
     blocked = config.excluded_paths_lower()
-    seen: set[str] = set()
 
     for root in config.roots:
         root = Path(root)
@@ -500,8 +549,22 @@ def walk(config: WalkConfig) -> Iterator[Candidate]:
 
                 try:
                     stat = path.stat()
-                except OSError:
-                    continue               # vanished or unreadable between listing and stat
+                except OSError as exc:
+                    # **Counted, because this is how a file becomes invisible.**
+                    #
+                    # `continue` alone produced no row, no skip, no count and no
+                    # log line - the exact silent absence `NAME_ONLY` was built
+                    # to eliminate, arriving through a different door. Most of
+                    # these are genuinely files that vanished between the
+                    # listing and the stat, which is ordinary; but on stock
+                    # Windows **every path over 260 characters lands here too**,
+                    # and a deep folder can lose thousands of files without a
+                    # single number moving.
+                    #
+                    # `doctor` probes the long-path policy separately. This is
+                    # the count that says whether it matters on this corpus.
+                    _record_stat_failure(config, path, exc)
+                    continue
 
                 # **Too big or empty means "do not read it", not "pretend it
                 # is not there".** A 40GB disk image and a zero-byte marker are

@@ -97,6 +97,21 @@ def _contains_words(haystack: str, needle: str) -> bool:
     return False
 
 
+def _like_escape(value: str) -> str:
+    r"""Make `value` a literal inside a `LIKE ... ESCAPE '\'` pattern.
+
+    `%` and `_` are wildcards in `LIKE`, and both are ordinary characters in a
+    Windows path and an email address: `Q1_2024%_final.pst` is a filename
+    somebody has. Unescaped, it matches - and in a *delete* it deletes - rows
+    belonging to entirely unrelated files.
+
+    The backslash goes first, or escaping `%` would then have its own escape
+    escaped. One function so the three call sites that already do this inline
+    cannot drift apart from each other.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class FileStatus:
     PENDING = "PENDING"
     INDEXED = "INDEXED"
@@ -1199,6 +1214,25 @@ class SqliteStore:
             conn.execute("DELETE FROM files_fts WHERE rowid = ?", (file_id,))
             conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
             self._bump_generation(conn)
+
+    def file_ids_under_archive(self, archive_path: str) -> list[int]:
+        r"""Every row that lives *inside* this archive file.
+
+        A message or a zip member is stored as `<archive path>#<key>`, so the
+        contents are found by prefix. Ids only: an archive of 200,000 emails is
+        200,000 rows, and materialising them as records to throw the rest away
+        would cost minutes and hundreds of megabytes at the end of a run.
+
+        **`ESCAPE` is not optional here.** A real path can contain `%` or `_` -
+        `Q1_2024%_final.pst` is an ordinary Windows filename - and in a `LIKE`
+        pattern those are wildcards. Without escaping, that archive would match
+        and delete rows belonging to entirely unrelated files.
+        """
+        pattern = _like_escape(str(archive_path)) + "#%"
+        rows = self.conn.execute(
+            "SELECT id FROM files WHERE path LIKE ? ESCAPE '\\'", (pattern,)
+        ).fetchall()
+        return [int(row[0]) for row in rows]
 
     def delete_file_by_path(self, path: str) -> Optional[int]:
         record = self.get_file(path)

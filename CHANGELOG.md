@@ -1,12 +1,85 @@
 # Changelog
 
-**Doc version:** 3.62 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.63 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — §2 of the review-remediation order: everything the scale run needs
+
+Eight of the eleven items. The three left — H5, H6 and H11 — are search-side and
+UI-side, so none of them blocks an index run.
+
+**H9 — the chunker was quadratic, and it is now measured both ways.** `_atomise`
+asked `any(... for position in paragraph_starts)` per word: a scan of every
+paragraph in the document, for every word in it. The review measured 20k words at
+4.2s and 80k at 73s, so a 1MB log spent minutes there and a 10MB one hung the
+worker outright. Sorted starts plus `bisect_right` — the idiom `extract/base.py`
+already used, one file away — makes it O(W log P): **80k words went from 73s to
+0.14s**, and 100k now chunks in 0.18s against a 2s floor in the suite. That floor
+is the real fix: this survived every release because nothing timed anything.
+
+**H7 — pruning was one LanceDB dataset version per file.** Deleting a 10,000-file
+folder produced 10,000 versions, which is exactly the fragmentation
+`COMPACT_EVERY_ROWS` exists to prevent, plus 10,000 write transactions at the end
+of a run. Batched at 2,000, vectors before SQLite so an interruption can only ever
+leave vectors for rows that still exist.
+
+**H8 — a deleted archive left its contents searchable for ever.** `_prune_missing`
+only iterated `source_kind="file"`, and no other deletion path exists for archive
+rows, so removing a 30GB `.pst` left 200,000 messages in the index, every one of
+them opening to nothing.
+
+**The first version of that fix deleted the members of healthy archives**, and the
+existing suite caught it immediately. `source_kind="archive"` is not "the archive
+file" — it is every row that came *out* of one, the marker and each member alike.
+Containers are decided first now and members inherit the answer. An archive whose
+**parent folder** has also vanished is left alone: that is an unmounted share, not
+a deletion, and one wrong call there is 200,000 rows.
+
+**M6 — vector coverage could only ever fall.** An archive's marker was written
+while up to `embed_batch` of its own messages sat in `pending_vectors` with chunks
+committed and no vectors. Any interruption in that window left the archive
+permanently marked complete with a hole, and nothing drained it —
+`iter_unembedded` was reachable only through `app.cli reembed`, a command nobody
+runs because nothing ever says it is needed. The flush now precedes the marker,
+**and every run repairs what earlier runs lost**, reporting how many chunks it
+filled in.
+
+**M8 — the ANN index trained on the consumer thread.** Minutes at 6.4M rows and
+tens of minutes at 12.8M, triggered from `add()` whenever a batch crossed a growth
+threshold, with every extraction worker blocked behind bounded queues and nothing
+on screen saying a pause had begun. Nothing needs that index mid-run; `Pipeline.run`
+already builds it at the end.
+
+**M16 — `list(folder.items())` held every message body in a PST folder at once**,
+and 100,000-message Inboxes are the corpus this exists for. Iterated lazily, with
+the mid-enumeration failure handling kept: Outlook closing part-way through is
+ordinary, and everything read before that point is now kept rather than lost with
+the batch.
+
+**M17 — three copies of every path in the corpus.** The walker, `_candidates` and
+`_produce` each held every lowercased path — roughly a gigabyte apiece at five
+million files — to answer one question between them. One shared set now.
+
+**M18 — files the walk could not `stat` vanished completely.** No row, no skip, no
+count, no log line: the same silent absence `NAME_ONLY` was built to eliminate,
+arriving through a different door. Most are files deleted between the listing and
+the stat, which is ordinary — but on stock Windows **every path over 260
+characters lands there too**, so a deep tree can lose thousands of files with no
+number moving anywhere. Counted by reason, because "4,812 files could not be read"
+is not actionable and "4,812 paths over 260 characters" names the setting.
+
+One existing test was rewritten rather than satisfied.
+`test_a_file_is_not_marked_indexed_before_its_vectors_exist` collected every
+message status seen during any embedding call and required that none was ever
+`INDEXED` — true only because embedding happened twice per run. M6's extra flush
+broke it while *strengthening* the invariant it describes. It now asserts the rule
+itself: anything claiming INDEXED must have `chunks.embedded` set on every chunk,
+which is precisely the state the original bug produced.
 
 ### Fixed — §1 of the review-remediation work order: correctness and data safety
 

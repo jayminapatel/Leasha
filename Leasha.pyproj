@@ -314,6 +314,7 @@
     <Compile Include="tests\unit\test_result_groups.py" />
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
+    <Compile Include="tests\unit\test_review_2026_08_26.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
@@ -395,6 +396,7 @@
     <Content Include="docs\WORKORDER-202626081439-reset-leaves-nothing.md" />
     <Content Include="docs\WORKORDER-202626081801-git-sharpness-and-mail-preview.md" />
     <Content Include="docs\WORKORDER-202626082213-install-and-distribution.md" />
+    <Content Include="docs\WORKORDER-202626082352-review-remediation.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

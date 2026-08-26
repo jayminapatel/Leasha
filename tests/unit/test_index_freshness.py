@@ -524,18 +524,43 @@ def test_embedding_is_batched_across_documents_not_per_document(tmp_path, corpus
 
 
 def test_a_file_is_not_marked_indexed_before_its_vectors_exist(tmp_path, corpus):
-    """The ordering that makes a crash recoverable.
+    r"""The ordering that makes a crash recoverable.
 
     A file marked INDEXED with no vectors is invisible to semantic search and
     never retried by anything. Marked PENDING with vectors is merely redone.
+
+    **Asserted as the rule, not as a side effect of how many flushes happen.**
+    The first version of this collected every `pst_message` status seen during
+    any embedding call and required that none of them was ever `INDEXED`. That
+    held only because embedding happened twice in the whole run: once at the
+    batch ceiling and once at the end. It is not the rule - a message finished
+    and correctly marked during flush one is *supposed* to read as INDEXED
+    while flush two is running - and it broke the moment M6 added a flush
+    before each archive marker, for a change that upholds the actual invariant
+    and strengthens it.
+
+    So this checks what the docstring says: at every moment an embedding call is
+    in flight, any row already claiming INDEXED must have the vectors to back
+    it - `chunks.embedded` set on every one of its chunks. That is exactly the
+    state the original bug produced, and unlike the count of flushes it cannot
+    become accidentally true.
     """
-    seen: list[str] = []
+    violations: list[str] = []
 
     def watching_encode(texts):
         with SqliteStore(tmp_path / "index.db") as peek:
-            seen.extend(
-                record.status for record in peek.iter_files()
-                if record.source_kind == "pst_message"
+            rows = peek.conn.execute(
+                """
+                SELECT f.path, COUNT(c.id) AS total,
+                       SUM(CASE WHEN c.embedded = 1 THEN 1 ELSE 0 END) AS done
+                FROM files f JOIN chunks c ON c.file_id = f.id
+                WHERE f.source_kind = 'pst_message' AND f.status = 'INDEXED'
+                GROUP BY f.id
+                """
+            ).fetchall()
+            violations.extend(
+                f"{row[0]}: {row[2] or 0} of {row[1]} chunks embedded"
+                for row in rows if (row[2] or 0) < row[1]
             )
         return [
             l2_normalise([math.sin(abs(hash(t)) % 100 + i) for i in range(8)])
@@ -546,7 +571,9 @@ def test_a_file_is_not_marked_indexed_before_its_vectors_exist(tmp_path, corpus)
         config = PipelineConfig(walk=WalkConfig(roots=[corpus]), workers=1)
         Pipeline(store, NullVectors(), Embedder(dim=8, encoder=watching_encode), config).run()
 
-    assert "INDEXED" not in seen, "a document was marked indexed before it was embedded"
+    assert not violations, (
+        "marked INDEXED with chunks that have no vectors:\n  "
+        + "\n  ".join(violations))
 
 
 def test_pruning_does_not_load_every_message_in_the_archive(tmp_path, corpus):
