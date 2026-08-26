@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.4 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 4.5 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -221,10 +221,30 @@ gets lost by accident.
 
 ### What is **Next**
 
-In order, and grouped by what is actually blocking. **Nothing on this list is code that has
-not been written.** Every remaining item is either a measurement, a run on a real machine, or
-a decision only the owner can take - which is a different kind of work from the last six
-months, and worth saying plainly so it does not get treated as a coding backlog.
+In order, and grouped by what is actually blocking.
+
+**Start with `docs/REVIEW-2026-08-26.md`.** Five parallel review passes over the current
+tree, every finding checked against `file:line` before publication: **11 High, 20 Medium**,
+and eleven of the previous review's forty-two findings still live. Its own priority plan is
+better sequenced than anything that could be restated here, so it is the list rather than a
+line on the list. The headline items are not cosmetic - `.doc` conversion is dead on Windows
+while Settings reports it working (H10), a broken embedding model fails the *whole* search
+instead of degrading to keyword (H4), every skipped file is re-extracted on every incremental
+run forever (H1), and a database migrated through v10 permanently loses the two indexes that
+make "newest first" and `after:`/`before:` fast (H2).
+
+**An earlier draft of this section claimed the opposite** - that nothing outstanding was code
+that had not been written, and that everything left was a measurement, a run or a decision.
+That was written before this review was read, and it was wrong in the most misleading
+direction available: it would have sent somebody to packaging while `.doc` files silently
+fail to convert on the platform that ships. The sequencing below now puts the review first.
+
+**Correctness, from the review — this week**
+
+0. `REVIEW-2026-08-26.md` §"Priority plan" in its order: H4 (vector degrades rather than
+   fails), H10 (`resolve_binary` at `converter.py:333`), H1 (skipped files re-extracted),
+   H2 + H3 (the two migration repairs, **before anybody migrates a large index**), then the
+   three one-liners: M7 `quoted_removed`, M1 shutdown-guard hoist, M9 clear-search.
 
 **Verification: things the fixtures cannot tell us**
 

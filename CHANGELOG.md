@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 3.60 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.61 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,10 +19,18 @@ That kind of drift is the specific danger this project already legislates agains
 `ensure_log_dirs` rewrites its generated README when it no longer matches, rather than writing
 it once. A state document nobody has corrected is not neutral: somebody acts on it.
 
-The list is now grouped by what is actually blocking, because none of it is code that has not
-been written. Every remaining item is a **measurement**, a **run on a real machine**, or a
-**decision only the owner can take** — which is a different kind of work from the last six
-months, and reads wrongly if presented as a coding backlog.
+The list is now grouped by what is actually blocking, and it opens by pointing at
+`docs/REVIEW-2026-08-26.md` — five review passes over the current tree, **11 High and 20
+Medium findings**, each checked against `file:line` before publication.
+
+**The first draft of that section said the opposite** and had to be corrected in the same
+sitting: it claimed nothing outstanding was code that had not been written, and that
+everything left was a measurement, a run or a decision. That was written before the review
+was read. It was wrong in the most misleading direction available — it would have sent the
+next person to packaging while `.doc` conversion silently fails on the platform that ships
+(H10), a broken embedding model takes the *whole* search down instead of degrading to
+keyword (H4), and a database migrated through v10 quietly loses the two indexes that make
+"newest first" fast (H2).
 
 `BUILD_SPEC_V2.md` 2.9 → 2.10. **Layer 0's four acceptance boxes and Layer 1's five were
 never ticked**, though every one has had a passing named test in
