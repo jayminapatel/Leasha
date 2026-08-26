@@ -115,7 +115,18 @@ QProgressBar {{
     background: {surface_alt}; border: 1px solid {border};
     border-radius: 5px; text-align: center; color: {text};
 }}
-QProgressBar::chunk {{ background: {accent_bar}; border-radius: 4px; }}
+/* **A styled chunk with no width renders busy mode as a dead full bar.**
+   `setRange(0, 0)` is Qt's indeterminate mode, and it is what an index run
+   shows for most of its length - the size of the job is genuinely unknown
+   until the walk finishes. Under QStyleSheetStyle a chunk with no `width`
+   commonly paints across the whole groove and does not animate, so "we do not
+   know yet" looked exactly like "finished, and stuck". Giving the chunk a
+   width and a margin restores the moving block, which is the only thing on
+   screen saying the run is alive. */
+QProgressBar::chunk {{
+    background: {accent_bar}; border-radius: 4px;
+    width: 18px; margin: 1px;
+}}
 
 QGroupBox {{
     border: 1px solid {border}; border-radius: 6px;

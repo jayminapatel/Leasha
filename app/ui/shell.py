@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool
+from PyQt6.QtCore import QThreadPool, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
@@ -52,6 +52,7 @@ from app.ui.tray import TrayPresence
 from app.ui.view_options import load_prefs, save_prefs
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.scroll import wrap_if_needed
+from app.core.run_lock import GUI
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -189,6 +190,25 @@ class MainWindow(QMainWindow):
         self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
         self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
         self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
+        self.indexing_view.scan_requested.connect(self._scan_corpus)
+        self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
+
+        # **The window watches for a run it did not start.** `app.cli index` is
+        # a separate process since the run lock was split from the window lock,
+        # so an index can be under way with nothing in here knowing - which used
+        # to mean a bar at zero and a Start button that produced a lock error.
+        #
+        # A poll rather than a notification, because the two processes share
+        # only a SQLite file and there is nothing to notify through. Every four
+        # seconds: a checkpoint is at most two seconds apart, and a bar that
+        # updates twice per checkpoint is smooth enough for something measured
+        # in hours. The read is one row and it is skipped entirely while this
+        # window is running its own index.
+        self._watch_timer = QTimer(self)
+        self._watch_timer.setInterval(4_000)
+        self._watch_timer.timeout.connect(self._poll_external_run)
+        self._watch_timer.start()
+        self._poll_external_run()
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -604,10 +624,12 @@ class MainWindow(QMainWindow):
                 8_000)
             return
 
+        current_dim = int(getattr(self._settings, "embed_dim", 384) or 384)
         dialog = RebuildVectorsDialog(
             str(getattr(self._settings, "embed_model", "")),
             self._chunk_count(),
             self,
+            current_dim=current_dim,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -615,16 +637,32 @@ class MainWindow(QMainWindow):
         try:
             from app.core.env_writer import apply_values
 
-            apply_values(Path(self._settings.env_file),
-                         {"EMBED_MODEL": dialog.chosen_model()})
+            # **Both keys, in one write.** Writing `EMBED_MODEL` alone left
+            # `EMBED_DIM` describing the previous model, which is not a
+            # settings inconsistency but a broken index: the store refuses
+            # vectors of the wrong width, and the refusal arrives on the first
+            # batch after the new model has been downloaded, naming a setting
+            # the person never edited. `env_writer` writes the file atomically,
+            # so the two cannot land apart.
+            apply_values(Path(self._settings.env_file), {
+                "EMBED_MODEL": dialog.chosen_model(),
+                "EMBED_DIM": str(dialog.chosen_dim()),
+            })
         except Exception as exc:                 # noqa: BLE001
             self._show_error(to_app_error(exc, "ui.settings"))
             return
 
         self._store.set_state("index:rebuild_vectors", "pending")
-        self.statusBar().showMessage(
-            "Saved. Restart, then run an index to re-embed everything - search "
-            "keeps working on the old vectors until it finishes.", 12_000)
+        if dialog.chosen_dim() != current_dim:
+            self.statusBar().showMessage(
+                f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
+                "dimensions. The vector store is rebuilt from empty on the next "
+                "index run, so meaning-based search returns nothing until it "
+                "finishes. Keyword search is unaffected.", 20_000)
+        else:
+            self.statusBar().showMessage(
+                "Saved. Restart, then run an index to re-embed everything - search "
+                "keeps working on the old vectors until it finishes.", 12_000)
 
     def _chunk_count(self) -> int:
         """How many chunks would have to be re-embedded. Never raises.
@@ -1072,6 +1110,85 @@ class MainWindow(QMainWindow):
         """One full walk of every archival folder, now. Not a policy change."""
         self._start_indexing(recheck_archives=True)
 
+    # -- a run belonging to another process ---------------------------------
+
+    def _poll_external_run(self) -> None:
+        r"""Is something else indexing, and how far has it got?
+
+        **Two questions, and only one of them is authoritative.** `is_indexing`
+        asks the mutex, which the operating system releases when a process dies;
+        `active_run` reads the description that process last wrote. A record
+        without a lock is a crash, not a run, and must never refuse Start.
+
+        Off the UI thread, because both touch the store and this runs on a timer
+        for as long as the window is open. Cheap - one mutex probe and one row -
+        but "cheap" on the UI thread is how a window develops a stutter nobody
+        can attribute.
+        """
+        if self.indexing_view.is_running() and self.indexing_view._worker is not None:
+            return                       # our own run; the live signal is better
+
+        worker = CallableWorker(_read_external_run, self._store,
+                                component="ui.index.watch")
+        worker.signals.finished.connect(self._show_external_run)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_external_run(self, payload: dict) -> None:
+        self.indexing_view.show_external(
+            payload.get("record"), locked=bool(payload.get("locked")))
+
+    def _stop_external_run(self) -> None:
+        """Ask the other process to stop. A request, not a kill.
+
+        Terminating it would leave the vector store mid-write, which is the one
+        thing the run lock exists to prevent - so this writes the flag and the
+        runner honours it at its next checkpoint, keeping everything read so far.
+        """
+        from app.core.run_lock import request_stop
+
+        try:
+            request_stop(self._store)
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("could not ask the other run to stop: {}", exc)
+
+    def _scan_corpus(self) -> None:
+        r"""Count the corpus so the progress bar has a real denominator.
+
+        Answers the complaint behind the Scan button. `app.cli scan` was the
+        only thing that had ever written a total, and nothing in the window
+        could run one - so a GUI-started index always had `total_estimate == 0`
+        and the bar was a busy indicator for its entire length. Correct by its
+        own rules, and indistinguishable from broken.
+
+        **Reads no file contents**, so it takes no run lock: it walks folders,
+        adds up sizes, and opens only the tail of a sampled archive and a
+        sampled PDF. Two of these at once would waste effort and nothing worse.
+        """
+        chosen = self.settings_view.current_roots()
+        if not chosen:
+            self._show(self.settings_view)
+            self.statusBar().showMessage(
+                "Add at least one folder to index in Settings.", 8_000)
+            return
+
+        self.indexing_view.scan_button.setEnabled(False)
+        self.statusBar().showMessage("Counting files… the bar will show a real "
+                                     "percentage once this finishes.", 0)
+
+        worker = CallableWorker(_scan_and_save, self._store, chosen,
+                                component="ui.index.scan")
+        worker.signals.finished.connect(self._scan_finished)
+        worker.signals.failed.connect(self._show_error)
+        worker.signals.done.connect(
+            lambda: self.indexing_view.scan_button.setEnabled(True))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _scan_finished(self, payload: dict) -> None:
+        files = int(payload.get("files", 0) or 0)
+        self.statusBar().showMessage(
+            f"{files:,} files to index. The progress bar can show a percentage "
+            f"now.", 10_000)
+
     def _save_pst_backend(self, backend: str) -> None:
         try:
             self._store.set_state("ui:pst_backend", backend)
@@ -1178,6 +1295,12 @@ class MainWindow(QMainWindow):
                 recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
             ),
         )
+        # **The window's run is a writer like any other**, so it names itself
+        # on the published record and holds the same lock the CLI takes. The
+        # lock itself is acquired by `IndexWorker`, on the worker thread, for
+        # exactly as long as the run - taking it here would hold it across the
+        # whole life of the window again, which is the bug being fixed.
+        pipeline.run_owner = GUI
         self.indexing_view.start(pipeline, total_estimate=self._scan_total(chosen))
 
     def _scan_total(self, roots: list[str]) -> int:

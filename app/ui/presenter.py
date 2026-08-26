@@ -1066,6 +1066,151 @@ def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     return min(done, total), total
 
 
+# ---------------------------------------------------------------------------
+# A run this window did not start
+#
+# `app.cli index` and the window are two processes now that the run lock is
+# separate from the window lock, so an index may be under way with nothing in
+# this process knowing about it. `is_running()` was `self._worker is not None`,
+# which meant the bar sat at zero and Start stayed enabled while a run was
+# plainly in progress - and pressing Start then hit the lock and produced an
+# error for something the window should simply have been showing.
+#
+# The pipeline publishes a snapshot on every checkpoint. These turn that record
+# into what goes on screen, and they are here rather than in the view because
+# every one of them is a decision with an edge case worth a test.
+# ---------------------------------------------------------------------------
+
+#: A published run older than this is treated as finished, whatever it says.
+#:
+#: The lock is the authority and this is only a safety net for the gap between
+#: a process dying and anything noticing: the mutex is released immediately, but
+#: a window polling on a timer can still hold the last record it read. Generous,
+#: because a checkpoint is every 50 files or two seconds and a single huge file
+#: - a 30GB archive - can legitimately sit between two of them for minutes.
+STALE_RUN_S = 900.0
+
+
+def external_snapshot(record: Any) -> Any:
+    """The published `stats` dict as something `progress_for` can read.
+
+    `progress_for` and `progress_text` take an object and use `getattr`, which
+    is right for the in-process tick. Converting here rather than teaching them
+    about dictionaries keeps one set of progress rules for both paths - the
+    alternative is two, which drift, and the bar is the thing that has already
+    been wrong three times.
+    """
+    from types import SimpleNamespace
+
+    found = (record or {}).get("stats") if isinstance(record, dict) else None
+    values = dict(found or {})
+    # The two the progress rules need and a published record may predate.
+    values.setdefault("walk_complete", False)
+    values.setdefault("skipped_by_code", {})
+    values.setdefault("skipped_roots", ())
+    values.setdefault("notices", ())
+    return SimpleNamespace(**values)
+
+
+def external_is_live(record: Any, *, now: Optional[float] = None) -> bool:
+    """Is this published record describing a run that is still going?
+
+    Answers on the record alone. The caller pairs it with the lock, which is the
+    part an operating system maintains and therefore the part that is true.
+    """
+    import time as _t
+
+    if not isinstance(record, dict):
+        return False
+    updated = record.get("updated_at") or record.get("started_at")
+    try:
+        age = (now if now is not None else _t.time()) - float(updated)
+    except (TypeError, ValueError):
+        return False
+    return age <= STALE_RUN_S
+
+
+def external_run_text(record: Any) -> tuple[str, str]:
+    """Headline and detail for a run belonging to another process.
+
+    Deliberately says **whose** run it is. "Indexing…" while the person is
+    looking at a window they did not start it from invites them to press Stop
+    expecting it to be theirs - and Stop does now reach it, so the sentence has
+    to make clear what will be stopped.
+    """
+    owner = str((record or {}).get("owner") or "another process")
+    headline, detail = progress_text(external_snapshot(record))
+    return f"{headline} — started by {owner}", detail
+
+
+def start_blocked_reason(record: Any, *, locked: bool) -> str:
+    """Why Start is unavailable, or `""` when it is available.
+
+    **`locked` comes from the mutex and settles it**; the record only supplies
+    the words. A record with the lock free is a process that died, which must
+    never be a reason to refuse - that is a paper lock, and it is broken by hand
+    at the worst possible moment.
+    """
+    if not locked:
+        return ""
+    owner = str((record or {}).get("owner") or "another process")
+    return (f"An index run started by {owner} is already in progress. "
+            f"Stop will end it; searching is unaffected.")
+
+
+# ---------------------------------------------------------------------------
+# Worker bodies
+#
+# Here rather than in `shell.py` for the reason `read_index_summary` is here:
+# `test_ui_never_blocks` reads the window's source and refuses any store call it
+# cannot prove is inside a worker, and it cannot prove that about a module-level
+# function - correctly, since nothing in the file says so. Keeping the bodies in
+# this module makes the rule mechanical rather than a matter of trust.
+# ---------------------------------------------------------------------------
+
+def _read_external_run(store: Any) -> dict:
+    r"""Is another process indexing, and what does it say about itself?
+
+    **Two questions, and only one of them is authoritative.** `is_indexing`
+    asks the mutex, which an operating system releases when a process dies.
+    `active_run` reads the row that process last wrote, which survives a crash.
+    A record without a lock is a crash rather than a run, and treating it as a
+    run would refuse Start until somebody edited a database by hand.
+
+    On a worker, because it runs on a timer for as long as the window is open
+    and both halves touch something outside this process.
+    """
+    from app.core.run_lock import active_run, is_indexing
+
+    try:
+        return {"locked": is_indexing(store), "record": active_run(store)}
+    except Exception as exc:                     # noqa: BLE001 - a watcher, not a run
+        _log.debug("could not read the external run state: {}", exc)
+        return {"locked": False, "record": None}
+
+
+def _scan_and_save(store: Any, roots: list[str]) -> dict:
+    """Count the corpus and save the total, so the bar has a denominator.
+
+    The same work `app.cli scan` does, which until now was the only way to get
+    one - and the reason a GUI-started index never had a percentage.
+    """
+    import json
+    import time as _time
+    from pathlib import Path as _Path
+
+    from app.index.scan import SCAN_STATE_KEY, ScanConfig, scan
+
+    result = scan(ScanConfig(roots=[_Path(root) for root in roots]))
+    store.set_states({SCAN_STATE_KEY: json.dumps({
+        "at": int(_time.time()),
+        "roots": list(result.roots),
+        "files": result.indexable.files,
+        "bytes": result.indexable.bytes,
+    })})
+    return {"files": result.indexable.files, "bytes": result.indexable.bytes}
+
+
 def status_line(response: Any) -> str:
     """The line under the search box: how many, how fast, and with what caveats.
 

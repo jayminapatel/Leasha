@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
+from app.ui.widgets.debug_pane import DebugPane
 from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
@@ -185,6 +186,15 @@ class SettingsView(QWidget):
         clear = QPushButton("Clear search history")
         clear.clicked.connect(self._clear_history)
 
+        # **What the console used to show.** The window is launched with
+        # `pythonw.exe` now, which has no console at all - so "is it doing
+        # anything" needs an answer inside the application. See
+        # `widgets.debug_pane`.
+        self.activity = QGroupBox("Recent activity")
+        activity_layout = QVBoxLayout(self.activity)
+        self.debug_pane = DebugPane()
+        activity_layout.addWidget(self.debug_pane)
+
         privacy = QGroupBox("Search history")
         privacy_layout = QVBoxLayout(privacy)
         privacy_layout.addWidget(QLabel(
@@ -238,6 +248,7 @@ class SettingsView(QWidget):
         layout.addWidget(privacy)
         layout.addWidget(self.models)
         layout.addWidget(self.file_types)
+        layout.addWidget(self.activity)
         layout.addWidget(self.environment, stretch=1)
         layout.addWidget(self.restore_defaults)
 

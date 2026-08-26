@@ -213,6 +213,7 @@ def _apply_pending_move(settings: Any) -> Any:
 
 def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     from app.core.config import load_settings
+    from app.core.run_lock import GUI_MUTEX_NAME
     from app.core.single_instance import SingleInstance
 
     try:
@@ -288,7 +289,12 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     try:
         log.info("startup: acquiring the single-instance lock")
-        with SingleInstance(), \
+        # **The window lock, and only the window.** This used to be the same
+        # mutex `app.cli index` takes, so having Leasha open made indexing from
+        # a terminal impossible - a refusal that protected nothing, because a
+        # window that is merely open is a reader. A second *window* is still
+        # refused; see `core/run_lock.py` for the split.
+        with SingleInstance(GUI_MUTEX_NAME), \
                 SqliteStore(settings.fts_db) as store, \
                 VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
             log.info("startup: stores open, loading the embedding model",

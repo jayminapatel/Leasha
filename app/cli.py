@@ -49,6 +49,7 @@ from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import log_app_error, logger, setup_logging
 from app.core.runlog import current as current_run
 from app.core.runlog import start_run
+from app.core.run_lock import COMMAND_LINE, IndexRunLock
 from app.core.single_instance import SingleInstance
 from app.core.version import build_info
 from app.index.resources import limits_from_settings
@@ -1056,8 +1057,13 @@ def cmd_index(args: argparse.Namespace) -> int:
                 line += f" {waited:,.0f}s"
         progress.update(line)
 
-    with SingleInstance(), \
-            SqliteStore(settings.fts_db) as store, \
+    # **The run lock, not the process lock.** This used to take
+    # `SingleInstance`, which the window holds for its whole lifetime - so
+    # `app.cli index` could not run at all while Leasha was open, even though
+    # the window was only reading. What must not overlap is two *writers*, and
+    # that hazard lasts exactly as long as this block. See `core/run_lock.py`.
+    with SqliteStore(settings.fts_db) as store, \
+            IndexRunLock(store, owner=COMMAND_LINE), \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
         pipeline = Pipeline(store, vectors, embedder, config)
         stats = pipeline.run(on_progress=None if args.quiet else show)
@@ -2145,8 +2151,10 @@ def cmd_reembed(args: argparse.Namespace) -> int:
     settings = _load(args)
     setup_logging(settings.log_path)
 
-    with SingleInstance(), \
-            SqliteStore(settings.fts_db) as store, \
+    # A writer, so it takes the run lock - `reembed` and `index` must exclude
+    # each other as firmly as two `index` runs do.
+    with SqliteStore(settings.fts_db) as store, \
+            IndexRunLock(store, owner=COMMAND_LINE), \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
         stats = store.stats()
         total = int(stats["chunks_total"])

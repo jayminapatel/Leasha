@@ -332,6 +332,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Close the other copy, then try again. Two copies cannot share one index safely.",
         action_type=ActionType.USER_RETRY,
     ),
+    # **Not `ERR_DB_LOCKED`, and the difference is the whole point of the
+    # split.** "Another copy of the application is running" tells somebody to
+    # close their window, which for this is both wrong and annoying: the window
+    # may stay open, and what they have to wait for is a *run* rather than a
+    # process. See `core/run_lock.py`.
+    "ERR_INDEX_RUNNING": _Spec(
+        message="An index run is already in progress ({holder}).",
+        suggestion=(
+            "Only one process may write to the index at a time. Wait for it to "
+            "finish, or stop it - the Indexing page has a Stop button, and it "
+            "works on a run started from the command line too. Searching is "
+            "unaffected and needs no wait."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     "ERR_OUTLOOK_MISSING": _Spec(
         message="PST indexing needs classic Outlook, which was not found.",
         suggestion=(

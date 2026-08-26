@@ -1,12 +1,110 @@
 # Changelog
 
-**Doc version:** 3.51 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.52 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — one lock was doing two jobs, and the smaller one was winning
+
+Reported as *"if leasha is open i cant get another cli interface to start
+indexing"*. `app/main.py` held `SingleInstance` for the entire lifetime of the
+window and `app.cli index` took the same mutex, so having Leasha open made
+indexing from a terminal impossible.
+
+The refusal was correct in form and wrong in scope. What cannot overlap is two
+**writers** — two pipelines against one LanceDB table corrupt it — and that
+hazard lasts as long as a *run*, not as long as a *window*. A window that is
+merely open is a reader.
+
+Two locks now. `GUI_MUTEX_NAME` still refuses a second window; `INDEX_MUTEX_NAME`
+is held by `app.cli index`, by `app.cli reembed`, and by the window's own run
+alike, for exactly the length of the run. Whoever asks second is told who has it
+and since when, under its own error code — *"an index run is already in
+progress"* is a different sentence from *"another copy of the application is
+running"*, and the second one told people to close a window they did not need to
+close.
+
+**The mutex is the authority; the record beside it is only a description.** A
+process that dies has its mutex released by the operating system and leaves its
+row in `index_state` behind, so a record without a lock is a stale record and
+never a reason to refuse. Reading it the other way round would mean a crash
+during indexing locked the feature until somebody found the right table to edit.
+
+### Added — the window shows a run it did not start, and can stop it
+
+The state the split created: an index genuinely under way with nothing in the
+window's process knowing about it. The bar sat at zero, Start stayed enabled,
+and pressing it produced a lock error for something the window should simply have
+been showing.
+
+Half the plumbing already existed and had never been connected. `cursor:last_path`
+and `cursor:indexed` were written on every checkpoint and read by nothing outside
+the test suite — the docstring said *"progress for the UI"* and no UI had ever
+read it. The run now publishes a snapshot of its whole `IndexStats` under one key
+and the window polls it every four seconds. One JSON blob rather than a spread of
+keys, because a reader in another process can otherwise catch a half-written set
+and draw a bar from one instant's numerator and another's denominator.
+
+Stop reaches across processes too: a flag in the database, polled by the runner
+at its next checkpoint. A request rather than a kill — terminating the process
+would leave the vector store mid-write, which is the one thing the lock exists to
+prevent.
+
+### Fixed — three more things wrong with the progress bar
+
+Reported as *"the progress bar was not working properly"*, and worth reading in
+order of likelihood.
+
+**Most likely: the installed tree was stale.** `Leasha\` — the gitignored
+run-as-installed copy — had **no `walk_complete` at all**, which is the whole of
+an earlier bar fix. In that copy the denominator is `stats.seen`, which the
+bounded 256-deep work queue keeps a hair above `done`, so the bar reaches ~97%
+within seconds and sits there. Anyone launching `Leasha\leasha.cmd` saw exactly
+that. Re-staged, and worth checking which launcher was in use before reading any
+of the below as the cause.
+
+**A stopped run finished at 100%.** `pipeline.run` returns normally after
+`request_stop()`, so `finished` fires for a stop exactly as it does for a
+completed run — and `_on_finished` set the bar full unconditionally, next to a
+headline saying the run had been stopped. The panel contradicted itself. The
+identical fault had already been found and fixed in `_on_failed` and not here.
+
+**Busy mode looked like a frozen full bar.** `setRange(0, 0)` is what an index
+shows for most of its length, because the size of the job is unknown until the
+walk ends. Under `QStyleSheetStyle` a styled `::chunk` with no `width` paints
+across the whole groove and does not animate, so *"we do not know yet"* was
+indistinguishable from *"finished, and stuck"*.
+
+And the reason it was indeterminate at all: **nothing in the window could produce
+a total.** `app.cli scan` was the only writer of that number, so a GUI-started
+run had `total_estimate == 0` every time. There is a **Scan first** button on the
+Indexing page now. It reads no file contents, so it takes no run lock.
+
+**Every previous progress-bar test was a string grep of the view or a call to
+`progress_for` with a hand-made dataclass — nothing had ever instantiated the
+widget.** Three bar bugs have now shipped past a green suite. The new tests build
+the real thing.
+
+### Changed — the window opens without a console, and Settings can say why
+
+`leasha.cmd` launched the window with `python.exe`, the console-subsystem binary,
+so Windows attached a terminal to every session: an empty black rectangle behind
+the application that nobody could close without killing Leasha with it.
+`pythonw.exe` removes it, with a fallback to `python.exe` so an installation
+missing pythonw still opens.
+
+The console was doing real work, though, and could not simply be deleted. Under
+pythonw `sys.stderr` is `None` — and `logger.add(None)` is not a no-op, it is a
+failure that takes the whole logging setup with it, so the window would have
+started with no file log either. Guarded, and the running commentary now goes to
+a ring in memory that **Settings → Recent activity** shows, fifty lines,
+scrolling, with Copy. Not a log viewer: the question it answers is *"is anything
+happening"*, and everything past that is what the log file and `app.cli` are for.
+
 
 ### Fixed — column widths, again, and this time it was the cap overruling them
 

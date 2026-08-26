@@ -38,6 +38,7 @@ from app.ui.presenter import (
     when_text,
 )
 from app.ui.widgets.archived_roots import ArchivedRoots
+from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_stats import IndexStats
 from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.workers import CallableWorker, IndexWorker, run
@@ -62,6 +63,11 @@ class IndexingView(QWidget):
     #: "Rescan these folders now" on the archived-folders panel. One full walk,
     #: not a change of policy - the modes stay as they are.
     rescan_archives_requested = pyqtSignal()
+    #: Count the corpus before indexing it, so the bar has a real denominator.
+    scan_requested = pyqtSignal()
+    #: Stop a run belonging to **another process**. The window owns the store,
+    #: so it writes the flag; this view only knows that it was asked for.
+    stop_requested_externally = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -90,6 +96,11 @@ class IndexingView(QWidget):
         self._stopping = False
         self._next_run_text = ""
         self._total_estimate = 0
+        #: The published record of a run **another process** is doing, or None.
+        #: Set by `show_external`, which the window calls on a poll. Keeping it
+        #: here rather than re-reading the store is what lets `is_running` and
+        #: `stop` answer without touching a database on the UI thread.
+        self._external: Optional[dict] = None
 
         self.headline = QLabel("Nothing indexed yet.")
         self.headline.setObjectName("indexHeadline")
@@ -149,8 +160,23 @@ class IndexingView(QWidget):
         )
         self.reset_button.clicked.connect(lambda _c=False: self.reset_requested.emit())
 
+        # **The bar cannot show a percentage without a total, and only a scan
+        # produces one.** `app.cli scan` was the sole writer of that number, so
+        # a GUI-started run had `total_estimate == 0` every time and the bar was
+        # a busy indicator for its whole length - correct by its own rules, and
+        # indistinguishable from broken.
+        self.scan_button = QPushButton("Scan first")
+        self.scan_button.setToolTip(
+            "Count the files before indexing them, so the progress bar can show "
+            "a real percentage instead of just spinning.\n\n"
+            "Reads no file contents - it walks the folders and adds up sizes - "
+            "but on a large corpus that walk still takes a while."
+        )
+        self.scan_button.clicked.connect(lambda _c=False: self.scan_requested.emit())
+
         controls = QHBoxLayout()
         controls.addWidget(self.start_button)
+        controls.addWidget(self.scan_button)
         controls.addWidget(self.stop_button)
         controls.addStretch(1)
         controls.addWidget(self.reset_button)
@@ -181,13 +207,20 @@ class IndexingView(QWidget):
     # -- running ------------------------------------------------------------
 
     def is_running(self) -> bool:
-        """Is an index run in flight?
+        r"""Is an index run in flight **anywhere on this machine**?
 
         The scheduler asks before starting one. Two runs writing into the same
-        SQLite file is exactly the corruption the single-instance lock prevents
-        between processes, and nothing prevented it inside one.
+        SQLite file is exactly the corruption the lock prevents between
+        processes, and nothing prevented it inside one.
+
+        This used to be `self._worker is not None`, which stopped being the
+        whole answer the moment the run lock was split from the window lock: an
+        `app.cli index` may be under way with nothing in this process knowing.
+        The scheduler firing into that would have produced an error rather than
+        a corruption - the lock still holds - but an error on a timer, every
+        hour, for a reason the person never sees, is its own kind of broken.
         """
-        return self._worker is not None
+        return self._worker is not None or bool(self._external)
 
     def refresh_totals(self, store: Any, settings: Any = None) -> None:
         """Read the index summary in a worker and paint it.
@@ -261,9 +294,29 @@ class IndexingView(QWidget):
         if self._worker is not None:
             self._stopping = True
             self._worker.stop()
-            self.headline.setText("Stopping after the current file…")
-            self.detail.setText("Everything indexed so far is kept.")
-            self.stop_button.setEnabled(False)
+        elif self._external:
+            # **A run this window did not start.** The two processes share
+            # nothing but the database, so the request goes there and the runner
+            # picks it up at its next checkpoint. A request rather than a kill:
+            # terminating it would leave the vector store mid-write, which is
+            # the one thing the lock exists to prevent.
+            self._stopping = True
+            self.stop_requested_externally.emit()
+        else:
+            return
+        self.headline.setText("Stopping after the current file…")
+        self.detail.setText("Everything indexed so far is kept.")
+        self.stop_button.setEnabled(False)
+
+    def show_external(self, record: Any, *, locked: bool) -> None:
+        """Draw a run this window did not start. See `widgets.external_run`.
+
+        One line here because the view is at its length guard and because the
+        decisions - is this record live, whose run is it, what does the bar read
+        - are all testable without Qt and belong beside the presenter rules they
+        use rather than in a widget tree.
+        """
+        paint_external(self, record, locked=locked)
 
     def _on_progress(self, stats: Any) -> None:
         # See `presenter.progress_for` for both bugs this has had: the numerator
@@ -288,8 +341,14 @@ class IndexingView(QWidget):
         self.show_notices(getattr(stats, "notices", ()))
 
     def _on_finished(self, stats: Any) -> None:
+        # **Only a run that reached the end is full.** `pipeline.run` returns
+        # normally after a Stop and after the governor aborts, so this painted a
+        # complete green bar over a run stopped at 3% - next to a headline
+        # saying it had been stopped, so the panel contradicted itself. The same
+        # fault was found and fixed in `_on_failed` and not here.
+        finished_whole = not self._stopping and not getattr(stats, "stopped_early", None)
         self.bar.setRange(0, 1)
-        self.bar.setValue(1)
+        self.bar.setValue(1 if finished_whole else 0)
         headline, detail = finished_text(stats)
         self.headline.setText(headline)
         self.detail.setText(detail)

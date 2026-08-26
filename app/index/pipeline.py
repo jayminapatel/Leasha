@@ -47,6 +47,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract.base import reads_externally
+from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
@@ -527,6 +528,14 @@ class Pipeline:
         self._plans: tuple[Any, ...] = ()
         #: Monotonic marks for the daily summary line. Set in `run`.
         self._run_started = 0.0
+        #: Wall-clock start, and who started it. `_run_started` is monotonic -
+        #: correct for measuring elapsed time and meaningless to another
+        #: process, which needs a clock it can format as "since 14:02".
+        self._run_started_wall = 0.0
+        #: Named on the published record so a refusal can say who holds the
+        #: lock. Set by the window to `run_lock.GUI`; the default suits the CLI
+        #: and every test that constructs a pipeline directly.
+        self.run_owner = COMMAND_LINE
         self._last_summary = 0.0
         self._stats_ref = IndexStats()
         # Two different meanings, and conflating them cost a silent bug: the
@@ -564,6 +573,7 @@ class Pipeline:
         self._stats_ref = stats          # workers announce the file they are on
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
+        self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
 
@@ -1862,13 +1872,37 @@ class Pipeline:
     # -- guards and bookkeeping ---------------------------------------------
 
     def _checkpoint(self, candidate: Candidate, stats: IndexStats) -> None:
-        """Progress for the UI. The `files` table is what actually resumes."""
+        r"""Progress for the UI. The `files` table is what actually resumes.
+
+        **"For the UI" was aspirational for a long time.** These two keys were
+        written on every checkpoint and read by nothing outside the test suite,
+        so a run started from the command line was invisible to an open window:
+        the bar sat at zero and Start stayed enabled while an index was plainly
+        under way.
+
+        `run_lock.publish` is the half that was missing. It writes a snapshot of
+        the whole `IndexStats` under one key, which the window polls - see
+        `IndexingView._watch_external`. One JSON blob rather than a spread of
+        keys, so a reader in another process cannot catch a half-written set and
+        draw a bar from two different instants.
+        """
         # Two keys, one commit. `set_states` already existed for exactly this
         # and the checkpoint simply was not using it.
         self.store.set_states({
             "cursor:last_path": str(candidate.path),
             "cursor:indexed": str(stats.indexed),
         })
+        publish(self.store, owner=self.run_owner,
+                started_at=self._run_started_wall, stats=stats)
+
+        # **A stop asked for by somebody else.** The Stop button in the window
+        # has to work on this run even when the window did not start it, and the
+        # two processes share nothing but the database. Polled here, between
+        # files, so it is honoured the same way the in-process stop is: finish
+        # what is open, keep everything already written.
+        if stop_requested(self.store):
+            self._log.info("stopping: another process asked this run to stop")
+            self.request_stop()
 
     def _disk_ok(self, stats: IndexStats) -> bool:
         """The only resource check the consumer makes, and it never blocks.

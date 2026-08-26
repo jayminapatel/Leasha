@@ -284,10 +284,22 @@ class IndexWorker(QRunnable):
         self.pipeline.request_stop()
 
     def run(self) -> None:
+        r"""**The run lock is held here, for exactly the length of the run.**
+
+        Not by the window, which is the whole point of splitting it out of
+        `SingleInstance`: a window that is merely open is a reader, and holding
+        a writer's lock for its lifetime is what stopped `app.cli index` from
+        running at all. Taken on this thread rather than on the UI thread so
+        that waiting on it - if the CLI got there first - cannot freeze the
+        window; the failure arrives as an ordinary `failed` signal.
+        """
+        from app.core.run_lock import GUI, IndexRunLock
+
         try:
-            stats = self.pipeline.run(
-                on_progress=lambda payload: _emit(self.signals, "progress", payload)
-            )
+            with IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI):
+                stats = self.pipeline.run(
+                    on_progress=lambda payload: _emit(self.signals, "progress", payload)
+                )
             _emit(self.signals, "finished", stats)
         except Exception as exc:
             error = to_app_error(exc, "ui.index")

@@ -14,6 +14,7 @@ parsing message text.
 from __future__ import annotations
 
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,7 +22,20 @@ from loguru import logger
 
 from app.core.errors import AppError
 
-__all__ = ["setup_logging", "log_app_error", "logger"]
+__all__ = ["setup_logging", "log_app_error", "logger", "recent_lines",
+           "RECENT_LIMIT"]
+
+#: How many recent lines are kept in memory for the debug pane in Settings.
+#:
+#: **This exists because the console is going away.** `leasha.cmd` launches the
+#: window with `pythonw.exe`, which has no console at all - so the running
+#: commentary that used to appear in a terminal has nowhere to go, and a person
+#: whose index looks stuck has nothing to look at. The file log has always had
+#: everything, but "open the logs folder and find today's file" is not an answer
+#: somebody reaches for while wondering whether the application has hung.
+#:
+#: A few hundred lines is nothing in memory and covers minutes of an index run.
+RECENT_LIMIT = 300
 
 _CONSOLE_FORMAT = (
     "<green>{time:HH:mm:ss}</green> "
@@ -37,6 +51,29 @@ _FILE_FORMAT = (
 )
 
 _configured = False
+
+#: The ring the debug pane reads. Written by a loguru sink, so it holds exactly
+#: what the file log holds, formatted the same way.
+_recent: deque = deque(maxlen=RECENT_LIMIT)
+
+
+def _remember(message: Any) -> None:
+    """A loguru sink that keeps the line rather than writing it anywhere.
+
+    **Never raises.** A sink that throws takes the logging system with it, and
+    losing the log is how a diagnosable problem becomes an undiagnosable one.
+    """
+    try:
+        _recent.append(str(message).rstrip("\n"))
+    except Exception:                            # noqa: BLE001
+        return
+
+
+def recent_lines(limit: int = 50) -> list[str]:
+    """The last `limit` log lines, oldest first. For the debug pane."""
+    if limit <= 0:
+        return []
+    return list(_recent)[-int(limit):]
 
 
 #: Everything under logs/ has a fixed home, so troubleshooting is a matter of
@@ -123,13 +160,31 @@ def setup_logging(
     # always exist. Binding defaults here means no call site has to remember.
     logger.configure(extra={"component": "app", "error_code": "-"})
 
+    # **`sys.stderr` is `None` under `pythonw.exe`.** The window is launched
+    # with it now, so there is no console to write to - and `logger.add(None)`
+    # is not a no-op, it is a failure that takes the whole logging setup with
+    # it. Guarded rather than removed, because the CLI still has a console and
+    # the running commentary is most of what makes it usable.
+    if sys.stderr is not None:
+        logger.add(
+            sys.stderr,
+            level=console_level,
+            format=_CONSOLE_FORMAT,
+            colorize=True,
+            backtrace=False,   # the AppError carries the detail; keep the console readable
+            diagnose=False,    # never print local variables to a console: they leak file contents
+        )
+
+    # The in-memory ring the debug pane reads. Added before the file sink so a
+    # failure to create the log directory still leaves something to look at -
+    # which is exactly the situation somebody would be trying to diagnose.
     logger.add(
-        sys.stderr,
-        level=console_level,
+        _remember,
+        level=file_level,
         format=_CONSOLE_FORMAT,
-        colorize=True,
-        backtrace=False,   # the AppError carries the detail; keep the console readable
-        diagnose=False,    # never print local variables to a console: they leak file contents
+        colorize=False,
+        backtrace=False,
+        diagnose=False,
     )
 
     dirs = ensure_log_dirs(log_dir)

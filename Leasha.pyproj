@@ -365,6 +365,7 @@
     <Content Include="assets\leasha-tray.ico" />
     <Content Include="assets\leasha.ico" />
     <Content Include="config\extractors.toml" />
+    <Content Include="config\settings.json" />
     <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
