@@ -31,6 +31,7 @@ from app.core.identifiers import expand_term, has_case_boundary
 
 # Re-exported below. Imported here rather than mid-file so the import block is
 # the import block.
+from app.search.wildcards import needs_expansion
 from app.storage.filters import MAIL_KINDS
 
 __all__ = [
@@ -76,10 +77,40 @@ _OPERATOR = re.compile(
     re.IGNORECASE,
 )
 _PHRASE = re.compile(r'"([^"]*)"')
+#: Two or more stars together mean nothing more than one does.
+_STAR_RUN = re.compile(r"\*{2,}")
 # Unicode-aware word run. Keeps intra-word . _ - ' so that "v1.2", "some_file" and
 # "o'brien" survive as single terms; strips emoji and punctuation, which are not
 # indexed and would only ever be FTS5 syntax errors waiting to happen.
-_TERM = re.compile(r"[^\W_]+(?:[._'\-][^\W_]+)*\*?", re.UNICODE)
+#
+# **Leading and trailing underscores are part of the word.** `[^\W_]` excludes
+# underscore and the continuation required a word character *after* each
+# separator, so an underscore only survived between two letters:
+#
+#     DF_1234      -> DF_1234     correct
+#     DF_          -> DF          the anchor silently gone
+#     __init__.py  -> init, py    both leading underscores lost
+#
+# From `WORKORDER-202626081059-search-quality.md` F4. It matters more since this
+# application went from 34 source types to 405: `__init__`, `_private`, `DF_`
+# and `SNAKE_CASE_` prefixes are exactly what somebody types into a code search,
+# and the answer they got was a search for something else.
+#
+# Underscore is a word character here, with a lookahead demanding at least one
+# character that is not one. That keeps `__init__.py` whole - wrapping the old
+# pattern in `_*` did not, because the trailing `_*` swallowed the underscores
+# before `.py` could attach as a continuation, giving `__init__` and `py` as two
+# terms - while still refusing `_` and `___`, which are punctuation rather than
+# words and would otherwise put separator runs into the term list.
+# **Wildcards are part of the term, not punctuation between terms.** `*` and `?`
+# used to be dropped on the floor here, so `*voice` reached the expression as
+# `"voice"` - a wildcard search that silently became an ordinary one and
+# returned plausible results for the wrong question - and `inv?ice` split into
+# `inv` and `ice`, two unrelated words. See `app/search/wildcards.py`.
+#
+# The lookahead still demands one real letter or digit, so `*`, `??` and `___`
+# remain punctuation rather than becoming terms that match everything.
+_TERM = re.compile(r"(?=[\w?*]*[^\W_])[\w?*]+(?:[.'\-][\w?*]+)*", re.UNICODE)
 
 
 # type:doc should find .doc and .docx; the user is naming a kind, not an extension.
@@ -172,6 +203,15 @@ class ParsedQuery:
     #: with OR so a description need not match every word; an explicit AND is a
     #: direct instruction and overrides that.
     explicit_and: bool = False
+    #: `wildcard term -> the real indexed terms it matched`.
+    #:
+    #: **Filled after parsing, by `wildcards.expand`, because it needs the
+    #: store.** Parsing stays pure - it cannot know what words a corpus
+    #: contains - so a `*voice` survives the parse as itself and is replaced by
+    #: `("invoic" OR "voic")` when the expression is built. A tuple of pairs
+    #: rather than a dict, so `ParsedQuery` stays frozen and hashable.
+    expansions: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
     #: True for `has:attachment`, False for `has:no-attachment`, None when the
     #: person did not say. Three states, because "did not ask" and "asked for
     #: none" are different searches and a bool cannot tell them apart.
@@ -215,8 +255,16 @@ class ParsedQuery:
 
     @property
     def embed_text(self) -> str:
-        """What to hand the embedding model. Operators are noise to a dense model."""
-        return " ".join([*self.phrases, *self.terms]).strip()
+        r"""What to hand the embedding model. Operators are noise to a dense model.
+
+        **Wildcards come out.** `*voice` is not a sentence, and a dense model
+        handed a star produces a vector for a star - so the stars go and the
+        words stay, which is the closest thing to what the person meant. The
+        keyword half is where a wildcard means something.
+        """
+        from app.search.wildcards import strip_wildcards
+
+        return strip_wildcards(" ".join([*self.phrases, *self.terms])).strip()
 
     def fts_match(self, *, prefix_last: bool = False) -> str:
         """FTS5 MATCH expression. Guaranteed parseable or empty."""
@@ -419,7 +467,12 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         negative = (chunk.startswith("-") and len(chunk) > 1) or pending_not
         pending_not = False
         for token in _TERM.findall(chunk):
-            token = token.rstrip("*") if token.count("*") > 1 else token
+            # **Runs of stars collapse; two stars in different places do not.**
+            # This used to strip every trailing `*` from any token holding more
+            # than one, which turned `*a*` into `*a` and `*voice*` into
+            # `*voice` - quietly changing a "contains" pattern into an "ends
+            # with" one. `**` is still nonsense and still collapses.
+            token = _STAR_RUN.sub("*", token)
             key = token.lower()
             if not key or key.strip("*") == "":
                 continue
@@ -566,6 +619,40 @@ you your
 AND_TERM_LIMIT = 1
 
 
+#: Words somebody is saying **to** the application, not looking **for**.
+#:
+#: From `WORKORDER-202626081059-search-quality.md` F1. *"find a project execution
+#: plan"* became `"find" OR "project" OR "execution" OR "plan"`, and in an
+#: archive of project documents `find` matches thousands of files and drags the
+#: ranking with it. The word is the owner talking to the search box and it was
+#: being matched against the corpus.
+#:
+#: **Deliberately a second list rather than more `_STOPWORDS`**, and the reason
+#: is in the next function. Every one of these is also a real thing to search
+#: for - "latest version", a file named `Search.md`, "the newest drawing" - so
+#: they may only be dropped while something else remains to search for. A
+#: stopword is never worth searching for alone; one of these frequently is.
+#:
+#: Kept in `terms` for highlighting and in `embed_text` for the vector half, for
+#: the same reason stopwords are: they are noise to BM25 and harmless context to
+#: an embedding.
+_INSTRUCTION_WORDS = frozenset("""
+anything
+biggest
+find
+get
+give
+latest
+looking
+need
+newest
+recent
+search
+show
+want
+""".split())
+
+
 def _content_terms(terms: Sequence[str]) -> list[str]:
     """`terms` without stopwords - unless that would leave nothing.
 
@@ -573,9 +660,20 @@ def _content_terms(terms: Sequence[str]) -> list[str]:
     Dropping every word and returning an empty expression would turn a query
     that finds little into one that finds nothing, which is a worse answer to a
     worse question.
+
+    **Instruction words are dropped in a second pass, and only if the first
+    pass left something.** `find` is noise in *"find the pump report"* and is the
+    entire query in *"find"*; the same word, and the difference is whether
+    anything else survived. Doing it in one pass over a combined set would make
+    a search for `latest` return everything that mentions a date.
     """
     kept = [term for term in terms if term.lower().rstrip("*") not in _STOPWORDS]
-    return kept or list(terms)
+    kept = kept or list(terms)
+    without_instructions = [
+        term for term in kept
+        if term.lower().rstrip("*") not in _INSTRUCTION_WORDS
+    ]
+    return without_instructions or kept
 
 
 def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
@@ -614,7 +712,29 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False) -> str:
     for group in groups:
         content = _content_terms(group)
         quoted_terms: list[str] = []
+        expanded = dict(parsed.expansions)
         for term in content:
+            # **An expanded wildcard becomes one alternative, not many terms.**
+            # Splicing `invoic` and `voic` in as siblings would change what the
+            # AND/OR joiner below means - `pump *voice` would start requiring
+            # both stems rather than either. Rendered as a parenthesised OR, the
+            # group occupies exactly the position the wildcard did.
+            matches = expanded.get(term)
+            if matches is None and needs_expansion(term):
+                # **Dropped, never quietly narrowed to the literal text.** A
+                # wildcard nothing expanded is a wildcard whose answer is not
+                # known - on the interim tier, or with no store - and searching
+                # for `voice` when `*voice` was typed is the whole defect.
+                # The caller says so; see `SearchResponse.notices`.
+                continue
+            if matches is not None:
+                quoted_matches = [q for q in (_fts_quote(m) for m in matches) if q]
+                if quoted_matches:
+                    quoted_terms.append("(" + " OR ".join(quoted_matches) + ")")
+                # No matches means no results - never a fallback to the literal
+                # text. Quietly searching for something else is the defect this
+                # whole feature exists to remove.
+                continue
             if prefix_last and term == last_term and not term.endswith("*"):
                 term = term + "*"
             quoted = _fts_quote(term)

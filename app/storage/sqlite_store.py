@@ -808,6 +808,78 @@ class SqliteStore:
             return []
         return [dict(row) for row in rows]
 
+    def vocabulary_terms(
+        self, pattern: str, *, limit: int = 200
+    ) -> list[str]:
+        r"""Indexed terms matching a `LIKE` pattern, commonest first.
+
+        Reads `chunks_vocab` - an `fts5vocab` view over the term dictionary
+        `chunks_fts` already keeps, so this holds no rows of its own and cost no
+        disk to create. See migration 11.
+
+        **Ordered by document frequency**, which is what makes the caller's cap
+        defensible: when more terms match than may be used, the ones kept are
+        the words the corpus actually contains rather than an alphabetical
+        slice ending at `ab`.
+
+        `ESCAPE '\'` is not optional - `like_pattern` escapes a literal `%` or
+        `_` the person typed, and without the clause SQLite would read the
+        backslash as an ordinary character and the escape as part of the search.
+
+        Returns `[]` when the vocabulary is missing, which is an index built
+        before migration 11 on a database that could not create it. That costs
+        wildcards and nothing else.
+        """
+        try:
+            rows = self.conn.execute(
+                r"""SELECT term FROM chunks_vocab
+                    WHERE term LIKE ? ESCAPE '\'
+                    ORDER BY doc DESC, term
+                    LIMIT ?""",
+                (str(pattern), max(1, int(limit))),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            _log.debug("vocabulary lookup unavailable: {}", exc)
+            return []
+        return [str(row["term"]) for row in rows]
+
+    def fts_stem(self, word: str) -> str:
+        r"""What FTS5 stores for one word. `""` if it stores nothing.
+
+        **Asked of SQLite rather than reimplemented**, and that is the whole
+        point of this method existing at all. `chunks_fts` uses
+        `porter unicode61`, so the stored form of *voice* is `voic` and a
+        wildcard matched against the vocabulary has to be stemmed to meet it. A
+        second Porter implementation in Python would agree with this one until
+        the day it did not, and that day would present as a wildcard quietly
+        matching nothing.
+
+        A scratch FTS5 table with the same tokenizer, one insert, one read.
+        `TEMP` so it never touches the index file, and reused across calls
+        because creating it per query would cost more than the lookup it serves.
+        """
+        text = str(word or "").strip()
+        if not text:
+            return ""
+        try:
+            if not getattr(self, "_stem_ready", False):
+                self.conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_probe "
+                    "USING fts5(text, tokenize='porter unicode61')")
+                self.conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_probe_v "
+                    "USING fts5vocab('stem_probe', 'row')")
+                self._stem_ready = True
+            self.conn.execute("DELETE FROM temp.stem_probe")
+            self.conn.execute(
+                "INSERT INTO temp.stem_probe(text) VALUES (?)", (text,))
+            row = self.conn.execute(
+                "SELECT term FROM temp.stem_probe_v LIMIT 1").fetchone()
+        except sqlite3.Error as exc:
+            _log.debug("could not stem {}: {}", text, exc)
+            return ""
+        return str(row["term"]) if row else ""
+
     def browse_files(
         self,
         parsed: Any,

@@ -43,6 +43,7 @@ from app.search.rerank import Reranker
 __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
     "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
+    "NOTICE_WILDCARD",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -130,6 +131,10 @@ class SearchResult:
 NOTICE_NO_VECTORS = "NOTICE_NO_VECTORS"
 NOTICE_UNMATCHED_TERMS = "NOTICE_UNMATCHED_TERMS"
 NOTICE_RERANK_UNAVAILABLE = "NOTICE_RERANK_UNAVAILABLE"
+#: What a wildcard turned into - how many terms, whether it was capped, and
+#: whether stemming widened it. **The deliverable of the wildcard feature**, not
+#: decoration: an expansion nobody can see is the silence it was built to fix.
+NOTICE_WILDCARD = "NOTICE_WILDCARD"
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,12 @@ class SearchEngine:
         self.log_usage = log_usage
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="search")
         self._closed = False
+        #: Wildcard pattern -> `Expansion`, for this session.
+        #:
+        #: Somebody refining a query re-runs the same wildcard repeatedly, and
+        #: the vocabulary cannot change underneath it without an index write -
+        #: which bumps the generation and clears the result cache in any case.
+        self._wildcard_cache: dict = {}
 
     @property
     def closed(self) -> bool:
@@ -326,6 +337,14 @@ class SearchEngine:
 
         mark = time.perf_counter()
         parsed = parse_query(raw).scoped(scope)
+        # **Wildcards are resolved here, not in the parser.** Parsing is pure and
+        # cannot know what words a corpus holds; `*voice` therefore survives the
+        # parse as itself and is turned into the terms the index actually
+        # contains by a lookup over `chunks_vocab`. Paid only when a wildcard is
+        # present - `expansions` is empty for every ordinary search, and the
+        # expression built from it is byte-identical to what it was before this
+        # existed.
+        parsed, wildcards = self._expand_wildcards(parsed)
         timings["parse"] = (time.perf_counter() - mark) * 1000
 
         if not parsed.has_text and not parsed.has_filters:
@@ -388,7 +407,14 @@ class SearchEngine:
         # distinctive word is absent quietly becomes a search for its most
         # common words - twenty confident, irrelevant results and nothing to
         # explain them. One indexed lookup per word, on the full tier only.
-        unmatched = keyword.unmatched_terms(self.store, parsed.terms)
+        # **A wildcard is not a word, so it is never "not in the index".**
+        # `unmatched_terms` asks whether each term appears in the corpus, and
+        # `*voice` never does - the words it matched do. Reporting the pattern
+        # as missing beside a notice saying it matched two terms is the two
+        # halves of the feature contradicting each other on screen.
+        expanded_patterns = {pattern for pattern, _terms in parsed.expansions}
+        unmatched = keyword.unmatched_terms(self.store, tuple(
+            term for term in parsed.terms if term not in expanded_patterns))
 
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
@@ -399,13 +425,34 @@ class SearchEngine:
         if unmatched:
             _log.info("no document contains: {}", ", ".join(unmatched))
         notices: list[Notice] = []
+        # **First, because it explains the rest.** A capped or approximate
+        # expansion changes what every number below it means, and the defect
+        # this feature exists to remove is silence about exactly that.
+        notices.extend(
+            Notice(NOTICE_WILDCARD, found.message()) for found in wildcards)
         if unmatched:
             notices.append(Notice(
                 NOTICE_UNMATCHED_TERMS,
                 "Not in the index: " + ", ".join(unmatched)
                 + ". Results match the remaining words only.",
             ))
-        if keyword_hits and not vector_hits:
+        # **Only when the vector half was actually asked a question.**
+        #
+        # `vector.search()` returns `[]` for three reasons and two of them are
+        # entirely normal: there was nothing to embed - a filter-only query like
+        # `type:pdf` has no free text - or the filters excluded everything. The
+        # warning fired on all three, and the owner's log holds **sixty
+        # occurrences, every one a false alarm**: the store held 38,986 vectors
+        # of 39,306 chunks, and the two lines that mark a real failure,
+        # `query embedding failed` and `ANN search failed`, have never appeared
+        # in any log.
+        #
+        # A warning that is wrong sixty times out of sixty trains everybody to
+        # ignore it, and this one guards a genuine failure mode. So it now
+        # requires the two conditions that make silence surprising: something
+        # was embedded, and the filters left something to find.
+        asked_the_vector_half = bool(parsed.embed_text.strip())
+        if keyword_hits and not vector_hits and asked_the_vector_half:
             # Worth a line in the log every time. Meaning-based search returning
             # nothing while keyword search returns plenty is not a normal state -
             # it means the vector store is empty, the embedder failed, or a
@@ -427,6 +474,12 @@ class SearchEngine:
                 "keyword matches only. Run `app.cli stats` to check the "
                 "vector store, and `app.cli reembed` to rebuild it.",
             ))
+        elif keyword_hits and not vector_hits:
+            # The ordinary cases, at DEBUG. Recorded rather than dropped so the
+            # log can still answer "why were there no vector hits" - it simply
+            # no longer shouts about it.
+            _log.debug(
+                "no vector hits and nothing to embed - a filter-only query")
         if want_rerank and not reranked and self.reranker is not None:
             notices.append(Notice(
                 NOTICE_RERANK_UNAVAILABLE,
@@ -440,6 +493,33 @@ class SearchEngine:
 
         response.search_id = self._log_search(raw, parsed, response, want_rerank)
         return response
+
+    def _expand_wildcards(self, parsed: ParsedQuery) -> tuple[ParsedQuery, list]:
+        r"""Turn `*voice` into the terms the index actually holds.
+
+        Returns the query with `expansions` filled and the findings to report.
+        **Never raises**, and returns the query untouched when no term carries a
+        wildcard - which is almost every search, and the reason this costs
+        nothing to have.
+
+        The cache is per engine and therefore per session, keyed on the pattern:
+        somebody refining a query re-runs the same wildcard repeatedly, and the
+        vocabulary cannot change under it without an index write, which bumps
+        the generation and clears the result cache anyway.
+        """
+        from app.search.wildcards import expand, needs_expansion
+
+        patterns = [term for term in parsed.terms if needs_expansion(term)]
+        if not patterns:
+            return parsed, []
+
+        found = []
+        expansions: list[tuple[str, tuple[str, ...]]] = []
+        for pattern in patterns:
+            expansion = expand(self.store, pattern, cache=self._wildcard_cache)
+            found.append(expansion)
+            expansions.append((pattern, expansion.terms))
+        return replace(parsed, expansions=tuple(expansions)), found
 
     # -- opening a result ---------------------------------------------------
 

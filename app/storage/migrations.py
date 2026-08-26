@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
+from app.core.logging import logger
+
+_log = logger.bind(component="storage.migrations")
 
 __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
            "trigram_available"]
@@ -28,7 +31,7 @@ __all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
-CURRENT_VERSION = 10
+CURRENT_VERSION = 11
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -537,6 +540,34 @@ def _v10_name_only_status(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _v11_wildcard_vocabulary(conn: sqlite3.Connection) -> None:
+    r"""A view over the terms FTS5 already stores, for wildcard expansion.
+
+    From `docs/WORKORDER-202626081106-wildcards.md` §3.1. `fts5vocab` is not an
+    index and holds no rows of its own: it reads `chunks_fts`'s existing term
+    dictionary. **So an index built before this migration gains it instantly** -
+    no rebuild, nothing rewritten, no extra disk. Anything requiring a re-index
+    at 600GB is the wrong answer to a rare query.
+
+    The `'row'` form gives `term`, `doc` and `cnt`. `doc` is what orders the
+    expansion, so when the 200-term cap bites it is the commonest real words
+    that survive rather than an arbitrary alphabetical slice.
+
+    Guarded rather than assumed: `chunks_fts` is created by `schema.sql`, but a
+    database recovered from a partial write may not have it, and a migration
+    that raises leaves an index nobody can open. A missing vocabulary costs
+    wildcards and nothing else - `vocabulary_terms` reports it and the ordinary
+    search path never touches this table.
+    """
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab "
+            "USING fts5vocab('chunks_fts', 'row')"
+        )
+    except sqlite3.Error as exc:
+        _log.warning("wildcard vocabulary unavailable: {}", exc)
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -558,6 +589,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     8: _v8_mail_header_index,
     9: _v9_forget_dragged_column_widths,
     10: _v10_name_only_status,
+    11: _v11_wildcard_vocabulary,
 }
 
 
