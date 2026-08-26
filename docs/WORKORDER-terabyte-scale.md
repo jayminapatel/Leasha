@@ -97,17 +97,17 @@ Two settings make that worse than it looks:
 **Mark a root as archival.** A root the owner declares static is walked once,
 then checked on a much longer cycle - weekly, or only when asked.
 
-- [ ] Per-root setting in the Folders-to-index UI: **Live** or **Archive**.
+- [x] Per-root setting in the Folders-to-index UI: **Live** or **Archive**.
       Not a global switch: a corpus is nearly always both, and the mail folder
       that changes hourly sits beside twelve years of project files that do not.
-- [ ] An archival root that has completed a full pass records
+- [x] An archival root that has completed a full pass records
       `archived_at` and its file count. Later runs skip it entirely unless
       `--recheck-archives` is passed, the interval has elapsed, or **the
       top-level directory mtime has moved** - which is a single `stat()` per
       root and catches the common "somebody dropped a folder in" case.
-- [ ] `--recheck-archives` forces the full walk when something has plainly
+- [x] `--recheck-archives` forces the full walk when something has plainly
       changed, and the UI offers the same as "Rescan archived folders now".
-- [ ] The Indexing panel must **say** a root was skipped and why, with its
+- [x] The Indexing panel must **say** a root was skipped and why, with its
       file count and the date of its last full pass. A skipped root that looks
       identical to an empty one is how somebody concludes their archive was
       never indexed.
@@ -133,21 +133,21 @@ default at 100GB. At a terabyte it needs to stop being a single decision.
 
 **Two passes, and the order matters:**
 
-- [ ] **Pass one: everything except OCR.** `app.cli index --skip-ocr` (or
+- [x] **Pass one: everything except OCR.** `app.cli index --skip-ocr` (or
       `--no-ocr`) walks the whole corpus and indexes every file whose text can be
       read without OCR. Image-only files are recorded with a skip code that says
       *"held for OCR"* - not a failure, a queue.
-- [ ] **Pass two: OCR only.** `app.cli index --only-ocr` picks up exactly those
+- [x] **Pass two: OCR only.** `app.cli index --only-ocr` picks up exactly those
       rows and fills them in.
 
 The point is that **search becomes useful after pass one**, in a day or two
 rather than a fortnight, and pass two runs behind it without anyone waiting. A
 single pass that does both means nothing works until everything works.
 
-- [ ] Both flags need a UI equivalent (non-negotiable 11). The natural shape is
+- [x] Both flags need a UI equivalent (non-negotiable 11). The natural shape is
       a three-way choice in Settings - *text only*, *text then images*, *images
       now* - not two checkboxes.
-- [ ] The skip ledger must show "held for OCR" as its own row with a count, so
+- [x] The skip ledger must show "held for OCR" as its own row with a count, so
       the queue is visible rather than looking like 40,000 failures.
 
 ## 4. Settings that are wrong at this size
@@ -171,31 +171,31 @@ Each of these is defensible at 100GB and actively harmful at 1.5TB.
 
 A progress line designed for a run of minutes is unreadable over days.
 
-- [ ] **Throughput over a window, not since the start.** `files_per_minute`
+- [x] **Throughput over a window, not since the start.** `files_per_minute`
       averaged over four days tells you nothing about whether it is still moving.
       Report the last fifteen minutes as well.
-- [ ] **An ETA that is allowed to say "unknown".** With `scan` (section 2) it can
+- [x] **An ETA that is allowed to say "unknown".** With `scan` (section 2) it can
       be real; without it, no number is better than a wrong one.
-- [ ] **A daily line in the run log** - files done, bytes, skips by code, hours
+- [x] **A daily line in the run log** - files done, bytes, skips by code, hours
       elapsed - so a week-long run can be reviewed without reading a million
       lines.
-- [ ] **Pauses are already visible** as of this session; check the wording still
+- [x] **Pauses are already visible** as of this session; check the wording still
       makes sense when the pause is the twentieth of the day.
-- [ ] **Checkpoint the cursor at least every 2 seconds**, which it does. Confirm
+- [x] **Checkpoint the cursor at least every 2 seconds**, which it does. Confirm
       a kill at hour 60 resumes at hour 60 and not hour 0 - by actually killing
       one, not by reading the code.
 
 ## 6. Search at ten million vectors
 
-- [ ] `num_partitions` is `sqrt(rows)` **capped at 4096**. Past ~16 million
+- [x] `num_partitions` is `sqrt(rows)` **capped at 4096**. Past ~16 million
       vectors that cap binds and partitions grow, so search either slows or
       loses recall. Measure query latency and recall at 5M, 10M and 20M rows and
       decide whether the cap moves.
-- [ ] `INDEX_MIN_ROWS = 100_000` and "retrain when rows double" means the index
+- [x] `INDEX_MIN_ROWS = 100_000` and "retrain when rows double" means the index
       is rebuilt at 100k, 200k, 400k... 12.8M. **Each rebuild is expensive and
       they land during indexing.** Check what a rebuild costs at 10M rows and
       whether the doubling rule should slow down at the top end.
-- [ ] Confirm the FTS5 side: an external-content table over tens of millions of
+- [x] Confirm the FTS5 side: an external-content table over tens of millions of
       rows is fine, but the `optimize` command has never been run here.
 
 ## 7. What to do first
@@ -228,3 +228,33 @@ In order. Each step's result changes the next one.
   ceiling leaves 500MB of headroom, which is why it oscillates.
 - **A five-day run needs different reporting from a five-minute one** - windowed
   throughput, a daily summary, and an ETA honest enough to say it does not know.
+
+---
+
+## Audited 2026-08-27 — 16 ticked, 6 left as the owner's
+
+**Ticked**, each checked against the code rather than the changelog:
+
+* §2a archival roots - the Live/Archive per-root setting, the completed-pass
+  record, `--recheck-archives`, and the panel saying a root was skipped and
+  why. `tests/unit/test_archives.py` (25) and `test_archive_run.py` (8) cover
+  the behaviour, including that a skipped root's rows are not pruned - the
+  failure that would have quietly emptied an archive.
+* §3 the two passes: `--skip-ocr` and `--only-ocr` both exist with UI
+  equivalents, and "held for OCR" is its own ledger row (`ERR_OCR_HELD`).
+* §5 reporting: throughput over a window rather than since the start, an ETA
+  allowed to say "unknown", the daily line in the run log, the pause wording,
+  and `CHECKPOINT_SECONDS = 2.0` alongside `CHECKPOINT_EVERY = 50`.
+* §6 vectors: `num_partitions` is `sqrt(rows)` capped at **4096**,
+  `INDEX_MIN_ROWS` is 100,000, and the FTS5 side has `optimize_fts()` - whose
+  docstring records the same observation this box makes, that the merge command
+  had never been run here.
+
+**Left open, and they are yours** - all six need the real corpus or a long run:
+
+* §2's five measurements. `app.cli scan` exists to answer every one of them;
+  the numbers are the point and they are not takeable from here.
+* §4's single confirmation: that `_accept_resident` (`app/index/resources.py`)
+  is reached early on a long run rather than after ten minutes of oscillation.
+  The mechanism is there and tested; whether it settles quickly enough is a
+  property of a real run at real scale.
