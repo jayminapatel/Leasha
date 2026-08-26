@@ -129,6 +129,19 @@ _like_escape = like_escape
 VALUE_SAMPLE = 20_000
 
 
+class ValueCount(NamedTuple):
+    """One row of a value menu: what it is, how many, and whether that is true.
+
+    `exact` is False when the number came from a sample - see `VALUE_SAMPLE`.
+    It exists because the alternative is a menu that states a count it cannot
+    stand behind, and this project's rule is that a label says what is so.
+    """
+
+    value: str
+    count: int
+    exact: bool = True
+
+
 class _ValueShape(NamedTuple):
     """One row of the value catalogue `distinct_values` offers.
 
@@ -2169,6 +2182,13 @@ class SqliteStore:
 
     def distinct_values(self, kind: str, *, prefix: str = "",
                         limit: int = 40, within: Any = None) -> list[str]:
+        """Just the values. See `distinct_value_counts` for the numbers."""
+        return [row.value for row in self.distinct_value_counts(
+            kind, prefix=prefix, limit=limit, within=within)]
+
+    def distinct_value_counts(self, kind: str, *, prefix: str = "",
+                              limit: int = 40,
+                              within: Any = None) -> list["ValueCount"]:
         """Values actually present in the index, commonest first.
 
         What `/type`, `/from`, `/path` and `/repo` offer once somebody has
@@ -2227,8 +2247,18 @@ class SqliteStore:
                    f"GROUP BY {shape.group} ORDER BY n DESC, v LIMIT ?")
 
         rows = self.conn.execute(
-            sql, (f"%{escaped}%", *params, max(1, int(limit))))
-        return [str(row["v"]) for row in rows]
+            sql, (f"%{escaped}%", *params, max(1, int(limit)))).fetchall()
+        counted = [(str(row["v"]), int(row["n"])) for row in rows]
+
+        # **Exact unless the sample was spent.** An unscoped query counts every
+        # row, so its numbers are the corpus's. A scoped one counts the first
+        # `VALUE_SAMPLE`, and when that ceiling is reached the numbers are a
+        # fraction of the truth - `pdf 200 files` for a corpus holding 5,000 of
+        # them. A label that is wrong by a factor of twenty-five is worse than
+        # no label, so the caller is told which it has rather than left to
+        # guess; `2b` shows the count only when it is exact.
+        exact = not where or sum(n for _v, n in counted) < VALUE_SAMPLE
+        return [ValueCount(value, n, exact) for value, n in counted]
 
     # -- indexing state ------------------------------------------------------
 

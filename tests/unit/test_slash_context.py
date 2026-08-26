@@ -148,7 +148,7 @@ def test_a_scoped_query_is_bounded_by_the_sample(store) -> None:
     avoids is the grouping, and grouping happens in the database."""
     import inspect
 
-    source = inspect.getsource(SqliteStore.distinct_values)
+    source = inspect.getsource(SqliteStore.distinct_value_counts)
     assert "LIMIT {VALUE_SAMPLE}" in source
     assert "if where:" in source, (
         "the sample must apply to the scoped shape only; the unscoped one was "
@@ -372,3 +372,62 @@ def test_a_store_without_the_new_argument_still_offers_its_values() -> None:
 
     found = value_suggestions(OldStore(), "type", "")
     assert found[:2] == ["pdf", "docx"]
+
+
+# --- 2a: the counts are free, and they say whether they are true ------------
+
+
+def test_the_counts_come_back_with_the_values(store) -> None:
+    """It is already a GROUP BY; the count costs nothing to return."""
+    from app.storage.sqlite_store import ValueCount
+
+    rows = store.distinct_value_counts("ext")
+
+    assert rows[0] == ValueCount("pdf", 3, True)
+    assert [row.value for row in rows] == store.distinct_values("ext")
+
+
+def test_an_unscoped_count_is_exact(store) -> None:
+    assert all(row.exact for row in store.distinct_value_counts("ext"))
+
+
+def test_a_scoped_count_under_the_sample_is_still_exact(store) -> None:
+    """Most real scopes - one repository, one folder - are far under the
+    ceiling, so the ordinary case keeps a number it can stand behind."""
+    from app.search.query import parse_query
+
+    rows = store.distinct_value_counts("ext", within=parse_query("path:work"))
+
+    assert rows
+    assert all(row.exact for row in rows)
+
+
+def test_a_count_taken_from_a_spent_sample_says_it_is_not_exact(
+    tmp_path
+) -> None:
+    r"""**The label has to be able to stand behind its number.**
+
+    A scoped menu counts the first `VALUE_SAMPLE` matching rows. When that
+    ceiling is reached the numbers are a fraction of the truth - `pdf 200
+    files` for a corpus holding five thousand - and a label wrong by a factor
+    of twenty-five is worse than no label. `2b` shows the count only when this
+    is True.
+    """
+    from app.search.query import parse_query
+    from app.storage.sqlite_store import SqliteStore, VALUE_SAMPLE
+
+    with SqliteStore(tmp_path / "big.db") as big:
+        big.conn.execute("BEGIN IMMEDIATE")
+        big.conn.executemany(
+            "INSERT INTO files (path, parent_dir, ext, size_bytes, mtime_ns, "
+            "status, source_kind) VALUES (?, 'C:/w', 'pdf', 1, 1, 'INDEXED', "
+            "'file')",
+            [(f"C:/w/{i}.pdf",) for i in range(VALUE_SAMPLE + 100)],
+        )
+        big.conn.execute("COMMIT")
+
+        rows = big.distinct_value_counts("ext", within=parse_query("path:w"))
+
+        assert rows
+        assert not rows[0].exact, "a sampled count claimed to be the truth"
+        assert rows[0].count <= VALUE_SAMPLE

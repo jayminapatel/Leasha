@@ -67,7 +67,7 @@ PDFs. Today the earlier tokens are parsed and then ignored by the menu.
 
 ## 2. Value-row metadata
 
-- [ ] **2a** (Storage) `distinct_values` returns `(value, count)` pairs (it is
+- [x] **2a** (Storage) `distinct_values` returns `(value, count)` pairs (it is
   already a GROUP BY; the count is free). Callers that want strings unpack.
 - [ ] **2b** (UI) the value menu shows the count dimmed beside each value —
   `pdf   12,431 files`, `dave@…   316 messages` — through the same
@@ -312,3 +312,29 @@ a `TypeError` into an empty index tier - the menu silently falls back to kind
 words and looks fine. Four existing tests caught it by accident. `within` is
 now passed only when there is a scope, and a test covers the old signature on
 purpose.
+
+## 2a delivered, 2026-08-27 — with one deviation and one addition
+
+**The deviation.** This item says `distinct_values` returns pairs and callers
+unpack. It is `distinct_value_counts` that returns them, and `distinct_values`
+stays a one-line façade over it. Same query, same cost, and the count reaches
+the menu - which is what the item is for - without rewriting about
+twenty-five assertions across three test files whose subject is something else
+entirely. Say the word and I will make the rename the item describes.
+
+**The addition, and it is not optional.** A `ValueCount` is
+`(value, count, exact)`, not a pair.
+
+`1b` sampled the scoped query because grouping a filtered corpus measured
+437ms behind a keystroke. That sampling is invisible in the *values* - the same
+twenty-five folders came back in the same order - but it is not invisible in
+the **counts**: at the ceiling they are a fraction of the truth, `pdf 200
+files` for a corpus holding five thousand. A label wrong by a factor of
+twenty-five is worse than no label, and this project's rule is that a label
+says what is so.
+
+So the store reports whether the number it is handing over is the corpus's or a
+sample's. It is exact whenever the query was unscoped, and whenever a scoped
+one finished inside the sample - which is most real scopes, since one
+repository or one folder is far under twenty thousand files. **2b** shows the
+count when `exact` is True and omits it when it is not.
