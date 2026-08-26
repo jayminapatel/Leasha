@@ -549,3 +549,205 @@ def test_the_cap_leaves_room_for_the_other_columns():
 
     for width in (400, 800, 1280, 1920, 3840):
         assert column_cap(width) < width, width
+
+
+# --- fitting, and the column that could never keep a width ------------------
+
+COLUMNS_3 = [("name", "Name"), ("path", "Folder"), ("size", "Size")]
+AVAILABLE_3 = ("name", "path", "size")
+
+
+def _table(app, *, text: str = "value"):
+    """A laid-out three-column table with something in every cell."""
+    from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+
+    table = QTableWidget(3, 3)
+    table.setHorizontalHeaderLabels([heading for _key, heading in COLUMNS_3])
+    for row in range(3):
+        for column in range(3):
+            table.setItem(row, column, QTableWidgetItem(text))
+    table.resize(900, 300)
+    table.show()
+    app.processEvents()
+    return table
+
+
+def _qt():
+    import pytest
+
+    pytest.importorskip("PyQt6")
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    return app
+
+
+def test_fit_columns_to_contents_actually_measures_again():
+    r"""**The menu item did nothing at all, and the condition is why.**
+
+    `_apply_widths` gated its re-measure on `not FITTED or prefs.widths`. "Fit
+    columns to contents" clears `widths`, so once `FITTED` was set the whole
+    condition was false and the only line that fits anything was skipped. The
+    preference vanished and the columns stayed exactly as dragged - measured on
+    a real table as `[250, 47, 588]` before and `[250, 47, 588]` after.
+
+    Fitting is now an explicit request that clears the flag, rather than a state
+    the restore code has to infer from an empty tuple.
+    """
+    from app.ui.view_options import apply_to_table, button as view_button
+
+    app = _qt()
+    table = _table(app, text="tiny")
+    saved: list = []
+    chooser = view_button(
+        None, None, "", columns=COLUMNS_3, table=table,
+        on_change=lambda prefs: (
+            saved.append(prefs),
+            apply_to_table(table, prefs, columns=COLUMNS_3, available=AVAILABLE_3),
+        ),
+    )
+    chooser.remember_width("name", 250)
+    apply_to_table(table, chooser.prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+    assert table.columnWidth(0) == 250
+
+    chooser.refit()
+
+    assert chooser.prefs.widths == ()
+    assert table.columnWidth(0) < 250, (
+        "Fit columns to contents cleared the saved width and left the column "
+        "at the size it was dragged to")
+
+
+def test_the_menu_calls_the_fit_callback_rather_than_a_plain_change():
+    """The flag lives on the table, which the menu cannot reach - so a menu
+    given no `on_fit` would clear the preference and fit nothing, which is the
+    bug above wearing a different hat."""
+    from app.ui.view_options import ViewPreferences, build_menu
+
+    app = _qt()
+    from PyQt6.QtWidgets import QWidget
+
+    parent = QWidget()                       # held: a temporary is collected
+    asked: list = []
+    menu = build_menu(
+        parent, ViewPreferences(widths=(("name", 250),)), columns=COLUMNS_3,
+        available=AVAILABLE_3, on_change=lambda prefs: asked.append("change"),
+        on_fit=lambda: asked.append("fit"),
+    )
+    fit = [a for a in menu.actions() if "Fit columns" in a.text()]
+    assert fit, "the menu no longer offers Fit columns to contents"
+    fit[0].trigger()
+
+    assert asked == ["fit"]
+
+
+def test_the_last_column_can_keep_a_width_somebody_dragged():
+    r"""**`setStretchLastSection` owns the last column outright.**
+
+    Qt recomputes it on every layout, so a width dragged there was overwritten
+    within the same repaint and a saved one was overwritten on restore. The
+    column simply refused to keep a size - and on a table whose last column is
+    the one worth widening, that is the whole of "it does not remember my
+    columns".
+
+    Stretching is the right default and the wrong override, so it now holds
+    only until somebody takes control.
+    """
+    from app.ui.view_options import ViewPreferences, apply_to_table
+
+    app = _qt()
+    table = _table(app)
+
+    apply_to_table(table, ViewPreferences(), columns=COLUMNS_3, available=AVAILABLE_3)
+    assert table.horizontalHeader().stretchLastSection(), (
+        "a table nobody has dragged should still fill the width")
+
+    dragged = ViewPreferences(widths=(("size", 300),))
+    apply_to_table(table, dragged, columns=COLUMNS_3, available=AVAILABLE_3)
+
+    assert not table.horizontalHeader().stretchLastSection()
+    assert table.columnWidth(2) == 300
+
+
+def test_a_dragged_width_survives_a_relaunch(tmp_path):
+    r"""The whole chain, in the order it happens: drag, save, close, reopen,
+    fill, restore. Every link was verified separately and the report was still
+    *"the column width resets every launch"* - so the chain is asserted whole.
+
+    The mouse button is held for the duration, because that is what
+    `remember_widths` uses to tell a drag from a fit and no offscreen test can
+    hold one down for real.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.view_options import apply_to_table, button as view_button
+
+    app = _qt()
+    held = staticmethod(lambda: Qt.MouseButton.LeftButton)
+    original = QApplication.mouseButtons
+    QApplication.mouseButtons = held
+    try:
+        database = tmp_path / "index.db"
+        first = _table(app)
+        with SqliteStore(database) as store:
+            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                                  on_change=lambda _p: None, table=first)
+            apply_to_table(first, chooser.prefs, columns=COLUMNS_3,
+                           available=AVAILABLE_3)
+            app.processEvents()              # the deferred connect()
+            first.horizontalHeader().resizeSection(1, 320)
+            app.processEvents()              # the deferred record()
+            assert dict(chooser.prefs.widths).get("path") == 320
+
+        second = _table(app)
+        with SqliteStore(database) as store:
+            reopened = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                                   on_change=lambda _p: None, table=second)
+            apply_to_table(second, reopened.prefs, columns=COLUMNS_3,
+                           available=AVAILABLE_3)
+
+        assert dict(reopened.prefs.widths).get("path") == 320
+        assert second.columnWidth(1) == 320
+    finally:
+        QApplication.mouseButtons = original
+
+
+def test_columns_are_measured_once_per_table_not_once_per_fill(monkeypatch):
+    r"""**The other half of the fitting condition, and a cost rather than a bug.**
+
+    `_apply_widths` used to re-measure whenever `prefs.widths` was non-empty -
+    so the moment anybody dragged a single column, every subsequent fill
+    re-fitted every column. On a debounced list that is a full re-layout per
+    keystroke, it fights the drag that produced the preference in the first
+    place, and the comment above it records that it eventually took the process
+    down inside Qt's own layout code.
+
+    Counting the calls rather than the pixels: the widths afterwards are
+    identical either way, which is exactly why this went unnoticed.
+    """
+    from app.ui.view_options import ViewPreferences, apply_to_table
+
+    app = _qt()
+    table = _table(app)
+    calls: list[int] = []
+
+    # **`monkeypatch`, not a try/finally around a class attribute.** Reading
+    # `type(table).resizeColumnsToContents` off a `QTableWidget` yields the
+    # unbound `QTableView` method, and assigning that back onto `QTableWidget`
+    # leaves a binding that raises `first argument of unbound method must have
+    # type 'QTableView'` in every later test that builds one. `monkeypatch`
+    # deletes an attribute it added rather than restoring what it read.
+    monkeypatch.setattr(
+        type(table), "resizeColumnsToContents",
+        lambda self: calls.append(1), raising=False)
+
+    dragged = ViewPreferences(widths=(("name", 250),))
+    for _ in range(4):
+        apply_to_table(table, dragged, columns=COLUMNS_3, available=AVAILABLE_3)
+
+    assert len(calls) == 1, (
+        f"measured {len(calls)} times for four fills - a saved width must not "
+        f"turn every redraw into a full re-fit")

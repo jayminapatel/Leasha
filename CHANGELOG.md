@@ -1,12 +1,47 @@
 # Changelog
 
-**Doc version:** 3.47 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.48 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — column widths, and the menu item that was supposed to restore them
+
+Reported together, and they turned out to be two faults in one file: *"the
+column width of the columns in the tabs reset every launch"* and *"the autofit
+menu function does not work"*.
+
+**"Fit columns to contents" did nothing at all.** `_apply_widths` gated its
+re-measure on `not FITTED or prefs.widths`. The menu item clears `widths` — so
+once a table had fitted itself, the whole condition went false and the one line
+that fits anything was skipped. It cleared the saved preference and left the
+columns exactly as dragged: measured on a real table as `[250, 47, 588]` before
+and `[250, 47, 588]` after. The preference and the screen then disagreed, which
+is worse than either. Fitting is now an explicit request that resets the table's
+own flag, rather than a state the restore code had to infer from an empty tuple.
+
+**The last column could never keep a width.** `setStretchLastSection(True)` was
+unconditional, and Qt recomputes that column on every layout — so a width
+dragged there was overwritten within the same repaint, and a saved one was
+overwritten on restore. On a table whose last column is the one worth widening,
+that is the whole of "it does not remember my columns". Stretching is the right
+default and the wrong override, so it now holds only until somebody takes
+control. `_cap_columns` already made the same exemption; the two now agree.
+
+Also fixed, as a side effect of the same condition: a single dragged column made
+**every** subsequent fill re-measure **every** column — a full re-layout per
+keystroke on a debounced list, fighting the drag that created the preference.
+The widths came out identical either way, which is why it went unnoticed; the
+test counts the calls rather than the pixels.
+
+The remaining unknown is stated rather than guessed at. Whether a real drag on
+Windows reaches the recorder depends on `QApplication.mouseButtons()`, and no
+offscreen test can hold a mouse button down — every link either side of it is
+covered. Both branches now log at DEBUG, so the next run distinguishes "never
+saved" from "saved and then lost".
 
 ### Added — the search box reaches repository history, not just the index
 

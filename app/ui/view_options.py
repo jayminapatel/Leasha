@@ -30,6 +30,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.core.logging import logger
+
+_log = logger.bind(component="ui.view")
+
 __all__ = [
     "load_prefs", "save_prefs", "build_menu", "apply_to_table", "apply_to_tree",
     "button",
@@ -318,12 +322,18 @@ def build_menu(
     available: Sequence[str],
     on_change: Any,
     grouping: bool = False,
+    on_fit: Any = None,
 ) -> Any:
     """The "View" menu: which columns, how tight, how big.
 
     `columns` is `(key, heading)` in canonical order. `on_change` takes the new
     `ViewPreferences` - the caller persists and redraws, because this module
     knows nothing about stores or tables.
+
+    `on_fit` is "somebody asked for the columns to be fitted again". It takes no
+    arguments and is separate from `on_change` because fitting is not a change
+    to the preferences alone: it also has to reset the table's own `FITTED`
+    flag, and only the caller can reach the table.
     """
     from PyQt6.QtGui import QAction, QActionGroup
     from PyQt6.QtWidgets import QMenu, QWidgetAction, QSpinBox, QLabel, QWidget, QHBoxLayout
@@ -432,11 +442,15 @@ def build_menu(
             "Sizes every column to what is in it, and forgets any width you "
             "have dragged.\n\nColumns fit themselves until you drag one; "
             "after that yours is kept.")
+        # **`on_fit`, not `on_change`.** Clearing the widths is only half of
+        # what this item promises; the other half is re-measuring, and that
+        # needs the `FITTED` flag on the table cleared. The table is not
+        # reachable from here, so the caller supplies a function that can do
+        # both - see `button.refit`. Falling back to `on_change` keeps a menu
+        # built without one working exactly as it did.
         fit.triggered.connect(
-            lambda _checked=False: on_change(replace(prefs, widths=())))
-        # The flag lives on the table, and the table is not reachable from
-        # here - clearing the saved widths is what tells `_apply_widths` to
-        # measure again, which is why `prefs.widths` is part of that condition.
+            lambda _checked=False: (on_fit or (
+                lambda: on_change(replace(prefs, widths=()))))())
         menu.addAction(fit)
 
     menu.addSection("Text size")
@@ -503,10 +517,27 @@ def button(
         if on_change is not None:
             on_change(prefs)
 
+    def refit() -> None:
+        """Forget every dragged width and measure the columns again.
+
+        **Both halves, which is what the menu item always promised.** Clearing
+        the preference alone left `_apply_widths` with nothing to do: its
+        re-measure is gated on the table's `FITTED` flag, so the columns stayed
+        exactly as dragged while the setting that produced them disappeared -
+        the preference and the screen disagreeing, which is worse than either.
+        """
+        if table is not None:
+            try:
+                table.setProperty(FITTED, False)
+            except RuntimeError:                 # the C++ side has gone
+                pass
+        changed(replace(widget.prefs, widths=()))
+
     def show(at: Any = None) -> None:
         menu = build_menu(
             widget, widget.prefs, columns=columns,
             available=widget.available, on_change=changed, grouping=grouping,
+            on_fit=refit,
         )
         menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
@@ -535,6 +566,7 @@ def button(
     widget.show_menu = show
     widget.toggle_preview = toggle_preview
     widget.remember_width = remember_width
+    widget.refit = refit
     # **The button owns the preferences, so it owns the wiring that writes
     # them.** Passing the table here rather than making every view call
     # `remember_widths` itself is what keeps this one line instead of four in
@@ -663,6 +695,14 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
                 cap = column_cap(_available_width(table))
                 width = min(int(new), cap) if cap > 0 else int(new)
                 button.remember_width(order[index], width)
+                # **Logged because this is the link that cannot be tested
+                # here.** Everything either side of it is covered - the store
+                # round-trip, the restore, the cap - but whether a real drag on
+                # Windows reaches this line at all depends on Qt's mouse state,
+                # and no offscreen test can hold a mouse button down. One DEBUG
+                # line turns "it does not remember" into a question the run log
+                # answers.
+                _log.debug("column {} width saved as {}", order[index], width)
         except RuntimeError:
             # The table's C++ side went away between the resize and this
             # callback - a tab closing, or shutdown. Nothing to save, and
@@ -683,6 +723,12 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         # window resize with `setStretchLastSection` on, for one. Those hold no
         # mouse button; a drag does.
         if not (QApplication.mouseButtons() & _Qt.MouseButton.LeftButton):
+            # Qt resizing on its own account - a window resize, a theme
+            # re-polish changing font metrics. Recorded at DEBUG rather than
+            # dropped silently, because "the width was never saved" and "the
+            # width was saved and then lost" need different fixes and the log
+            # is what tells them apart.
+            _log.debug("column resize ignored: no button held (section {})", index)
             return
 
         # **Never save from inside the signal, and this one crashed the app.**
@@ -786,7 +832,20 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     # The last visible column takes the slack, so a fitted table has no dead
     # strip on the right - which is what "fit to contents" looks like wrong.
-    header.setStretchLastSection(True)
+    #
+    # **But only while nobody has dragged anything.** `setStretchLastSection`
+    # owns the last column's width outright: Qt recomputes it on every layout,
+    # so a width dragged there is overwritten within the same repaint and a
+    # saved one is overwritten on restore. The column simply refuses to keep a
+    # size, which reads as the whole feature having forgotten - and on a table
+    # whose last column is the one worth widening, that is the entire
+    # experience of it.
+    #
+    # Stretching is the right default and the wrong override, so it holds until
+    # somebody takes control and stops the moment they do. `_cap_columns` makes
+    # the same exemption for the same reason, and now the two agree about when
+    # it applies.
+    header.setStretchLastSection(not prefs.widths)
 
     # **The flag is not tidiness; without it this segfaults.**
     #
@@ -808,7 +867,19 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         # measured here - eventually takes the process down inside Qt's own
         # layout code. The menu's "Fit columns to contents" is how somebody
         # asks for it again, which is the only time they want it.
-        if not table.property(FITTED) or prefs.widths:
+        #
+        # **That menu item did nothing, and this condition is why.** It used to
+        # read `or prefs.widths`, on the reasoning that clearing the saved
+        # widths would ask for a re-measure. It does the opposite: once
+        # `FITTED` is set, an empty `widths` makes the whole condition false, so
+        # "Fit columns to contents" cleared the preference and then skipped the
+        # only line that fits anything. The columns stayed exactly as dragged -
+        # verified on a real table, `[250, 47, 588]` before and after.
+        #
+        # The flag is now cleared by the button before it calls back, which is
+        # the honest expression of "somebody asked for a fit": an explicit
+        # request, not a state the restore code has to infer.
+        if not table.property(FITTED):
             table.resizeColumnsToContents()
             table.setProperty(FITTED, True)
 
