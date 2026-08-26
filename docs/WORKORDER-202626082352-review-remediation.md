@@ -400,3 +400,50 @@ now use `resolve_binary`, the call the application makes: one converts a real
 `.doc`, one holds `available_binaries()` and `resolve_binary` to the same
 answer (H10 in one sentence), and one exercises the Program Files search that
 `shutil.which` can never reach.
+
+## P8 — the measurement, 2026-08-27 (owner's machine)
+
+`app.cli rerank-bench`, first run, models downloading as it went:
+
+| model | size | per search | per passage | load |
+|---|---|---|---|---|
+| **Xenova/ms-marco-MiniLM-L-6-v2** (current) | 0.08 GB | **0.46s** | 15ms | 0.2s |
+| Xenova/ms-marco-MiniLM-L-12-v2 | 0.12 GB | 0.80s | 27ms | 13.7s |
+| jinaai/jina-reranker-v1-tiny-en | 0.13 GB | 0.60s | 20ms | 16.2s |
+| BAAI/bge-reranker-base | 1.04 GB | 5.79s | 193ms | 3.7s |
+
+**Every row came back UNSTABLE**, and `rerank_bench` defines that as a spread
+wider than 25% across three passes, with the comment *"a spread this wide means
+the machine, not the model, was measured"*. 1.4GB was downloading during the
+run - the 13.7s and 16.2s load times are that contamination showing. The
+numbers are indicative, not final; a second run with the models cached takes
+seconds and settles them.
+
+**What the figure already settles.** The current model costs about 460ms per
+search against a **300ms warm budget for the whole search**. Whether the clean
+number is 0.35s or 0.55s does not change the conclusion: reranking cannot sit
+synchronously in front of the first paint. It also retires the old 8.3s figure,
+which was `bge-reranker-base` - still the slowest here by twelve times, and no
+longer the default.
+
+**What it does not settle, and why the default is unchanged.** The bench's own
+closing line: *"Speed is only half the question."* Turning rerank off by
+default trades a measured latency win for an **unmeasured** quality loss, which
+is the same error as leaving it on for an unmeasured quality gain. The quality
+half is `app.cli evaluate --builtin`, and that needs a real index - so it is
+gated on the ~50GB pass.
+
+**Therefore P8 stays open, now with half its evidence**, and resolves one of
+two ways once `evaluate` has run:
+
+* the ordering gain is real -> build the two-phase path (fused results paint
+  immediately, the rerank arrives after and reorders, with the reordering
+  visible rather than silent). That is what "off the critical path" means, and
+  it is a results-surface change, so it belongs with the search-experience
+  order rather than ahead of index tuning;
+* the ordering gain is small on this corpus -> default it off, leave the
+  toolbar switch exactly where it is.
+
+Next action, one command, models now cached:
+
+    venv\Scripts\python.exe -m app.cli rerank-bench --model Xenova/ms-marco-MiniLM-L-6-v2
