@@ -26,6 +26,7 @@ from app.core.logging import logger
 
 __all__ = [
     "CallableWorker",
+    "open_async",
     "IndexWorker",
     "SearchWorker",
     "WorkerSignals",
@@ -197,6 +198,34 @@ class WorkerSignals(QObject):
     failed = pyqtSignal(object)        # an AppError, never a bare exception
     progress = pyqtSignal(object)      # partial state, for long runs
     done = pyqtSignal()                # always, success or failure
+
+
+def open_async(path: str, *, reveal: bool = False,
+               on_error: Any = None, component: str = "ui.open") -> None:
+    r"""Hand a path to Explorer on a worker thread. Never blocks the UI.
+
+    `open_in_explorer` shells out, and on a network share or a sleeping
+    external drive that is seconds of a frozen window - which is why its own
+    docstring forbids calling it on the UI thread. It was called there anyway
+    from `files_view`, and `shell._open_path` had already grown the correct
+    version for search results.
+
+    One function, so the third caller cannot get it wrong. It returns an
+    `AppError` rather than raising, so the *result* is what carries a problem
+    and `failed` is reserved for something genuinely unexpected - both are
+    routed to `on_error`.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    if not path:
+        return
+    worker = CallableWorker(open_in_explorer, path, select=reveal,
+                            component=component)
+    if on_error is not None:
+        worker.signals.finished.connect(
+            lambda error: on_error(error) if error is not None else None)
+        worker.signals.failed.connect(on_error)
+    run(QThreadPool.globalInstance(), worker)
 
 
 class CallableWorker(QRunnable):

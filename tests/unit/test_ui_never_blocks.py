@@ -19,6 +19,7 @@ that cause it, which is where every instance in this project came from.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -282,13 +283,38 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     # `_open_result` is a two-line adapter onto `_open_path`, which is where
     # the worker is. Naming the adapter here would assert against a docstring.
     ("shell.py", "_open_path"),
+    # The Files tab called `open_in_explorer` inline - on a network share, a
+    # frozen window - and did a synchronous store read per double-click for a
+    # path the row already carried. Both were fixed for search results long
+    # before, in `shell._open_path`, and regressed here.
+    ("files_view.py", "_open"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
-    """Asserted on the *worker*, not the result: the point is that the call
+    r"""Asserted on the *worker*, not the result: the point is that the call
     returns immediately and the window keeps painting, not what it eventually
-    produces."""
+    produces.
+
+    **Delegation counts, and is checked rather than assumed.** A method that
+    hands the job to a named async helper is not doing it inline - but a grep
+    for `Worker(` cannot see through the call, and a test that cannot tell
+    delegation from blocking will be silenced rather than believed. So a call
+    to a helper ending `_async` satisfies this only if that helper is itself
+    worker-backed, which is verified below.
+    """
     text = source(UI / module)
     body = text.split(f"def {method}(")[1].split("\n    def ")[0]
+    delegates = re.findall(r"\b(\w+_async)\(", body)
+    if delegates:
+        workers = source(UI / "workers.py")
+        for helper in set(delegates):
+            assert f"def {helper}(" in workers, (
+                f"{module}.{method} delegates to {helper}(), which is not in "
+                f"workers.py - so nothing here can vouch for it")
+            helper_body = workers.split(f"def {helper}(")[1].split("\ndef ")[0]
+            assert "Worker(" in helper_body or "run(" in helper_body, (
+                f"{module}.{method} delegates to {helper}(), which does its "
+                f"work inline - the delegation only moved the block")
+        return
     assert "Worker(" in body or "run(" in body, (
         f"{module}.{method} appears to do its work inline"
     )

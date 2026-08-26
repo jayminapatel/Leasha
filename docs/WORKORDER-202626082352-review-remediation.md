@@ -91,7 +91,7 @@ Two corrections to what this section assumed:
 - [ ] **H6** (Search) `keyword.py:71` — benchmark at representative scale, then use
   FTS5's `ORDER BY rank LIMIT` rowid subquery when unfiltered and the over-fetch
   ladder when filtered. This is the main p95 risk.
-- [ ] **H11** (UI) `files_view.py:318,345,353` — open/reveal route through
+- [x] **H11** (UI) `files_view.py:318,345,353` — open/reveal route through
   `CallableWorker`; `selected_path()` reads the row object, not the store.
 - [x] **M6** (Index) `pipeline.py:1467-1825` — flush `pending_vectors` before
   `_write_marker`; drain `iter_unembedded` at run start. Closes the permanent

@@ -60,7 +60,7 @@ from app.core.run_lock import GUI
 from app.ui.presenter import (
     _read_external_run, _scan_and_save, cleared_message, index_bytes,
 )
-from app.ui.workers import CallableWorker, open_in_explorer, run
+from app.ui.workers import CallableWorker, open_async, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
 
@@ -1058,14 +1058,10 @@ class MainWindow(QMainWindow):
         search results, and giving it a fake row to satisfy an attribute lookup
         would be the wrong way round.
         """
-        worker = CallableWorker(
-            open_in_explorer, path, select=reveal, component="ui.open")
-        # `open_in_explorer` returns an AppError rather than raising, so the
-        # result - not the failure signal - is what carries a problem.
-        worker.signals.finished.connect(
-            lambda error: self._show_error(error) if error is not None else None)
-        worker.signals.failed.connect(self._show_error)
-        run(QThreadPool.globalInstance(), worker)
+        # The shared helper - see `workers.open_async`. This was the correct
+        # version and `files_view` had its own, blocking, copy; one function now,
+        # so a third caller cannot get it wrong.
+        open_async(path, reveal=reveal, on_error=self._show_error)
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)

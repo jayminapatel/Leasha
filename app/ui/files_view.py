@@ -45,7 +45,7 @@ from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
-from app.ui.workers import CallableWorker, open_in_explorer, run, stop_timers
+from app.ui.workers import CallableWorker, open_async, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -316,19 +316,22 @@ class FilesView(QWidget):
         return super().eventFilter(watched, event)
 
     def selected_path(self) -> Optional[str]:
-        """The path of the highlighted row, or None. Never raises."""
-        items = self.results.selectedItems()
-        if not items:
-            return None
-        cell = self.results.item(items[0].row(), 0)
-        if cell is None:
-            return None
-        try:
-            record = self._store.get_file_by_id(int(cell.data(Qt.ItemDataRole.UserRole)))
-        except Exception as exc:                   # noqa: BLE001
-            _log.debug("could not read the selected file: {}", exc)
-            return None
-        return record.path if record is not None else None
+        """The path of the highlighted row, or None. Never raises.
+
+        **Read from the row, not from the database.** This did a synchronous
+        `get_file_by_id` on the UI thread for every double-click and every
+        right-click - to fetch a path the row object beside it already carried.
+        `show_rows` stores those objects with `set_row_objects` precisely so the
+        table can answer questions about itself, and the preview pane has always
+        used them.
+
+        One indexed lookup is fast until the database is being written by an
+        index run, at which point it waits on the write lock, on the thread
+        that paints.
+        """
+        row = self.results.current_row()
+        path = str(getattr(row, "path", "") or "") if row is not None else ""
+        return path or None
 
     def _open_selected(self) -> None:
         """Open the file itself.
@@ -339,20 +342,15 @@ class FilesView(QWidget):
         double-clicking a file opens it. Both are available from the right-click
         menu, and the unsurprising one is now the default.
         """
-        path = self.selected_path()
-        if path is None:
-            return
-        error = open_in_explorer(path, select=False)
-        if error is not None:
-            self.error.emit(error)
+        self._open(self.selected_path(), reveal=False)
 
     def _reveal_selected(self) -> None:
-        path = self.selected_path()
-        if path is None:
-            return
-        error = open_in_explorer(path, select=True)
-        if error is not None:
-            self.error.emit(error)
+        self._open(self.selected_path(), reveal=True)
+
+    def _open(self, path: Optional[str], *, reveal: bool) -> None:
+        """See `workers.open_async` - never on the UI thread."""
+        open_async(path or "", reveal=reveal, on_error=self.error.emit,
+                   component="ui.files.open")
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu the search results use - see widgets/file_menu.py."""
