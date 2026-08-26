@@ -561,3 +561,57 @@ def test_every_offered_date_can_be_typed_back(store) -> None:
         typed = f"after:{as_typed_value(spelling)}"
         assert parse_query(typed, today=datetime.date(2026, 8, 27)).after, (
             f"{spelling!r} is offered by the menu and does not parse as {typed}")
+
+
+# --- 3a: a kind word opens its extensions -----------------------------------
+
+
+def test_a_kind_word_knows_what_it_stands_for() -> None:
+    """Read from the parser's own `_EXT_GROUPS`, so the second page cannot
+    offer a spelling the filter would then not match. A second copy of that
+    mapping is the "nested sub-key dictionary" this order rules out."""
+    from app.ui.presenter import kind_expansion
+
+    assert kind_expansion("excel") == ("xls", "xlsx", "xlsm")
+    assert kind_expansion("code")[:2] == ("py", "js")
+
+
+def test_an_ordinary_extension_has_no_second_page() -> None:
+    """`/type pdf` is finished when it is picked."""
+    from app.ui.presenter import kind_expansion, value_page
+
+    assert kind_expansion("pdf") == ()
+    assert value_page("type", "pdf") == ""
+
+
+def test_the_second_page_says_where_it_is_and_how_to_leave() -> None:
+    """A list of extensions with nothing saying which kind they belong to is
+    the menu-that-does-not-say-what-it-is-answering this order is about."""
+    from app.ui.presenter import value_page
+
+    crumb = value_page("type", "excel")
+
+    assert "excel" in crumb
+    assert "Backspace" in crumb
+
+
+def test_every_kind_word_offered_can_be_expanded() -> None:
+    r"""The kind words come from the catalogue and the expansion from the
+    parser. If the two ever disagree, `/type excel` opens a page with nothing
+    on it - which reads as a broken menu rather than as a missing mapping."""
+    from app.search.commands import command_for
+    from app.ui.presenter import kind_expansion
+
+    for word in command_for("type").values:
+        assert kind_expansion(word), f"{word} is offered and expands to nothing"
+
+
+# --- 3b: the way out of the date menu ---------------------------------------
+
+
+def test_the_custom_row_is_not_a_value() -> None:
+    """Picking it leaves `after:` in the box; it must never become a filter."""
+    from app.search.query import parse_query
+    from app.ui.presenter import CUSTOM_ROW
+
+    assert parse_query(f"after:{CUSTOM_ROW}").after is None

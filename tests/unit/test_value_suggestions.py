@@ -80,7 +80,32 @@ def test_fixed_values_need_no_store():
 
 
 def test_a_date_offers_the_spellings_that_are_easier_to_pick_than_to_recall():
-    assert value_suggestions(None, "after") == list(RELATIVE_DATES)
+    """The spellings first, then the way out of the menu.
+
+    `custom…` is the order's 3b - typing a date by hand has always worked and
+    nothing said so, which made the list read as the only way in.
+    """
+    from app.ui.presenter import CUSTOM_ROW
+
+    assert value_suggestions(None, "after") == [*RELATIVE_DATES, CUSTOM_ROW]
+
+
+def test_the_way_out_is_last_and_not_offered_mid_word():
+    """It is the way out rather than an answer, and somebody who has typed
+    three characters is answering."""
+    from app.ui.presenter import CUSTOM_ROW
+
+    assert value_suggestions(None, "after")[-1] == CUSTOM_ROW
+    assert CUSTOM_ROW not in value_suggestions(None, "after", "3")
+
+
+def test_only_dates_offer_a_way_out():
+    """`/type` has no free-form spelling to fall back to - every value it takes
+    is either in the index or in the grammar."""
+    from app.ui.presenter import CUSTOM_ROW
+
+    assert CUSTOM_ROW not in value_suggestions(None, "type")
+    assert CUSTOM_ROW not in value_suggestions(None, "has")
 
 
 def test_index_values_are_offered_for_the_filters_that_have_them():

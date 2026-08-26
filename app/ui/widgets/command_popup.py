@@ -51,8 +51,8 @@ from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
 from app.ui.presenter import (
-    CODE_COMMANDS, FILES_COMMANDS, MAIL_COMMANDS, as_typed_value, scope_key,
-    slash_context, value_rows,
+    CODE_COMMANDS, CUSTOM_ROW, FILES_COMMANDS, MAIL_COMMANDS, as_typed_value,
+    kind_expansion, scope_key, slash_context, value_page, value_rows,
     value_suggestions,
 )
 from app.ui.widgets.command_icon import icon_for, text_colour
@@ -148,6 +148,8 @@ class CommandPopup(QCompleter):
         self.value_of = ""
         self._values: list[str] = []
         self._rows: list[str] = []
+        #: The kind word whose extensions are showing, or "" on the first page.
+        self._second_page: str = ""
 
         self._model = QStandardItemModel(self)
         self.setModel(self._model)
@@ -206,6 +208,7 @@ class CommandPopup(QCompleter):
         anything is a menu that feels broken on a cold cache.
         """
         self.value_of = str(name or "")
+        self._second_page = ""
         self._matches = []
         # **The bare value is what gets inserted; the row is what is read.**
         # A `ValueCount` carries a number the row shows and the query must
@@ -237,6 +240,42 @@ class CommandPopup(QCompleter):
         if 0 <= row < len(self._matches):
             return self._matches[row]
         return None
+
+    @property
+    def on_second_page(self) -> bool:
+        """Is the menu showing a kind's extensions rather than the kinds?"""
+        return bool(self._second_page)
+
+    def open_second_page(self, name: str, chosen: str,
+                         values: Sequence[str]) -> None:
+        """`3a`: the extensions a kind word stands for, with a breadcrumb.
+
+        Bounded to the one case the order allows. Full recursive nesting is out
+        of scope: no filter here has a grammar deep enough for it, and a
+        generic tree invites this popup to become a query builder.
+        """
+        self._second_page = str(chosen)
+        self.value_of = str(name or "")
+        self._matches = []
+        self._values = [str(value) for value in values]
+        self._rows = value_rows(self.value_of, list(values))
+        crumb = value_page(self.value_of, chosen)
+        self.setMaxVisibleItems(max(1, min(len(self._values) + 1, 12)))
+        rows = [(VALUE_ICON, row) for row in self._rows]
+        if crumb:
+            # First, so it reads as a heading rather than an afterthought. It
+            # is not selectable as a value - `value_for_row` maps it back to
+            # itself and `on_activated` finds no expansion, so choosing it
+            # completes nothing.
+            rows.insert(0, ("←", crumb))
+        self._fill(rows)
+
+    def leave_second_page(self) -> bool:
+        """Backspace out of the extensions, back to the kinds. True if it did."""
+        if not self._second_page:
+            return False
+        self._second_page = ""
+        return True
 
     def value_for_row(self, row_text: str) -> str:
         """The value a row stands for, without the metadata beside it.
@@ -272,6 +311,16 @@ class _TabAccepts(QObject):
         if event.type() != QEvent.Type.KeyPress:
             return False
         key = event.key()
+
+        # **3a: Backspace comes back from a kind's extensions.** Only while
+        # the second page is showing, and only when the box ends at the kind
+        # word - otherwise Backspace is what it always is, a character being
+        # deleted, and stealing it would be far worse than not offering it.
+        if key == Qt.Key.Key_Backspace:
+            completer = self._completer
+            if getattr(completer, "on_second_page", False):
+                completer.leave_second_page()
+                return False                     # the character still deletes
 
         if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
             popup = self._completer.popup()
@@ -420,6 +469,30 @@ def attach_to(line_edit: QLineEdit,
         head = text[: len(text) - len(word)]
 
         if popup.value_of:
+            chosen_value = popup.value_for_row(row_text)
+
+            # **3b: `custom…` hands the box back.** Typing a date by hand has
+            # always worked; nothing said so, which made the menu look like the
+            # only way in. Picking this leaves `after:` in the box with the
+            # accepted forms in the hint and gets out of the way.
+            if chosen_value == CUSTOM_ROW:
+                line_edit.setText(f"{head}{popup.value_of}:")
+                line_edit.setCursorPosition(len(line_edit.text()))
+                popup.popup().hide()
+                return
+
+            # **3a: a kind word opens its extensions rather than closing.**
+            # `/type excel` is a real filter and picking it must still work -
+            # so the *second page* is offered and the box is left showing the
+            # kind, which means Enter on nothing still finishes the job.
+            expansion = kind_expansion(chosen_value)
+            if expansion and not popup.on_second_page:
+                line_edit.setText(f"{head}{popup.value_of}:{chosen_value}")
+                line_edit.setCursorPosition(len(line_edit.text()))
+                popup.open_second_page(popup.value_of, chosen_value, expansion)
+                _show_or_hide()
+                return
+
             # A value: complete the whole `name:value` and get out of the way.
             # The trailing space is what says "this filter is finished" - and
             # it is also what stops `_tail` reopening the menu immediately.

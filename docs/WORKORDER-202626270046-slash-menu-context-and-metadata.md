@@ -85,11 +85,11 @@ Full recursive nesting is **out of scope** — no filter here has a grammar deep
 enough to justify it, and a generic tree invites the popup to become a query
 builder. Two concrete cases only:
 
-- [ ] **3a** `/type` offers the kind words first (`documents`, `mail`, `code`,
+- [x] **3a** `/type` offers the kind words first (`documents`, `mail`, `code`,
   `excel`…) and expands a chosen kind into its extensions as a second value
   page — backed by the existing `_EXT_GROUPS`, breadcrumbed in the popup header,
   Backspace returns to the kinds.
-- [ ] **3b** dates: picking `/after` offers the relative spellings first
+- [x] **3b** dates: picking `/after` offers the relative spellings first
   (`RELATIVE_DATES`), and a `custom…` row that leaves `after:` in the box with
   the hint showing the accepted forms — which is what happens today, made
   explicit.
@@ -371,3 +371,27 @@ breaks.
 `value_for_row` maps a row back to its value by position rather than by
 splitting the text, because `last month` and `Site Photos 2024` do not survive
 a `split()` and that string goes into the query.
+
+## 3a and 3b delivered, 2026-08-27 — §§1-3 complete
+
+**3a** picking a kind word from `/type` opens its extensions as a second page
+rather than closing the menu, with `/type excel — Backspace to go back` above
+them. The expansion is read from the parser's own `_EXT_GROUPS`, so the page
+cannot offer a spelling the filter would then not match - a second copy of that
+mapping is exactly the nested sub-key dictionary this order rules out, and a
+test walks every kind word the catalogue offers and asserts it expands to
+something.
+
+`/type excel` stays a real filter: the box is left holding the kind, so Enter
+finishes the job without descending. Backspace leaves the second page and still
+deletes a character - stealing the key outright would be far worse than not
+offering it at all.
+
+**3b** the date menu ends with `custom…`, which puts `after:` in the box and
+gets out of the way. Typing a date by hand has always worked; nothing said so,
+which made the list read as the only way in. It is last, because it is the way
+out rather than an answer, and it is not offered once somebody has typed a
+character - at that point they are answering. A test asserts it can never
+become a filter.
+
+Full recursive nesting stays out of scope, as the order requires.

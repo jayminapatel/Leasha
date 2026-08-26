@@ -3656,6 +3656,13 @@ def value_suggestions(store: Any, name: str, prefix: str = "",
             _note_all(notes)
         return unscoped
 
+    # **3b, and it is a label rather than a feature.** Typing a date by hand
+    # has always worked. Nothing said so, so the menu read as the only way in -
+    # and a person who wanted `after:2019-04-01` had no sign the box would take
+    # it. Last, because it is the way out rather than an answer.
+    if getattr(command, "is_date", False) and not wanted and len(found) < limit:
+        found.append(CUSTOM_ROW)
+
     if counts is not None:
         counts.update(counted)
     return found[:limit]
@@ -3779,6 +3786,40 @@ VALUE_NOUNS: dict[str, str] = {
     "ext": "files",
     "folder": "files",
 }
+
+
+#: The row that leaves the value tier and hands the box back to the person.
+#:
+#: `3b`: "which is what happens today, made explicit". Typing a date by hand
+#: has always worked; nothing said so, so the menu looked like the only way in.
+CUSTOM_ROW = "custom…"
+
+
+def kind_expansion(value: str) -> tuple[str, ...]:
+    r"""The extensions a `/type` kind word stands for, or `()`.
+
+    `3a`'s second page. Read from `_EXT_GROUPS` - the parser's own table, which
+    is what `type:excel` already expands to - so the page cannot offer a
+    spelling the filter would then not match. A second copy of this mapping is
+    exactly the "nested sub-key dictionary" this order rules out.
+    """
+    from app.search.query import _EXT_GROUPS
+
+    return tuple(_EXT_GROUPS.get(str(value or "").strip().lower(), ()))
+
+
+def value_page(name: str, chosen: str = "", *, resolve: Any = None) -> str:
+    """The breadcrumb above a second value page, or `""` on the first.
+
+    Without it the second page is a list of extensions with nothing saying
+    which kind they belong to or how to get back - and this order's whole
+    subject is a menu that does not say what it is answering.
+    """
+    if not chosen:
+        return ""
+    if not kind_expansion(chosen):
+        return ""
+    return f"/{name} {chosen} — Backspace to go back"
 
 
 def value_row(value: str, *, count: Optional[int] = None, exact: bool = True,
