@@ -97,6 +97,19 @@ def _contains_words(haystack: str, needle: str) -> bool:
     return False
 
 
+def _seconds(value: float) -> str:
+    """A duration a person reads: `3s`, `0.5s`, `250ms`.
+
+    `f"{value:.0f}s"` renders every sub-second budget as "0s", which reads as a
+    limit of nothing at all.
+    """
+    if value >= 1:
+        return f"{value:g}s"
+    if value >= 0.1:
+        return f"{value:.1f}s"
+    return f"{value * 1000:.0f}ms"
+
+
 def _like_escape(value: str) -> str:
     r"""Make `value` a literal inside a `LIKE ... ESCAPE '\'` pattern.
 
@@ -908,8 +921,16 @@ class SqliteStore:
             return []
         return [dict(row) for row in rows]
 
+    #: How often the vocabulary scan looks at the clock, in VM instructions.
+    #:
+    #: Small enough that a budget of a second or two is honoured to within a
+    #: few milliseconds, large enough that the check itself is not the cost.
+    PROGRESS_STEP = 1_000
+
     def vocabulary_terms(
-        self, pattern: str, *, limit: int = 200
+        self, pattern: str, *, limit: int = 200,
+        budget_s: Optional[float] = None,
+        problems: Optional[list[str]] = None,
     ) -> list[str]:
         r"""Indexed terms matching a `LIKE` pattern, commonest first.
 
@@ -929,7 +950,31 @@ class SqliteStore:
         Returns `[]` when the vocabulary is missing, which is an index built
         before migration 11 on a database that could not create it. That costs
         wildcards and nothing else.
+
+        **`budget_s` is enforced, not observed.** The caller used to time this
+        call and log afterwards if it had taken too long, which is not a budget
+        - the scan had already finished by then, and on a corpus with millions
+        of distinct terms `*a*` could sit there for as long as it liked. A
+        progress handler checks the clock every `PROGRESS_STEP` instructions
+        and aborts the statement, so the ceiling is real.
+
+        Being cut short is **reported through `problems`**, never swallowed: a
+        wildcard that silently matched a fraction of the vocabulary would look
+        exactly like one that matched a fraction of the corpus.
         """
+        deadline = (time.perf_counter() + float(budget_s)
+                    if budget_s and budget_s > 0 else None)
+        interrupted = False
+
+        def past_deadline() -> int:
+            nonlocal interrupted
+            if deadline is not None and time.perf_counter() > deadline:
+                interrupted = True
+                return 1                     # non-zero aborts the statement
+            return 0
+
+        if deadline is not None:
+            self.conn.set_progress_handler(past_deadline, self.PROGRESS_STEP)
         try:
             rows = self.conn.execute(
                 r"""SELECT term FROM chunks_vocab
@@ -939,8 +984,17 @@ class SqliteStore:
                 (str(pattern), max(1, int(limit))),
             ).fetchall()
         except sqlite3.OperationalError as exc:
-            _log.debug("vocabulary lookup unavailable: {}", exc)
+            if interrupted:
+                if problems is not None:
+                    problems.append(f"gave up after {_seconds(budget_s)}")
+                _log.info("vocabulary lookup for {} hit its {} budget",
+                          pattern, _seconds(budget_s))
+            else:
+                _log.debug("vocabulary lookup unavailable: {}", exc)
             return []
+        finally:
+            if deadline is not None:
+                self.conn.set_progress_handler(None, 0)
         return [str(row["term"]) for row in rows]
 
     def fts_stem(self, word: str) -> str:

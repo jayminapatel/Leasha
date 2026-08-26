@@ -159,7 +159,7 @@ Three notes:
 - [x] **L** (Search) `rerank.py:159` — retry budget instead of permanent latch on one
   transient scorer failure. Same pattern for **M15** (Extract) `ocr.py:118` — raise
   `ERR_OCR_UNAVAILABLE` instead of recording every image as `ERR_NO_TEXT_LAYER`.
-- [ ] **L** (Search) `wildcards.py:74` — make `BUDGET_S` a real budget
+- [x] **L** (Search) `wildcards.py:74` — make `BUDGET_S` a real budget
   (progress handler / interrupt) or correct its documentation.
 
 ## 4. UI polish and hygiene
@@ -280,3 +280,12 @@ untested code. And `test_settings_counts_the_usage_log_without_reading_it`
 looked for `count_searches` in `settings_view.py`, where §4 had just stopped it
 being; it now checks the presenter too, because the rule is about the count and
 not about the file.
+
+**§3's last item, 2026-08-27.** `BUDGET_S` was timed after the query returned
+and logged if exceeded, which is a report rather than a ceiling: the one pattern
+it exists to contain - `*a*` on a corpus with millions of distinct terms - ran
+to completion regardless. A SQLite progress handler now aborts the statement at
+the deadline, and being cut short is reported through a `problems` list in the
+same shape `vector.search` already uses. Measured on a 60,000-term fixture: an
+unbounded scan of 50ms, cut to 8ms by an 8ms budget, with the refusal saying to
+add another letter.

@@ -358,3 +358,72 @@ def test_the_dead_dummyapp_scaffold_is_gone() -> None:
 
 if __name__ == "__main__":       # pragma: no cover
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# --- §3's last item: a budget that is enforced rather than observed ---------
+
+
+def test_the_wildcard_budget_actually_stops_the_scan(tmp_path: Path) -> None:
+    """`BUDGET_S` was measured after the query returned and then logged.
+
+    That is a report, not a budget: `*a*` over a corpus with millions of
+    distinct terms - the one pattern the ceiling exists to contain - ran to
+    completion regardless, and the log line arrived afterwards to say so.
+    """
+    import time
+
+    with SqliteStore(tmp_path / "big.db") as store:
+        file_id = store.upsert_file(
+            "C:/docs/big.txt", size_bytes=1, mtime_ns=1,
+            status="INDEXED", source_kind="file",
+        )
+        words = [f"aa{n:06d}bb" for n in range(60_000)]
+        store.replace_chunks(file_id, [
+            {"ordinal": i, "text": " ".join(words[i * 400:(i + 1) * 400]),
+             "tokens": 400, "char_start": 0, "char_end": 1}
+            for i in range(150)
+        ])
+
+        started = time.perf_counter()
+        store.vocabulary_terms("%a%", limit=200)
+        unbounded = time.perf_counter() - started
+        assert unbounded > 0.005, "the fixture is too small to time anything"
+
+        problems: list[str] = []
+        started = time.perf_counter()
+        found = store.vocabulary_terms(
+            "%a%", limit=200, budget_s=unbounded / 5, problems=problems)
+        bounded = time.perf_counter() - started
+
+        assert bounded < unbounded
+        assert found == []
+        assert problems, "cut short and said nothing - the failure that hides"
+
+
+def test_a_wildcard_that_runs_out_of_budget_says_what_to_do(
+    tmp_path: Path
+) -> None:
+    """Every refusal in this codebase names an action. Being cut short is one.
+
+    The fixture has to be large enough for the scan to reach the progress
+    handler at all - on a small vocabulary the statement finishes inside one
+    check interval, which is the right behaviour and no use for this test.
+    """
+    from app.search import wildcards
+
+    with SqliteStore(tmp_path / "big.db") as store:
+        file_id = store.upsert_file(
+            "C:/docs/big.txt", size_bytes=1, mtime_ns=1,
+            status="INDEXED", source_kind="file",
+        )
+        words = [f"volc{n:06d}ano" for n in range(60_000)]
+        store.replace_chunks(file_id, [
+            {"ordinal": i, "text": " ".join(words[i * 400:(i + 1) * 400]),
+             "tokens": 400, "char_start": 0, "char_end": 1}
+            for i in range(150)
+        ])
+        expansion = wildcards.expand(store, "volc*", budget_s=1e-9)
+
+    assert not expansion.ok
+    assert expansion.refused
+    assert "letter" in expansion.refused, expansion.refused

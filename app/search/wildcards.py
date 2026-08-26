@@ -248,20 +248,31 @@ def expand(store: Any, term: str, *, limit: int = MAX_TERMS,
             f"characters outside the wildcards.")))
 
     started = time.perf_counter()
+    problems: list[str] = []
     try:
         stemmer = getattr(store, "fts_stem", None)
         wanted, stemmed = (stem_with(stemmer, pattern) if stemmer is not None
                            else (pattern, False))
-        found = store.vocabulary_terms(like_pattern(wanted), limit=limit + 1)
+        # **The budget goes down to the query.** It used to be checked here,
+        # after the scan had already returned, which made it a report rather
+        # than a limit: the one pattern it exists to contain - `*a*` over a
+        # corpus with millions of distinct terms - was exactly the one that
+        # ran to completion regardless.
+        found = store.vocabulary_terms(
+            like_pattern(wanted), limit=limit + 1,
+            budget_s=budget_s, problems=problems)
     except Exception as exc:                     # noqa: BLE001 - one query
         log.warning("wildcard expansion failed for {}: {}", pattern, exc)
         return remember(Expansion(pattern, refused="could not be expanded"))
 
     elapsed = time.perf_counter() - started
+    if problems:
+        # Cut short, so `found` is empty rather than partial. Said out loud,
+        # with the one thing that makes the next attempt work.
+        return remember(Expansion(pattern, refused=(
+            f"took longer than {budget_s:g}s to look up. Add another letter "
+            f"or two outside the wildcard."), elapsed_s=elapsed))
     capped = len(found) > limit
-    if elapsed > budget_s:
-        log.info("wildcard {} took {:.2f}s, over the {:.1f}s budget",
-                 pattern, elapsed, budget_s)
     return remember(Expansion(
         pattern, tuple(found[:limit]), capped=capped, stemmed=stemmed,
         elapsed_s=elapsed))
