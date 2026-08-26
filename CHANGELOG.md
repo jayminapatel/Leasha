@@ -16,9 +16,18 @@ developer; with two it is a diff of the whole repository the first time somebody
 saves a file. And this project has one rule that is *encoding* sensitive:
 PowerShell 5.1 assumes the system code page for a file with no BOM, so a
 BOM-less `.ps1` containing one pasted em dash fails at parse time with no error
-anybody can act on. It killed the installer once already. `working-tree-encoding`
-now carries that rule through a clone, so it survives a machine whose editor has
-never heard of this project.
+anybody can act on. It killed the installer once already. The `.ps1` files are marked
+`-text` so Git never converts them at all — the bytes committed are the bytes
+checked out, on any machine with any `core.autocrlf`.
+
+**The first attempt at that line was wrong and said so loudly**, which is the
+useful part. `working-tree-encoding=UTF-8BOM` is the textbook answer, and it
+expects the *stored* blob to be BOM-less with Git adding the BOM on checkout —
+but these files were committed with their BOMs, so Git could not round-trip them
+and every `git status` printed `failed to encode 'install.ps1'`. Satisfying the
+mechanism would have meant renormalising the stored bytes of the four scripts
+whose encoding is the thing being protected. `-text` gets the guarantee wanted
+without touching them.
 
 Adding it caused **no churn** — checked rather than assumed, because a
 renormalising `.gitattributes` on an existing tree is exactly the thing that

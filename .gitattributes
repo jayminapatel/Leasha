@@ -19,11 +19,23 @@
 # with no error anybody can act on. It killed the installer once already; see
 # `.vscode/settings.json`, which forces `utf8bom` for exactly this reason.
 #
-# `working-tree-encoding` makes Git store them as UTF-8 and hand them to
-# Windows as UTF-8-with-BOM, so the rule survives a clone on a machine whose
-# editor has never heard of this project.
-*.ps1 text eol=crlf working-tree-encoding=UTF-8BOM
-*.psm1 text eol=crlf working-tree-encoding=UTF-8BOM
+# **`-text`: never touched, never re-encoded, byte for byte.** The first
+# version of this line said `working-tree-encoding=UTF-8BOM`, which is the
+# textbook answer and is wrong here. That directive expects the *stored* blob
+# to be BOM-less UTF-8, with Git adding the BOM on checkout - but these files
+# were committed with their BOMs years ago, so Git could not round-trip them
+# and every `git status` printed `failed to encode 'install.ps1' from UTF-8BOM
+# to UTF-8`. Fixing it properly would mean renormalising the stored bytes of
+# the four scripts whose encoding is the thing being protected, which is a
+# risk taken to satisfy a mechanism rather than a need.
+#
+# The files are already correct on disk and already correct in the repository.
+# What is wanted is for Git to stop having opinions about them, and `-text` is
+# exactly that: no line-ending conversion, no encoding conversion, the bytes
+# that were committed are the bytes that are checked out. A clone on any
+# machine, with any `core.autocrlf`, gets a working installer.
+*.ps1 -text
+*.psm1 -text
 
 # --- Windows batch: CRLF, because cmd.exe is unforgiving --------------------
 # A `.cmd` with LF endings can execute its last line without a terminator or
