@@ -211,9 +211,9 @@ Three notes:
 - [ ] **P8** rerank off the critical path or off by default until async.
 - [ ] **P9** numpy end-to-end in embedder/vector_store (also review finding on
   `vector_store.py:285` per-row float re-boxing).
-- [ ] **P11** streamed reads in `plaintext.py` instead of `read_bytes()` at 2GB.
-- [ ] **A3** delete the dead knowledge-graph methods from `SqliteStore`.
-- [ ] **Partial A4** `filters.py:85` — escape `%`/`_` with `ESCAPE '\'` like the
+- [x] **P11** streamed reads in `plaintext.py` instead of `read_bytes()` at 2GB.
+- [x] **A3** delete the dead knowledge-graph methods from `SqliteStore`.
+- [x] **Partial A4** `filters.py:85` — escape `%`/`_` with `ESCAPE '\'` like the
   store helpers do, so a literal `%` means the same thing everywhere.
 - [ ] **Relevance**: blend a small recency decay + filename-match bonus into the
   fused score; `/newest` should not be the only way to prefer this decade.
@@ -289,3 +289,52 @@ the deadline, and being cut short is reported through a `problems` list in the
 same shape `vector.search` already uses. Measured on a 60,000-term fixture: an
 unbounded scan of 50ms, cut to 8ms by an 8ms budget, with the refusal saying to
 add another letter.
+
+## §6, 2026-08-27
+
+**A3** — fifteen methods, 303 lines, every one dead: `entity_ids_for`,
+`commit_graph_batch`, `recount_entities`, `retype_entities`,
+`graph_chunk_total`, `entity_chunk_counts`, `iter_edges_for_scoring`,
+`set_edge_scores`, `merge_contained_entities`, `prune_graph`, `clear_graph`,
+`graph_stats`, `top_entities`, `edges_among`, `chunks_mentioning`. Checked
+against `app/`, `tests/` and `scripts/` first: the only surviving mention was
+one docstring recounting the panel that used to call two of them. The entity
+*tables* stay - `clear_index` empties them, and the reset test enumerates
+`sqlite_master` rather than a list, so they cost nothing and are covered.
+
+**A4** — the escaping now lives in `app/storage/like.py`, imported by both
+`filters.py` and `sqlite_store.py`. It could not live in either: `filters`
+cannot import `sqlite_store` at module scope without a cycle, which is exactly
+how one module ended up with a private copy and the other with none. Every
+`LIKE` in `filters.py` carries `ESCAPE '\'` and every parameter goes through
+`contains()`. Verified against a fixture: `name:Q1_2024` returned
+`Q1_2024 final.xlsx` and `Q1x2024 final.xlsx` before, one of them after;
+`name:50%` returned both `50% done.txt` and `50 percent done.txt` before, one
+after. Windows paths matter here too - `path:D:\Reports` reaches the escaper
+full of backslashes.
+
+**P11** — done, and **the streaming is not what fixed it**. Measured on a 22MB
+log: `read_bytes()` then decode peaks at 43.2MB; streaming the read peaks at
+43.2MB as well, because `str.join` holds the pieces and the result at the same
+moment - the same two-copies shape, moved. The fix is `MAX_TEXT_CHARS`: same
+fixture with the cap binding, 9.4MB, **4.6x less**, and on a file at the
+walker's 2GB ceiling it is roughly 4GB per extract worker against about 128MB.
+Reading in blocks is what lets the cap bind before the memory is already spent.
+Truncation is reported on the file's own row.
+
+**P8 — needs the owner's machine.** The model cannot be downloaded in the
+sandbox (`ProxyError 403` from the HuggingFace host), so there is no number to
+decide on, and the last one recorded in the codebase (8.3s of a 9-second
+search) is from `bge-reranker-base`, which is no longer the default -
+`Xenova/ms-marco-MiniLM-L-6-v2` is, and it is thirteen times smaller. A comment
+in `cli.py` puts it near 660ms. Against a 300ms warm budget that would still
+more than double a warm search, but 660ms is a quoted number and this project
+has been wrong four times about exactly that.
+
+To settle it, run on Windows and paste the output here:
+
+    venv\Scripts\python.exe -m app.cli rerank-bench
+
+Then the choice is between leaving it on, defaulting it off until it is
+asynchronous, or returning fused results first and reranking after - which is
+"off the critical path" and is a UI change as much as an engine one.

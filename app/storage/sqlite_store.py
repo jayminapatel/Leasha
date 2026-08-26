@@ -27,7 +27,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence, Type
+from typing import Any, Iterable, Iterator, Optional, Sequence, Type
+
+from app.storage.like import like_escape
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.identifiers import symbol_tokens
@@ -110,19 +112,11 @@ def _seconds(value: float) -> str:
     return f"{value * 1000:.0f}ms"
 
 
-def _like_escape(value: str) -> str:
-    r"""Make `value` a literal inside a `LIKE ... ESCAPE '\'` pattern.
-
-    `%` and `_` are wildcards in `LIKE`, and both are ordinary characters in a
-    Windows path and an email address: `Q1_2024%_final.pst` is a filename
-    somebody has. Unescaped, it matches - and in a *delete* it deletes - rows
-    belonging to entirely unrelated files.
-
-    The backslash goes first, or escaping `%` would then have its own escape
-    escaped. One function so the three call sites that already do this inline
-    cannot drift apart from each other.
-    """
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+#: Re-exported so the existing call sites in this module keep reading the same.
+#: The definition lives in `app.storage.like`, which `filters.py` can import
+#: without the cycle a `sqlite_store` import would create - that cycle is why
+#: there were two copies of this and one module with none.
+_like_escape = like_escape
 
 
 class FileStatus:
@@ -1784,104 +1778,7 @@ class SqliteStore:
 
     # -- knowledge graph (schema v3) -----------------------------------------
 
-    def entity_ids_for(
-        self, conn: sqlite3.Connection, rows: Sequence[tuple[str, str, str, str]]
-    ) -> dict[str, int]:
-        """Get-or-create by `key`; returns `{key: entity_id}` for every input.
 
-        Rows are `(key, display, kind, source)`. Existing entities keep the
-        display form they were first seen with - the alternative is the last
-        chunk processed silently renaming a node, so a graph label depends on
-        where the build happened to stop.
-
-        One INSERT OR IGNORE and one SELECT rather than a query per row: this is
-        called with a few hundred keys per batch, tens of thousands of times, so
-        the round trips are the whole cost.
-
-        Takes the connection because it must run inside the caller's transaction
-        - see `commit_graph_batch` for why that is not optional.
-        """
-        if not rows:
-            return {}
-        conn.executemany(
-            "INSERT OR IGNORE INTO entities (key, display, kind, source) VALUES (?, ?, ?, ?)",
-            rows,
-        )
-        keys = [row[0] for row in rows]
-        found: dict[str, int] = {}
-        for start in range(0, len(keys), 500):  # SQLite caps host parameters
-            window = keys[start:start + 500]
-            placeholders = ",".join("?" * len(window))
-            for record in conn.execute(
-                f"SELECT id, key FROM entities WHERE key IN ({placeholders})", window
-            ):
-                found[record["key"]] = int(record["id"])
-        return found
-
-    def commit_graph_batch(
-        self,
-        *,
-        entities: Sequence[tuple[str, str, str, str]],
-        mentions: Sequence[tuple[str, int, int, int]],
-        pairs: Mapping[tuple[str, str], int],
-        cursor: int,
-        cursor_key: str = "graph:cursor",
-    ) -> dict[str, int]:
-        """Write one batch of the graph build, cursor included, atomically.
-
-        **The atomicity is the point, not a nicety.** Edge weights *accumulate* -
-        `weight = weight + excluded.weight` - so they are not idempotent, and a
-        crash between writing weights and moving the cursor would replay the
-        batch and count every pair in it twice. Nothing would raise; the graph
-        would simply be wrong, more wrong the more often the build was
-        interrupted, and there is no later check that could detect it. One
-        transaction makes replay impossible rather than merely unlikely.
-
-        Mentions are keyed by entity *key* rather than id, because the caller
-        cannot know the ids until this transaction has assigned them.
-
-        `cursor_key` exists because two jobs walk the same chunks independently -
-        the co-occurrence build and the LLM enrichment - and they are nowhere
-        near each other's position. Sharing one cursor would mean whichever ran
-        last dictated where the other resumed, silently skipping every chunk in
-        between.
-
-        Accumulating pair weights in SQL instead of a dict held to the end is
-        what keeps a 100GB corpus inside memory: the pair table is far larger
-        than the entity table, and holding it is how this dies at hour three.
-        """
-        with self.write() as conn:
-            ids = self.entity_ids_for(conn, entities)
-            if mentions:
-                conn.executemany(
-                    "INSERT INTO entity_mentions (entity_id, chunk_id, file_id, count) "
-                    "VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(entity_id, chunk_id) DO UPDATE SET count = excluded.count",
-                    [
-                        (ids[key], chunk_id, file_id, count)
-                        for key, chunk_id, file_id, count in mentions
-                        if key in ids
-                    ],
-                )
-            edge_rows = []
-            for (key_a, key_b), weight in pairs.items():
-                a_id, b_id = ids.get(key_a), ids.get(key_b)
-                if a_id is None or b_id is None or a_id == b_id:
-                    continue
-                edge_rows.append((a_id, b_id, weight) if a_id < b_id else (b_id, a_id, weight))
-            if edge_rows:
-                conn.executemany(
-                    "INSERT INTO entity_edges (a_id, b_id, weight) VALUES (?, ?, ?) "
-                    "ON CONFLICT(a_id, b_id) DO UPDATE SET weight = weight + excluded.weight",
-                    edge_rows,
-                )
-            conn.execute(
-                "INSERT INTO index_state (key, value, updated_at) VALUES (?, ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                "updated_at = excluded.updated_at",
-                (cursor_key, str(cursor), int(time.time())),
-            )
-        return ids
 
     def iter_chunks_after(
         self, chunk_id: int, batch_size: int = 500
@@ -1903,139 +1800,12 @@ class SqliteStore:
             yield [(int(r["id"]), int(r["file_id"]), r["text"]) for r in rows]
             last = int(rows[-1]["id"])
 
-    def recount_entities(self) -> None:
-        """Recompute `mentions`, `chunk_count` and `doc_count` from the mentions.
 
-        Derived rather than incremented, because incrementing across a resumed
-        or partially replayed build is exactly where a count drifts from the rows
-        it claims to describe - and a wrong `chunk_count` silently corrupts every
-        PMI score without changing anything visible until the graph looks odd.
-        """
-        with self.write() as conn:
-            conn.execute("""
-                UPDATE entities SET
-                    mentions    = COALESCE((SELECT SUM(count)              FROM entity_mentions m WHERE m.entity_id = entities.id), 0),
-                    chunk_count = COALESCE((SELECT COUNT(*)                FROM entity_mentions m WHERE m.entity_id = entities.id), 0),
-                    doc_count   = COALESCE((SELECT COUNT(DISTINCT file_id) FROM entity_mentions m WHERE m.entity_id = entities.id), 0)
-            """)
 
-    def retype_entities(self, rows: Sequence[tuple[str, str]]) -> int:
-        """Apply LLM-assigned kinds to entities, by key. Returns rows changed.
 
-        `source` becomes 'llm' at the same time, so the graph can always show
-        which typing was a guess from capitalisation and which came from a model
-        - and so a later run can revisit only the ones a model has not seen.
 
-        Never creates: an entity the LLM named that co-occurrence missed was
-        already inserted by `commit_graph_batch` in the same run. Keeping this
-        to an UPDATE means it cannot be the path that admits an unvalidated name.
-        """
-        if not rows:
-            return 0
-        changed = 0
-        with self.write() as conn:
-            for key, kind in rows:
-                cursor = conn.execute(
-                    "UPDATE entities SET kind = ?, source = 'llm' "
-                    "WHERE key = ? AND (kind != ? OR source != 'llm')",
-                    (kind, key, kind),
-                )
-                changed += cursor.rowcount
-        return changed
 
-    def graph_chunk_total(self) -> int:
-        """Distinct chunks the graph was actually built from - PMI's denominator.
 
-        Counted from `entity_mentions` rather than taken from the build's own
-        tally, because on a resumed build those differ: this run may have read
-        400 chunks on top of 40,000 already in the graph. Using the smaller
-        number inflates every probability by the same factor, which is the worst
-        kind of wrong - every score shifts together, so nothing looks broken.
-
-        Chunks that produced no entities at all are correctly excluded: they
-        contribute to no probability in the model.
-        """
-        row = self.conn.execute(
-            "SELECT COUNT(DISTINCT chunk_id) AS n FROM entity_mentions"
-        ).fetchone()
-        return int(row["n"]) if row else 0
-
-    def entity_chunk_counts(self) -> dict[int, int]:
-        return {
-            int(row["id"]): int(row["chunk_count"])
-            for row in self.conn.execute("SELECT id, chunk_count FROM entities")
-        }
-
-    def iter_edges_for_scoring(self, batch_size: int = 5000) -> Iterator[list[tuple[int, int, int]]]:
-        cursor = self.conn.execute("SELECT a_id, b_id, weight FROM entity_edges")
-        while True:
-            rows = cursor.fetchmany(batch_size)
-            if not rows:
-                return
-            yield [(int(r["a_id"]), int(r["b_id"]), int(r["weight"])) for r in rows]
-
-    def set_edge_scores(self, rows: Sequence[tuple[float, int, int]]) -> None:
-        """`(pmi, a_id, b_id)` - argument order matches the UPDATE, not the table."""
-        if not rows:
-            return
-        with self.write() as conn:
-            conn.executemany(
-                "UPDATE entity_edges SET pmi = ? WHERE a_id = ? AND b_id = ?", rows
-            )
-
-    def merge_contained_entities(self) -> int:
-        """Fold a shorter name into a longer one it never appears without.
-
-        The graph showed "AVEVA Group" and "AVEVA Group Limited" as two nodes,
-        connected to each other and to all the same things. They are one company.
-
-        **The test is evidential, not textual.** Being a prefix is not enough -
-        "AVEVA" is a prefix of "AVEVA Group Limited" and is a far more important
-        entity in its own right, appearing in twice as many documents. The rule
-        is: merge the shorter into the longer only if **every chunk mentioning
-        the shorter also mentions the longer**. That is the definition of "the
-        short form is never used on its own here", which is the only evidence
-        that would justify collapsing them.
-
-        Word boundaries matter too. "PI" is a prefix of "PIPELINE" as a string,
-        and nothing about that is a containment relationship.
-
-        Returns the number of entities merged away. Mentions move to the
-        survivor; edges are rebuilt by the caller's scoring pass.
-        """
-        rows = [
-            (int(r["id"]), str(r["key"]), int(r["chunk_count"]))
-            for r in self.conn.execute(
-                "SELECT id, key, chunk_count FROM entities WHERE chunk_count > 0"
-            )
-        ]
-
-        # **Bucketed by first word, not compared all-against-all.**
-        #
-        # The naive version is O(n^2) with a SQL query per surviving pair. On a
-        # corpus of 200,000 emails the entity table runs to tens of thousands of
-        # rows, which is billions of comparisons - it does not finish, and the
-        # symptom is an index run that appears to hang at the very end.
-        #
-        # Containment that matters in practice shares a first word: "AVEVA
-        # Group" inside "AVEVA Group Limited". A short form buried mid-phrase is
-        # both rarer and less valuable, and is deliberately not chased.
-        buckets: dict[str, list[tuple[int, str, int]]] = {}
-        for row in rows:
-            buckets.setdefault(row[1].split(" ", 1)[0], []).append(row)
-
-        merges: list[tuple[int, int]] = []   # (loser, winner)
-        for bucket in buckets.values():
-            if len(bucket) > MERGE_BUCKET_LIMIT:
-                # A pathological bucket - a word that starts thousands of
-                # entities. Skipping it costs a few merges; grinding through it
-                # costs the run.
-                continue
-            merges.extend(self._merges_within(bucket))
-
-        if not merges:
-            return 0
-        return self._apply_merges(merges)
 
     def _merges_within(
         self, bucket: list[tuple[int, str, int]]
@@ -2075,90 +1845,11 @@ class SqliteStore:
                 conn.execute("DELETE FROM entities WHERE id = ?", (loser,))
         return len(merges)
 
-    def prune_graph(self, *, min_weight: int, min_pmi: float) -> int:
-        """Drop weak edges, then entities no edge and no mention refers to.
 
-        Returns the number of edges removed. Pruning happens after scoring, not
-        during the build, because an edge's weight is not final until the last
-        chunk has been seen - discarding it early would delete the pairs that
-        become significant late in a corpus, which on an archive sorted roughly
-        by date means anything recent.
-        """
-        with self.write() as conn:
-            cursor = conn.execute(
-                "DELETE FROM entity_edges WHERE weight < ? OR pmi IS NULL OR pmi <= ?",
-                (min_weight, min_pmi),
-            )
-            removed = cursor.rowcount
-            conn.execute("""
-                DELETE FROM entities WHERE id NOT IN (SELECT a_id FROM entity_edges)
-                                       AND id NOT IN (SELECT b_id FROM entity_edges)
-            """)
-        return int(removed)
 
-    def clear_graph(self) -> None:
-        """Wipe the graph. Safe at any time - it is derived from `chunks`."""
-        with self.write() as conn:
-            conn.execute("DELETE FROM entity_edges")
-            conn.execute("DELETE FROM entity_mentions")
-            conn.execute("DELETE FROM entities")
 
-    def graph_stats(self) -> dict[str, Any]:
-        entities = self.conn.execute("SELECT COUNT(*) AS n FROM entities").fetchone()["n"]
-        edges = self.conn.execute("SELECT COUNT(*) AS n FROM entity_edges").fetchone()["n"]
-        by_kind = {
-            row["kind"]: int(row["n"])
-            for row in self.conn.execute("SELECT kind, COUNT(*) AS n FROM entities GROUP BY kind")
-        }
-        return {
-            "entities": int(entities),
-            "edges": int(edges),
-            "by_kind": by_kind,
-            "cursor": self.get_state("graph:cursor", "0"),
-        }
 
-    def top_entities(self, limit: int = 200, kind: Optional[str] = None) -> list[dict[str, Any]]:
-        sql = "SELECT id, key, display, kind, source, mentions, chunk_count, doc_count FROM entities"
-        params: list[Any] = []
-        if kind:
-            sql += " WHERE kind = ?"
-            params.append(kind)
-        sql += " ORDER BY doc_count DESC, mentions DESC, key ASC LIMIT ?"
-        params.append(limit)
-        return [dict(row) for row in self.conn.execute(sql, params)]
 
-    def edges_among(self, entity_ids: Sequence[int]) -> list[dict[str, Any]]:
-        """Every scored edge whose *both* ends are in the given set.
-
-        Both ends, not either: a node dangling off the visible set is an edge to
-        something that is not drawn, which renders as a line into empty space.
-        """
-        if len(entity_ids) < 2:
-            return []
-        placeholders = ",".join("?" * len(entity_ids))
-        return [
-            dict(row)
-            for row in self.conn.execute(
-                f"SELECT a_id, b_id, weight, pmi FROM entity_edges "
-                f"WHERE a_id IN ({placeholders}) AND b_id IN ({placeholders}) "
-                f"ORDER BY pmi DESC",
-                list(entity_ids) * 2,
-            )
-        ]
-
-    def chunks_mentioning(self, entity_id: int, limit: int = 20) -> list[dict[str, Any]]:
-        """The evidence behind a node: which passages it actually came from."""
-        return [
-            dict(row)
-            for row in self.conn.execute(
-                "SELECT c.id AS chunk_id, c.text, c.page, f.path, m.count "
-                "FROM entity_mentions m "
-                "JOIN chunks c ON c.id = m.chunk_id "
-                "JOIN files  f ON f.id = m.file_id "
-                "WHERE m.entity_id = ? ORDER BY m.count DESC, c.id ASC LIMIT ?",
-                (entity_id, limit),
-            )
-        ]
 
     # -- repositories --------------------------------------------------------
 
