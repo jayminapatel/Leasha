@@ -1,12 +1,79 @@
 # Changelog
 
-**Doc version:** 3.49 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.50 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Fixed — the embedding gap, and it was a window rather than a bug
+
+Task #50, open since the coverage line was added and diagnosed backwards the
+whole time. On the owner's index **154 of 3,355 passages had a vector** —
+meaning-based search silently doing a twentieth of its job. Every previous fix
+was to the *reporting*: `stats` and `doctor` learned to compare the two stores
+and say so. Nothing had looked at how the two stores came to disagree.
+
+**`_write_one` committed a file's chunks and deleted that file's old vectors
+immediately, while the replacement vectors were deferred** to `_embed_pending` —
+up to 256 chunks and one lazy ONNX model load later. Every abort inside that
+window was pure, uncounted loss: a model that would not load, a window closed
+mid-run, the disk floor, an exception in a progress callback.
+
+What turned a batch-sized fault into a corpus-sized one is that **it
+compounded**. A file whose flush never happened stays `PENDING`, so the next run
+picks it up, reaches the delete, and destroys the vectors of everything it
+re-reaches *before* failing in the same place. Each run left coverage lower than
+it found it — and `--force`, the natural thing to try on seeing a gap, put every
+file in the corpus on that path.
+
+The delete now happens inside the flush, immediately after `embed_all` and
+immediately before the add, so at every instant a file has either its old
+vectors or its new ones. The original reasoning for the placement was about lock
+contention — the LanceDB delete is slow and the SQLite write lock is held for
+the whole batch — and that reasoning was right; it is preserved, the delete is
+simply later. The one case the flush cannot reach, a document that chunks to
+nothing and so never joins the batch, deletes its own vectors rather than
+orphaning them.
+
+**The model loads before the walk starts.** It loaded lazily on the first
+`embed()` call, which is inside the flush, so `ERR_MODEL_LOAD` killed the run
+having already orphaned a batch — and since those files stay `PENDING`, the next
+run reached the same place and orphaned another. `warm_up` has existed since
+Layer 4 so the first *search* would not pay the load; indexing never called it.
+A model that cannot load now costs nothing written at all.
+
+**Reporting can no longer cost the flush.** `_checkpoint` and `on_progress` were
+unguarded, and the CLI's progress line prints a *filename* to a Windows console
+— so one path outside cp1252 was a `UnicodeEncodeError` that escaped `_consume`
+before the final flush. A character in a filename cost the whole pending batch
+its vectors.
+
+**And the run says so now.** `IndexStats` had a `chunks` counter and no vector
+counter, so a run that wrote 3,355 chunks and 0 vectors reported `-> 3,355
+chunks` and stopped — success, by every measure the run produced. The gap was
+only ever discoverable afterwards, by a diagnostic nobody runs against a run that
+said it worked. `vectors` and `embed_failures` are on the stats and in `--json`,
+and the summary prints coverage **only when the two disagree**: a line reading
+"3,355 of 3,355" on every healthy run is the noise that teaches people to skim.
+
+Two smaller things found in the same sweep. `reembed` checked `if written:`
+rather than the count, so a short write marked the whole 256-chunk batch
+embedded — the exact bug `78aa392` fixed in the pipeline, still standing on the
+path people run *to repair* it. And `VectorStore.drop()` reset two of its four
+cached counts, so the run after a `reembed --all` believed an empty table held
+thousands of rows and re-enabled the per-document delete that `db17d1c` removed.
+
+Eleven tests, driving the real pipeline rather than the module — the lesson from
+the archive work, where twenty-nine passing unit tests sat beside an extractor
+that could not run at all. Seven of the eleven fail on the parent commit. The
+load-bearing one is `test_a_failed_run_does_not_leave_less_coverage_than_it_found`:
+the ratchet is what made this 95%, and a fix that stopped the loss without
+stopping the ratchet would look correct on a green first run and rot exactly as
+before.
+
 
 ### Added — `/newest`, and the two tabs that were sorting by relevance in silence
 

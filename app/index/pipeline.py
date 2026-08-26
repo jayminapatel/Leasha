@@ -227,6 +227,19 @@ class IndexStats:
     #: "412 decks are mostly images" - the input to the Office OCR decision -
     #: a question nobody could answer without grepping.
     warned_by_code: dict[str, int] = field(default_factory=dict)
+    #: Vectors actually written this run, against `chunks` written.
+    #:
+    #: **The number whose absence hid the embedding gap for weeks.** A run that
+    #: wrote 3,355 chunks and 0 vectors reported `"chunks": 3355` and nothing
+    #: else - success, by every measure the run itself produced. The gap was
+    #: discoverable only afterwards, by `stats` or `doctor` comparing the two
+    #: stores, which is a question nobody thinks to ask about a run that said it
+    #: worked.
+    #:
+    #: `embed_failures` counts flushes that produced nothing, so "the model
+    #: never loaded" and "there was nothing to embed" are different answers.
+    vectors: int = 0
+    embed_failures: int = 0
     #: Which pass this is - `both`, `text` or `images`. Carried on the stats so
     #: the progress line can say "reading with OCR", because seconds per page
     #: looks exactly like a stall on a line built for hundreds of files a minute.
@@ -308,6 +321,8 @@ class IndexStats:
             "bytes_read": self.bytes_read, "elapsed_s": round(self.elapsed_s, 2),
             "files_per_minute": round(self.files_per_minute, 1),
             "mb_per_minute": round(self.mb_per_minute, 2),
+            "vectors": self.vectors,
+            "embed_failures": self.embed_failures,
             "name_only": self.name_only,
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
@@ -559,6 +574,22 @@ class Pipeline:
             self._log.debug("running at below-normal priority")
 
         self.vectors.ensure_table()
+        # **The model loads here, before a single file is read.**
+        #
+        # It used to load lazily, on the first `embed()` call - which happens
+        # inside `_embed_pending`, after a few hundred chunks are already
+        # committed. `ERR_MODEL_LOAD` then killed the run having already
+        # orphaned a batch, and since those files stay PENDING the next run
+        # reached the same place and orphaned another. A fault that should cost
+        # nothing at all instead cost a batch per attempt, for ever.
+        #
+        # `warm_up` has existed since Layer 4, so the first *search* would not
+        # pay the ONNX load. Indexing simply never called it.
+        #
+        # Deliberately not caught: if the model cannot load there is no
+        # meaning-based indexing to do, and finding that out before anything is
+        # written is the whole point.
+        self._warm_embedder()
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
@@ -1398,7 +1429,10 @@ class Pipeline:
                 now = time.monotonic()
                 if on_progress is not None and (now - last_checkpoint) >= self.config.checkpoint_seconds:
                     last_checkpoint = now
-                    on_progress(stats)
+                    try:
+                        on_progress(stats)
+                    except Exception as exc:  # see the `due` branch
+                        self._log.warning("progress reporting failed: {}", exc)
                 continue
             if item is _STOP:
                 finished += 1
@@ -1458,17 +1492,50 @@ class Pipeline:
             if due:
                 since_checkpoint = 0
                 last_checkpoint = now
-                self._checkpoint(item.candidate, stats)
-                stats.sample(now=now)
-                self._maybe_summarise(stats, now=now)
-                if on_progress is not None:
-                    on_progress(stats)
+                # **Reporting must never cost the flush.** None of this was
+                # guarded, and all of it can raise: `_checkpoint` writes to
+                # SQLite, and `on_progress` is the caller's - the CLI's version
+                # prints a *filename* to a Windows console, so one path outside
+                # cp1252 was a `UnicodeEncodeError` that escaped `_consume`
+                # before the final `_embed_pending`. The whole pending batch was
+                # then lost, chunks committed and vectors never written, over a
+                # character in a filename.
+                #
+                # Logged rather than swallowed - progress that has silently
+                # stopped updating is its own confusing fault - but never
+                # allowed to end the run.
+                try:
+                    self._checkpoint(item.candidate, stats)
+                    stats.sample(now=now)
+                    self._maybe_summarise(stats, now=now)
+                    if on_progress is not None:
+                        on_progress(stats)
+                except Exception as exc:    # reporting, not work
+                    self._log.warning("progress reporting failed: {}", exc)
                 if not self._disk_ok(stats):
                     break
 
+        # **The final flush, before anything else can go wrong.** Everything
+        # above may have left up to `embed_batch` passages committed to SQLite
+        # with no vector; this is the only thing that resolves them, so it runs
+        # before the last progress call rather than after it.
         self._embed_pending(pending_vectors)
         if on_progress is not None:
-            on_progress(stats)
+            try:
+                on_progress(stats)
+            except Exception as exc:        # reporting, not work
+                self._log.warning("final progress report failed: {}", exc)
+
+    def _warm_embedder(self) -> None:
+        """Load the embedding model now, so a failure costs nothing written.
+
+        Tolerant of an embedder that has no `warm_up` - the pipeline is given
+        doubles by half the test suite, and requiring the method would make
+        every one of them declare a load it does not do.
+        """
+        warm = getattr(self.embedder, "warm_up", None)
+        if callable(warm):
+            warm()
 
     def _maybe_summarise(self, stats: IndexStats, *, now: float) -> None:
         r"""One line a day in the run log, on a run measured in days.
@@ -1608,21 +1675,32 @@ class Pipeline:
             if item.meta:
                 self._store_message_meta(file_id, item.meta)
 
-        # A re-index must not leave the old vectors behind. `delete_by_file_ids`
-        # now returns immediately when the table is empty, which is the whole of
-        # a first index - a hundred thousand documents used to mean a hundred
-        # thousand dataset versions created to delete nothing at all.
+        # **The old vectors are NOT deleted here.** They used to be, and that
+        # single line is the mechanism behind the embedding gap - 154 of 3,355
+        # passages with a vector on the owner's index.
         #
-        # **After the SQLite writes rather than between them**, which does not
-        # change what a crash leaves behind: the file is PENDING either way, so
-        # it is redone, and redoing replaces the chunks and deletes the vectors
-        # again.
+        # The chunks above are committed now; their vectors are written by
+        # `_embed_pending`, up to `embed_batch` chunks and one lazy model load
+        # later. Deleting here opened that whole window with the file holding
+        # *no* vectors, old or new, and every abort inside it - a model that
+        # will not load, a window closed, the disk floor, an exception in a
+        # progress callback - was pure, uncounted loss.
         #
-        # A *new* file added to an *existing* index still costs one no-op
-        # version. Knowing it is new would mean changing what `replace_chunks`
-        # returns for every caller, to save a version that periodic compaction
-        # now collects anyway. Recorded rather than done.
-        self.vectors.delete_by_file_ids([file_id])
+        # **And it compounded**, which is what turned a batch-sized fault into a
+        # corpus-sized one. A file whose flush never happened stays PENDING, so
+        # the next run picks it up, reaches this line, and destroys the vectors
+        # of everything it re-reaches *before* failing in the same place. Each
+        # run left coverage lower than it found it. `--force` - the natural
+        # thing to try on seeing the gap - made every file take this path.
+        #
+        # The delete now happens in `_embed_pending`, immediately before the
+        # add, so the window is closed: at every instant a file has either its
+        # old vectors or its new ones.
+        #
+        # The reasoning that put it here was about *lock* contention - the
+        # LanceDB delete is slow and the SQLite write lock is held for the whole
+        # batch - and that reasoning was right. It is preserved: the delete is
+        # still outside any `store.batch()`, just later.
 
         for warning in item.warnings:
             self._log.warning("{} | {}", warning.message, warning.suggestion)
@@ -1647,6 +1725,17 @@ class Pipeline:
         # two leaves it looking unfinished and it is redone; the reverse would
         # mark it done with no vectors - invisible to semantic search, and never
         # retried by anything.
+        if not chunk_ids:
+            # **The one case the flush cannot clean up after.** A file that used
+            # to produce chunks and now produces none - text that chunked to
+            # nothing, a document emptied in place - has just had its chunk rows
+            # replaced with nothing, and it will never appear in `pending`, so
+            # `_embed_pending` will never delete its vectors. Orphaned vectors
+            # point at chunk ids that no longer exist: they cost the ANN index
+            # its accuracy and can resurface content the file no longer holds.
+            self.vectors.delete_by_file_ids([file_id])
+            return []
+
         return [
             (chunk_id, file_id, chunk["text"])
             for chunk_id, chunk in zip(chunk_ids, item.chunks, strict=True)
@@ -1685,6 +1774,21 @@ class Pipeline:
         texts = [text for _cid, _fid, text in pending]
         vectors = list(self.embedder.embed_all(texts))
 
+        # **Deleted here, one instant before the add** - see `_write_one` for
+        # why this is not up there any more. A re-index must not leave the old
+        # vectors behind, but it must not remove them until the replacements are
+        # ready either, and "ready" means embedded rather than merely intended.
+        #
+        # After `embed_all`, deliberately: embedding is where a run dies, and a
+        # model that will not load must cost nothing at all rather than cost
+        # every file in the batch its existing coverage.
+        #
+        # `delete_by_file_ids` returns immediately when the table is empty,
+        # which is the whole of a first index, so this is free on the run that
+        # does the most work.
+        self.vectors.delete_by_file_ids(
+            list(dict.fromkeys(fid for _c, fid, _t in pending)))
+
         written = self.vectors.add(
             chunk_ids=[cid for cid, _f, _t in pending],
             file_ids=[fid for _c, fid, _t in pending],
@@ -1715,8 +1819,12 @@ class Pipeline:
                 "corpus until then; `app.cli reembed` fixes it now.",
                 written, len(pending),
             )
+            self._stats_ref.embed_failures += 1
+            self._stats_ref.vectors += int(written or 0)
             pending.clear()
             return
+        self._stats_ref.vectors += (
+            int(written) if written is not None else len(pending))
         # One transaction for the whole batch. This was a commit per chunk-set
         # plus a commit per file - dozens of them, for one logical step.
         with self.store.batch():

@@ -863,6 +863,34 @@ def _console_sink(progress: ProgressLine):
     return write
 
 
+def _print_vector_coverage(stats) -> None:
+    r"""How many of the passages this run wrote actually got a vector.
+
+    **The number whose absence let the embedding gap run for weeks.** A run that
+    wrote 3,355 chunks and 0 vectors printed `-> 3,355 chunks` and stopped
+    there, which reads as success. The two stores were only ever compared
+    afterwards, by `stats` or `doctor`, and nobody runs a diagnostic against a
+    run that told them it worked.
+
+    Silent when they agree, deliberately. A line reading "3,355 of 3,355" on
+    every healthy run is the noise that teaches people to skim the summary,
+    which is how the real one would be missed.
+    """
+    chunks = int(getattr(stats, "chunks", 0) or 0)
+    vectors = int(getattr(stats, "vectors", 0) or 0)
+    if not chunks or vectors >= chunks:
+        return
+    share = vectors / chunks * 100
+    print()
+    print(f"Vectors   {vectors:,} of {chunks:,} passages embedded ({share:.0f}%)")
+    if getattr(stats, "embed_failures", 0):
+        print(f"          {stats.embed_failures} embedding batch(es) failed. Those "
+              f"files stay PENDING and the next run retries them.")
+    print("          Meaning-based search covers only that much of this run; "
+          "keyword search is unaffected.")
+    print("          `app.cli reembed` fills the gap without re-reading anything.")
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build or update the index. Layer 3's entry point.
 
@@ -1045,6 +1073,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     # calling them all "files" produced summaries like "seen 8, indexed 17"
     # where the two numbers were different units.
     print(f"Indexed   {stats.indexed:,} document(s) -> {stats.chunks:,} chunks")
+    _print_vector_coverage(stats)
     print(f"Files     {stats.seen:,} seen, {stats.unchanged:,} unchanged")
     if stats.unchanged_documents:
         print(f"          {stats.unchanged_documents:,} document(s) inside them were "
@@ -2181,7 +2210,17 @@ def cmd_reembed(args: argparse.Namespace) -> int:
             # loses passages silently: a crash between the two would leave rows
             # flagged embedded with nothing in LanceDB, and nothing would ever
             # pick them up again.
-            if written:
+            #
+            # **The count, not its truthiness.** `if written:` marked the whole
+            # 256-chunk batch embedded when one vector was written - which is
+            # exactly the bug `78aa392` fixed in the pipeline, still standing
+            # here on the path people run *to repair* that bug. A short write
+            # leaves the batch unmarked so the next `reembed` retries it.
+            if written is not None and written < len(batch):
+                logger.bind(component="cli.reembed").error(
+                    "wrote {} vectors for {} passages - the rest stay unembedded "
+                    "and a later `reembed` will retry them.", written, len(batch))
+            else:
                 store.mark_embedded([chunk.id for chunk in batch])
             spent["write"] += time.perf_counter() - mark
 

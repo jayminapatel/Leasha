@@ -371,11 +371,22 @@ class VectorStore:
         self._table.delete(f"chunk_id IN ({', '.join(str(i) for i in ids)})")
 
     def drop(self) -> None:
-        """Drop the table. Safe: this is derived data, rebuildable from SQLite."""
+        """Drop the table. Safe: this is derived data, rebuildable from SQLite.
+
+        **Every cached count is reset, not two of the four.** `_approx_rows` and
+        `_since_compact` survived, so the run after a `reembed --all` believed
+        an empty table still held thousands of rows. That re-enabled the
+        per-document delete which `db17d1c` removed precisely because it costs a
+        dataset version per document on a first index - and a rebuild *is* a
+        first index. A stale count is not a cosmetic problem when other code
+        branches on it.
+        """
         if self._db is not None and self.table_name in self._list_tables():
             self._db.drop_table(self.table_name)
         self._table = None
         self._indexed_at_rows = 0
+        self._approx_rows = 0
+        self._since_compact = 0
 
     # -- indexing ------------------------------------------------------------
 
