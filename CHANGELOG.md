@@ -1,12 +1,41 @@
 # Changelog
 
-**Doc version:** 3.59 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.60 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Documentation — the state documents said things that were no longer true
+
+`HANDOFF.md` 4.3 → 4.4. Its headline read *"Layers 0-6 code-complete. 1582 tests passing"*,
+and both halves were wrong: **L6 was removed, not completed**, and the suite is at 3,890
+collected. Its "what is next" list still had three items at the top that have since been
+delivered. The index location was recorded as `D:\KnowledgeGraphData`; it is `D:\Leasha\Data`.
+
+That kind of drift is the specific danger this project already legislates against — it is why
+`ensure_log_dirs` rewrites its generated README when it no longer matches, rather than writing
+it once. A state document nobody has corrected is not neutral: somebody acts on it.
+
+The list is now grouped by what is actually blocking, because none of it is code that has not
+been written. Every remaining item is a **measurement**, a **run on a real machine**, or a
+**decision only the owner can take** — which is a different kind of work from the last six
+months, and reads wrongly if presented as a coding backlog.
+
+`BUILD_SPEC_V2.md` 2.9 → 2.10. **Layer 0's four acceptance boxes and Layer 1's five were
+never ticked**, though every one has had a passing named test in
+`tests/integration/test_layer{0,1}_acceptance.py` for months — so the spec claimed two
+unfinished layers. Each box now names the test that proves it. The two boxes that are
+genuinely open stay open: L4's first-search-under-3s needs the real ONNX load, and all four of
+L9's are untouched. Layer 9 now says why it has not started and points at its work order,
+whose own §7 forbids building until five [FINALISE] questions are answered.
+
+`README.md` and `LOCAL_KNOWLEDGE_GRAPH_V2.md`: **Applies to** moved to v0.3.3 with no doc
+version bump. Per `docs/VERSIONING.md`, that field records the version a document was last
+*checked against* — both were read and nothing in them is wrong, and bumping a doc version
+for a review that changed nothing would be its own small untruth.
 
 ### Fixed — five of the six things reported at once
 

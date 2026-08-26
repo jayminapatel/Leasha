@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.3 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 4.4 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -33,32 +33,53 @@ processes and was five points of failure before a single search ran.
 | What | Where |
 |---|---|
 | Code, docs, venv | `D:\SearchProject` |
-| The index (vectors, FTS, cache, models) | `D:\KnowledgeGraphData` - set by `DATA_PATH` in `.env` |
+| The index (vectors, FTS, cache, models) | `D:\Leasha\Data` - set by `DATA_PATH` in `.env` |
 | Machine-specific config | `D:\SearchProject\.env` - **gitignored**, written by the installer |
 | Logs and diagnostics | `D:\SearchProject\logs\` - gitignored contents, tracked structure |
 
 **The index is never inside the project folder**, and nothing in it is original data. It is
 entirely rebuildable from your documents, so deleting it is always safe.
 
+**Only `DATA_PATH`, `PROJECT_PATH` and `LOG_PATH` are pinned in `.env`.** Everything else -
+`VECTOR_PATH`, `FTS_DB`, `CACHE_PATH`, `MODEL_CACHE`, `STATE_PATH` - derives from
+`DATA_PATH` and is deliberately left unset, because a pinned sub-path outranks `DATA_PATH`
+and would strand part of the index on the old drive the day it moves. See
+`app/core/settings_registry.LOCATION_KEYS`, which also stops "restore defaults" removing the
+three that have no default to fall back on. It did once, on 2026-08-26, and the application
+could not start at all: `load_settings` refuses before logging exists, so there was no log
+line, no traceback and no window.
+
 ## 3. Current state
 
-**Version 0.3.3. Layers 0-6 code-complete. 1582 tests passing, 1 xfailed (real-Outlook COM, deliberately), 2 deselected (JVM - see below).**
+**Version 0.3.3. Eight of the nine live layers are code-complete; L8b is deferred by decision
+and L9 has not been started. 3,890 tests collected, 2 deselected (JVM - see below) and 1
+xfailed (real-Outlook COM, deliberately).**
+
+Eleven layers were numbered and three are dead: L6 was removed, L7 and L10 were cancelled.
+The line above counts the nine that are still live, and *code-complete is not the same as
+verified* - three of them carry a check nobody has run yet, and those are §11's list.
 
 | Layer | What it is | State |
 |---|---|---|
-| L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** |
-| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** |
+| L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - acceptance suite passes |
+| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - schema at v12, acceptance suite passes |
 | L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
-| L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - needs a real-scale run |
-| L4 | Search: BM25 + ANN, RRF fusion, rerank, filters | **Code-complete** - and now measured, see §3b |
-| L5 | PyQt6 UI shell | **Code-complete** - opened, and eleven bugs found by opening it |
+| L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - never run at real scale |
+| L4 | Search: BM25 + ANN, RRF fusion, rerank, filters | **Code-complete** - measured, §3b. One acceptance box open: first search under 3s needs the real ONNX load |
+| L5 | PyQt6 UI shell | **Code-complete** - and still where every fault is found, by opening it |
 | ~~L6~~ | ~~Knowledge graph~~ | **Removed** - §3a |
 | ~~L7~~ | ~~Office document builder~~ | **Cancelled** - never requested, never started |
 | **L8a** | Natural-language query translation | **Code-complete** - justified by measurement, §3b |
 | **Repos** | Repository awareness: `repos` table, `repo:`, `code` scope | **Phase 1 done** - see below. Phase 2 (history) **not authorised** |
 | L8b | Prose answers over results | **Deferred** until L8a has been used in anger |
-| L9 | Hardening and packaging | Not started |
+| L9 | Hardening and packaging | **Not started.** `docs/WORKORDER-202626082213-install-and-distribution.md` is a draft: three decisions taken, **five marked [FINALISE]** and none answerable from the code |
 | ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
+
+**The previous version of this table said "Layers 0-6 code-complete" and "1582 tests".** Both
+were wrong: L6 was removed rather than completed, and the suite has more than doubled since.
+A state document that has quietly gone stale is worse than none, because somebody acts on it -
+which is the argument `ensure_log_dirs` already makes about its generated README, and it
+applies here with more force.
 
 ### B4 answered: history search is its own job, not a mode of the search box
 
@@ -200,36 +221,50 @@ gets lost by accident.
 
 ### What is **Next**
 
-In order. Items 1 and 2 were **raised by the owner from the window on 2026-08-26** and are
-ahead of everything else because they are about whether the application does its one job.
+In order, and grouped by what is actually blocking. **Nothing on this list is code that has
+not been written.** Every remaining item is either a measurement, a run on a real machine, or
+a decision only the owner can take - which is a different kind of work from the last six
+months, and worth saying plainly so it does not get treated as a coding backlog.
 
-1. **`WORKORDER-202626081059-search-quality.md`** - *"I am not happy with what the search
-   does."* Seven verified findings, each checked by running the real parser over the real
-   query. Its items 1-3 are about half a day and fix the parsing faults outright: thirteen
-   instruction words are searched as document content, underscores are stripped from bare
-   terms, and the vector-degradation warning has fired 60 times and been wrong 60 times.
-   Items 4-6 - a `/newest` operator, a kind-word suggestion, an Interpret hint - are the ones
-   the owner will notice.
-2. **`WORKORDER-202626081149-code-tab.md`** - repository attribution **cannot be undone**.
-   Three independent mechanisms prevent it and no command exists, so a `.git` copied into a
-   data folder attributed 44% of this corpus to a repository and the only route back was
-   deleting the index. Read its §2 before anything else in it.
-3. **Finish `WORKORDER-inbound-ui-fixes.md`.** The code landed in `4f2b92c`; what is
-   outstanding is verification - the suite on Windows rather than the non-Qt subset,
-   `doctor.py`, and somebody opening the window and using the capped columns and the tabs.
-4. **Index one full 200K-message PST.** The only thing that has never been done at scale, and
-   the one that will find what the fixtures cannot.
-5. **Decide chunk size and model precision** - §7, question 1. Both should be settled by
-   `app.cli evaluate` before and after rather than by argument.
-6. **Layer 9**: hardening and packaging.
+**Verification: things the fixtures cannot tell us**
 
-**Open the window and use it** is no longer a numbered item because it is now continuous, and
-it is still how every UI fault here has been found - eleven by clicking, none by a test. Items
-1 and 2 both came from the owner doing exactly that.
+1. **Index one full 200K-message PST**, and do the ~50GB pass. The largest unknown in the
+   project. L2 and L3 are code-complete against fixtures, and a fixture cannot find what a
+   real archive will.
+2. **Outlook COM, once, with Outlook open.** `Win32ComSession` is the only code that talks to
+   COM and no test can exercise it - the one xfail in the suite is exactly this. Until it has
+   run once and the counts look sane, L2 is honestly incomplete.
+3. **The full suite on Windows**, not the non-Qt subset, plus `doctor` reporting READY and
+   somebody opening the window and using it.
 
-**In flight:** the owner is resetting and rebuilding the index overnight on 2026-08-26, with
-the stray `D:\SearchData\.git` removed. `app.cli repos` afterwards is the check that item 2's
-§1 is closed, and its output belongs in this document.
+**Measurement: two questions that should not be settled by argument**
+
+4. **Plain semantic search over twenty real sentences** - does meaning-based retrieval earn
+   its place at all, on this corpus?
+5. **Chunk size and model precision** - §7, question 1. `app.cli evaluate` before and after.
+6. **Re-tune `AND_TERM_LIMIT`** against a realistic corpus, and close L4's last acceptance
+   box: first search under 3s, which needs the real ONNX load.
+
+**Decision, then build**
+
+7. **Layer 9: hardening and packaging.**
+   `docs/WORKORDER-202626082213-install-and-distribution.md` is drafted and its own §7 says
+   not to start building until **five [FINALISE] questions** are answered: freeze with
+   PyInstaller or ship `uv` plus an embedded Python; per-user or per-machine; where the index
+   defaults to on a machine whose C: drive is not 150GB; whether the app checks for its own
+   updates; and the minimum Windows version. Each changes what gets built, and none can be
+   answered from the code.
+
+**Open the window and use it** is not a numbered item because it is continuous, and it is
+still how every UI fault here has been found - by clicking, never by a test. The six reports
+fixed on 2026-08-26 all came from the owner doing exactly that.
+
+**Closed since the last revision of this list.** The three items that used to sit at the top
+are done: `WORKORDER-202626081059-search-quality.md` (all seven findings),
+`WORKORDER-202626081149-code-tab.md` (repository attribution can be undone, and the tab no
+longer hides files silently), and `WORKORDER-inbound-ui-fixes.md`. So is the run-lock work -
+the command line and the window can now index without excluding each other, and the window
+draws a run it did not start.
 
 The file-type work order is **complete** - all six steps, plus the follow-on work in 0.3.3.
 OpenDocument and Google Drive pointers read natively, Tier 2 converters cover a dozen dead

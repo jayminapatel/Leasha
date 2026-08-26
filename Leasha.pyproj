@@ -324,6 +324,7 @@
     <Compile Include="tests\unit\test_search_notices.py" />
     <Compile Include="tests\unit\test_search_quality.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
+    <Compile Include="tests\unit\test_settings_layout.py" />
     <Compile Include="tests\unit\test_settings_reachable.py" />
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />
@@ -331,6 +332,7 @@
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
+    <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_translate.py" />
     <Compile Include="tests\unit\test_translate_timeout.py" />
@@ -391,6 +393,7 @@
     <Content Include="docs\WORKORDER-202626081149-code-tab.md" />
     <Content Include="docs\WORKORDER-202626081439-reset-leaves-nothing.md" />
     <Content Include="docs\WORKORDER-202626081801-git-sharpness-and-mail-preview.md" />
+    <Content Include="docs\WORKORDER-202626082213-install-and-distribution.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

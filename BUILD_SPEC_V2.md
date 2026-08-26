@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.9 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.10 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -111,10 +111,21 @@ and can express an error correctly. No search, no UI beyond a bare window.
 
 **Acceptance**
 
-- [ ] `python -m app.cli stats` runs, prints config, exits 0.
-- [ ] Corrupting a path in `.env` produces a readable `AppError`, not a traceback.
-- [ ] Launching the app twice: the second instance exits with the mutex message.
-- [ ] A deliberately raised exception in a worker arrives as an `AppError` with a fix.
+All four are met, and each is a named test in `tests/integration/test_layer0_acceptance.py`
+rather than a remembered fact - the file numbers its tests after the boxes so the two cannot
+drift apart.
+
+- [x] `python -m app.cli stats` runs, prints config, exits 0. — `test_acceptance_1_*`
+- [x] Corrupting a path in `.env` produces a readable `AppError`, not a traceback. — `test_acceptance_2_*`
+- [x] Launching the app twice: the second instance exits with the mutex message. — `test_acceptance_3_*`
+- [x] A deliberately raised exception in a worker arrives as an `AppError` with a fix. — `test_acceptance_4_*`
+
+**One later amendment to the third.** A second *window* is still refused, but the mutex was
+split in two: `GUI_MUTEX_NAME` for the window and `INDEX_MUTEX_NAME` for a run. One lock doing
+both jobs meant an open window made `app.cli index` impossible, which protected nothing — a
+window that is merely open is a reader. And a start now waits `HANDOVER_WAIT_S` before
+refusing, because closing holds the lock for as long as the stores take to shut and the window
+has already left the screen by then. See `core/run_lock.py`.
 
 ---
 
@@ -205,11 +216,23 @@ CREATE TABLE schema_version (version INTEGER NOT NULL);
 
 **Acceptance**
 
-- [ ] Fresh DB is created, `schema_version` set, WAL confirmed on disk (`-wal` file present).
-- [ ] Insert 10k synthetic chunks; `chunks_fts` MATCH returns the expected rows.
-- [ ] Deleting a `files` row cascades to `chunks`, `chunks_fts` and the LanceDB rows.
-- [ ] Kill the process mid-write; on restart the DB opens clean and reports the last cursor.
-- [ ] LanceDB round-trip: 384-dim insert, ANN query, correct `chunk_id` returned.
+All five are met, numbered against `tests/integration/test_layer1_acceptance.py`.
+
+- [x] Fresh DB is created, `schema_version` set, WAL confirmed on disk (`-wal` file present). — `test_acceptance_1_*`
+- [x] Insert 10k synthetic chunks; `chunks_fts` MATCH returns the expected rows. — `test_acceptance_2_*`
+- [x] Deleting a `files` row cascades to `chunks`, `chunks_fts` and the LanceDB rows. — `test_acceptance_3_*`
+- [x] Kill the process mid-write; on restart the DB opens clean and reports the last cursor. — `test_acceptance_4_*`
+- [x] LanceDB round-trip: 384-dim insert, ANN query, correct `chunk_id` returned. — `test_acceptance_5_*`
+
+**The schema is at v12**, not the version this section was written against. Migrations are
+forward-only and a newer schema is refused rather than opened — see
+`test_newer_schema_is_refused_not_corrupted`, which matters on a machine that has run a later
+build and then gone back.
+
+**One thing the WAL box does not cover, and it cost a bug.** WAL is confirmed present here;
+nothing checked that it is ever *truncated*. Clearing a large index writes every deleted page
+into `knowledge.db-wal`, so `VACUUM` alone left the file group no smaller and a reset appeared
+to do nothing. `SqliteStore.reclaim_space` checkpoints, vacuums, and checkpoints again.
 
 ---
 
@@ -699,6 +722,18 @@ answer visibly wrong rather than plausibly wrong. Instruct the model that "the p
 not answer this" is a correct response. When the context fills, drop history, never passages.
 
 ## Layer 9 — Hardening and packaging
+
+**Status: not started, and deliberately not startable yet.**
+`docs/WORKORDER-202626082213-install-and-distribution.md` carries the detail. Three decisions
+are taken there — unsigned, distributed through winget, models downloaded at install time —
+and **five are marked [FINALISE]**: freeze with PyInstaller or ship `uv` plus an embedded
+Python; per-user or per-machine; where the index defaults to on a machine whose C: drive is
+not 150GB; whether the app checks for its own updates; and the minimum Windows version.
+
+None can be answered from the code, and each changes what gets built, which is why that order
+says not to start its §4 until they are settled. Some of what follows is already done — the
+crash handler writes to `logs\crash.log` via `faulthandler`, and graceful shutdown exists and
+now times itself — so treat the list below as the scope and the work order as the plan.
 
 **Build**
 
