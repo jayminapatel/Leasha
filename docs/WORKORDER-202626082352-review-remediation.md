@@ -229,12 +229,12 @@ Three notes:
 
 ## 8. The tests that make this stick (the review's closing point)
 
-- [ ] Perf regression category: a chunking floor (100k words < 2s) and a keyword-path
+- [x] Perf regression category: a chunking floor (100k words < 2s) and a keyword-path
   budget at a representative corpus size. H9 and H6 survived because nothing times
   anything.
-- [ ] Windows-marked converter smoke test: convert one real `.doc` when soffice is
+- [x] Windows-marked converter smoke test: convert one real `.doc` when soffice is
   present. H10 lived in exactly that shadow.
-- [ ] Extend the `test_ui_never_blocks` scanner to the modules written since it was —
+- [x] Extend the `test_ui_never_blocks` scanner to the modules written since it was —
   it passed while UI-01/02, M11 and M13 shipped. A rule worth stating is worth a
   test that fails when new code breaks it.
 
@@ -360,3 +360,43 @@ and which is followed by a LanceDB write that dwarfs both. Changing the payload
 type on the write path to save a millisecond per five hundred rows is not a
 trade worth making, and `search`'s equivalent at line 517 is one conversion of
 384 values per query, around 20 microseconds.
+
+## §8, 2026-08-27 — and it found a live one
+
+**Perf floors** (`tests/unit/test_perf_floors.py`). Four, each recording what
+it was measured at and set ten times looser, because a performance test that
+fails on a slow morning gets deleted and then there is no floor at all.
+Measured here: chunker 219ms for 100,000 words; keyword path 6.3ms for three
+words over 20,000 chunks; filename lookup 0.4ms; `has_any_files` 0.003ms
+against `stats()` at 4.4ms on the same fixture.
+
+**The scanner rewrite found a bug the review had not.** `STORE_CALLS` was nine
+method names somebody had thought of - and the file's own comment says a guard
+listing only the calls somebody thought of has a gap the shape of the next bug.
+It did. `stats()` was not in the nine, and it is three `COUNT(*)`, two of them
+scans of `chunks`: **93ms measured on a two-million-chunk fixture, so roughly
+460ms at ten million**, on the UI thread in three places, one of them behind a
+comment reading "Cheap and guarded".
+
+Fixed: `has_any_files()` (`SELECT 1 ... LIMIT 1`) for the Code tab's
+empty-state question, and the status bar's counts moved to a worker.
+`_chunk_count` is exempted on purpose with the number written down - it runs
+once, before a modal the person deliberately opened.
+
+The scanner now reads the store's public API off `SqliteStore` instead of a
+list, matches on the receiver as well as the method, recognises worker bodies
+structurally (anything handed to a `CallableWorker`) rather than by name, and
+does not attribute a nested function's calls to the function that defines it.
+`__init__` is no longer blanket-exempt - that entry is exactly where M13 lived
+- and keyed `index_state` access is exempted by *call* instead, which is the
+distinction that was actually meant. Six tests run the guard against source
+written to break it, including M13's and M11's shapes.
+
+**Windows converter smoke test.** The existing real-conversion tests were gated
+on `shutil.which("soffice")`, which is None on Windows because LibreOffice is
+not on PATH - so on the one platform this ships to, every one of them skipped
+silently, and that is the shadow H10 lived in. Three `windows`-marked tests
+now use `resolve_binary`, the call the application makes: one converts a real
+`.doc`, one holds `available_binaries()` and `resolve_binary` to the same
+answer (H10 in one sentence), and one exercises the Program Files search that
+`shutil.which` can never reach.

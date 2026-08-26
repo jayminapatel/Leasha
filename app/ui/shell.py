@@ -58,7 +58,7 @@ from app.core.run_lock import GUI
 # reads this file and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import (
-    _read_external_run, _scan_and_save, cleared_message, index_bytes,
+    _read_external_run, _scan_and_save, cleared_message, index_bytes, index_counts,
 )
 from app.ui.workers import CallableWorker, open_async, open_in_explorer, run
 
@@ -1071,13 +1071,24 @@ class MainWindow(QMainWindow):
         run(QThreadPool.globalInstance(), worker)
 
     def _refresh_status(self) -> None:
-        try:
-            stats = self._store.stats()
-            self.statusBar().showMessage(
-                f"{stats['files_total']:,} files  ·  {stats['chunks_total']:,} chunks indexed"
-            )
-        except Exception as exc:                 # noqa: BLE001 - a status bar is not worth failing over
-            _log.debug("status bar not updated: {}", exc)
+        """The counts in the status bar, **counted on a worker**.
+
+        `stats()` is three `COUNT(*)`, two of them scans of `chunks`: 93ms on a
+        two-million-chunk fixture, so roughly 460ms at ten million. This is
+        called when an index run finishes and after a reset - both moments when
+        the number has just changed and the table is at its largest - and it
+        was doing that arithmetic on the UI thread.
+        """
+        worker = CallableWorker(index_counts, self._store, component="ui.status")
+        worker.signals.finished.connect(self._show_status_counts)
+        worker.signals.failed.connect(
+            lambda error: _log.debug("status bar not updated: {}", error.message))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_status_counts(self, counts: Any) -> None:
+        """UI thread. `counts` is the sentence the presenter built."""
+        if counts:
+            self.statusBar().showMessage(str(counts))
 
     # -- actions ------------------------------------------------------------
 

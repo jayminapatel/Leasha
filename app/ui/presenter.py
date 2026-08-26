@@ -2162,6 +2162,18 @@ def index_bytes(store: Any, settings: Any) -> int:
     return total
 
 
+def index_counts(store: Any) -> str:
+    """The status bar's sentence. **Runs on a worker; see `_refresh_status`.**
+
+    Here rather than in the window because it is two numbers and a sentence,
+    and because a view that is under a 250-line guard should not be the place
+    the wording lives - `test_every_qt_view_keeps_its_logic_in_the_presenter`.
+    """
+    stats = store.stats()
+    return (f"{stats['files_total']:,} files  ·  "
+            f"{stats['chunks_total']:,} chunks indexed")
+
+
 def cleared_message(outcome: Any) -> str:
     """What the status bar says after a reset. **Always names an amount.**
 

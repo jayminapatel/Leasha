@@ -14,8 +14,8 @@ trusted: a security property nobody tests is a security property that erodes.
 
 from __future__ import annotations
 
+import os
 import pathlib
-
 import shutil
 import subprocess
 from pathlib import Path
@@ -319,3 +319,100 @@ def test_an_enabled_converter_is_used_by_the_ordinary_extract(real_doc):
     assert documents
     assert "Leeds site safety report" in documents[0].text
     assert documents[0].path == real_doc
+
+
+# ---------------------------------------------------------------------------
+# The Windows smoke test — the shadow H10 lived in
+#
+# Every real-conversion test above is gated on `HAS_SOFFICE`, which is
+# `shutil.which("soffice")`. On Windows LibreOffice installs to Program Files
+# and is not on PATH, so that is None on the one platform this application
+# ships to: every one of those tests skipped, silently, and `convert()` calling
+# `shutil.which` itself - so that a conversion could never find the binary
+# Settings had just told the person it had found - passed a green suite for as
+# long as it existed.
+#
+# A skip that always fires is a test that does not exist. These are marked
+# `windows` and use `resolve_binary`, which is what the application uses.
+# ---------------------------------------------------------------------------
+
+RESOLVED_SOFFICE = resolve_binary("soffice")
+
+#: Off Windows these cannot run at all - `_installed_on_windows` returns None
+#: by design. That is a different thing from the skip this section exists to
+#: remove, which was a Windows machine skipping a Windows test.
+NOT_WINDOWS = os.name != "nt"
+
+
+@pytest.mark.windows
+@pytest.mark.skipif(NOT_WINDOWS or RESOLVED_SOFFICE is None,
+                    reason="Windows with LibreOffice installed")
+def test_on_windows_a_doc_really_converts(tmp_path):
+    """One real `.doc`, converted by the same path the indexer uses.
+
+    Not `shutil.which`: `resolve_binary` is what the application calls, and the
+    difference between the two *was* the bug.
+    """
+    source = tmp_path / "leeds.txt"
+    source.write_text("Leeds site safety report, annual inspection.",
+                      encoding="utf-8")
+    subprocess.run(
+        [RESOLVED_SOFFICE, "--headless", "--convert-to", "doc",
+         "--outdir", str(tmp_path), str(source)],
+        capture_output=True, timeout=300, check=False,
+    )
+    produced = tmp_path / "leeds.doc"
+    assert produced.is_file(), (
+        "LibreOffice resolved but produced no .doc - the converter is "
+        "advertised in Settings and would fail on every file")
+
+    rule = load_rules().converter_for(".doc")
+    with convert(produced, rule) as result:
+        text = result.path.read_text(encoding="utf-8", errors="replace")
+    assert "Leeds site safety report" in text
+
+
+@pytest.mark.windows
+def test_settings_never_offers_a_converter_that_cannot_be_found():
+    """H10 in one sentence: the panel said it worked and it did not.
+
+    Whatever `available_binaries()` reports as present must be resolvable by
+    the same call the conversion makes - they were two different lookups, and
+    on Windows they disagreed.
+    """
+    for name, where in available_binaries().items():
+        if where is None:
+            continue
+        assert resolve_binary(name) == where, (
+            f"Settings reports {name} at {where}, but the conversion path "
+            f"resolves it to {resolve_binary(name)}")
+        assert Path(where).is_file(), (
+            f"Settings offers {name} at {where}, which is not a file")
+
+
+@pytest.mark.windows
+@pytest.mark.skipif(NOT_WINDOWS, reason="the Program Files search is Windows-only")
+def test_the_program_files_search_finds_what_is_not_on_the_path(tmp_path,
+                                                               monkeypatch):
+    """The half of `resolve_binary` that only ever runs on Windows.
+
+    `shutil.which` returns None for every one of these - that is the entire
+    reason the second half exists - so nothing else in the suite reaches it,
+    which is how it could have been written wrong and stayed that way for as
+    long as nobody installed LibreOffice by hand.
+    """
+    from app.extract.converter import _installed_on_windows
+
+    root = tmp_path / "Program Files"
+    (root / "LibreOffice" / "program").mkdir(parents=True)
+    planted = root / "LibreOffice" / "program" / "soffice.exe"
+    planted.write_bytes(b"MZ")
+
+    monkeypatch.setenv("ProgramFiles", str(root))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("ProgramW6432", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    assert _installed_on_windows("soffice") == str(planted)
+    assert _installed_on_windows("curl") is None, (
+        "a name off the allow list must not be located, even here")

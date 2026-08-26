@@ -2208,6 +2208,19 @@ class SqliteStore:
 
     # -- reporting -----------------------------------------------------------
 
+    def has_any_files(self) -> bool:
+        r"""Is there anything in the index at all? **O(1), whatever the size.**
+
+        `stats()` answers this too, and that is the problem: it is three
+        `COUNT(*)`, two of them over `chunks`, which SQLite has to scan. Measured
+        on a 2,000,000-chunk fixture: 93ms, so roughly 460ms at the ten million
+        this is designed for. Three views called it on the UI thread to decide
+        between two sentences, behind a comment describing it as cheap.
+
+        `LIMIT 1` stops at the first row.
+        """
+        return self.conn.execute("SELECT 1 FROM files LIMIT 1").fetchone() is not None
+
     def stats(self) -> dict[str, Any]:
         counts = {
             row["status"]: int(row["n"])

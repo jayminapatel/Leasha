@@ -310,9 +310,15 @@ class CodeView(QWidget):
             message="" if has_repos else repo_empty_state(self._anything_indexed()))
 
     def _anything_indexed(self) -> bool:
-        """Cheap and guarded. Only decides which of two sentences to show."""
+        """Cheap and guarded. Only decides which of two sentences to show.
+
+        **It used to say that and not be true.** `stats()` is three `COUNT(*)`,
+        two of them scans of `chunks` - 93ms at two million, around 460ms at
+        ten - and this runs while the tab is being drawn. `has_any_files()` is
+        one row with a `LIMIT 1`, which is what "is there anything" needs.
+        """
         try:
-            return bool(self._store.stats().get("files_total", 0))
+            return self._store.has_any_files()
         except Exception as exc:                 # noqa: BLE001
             _log.debug("could not read the index size: {}", exc)
             return True                          # the less alarming of the two

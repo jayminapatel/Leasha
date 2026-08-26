@@ -55,6 +55,18 @@ def enclosing_function(path: Path, line: int) -> str:
     return best
 
 
+def _store_api() -> frozenset[str]:
+    """Every public method name on `SqliteStore`."""
+    import inspect
+
+    from app.storage.sqlite_store import SqliteStore
+
+    return frozenset(
+        name for name, _ in inspect.getmembers(SqliteStore, callable)
+        if not name.startswith("_")
+    )
+
+
 # ---------------------------------------------------------------------------
 # processEvents
 # ---------------------------------------------------------------------------
@@ -109,7 +121,14 @@ BLOCKING_ATTRS = {
 #: holds `doctor_report`, which runs a subprocess deliberately. Blocking is
 #: correct there and the guarantee is enforced at the call site instead, by
 #: `test_a_long_operation_starts_a_worker`.
-WORKER_ONLY = {"presenter.py", "workers.py"}
+WORKER_ONLY = {
+    "presenter.py",
+    "workers.py",
+    # "Every line here runs on a worker, which is why it is a module of its own
+    # rather than methods on the pane" - its own opening sentence, and the
+    # reason the pane hands it a store at all.
+    "preview_loader.py",
+}
 
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
@@ -162,12 +181,23 @@ def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
 #: Methods that touch the filesystem. Cheap until they are not.
 FILESYSTEM = {"exists", "is_file", "is_dir", "stat", "glob", "rglob", "iterdir"}
 
-#: Methods that reach the database. Every one is a query.
-STORE_CALLS = {
-    "messages_for", "search_files_by_name", "browse_files", "browse_messages",
-    "count_messages",
-    "count_named_files", "record_open", "all_state", "set_states",
-}
+#: Methods that reach the database. **Read off `SqliteStore`, not listed here.**
+#:
+#: This used to be nine names somebody had thought of, and the gap in it was
+#: the shape of the next bug: `stats()` was not in it, so three views called
+#: three `COUNT(*)` on the UI thread - 93ms measured on a two-million-chunk
+#: fixture, around 460ms at ten million - behind a comment calling it cheap.
+#: The file above already says a guard listing only the calls somebody thought
+#: of has that gap. It was still doing it.
+#:
+#: Every public method of the store counts now, and a new one is covered the
+#: day it is written.
+STORE_CALLS = _store_api()
+
+#: Attribute names that hold a store. Matching on the *receiver* as well as the
+#: method is what keeps `self.close()` on a widget and `store.close()` apart -
+#: the first attempt matched by method name alone and flagged Qt signals.
+STORE_RECEIVERS = {"store", "_store", "sqlite", "_sqlite"}
 
 #: Functions that run on a worker by construction, so the calls inside them are
 #: fine. Named explicitly rather than inferred, because inferring it is how a
@@ -175,22 +205,33 @@ STORE_CALLS = {
 OFF_THREAD = {
     "_decorate", "_record_open", "_list_models", "_translate", "_run_doctor",
     "missing_paths", "mail_details", "open_in_explorer",
-    # **Bounded, keyed, and not on any interactive path.** These read or write a
-    # handful of rows from `index_state` by primary key, during window
-    # construction or in response to a deliberate click on a setting. The rule
-    # is about work that *scales* - a COUNT over the index, a stat per row - and
-    # a keyed lookup of nine settings is not that.
-    #
-    # Named individually rather than skipping the module, so a scan added to one
-    # of these files later still fails.
-    "load_prefs", "save_prefs", "_read_state", "_ollama_model_changed",
-    "_limits_changed", "_schedule_changed", "_save_roots", "_save_pst_backend",
-    "_debug_recording_toggled", "_prefs_changed", "__init__",
-    # The same shape again: one or two keys in `index_state`, written when a
-    # checkbox is clicked. Each was a control that persisted nothing until it
-    # was wired up - see U6 in docs/REVIEW-2026-08-25.md.
-    "_tray_changed", "_cloud_toggled", "_rerank_toggled",
+    # `SELECT 1 FROM files LIMIT 1`. Added *because* `stats()` was being used
+    # for this and is three COUNT(*) - see `has_any_files`.
+    "_anything_indexed",
+    # **Deliberately allowed, with the number.** This is `stats()`, about 460ms
+    # at ten million chunks, so it is not cheap and this is not an oversight.
+    # It runs once, when somebody picks "change the meaning model" from a menu,
+    # to fill in how long a rebuild will take. A modal that opens after a short
+    # pause reads as the application working; one that opens with a number
+    # arriving later reads as one that cannot make up its mind. If the Index
+    # Tuning screen gives this a home with progress of its own, move it there.
+    "_chunk_count",
 }
+
+#: Keyed reads and writes of `index_state`, allowed **wherever they appear**.
+#:
+#: One or two rows fetched by primary key from a table with a few dozen in it.
+#: The rule is about work that *scales* - a COUNT over the index, a stat per
+#: row - and this is not that, whether it happens in a slot or a constructor.
+#:
+#: **This replaced sixteen function names in `OFF_THREAD`**, one of which was
+#: `__init__`. That entry exempted every constructor in the package, which is
+#: precisely where M13 lived: `SettingsView.__init__` ran a COUNT(*) and a
+#: module import on the UI thread inside `MainWindow.__init__`, and this file
+#: said nothing. The distinction that matters is which call it is, not which
+#: function it sits in - so it is drawn there now, and a constructor that
+#: reaches for anything heavier fails.
+KEYED_STATE = {"get_state", "set_state", "set_states", "all_state"}
 
 #: Painting and model-filling. A blocking call here runs per row.
 PAINT_PATHS = {"paint", "sizeHint", "_append", "_rebuild", "data", "_redraw"}
@@ -213,21 +254,84 @@ def test_no_filesystem_call_in_a_paint_path(path):
                 )
 
 
+def worker_bodies(path: Path) -> set[str]:
+    r"""Functions this module hands to a `CallableWorker`.
+
+    **Structural, not a list of names.** `def work()` in `history_pass` and
+    `def clear()` in `shell` are both nested functions passed straight to a
+    worker, so every call inside them is off the UI thread by construction -
+    but naming them in an exemption list would mean the next one is a failure
+    until somebody adds it, and adding names to an exemption list to make a
+    test pass is how a guard stops guarding.
+
+    `CallableWorker(fn, ...)` and `CallableWorker(self.method, ...)` both count.
+    """
+    found: set[str] = set()
+    for call in calls_in(path):
+        if called_name(call) != "CallableWorker" or not call.args:
+            continue
+        first = call.args[0]
+        if isinstance(first, ast.Name):
+            found.add(first.id)
+        elif isinstance(first, ast.Attribute):
+            found.add(first.attr)
+    return found
+
+
+def _calls_directly_in(node: ast.AST) -> list[ast.Call]:
+    r"""Calls in this function, **not** in functions defined inside it.
+
+    A nested `def work()` handed to a `CallableWorker` runs on a different
+    thread from the function that defines it, so attributing its calls to the
+    enclosing function reports the opposite of the truth - `history_pass` was
+    flagged for a query that is, by construction, the one thing in that file
+    guaranteed to be off the UI thread. The nested function is still checked
+    on its own.
+    """
+    out: list[ast.Call] = []
+    stack: list[ast.AST] = [node]
+    first = True
+    while stack:
+        current = stack.pop()
+        if not first and isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                              ast.Lambda, ast.ClassDef)):
+            continue
+        first = False
+        if isinstance(current, ast.Call):
+            out.append(current)
+        stack.extend(ast.iter_child_nodes(current))
+    return out
+
+
+def _is_store_call(call: ast.Call) -> bool:
+    """`store.something()` where `something` is a real store method."""
+    func = call.func
+    if not isinstance(func, ast.Attribute) or func.attr not in STORE_CALLS:
+        return False
+    if func.attr in KEYED_STATE:
+        return False
+    owner = func.value
+    name = (owner.id if isinstance(owner, ast.Name)
+            else owner.attr if isinstance(owner, ast.Attribute) else "")
+    return name in STORE_RECEIVERS
+
+
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_store_call_outside_a_worker(path):
     """A query on the UI thread is a freeze waiting for a busy index."""
     if path.name in WORKER_ONLY:
         pytest.skip(f"{path.name} is called from workers by design")
     tree = ast.parse(source(path))
+    off_thread = OFF_THREAD | worker_bodies(path)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if node.name in OFF_THREAD:
+        if node.name in off_thread:
             continue
-        for call in ast.walk(node):
+        for call in _calls_directly_in(node):
             if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
                 continue
-            if call.func.attr not in STORE_CALLS:
+            if not _is_store_call(call):
                 continue
             # A call passed *to* CallableWorker is being scheduled, not made.
             scheduled = any(
@@ -441,3 +545,114 @@ def test_no_function_reimports_a_name_the_module_already_has():
           "earlier in that function raises UnboundLocalError. Delete the local "
           "import."
     )
+
+
+# ---------------------------------------------------------------------------
+# The guard, checked against the two bugs it let through
+#
+# The 2026-08-26 review's closing point: "a rule worth stating is worth a test
+# that fails when new code breaks it" - and this file passed while M11 and M13
+# shipped. These run the checks against source written for the purpose, so the
+# guard is tested rather than trusted.
+# ---------------------------------------------------------------------------
+
+
+def _offenders(path: Path) -> list[str]:
+    """Store calls this module makes outside a worker. The check, as data."""
+    tree = ast.parse(source(path))
+    off_thread = OFF_THREAD | worker_bodies(path)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name in off_thread:
+            continue
+        for call in _calls_directly_in(node):
+            if _is_store_call(call):
+                found.append(f"{node.name}:{call.func.attr}")
+    return found
+
+
+def _module(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "fake_view.py"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_the_guard_catches_a_constructor_that_reads_the_store(tmp_path) -> None:
+    """M13, exactly: a COUNT(*) in a view's `__init__`.
+
+    `__init__` used to be in OFF_THREAD, which exempted every constructor in
+    the package - so this shipped, on the UI thread, inside MainWindow's own
+    constructor, against a rule that window's docstring states.
+    """
+    path = _module(tmp_path, "class V:\n"
+                             "    def __init__(self, store):\n"
+                             "        self.n = store.count_searches()\n")
+    assert _offenders(path) == ["__init__:count_searches"]
+
+
+def test_the_guard_still_allows_a_keyed_setting_in_a_constructor(tmp_path) -> None:
+    """The reason `__init__` was exempted in the first place is real."""
+    path = _module(tmp_path, "class V:\n"
+                             "    def __init__(self, store):\n"
+                             "        self.mode = store.get_state('ui:pst', 'auto')\n")
+    assert _offenders(path) == []
+
+
+def test_the_guard_catches_a_store_method_nobody_listed(tmp_path) -> None:
+    """`stats()` was not in the hand-written nine, so three views called three
+    COUNT(*) on the UI thread and this file said nothing."""
+    path = _module(tmp_path, "class V:\n"
+                             "    def _draw(self, store):\n"
+                             "        return store.stats()\n")
+    assert _offenders(path) == ["_draw:stats"]
+
+
+def test_the_guard_does_not_flag_a_worker_body(tmp_path) -> None:
+    """A nested function handed to a CallableWorker runs somewhere else."""
+    path = _module(tmp_path, "class V:\n"
+                             "    def _go(self, store):\n"
+                             "        def work():\n"
+                             "            return store.stats()\n"
+                             "        run(pool, CallableWorker(work))\n")
+    assert _offenders(path) == []
+
+
+def test_the_guard_does_not_flag_a_same_named_method_on_something_else(
+    tmp_path
+) -> None:
+    """`self.close()` on a widget is not `store.close()`.
+
+    The first version of the receiver check matched on method name alone and
+    flagged Qt signals, timers and file handles - a guard that cries wolf gets
+    an exemption list bolted to it and then guards nothing.
+    """
+    path = _module(tmp_path, "class V:\n"
+                             "    def _shut(self):\n"
+                             "        self.close()\n"
+                             "        self.timer.stats()\n")
+    assert _offenders(path) == []
+
+
+def test_an_image_is_never_decoded_from_a_path_in_a_view():
+    """M11: `QPixmap(path)` reads and decodes on the calling thread.
+
+    The pane may build a QPixmap from a QImage a worker decoded - that is the
+    one thing QPixmap has to do on the UI thread. What it may not do is hand
+    QPixmap a filename.
+    """
+    for path in MODULES:
+        for call in calls_in(path):
+            if called_name(call) != "QPixmap" or not call.args:
+                continue
+            argument = call.args[0]
+            assert not isinstance(argument, ast.Constant), (
+                f"{path.name}:{call.lineno} builds a QPixmap from a literal path"
+            )
+            name = getattr(argument, "id", "") or getattr(argument, "attr", "")
+            assert "path" not in name.lower() and "file" not in name.lower(), (
+                f"{path.name}:{call.lineno} builds a QPixmap from {name} - if "
+                f"that is a path it decodes on this thread. Decode to a QImage "
+                f"on a worker and use QPixmap.fromImage()."
+            )
