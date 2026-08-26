@@ -61,6 +61,13 @@ class IndexScheduler(QObject):
         self._save_last_run = save_last_run
         self._started_at = datetime.now()
         self._last_finished: Optional[datetime] = None
+        #: The stored value, read **once**. `status()` runs on every tick - once
+        #: a minute, for as long as the window is open - and called
+        #: `_load_last_run()` each time, which is a store read on the UI thread
+        #: to produce a status-bar string that changes only when a run ends.
+        #: After a run `_last_finished` answers without touching anything.
+        self._stored_last_run: Optional[datetime] = None
+        self._read_stored = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(tick_ms)
@@ -90,20 +97,37 @@ class IndexScheduler(QObject):
         """
         moment = when or datetime.now()
         self._last_finished = moment
-        try:
-            self._save_last_run(moment)
-        except Exception as exc:              # noqa: BLE001 - a status bar is not worth crashing over
-            _log.warning("could not record the last index time: {}", exc)
+        # **Written on a worker.** Once per run rather than once per minute, so
+        # the cost is small - but it is still a store write from a Qt slot, and
+        # it lands exactly when an index run has just released the write lock
+        # and the vector store is compacting. The status bar already has the
+        # value from `_last_finished`; persisting it can take as long as it
+        # likes.
+        from app.ui.workers import CallableWorker, run as run_worker
+
+        worker = CallableWorker(self._save_last_run, moment,
+                                component="ui.scheduler.save")
+        worker.signals.failed.connect(
+            lambda error: _log.warning(
+                "could not record the last index time: {}",
+                getattr(error, "message", error)))
+        run_worker(QThreadPool.globalInstance(), worker)
         self.state_changed.emit(self.status())
 
     def status(self) -> str:
         return describe(self.policy, last_run=self._safe_last_run(), now=datetime.now())
 
     def _safe_last_run(self) -> Optional[datetime]:
-        try:
-            return self._load_last_run()
-        except Exception:                     # noqa: BLE001
-            return None
+        """When indexing last finished. Cached - see `_stored_last_run`."""
+        if self._last_finished is not None:
+            return self._last_finished        # this session knows better
+        if not self._read_stored:
+            self._read_stored = True
+            try:
+                self._stored_last_run = self._load_last_run()
+            except Exception:                 # noqa: BLE001
+                self._stored_last_run = None
+        return self._stored_last_run
 
     def _tick(self) -> None:
         if self._is_running():

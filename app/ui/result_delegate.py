@@ -82,7 +82,7 @@ class ResultDelegate(QStyledItemDelegate):
             rows.insert(0, QFontMetrics(name_font).height())
         if self._shows_snippet(payload):
             text = _snippet_text(payload)
-            rows.append(_wrapped_height(body_font, text, width - 2 * metrics.pad_x))
+            rows.append(_snippet_height(body_font, text, width - 2 * metrics.pad_x))
 
         height = sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y
         return QSize(width, height)
@@ -214,15 +214,22 @@ def _snippet_text(payload: Any) -> str:
     return getattr(snippet, "text", "") if snippet else ""
 
 
-def _wrapped_height(font: QFont, text: str, width: int) -> int:
-    """How tall the snippet will be once wrapped. Used by `sizeHint` only."""
+def _snippet_height(font: QFont, text: str, width: int) -> int:
+    r"""How tall the snippet actually draws. Used by `sizeHint` only.
+
+    **One line, because `_paint_snippet` draws one line.** This reserved up to
+    *two* - `min(wrapped, metrics.height() * 2)` - and the painter has always
+    laid the snippet out on a single baseline, eliding at the right edge rather
+    than wrapping. So every row whose snippet was longer than the pane carried
+    an empty line under it: a gap that looks like a spacing bug, costing about a
+    result per screenful.
+
+    The two must agree, and the cheapest way to make them agree is for the hint
+    to describe what the paint does rather than what it might have done.
+    """
     if not text or width <= 0:
         return 0
-    metrics = QFontMetrics(font)
-    rect = metrics.boundingRect(QRect(0, 0, width, 10_000),
-                                int(Qt.TextFlag.TextWordWrap), text)
-    # Two lines is enough to judge relevance and keeps ten results on a screen.
-    return min(rect.height(), metrics.height() * 2)
+    return QFontMetrics(font).height()
 
 
 def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) -> None:

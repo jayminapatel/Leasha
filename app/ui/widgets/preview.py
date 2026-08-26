@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.preview_loader import (
+    decode_image,
     KIND_HTML,
     KIND_IMAGE,
     KIND_NONE,
@@ -369,7 +370,32 @@ class PreviewPane(QWidget):
         self.stack.setCurrentWidget(self.card)
 
     def _show_image(self, path: str) -> None:
-        pixmap = QPixmap(path)
+        r"""Draw an already-decoded image, or start decoding it.
+
+        **`QPixmap(path)` reads and decodes the file on the calling thread**,
+        and this is a slot - so a 40-megapixel scan, or any image on a network
+        share, froze the window for as long as the decode took. The pane's own
+        docstring promises the opposite, and every other slow thing in this
+        widget already goes through a worker.
+
+        `QPixmap` may only be constructed on the UI thread, but `QImage` may be
+        decoded anywhere, so the split is: worker decodes to `QImage`, this
+        converts it - which is a wrap, not a re-decode.
+        """
+        self._generation += 1
+        generation = self._generation
+        worker = CallableWorker(decode_image, path, component="ui.preview.image")
+        worker.signals.finished.connect(
+            lambda image, g=generation: self._draw_image(image, g))
+        worker.signals.failed.connect(
+            lambda _e, g=generation: self._draw_image(None, g))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _draw_image(self, image: Any, generation: int) -> None:
+        """UI thread. `image` is a `QImage` the worker decoded, or None."""
+        if generation != self._generation:
+            return                               # a later preview won
+        pixmap = QPixmap.fromImage(image) if image is not None else QPixmap()
         if pixmap.isNull():
             self._show_card("This image could not be read.")
             return

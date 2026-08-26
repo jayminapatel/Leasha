@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.6 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 4.7 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -245,6 +245,36 @@ fail to convert on the platform that ships. The sequencing below now puts the re
    fails), H10 (`resolve_binary` at `converter.py:333`), H1 (skipped files re-extracted),
    H2 + H3 (the two migration repairs, **before anybody migrates a large index**), then the
    three one-liners: M7 `quoted_removed`, M1 shutdown-guard hoist, M9 clear-search.
+
+**From the owner, 2026-08-27 — two new orders, in this sequence**
+
+After the review's open search items (H5, H6) are closed:
+
+0a. **`docs/WORKORDER-202626270046-slash-menu-context-and-metadata.md`** (ACTIVE) —
+    context-aware `/` menu with value counts, and the CLI half: `leasha shell` on
+    prompt_toolkit with a live dropdown as the primary deliverable, PowerShell
+    tab-completion for one-shot commands. Its header carries the internal sequence.
+0b. **`docs/WORKORDER-202626270114-index-tuning.md`** (RELEASED by the owner) — the
+    Index Tuning section on the Indexing page: Defaults / Auto-tune / Manual modes,
+    ComputeProfile detection with machine-derived envelopes (this machine: i7-1365U,
+    2P+8E hybrid, 32 GB, Iris Xe — which IS DirectML-capable; its §0 baseline block
+    has the measured facts and three corrections they force. A discrete-GPU machine
+    follows later — the design must light up on it with zero reconfiguration), and
+    the §6 pipeline speed work gated by stage timers. It
+    reworks `pipeline.py`/`resources.py`/`embedder.py`/`vector_store.py` — do not
+    interleave it with other pipeline work.
+
+Owner, 2026-08-27: the `cli.py` package split (review §"Priority plan" item 12 /
+remediation order §7) is deliberately **last** — after every order above has
+landed, when nothing else is feeding the file. Do not fold it into the
+slash-menu or index-tuning work.
+
+Owner, same day, generalised: **a fully working version comes first.** All of
+remediation §7 (the presenter split, the shell controllers, the cli split) and
+any other restructure-for-its-own-sake waits until the feature orders above are
+done and the product works end to end; then optimisation and splits get looked
+at together. Fixes and measured performance work are not deferred by this —
+only reorganisation is.
 
 **Verification: things the fixtures cannot tell us**
 

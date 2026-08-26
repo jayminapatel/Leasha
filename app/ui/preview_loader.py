@@ -497,3 +497,24 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
             joined = f"{preview.notice}  {note}" if preview.notice else note
             preview = replace(preview, notice=joined)
     return preview
+
+
+def decode_image(path: str):
+    """Read and decode an image file to a `QImage`. **Worker thread only.**
+
+    `QPixmap` cannot be built off the UI thread - Qt refuses, and on some
+    platforms crashes - but `QImage` can, and converting one to the other on
+    the UI thread afterwards is a wrap rather than a second decode. That split
+    is the whole reason this function exists separately from `_show_image`.
+
+    Returns None rather than raising: an unreadable image is an ordinary state -
+    a truncated download, a `.png` that is really HTML - and the pane says so in
+    the card. Nothing here is worth an error dialog.
+    """
+    from PyQt6.QtGui import QImage
+
+    try:
+        image = QImage(str(path))
+    except Exception:                            # noqa: BLE001 - boundary
+        return None
+    return None if image.isNull() else image

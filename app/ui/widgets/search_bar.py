@@ -245,8 +245,15 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
     scope = build_scope(view, on_scope)
     interpret = build_interpret(view, lambda _checked=False: on_interpret())
     rerank = build_rerank(view, lambda _state: on_rerank())
+    # **Gated on the button being visible.** Interpret is hidden when Ollama is
+    # switched off or absent - `set_interpret_enabled` - and the shortcut was
+    # not, so Ctrl+Enter on a machine with no Ollama started a translation that
+    # could only fail, from a feature the person had switched off or never had.
+    # `interpret.isVisible()` is the same condition the button is drawn by, so
+    # the two cannot drift apart.
     for keys in ("Ctrl+Return", "Ctrl+Enter"):
-        QShortcut(QKeySequence(keys), view, activated=on_interpret)
+        QShortcut(QKeySequence(keys), view,
+                  activated=lambda: on_interpret() if interpret.isVisible() else None)
 
     chooser = view_button(view, None, "", on_change=on_view, grouping=True)
     status = QLabel("")

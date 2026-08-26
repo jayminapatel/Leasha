@@ -419,6 +419,11 @@ class MainWindow(QMainWindow):
             self._watch_timer.start()
             self._poll_external_run()
             self.indexing_view.refresh_totals(store, settings)
+            # The two Settings labels that need the store or an import. They
+            # used to be filled during `SettingsView.__init__`, which is inside
+            # `MainWindow.__init__` - a COUNT(*) and a module import on the UI
+            # thread before the first frame.
+            self.settings_view.refresh_slow_labels()
             self._refresh_status()
             self._start_scheduler()
             self._warm_translator()
@@ -526,6 +531,11 @@ class MainWindow(QMainWindow):
         bind("Ctrl+P", self._focus_files)
         bind("Ctrl+Shift+P", self._toggle_preview)
         bind("Ctrl+M", self._focus_mail)
+        # **The Code tab was the only find tab without one.** Search, Files and
+        # Mail all have a key that jumps to their box; Code did not, so the one
+        # tab whose users are most likely to be keyboard-driven was the one that
+        # needed a mouse. Ctrl+E for "code", since Ctrl+C is taken by copy.
+        bind("Ctrl+E", self._focus_code)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
         # positional argument. Binding the method directly raises TypeError the
@@ -943,6 +953,11 @@ class MainWindow(QMainWindow):
         """Ctrl+M. Mail is a browser, so this lands in its filter box."""
         self._show(self.mail_view)
         self.mail_view.focus()
+
+    def _focus_code(self) -> None:
+        """Ctrl+E. The Code tab, and its search box selected."""
+        self._show(self.code_view)
+        self.code_view.focus()
 
     def _theme_changed(self, preference: str) -> None:
         self._theme_preference = preference

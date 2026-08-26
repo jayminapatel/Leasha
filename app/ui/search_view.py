@@ -240,7 +240,13 @@ class SearchView(QWidget):
             self._engine, query, tier=tier, generation=self._generation, **options
         )
         worker.signals.finished.connect(self._on_results)
-        worker.signals.failed.connect(self.error)
+        # **The notice bar, not a modal.** This fires per debounced keystroke,
+        # so a transiently locked database - which is exactly what an index run
+        # produces - used to raise one `QMessageBox` per character typed, each
+        # of which has to be dismissed before the next appears. The failure is
+        # worth saying; it is not worth stopping the window for. `self.error`
+        # stays for things the person actually asked for, like opening a file.
+        worker.signals.failed.connect(self._search_failed)
         run(self._pool, worker)
 
         # The repository half. `run_history_pass` decides nothing: it asks
@@ -269,6 +275,11 @@ class SearchView(QWidget):
             federated_summary(self._index_count, total - self._index_count))
 
     # -- results ------------------------------------------------------------
+
+    def _search_failed(self, error: Any) -> None:
+        """A background search that raised. Said in the bar, never in a dialog."""
+        self.notices.show_notices([error])
+        self.status.setText("")
 
     def _on_results(self, payload: Any) -> None:
         generation, response = payload

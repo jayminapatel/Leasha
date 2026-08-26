@@ -854,6 +854,55 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     return "\n\n".join(line for line in lines if line)
 
 
+def settings_labels(store: Any) -> tuple:
+    r"""`(searches, direct_pst)` for the two slow Settings labels. **Worker.**
+
+    Both used to be computed inside `SettingsView.__init__`, which is inside
+    `MainWindow.__init__`: a `COUNT(*)` against the store and an import probe
+    for `pst_libpff`, on the UI thread, before the first frame was drawn. The
+    count is cheap on an idle database and not on one an index run is writing
+    to, and an import is never free the first time.
+
+    `-1` means the count could not be read, which `history_label_text` renders
+    as a sentence rather than as a number nobody should trust.
+    """
+    from app.extract import pst_libpff
+
+    searches = -1
+    if store is not None:
+        try:
+            searches = int(store.count_searches())
+        except Exception:                        # noqa: BLE001 - a label, not a search
+            searches = -1
+    try:
+        direct = bool(pst_libpff.available())
+    except Exception:                            # noqa: BLE001
+        direct = False
+    return searches, direct
+
+
+def history_label_text(searches: int) -> str:
+    """How many searches are recorded, or that the number is unavailable."""
+    if searches < 0:
+        return "The search history could not be read."
+    return f"{searches:,} searches recorded."
+
+
+def pst_status_text(available: bool) -> str:
+    """Which route Outlook archives take, and what the other one costs.
+
+    A greyed-out option with no explanation is a dead end, so the unavailable
+    case names the command that changes it.
+    """
+    if available:
+        return "Direct reading is available - archives can be indexed without Outlook."
+    return (
+        "Direct reading is not installed, so archives go through Outlook. "
+        "To read them without it: pip install libpff-python "
+        "(needs Build Tools for Visual Studio on Windows)."
+    )
+
+
 def accessible_text(payload: Any) -> str:
     r"""One line naming a result, for anything that cannot see it drawn.
 

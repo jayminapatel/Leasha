@@ -38,6 +38,9 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.indexing_settings import IndexingSettings
+from app.ui.presenter import (
+    history_label_text, pst_status_text, settings_labels,
+)
 from app.ui.widgets.debug_pane import DebugPane
 from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
@@ -254,8 +257,22 @@ class SettingsView(QWidget):
         layout.addWidget(self.environment, stretch=1)
         layout.addWidget(self.restore_defaults)
 
-        self.refresh_history_count()
-        self.refresh_pst_status()
+        # **Neither of these runs during construction any more.**
+        #
+        # `refresh_history_count` queries the store and `refresh_pst_status`
+        # imports `pst_libpff` to see whether it is installed - a `COUNT(*)`
+        # and a module import, on the UI thread, inside `MainWindow.__init__`.
+        # The window's own docstring states the rule they broke: *nothing runs
+        # on a background thread until construction is over* - and the reason
+        # is that the main thread is not free either, so store work here delays
+        # the first frame and, worse, contends with `_apply_theme`.
+        #
+        # `shell._start_background_work` calls `refresh_slow_labels()` on the
+        # first turn of the event loop instead. Until then both labels say what
+        # they are doing rather than nothing, because a blank label is
+        # indistinguishable from a broken one.
+        self.history_label.setText("Counting…")
+        self.pst_status.setText("Checking how Outlook archives can be read…")
 
     # -- roots --------------------------------------------------------------
 
@@ -285,21 +302,26 @@ class SettingsView(QWidget):
 
     # -- Outlook archives ---------------------------------------------------
 
-    def refresh_pst_status(self) -> None:
-        """Say plainly which route is available, and what it would cost to add
-        the other - a greyed-out option with no explanation is a dead end."""
-        from app.extract import pst_libpff
+    def refresh_slow_labels(self) -> None:
+        """Fill in both labels that need the store or an import. **Worker.**
 
-        if pst_libpff.available():
-            self.pst_status.setText(
-                "Direct reading is available - archives can be indexed without Outlook."
-            )
-        else:
-            self.pst_status.setText(
-                "Direct reading is not installed, so archives go through Outlook. "
-                "To read them without it: pip install libpff-python "
-                "(needs Build Tools for Visual Studio on Windows)."
-            )
+        Called from `shell._start_background_work`, which is the first moment
+        anything may touch a thread or the store - see the comment where these
+        used to run, in the constructor.
+        """
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(settings_labels, self._store,
+                                component="ui.settings.labels")
+        worker.signals.finished.connect(self._show_slow_labels)
+        worker.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_slow_labels(self, found: Any) -> None:
+        """UI thread, no I/O - the worker fetched both."""
+        searches, direct = found
+        self.history_label.setText(history_label_text(int(searches)))
+        self.pst_status.setText(pst_status_text(bool(direct)))
         self.pst_status.setWordWrap(True)
 
     def _convert_pst(self) -> None:
@@ -315,21 +337,8 @@ class SettingsView(QWidget):
     # -- history ------------------------------------------------------------
 
     def refresh_history_count(self) -> None:
-        """Count the usage log without reading it.
-
-        This used to be `len(recent_searches(limit=100_000))` - a hundred
-        thousand rows fetched, decoded into dictionaries and thrown away, on the
-        UI thread, to produce one number. `COUNT(*)` answers the same question
-        from an index, and the store now has a method for it.
-        """
-        if self._store is None:
-            return
-        try:
-            count = self._store.count_searches()
-        except Exception as exc:                 # noqa: BLE001 - a label is not worth failing over
-            _log.debug("search history not counted: {}", exc)
-            return
-        self.history_label.setText(f"{count:,} searches recorded.")
+        """Re-count the usage log. Off-thread - see `refresh_slow_labels`."""
+        self.refresh_slow_labels()
 
     def _clear_history(self) -> None:
         """Delete the usage log in a worker.

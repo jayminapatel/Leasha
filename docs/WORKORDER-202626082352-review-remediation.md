@@ -164,23 +164,23 @@ Three notes:
 
 ## 4. UI polish and hygiene
 
-- [ ] **M10** (UI) `search_view.py:231` / `shell.py:1447` — search-tier failures go to
+- [x] **M10** (UI) `search_view.py:231` / `shell.py:1447` — search-tier failures go to
   the NoticeBar, not a modal per keystroke.
-- [ ] **M11** (UI) `widgets/preview.py:371` — decode `QImage` on the worker; no
+- [x] **M11** (UI) `widgets/preview.py:371` — decode `QImage` on the worker; no
   `QPixmap(path)` / `QPdfDocument.load` in UI-thread slots.
-- [ ] **M12** (UI) `search_bar.py:163` / `shell.py:344,571` — one rerank state: toolbar
+- [x] **M12** (UI) `search_bar.py:163` / `shell.py:344,571` — one rerank state: toolbar
   initialised from `ui:rerank_enabled`, both controls share one handler.
-- [ ] **M13** (UI) `settings_view.py:288` — `count_searches()` and libpff probes move
+- [x] **M13** (UI) `settings_view.py:288` — `count_searches()` and libpff probes move
   to `CallableWorker`; nothing reads the store during `MainWindow.__init__`.
-- [ ] **M19** (UI) `results_view.py:207` — set `AccessibleTextRole` in `_append`; the
+- [x] **M19** (UI) `results_view.py:207` — set `AccessibleTextRole` in `_append`; the
   results list is currently invisible to screen readers.
-- [ ] **L** (UI) `result_delegate.py:217` — sizeHint and paint agree on snippet lines
+- [x] **L** (UI) `result_delegate.py:217` — sizeHint and paint agree on snippet lines
   (reserve one or draw two).
-- [ ] **L** (UI) `view_options.py:343` — delete the per-click QMenu
+- [x] **L** (UI) `view_options.py:343` — delete the per-click QMenu
   (`WA_DeleteOnClose`) instead of leaking it.
-- [ ] **L** (UI) `shell.py:505` — give the Code tab a shortcut; gate Ctrl+Enter on
+- [x] **L** (UI) `shell.py:505` — give the Code tab a shortcut; gate Ctrl+Enter on
   the Interpret button being visible.
-- [ ] **L** (UI) `scheduler.py:99` / `shell.py:878` — cache last-run in memory;
+- [x] **L** (UI) `scheduler.py:99` / `shell.py:878` — cache last-run in memory;
   persist via worker, not a UI-thread write per minute.
 
 ## 5. Core, extract, CLI — smaller items
@@ -245,3 +245,18 @@ Three notes:
 Each ticked item: the fix, the test that would have caught it, `pytest tests -q`
 green, committed by name per §5 of `WORKORDER-CONVENTIONS.md`. When a section
 empties, note it in `CHANGELOG.md` under `[Unreleased]`, append-only.
+
+---
+
+## Notes appended during execution
+
+**§4 complete, 2026-08-27.** Tests in `tests/unit/test_review_section_four.py`.
+Three of them failed on their first draft by matching the *comment* explaining
+why the forbidden call was absent - the same trap that had already caught
+`test_narrowing_the_tree_runs_no_subprocess` and `test_the_close_path_checks_
+the_flag`. They parse the AST and drop docstrings now, via a shared `_code`
+helper written for exactly that reason.
+
+`settings_view.py` crossed its 250-line guard while M13 was being fixed, so the
+worker body and both label sentences moved to `presenter.py` - which is where
+the guard intends them to be, and makes the wording testable without a display.

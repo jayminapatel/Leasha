@@ -335,12 +335,20 @@ def build_menu(
     to the preferences alone: it also has to reset the table's own `FITTED`
     flag, and only the caller can reach the table.
     """
+    from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QAction, QActionGroup
     from PyQt6.QtWidgets import QMenu, QWidgetAction, QSpinBox, QLabel, QWidget, QHBoxLayout
 
     order = [key for key, _heading in columns]
     shown = set(visible_columns(prefs, order, available))
     menu = QMenu("View", parent)
+    # **Deleted when it closes.** Parented to the View button so it is styled
+    # and positioned correctly, which also means Qt keeps it alive for the
+    # lifetime of the *button* - and one is built per click. A session of
+    # fiddling with columns left a menu per open, each holding its actions, its
+    # spin box and its labels. `WA_DeleteOnClose` gives it the lifetime it
+    # actually has.
+    menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
     menu.addSection("Columns")
     for key, heading in columns:
