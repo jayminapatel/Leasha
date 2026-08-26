@@ -143,6 +143,14 @@ class Settings(BaseModel):
     # --- models -------------------------------------------------------------
     embed_model: str = "BAAI/bge-small-en-v1.5"
     embed_dim: int = 384
+    #: `auto | cpu | gpu` - which processor runs the ONNX models. One value for
+    #: the embedder, the reranker and OCR, because a machine where two of the
+    #: three used the graphics card is one nobody could reason about.
+    #:
+    #: **Not destructive.** The same model gives the same vectors on either
+    #: processor to within floating-point noise, so unlike `EMBED_MODEL` this
+    #: does not invalidate an index - which is why it is a plain control.
+    embed_device: str = "auto"
     #: **Changed on a measurement, not a preference.** `rerank-bench` on the
     #: owner's machine, 30 candidates windowed to 600 characters, median of
     #: three passes:
@@ -266,6 +274,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "LOG_PATH",
     "EMBED_MODEL",
     "EMBED_DIM",
+    "EMBED_DEVICE",
     "RERANK_MODEL",
     "RERANK_ENABLED",
     "RERANK_TOP_N",
@@ -366,6 +375,7 @@ def load_settings(
             log_path=path_of("LOG_PATH", root / "logs"),
             embed_model=values.get("EMBED_MODEL") or "BAAI/bge-small-en-v1.5",
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
+            embed_device=(values.get("EMBED_DEVICE") or "auto").strip().lower(),
             rerank_model=values.get("RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2",
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
             rerank_top_n=_as_int(
@@ -413,6 +423,22 @@ def load_settings(
         raise AppErrorException(make_error(
             "ERR_CONFIG_INVALID", "core.config",
             key="EMBED_DIM", reason=f"must be positive, got {settings.embed_dim}",
+        ))
+
+    # **Checked here rather than shrugged off at load.** `backends.choose`
+    # treats an unrecognised device as `auto`, which is the right behaviour for
+    # a value already in flight; it is the wrong behaviour for a typed setting,
+    # where silently ignoring `EMBED_DEVICE=gpu ` with a trailing character
+    # would leave somebody certain they had switched something on.
+    #
+    # The tuple is written out rather than imported from `app.index.backends`:
+    # L0 does not import L3, and the registry's `choices` are tested against
+    # this list, so a third spelling cannot appear in only one of them.
+    if settings.embed_device not in ("auto", "cpu", "gpu"):
+        raise AppErrorException(make_error(
+            "ERR_CONFIG_INVALID", "core.config",
+            key="EMBED_DEVICE",
+            reason=f"must be auto, cpu or gpu, got {settings.embed_device!r}",
         ))
 
     if not settings.ollama_url.startswith(("http://", "https://")):

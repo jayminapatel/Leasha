@@ -1,0 +1,187 @@
+# Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
+
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
+**Status:** RELEASED by the owner 2026-08-27 — sequenced after
+`WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
+this order and **fine-tuned later**: the owner has scheduled tuning it for
+after indexing is resolved, so §3 lands mechanically complete with its tests
+and its quality pass is explicitly out of scope here.
+
+## 0. The principles this order is built on (owner, 2026-08-27)
+
+1. **Progressive disclosure by tab.** The first Search tab is the universal
+   surface — it searches everything and its acceptance test is literal: *an
+   8-year-old finds her homework.* Files, Mail and Code are power surfaces
+   and keep the `/` grammar and expert wording. Same engine, different
+   contracts per surface.
+2. **Every behaviour is configurable; every constant is justified; nothing is
+   hidden.** Helpful behaviours ship **always-on** and each is individually
+   switch-off-able — users mature, and nobody is forced in a direction. The
+   line: behaviours a user can *perceive* get a switch; internal constants
+   stay demoted per `WORKORDER-everything-tunable-has-a-ui.md`.
+3. **Safety invariants are not configurable**: never delete user files, never
+   send data off the machine, always show when search is degraded. Drawn on
+   purpose, here, so nobody debates it later.
+4. **Existing labels and descriptions never change** — same rule as the
+   index-tuning order. New controls follow plain words; old ones move
+   verbatim.
+5. **Every control's tooltip states its effect** — what pressing it does and
+   what happens at the limit, in plain words. This is already the house style
+   (`indexing_settings.py`: "the wording on these controls is the feature");
+   this order makes it a rule with a test (§7).
+
+## 1. The policy seam — one place where surfaces differ
+
+- [ ] **1a** (Search) `SearchPolicy` dataclass passed with every query:
+  `relax_on_empty` (bool), `typo_correction` ("auto" | "suggest" | "off"),
+  `notice_register` ("plain" | "technical"), `auto_chips` (bool),
+  `recency_blend` (bool), `version_folding` (bool). The engine reads policy;
+  no view ever branches on which tab it is. Each field is backed by a
+  Setting (owner's principle 2) with per-surface defaults: everything on for
+  the Search tab, conservative for Files/Mail/Code.
+- [ ] **1b** the per-surface defaults are themselves visible in Settings as a
+  small grid (surface × behaviour), and **"Reset search behaviour to
+  defaults"** is one click — the sibling of Index Tuning's "Return to
+  automatic". Support-at-a-distance depends on this button.
+
+## 2. Tab one — the universal surface (the 8-year-old test)
+
+- [ ] **2a Typo tolerance.** A typed word matching nothing in `fts5vocab`
+  gets edit-distance-1/2 candidates from the vocabulary (bounded exactly as
+  wildcards are). Policy `typo_correction="auto"`: the best candidate joins
+  the query and the result header says so in plain words ("also looked for
+  'volcanoes'"); `"suggest"`: a did-you-mean chip instead. The single
+  highest-value item in this order — a child who gets zero results for
+  "volcanoe" concludes her essay is gone.
+- [ ] **2b Visible relaxation on empty.** Zero results with ≥2 content terms:
+  drop the rarest term, re-run, label the page ("nothing matched all your
+  words — showing results without 'the'"). Never silent (principle 3 of the
+  codebase: silent rewriting loses trust — the *label* is what makes this
+  legal). Policy-gated; on for tab one.
+- [ ] **2c Plain-words notices.** A notice register: every `Notice` code maps
+  to a plain sentence for `notice_register="plain"` surfaces ("Finding
+  things by meaning is off right now — results are word-matches only") and
+  keeps today's wording for technical surfaces. One table, tested for
+  coverage of every notice code.
+- [ ] **2d Recency blend + version folding.** A mild recency prior on the
+  fused score (measured against `evaluate --builtin` before accepting), and
+  near-duplicate results folded into one row — newest shown, "N older
+  versions" expandable. Folding keys on the chunk-dedup hashes the
+  index-tuning order introduces (its 6e); if 6e was closed as not-built,
+  fold on `content_hash` at file level instead. This is where the
+  fifteen-years-eight-versions corpus stops embarrassing the results page.
+- [ ] **2e First-contact details.** Search is the default tab on launch; the
+  box placeholder is a plain example sentence; an empty, focused box offers
+  the user's own recent searches (from the existing usage log, newest
+  first, off-able); result rows on tab one are generous — thumbnail where a
+  preview exists, filename, folder, when; Enter opens the document.
+
+## 3. The translator — works with Ollama, works without it
+
+Built now, tuned later (see Status). The seam already exists: translation
+produces the fixed filter grammar, the parser validates, the user sees and
+corrects. Ollama is one backend; this adds the second.
+
+- [ ] **3a Rules backend** (`app/search/translate_rules.py`, beside
+  `translate.py`): deterministic slot-filling against vocabularies the index
+  already owns — capitalised tokens matched to sender/recipient names via
+  `distinct_values` → `from:`/`to:`; verb list (sent, emailed, received,
+  attached…) → mail scope and from/to disambiguation; noun map (report,
+  spreadsheet, photo, deck, invoice…) → `type:`; date phrases ("before
+  2023", "last summer", "in June") → `after:`/`before:`. Residual words pass
+  through untouched. Pure, Qt-free, testable — no model, no network.
+- [ ] **3b Chips, not rewrites.** Extracted filters appear as removable chips
+  the user accepts with one click (`auto_chips` policy: on for tab one,
+  behind Interpret elsewhere). The typed text is never altered — the chips
+  sit beside it. High precision by construction (the name either is in the
+  sender list or no chip fires); a wrong chip costs one click.
+- [ ] **3c Composition with Ollama.** When Ollama is present, rules run
+  first and the model receives only the residue — smaller prompts, faster
+  answers, and the deterministic part stays deterministic. When absent, the
+  Interpret button remains, powered by rules alone; nothing on screen
+  changes but the depth of what gets extracted.
+- [ ] **3d** quality pass **deferred by the owner** to after indexing work:
+  the vocab/verb/noun/date tables land with obvious contents and their
+  tests; tuning recall on real sentences is a later, separate effort. Leave
+  a `[TUNE]` marker on each table.
+
+## 4. The Code tab — searching the way coders search
+
+- [ ] **4a Paste-an-error routing.** A query that looks pasted rather than
+  typed — contains `:` + parentheses, quote pairs, `Traceback`, or a
+  path:line shape — routes to verbatim substring matching over the existing
+  trigram index, punctuation preserved, no syntax required. The result
+  header names the mode ("exact match"); one click returns to normal
+  search. This is the most common coder search and today tokenisation
+  breaks it.
+- [ ] **4b Open in editor at line.** Code results open in the configured
+  editor at the line (`code -g file:line` for VS Code; the command is a
+  Setting with detection, same pattern as converters), plus a copy-
+  `path:line` action. Reveal-in-Explorer stays for documents.
+- [ ] **4c Definition boost.** A hit on the line *defining* the symbol
+  (`def`/`class`/`function`/assignment patterns per language, from the
+  existing code_types machinery) ranks above hits that merely use it.
+  Measured against `evaluate` code sentences before accepting.
+- [ ] **4d `/changed <text>` — the pickaxe.** Surface `git log -S` through
+  the existing git layer: commits where the string was added or removed,
+  shown with message, author, date. Nothing else on the market does this
+  well, and the answer carries the *why* that grep cannot.
+
+## 5. Finding by how people actually remember
+
+- [ ] **5a More like this.** Right-click on any result → nearest neighbours
+  by the document's own vectors. Everything required already exists; this
+  is the feature that makes semantic search tangible.
+- [ ] **5b Attachments as first-class results.** `/has attachment` plus an
+  attachment-primary result row (the attachment is the object, its message
+  is the context, open-attachment is the default action) — people remember
+  "the file Dave sent", not the subject line.
+- [ ] **5c Numbers.** Measure first: do "40000", "40,000" and "£40k" find
+  each other across spreadsheet cells and document text? Record the answer
+  here; build normalisation only if the measurement shows the gap.
+
+## 6. UI polish that carries the rest
+
+- [ ] **6a Tooltips state the effect — everywhere.** Every interactive
+  control in every view gets a tooltip saying what it does and, where
+  relevant, what happens at the limit. Enforced like accessible names: a
+  test walks the widget tree and fails on any control without one
+  (excluding pure display widgets), and a review pass rewrites any existing
+  tooltip that names a mechanism without naming its effect — allowed
+  despite principle 4 because tooltips are help text, not labels; labels
+  still never change.
+- [ ] **6b Scalable text.** Replace hardcoded pixel font sizes (17 rules,
+  theme.py) with point sizes or a scale factor honouring Windows display
+  scaling — the one accessibility item the 25 Aug review left partial, and
+  it matters for every older relative this product now targets.
+- [ ] **6c** the remediation order's §4 UI items (M10 modal storms, M11
+  preview decode, M12 rerank sync, M19 screen-reader text) are
+  prerequisites of "world class" but stay tracked THERE — this order does
+  not duplicate them; do not tick anything twice.
+
+## 7. Tests
+
+- [ ] **The 8-year-old scenarios**, as integration tests on the fixture
+  corpus: misspelled single word finds the document (2a); over-specified
+  sentence with a wrong word still lands via relaxation, and the label is
+  asserted (2b); plain sentence with a known sender name produces the chip
+  (3a/3b); every scenario runs with Ollama absent.
+- [ ] Policy: each `SearchPolicy` field provably changes engine behaviour
+  (the anti-P1 wiring rule); per-surface defaults assert the owner's matrix.
+- [ ] Notices: every notice code has a plain-register sentence (table
+  coverage test).
+- [ ] Tooltips: the §6a walker test.
+- [ ] Relevance gates: 2d recency and 4c definition boost each accepted only
+  with `evaluate` numbers recorded in this file — a ranking change without
+  its measurement is not done.
+
+## Done means
+
+Each ticked item: change + tests + `pytest tests -q` green + committed by
+name; ranking changes carry their `evaluate` numbers in this file. The order
+is done when the 8-year-old scenarios pass with Ollama absent, every
+behaviour they exercise has a visible switch, and no control anywhere lacks a
+tooltip that says what it does. §3's `[TUNE]` markers surviving to the end is
+expected, not a failure — tuning is the owner's next agenda item after
+indexing.

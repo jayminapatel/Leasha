@@ -29,6 +29,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -52,6 +53,45 @@ class StorageBox(QGroupBox):
     #: `{registry key: value}` for the one setting here that is an ordinary
     #: number. The other two are flows and persist through those.
     changed = pyqtSignal(dict)
+
+    def _grey_the_graphics_card(self, settings: Any) -> None:
+        """Disable the GPU row when it cannot work, and say why on it.
+
+        Detection happens here rather than in `__init__`'s flow so that a
+        machine which cannot be probed - no PowerShell, no onnxruntime, a
+        locked-down box - gets a usable Settings page rather than an exception
+        while it is being built. §4 M13's rule about `__init__` not doing work
+        applies doubly to work that shells out.
+        """
+        reason = ""
+        try:
+            from app.core.compute_profile import detect
+            from app.index.backends import why_unavailable
+
+            reason = why_unavailable(getattr(settings, "compute_profile", None)
+                                     or detect())
+        except Exception:                        # noqa: BLE001 - never fatal
+            reason = "this machine's graphics support could not be checked"
+
+        index = self.embed_device.findData("gpu")
+        item = None
+        if index >= 0:
+            model = self.embed_device.model()
+            # `item` exists on the QStandardItemModel a QComboBox builds for
+            # itself. Guarded because a caller is free to set another model,
+            # and a Settings page that raises is worse than one that offers a
+            # choice the backend will decline with a notice anyway.
+            item = model.item(index) if hasattr(model, "item") else None
+        if item is not None:
+            item.setEnabled(not reason)
+            item.setToolTip(f"Unavailable: {reason}" if reason
+                            else "DirectML is available on this machine")
+
+        self.embed_device.setToolTip(
+            "Which processor runs the meaning model, the reranker and OCR.\n"
+            "Automatic uses the graphics card when this machine has one that\n"
+            "works, and the processor otherwise. Takes effect on restart.\n"
+            + (f"\nGraphics card unavailable: {reason}" if reason else ""))
 
     def __init__(self, settings: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("Index storage", parent)
@@ -103,6 +143,32 @@ class StorageBox(QGroupBox):
             "it invalidates every vector in the index."
         )
 
+        # **`EMBED_DEVICE` is an ordinary control, and that is the decision.**
+        #
+        # It sits beside `EMBED_MODEL`, which is a flow because changing it
+        # invalidates every vector stored. This changes none of them: the same
+        # model on a different processor produces the same vectors to within
+        # floating-point noise, so it costs a restart and nothing else.
+        #
+        # The graphics-card option is **greyed with its reason showing** rather
+        # than accepted and then quietly ignored - §3c's rule about illegal
+        # states being unreachable at the control, applied to a choice instead
+        # of a number. Somebody who cannot use it learns why here, rather than
+        # from a log file after an index run they thought was accelerated.
+        self.embed_device = QComboBox()
+        self.embed_device.setObjectName("EMBED_DEVICE")
+        self.embed_device.setAccessibleName("Run models on")
+        for value, label in (("auto", "Automatic"), ("cpu", "Processor"),
+                             ("gpu", "Graphics card")):
+            self.embed_device.addItem(label, value)
+        self._grey_the_graphics_card(settings)
+        current = str(getattr(settings, "embed_device", "auto") or "auto")
+        found = self.embed_device.findData(current)
+        self.embed_device.setCurrentIndex(found if found >= 0 else 0)
+        self.embed_device.currentIndexChanged.connect(
+            lambda _i: self.changed.emit(
+                {"EMBED_DEVICE": str(self.embed_device.currentData() or "auto")}))
+
         self.rebuild_vectors = QPushButton("Change the meaning model…")
         self.rebuild_vectors.setObjectName("rebuild-vectors")
         self.rebuild_vectors.setToolTip(
@@ -127,6 +193,7 @@ class StorageBox(QGroupBox):
         form.addRow("Free space needed", self.required_free_gb)
         form.addRow("Meaning model", self.embed_model)
         form.addRow("", self.rebuild_vectors)
+        form.addRow("Run models on", self.embed_device)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)

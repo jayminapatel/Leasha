@@ -261,6 +261,16 @@ SETTINGS: tuple[Setting, ...] = (
         help="Set by the meaning model. Changing it by hand cannot make an "
              "existing index work; it only makes the mismatch louder.",
     ),
+    Setting(
+        key="EMBED_DEVICE", label="Run models on", kind="choice",
+        default="auto", group="Models", surface="settings.models",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help="Which processor runs the meaning model, the reranker and OCR. "
+             "Automatic uses the graphics card when this machine has one that "
+             "works, and the processor otherwise. It is not destructive: the "
+             "same model produces the same vectors either way, so switching "
+             "does not invalidate an index.",
+    ),
 
     # --- Storage -----------------------------------------------------------
     Setting(

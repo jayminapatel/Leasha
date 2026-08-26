@@ -17,8 +17,7 @@ from app.cli import build_parser, main
 from app.index.embedder import Embedder, l2_normalise
 
 
-def fake_embedder(*_args, **kwargs):
-    dim = kwargs.get("dim", 384)
+def _fake(dim: int = 384) -> Embedder:
     import math
 
     def encode(texts):
@@ -26,6 +25,24 @@ def fake_embedder(*_args, **kwargs):
                 for t in texts]
 
     return Embedder(dim=dim, encoder=encode)
+
+
+class fake_embedder:                              # noqa: N801 - stands in for a class
+    """A stand-in for `Embedder`, and **a class rather than a function**.
+
+    It was a function until `Embedder.from_settings` existed, at which point
+    `app.cli` called a classmethod on it and got `AttributeError`. A double
+    that answers only the constructor is a double that stops being one the
+    moment the real thing grows a second way in - so this answers both.
+    """
+
+    def __new__(cls, *_args, **kwargs):
+        return _fake(int(kwargs.get("dim", 384)))
+
+    @classmethod
+    def from_settings(cls, settings, **overrides):
+        return _fake(int(overrides.get("dim",
+                                       getattr(settings, "embed_dim", 384))))
 
 
 @pytest.fixture()

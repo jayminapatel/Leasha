@@ -70,9 +70,11 @@
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
     <Compile Include="app\core\code_types.py" />
+    <Compile Include="app\core\compute_profile.py" />
     <Compile Include="app\core\config.py" />
     <Compile Include="app\core\diagnostics.py" />
     <Compile Include="app\core\env_writer.py" />
+    <Compile Include="app\core\envelope.py" />
     <Compile Include="app\core\errors.py" />
     <Compile Include="app\core\format_health.py" />
     <Compile Include="app\core\formats.py" />
@@ -241,6 +243,7 @@
     <Compile Include="tests\unit\test_command_subsets.py" />
     <Compile Include="tests\unit\test_commands.py" />
     <Compile Include="tests\unit\test_completions_sidecar.py" />
+    <Compile Include="tests\unit\test_compute_envelope.py" />
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
     <Compile Include="tests\unit\test_converter.py" />
@@ -414,6 +417,7 @@
     <Content Include="docs\WORKORDER-202626082213-install-and-distribution.md" />
     <Content Include="docs\WORKORDER-202626082352-review-remediation.md" />
     <Content Include="docs\WORKORDER-202626270046-slash-menu-context-and-metadata.md" />
+    <Content Include="docs\WORKORDER-202626270114-index-tuning.md" />
     <Content Include="docs\WORKORDER-202626270257-privacy-defaults.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />

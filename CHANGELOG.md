@@ -1,6 +1,38 @@
 # Changelog
 
-**Doc version:** 3.67 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.68 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## The machine is looked at, and one setting decides which processor runs the models
+
+- **Leasha now knows what it is running on.** Cores are counted by kind - two
+  performance cores and eight efficiency ones read differently from ten of the
+  same - alongside memory, AVX2, whether the index drive is solid-state, and
+  which display adapters exist. Detection only; every field is a fact and none
+  of them is a decision.
+- **Each tunable has a per-machine envelope** on top of its absolute limits, and
+  every bound carries the sentence explaining it. Eight indexing workers is
+  legal in the abstract and absurd on a dual-core laptop.
+- **Extraction workers are counted, inference threads are weighted.** The first
+  version weighted both and produced two workers where four had been running -
+  a silent halving, justified by an efficiency-core estimate borrowed from the
+  wrong kind of work. Extraction waits on the disk as much as it computes.
+- **"Run models on" in Settings**: automatic, processor, or graphics card. One
+  choice for the meaning model, the reranker and OCR, because a machine where
+  two of the three used the graphics card is one nobody could account for.
+- **The graphics card is greyed with its reason showing** when it cannot be
+  used, and the two reasons read differently: no adapter is a hardware fact, no
+  DirectML provider is one `pip install` away.
+- **A graphics card that fails mid-load falls back to the processor and says
+  so.** A driver mid-update or a device in use is an ordinary Windows
+  situation, and none of them may end an index run.
+- **The run log records which processor each model actually used** - what ran,
+  not what was asked for.
+- Switching processors **does not invalidate an index**: the same model gives
+  the same vectors either way, so this costs a restart and nothing else.
+- Three of the five places that built a reranker left the "results to rerank"
+  and "text per result" settings at their defaults, so two Settings controls
+  applied in the window and not on the command line. There is one constructor
+  now, and one answer.
 
 ## The `/` menu answers the query you are building — and the CLI gets one too
 

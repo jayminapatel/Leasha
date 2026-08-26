@@ -68,18 +68,49 @@ class Reranker:
         enabled: bool = True,
         scorer: Optional[Scorer] = None,
         window_chars: int = RERANK_WINDOW_CHARS,
+        device: str = "auto",
+        profile: Optional[object] = None,
     ) -> None:
         self.model_name = model_name
         self.cache_dir = cache_dir
         self.top_n = top_n
         self.enabled = enabled
         self.window_chars = int(window_chars)
+        #: The same `EMBED_DEVICE` the embedder uses - **one decision, three
+        #: consumers**. A machine where the meaning model ran on the graphics
+        #: card and the reranker did not would be one whose search latency
+        #: nobody could account for.
+        self.device = str(device or "auto")
+        self._profile = profile
+        #: Which processor actually ran it. `None` until the model loads.
+        self.choice: Optional[object] = None
         self._scorer = scorer
         self._lock = threading.Lock()
         self._unavailable = False       # set once the failure budget is spent
         #: Consecutive scoring failures. See `RERANK_FAILURE_BUDGET`.
         self._failures = 0
         self._warned = False
+
+    @classmethod
+    def from_settings(cls, settings: object, **overrides: object) -> "Reranker":
+        """The reranker this configuration asks for, `EMBED_DEVICE` included.
+
+        Same reasoning as `Embedder.from_settings`: five call sites each
+        spelling out four arguments is five places for a new one to be
+        forgotten, and the one being added here is the one that decides which
+        processor runs the model.
+        """
+        fields: dict = dict(
+            cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
+            enabled=bool(getattr(settings, "rerank_enabled", True)),
+            top_n=int(getattr(settings, "rerank_top_n", RERANK_TOP_N)),
+            window_chars=int(getattr(settings, "rerank_window_chars",
+                                     RERANK_WINDOW_CHARS)),
+            device=str(getattr(settings, "embed_device", "auto") or "auto"),
+        )
+        fields.update(overrides)
+        return cls(str(getattr(settings, "rerank_model", "")
+                       or "BAAI/bge-reranker-base"), **fields)
 
     @property
     def available(self) -> bool:
@@ -105,7 +136,19 @@ class Reranker:
             try:
                 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-                model = TextCrossEncoder(model_name=self.model_name, cache_dir=self.cache_dir)
+                from app.index import backends
+
+                def build(providers: tuple) -> object:
+                    if providers == (backends.CPU_PROVIDER,):
+                        return TextCrossEncoder(model_name=self.model_name,
+                                                cache_dir=self.cache_dir)
+                    return TextCrossEncoder(model_name=self.model_name,
+                                            cache_dir=self.cache_dir,
+                                            providers=list(providers))
+
+                model, self.choice = backends.with_fallback(
+                    build, backends.choose(self._backend_profile(), self.device))
+                backends.record_provider("reranker", self.choice)
                 self._scorer = lambda query, passages: list(
                     model.rerank(query, list(passages))
                 )
@@ -114,6 +157,17 @@ class Reranker:
                 self._unavailable = True
                 self._warn_once(exc)
                 return None
+
+    def _backend_profile(self) -> object:
+        """This machine, detected once and only when a model is being loaded."""
+        if self._profile is None:
+            try:
+                from app.core.compute_profile import detect
+
+                self._profile = detect()
+            except Exception:               # noqa: BLE001 - detection never fatal
+                self._profile = object()
+        return self._profile
 
     def _warn_once(self, exc: BaseException) -> None:
         if self._warned:

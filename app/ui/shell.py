@@ -1342,8 +1342,7 @@ class MainWindow(QMainWindow):
 
         pipeline = Pipeline(
             self._store, self._vectors,
-            Embedder(self._settings.embed_model, dim=self._settings.embed_dim,
-                     cache_dir=str(self._settings.model_cache)),
+            Embedder.from_settings(self._settings),
             PipelineConfig(
                 walk=WalkConfig(
                     roots=[Path(root) for root in chosen],

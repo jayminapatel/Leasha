@@ -39,6 +39,7 @@ import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from app.core.errors import AppErrorException, make_error
+from app.index import backends
 
 __all__ = ["Embedder", "EMBED_BATCH", "l2_normalise"]
 
@@ -91,6 +92,9 @@ class Embedder:
         cache_dir: Optional[str] = None,
         batch_size: int = EMBED_BATCH,
         encoder: Optional[Encoder] = None,
+        device: str = backends.AUTO,
+        profile: Optional[object] = None,
+        problems: Optional[list] = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
@@ -101,6 +105,35 @@ class Embedder:
         self._encoder = encoder
         self._lock = threading.Lock()
         self._checked_dim = False
+        #: What was asked for. What actually ran is `self.choice`, and the two
+        #: differ whenever a GPU was requested and would not have it - which is
+        #: precisely the case the run log has to be able to show.
+        self.device = str(device or backends.AUTO)
+        self._profile = profile
+        self._problems = problems
+        #: Set once the model loads. `None` until then, so nothing reports a
+        #: provider that has not yet been proven to work.
+        self.choice: Optional[backends.Choice] = None
+
+    @classmethod
+    def from_settings(cls, settings: object, **overrides: object) -> "Embedder":
+        """The embedder this configuration asks for.
+
+        **Seven places built one of these by hand**, and every one of them
+        would have had to grow a `device=` argument for §2b to reach the
+        machine - six of which somebody would eventually forget, producing an
+        application where the setting worked in the window and not in the CLI.
+        One constructor is the fix, and new arguments now reach every caller by
+        existing rather than by being copied.
+        """
+        return cls(
+            str(getattr(settings, "embed_model", "") or "BAAI/bge-small-en-v1.5"),
+            dim=int(getattr(settings, "embed_dim", 384) or 384),
+            cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
+            device=str(getattr(settings, "embed_device", backends.AUTO)
+                       or backends.AUTO),
+            **overrides,                            # type: ignore[arg-type]
+        )
 
     # -- model lifecycle ----------------------------------------------------
 
@@ -135,16 +168,55 @@ class Embedder:
                                "venv\\Scripts\\python.exe -m pip install fastembed",
                 )) from exc
 
+            wanted = backends.choose(self._resolved_profile(), self.device)
+
+            def build(providers: tuple) -> object:
+                if providers == (backends.CPU_PROVIDER,):
+                    # **The CPU path is byte-for-byte what it was.** Passing a
+                    # providers list that means "the default" would still be a
+                    # new argument to somebody else's constructor on every
+                    # machine, and §2's promise is that CPU behaviour is
+                    # untouched by this seam existing.
+                    return TextEmbedding(model_name=self.model_name,
+                                         cache_dir=self.cache_dir)
+                return TextEmbedding(model_name=self.model_name,
+                                     cache_dir=self.cache_dir,
+                                     providers=list(providers))
+
             try:
-                model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+                model, self.choice = backends.with_fallback(
+                    build, wanted, problems=self._problems)
             except Exception as exc:               # noqa: BLE001 - download, disk, or ONNX
                 raise AppErrorException(make_error(
                     "ERR_MODEL_LOAD", "index.embedder",
                     details=f"{self.model_name}: {type(exc).__name__}: {exc}",
                 )) from exc
 
+            if wanted.fell_back_from and self._problems is not None:
+                self._problems.append(wanted.why)
+
+            backends.record_provider("meaning model", self.choice)
             self._encoder = lambda texts: model.embed(list(texts))
             return self._encoder
+
+    def _resolved_profile(self) -> object:
+        """The profile to decide against - the given one, or this machine's.
+
+        Detected lazily rather than in `__init__` because an `Embedder` is
+        constructed in places that never load a model, and probing the
+        hardware to then not use it is work nobody asked for.
+        """
+        if self._profile is not None:
+            return self._profile
+        try:
+            from app.core.compute_profile import detect
+
+            self._profile = detect()
+        except Exception:                          # noqa: BLE001 - detection
+            # A profile that cannot be read is not a reason to fail to embed:
+            # an empty one means "no GPU known", which lands on the CPU.
+            self._profile = object()
+        return self._profile
 
     # -- embedding ----------------------------------------------------------
 

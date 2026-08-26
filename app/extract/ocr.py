@@ -107,6 +107,39 @@ ENGINE_LOAD_ATTEMPTS = 3
 #: Failed load attempts so far. See `_load_engine`.
 _engine_attempts = 0
 
+#: `EMBED_DEVICE`, as this module sees it.
+#:
+#: **Set rather than read**, because `ocr.py` is a registered extractor with no
+#: settings object anywhere near it - it is called from extraction workers with
+#: a path and nothing else. `configure_device` is called once at start-up by
+#: whichever entry point loaded the settings, and the default is `auto`, which
+#: is also the setting's default: an entry point that forgot to call it gets
+#: the behaviour somebody who never touched the control would get, rather than
+#: a third one nobody chose.
+_device = "auto"
+
+
+def configure_device(device: str) -> None:
+    """Tell OCR which processor `EMBED_DEVICE` asked for.
+
+    Idempotent, and takes effect on the next engine load. Changing it after the
+    engine exists does nothing on purpose: the setting is marked `restart`, and
+    silently reloading three ONNX sessions mid-run to honour it would be a
+    worse surprise than not honouring it until asked to.
+    """
+    global _device
+    _device = str(device or "auto").strip().lower() or "auto"
+
+
+def _profile() -> Any:
+    """This machine, for the backend decision. Never raises."""
+    try:
+        from app.core.compute_profile import detect
+
+        return detect()
+    except Exception:                            # noqa: BLE001
+        return object()
+
 
 def available() -> bool:
     """Is OCR usable here? Never raises, never loads the engine.
@@ -141,9 +174,25 @@ def _load_engine() -> Any:
         try:
             from rapidocr_onnxruntime import RapidOCR
 
+            from app.index import backends
+
             started = time.monotonic()
-            _engine = RapidOCR()
-            log.info("OCR engine loaded in {:.1f}s", time.monotonic() - started)
+            # **The third consumer of the one seam.** RapidOCR runs three ONNX
+            # sessions - detect, classify, recognise - and takes a `use_dml`
+            # flag per session rather than a provider list, so the choice is
+            # translated here rather than the seam being bent to fit it.
+            #
+            # Its own `_check_dml` re-checks Windows version and the available
+            # providers and logs its reason before falling back, so this asks
+            # for the graphics card and lets the library refuse it. That is one
+            # more fallback than `with_fallback` would give, not one fewer.
+            choice = backends.choose(_profile(), _device)
+            _engine = RapidOCR(**({"det_use_dml": True, "cls_use_dml": True,
+                                   "rec_use_dml": True} if choice.is_gpu else {}))
+            log.info("OCR engine loaded in {:.1f}s on the {}",
+                     time.monotonic() - started,
+                     "graphics card" if choice.is_gpu else "processor")
+            backends.record_provider("OCR", choice)
         except Exception as exc:                 # noqa: BLE001 - absence is normal
             # **A retry budget, not a permanent latch.**
             #

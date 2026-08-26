@@ -224,6 +224,13 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     run.settings(settings)
     setup_logging(settings.log_path)
 
+    # OCR is a registered extractor with no settings object in reach, so the
+    # device choice is pushed to it here - the same call `cli._load` makes, so
+    # the window and the command line run the models on the same processor.
+    from app.extract import ocr as _ocr
+
+    _ocr.configure_device(settings.embed_device)
+
     # **A pending index move runs here and nowhere else**: after logging is up,
     # before a single store is opened. That is the only moment nothing holds the
     # files. Settings records the decision; this keeps it, moving the folders and
@@ -304,16 +311,11 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                 VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
             log.info("startup: stores open, loading the embedding model",
                      model=settings.embed_model, cache=str(settings.model_cache))
-            embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
-                                cache_dir=str(settings.model_cache))
+            embedder = Embedder.from_settings(settings)
 
             log.info("startup: loading the reranker",
                      model=settings.rerank_model, enabled=settings.rerank_enabled)
-            reranker = Reranker(settings.rerank_model,
-                                cache_dir=str(settings.model_cache),
-                                enabled=settings.rerank_enabled,
-                                top_n=settings.rerank_top_n,
-                                window_chars=settings.rerank_window_chars)
+            reranker = Reranker.from_settings(settings)
 
             log.info("startup: building the search engine")
             engine = SearchEngine(store, vectors, embedder, reranker=reranker)

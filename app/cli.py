@@ -83,6 +83,13 @@ def _load(args: argparse.Namespace) -> Settings:
     run = current_run()
     if run is not None:
         run.settings(settings)
+
+    # `ocr.py` is a registered extractor reached with a path and nothing else,
+    # so `EMBED_DEVICE` has to be pushed to it rather than read by it. Here,
+    # because this is the one function every command's settings pass through.
+    from app.extract import ocr
+
+    ocr.configure_device(settings.embed_device)
     return settings
 
 
@@ -1043,9 +1050,7 @@ def cmd_index(args: argparse.Namespace) -> int:
         recheck_days=settings.archive_recheck_days,
     )
 
-    embedder = Embedder(
-        settings.embed_model, dim=settings.embed_dim, cache_dir=str(settings.model_cache)
-    )
+    embedder = Embedder.from_settings(settings)
 
     progress = ProgressLine(enabled=not args.quiet and not args.json)
 
@@ -1851,11 +1856,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
         engine = SearchEngine(
             store, vectors,
-            Embedder(settings.embed_model, dim=settings.embed_dim,
-                     cache_dir=str(settings.model_cache)),
-            reranker=Reranker(settings.rerank_model,
-                              cache_dir=str(settings.model_cache),
-                              enabled=settings.rerank_enabled),
+            Embedder.from_settings(settings),
+            # **`from_settings` also fixes an inconsistency worth naming.**
+            # Three of the five construction sites left `RERANK_TOP_N` and
+            # `RERANK_WINDOW_CHARS` at the module defaults, so two controls in
+            # Settings applied in the window and not on the command line. One
+            # constructor means one answer.
+            reranker=Reranker.from_settings(settings),
         )
 
         def search(query: str) -> list[str]:
@@ -1974,8 +1981,7 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
 
             vectors = VectorStore(folder / "vectors", dim=settings.embed_dim)
             vectors.connect()
-            embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
-                                cache_dir=str(settings.model_cache))
+            embedder = Embedder.from_settings(settings)
 
             # **The vectors have to be built or this is not the full pipeline.**
             #
@@ -1999,10 +2005,10 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
             engine = SearchEngine(
                 store, vectors,
                 embedder,
-                reranker=Reranker(settings.rerank_model,
-                                  cache_dir=str(settings.model_cache),
-                                  top_n=settings.rerank_top_n,
-                                  window_chars=settings.rerank_window_chars),
+                # `enabled=True` explicitly: this path measures the reranker,
+                # so the switch that turns it off for searching must not turn
+                # off the thing being measured.
+                reranker=Reranker.from_settings(settings, enabled=True),
                 log_usage=False,
             )
             # The model is named because `.env` overrides the shipped default,
@@ -2235,8 +2241,7 @@ def cmd_reembed(args: argparse.Namespace) -> int:
             print("  Loading the model, then the first batch of 256 - "
                   "the first line takes a minute or so.", flush=True)
 
-        embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
-                            cache_dir=str(settings.model_cache))
+        embedder = Embedder.from_settings(settings)
         done = 0
         started = time.time()
         # Split three ways, because the totals lie. `embed-bench` measured 4.4
@@ -2386,11 +2391,8 @@ def cmd_shell(args: argparse.Namespace) -> int:
                        "choose a folder to index.",
         ), args.json)
 
-    embedder = Embedder(settings.embed_model, dim=settings.embed_dim,
-                        cache_dir=str(settings.model_cache))
-    reranker = Reranker(settings.rerank_model,
-                        cache_dir=str(settings.model_cache),
-                        enabled=settings.rerank_enabled)
+    embedder = Embedder.from_settings(settings)
+    reranker = Reranker.from_settings(settings)
 
     with SqliteStore(settings.fts_db) as store, \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
@@ -2842,13 +2844,9 @@ def cmd_search(args: argparse.Namespace) -> int:
             suggestion=r'Build one first: app.cli index "D:\SearchData"',
         ), args.json)
 
-    embedder = Embedder(
-        settings.embed_model, dim=settings.embed_dim, cache_dir=str(settings.model_cache)
-    )
-    reranker = Reranker(
-        settings.rerank_model, cache_dir=str(settings.model_cache),
-        enabled=settings.rerank_enabled and not args.no_rerank,
-    )
+    embedder = Embedder.from_settings(settings)
+    reranker = Reranker.from_settings(
+        settings, enabled=settings.rerank_enabled and not args.no_rerank)
 
     with SqliteStore(settings.fts_db) as store, \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
