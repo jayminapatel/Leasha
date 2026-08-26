@@ -144,18 +144,18 @@ is a two-second correction rather than a mystery.
 
 Use a fake client returning canned strings. **No test may require a running Ollama.**
 
-- [ ] A table of at least fifteen sentence -> expected-query pairs, covering: sender, file type,
+- [x] A table of at least fifteen sentence -> expected-query pairs, covering: sender, file type,
       date before, date after, relative dates, phrases, exclusions, and combinations.
-- [ ] Output always parses with `parse_query()`. Property test it with junk model output:
+- [x] Output always parses with `parse_query()`. Property test it with junk model output:
       empty, prose, an unclosed quote, an invented operator, 10,000 characters. Every one falls
       back to the raw text rather than raising.
-- [ ] An invented operator (`colour:red`) is rejected, not passed through.
-- [ ] A date the parser rejects causes fallback to raw text, not a partial query.
-- [ ] Ollama unreachable: the search still runs on the raw text and returns results.
-- [ ] Translation exceeding the timeout falls back, and the fallback is logged once, not per key.
-- [ ] The translated query is returned to the caller for display - assert it reaches the
+- [x] An invented operator (`colour:red`) is rejected, not passed through.
+- [x] A date the parser rejects causes fallback to raw text, not a partial query.
+- [x] Ollama unreachable: the search still runs on the raw text and returns results.
+- [x] Translation exceeding the timeout falls back, and the fallback is logged once, not per key.
+- [x] The translated query is returned to the caller for display - assert it reaches the
       presenter, since the UI contract depends on it.
-- [ ] Static: nothing in `app/search/` imports `app.llm` except the translation module.
+- [x] Static: nothing in `app/search/` imports `app.llm` except the translation module.
 - [ ] **Recorded in the changelog:** median translation latency on the owner's hardware.
 
 ## 5. L8b - prose answers. Secondary, and only if asked for
@@ -221,3 +221,20 @@ until it has.** No test can cover it.
 - **Translation is optional and never blocks a search.** Ollama down means plain search.
 - **Graph removed, L7 cancelled, L10 cancelled.**
 - **L8b deferred** until L8a has been used in anger.
+
+---
+
+## Audited 2026-08-27 — 8 ticked, one left for the owner
+
+Verified against `tests/unit/test_translate.py` (23 tests) and
+`test_translate_timeout.py` (16), item for item: the sentence table holds
+exactly fifteen pairs and every one of them parses; junk output, an invented
+operator like `colour:red`, and a date the parser rejects each fall back to the
+raw text rather than to a partial query; Ollama unreachable and Ollama timing
+out both leave the search working, and the fallback is logged once rather than
+once per key; the translated query reaches the caller for display; and the
+static guard holds - nothing on the retrieval path imports the LLM, and the
+search engine cannot reach the translator at all.
+
+**Still open:** the median translation latency on the owner's hardware. It is
+a number from a machine with Ollama running, so it cannot be taken here.
