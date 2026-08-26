@@ -413,7 +413,25 @@ def grammar_for_model() -> str:
                          f"ONLY one of: {allowed}")
         else:
             lines.append(f"  {command.name}:<value>  {command.summary}")
+    # **4f: which operators need company.** Told nothing about scoping, a model
+    # produces a filter that is either wrong or ambiguous and looks deliberate
+    # either way - `branch:main` on a machine with nine checkouts is the case
+    # this order names. Generated from `scoped_by`, so the prompt, the dropdown
+    # and the CLI help describe one grammar rather than three.
+    #
+    # Phrased as an instruction rather than an observation: a small model
+    # follows "add X when the sentence says so" and ignores "X means more with
+    # Y", which is the same lesson `examples_for_model` records below.
+    scoped = [c for c in COMMANDS if c.scoped_by]
+    if scoped:
+        lines.append("")
+        lines.append("Narrowing (add the partner when the sentence gives one):")
+        for command in scoped:
+            partners = ", ".join(f"{name}:" for name in command.scoped_by)
+            lines.append(f"  {command.name}: is narrowed by {partners}")
+
     lines += [
+        "",
         '  "quoted phrase"  exact order',
         "  -word  exclude it",
         "  A OR B  either (capitals)",

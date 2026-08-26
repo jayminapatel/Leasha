@@ -129,9 +129,9 @@ So the design splits static from dynamic, and pre-computes the dynamic half.
   `add-to-path.ps1` already established, and the same no-admin-rights rule.
   `run-install.cmd` offers it as the one optional question after the index
   location.
-- [ ] **4e** (CLI) `app.cli commands` prints the `scoped_by` relationships from
+- [x] **4e** (CLI) `app.cli commands` prints the `scoped_by` relationships from
   1c, so the help, the popup and the completer describe the same grammar.
-- [ ] **4f** (LLM) `grammar_for_model` mentions scoping so the translator stops
+- [x] **4f** (LLM) `grammar_for_model` mentions scoping so the translator stops
   proposing `branch:x` without a repo when several repositories are indexed.
 
 Scoped completion (1b's `within=`) applies to the GUI only in 4a–4d. The
@@ -395,3 +395,23 @@ character - at that point they are answering. A test asserts it can never
 become a filter.
 
 Full recursive nesting stays out of scope, as the order requires.
+
+## 4e and 4f delivered, 2026-08-27
+
+Both are generated from `scoped_by` rather than written out, so the model
+prompt, the CLI help and the dropdown describe one grammar - a hand-written
+list in any of the three is the second grammar this order opens by ruling out.
+
+`app.cli commands` prints `narrowed by: repo:` under each command that has one,
+and `--json` carries `scoped_by` for anything reading it as data. The model
+prompt gains a "Narrowing" block, phrased as an instruction rather than an
+observation because a small model follows *"add the partner when the sentence
+gives one"* and ignores *"X means more with Y"* - the same lesson
+`examples_for_model` already records.
+
+**Note on sequence.** The order sequences 1 → 2 → 4g → 4a-4d → 3, and §3 was
+done before §4. §3 turned out to be two small, self-contained additions with no
+dependency on the CLI work, so doing it while its context was open cost nothing
+and left §4 undisturbed. 4e and 4f are likewise independent of 4g. The rest of
+§4 - the sidecar, the PowerShell completer and the `leasha shell` REPL - is
+untouched and is the next unit of work.

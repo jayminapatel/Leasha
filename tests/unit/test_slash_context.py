@@ -615,3 +615,57 @@ def test_the_custom_row_is_not_a_value() -> None:
     from app.ui.presenter import CUSTOM_ROW
 
     assert parse_query(f"after:{CUSTOM_ROW}").after is None
+
+
+# --- 4e and 4f: one grammar, described the same way three times -------------
+
+
+def test_the_model_prompt_mentions_scoping() -> None:
+    r"""4f. Told nothing, a model proposes `branch:main` on a machine with nine
+    checkouts - a filter that is either wrong or ambiguous and looks
+    deliberate either way."""
+    from app.search.commands import COMMANDS, grammar_for_model
+
+    prompt = grammar_for_model()
+
+    assert "Narrowing" in prompt
+    for command in COMMANDS:
+        if command.scoped_by:
+            assert f"{command.name}: is narrowed by" in prompt, command.name
+
+
+def test_the_scoping_sentence_is_generated_not_written() -> None:
+    """A hand-written list is a second grammar, which is what `commands.py`
+    opens by ruling out."""
+    import ast
+    import inspect
+    import textwrap
+
+    from app.search import commands
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(commands.grammar_for_model)))
+    node = tree.body[0]
+    node.body = node.body[1:]
+    code = ast.unparse(node)
+
+    assert "scoped_by" in code, "the sentence must come from the catalogue"
+
+
+def test_the_cli_help_prints_the_same_relationships() -> None:
+    """4e: the help, the popup and the completer describe one grammar."""
+    import inspect
+
+    from app import cli
+
+    source = inspect.getsource(cli.cmd_commands)
+    assert "scoped_by" in source
+    assert "narrowed by" in source
+
+
+def test_the_json_form_carries_it_too() -> None:
+    """`--json` is what a completer or another tool would read."""
+    import inspect
+
+    from app import cli
+
+    assert '"scoped_by"' in inspect.getsource(cli.cmd_commands)

@@ -2326,7 +2326,8 @@ def cmd_commands(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps([
             {"name": c.name, "aliases": list(c.aliases), "summary": c.summary,
-             "example": c.example, "value": c.value_hint, "icon": c.icon}
+             "example": c.example, "value": c.value_hint, "icon": c.icon,
+             "scoped_by": list(c.scoped_by)}
             for c in catalogue
         ], indent=2))
         return EXIT_OK
@@ -2345,6 +2346,12 @@ def cmd_commands(args: argparse.Namespace) -> int:
             print(f"      {command.example:<28} {command.value_hint}")
             if spellings:
                 print(f"      also: {spellings}")
+            if command.scoped_by:
+                # 4e: the help, the popup and the completer describe one
+                # grammar. Somebody reading this should learn that
+                # `repo:leasha branch:` is narrower than `branch:` alone.
+                print(f"      narrowed by: "
+                      f"{', '.join(f'{n}:' for n in command.scoped_by)}")
         return EXIT_OK
 
     for line in help_lines():
