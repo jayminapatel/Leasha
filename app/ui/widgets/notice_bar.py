@@ -68,6 +68,9 @@ class NoticeBar(QWidget):
         self.label.linkActivated.connect(self.chosen.emit)
 
         self.close_button = QPushButton("Dismiss")
+        self.close_button.setToolTip(
+            "Hide this notice. It says nothing about the search itself, and the "
+            "same notice returns if the same thing happens again.")
         self.close_button.setObjectName("noticeDismiss")
         self.close_button.setAccessibleName("Dismiss this notice")
         self.close_button.setFlat(True)

@@ -112,6 +112,9 @@ class AddFileTypeWizard(QDialog):
 
     def _route_tab(self) -> QWidget:
         self.reader = QComboBox()
+        self.reader.setToolTip(
+            "How this type becomes text. A built-in reader, a Python library, "
+            "or an external command that converts it first.")
         self.reader.addItems(self._readers)
         if "plaintext" in self._readers:
             # Right for the overwhelming majority of what anybody adds here:
@@ -140,6 +143,9 @@ class AddFileTypeWizard(QDialog):
 
     def _convert_tab(self) -> QWidget:
         self.binary = QComboBox()
+        self.binary.setToolTip(
+            "The program to run. It has to be on PATH, or named by its full "
+            "path, on the machine doing the indexing.")
         for name, location in sorted(self._binaries.items()):
             label = name if location else f"{name}  (not installed)"
             self.binary.addItem(label, name)
@@ -152,6 +158,9 @@ class AddFileTypeWizard(QDialog):
         self.produces = QLineEdit("{stem}.txt")
         self.produces.setAccessibleName("File the converter produces")
         self.then = QComboBox()
+        self.then.setToolTip(
+            "Which reader handles the converted file. A converter usually "
+            "produces PDF or plain text, and that result is what gets indexed.")
         self.then.addItems(self._readers)
         if "plaintext" in self._readers:
             self.then.setCurrentText("plaintext")
@@ -206,9 +215,16 @@ class AddFileTypeWizard(QDialog):
         )
 
         self.install_now = QCheckBox("Install the library now")
+        self.install_now.setToolTip(
+            "Run pip for this package straight away, into the application's own "
+            "virtual environment. Needs a network connection; without it the "
+            "type is saved and simply cannot read anything until installed.")
         self.install_now.setChecked(True)
 
         self.cap = QSpinBox()
+        self.cap.setToolTip(
+            "The largest file of this type worth opening. Above it the file is "
+            "recorded by name only.")
         self.cap.setRange(0, 4096)
         self.cap.setSuffix(" MB")
         self.cap.setSpecialValueText("default (100 MB)")

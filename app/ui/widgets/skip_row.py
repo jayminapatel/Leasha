@@ -59,6 +59,10 @@ class SkipRow(QWidget):
 
         if group.retryable:
             button = QPushButton("Retry these")
+            button.setToolTip(
+                "Index these files again. Worth it when the cause has gone - a "
+                "file that was locked, a converter since installed - and "
+                "harmless when it has not.")
             button.setMaximumWidth(140)
             button.setAccessibleName(f"Retry the files skipped because {group.message}")
             button.clicked.connect(lambda: retry_signal.emit(group.code))

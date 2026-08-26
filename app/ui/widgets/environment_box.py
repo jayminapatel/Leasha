@@ -54,6 +54,10 @@ class EnvironmentBox(QGroupBox):
         self.output.setPlaceholderText("Run doctor to check the environment.")
 
         self.run_doctor_button = QPushButton("Run doctor")
+        self.run_doctor_button.setToolTip(
+            "Check everything the application needs and report what is wrong.\n\n"
+            "Reads only: the index, the model cache, disk space and the "
+            "converters. It changes nothing, so it is always safe to press.")
         self.run_doctor_button.clicked.connect(lambda _checked=False: self.run_doctor())
 
         self.recording = QCheckBox("Record what I do, to help diagnose a problem")
@@ -66,6 +70,8 @@ class EnvironmentBox(QGroupBox):
         self.recording_status.setWordWrap(True)
 
         open_folder = QPushButton("Open the recordings folder")
+        open_folder.setToolTip(
+            "Open the folder holding the session recordings in Explorer.")
         open_folder.clicked.connect(self._open_sessions)
 
         layout = QVBoxLayout(self)

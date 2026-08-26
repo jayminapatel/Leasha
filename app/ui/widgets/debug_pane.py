@@ -33,6 +33,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -53,11 +54,16 @@ SHOWN_LINES = 50
 REFRESH_MS = 1_000
 
 
-class DebugPane(QWidget):
-    """A scrolling view of the last `SHOWN_LINES` log lines."""
+class DebugPane(QGroupBox):
+    """A scrolling view of the last `SHOWN_LINES` log lines.
+
+    Its own group box rather than something Settings wraps: the title is part
+    of what it is, and assembling the frame in the view cost `settings_view.py`
+    three of the lines its 250-line guard allows.
+    """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        super().__init__("Recent activity", parent)
 
         caption = QLabel(
             "The most recent log lines. The full log is in the logs folder - "

@@ -176,3 +176,68 @@ def test_the_check_can_actually_fail(tmp_path: Path):
     assert "self.tick" in found
     assert "self.named" not in found, "a checkbox with text labels itself"
     assert "self.ok" not in found, "a placeholder is a label"
+
+
+# ---------------------------------------------------------------------------
+# Tooltips, counted rather than presumed
+#
+# Asked as a presumption - *"i presume tool tips are used every where to be
+# helpful"* - and it was half true: 55 of 100 interactive controls had one. The
+# gaps were not the harmless ones. `start_button` on the Indexing page had none,
+# and neither did any of the three radio buttons that decide what happens to an
+# existing index, whose consequences are days of re-indexing apart.
+#
+# Counted here so the answer stays a measurement. A label on a button says what
+# it does; a tooltip says what will happen, which is a different sentence and
+# the one somebody wants before pressing something irreversible.
+# ---------------------------------------------------------------------------
+
+#: Controls built by `QLineEdit`, which are exempt: an input carries its
+#: guidance as placeholder text, which is visible without hovering and is
+#: therefore strictly better. Every other interactive control needs one.
+_TIPPED = ("QPushButton", "QToolButton", "QCheckBox", "QComboBox",
+           "QSpinBox", "QRadioButton", "QTimeEdit")
+
+
+def _controls_without_tooltips() -> list[str]:
+    import ast
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[2] / "app" / "ui"
+    missing: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        built: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                fn = node.value.func
+                name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+                if name in _TIPPED and node.targets:
+                    target = node.targets[0]
+                    key = getattr(target, "attr", None) or getattr(target, "id", None)
+                    if key:
+                        built[key] = name
+        tipped = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "setToolTip":
+                owner = getattr(node.func, "value", None)
+                tipped.add(getattr(owner, "attr", None) or getattr(owner, "id", None))
+        missing.extend(f"{path.name}:{key}" for key in built if key not in tipped)
+    return sorted(missing)
+
+
+def test_every_interactive_control_says_what_it_will_do():
+    r"""**A label says what a control is; a tooltip says what will happen.**
+
+    The three that mattered most when this was written: Start indexing, and the
+    Move / Adopt / Start-fresh choice about somebody's whole index. All four had
+    a two-word label and nothing else.
+    """
+    missing = _controls_without_tooltips()
+
+    assert not missing, (
+        "these controls have no tooltip:\n  " + "\n  ".join(missing)
+        + "\n\nA QLineEdit is exempt - it carries a placeholder, which is "
+          "visible without hovering. Everything else here needs one sentence "
+          "saying what pressing it does."
+    )

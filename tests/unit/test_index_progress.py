@@ -125,9 +125,20 @@ def test_none_values_do_not_raise():
 # ---------------------------------------------------------------------------
 
 def source() -> str:
+    """The Indexing page's own source, plus the widget holding its buttons.
+
+    The four buttons moved to `widgets/index_controls.py` when the view hit its
+    250-line guard - so a grep of the view alone stopped finding them, which is
+    this helper being too specific about where a thing lives rather than the
+    thing having gone.
+    """
     from pathlib import Path
-    return (Path(__file__).resolve().parents[2] / "app" / "ui" / "indexing_view.py").read_text(
-        encoding="utf-8")
+
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    return "\n".join(
+        (ui / name).read_text(encoding="utf-8")
+        for name in ("indexing_view.py", "widgets/index_controls.py")
+    )
 
 
 def test_the_button_says_stop_because_that_is_what_it_does():

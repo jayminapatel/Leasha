@@ -112,6 +112,10 @@ class EditFileTypeDialog(QDialog):
         self._extension = extension
 
         self.enabled = QCheckBox("Index files of this type")
+        self.enabled.setToolTip(
+            "Turn this off and files of this type are recorded by name only - "
+            "still findable, contents not searchable. Nothing already indexed "
+            "is removed until the next run.")
         self.enabled.setChecked(enabled)
 
         self.reader = QComboBox()
@@ -129,6 +133,11 @@ class EditFileTypeDialog(QDialog):
             )
 
         self.limit = QSpinBox()
+        self.limit.setToolTip(
+            "The largest file of this type worth opening.\n\n"
+            "Above it the file is indexed by name only. A ceiling stops one "
+            "enormous file holding up a run, which on a large corpus is the "
+            "difference between hours and days.")
         self.limit.setRange(1, self.MAX_MB)
         self.limit.setSuffix(" MB")
         self.limit.setValue(max(1, round(max_bytes / (1 << 20))))
@@ -221,6 +230,9 @@ class FileTypesEditor(QGroupBox):
         self.filter.textChanged.connect(self._apply_filter)
 
         self.problems_only = QCheckBox("Only show what needs attention")
+        self.problems_only.setToolTip(
+            "Show only the types that cannot be read right now - a missing "
+            "library, a converter that is not installed, a reader that failed.")
         self.problems_only.stateChanged.connect(lambda _s: self._apply_filter())
 
         self.table = QTableWidget(0, 5)
@@ -258,6 +270,9 @@ class FileTypesEditor(QGroupBox):
         self.none_button.clicked.connect(lambda _checked=False: self.set_all(False))
 
         self.add_button = QPushButton("Add file type...")
+        self.add_button.setToolTip(
+            "Teach the indexer a file type it does not know yet, by naming the "
+            "reader or the command that turns it into text.")
         self.add_button.clicked.connect(lambda _checked=False: self.add_type())
 
         self.reset_button = QPushButton("Reset to defaults")
@@ -268,6 +283,9 @@ class FileTypesEditor(QGroupBox):
         self.reset_button.clicked.connect(lambda _checked=False: self.reset_to_defaults())
 
         self.save_button = QPushButton("Save file types")
+        self.save_button.setToolTip(
+            "Write these choices to extractors.toml. They take effect on the "
+            "next index run; nothing already indexed changes until then.")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(lambda _checked=False: self.save())
 

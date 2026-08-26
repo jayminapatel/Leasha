@@ -138,14 +138,35 @@ class IndexLocationDialog(QDialog):
 
         self.destination = QLineEdit(str(current))
         self.destination.setAccessibleName("New index location")
+        self.destination.setToolTip(
+            "Where the index should live. A fast local disk with room to grow - "
+            "the index is roughly a tenth of the size of what it has read.")
         self.destination.textChanged.connect(lambda _t: self._refresh())
 
         browse = QPushButton("Browse…")
+        browse.setToolTip("Choose the folder in Explorer instead of typing it.")
         browse.clicked.connect(lambda _c=False: self._browse())
 
+        # **Three choices about somebody's whole index, and not one of them
+        # said what it did.** The labels are short because they are radio
+        # buttons; short is fine only when hovering explains the consequence,
+        # and the consequences here are days of indexing apart.
         self.move = QRadioButton("Move the index there")
+        self.move.setToolTip(
+            "Copy this index to the new folder and use it from there.\n\n"
+            "Nothing is re-indexed and nothing is lost. Needs enough free space "
+            "at the destination for the whole index while both copies exist.")
         self.adopt = QRadioButton("Use the index already there")
+        self.adopt.setToolTip(
+            "Leave this index alone and switch to one that already exists at "
+            "the destination.\n\n"
+            "For pointing a fresh install at an index built earlier, or on "
+            "another machine. What is indexed here now stays where it is.")
         self.fresh = QRadioButton("Start a new, empty index there")
+        self.fresh.setToolTip(
+            "Begin again at the destination with nothing indexed.\n\n"
+            "Everything has to be read again, which on a large corpus is hours "
+            "or days. Your documents are never touched - only the index is.")
         self.move.setChecked(True)
 
         self._group = QButtonGroup(self)
@@ -280,6 +301,11 @@ class RebuildVectorsDialog(QDialog):
         #
         # Editable, because a model not listed here is a legitimate choice.
         self.model = QComboBox()
+        self.model.setToolTip(
+            "The model that turns text into vectors for meaning-based search.\n\n"
+            "Changing it invalidates every vector already stored, so the index "
+            "has to be re-embedded. Larger models are slower and need the width "
+            "beside them to match.")
         # The name goes on the control that *chooses*. `storage_box` carries it
         # too, on the read-only display that shows what is in use - which is
         # where the reachability test finds it, and is not where the decision
@@ -305,6 +331,10 @@ class RebuildVectorsDialog(QDialog):
         # choice and its width cannot be guessed - and guessing is the failure
         # being fixed here, so it is asked for instead of assumed.
         self.dim = QSpinBox()
+        self.dim.setToolTip(
+            "How wide the chosen model's vectors are.\n\n"
+            "It has to match the model exactly - the vector store refuses a "
+            "mismatch, and the number is listed against each model above.")
         self.dim.setObjectName("EMBED_DIM")
         self.dim.setAccessibleName("Meaning model dimensions")
         self.dim.setRange(1, 8192)

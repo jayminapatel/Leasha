@@ -184,16 +184,18 @@ class SettingsView(QWidget):
         # --- privacy
         self.history_label = QLabel("")
         clear = QPushButton("Clear search history")
+        clear.setToolTip(
+            "Delete every recorded search and every result opened.\n\n"
+            "Nothing indexed is affected. What is lost is the record used to "
+            "rank things you have opened before, so results may be slightly "
+            "less well ordered for a while.")
         clear.clicked.connect(self._clear_history)
 
         # **What the console used to show.** The window is launched with
         # `pythonw.exe` now, which has no console at all - so "is it doing
-        # anything" needs an answer inside the application. See
-        # `widgets.debug_pane`.
-        self.activity = QGroupBox("Recent activity")
-        activity_layout = QVBoxLayout(self.activity)
-        self.debug_pane = DebugPane()
-        activity_layout.addWidget(self.debug_pane)
+        # anything" needs an answer inside the application. It is its own group
+        # box; see `widgets.debug_pane`.
+        self.activity = self.debug_pane = DebugPane()
 
         privacy = QGroupBox("Search history")
         privacy_layout = QVBoxLayout(privacy)

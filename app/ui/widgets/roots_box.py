@@ -72,8 +72,15 @@ class RootsBox(QGroupBox):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
 
         add = QPushButton("Add folder…")
+        add.setToolTip(
+            "Add a folder to index. Everything beneath it is included; your "
+            "files are only ever read.")
         add.clicked.connect(self._add_root)
         remove = QPushButton("Remove")
+        remove.setToolTip(
+            "Stop indexing this folder.\n\n"
+            "What has already been indexed from it stays searchable until the "
+            "next run, which removes it.")
         remove.clicked.connect(self._remove_root)
 
         # **Separate from the mode, deliberately.** Changing a folder back to
@@ -135,6 +142,12 @@ class RootsBox(QGroupBox):
         self.tree.addTopLevelItem(item)
 
         combo = QComboBox()
+        combo.setToolTip(
+            "How often this folder is re-read.\n\n"
+            "Live is re-walked every run. Archive is walked once and then "
+            "checked with a single stat - the largest saving available on a "
+            "settled corpus, and still re-walked when the folder changes, when "
+            "you press Rescan, or after the interval in Settings.")
         for label, value in CHOICES:
             combo.addItem(label, value)
         index = combo.findData(mode)

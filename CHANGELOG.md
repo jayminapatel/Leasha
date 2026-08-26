@@ -1,12 +1,56 @@
 # Changelog
 
-**Doc version:** 3.53 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.54 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
+
+### Changed — a quieter, denser look, and tooltips that were only half there
+
+Asked for as *"make the look modern professional and intitutive"*, and settled
+as **quiet and dense, like a pro tool** rather than roomy and soft.
+
+**The palette dropped its chroma.** The greys were blue-tinted, which reads as a
+consumer app; a tool somebody keeps open all day should recede and let the
+content be the only thing with colour in it. Two clear steps of lift — window,
+surface — and one more for a raised control, instead of four greys nobody could
+put in order by eye.
+
+**One type scale.** Sizes had been chosen per widget — 10, 11, 12, 13, 15 —
+which is five doing the work of three with no relationship between them. It is
+12 for metadata, 13 for body, 15 for the two headlines that earn it. The search
+box stays large: it is where every session starts, and a cramped input invites
+cramped queries.
+
+**Three things had never been styled at all**, and they were the most dated
+elements on screen precisely because they were everywhere. The scrollbars still
+had the native steppers; menus and tooltips arrived in the platform's own
+colours, so a light context menu opened over a dark window. Thin overlay
+scrollbars, and both menus and tooltips now belong to the application.
+
+Also: hover states on every row (a dense list with no hover gives no sign a row
+is a target at all), a two-pixel focus ring rather than a hue change (width
+carries it for anybody who cannot separate the hues), tighter buttons and tabs,
+and group boxes that read as sections rather than as a page of heavy rectangles.
+
+**And the tooltips.** Presumed to be everywhere — *"i presume tool tips are used
+every where to be helpful"* — and measured at **55 of 100** interactive
+controls. The gaps were not the harmless ones: **Start indexing**, the most
+important button in the application, had none, and neither did any of the three
+radio buttons deciding what happens to an existing index, whose consequences are
+days of re-indexing apart. Every one now says what pressing it will *do*, which
+is a different sentence from what it *is*, and a test counts them so the answer
+stays a measurement. A `QLineEdit` is exempt: a placeholder is visible without
+hovering, which is strictly better.
+
+The 250-line view guard fired three times during this and was right each time.
+The Indexing page's buttons became `widgets/index_controls.py` — where the copy
+saying what each promises belongs anyway — and the debug pane became its own
+group box rather than something Settings assembles around it.
+
 
 ### Fixed — the git tree listed every repository whatever you typed
 

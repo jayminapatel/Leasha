@@ -39,6 +39,7 @@ from app.ui.presenter import (
 )
 from app.ui.widgets.archived_roots import ArchivedRoots
 from app.ui.widgets.external_run import paint_external
+from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.index_stats import IndexStats
 from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.workers import CallableWorker, IndexWorker, run
@@ -136,50 +137,15 @@ class IndexingView(QWidget):
         self.notices.setWordWrap(True)
         self.notices.setVisible(False)
 
-        self.start_button = QPushButton("Start indexing")
-        # **"Stop", not "Pause".** It said Pause and there is no resume: the
-        # run ends, and the next Start begins a new one. It is a cheap end -
-        # everything already indexed is kept and nothing is redone - but a
-        # button that promises to pause and then stops is a button people stop
-        # trusting. The automatic pausing in the status line is a different
-        # thing entirely: that is the resource governor, and it does resume.
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setEnabled(False)
-        self.stop_button.setToolTip(
-            "Stops after the current file. Everything already indexed is kept, "
-            "and starting again picks up where this left off rather than redoing it."
-        )
-        self.stop_button.clicked.connect(self.stop)
-
-        # Destructive, so it is placed away from Start and asks before acting.
-        self.reset_button = QPushButton("Reset index…")
-        self.reset_button.setToolTip(
-            "Delete everything indexed and start over.\n\n"
-            "Your documents are never touched - the index is built from them and "
-            "can always be rebuilt. What it costs is the time to index again."
-        )
-        self.reset_button.clicked.connect(lambda _c=False: self.reset_requested.emit())
-
-        # **The bar cannot show a percentage without a total, and only a scan
-        # produces one.** `app.cli scan` was the sole writer of that number, so
-        # a GUI-started run had `total_estimate == 0` every time and the bar was
-        # a busy indicator for its whole length - correct by its own rules, and
-        # indistinguishable from broken.
-        self.scan_button = QPushButton("Scan first")
-        self.scan_button.setToolTip(
-            "Count the files before indexing them, so the progress bar can show "
-            "a real percentage instead of just spinning.\n\n"
-            "Reads no file contents - it walks the folders and adds up sizes - "
-            "but on a large corpus that walk still takes a while."
-        )
-        self.scan_button.clicked.connect(lambda _c=False: self.scan_requested.emit())
-
-        controls = QHBoxLayout()
-        controls.addWidget(self.start_button)
-        controls.addWidget(self.scan_button)
-        controls.addWidget(self.stop_button)
-        controls.addStretch(1)
-        controls.addWidget(self.reset_button)
+        # Four buttons and the sentences that say what each will do - see
+        # `widgets.index_controls`. Out of the view because this file is at the
+        # 250-line guard, and because "what happens when I press this" is copy
+        # rather than layout.
+        (self.start_button, self.scan_button, self.stop_button,
+         self.reset_button, controls) = build_controls(
+            on_stop=self.stop,
+            on_scan=lambda: self.scan_requested.emit(),
+            on_reset=lambda: self.reset_requested.emit())
 
         # Both panels are their own widgets: this view had reached the 250-line
         # guard, and the guard is right - a view that keeps growing is a view

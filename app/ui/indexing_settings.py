@@ -54,6 +54,9 @@ class IndexingSettings(QGroupBox):
         # exceeding it pauses rather than fails, or they will set it too high
         # out of fear of losing a run.
         self.schedule = QComboBox()
+        self.schedule.setToolTip(
+            "When to index without being asked. Manual means only when you "
+            "press Start.")
         self.schedule.setObjectName("INDEX_SCHEDULE")
         self.schedule.addItem("Only when I ask", "manual")
         self.schedule.addItem("Once, shortly after opening", "startup")
@@ -62,12 +65,21 @@ class IndexingSettings(QGroupBox):
         self.schedule.currentIndexChanged.connect(self._schedule_changed)
 
         self.interval_hours = QSpinBox()
+        self.interval_hours.setToolTip(
+            "How long to wait between automatic runs.\n\n"
+            "An incremental run over a settled corpus takes seconds, so a short "
+            "interval costs little - most of the time there is nothing new to "
+            "read.")
         self.interval_hours.setObjectName("INDEX_INTERVAL_HOURS")
         self.interval_hours.setRange(1, 168)
         self.interval_hours.setSuffix(" hours")
         self.interval_hours.valueChanged.connect(self._schedule_changed)
 
         self.daily_at = QTimeEdit()
+        self.daily_at.setToolTip(
+            "The time of day to start. Pick an hour the machine is on and you "
+            "are not using it - indexing gets out of the way, but reading a "
+            "terabyte is still work.")
         self.daily_at.setObjectName("INDEX_DAILY_AT")
         self.daily_at.setDisplayFormat("HH:mm")
         self.daily_at.timeChanged.connect(self._schedule_changed)
@@ -124,6 +136,11 @@ class IndexingSettings(QGroupBox):
 
         self.pause_on_battery = QCheckBox("Pause while on battery")
         self.pause_on_battery.setObjectName("INDEX_PAUSE_ON_BATTERY")
+        self.pause_on_battery.setToolTip(
+            "Hold indexing until the machine is on mains power.\n\n"
+            "Indexing reads a lot of disk and runs the processor hard, which is "
+            "the fastest way to flatten a laptop battery. It resumes on its own "
+            "when you plug in - nothing is lost by waiting.")
         self.theme = QComboBox()
         self.theme.addItem("Follow Windows", "system")
         self.theme.addItem("Always light", "light")

@@ -41,33 +41,53 @@ class Theme:
 #: a test asserts the two have identical key sets.
 PALETTES: dict[str, dict[str, str]] = {
     Theme.DARK: {
-        "window": "#1e1f22",
-        "surface": "#232428",
-        "surface_alt": "#2b2d31",
-        "border": "#3a3d42",
-        "border_strong": "#4a4d52",
-        "text": "#e6e6e6",
-        "text_dim": "#a9b0b8",
-        "text_faint": "#7d838b",
-        "accent": "#5b9dd9",
-        "accent_soft": "#33415c",
-        "accent_bar": "#4a7fb5",
+        # **Near-neutral, and deliberately low in chroma.** The old greys were
+        # blue-tinted, which reads as a consumer app; a tool somebody keeps open
+        # all day should recede. Two steps of lift - window, surface - and one
+        # more for a raised control, rather than four barely-distinguishable
+        # greys nobody could order by eye.
+        "window": "#191a1c",
+        "surface": "#1f2023",
+        "surface_alt": "#26282b",
+        "surface_hover": "#2d2f33",
+        "border": "#303236",
+        "border_strong": "#3d4045",
+        "divider": "#26282b",
+        "text": "#e4e6e8",
+        "text_dim": "#a0a6ac",
+        "text_faint": "#71777e",
+        "accent": "#4b8fd4",
+        "accent_soft": "#1e3349",
+        "accent_text": "#9cc7f0",
+        "accent_bar": "#4b8fd4",
+        "focus_ring": "#5f9fdd",
         "highlight": "#ffd479",
         "warning": "#d98b5b",
         "selection_text": "#ffffff",
+        "scroll": "#3a3d42",
+        "scroll_hover": "#4c5057",
     },
     Theme.LIGHT: {
-        "window": "#f6f7f9",
+        # Warm-neutral rather than blue-grey, for the same reason as the dark
+        # palette: a quieter ground makes the content the only thing with
+        # colour in it.
+        "window": "#f7f7f8",
         "surface": "#ffffff",
-        "surface_alt": "#eef0f3",
-        "border": "#d3d7dd",
-        "border_strong": "#b9bfc7",
-        "text": "#1c1f23",
-        "text_dim": "#5a616a",
-        "text_faint": "#868d96",
+        "surface_alt": "#f0f1f3",
+        "surface_hover": "#e8eaed",
+        "border": "#dcdee2",
+        "border_strong": "#c2c6cc",
+        "divider": "#ebecef",
+        "text": "#1b1d20",
+        "text_dim": "#585e66",
+        "text_faint": "#858b93",
         "accent": "#1f6fb2",
-        "accent_soft": "#d6e6f5",
+        "accent_soft": "#e4eefa",
+        "accent_text": "#155a94",
         "accent_bar": "#2f80c9",
+        "focus_ring": "#2f80c9",
+        "scroll": "#c9ccd1",
+        "scroll_hover": "#adb1b8",
         # Darker than the dark theme's, because yellow highlight on white is
         # nearly invisible - the same token needs a different value, which is
         # the whole reason these are two palettes rather than one with a flag.
@@ -79,37 +99,141 @@ PALETTES: dict[str, dict[str, str]] = {
 
 #: One sheet, written against tokens. `{token}` is substituted before Qt sees it.
 _TEMPLATE = """
+/* **One type scale, and a dense one.** Sizes were chosen per-widget - 13, 15,
+   12, 11, 10 - which is five sizes doing the work of three and no relationship
+   between them. 12/13/15 now: 12 for secondary and metadata, 13 for body, 15
+   for the two headlines that earn it. A tool somebody keeps open all day wants
+   more on screen, not larger letters. */
 QWidget {{ background: {window}; color: {text}; font-size: 13px; }}
 
+/* **The search box is the one control that should feel large.** Everything
+   else tightens; this stays roomy because it is where every session starts and
+   because a cramped input invites cramped queries. */
 QLineEdit {{
-    background: {surface}; border: 1px solid {border}; border-radius: 6px;
-    padding: 8px; font-size: 15px; selection-background-color: {accent};
+    background: {surface}; border: 1px solid {border}; border-radius: 5px;
+    padding: 7px 10px; font-size: 15px; selection-background-color: {accent};
     selection-color: {selection_text};
 }}
-QLineEdit:focus {{ border-color: {accent}; }}
+QLineEdit:hover {{ border-color: {border_strong}; }}
+/* **Two pixels of accent, not one.** A focus ring that only changes hue is
+   invisible to somebody who cannot separate those hues, and hard to spot for
+   everybody else on a dense screen. Width carries it as well as colour - the
+   same reasoning as `#statWarn` and the tab bar. */
+QLineEdit:focus {{ border: 2px solid {focus_ring}; padding: 6px 9px; }}
+QLineEdit:disabled {{ background: {surface_alt}; color: {text_faint}; }}
 
 /* QListView is named explicitly. The results list stopped being a
    QListWidget when rows became data rather than widgets, and this rule was
    not updated - so the one list people look at most had no surface, no
    border and no radius, while every other list did. */
-QListWidget, QListView, QTableWidget, QPlainTextEdit {{
-    background: {surface}; border: 1px solid {border}; border-radius: 6px;
+QListWidget, QListView, QTableWidget, QPlainTextEdit, QTreeWidget, QTreeView {{
+    background: {surface}; border: 1px solid {border}; border-radius: 5px;
+    /* Rows own their own separation; a grid of lines is the single most dated
+       thing a Qt table does. */
+    gridline-color: {divider};
+    alternate-background-color: {surface};
+}}
+/* **Hover before selection.** A dense list with no hover state gives no
+   feedback that a row is a target at all, which is most of why a table feels
+   inert rather than responsive. */
+QListWidget::item:hover, QListView::item:hover,
+QTableWidget::item:hover, QTreeWidget::item:hover {{
+    background: {surface_hover};
 }}
 QListWidget::item:selected, QListView::item:selected,
-QTableWidget::item:selected {{
+QTableWidget::item:selected, QTreeWidget::item:selected {{
     background: {accent_soft}; color: {text};
 }}
-QHeaderView::section {{
-    background: {surface_alt}; color: {text_dim};
-    border: none; border-bottom: 1px solid {border}; padding: 6px;
+QListWidget::item, QListView::item, QTreeWidget::item {{
+    padding: 3px 4px; border-radius: 3px;
 }}
+/* A header that reads as a label rather than as a button: no border box, one
+   hairline under it, and the small-caps weight tables use to say "this names
+   the column, it is not content". */
+QHeaderView {{ background: transparent; }}
+QHeaderView::section {{
+    background: {surface}; color: {text_faint};
+    font-size: 12px; font-weight: 600;
+    border: none; border-bottom: 1px solid {border}; padding: 5px 6px;
+}}
+QHeaderView::section:hover {{ color: {text_dim}; background: {surface_alt}; }}
+QTableWidget {{ selection-background-color: {accent_soft}; }}
 
 QPushButton {{
-    background: {surface_alt}; border: 1px solid {border_strong};
-    border-radius: 5px; padding: 6px 12px;
+    background: {surface_alt}; border: 1px solid {border};
+    border-radius: 4px; padding: 5px 11px; color: {text};
 }}
-QPushButton:hover {{ border-color: {accent}; }}
-QPushButton:disabled {{ color: {text_faint}; border-color: {border}; }}
+QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
+QPushButton:pressed {{ background: {surface}; }}
+QPushButton:focus {{ border: 1px solid {focus_ring}; }}
+QPushButton:checked {{
+    background: {accent_soft}; border-color: {accent}; color: {accent_text};
+}}
+QPushButton:disabled {{
+    color: {text_faint}; background: {surface}; border-color: {divider};
+}}
+
+/* **The scrollbars were never styled**, so every pane carried the chunky
+   native ones with their stepper arrows - the single most dated element on
+   screen and the one nobody mentions because it is everywhere. Thin, no
+   steppers, and the handle only gains contrast under the pointer. */
+QScrollBar:vertical {{
+    background: transparent; width: 11px; margin: 0;
+}}
+QScrollBar:horizontal {{
+    background: transparent; height: 11px; margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {scroll}; border-radius: 5px; min-height: 28px;
+    margin: 2px 3px 2px 3px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {scroll}; border-radius: 5px; min-width: 28px;
+    margin: 3px 2px 3px 2px;
+}}
+QScrollBar::handle:hover {{ background: {scroll_hover}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{
+    height: 0; width: 0; border: none; background: none;
+}}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+
+/* Menus and tooltips were unstyled too, so both arrived in the platform's own
+   colours - a light context menu over a dark window, which reads as a bug. */
+QMenu {{
+    background: {surface}; border: 1px solid {border_strong};
+    border-radius: 6px; padding: 4px;
+}}
+QMenu::item {{ padding: 5px 22px 5px 12px; border-radius: 4px; }}
+QMenu::item:selected {{ background: {accent_soft}; color: {text}; }}
+QMenu::item:disabled {{ color: {text_faint}; }}
+QMenu::separator {{ height: 1px; background: {divider}; margin: 4px 8px; }}
+
+QToolTip {{
+    background: {surface_alt}; color: {text};
+    border: 1px solid {border_strong}; border-radius: 5px;
+    padding: 5px 8px; font-size: 12px;
+}}
+
+QToolButton {{
+    background: transparent; border: 1px solid transparent;
+    border-radius: 4px; padding: 4px 8px; color: {text_dim};
+}}
+QToolButton:hover {{ background: {surface_hover}; color: {text}; }}
+QToolButton:pressed, QToolButton:checked {{
+    background: {accent_soft}; color: {accent_text};
+}}
+QToolButton:focus {{ border-color: {focus_ring}; }}
+
+QCheckBox, QRadioButton {{ spacing: 7px; color: {text}; }}
+QCheckBox:disabled, QRadioButton:disabled {{ color: {text_faint}; }}
+
+QSplitter::handle {{ background: {divider}; }}
+QSplitter::handle:horizontal {{ width: 1px; }}
+QSplitter::handle:vertical {{ height: 1px; }}
+QSplitter::handle:hover {{ background: {accent}; }}
+
+QStatusBar {{ color: {text_dim}; border-top: 1px solid {divider}; }}
+QStatusBar::item {{ border: none; }}
 
 QProgressBar {{
     background: {surface_alt}; border: 1px solid {border};
@@ -128,11 +252,17 @@ QProgressBar::chunk {{
     width: 18px; margin: 1px;
 }}
 
+/* A group's title does the separating, so the box around it can be almost
+   nothing. Settings was a page of heavy rectangles; it is a page of sections
+   now. */
 QGroupBox {{
-    border: 1px solid {border}; border-radius: 6px;
-    margin-top: 10px; padding-top: 10px;
+    border: 1px solid {divider}; border-radius: 6px;
+    margin-top: 12px; padding-top: 12px; background: {surface};
 }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 10px; color: {text_dim}; }}
+QGroupBox::title {{
+    subcontrol-origin: margin; left: 10px; padding: 0 4px;
+    color: {text_dim}; font-size: 12px; font-weight: 600;
+}}
 
 /* Tabs drawn as tabs.
 
@@ -169,8 +299,12 @@ QTabBar::tab {{
     background: {surface_alt}; color: {text_dim};
     border: 1px solid {border};
     border-top: 2px solid transparent;
-    border-top-left-radius: 6px; border-top-right-radius: 6px;
-    padding: 6px 16px; margin-right: 2px; margin-top: 3px;
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    /* Tighter than it was, and the label carries the weight instead. Four
+       tools in a row of chunky tabs reads as a website's navigation; four
+       compact ones read as panes of one application. */
+    padding: 5px 14px; margin-right: 2px; margin-top: 3px;
+    font-size: 12px; font-weight: 600;
 }}
 QTabBar::tab:hover:!selected {{ color: {text}; background: {surface}; }}
 QTabBar::tab:selected {{
@@ -188,7 +322,18 @@ QTabBar::tab:focus {{ border-color: {accent}; border-top-color: {accent}; }}
 
 QComboBox, QSpinBox, QTimeEdit {{
     background: {surface}; border: 1px solid {border};
-    border-radius: 5px; padding: 4px 8px;
+    border-radius: 4px; padding: 4px 8px; color: {text};
+}}
+QComboBox:hover, QSpinBox:hover, QTimeEdit:hover {{ border-color: {border_strong}; }}
+QComboBox:focus, QSpinBox:focus, QTimeEdit:focus {{ border-color: {focus_ring}; }}
+QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled {{
+    color: {text_faint}; background: {surface_alt};
+}}
+QComboBox::drop-down {{ border: none; width: 18px; }}
+QComboBox QAbstractItemView {{
+    background: {surface}; border: 1px solid {border_strong};
+    border-radius: 5px; padding: 3px;
+    selection-background-color: {accent_soft}; selection-color: {text};
 }}
 
 #resultPath {{ font-weight: 600; color: {accent}; }}
@@ -198,13 +343,15 @@ QComboBox, QSpinBox, QTimeEdit {{
 #resultName {{ font-weight: 600; color: {text}; font-size: 15px; }}
 /* A short text tag rather than an icon font: text survives dark mode, high-DPI
    and a missing font file, none of which is worth paying for yet. */
+/* A chip rather than an outline: a filled shape at 12px reads as a label at a
+   glance, where a 10px outlined one reads as a smudge until you look at it. */
 #resultKind {{
-    color: {text_faint}; font-size: 10px; font-weight: 700;
-    border: 1px solid {text_faint}; border-radius: 3px;
-    padding: 1px 4px; margin-right: 6px;
+    color: {text_dim}; font-size: 12px; font-weight: 600;
+    background: {surface_alt}; border: none; border-radius: 3px;
+    padding: 1px 6px; margin-right: 6px;
 }}
-#resultMeta {{ color: {text_faint}; font-size: 11px; }}
-#resultMissing {{ color: {warning}; font-size: 11px; }}
+#resultMeta {{ color: {text_faint}; font-size: 12px; }}
+#resultMissing {{ color: {warning}; font-size: 12px; }}
 #resultSnippet {{ color: {text}; }}
 /* The snippet is painted by `result_delegate`, not laid out by Qt, so no
    stylesheet rule can reach the matched words - `#resultSnippet b` never
@@ -212,12 +359,22 @@ QComboBox, QSpinBox, QTimeEdit {{
    the one cue somebody who cannot distinguish them has no substitute for.
    The delegate reads `highlight` from `theme_colours()` and draws it. */
 #resultSnippet b {{ color: {highlight}; font-weight: 700; }}
-#searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: 11px; }}
+#searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: 12px; }}
 #indexHeadline, #graphHeadline {{ font-size: 15px; font-weight: 600; }}
 #indexTotals {{ color: {text_dim}; font-size: 12px; }}
 #skipHeading {{ font-weight: 600; }}
 #skipFix {{ color: {text_dim}; }}
-#skipExamples {{ color: {text_faint}; font-size: 11px; }}
+#skipExamples {{ color: {text_faint}; font-size: 12px; }}
+/* The hint under a setting, and the tree's `N of M` line. One rule, because
+   they are the same thing: a quiet sentence explaining the control above it. */
+#settingsHint {{ color: {text_faint}; font-size: 12px; }}
+/* A notice is not an error. It sits on the accent's soft ground so it reads as
+   information the application is volunteering, rather than as a failure. */
+#noticeBar {{
+    background: {accent_soft}; color: {text};
+    border: 1px solid {border}; border-radius: 4px;
+    padding: 6px 10px; font-size: 12px;
+}}
 
 /* `index_stats` sets one of these two on every value it shows, and only
    `statValue` had a rule - so a figure the code had decided was worth warning
@@ -226,7 +383,7 @@ QComboBox, QSpinBox, QTimeEdit {{
    not a signal everybody receives. */
 #statValue {{ color: {text}; font-weight: 600; }}
 #statWarn {{ color: {warning}; font-weight: 700; }}
-#statLabel {{ color: {text_faint}; font-size: 11px; }}
+#statLabel {{ color: {text_faint}; font-size: 12px; }}
 """
 
 

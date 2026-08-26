@@ -45,7 +45,15 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     from app.ui.widgets.command_popup import attach_to
 
     box = QLineEdit(parent)
-    box.setPlaceholderText("Search…    press / for filters")
+    # **The thinnest placeholder in the application, on the box that most needs
+    # a good one.** "press / for filters" says a menu exists and nothing about
+    # what is in it; Files, Mail and Code all name real examples, and this is
+    # the box somebody meets first. Naming three switches from three different
+    # sources is also the only thing on screen that says the box reaches mail
+    # and repositories at all.
+    box.setPlaceholderText(
+        "Search everything — files, mail and code.  "
+        "Or / for filters: /type pdf  /from dave  /newest")
     box.setClearButtonEnabled(True)
     box.textChanged.connect(on_typed)
     box.returnPressed.connect(on_submit)

@@ -56,6 +56,11 @@ class CodeTypesBox(QGroupBox):
         super().__init__("Which files count as code", parent)
 
         self.preset = QComboBox()
+        self.preset.setToolTip(
+            "What the Code tab counts as code.\n\n"
+            "A filter on the list, not on the index - everything is still "
+            "indexed and still findable from Search and Files. Narrower presets "
+            "keep READMEs, licences and data files out of a code listing.")
         self.preset.setObjectName("CODE_TYPES_PRESET")
         self.preset.setAccessibleName("Which files count as code")
         for key in ORDER:

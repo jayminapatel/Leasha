@@ -462,6 +462,10 @@ def build_menu(
     spin.setRange(FONT_RANGE[0] - 1, FONT_RANGE[1])
     spin.setSpecialValueText("System")      # the range's minimum means "follow the OS"
     spin.setValue(prefs.font_pt or FONT_RANGE[0] - 1)
+    spin.setToolTip(
+        "Text size for this list only. Buttons and labels follow Windows, so "
+        "turning this up makes results easier to read without breaking the "
+        "layout around them. 'System' follows the operating system.")
     spin.setKeyboardTracking(False)
     spin.valueChanged.connect(
         lambda value: on_change(replace(
