@@ -185,22 +185,22 @@ Three notes:
 
 ## 5. Core, extract, CLI — smaller items
 
-- [ ] **M14** (Core) `config.py:299` — env vars override even when the key is absent
+- [x] **M14** (Core) `config.py:299` — env vars override even when the key is absent
   from `.env`; iterate a canonical key list.
-- [ ] **L** (Core) `config.py:326` — `RERANK_TOP_N` / `RERANK_WINDOW_CHARS` through
+- [x] **L** (Core) `config.py:326` — `RERANK_TOP_N` / `RERANK_WINDOW_CHARS` through
   `_as_int`, not bare `int()`.
-- [ ] **L** (Extract) `archive.py:307` — stop double-charging nested archives against
+- [x] **L** (Extract) `archive.py:307` — stop double-charging nested archives against
   the byte budget.
-- [ ] **L** (CLI) `cli.py:559` — `cmd_extract` streams per record; no corpus-sized
+- [x] **L** (CLI) `cli.py:559` — `cmd_extract` streams per record; no corpus-sized
   buffer for `--json --chunks`.
-- [ ] **L** (Storage) `sqlite_store.py:1469` — `clear_index` via FTS `'delete-all'`
+- [x] **L** (Storage) `sqlite_store.py:1469` — `clear_index` via FTS `'delete-all'`
   with triggers dropped for the duration.
-- [ ] **L** (Storage) `sqlite_store.py:810` — 1-2 char query + `ext:` filter must not
+- [x] **L** (Storage) `sqlite_store.py:810` — 1-2 char query + `ext:` filter must not
   ignore the typed text; `:845` clamp the FTS-branch limit.
-- [ ] **L** (Storage) `sqlite_store.py:476` — clear-hash sentinel for
+- [x] **L** (Storage) `sqlite_store.py:476` — clear-hash sentinel for
   `verify_hash=False` runs instead of keeping a stale hash.
 - [ ] **L** (Storage) `schema.sql:336` — seed fresh DBs at `CURRENT_VERSION`, not 4.
-- [ ] **L** (Repo) delete `config/settings.json` (dead `"DummyApp"` scaffold).
+- [x] **L** (Repo) delete `config/settings.json` (dead `"DummyApp"` scaffold).
 
 ## 6. Carried over, still open from the 2026-08-25 review
 
@@ -260,3 +260,23 @@ helper written for exactly that reason.
 `settings_view.py` crossed its 250-line guard while M13 was being fixed, so the
 worker body and both label sentences moved to `presenter.py` - which is where
 the guard intends them to be, and makes the wording testable without a display.
+
+**§5 complete, 2026-08-27.** Tests in `tests/unit/test_review_section_five.py`.
+
+One item in §5 was **not** done, on measurement: *"`schema.sql:336` - seed
+fresh DBs at `CURRENT_VERSION`, not 4."* Doing it would skip migrations 11-14,
+which are not no-ops - they build `chunks_vocab`, `messages_fts` and its
+triggers, and the folded mail columns. A database seeded forward comes up with
+no mail search in it and nothing to say so. The replay it was meant to save
+costs 2.9ms against `schema.sql`'s own 11.3ms. The seed stays at 4, is now
+named `SCHEMA_BASELINE_VERSION`, and
+`test_a_fresh_database_is_migrated_not_assumed_complete` fails if anybody moves
+it forward without completing `schema.sql` first.
+
+Two knock-ons: the nested-archive fix made a defensive branch unreachable
+(`read_archive` returns before `_member` once the budget is spent), which the
+test written for it proved, so the branch was removed rather than left as
+untested code. And `test_settings_counts_the_usage_log_without_reading_it`
+looked for `count_searches` in `settings_view.py`, where §4 had just stopped it
+being; it now checks the presenter too, because the rule is about the count and
+not about the file.

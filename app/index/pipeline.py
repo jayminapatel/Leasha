@@ -1777,6 +1777,9 @@ class Pipeline:
             size_bytes=candidate.size_bytes,
             mtime_ns=candidate.mtime_ns,
             content_hash=None,
+            # Nothing was read, so any hash on the row belongs to contents this
+            # pass has not seen.
+            clear_hash=True,
             status=FileStatus.NAME_ONLY,
             source_kind="file",
             parent_dir=str(candidate.path.parent),
@@ -1887,6 +1890,8 @@ class Pipeline:
                 content_hash=(
                     _text_digest(item.chunks) if item.source_kind != "file" else item.content_hash
                 ),
+                # `--fast` (`verify_hash=False`) reaches here with no digest.
+                clear_hash=item.source_kind == "file" and item.content_hash is None,
                 status=FileStatus.PENDING,
                 source_kind=item.source_kind,
                 # A message key is `<archive>#<EntryID>`, so its parent directory
@@ -2102,6 +2107,7 @@ class Pipeline:
                 size_bytes=candidate.size_bytes,
                 mtime_ns=candidate.mtime_ns,
                 content_hash=item.content_hash,
+                clear_hash=item.content_hash is None,
                 status=FileStatus.PENDING,
                 parent_dir=str(candidate.path.parent),
                 ext=indexed_ext(candidate.path),

@@ -121,7 +121,17 @@ def test_settings_counts_the_usage_log_without_reading_it() -> None:
     # Against the calls, not the text - the docstring explaining the fix names
     # the old method, and a test that reads prose is a test that fails on a
     # comment.
-    calls = _calls_in(tree("settings_view.py"))
+    #
+    # **Both modules, because the work moved.** The count used to be taken in
+    # the view's constructor; M13 moved it to a worker and the sentence it
+    # feeds to the presenter, which is where the 250-line guard wants it. The
+    # rule did not move - fetching a hundred thousand rows to count them is
+    # wrong wherever it is written - so the test follows the rule rather than
+    # the file it was first broken in.
+    calls = set()
+    for module in ("settings_view.py", "presenter.py"):
+        calls |= _calls_in(tree(module))
+
     assert not any(call.endswith("recent_searches") for call in calls), (
         "use count_searches(), which is a COUNT(*) rather than 100,000 rows"
     )

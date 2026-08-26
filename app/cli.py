@@ -38,7 +38,9 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
 import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -496,10 +498,6 @@ def cmd_extract(args: argparse.Namespace) -> int:
     It is deliberately **read-only**: no store is opened, nothing is indexed.
     Building the index is Layer 3's job.
     """
-    from app.core.errors import AppErrorException as _AppErrorException
-    from app.core.winfs import describe_placeholder, file_attributes, is_cloud_placeholder
-    from app.extract import chunk_document, extract
-
     settings = _load(args)
     setup_logging(settings.log_path)
     log = logger.bind(component="cli.extract")
@@ -522,14 +520,150 @@ def cmd_extract(args: argparse.Namespace) -> int:
             key="paths", reason="no supported files found at " + ", ".join(args.paths),
         ), args.json)
 
-    results: list[dict[str, Any]] = []
-    skipped_by_code: dict[str, int] = {}
-    total_bytes = 0
-    total_seen_bytes = 0
-    total_chunks = 0
+    totals: dict[str, Any] = {
+        "files_seen": 0, "extracted": 0, "chunks": 0,
+        "bytes": 0, "bytes_seen": 0, "skipped_by_code": {},
+    }
     started = time.perf_counter()
+    chosen = targets[: args.limit] if args.limit else targets
+    records = _extract_records(chosen, args, log, totals)
 
-    for path in targets[: args.limit] if args.limit else targets:
+    if args.json or args.out:
+        if args.out:
+            # Written here, in UTF-8, rather than left to the shell. Windows
+            # PowerShell 5.1 redirection (`> file`) emits UTF-16LE with a BOM,
+            # which every JSON reader then chokes on - the same encoding trap
+            # that killed install.ps1 at parse time.
+            out_path = Path(args.out).expanduser()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open("w", encoding="utf-8") as handle:
+                summary = _write_extract_json(handle, records, totals, started)
+            size = out_path.stat().st_size
+            print(f"Wrote {out_path} ({size / 1024:.0f} KB, UTF-8)", file=sys.stderr)
+        else:
+            summary = _write_extract_json(sys.stdout, records, totals, started)
+    else:
+        for record in records:
+            _print_extract_record(record)
+        summary = _extract_summary(totals, started)
+        seen_mb = summary["bytes_seen"] / 1_048_576
+        read_mb = summary["bytes"] / 1_048_576
+        unread = f", {seen_mb - read_mb:.2f} MB skipped" if seen_mb - read_mb > 0.01 else ""
+        print(f"{summary['extracted']} extracted, {summary['skipped']} skipped, "
+              f"{summary['chunks']} chunks from {read_mb:.2f} MB read{unread} "
+              f"in {summary['elapsed_s']}s")
+        if summary["throughput_mb_s"] is not None and summary["bytes"] > 0:
+            print(f"  {summary['throughput_mb_s']} MB/s, {summary['files_per_s']} files/s "
+                  f"(extraction only - embedding is Layer 3 and is far slower)")
+        if summary["skipped_by_code"]:
+            print(f"  skipped: {summary['skipped_by_code']}")
+        print("  Nothing was written. Building the index is Layer 3.")
+
+    # Flush before logging: loguru writes to stderr unbuffered, so without this
+    # the summary log line jumps ahead of the report whenever stdout is piped.
+    sys.stdout.flush()
+    log.info("extract: {}", summary)
+    return EXIT_OK if summary["extracted"] else EXIT_ERROR
+
+
+def _extract_summary(totals: dict[str, Any], started: float) -> dict[str, Any]:
+    elapsed = time.perf_counter() - started
+    seen = totals["files_seen"]
+    return {
+        "files_seen": seen,
+        "extracted": totals["extracted"],
+        "skipped": seen - totals["extracted"],
+        "skipped_by_code": totals["skipped_by_code"],
+        "chunks": totals["chunks"],
+        "bytes": totals["bytes"],
+        "bytes_seen": totals["bytes_seen"],
+        "elapsed_s": round(elapsed, 3),
+        "throughput_mb_s": (round(totals["bytes"] / 1_048_576 / elapsed, 2)
+                            if elapsed > 0 else None),
+        "files_per_s": round(seen / elapsed, 1) if elapsed > 0 else None,
+    }
+
+
+def _write_extract_json(handle: Any, records: Iterator[dict[str, Any]],
+                        totals: dict[str, Any], started: float) -> dict[str, Any]:
+    r"""Stream the report as JSON, one record at a time.
+
+    **`results` is written before `summary`** because the summary is not known
+    until the last file has been read, and holding every record until then is
+    the thing this function exists to avoid: `--chunks --full` over a corpus
+    kept the full text of every chunk in memory, so a report over 20GB of
+    documents needed 20GB of RAM to print. Both keys are read by name, never by
+    position, so the order is a detail of the writing and not of the format.
+    """
+    handle.write('{\n  "results": [')
+    for index, record in enumerate(records):
+        handle.write(",\n" if index else "\n")
+        handle.write(textwrap.indent(
+            json.dumps(record, indent=2, default=str), "    "))
+    handle.write("\n  ],\n")
+    summary = _extract_summary(totals, started)
+    handle.write('  "summary": ')
+    handle.write(textwrap.indent(
+        json.dumps(summary, indent=2, default=str), "  ").lstrip())
+    handle.write("\n}\n")
+    return summary
+
+
+def _print_extract_record(record: dict[str, Any]) -> None:
+    """One file's report, printed as soon as it is known.
+
+    Printing per file rather than at the end also means a long run shows
+    progress instead of sitting silent.
+    """
+    if record["status"] == "skipped":
+        print(f"SKIP  {record['path']}")
+        print(f"      [{record['code']}] {record['message']}")
+        if record.get("suggestion"):
+            print(f"      FIX: {record['suggestion']}")
+        if record.get("detail"):
+            print(f"      {_preview(str(record['detail']), 200)}")
+        print()
+        return
+
+    for document in record["documents"]:
+        pages = (f", pages {document['pages'][0]}-{document['pages'][-1]}"
+                 if document["pages"] else "")
+        print(f"OK    {document['key']}")
+        print(f"      {document['characters']:,} chars, {document['segments']} segment(s)"
+              f"{pages} -> {document['chunks']} chunk(s)"
+              f"  [{record['elapsed_ms']}ms]")
+        for key, value in document["meta"].items():
+            if value not in (None, "", 0):
+                print(f"      {key}: {_preview(str(value), 120)}")
+        for warning in document["warnings"]:
+            print(f"      WARN [{warning['code']}] {_preview(str(warning['detail']), 200)}")
+        for chunk in document["chunk_detail"]:
+            page = f" p{chunk['page']}" if chunk["page"] is not None else ""
+            print(f"        #{chunk['ordinal']:<3}{page:<5} "
+                  f"{chunk['tokens']:>4}tok  [{chunk['char_start']}:{chunk['char_end']}]")
+            print(f"        {chunk['text']}")
+        if document["text"] is not None:
+            print("      --- full text ---")
+            print(document["text"])
+        print()
+
+
+def _extract_records(targets: list[Path], args: argparse.Namespace, log: Any,
+                     totals: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """One record per file, yielded as it is read. Nothing is accumulated."""
+    from app.core.errors import AppErrorException as _AppErrorException
+    from app.core.winfs import describe_placeholder, file_attributes, is_cloud_placeholder
+    from app.extract import chunk_document, extract
+
+    def skip(record: dict[str, Any], error: Any) -> dict[str, Any]:
+        record.update(status="skipped", code=error.code, message=error.message,
+                      suggestion=error.suggestion, detail=error.details)
+        by_code = totals["skipped_by_code"]
+        by_code[error.code] = by_code.get(error.code, 0) + 1
+        return record
+
+    for path in targets:
+        totals["files_seen"] += 1
         record: dict[str, Any] = {"path": str(path)}
         # Sized before anything can skip it. A 100MB archive that vanishes from
         # the byte accounting because it was skipped makes the totals a lie.
@@ -538,20 +672,16 @@ def cmd_extract(args: argparse.Namespace) -> int:
         except OSError:
             size = 0
         record["size_bytes"] = size
-        total_seen_bytes += size
+        totals["bytes_seen"] += size
 
         # Checked before opening: reading a placeholder is what triggers the
         # download, so this must happen first or the check is pointless.
         attributes = file_attributes(path)
         if not args.include_cloud and is_cloud_placeholder(path, attributes):
-            error = make_error(
+            yield skip(record, make_error(
                 "ERR_CLOUD_ONLY", "cli.extract",
                 path=str(path), details=describe_placeholder(attributes),
-            )
-            record.update(status="skipped", code=error.code, message=error.message,
-                          suggestion=error.suggestion, detail=error.details)
-            skipped_by_code[error.code] = skipped_by_code.get(error.code, 0) + 1
-            results.append(record)
+            ))
             continue
 
         file_started = time.perf_counter()
@@ -559,18 +689,16 @@ def cmd_extract(args: argparse.Namespace) -> int:
             documents = list(extract(path))
         except _AppErrorException as exc:
             log_app_error(exc.error)
-            record.update(status="skipped", code=exc.error.code, message=exc.error.message,
-                          suggestion=exc.error.suggestion, detail=exc.error.details)
-            skipped_by_code[exc.error.code] = skipped_by_code.get(exc.error.code, 0) + 1
-            results.append(record)
+            yield skip(record, exc.error)
             continue
 
-        total_bytes += size
+        totals["bytes"] += size
+        totals["extracted"] += 1
 
         document_records = []
         for document in documents:
             chunks = chunk_document(document)
-            total_chunks += len(chunks)
+            totals["chunks"] += len(chunks)
             document_records.append({
                 "key": document.key,
                 "source_kind": document.source_kind,
@@ -581,7 +709,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 "warnings": [
                     {"code": w.code, "detail": w.details} for w in document.warnings
                 ],
-                "meta": {k: v for k, v in document.meta.items() if not isinstance(v, (list, dict))},
+                "meta": {k: v for k, v in document.meta.items()
+                         if not isinstance(v, (list, dict))},
                 "chunk_detail": [
                     {
                         "ordinal": c.ordinal,
@@ -601,88 +730,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
             elapsed_ms=round((time.perf_counter() - file_started) * 1000, 1),
             documents=document_records,
         )
-        results.append(record)
-
-    elapsed = time.perf_counter() - started
-    extracted = [r for r in results if r["status"] == "extracted"]
-    summary = {
-        "files_seen": len(results),
-        "extracted": len(extracted),
-        "skipped": len(results) - len(extracted),
-        "skipped_by_code": skipped_by_code,
-        "chunks": total_chunks,
-        "bytes": total_bytes,
-        "bytes_seen": total_seen_bytes,
-        "elapsed_s": round(elapsed, 3),
-        "throughput_mb_s": round(total_bytes / 1_048_576 / elapsed, 2) if elapsed > 0 else None,
-        "files_per_s": round(len(results) / elapsed, 1) if elapsed > 0 else None,
-    }
-
-    if args.json or args.out:
-        payload = json.dumps({"summary": summary, "results": results}, indent=2, default=str)
-        if args.out:
-            # Written here, in UTF-8, rather than left to the shell. Windows
-            # PowerShell 5.1 redirection (`> file`) emits UTF-16LE with a BOM,
-            # which every JSON reader then chokes on - the same encoding trap
-            # that killed install.ps1 at parse time.
-            out_path = Path(args.out).expanduser()
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(payload, encoding="utf-8")
-            print(f"Wrote {out_path} ({len(payload) / 1024:.0f} KB, UTF-8)", file=sys.stderr)
-        else:
-            print(payload)
-        return EXIT_OK if extracted else EXIT_ERROR
-
-    for record in results:
-        if record["status"] == "skipped":
-            print(f"SKIP  {record['path']}")
-            print(f"      [{record['code']}] {record['message']}")
-            if record.get("suggestion"):
-                print(f"      FIX: {record['suggestion']}")
-            if record.get("detail"):
-                print(f"      {_preview(str(record['detail']), 200)}")
-            print()
-            continue
-
-        for document in record["documents"]:
-            pages = f", pages {document['pages'][0]}-{document['pages'][-1]}" if document["pages"] else ""
-            print(f"OK    {document['key']}")
-            print(f"      {document['characters']:,} chars, {document['segments']} segment(s)"
-                  f"{pages} -> {document['chunks']} chunk(s)"
-                  f"  [{record['elapsed_ms']}ms]")
-            for key, value in document["meta"].items():
-                if value not in (None, "", 0):
-                    print(f"      {key}: {_preview(str(value), 120)}")
-            for warning in document["warnings"]:
-                print(f"      WARN [{warning['code']}] {_preview(str(warning['detail']), 200)}")
-            for chunk in document["chunk_detail"]:
-                page = f" p{chunk['page']}" if chunk["page"] is not None else ""
-                print(f"        #{chunk['ordinal']:<3}{page:<5} "
-                      f"{chunk['tokens']:>4}tok  [{chunk['char_start']}:{chunk['char_end']}]")
-                print(f"        {chunk['text']}")
-            if document["text"] is not None:
-                print("      --- full text ---")
-                print(document["text"])
-            print()
-
-    seen_mb = summary["bytes_seen"] / 1_048_576
-    read_mb = summary["bytes"] / 1_048_576
-    unread = f", {seen_mb - read_mb:.2f} MB skipped" if seen_mb - read_mb > 0.01 else ""
-    print(f"{summary['extracted']} extracted, {summary['skipped']} skipped, "
-          f"{summary['chunks']} chunks from {read_mb:.2f} MB read{unread} "
-          f"in {summary['elapsed_s']}s")
-    if summary["throughput_mb_s"] is not None and summary["bytes"] > 0:
-        print(f"  {summary['throughput_mb_s']} MB/s, {summary['files_per_s']} files/s "
-              f"(extraction only - embedding is Layer 3 and is far slower)")
-    if skipped_by_code:
-        print(f"  skipped: {skipped_by_code}")
-    print("  Nothing was written. Building the index is Layer 3.")
-
-    # Flush before logging: loguru writes to stderr unbuffered, so without this
-    # the summary log line jumps ahead of the report whenever stdout is piped.
-    sys.stdout.flush()
-    log.info("extract: {}", summary)
-    return EXIT_OK if extracted else EXIT_ERROR
+        yield record
 
 
 def _extract_mailbox(args: argparse.Namespace, log: Any) -> int:

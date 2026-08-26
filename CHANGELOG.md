@@ -1,6 +1,39 @@
 # Changelog
 
-**Doc version:** 3.64 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 3.64 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Review remediation, section 5 - core, extract, CLI and storage
+
+- **An environment variable now overrides a setting the .env file never
+  mentions.** Only keys already written down were overridden, so
+  `set INDEX_WORKERS=6` did nothing in exactly the case somebody reaches for
+  one. `SETTING_KEYS` is the canonical list and a test holds it to the loader.
+- `RERANK_TOP_N` and `RERANK_WINDOW_CHARS` go through `_as_int`, so a typo
+  names its key instead of arriving as a ValueError traceback.
+- **A nested archive is no longer charged for itself and for its contents.** A
+  zip inside a zip spent its bytes twice, so an archive of archives read about
+  half of what the setting promised and called the remainder too large.
+- `extract --json --chunks --full` streams each record as it is read. It held
+  every chunk's text until the last file, so the report needed as much memory
+  as the corpus it described.
+- Resetting the index empties the FTS tables with `'delete-all'`, with the
+  content triggers lifted for the duration and replayed from `sqlite_master`
+  afterwards. It was one trigger-driven deletion per chunk, each carrying the
+  chunk's whole text, to reach a table about to be empty.
+- **Two characters plus a filter no longer discards the two characters.**
+  `/type pdf` and "q" answered with every PDF, so the list did not change as
+  you typed. An empty box still means everything, and a short query with no
+  filter is still refused.
+- A `--fast` pass clears the content hash it did not compute rather than
+  leaving the previous contents' hash beside the new size and mtime. The case
+  that is not merely wasteful is a file restored to an older version: the stale
+  hash matches, the row reads as unchanged, and the index goes on serving text
+  that is no longer in the file.
+- Deleted `config/settings.json`, a UTF-16 `"DummyApp"` scaffold read by
+  nothing.
+
+Not done, and why: seeding fresh databases at `CURRENT_VERSION` would skip the
+migrations that build mail search. See the work order.
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);

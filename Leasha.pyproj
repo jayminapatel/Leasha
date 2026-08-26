@@ -315,6 +315,7 @@
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_review_2026_08_26.py" />
+    <Compile Include="tests\unit\test_review_section_four.py" />
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
@@ -380,7 +381,6 @@
     <Content Include="assets\leasha-tray.ico" />
     <Content Include="assets\leasha.ico" />
     <Content Include="config\extractors.toml" />
-    <Content Include="config\settings.json" />
     <Content Include="docs\CODE_REVIEW.md" />
     <Content Include="docs\HANDOFF-github.md" />
     <Content Include="docs\HANDOFF-thread-merge.md" />

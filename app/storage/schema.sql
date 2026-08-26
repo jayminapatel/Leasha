@@ -333,4 +333,15 @@ CREATE TABLE IF NOT EXISTS schema_version (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
     version INTEGER NOT NULL
 );
+-- Seeded at 4, which is the version this file actually describes, and NOT at
+-- CURRENT_VERSION. A fresh database is then brought forward by the migrations
+-- like any other, because several of them build things this file does not:
+-- `messages_fts` and its triggers (v12/v13), `chunks_vocab` (v11) and the
+-- folded mail columns (v14). Seeding forward to skip them was proposed on the
+-- grounds that a new database should not replay ten steps it does not need;
+-- replaying them costs 2.9ms against schema.sql's own 11.3ms, and skipping
+-- them produces an index with no mail search in it and nothing to say so.
+--
+-- `test_a_fresh_database_is_migrated_not_assumed_complete` fails if this
+-- number is moved forward without schema.sql being completed first.
 INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 4);

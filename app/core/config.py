@@ -255,6 +255,47 @@ class Settings(BaseModel):
         return tuple(self.data_path / name for name in _INDEX_SUBDIRS)
 
 
+SETTING_KEYS: tuple[str, ...] = (
+    "DATA_PATH",
+    "VECTOR_PATH",
+    "FTS_DB",
+    "CACHE_PATH",
+    "MODEL_CACHE",
+    "STATE_PATH",
+    "PROJECT_PATH",
+    "LOG_PATH",
+    "EMBED_MODEL",
+    "EMBED_DIM",
+    "RERANK_MODEL",
+    "RERANK_ENABLED",
+    "RERANK_TOP_N",
+    "RERANK_WINDOW_CHARS",
+    "OLLAMA_URL",
+    "OLLAMA_MODEL",
+    "INDEX_WORKERS",
+    "INDEX_MEMORY_MB",
+    "INDEX_CPU_PERCENT",
+    "INDEX_PAUSE_ON_BATTERY",
+    "INDEX_LOW_PRIORITY",
+    "INDEX_SCHEDULE",
+    "INDEX_INTERVAL_HOURS",
+    "INDEX_DAILY_AT",
+    "INDEX_OCR_MODE",
+    "INDEX_NAME_ONLY",
+    "ARCHIVE_RECHECK_DAYS",
+    "ARCHIVE_READ_INSIDE",
+    "ARCHIVE_MAX_MB",
+    "PDF_OCR_PAGES",
+    "MIN_FREE_GB",
+    "REQUIRED_FREE_GB",
+)
+"""Every key `load_settings` reads, whether or not .env mentions it.
+
+A test keeps this in step with the function - drift here is silent, and the
+symptom is an environment variable that appears to be ignored.
+"""
+
+
 def _require(values: dict[str, str], key: str) -> str:
     value = values.get(key, "").strip()
     if not value:
@@ -297,8 +338,12 @@ def load_settings(
         )) from exc
 
     # Environment variables win over the file, so a run can be overridden
-    # without editing anything on disk.
-    for key in list(values):
+    # without editing anything on disk. Iterate the settings Leasha knows
+    # about, not the keys the file happens to contain: overriding only what
+    # was already written down means `set INDEX_WORKERS=4` does nothing unless
+    # INDEX_WORKERS is already in .env, which is precisely the case where
+    # somebody reaches for an environment variable.
+    for key in SETTING_KEYS:
         if key in os.environ:
             values[key] = os.environ[key]
 
@@ -323,8 +368,10 @@ def load_settings(
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
             rerank_model=values.get("RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2",
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
-            rerank_top_n=int(values.get("RERANK_TOP_N") or 30),
-            rerank_window_chars=int(values.get("RERANK_WINDOW_CHARS") or 600),
+            rerank_top_n=_as_int(
+                "RERANK_TOP_N", values.get("RERANK_TOP_N") or "30"),
+            rerank_window_chars=_as_int(
+                "RERANK_WINDOW_CHARS", values.get("RERANK_WINDOW_CHARS") or "600"),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),

@@ -304,21 +304,29 @@ def _member(archive: Any, entry: Any, path: Path, key: str,
         yield _by_name(path, member_key, refused)
         return
 
-    if not budget.take(size):
+    inner = Path(name)
+    nested = inner.suffix.lower() in ARCHIVE_EXTENSIONS
+
+    # **A nested archive is not charged for itself.** Its bytes are its
+    # members' bytes, and every one of those is taken from this same budget a
+    # moment later - so charging the container too made a 40MB inner zip cost
+    # 80MB of a 100MB ceiling, and an archive of archives stopped at roughly
+    # half of what the setting promised. Charge the leaves; the container is
+    # only a wrapper around them.
+    if not nested and not budget.take(size):
         yield _by_name(path, member_key, make_error(
             "ERR_ARCHIVE_TOO_LARGE", "extract.archive", member=name,
             path=str(path), reason="the archive's total size budget is spent"))
         return
 
-    inner = Path(name)
-    if inner.suffix.lower() in ARCHIVE_EXTENSIONS:
+    if nested:
         if depth >= MAX_DEPTH:
             yield _by_name(path, member_key, make_error(
                 "ERR_ARCHIVE_TOO_DEEP", "extract.archive", member=name,
                 path=str(path), depth=MAX_DEPTH))
             return
-        # **Recursed only if the shared budget still has room**, which is what
-        # stops three levels of nesting costing three times the ceiling.
+        # **Recursed with the shared budget**, which is what stops three levels
+        # of nesting costing three times the ceiling.
         with _extracted(archive, entry, inner.name) as temp:
             if temp is not None:
                 yield from read_archive(temp, depth=depth + 1, budget=budget,

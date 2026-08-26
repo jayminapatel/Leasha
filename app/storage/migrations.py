@@ -25,12 +25,19 @@ from app.core.logging import logger
 
 _log = logger.bind(component="storage.migrations")
 
-__all__ = ["CURRENT_VERSION", "apply_migrations", "read_version", "MIGRATIONS",
+__all__ = ["CURRENT_VERSION", "SCHEMA_BASELINE_VERSION",
+           "apply_migrations", "read_version", "MIGRATIONS",
            "trigram_available"]
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 #: The schema version this build creates and understands.
+SCHEMA_BASELINE_VERSION = 4
+"""The version `schema.sql` creates, before any migration runs.
+
+Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
+"""
+
 CURRENT_VERSION = 14
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:

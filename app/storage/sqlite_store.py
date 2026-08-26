@@ -443,8 +443,20 @@ class SqliteStore:
         status: str = FileStatus.PENDING,
         source_kind: str = "file",
         repo_id: Optional[int] = None,
+        clear_hash: bool = False,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
+
+        **`clear_hash=True` says "I have no hash for what is there now".**
+        `content_hash` is COALESCEd for the same reason `repo_id` is, and that
+        default is wrong for a caller that has just written new content without
+        hashing it: `--fast` and the name-only pass both leave the digest of the
+        *previous* contents sitting beside the new size and mtime. A later
+        verifying run then compares against it, and the one case where that is
+        not merely wasteful is a file restored to an older version - the old
+        hash matches, the row is declared unchanged, and the index keeps serving
+        text that is no longer in the file. A row with no hash is honest; a row
+        with somebody else's hash is not.
 
         `repo_id` is additive and optional: every existing caller keeps working
         and writes NULL, which is what a file outside any repository is.
@@ -465,6 +477,7 @@ class SqliteStore:
 
         clearing = 1 if repo_id == NO_REPO else 0
         stored_repo = None if clearing else repo_id
+        forget_hash = 1 if clear_hash else 0
 
         as_path = Path(path)
         # **Normalised here, not trusted from the caller.** `files.ext` is stored
@@ -488,7 +501,14 @@ class SqliteStore:
                     ext          = excluded.ext,
                     size_bytes   = excluded.size_bytes,
                     mtime_ns     = excluded.mtime_ns,
-                    content_hash = COALESCE(excluded.content_hash, files.content_hash),
+                    -- The flag, like `repo_id` below: NULL cannot carry the
+                    -- difference between "no hash to offer" and "forget the
+                    -- one you have", and the COALESCE exists to protect the
+                    -- first of those.
+                    content_hash = CASE
+                        WHEN ? = 1 THEN NULL
+                        ELSE COALESCE(excluded.content_hash, files.content_hash)
+                    END,
                     status       = excluded.status,
                     source_kind  = excluded.source_kind,
                     -- COALESCE, so a caller that does not know about
@@ -506,7 +526,8 @@ class SqliteStore:
                     END
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
-                 content_hash, status, source_kind, stored_repo, clearing),
+                 content_hash, status, source_kind, stored_repo,
+                 forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
             file_id = int(row["id"])
@@ -825,8 +846,23 @@ class SqliteStore:
             if cleaned and not ext:
                 return []
             wanted = [e.lower().lstrip(".") for e in (ext or ())]
+            params: list[Any] = list(wanted)
             clause = (f"AND ext IN ({','.join('?' * len(wanted))})"
                       if wanted else "")
+            if cleaned:
+                # **The two characters still count.** `/type pdf` plus "q" used
+                # to answer with every PDF newest-first, the typed letter
+                # discarded - so the list did not change as the person typed
+                # and looked stuck. The trigram index cannot serve fewer than
+                # three characters, so this one is a substring scan; it is only
+                # reachable from a query this short, and it is bounded by the
+                # extension filter that must accompany it.
+                #
+                # `LIKE` folds ASCII only (see M20), so `A` will not find `á`.
+                # At one character that is a limit worth having over silence.
+                clause += " AND path LIKE ? ESCAPE '\\'"
+                params.append(f"%{_like_escape(cleaned)}%")
+            params.append(max(1, int(limit)))
             return [dict(row) for row in self.conn.execute(
                 f"""SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
                            source_kind, 0.0 AS score
@@ -834,7 +870,7 @@ class SqliteStore:
                     WHERE source_kind = 'file' {clause}
                     ORDER BY mtime_ns DESC
                     LIMIT ?""",
-                [*wanted, max(1, int(limit))],
+                params,
             )]
 
         # A trigram index takes the query as a literal string, so the whole
@@ -858,7 +894,11 @@ class SqliteStore:
             sql += f" AND f.ext IN ({','.join('?' * len(wanted))})"
             params.extend(wanted)
         sql += " ORDER BY score LIMIT ?"
-        params.append(limit)
+        # Clamped, as the short-query branch above already is. A caller that
+        # computes a page size can arrive at 0 or a negative; SQLite reads a
+        # negative LIMIT as "no limit", so an arithmetic slip that should have
+        # shown nothing would instead hand back the whole index.
+        params.append(max(1, int(limit)))
 
         try:
             rows = self.conn.execute(sql, params).fetchall()
@@ -1499,6 +1539,23 @@ class SqliteStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def _suspend_content_triggers(conn: sqlite3.Connection) -> list[str]:
+        """Drop the FTS content triggers, returning the SQL that recreates them.
+
+        Only the triggers that mirror a row into an external-content FTS table
+        are touched, identified by what they are named after rather than by a
+        list kept here.
+        """
+        rows = conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' "
+            "AND (name LIKE 'chunks_a%' OR name LIKE 'messages_a%')"
+        ).fetchall()
+        restore = [row[1] for row in rows if row[1]]
+        for row in rows:
+            conn.execute(f"DROP TRIGGER IF EXISTS {row[0]}")
+        return restore
+
     def clear_index(self) -> int:
         """Delete everything indexed. Returns how many documents were removed.
 
@@ -1540,15 +1597,42 @@ class SqliteStore:
             # `test_a_reset_leaves_every_table_empty` enumerates `sqlite_master`
             # rather than repeating this list, so the next table to be added is
             # covered without anybody remembering to come back here.
-            for table in ("entity_mentions", "entity_edges", "entities",
-                          "search_hits", "searches", "files",
-                          "files_fts", "repos"):
-                try:
-                    conn.execute(f"DELETE FROM {table}")
-                except sqlite3.OperationalError:
-                    # A table that does not exist in this schema version is not
-                    # an error: there is nothing in it to delete.
-                    continue
+            #
+            # **The content triggers are lifted for the duration.** Deleting a
+            # row from `chunks` fires `chunks_ad`, which writes one `'delete'`
+            # command into `chunks_fts` carrying that row's whole text back -
+            # so emptying an index of ten million chunks meant ten million
+            # single-row FTS deletions to reach a table that is about to be
+            # empty anyway. `'delete-all'` is the operation FTS5 provides for
+            # exactly this, and it does not care how many rows there were.
+            #
+            # The trigger SQL is read back from `sqlite_master` and replayed
+            # verbatim rather than restated here: a second copy of the DDL would
+            # be one more thing that can fall behind the schema, and getting it
+            # subtly wrong would leave searches quietly missing new documents.
+            restore = self._suspend_content_triggers(conn)
+            try:
+                for table in ("entity_mentions", "entity_edges", "entities",
+                              "search_hits", "searches", "files",
+                              "files_fts", "repos"):
+                    try:
+                        conn.execute(f"DELETE FROM {table}")
+                    except sqlite3.OperationalError:
+                        # A table that does not exist in this schema version is
+                        # not an error: there is nothing in it to delete.
+                        continue
+                for fts in ("chunks_fts", "messages_fts"):
+                    try:
+                        conn.execute(
+                            f"INSERT INTO {fts}({fts}) VALUES('delete-all')")
+                    except sqlite3.OperationalError:
+                        continue
+            finally:
+                # In the same transaction as the delete: a rollback that left
+                # the triggers off would give a database that indexes nothing
+                # it is told about afterwards, and says nothing about it.
+                for statement in restore:
+                    conn.execute(statement)
             # Cursors point at chunk ids that no longer exist. Left behind, the
             # next run would resume past the beginning of an empty index and
             # quietly index nothing.
