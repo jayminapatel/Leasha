@@ -292,6 +292,33 @@ After the review's open search items (H5, H6) are closed:
     subprocess only, never LibreDWG's bindings (licence rule, enforced by
     test). Everything view-only: no code path writes to a user file.
 
+**Owner, 2026-08-28 — the design-day batch, RELEASED, in this exact order
+after 0e (each order's header carries its scope discipline — the tangent
+guard; if an idea isn't in the order being executed, it belongs to another
+order or to the owner):**
+
+0f. `WORKORDER-202626270508-media-by-default-and-ocr-ladder.md` — images on
+    by default, the universal OCR ladder, EXIF-date rule, image hygiene.
+    Foundation for everything below.
+0g. `WORKORDER-202626270509-mbox-takeout-chats.md` — mbox extractor (MUST),
+    Takeout-as-files, the index-sensitivity sentence. Small; any gap.
+0h. `WORKORDER-202626270510-pictures-one-clip-lane.md` — CLIP lane, reverse
+    image search, pHash/burst folding, grid+lightbox.
+0i. `WORKORDER-202626270511-pictures-two-tags-and-enrichment.md` — Florence
+    tags as AI-labelled segments, the unified enrichment backlog, on-demand
+    Describe, offline places, era hints, /shows.
+0j. `WORKORDER-202626270512-photo-tagger-people.md` — people naming, Google
+    Photos UX fully local, off-by-default guardrails, /who.
+0k. `WORKORDER-202626270513-offline-media-one-drives.md` — the killer case:
+    volume identity, letters never stored, manual Scan/Rescan/Delete, the
+    Offline Media tab. Deepest storage change — no interleaving.
+0l. `WORKORDER-202626270514-offline-media-two-network-cloud.md` — network
+    shares (no credentials ever), cloud mounts (never hydrate by accident),
+    the per-file placeholder model.
+Draft (not for execution): `WORKORDER-202626270515-video-audio-DRAFT.md` —
+    video/audio epoch, promoted only by the owner after the picture stack.
+    Phones-as-drives (decided) also await their own future order.
+
 Owner, 2026-08-27: the `cli.py` package split (review §"Priority plan" item 12 /
 remediation order §7) is deliberately **last** — after every order above has
 landed, when nothing else is feeding the file. Do not fold it into the
