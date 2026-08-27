@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 3.79 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.80 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 
 ## Paste an error message and get the files that contain it
 
@@ -54,6 +54,11 @@
   different things to different people, and a wrong date filter hides
   documents without saying so. Years, months and "last year" are read; the
   rest stay as words.
+- **"Emails with something attached" now finds them.** The attachment filter
+  has always worked and no plain sentence had ever produced it - it could only
+  be reached by typing an operator, which is exactly what the everyday tab
+  exists to not require. Asking for it in words scored zero on our own test
+  set before this.
 - Off on the Code tab and behind the Interpret button elsewhere, exactly as
   the search behaviour table says.
 

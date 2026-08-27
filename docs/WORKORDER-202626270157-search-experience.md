@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.8 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.9 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -468,6 +468,24 @@ the item glosses over — **`-S` is "the number of occurrences changed", `-G` is
 second.
 
 Nothing to build. The box was simply never ticked.
+
+## Note on 5b, added 2026-08-27 (half of it, and the measured reason)
+
+**`evaluate --builtin` scores its attachment question at 0%**, and the filter
+was never the problem. `has:attachment` is parsed, is consumed by
+`storage/filters.py`, and works — but **no plain sentence had ever produced
+it**. It was reachable only by typing the operator, which is exactly the
+knowledge tab one exists not to require.
+
+Closed by the rules translator: *"emails with something attached about the
+licence"*, *"the message that had an attachment"* and *"mail with attachments
+from Chris"* now all offer `has:attachment` as a chip. Deliberately narrow —
+*"the attached report"* is somebody naming a document and *"I attached the
+wrong file"* is a sentence inside a message, and neither produces the filter.
+
+The rest of 5b — an attachment-primary result row, where the attachment is the
+object and its message is the context — is a result-row change and is not
+done. It needs the window to judge, like 2e's thumbnails.
 
 ## Done means
 

@@ -138,6 +138,42 @@ def test_without_a_store_the_rules_still_read_what_they_can():
 
 
 # --------------------------------------------------------------------------
+# Attachments (§5b)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sentence", [
+    "emails with something attached about the licence",
+    "the message that had an attachment",
+    "mail with attachments from Chris",
+    "the email with an attachment",
+])
+def test_asking_for_something_attached_becomes_the_filter(sentence, store):
+    r"""**`evaluate --builtin` scored its attachment question at 0%.**
+
+    The filter works perfectly and no plain sentence had ever produced it:
+    `has:attachment` was reachable only by typing the operator, which is
+    exactly the knowledge tab one exists not to require.
+    """
+    assert "has:attachment" in _filters(sentence, store)
+
+
+@pytest.mark.parametrize("sentence", [
+    "the attached report about safety",
+    "I attached the wrong file",
+    "the licence quote from Chris",
+])
+def test_naming_an_attached_document_is_not_asking_for_a_filter(sentence, store):
+    """"The attached report" is somebody naming a document, not asking for
+    every message that carried one."""
+    assert "has:attachment" not in _filters(sentence, store)
+
+
+def test_the_chip_says_it_in_plain_words():
+    """"has attachment" is the operator read aloud. Nobody says that."""
+    assert Chip("has", "attachment").label() == "with an attachment"
+
+
+# --------------------------------------------------------------------------
 # Dates
 # --------------------------------------------------------------------------
 

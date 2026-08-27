@@ -101,6 +101,21 @@ _MONTHS = {name: number for number, name in enumerate(
     ("january", "february", "march", "april", "may", "june", "july",
      "august", "september", "october", "november", "december"), start=1)}
 
+#: Ways people say a message had something attached [TUNE].
+#:
+#: **A noun phrase, not the bare word.** "The attached report" is somebody
+#: naming a document, and "I attached the wrong file" is about mail - but so
+#: is "attachment". The negative forms are excluded here rather than mapped to
+#: `has:no-attachment`, because "without the attachment" is far more often a
+#: complaint inside a message than a filter somebody wants.
+_ATTACHED = re.compile(r"""(?ix)
+    \b(?:
+        with \s+ (?:an? \s+ | something \s+ | the \s+ )? attach(?:ed|ment)
+      | attachments?\b
+      | has \s+ an? \s+ attachment
+      | that \s+ (?:had|has) \s+ (?:an? \s+ )? attach(?:ed|ment)
+    )""")
+
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
 _WORD = re.compile(r"[A-Za-z0-9'’]+")
 
@@ -139,6 +154,8 @@ class Chip:
 
     def label(self) -> str:
         """What the chip says, in the words of the person reading it."""
+        if self.field == "has":
+            return "with an attachment"
         wording = {
             "from": "from {}", "to": "to {}", "type": "{} files",
             "after": "after {}", "before": "before {}",
@@ -360,6 +377,18 @@ def read(sentence: str, store: Any = None, *,
         chips.append(Chip("type", usable[0], words[position]))
         claimed.add(word)
         break
+
+    # -- attachments -----------------------------------------------------
+    #
+    # **Measured at 0% before this existed.** `evaluate --builtin` scores its
+    # attachment question - *"emails with something attached about the
+    # licence"* - at zero, because the filter works perfectly and no plain
+    # sentence has ever produced it. `has:attachment` was reachable only by
+    # typing the operator, which is precisely the knowledge tab one exists to
+    # not require.
+    if _ATTACHED.search(text):
+        chips.append(Chip("has", "attachment", "attached"))
+        claimed.update({"attached", "attachment", "attachments"})
 
     # -- dates -----------------------------------------------------------
     for chip in _dates(text, today=today or date.today()):
