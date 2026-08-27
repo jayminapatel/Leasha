@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -47,7 +47,7 @@ and its quality pass is explicitly out of scope here.
 
 ## 2. Tab one — the universal surface (the 8-year-old test)
 
-- [ ] **2a Typo tolerance.** A typed word matching nothing in `fts5vocab`
+- [x] **2a Typo tolerance.** A typed word matching nothing in `fts5vocab`
   gets edit-distance-1/2 candidates from the vocabulary (bounded exactly as
   wildcards are). Policy `typo_correction="auto"`: the best candidate joins
   the query and the result header says so in plain words ("also looked for
@@ -175,6 +175,33 @@ corrects. Ollama is one backend; this adds the second.
 - [ ] Relevance gates: 2d recency and 4c definition boost each accepted only
   with `evaluate` numbers recorded in this file — a ranking change without
   its measurement is not done.
+
+## Note on 2a, added 2026-08-27 (delivery finding — the item text is unchanged)
+
+**"volcanoe" never reaches the spelling code, and the child finds her essay
+anyway.** FTS5 is configured with porter stemming, so "volcanoe" and
+"volcanoes" both stem to "volcano" and match the document directly. Measured
+against a one-document index:
+
+| typed | `unmatched_terms` | corrected? |
+|---|---|---|
+| `volcanoe` | `()` | no — stemming already matched it |
+| `volcanoes` | `()` | no — same |
+| `volcanno` | `('volcanno',)` | yes → `volcano` |
+| `homwork` | `('homwork',)` | yes → `homework` |
+
+This does not weaken 2a, it narrows it usefully: **everything that reaches the
+correction is a miss stemming has already failed on**, which is exactly the
+population where inventing a different word is safe. The order's canonical
+example simply lands one layer lower than the order assumed. `tests/unit/
+test_spelling.py` therefore exercises `volcanno` and `homwork`; a test written
+around `volcanoe` would have passed for the wrong reason and proved nothing.
+
+Known limit, from the same session: candidates are fetched by prefix (three
+letters, then two), so a typo in the **first two letters** finds nothing —
+`vlocano` is not corrected. Widening it means scanning far more vocabulary on
+every keystroke, and the common typo is a transposition or doubled letter
+later in the word.
 
 ## Done means
 

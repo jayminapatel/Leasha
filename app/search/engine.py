@@ -46,7 +46,7 @@ from app.search.rerank import Reranker
 __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
     "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
-    "NOTICE_WILDCARD", "NOTICE_SORTED",
+    "NOTICE_WILDCARD", "NOTICE_SORTED", "NOTICE_SPELLING",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -222,6 +222,10 @@ NOTICE_RERANK_UNAVAILABLE = "NOTICE_RERANK_UNAVAILABLE"
 NOTICE_WILDCARD = "NOTICE_WILDCARD"
 #: The results were re-ordered by date, so relevance order was abandoned.
 NOTICE_SORTED = "NOTICE_SORTED"
+#: A word matched nothing and a real one was used, or offered.
+#: **Never silent**: the whole licence for changing somebody's
+#: query is that the change is stated where they will see it.
+NOTICE_SPELLING = "NOTICE_SPELLING"
 
 
 @dataclass(frozen=True)
@@ -273,6 +277,10 @@ class SearchResponse:
     #: becomes a search for its most common words - and returns twenty
     #: confident, irrelevant results with nothing to say why.
     unmatched: tuple[str, ...] = ()
+    #: The `spelling.Suggestion` this search made or offered, or None.
+    #: Carried on the response so the chip can be drawn without the
+    #: view re-deriving anything.
+    spelling: Any = None
 
     #: Degradations the person should be told about, already worded.
     #:
@@ -301,6 +309,8 @@ class SearchResponse:
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
             "unmatched_terms": list(self.unmatched),
+            "spelling": (self.spelling.suggestion
+                         if self.spelling is not None else None),
             # Before `results`, deliberately. A degradation buried under twenty
             # result objects has been reported, and read by nobody.
             "notices": [notice.as_dict() for notice in self.notices],
@@ -501,6 +511,13 @@ class SearchEngine:
                 cached.elapsed_ms = (time.perf_counter() - started) * 1000
                 return cached
 
+        # §2a. **Before retrieval, not after** - so the corrected word is
+        # searched *for*, rather than searched for a second time. Asking the
+        # index which words it has never seen is one indexed lookup each, and
+        # it is a question this method already asks lower down; asked here it
+        # buys the correction as well as the notice.
+        parsed, spelling = self._correct_spelling(parsed, policy)
+
         # Both retrievers at once: independent, so the slower one sets the floor
         # rather than the sum setting it.
         mark = time.perf_counter()
@@ -593,7 +610,7 @@ class SearchEngine:
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
             keyword_count=len(keyword_hits), vector_count=len(vector_hits),
-            unmatched=unmatched,
+            unmatched=unmatched, spelling=spelling,
             elapsed_ms=(time.perf_counter() - started) * 1000, timings=timings,
         )
         if unmatched:
@@ -613,6 +630,15 @@ class SearchEngine:
                 NOTICE_SORTED,
                 f"Sorted by date, {parsed.sort} first — not by best match. "
                 f"Remove /{parsed.sort} to rank by relevance again.",
+            ))
+        if spelling is not None:
+            # **Said whichever way it went.** Changing what somebody typed is
+            # only legal because the change is on screen; offering a chip is
+            # only useful because they can see it.
+            notices.append(Notice(
+                NOTICE_SPELLING,
+                spelling.sentence() if policy.typo_correction == "auto"
+                else spelling.question(),
             ))
         if unmatched:
             notices.append(Notice(
@@ -707,6 +733,61 @@ class SearchEngine:
             return int(self.store.generation)
         except Exception:                        # noqa: BLE001
             return -1
+
+    def _correct_spelling(self, parsed: ParsedQuery,
+                          policy: SearchPolicy) -> tuple[ParsedQuery, Any]:
+        r"""A word the index has never seen, and the word it probably was.
+
+        Returns the query to run and the `Suggestion`, or the query unchanged
+        and `None`. **Never raises**: this happens on a keystroke, and a
+        vocabulary that cannot be read is a search without a suggestion rather
+        than a search that fails.
+
+        `auto` puts the correction into the query and the header says which
+        word was used. `suggest` leaves the query exactly as typed and offers
+        a chip. `off` does neither, which is what the Code tab asks for -
+        `recieve_handler` may be precisely what is in the codebase, and
+        "helpfully" searching for something else hides it.
+
+        **Only ever fires on a word that matched nothing at all.** A word the
+        corpus contains is never second-guessed however unusual it looks, so
+        the worst case here is a query that was going to return nothing
+        returning something instead.
+        """
+        wanted = str(getattr(policy, "typo_correction", "off") or "off")
+        if wanted == "off" or not parsed.terms:
+            return parsed, None
+
+        try:
+            from app.search.spelling import from_store
+
+            expanded = {pattern for pattern, _terms in parsed.expansions}
+            words = tuple(term for term in parsed.terms if term not in expanded)
+            if not words:
+                return parsed, None
+
+            missing = keyword.unmatched_terms(self.store, words)
+            if not missing or len(missing) == len(words):
+                # **All of them missing is not a typo.** One unknown word
+                # among several is somebody who mistyped; every word unknown
+                # is somebody searching a corpus that has nothing to do with
+                # what they asked, and correcting each one in turn would
+                # manufacture a query nobody typed.
+                if len(missing) != 1:
+                    return parsed, None
+
+            found = from_store(self.store, missing[0])
+            if found is None:
+                return parsed, None
+            if wanted != "auto":
+                return parsed, found                  # a chip, nothing changed
+
+            corrected = tuple(found.suggestion if term == found.typed else term
+                              for term in parsed.terms)
+            return replace(parsed, terms=corrected), found
+        except Exception as exc:                      # noqa: BLE001 - a helper
+            _log.debug("no spelling suggestion for this query: {}", exc)
+            return parsed, None
 
     def _expand_wildcards(self, parsed: ParsedQuery) -> tuple[ParsedQuery, list]:
         r"""Turn `*voice` into the terms the index actually holds.

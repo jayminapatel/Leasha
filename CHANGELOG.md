@@ -1,6 +1,35 @@
 # Changelog
 
-**Doc version:** 3.72 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.73 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## A misspelt word finds the document anyway
+
+- **A word your documents have never contained is quietly checked against the
+  words they do contain**, and the closest one is searched for instead. Type
+  "homwork" and you get your homework, with "also looked for 'homework'" above
+  the results - because the alternative is an empty page, and an empty page
+  tells an eight-year-old her essay is gone rather than that she typed a letter
+  wrong.
+- **Only a word that matched nothing at all.** A word your documents do contain
+  is never second-guessed, however odd it looks - if you wrote it, finding what
+  you wrote is the entire job. So the worst thing this can do is turn a search
+  that was going to find nothing into one that finds something.
+- **It reads your own documents, not a dictionary.** A surname, a project code
+  or a Welsh place name corrects to what you actually write, and no word list
+  ships with the app.
+- **Three behaviours, one per tab.** The everyday tab corrects and says so; the
+  Files tab asks "Did you mean…?" and changes nothing; the Code tab does
+  neither, because `recieve_handler` may be precisely what is in the codebase.
+- **What we found on the way, worth writing down:** the example this was built
+  for - "volcanoe" - already worked. The word index stems it to "volcano" and
+  matches directly, so it never reaches the correction at all. That makes this
+  feature narrower and better aimed than planned: everything reaching it is a
+  genuine miss that stemming has already failed on.
+- Known limit, stated rather than discovered later: candidates are found by the
+  first letters, so a typo in the **first two** is not corrected - "vlocano"
+  still finds nothing. The common slip is a doubled or transposed letter later
+  in the word, and fixing the rest would cost a scan of the whole vocabulary on
+  every keystroke.
 
 ## Search now knows which tab it is on, and what that tab is allowed to do
 
