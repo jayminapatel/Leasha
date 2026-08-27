@@ -76,7 +76,12 @@ def recent(rows: Any, *, limit: int = RECENT_LIMIT,
     seen: set = set()
     found: list = []
     for row in rows:
-        text = str((row or {}).get("query") or "").strip()
+        # **A row, or the string a worker already reduced one to.** The fetch
+        # runs this once off the interface thread and hands back plain text;
+        # the dropdown then hands that same list back in when it redraws, and
+        # a second pass over it must be the identity rather than a crash.
+        text = (row.strip() if isinstance(row, str)
+                else str((row or {}).get("query") or "").strip())
         if not text or text.startswith(_SKIP_PREFIXES):
             continue
         key = text.lower()

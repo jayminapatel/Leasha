@@ -1,6 +1,17 @@
 # Changelog
 
-**Doc version:** 3.91 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.92 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Click into an empty search box and it offers your own searches
+
+- **The last few things you looked for, and the searches you saved.** Pick one
+  and it runs.
+- Newest first. Slash commands are never offered back — those are a mechanism,
+  not something you were looking for.
+- A saved search goes in as a reference, so it still re-runs live.
+- Switch it off in Settings → Search if you are on a screen other people can
+  see. That hides your history; it does not hide the searches you saved.
+
 
 ## leasha:// links
 

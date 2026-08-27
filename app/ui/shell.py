@@ -1499,7 +1499,12 @@ class MainWindow(QMainWindow):
             if not query:
                 return
             scope = str(getattr(request, "scope", "") or "")
-            self.tabs.setCurrentWidget(self.search_view)
+            # **`_show`, never `tabs.setCurrentWidget`.** A view inside a
+            # scroll area is not the tab's own widget, so that call does
+            # nothing at all - no error, no exception, the tab simply does not
+            # change. `test_the_window_maps_views_to_tab_indexes` caught this
+            # one the day it was written, which is the guard doing its job.
+            self._show(self.search_view)
             if scope:
                 self.search_view.set_scope(scope)
             self.search_view.input.setText(query)

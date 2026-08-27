@@ -175,6 +175,13 @@ SETTINGS: tuple[Setting, ...] = (
              "invents a score.",
     ),
     Setting(
+        key="SEARCH_OFFER_RECENT", label="Offer what you searched for before",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Clicking into an empty search box shows the last few things "
+             "you looked for, and the searches you saved. Switch it off on a "
+             "screen other people can see.",
+    ),
+    Setting(
         key="CODE_EDITOR", label="Open code results in", kind="choice",
         default="auto", group="Search", surface="settings.search",
         choices=("auto", "vscode", "cursor", "vscodium", "sublime",

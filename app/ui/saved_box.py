@@ -44,6 +44,13 @@ class SavedSearches:
         #: and typing a saved name in the first fifty milliseconds after the
         #: window opens is not a case anybody reaches.
         self._saved: tuple = ()
+        #: The last few things this person searched for, newest first.
+        #: Search-experience §2e - fetched the same way and held for the same
+        #: reason: the box is being *focused*, which is not a moment to wait
+        #: on a database.
+        self._recent: tuple = ()
+        #: Settings, pushed in. Read for one switch: `search_offer_recent`.
+        self._settings: Any = None
         #: Told when the list changes, so a dropdown can redraw itself.
         self.changed: Optional[Callable[[tuple], None]] = None
 
@@ -58,17 +65,46 @@ class SavedSearches:
         """`(label, insert)` pairs for the empty box. See `first_contact`."""
         from app.ui.first_contact import saved_rows
 
-        return saved_rows(self._saved, settings=settings)
+        return saved_rows(self._saved, settings=settings or self._settings)
+
+    def sections(self) -> tuple:
+        r"""What an empty, focused search box offers: recent, then saved.
+
+        `((heading, ((label, insert), …)), …)`, empty when there is nothing to
+        offer or when the person has switched it off. **§2e's last piece**, and
+        the one the saved-search list was waiting on - both are the same
+        dropdown, so building it twice would have been two ways for the same
+        box to behave.
+        """
+        from app.ui.first_contact import sections
+
+        return sections(self._recent, self._saved, self._settings)
+
+    def set_settings(self, settings: Any) -> None:
+        """The preferences, pushed in. Never read from here."""
+        self._settings = settings
 
     # -- keeping it current --------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-read the list on a worker. Safe to call with no store."""
+        """Re-read both lists on workers. Safe to call with no store."""
         if self._store is None:
             return
-        from app.ui.workers import saved_searches_async
+        from app.ui.workers import recent_searches_async, saved_searches_async
 
         saved_searches_async(self._store, self._took)
+        # **Two workers rather than one, and they land independently.** The
+        # dropdown draws whichever has arrived; a list that waited for both
+        # would be empty for as long as the slower of two reads, on the
+        # keystroke where somebody is least willing to wait.
+        recent_searches_async(self._store, self._took_recent, self._settings)
+
+    def _took_recent(self, rows: Any) -> None:
+        """A fetched history has arrived. **Never raises.**"""
+        try:
+            self._recent = tuple(rows or ())
+        except Exception:                        # noqa: BLE001 - a convenience
+            self._recent = ()
 
     def save(self, name: str, query: str, scope: str = "all") -> None:
         """Store one, then refresh. §3b: only ever because somebody asked."""

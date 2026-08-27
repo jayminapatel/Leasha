@@ -59,7 +59,7 @@ from app.ui.widgets.command_icon import icon_for, text_colour
 
 __all__ = [
     "CommandPopup", "attach_to", "CODE_COMMANDS", "FILES_COMMANDS",
-    "MAIL_COMMANDS", "VALUE_ICON", "SUGGEST_TTL_S",
+    "MAIL_COMMANDS", "VALUE_ICON", "OFFER_ICON", "SUGGEST_TTL_S",
 ]
 
 #: Shown per row: what to type, **what it expects**, and what it does.
@@ -81,6 +81,11 @@ HINT_CHARS = 32
 #: command already chosen, and repeating that command's icon down the list says
 #: nothing the heading above has not.
 VALUE_ICON = "▹"
+
+#: The glyph beside something the box is offering back - a search this person
+#: ran before, or one they saved. Different from the value glyph on purpose:
+#: these are *theirs*, and the list is not answering a question they asked.
+OFFER_ICON = "↺"
 
 #: How long a fetched value list is trusted. Long enough that arrowing through
 #: a menu costs one query rather than one per keystroke; short enough that an
@@ -150,6 +155,9 @@ class CommandPopup(QCompleter):
         self._rows: list[str] = []
         #: The kind word whose extensions are showing, or "" on the first page.
         self._second_page: str = ""
+        #: Heading rows currently on show. Non-empty only in first-contact
+        #: mode, which is what tells the three modes apart.
+        self._headings: set = set()
 
         self._model = QStandardItemModel(self)
         self.setModel(self._model)
@@ -184,6 +192,7 @@ class CommandPopup(QCompleter):
         what a one-line dropdown looks like.
         """
         self.value_of = ""
+        self._headings = set()
         self.setMaxVisibleItems(max(len(self._catalogue), 1))
         self._matches = [
             command for command in self._matcher(prefix)
@@ -197,6 +206,54 @@ class CommandPopup(QCompleter):
             for command in self._matches
         ])
 
+    # -- first-contact mode (search-experience §2e) ---------------------------
+
+    def show_offers(self, sections: Any) -> bool:
+        r"""What an empty, focused box offers: recent searches, then saved.
+
+        `sections` is `((heading, ((label, insert), …)), …)` from
+        `first_contact.sections`. Returns True if there was anything to show.
+
+        **A third mode on the same popup, not a second popup.** One
+        `QLineEdit` can only sensibly own one dropdown; two would race to
+        appear on the same keystroke and the loser would flicker. The three
+        modes are told apart the way the first two already are - by which
+        list is filled - and `value_of` stays the marker for value mode.
+        """
+        self.value_of = ""
+        self._second_page = ""
+        self._matches = []
+        self._values = []
+        self._headings = set()
+        rows: list = []
+        for heading, entries in sections or ():
+            if not entries:
+                continue
+            # A heading is a row Qt can draw and `value_for_row` maps back to
+            # itself, so choosing one completes nothing - the same trick the
+            # second page's breadcrumb uses.
+            self._headings.add(str(heading))
+            self._values.append(str(heading))
+            rows.append(("—", str(heading)))
+            for label, insert in entries:
+                self._values.append(str(insert))
+                rows.append((OFFER_ICON, str(label)))
+        self._rows = [text for _glyph, text in rows]
+        if not rows:
+            return False
+        self.setMaxVisibleItems(max(1, min(len(rows), 12)))
+        self._fill(rows)
+        return True
+
+    @property
+    def offering(self) -> bool:
+        """Is the box showing what it has to offer rather than a menu?"""
+        return bool(self._headings)
+
+    def is_heading(self, row_text: str) -> bool:
+        """Headings are read, never chosen."""
+        return str(row_text) in self._headings
+
     # -- value mode ----------------------------------------------------------
 
     def set_values(self, name: str, values: Sequence[str]) -> None:
@@ -209,6 +266,7 @@ class CommandPopup(QCompleter):
         """
         self.value_of = str(name or "")
         self._second_page = ""
+        self._headings = set()
         self._matches = []
         # **The bare value is what gets inserted; the row is what is read.**
         # A `ValueCount` carries a number the row shows and the query must
@@ -341,13 +399,35 @@ class _TabAccepts(QObject):
         return False
 
 
+class _OffersOnFocus(QObject):
+    """Shows what the box has to offer when it is empty and focused. §2e.
+
+    An event filter on the line edit rather than a `focusInEvent` override,
+    because the search box is a plain `QLineEdit` on purpose - everything
+    else about it (placeholder, clear button, Enter) stays exactly as it was,
+    and removing this feature is deleting one line.
+    """
+
+    def __init__(self, line_edit: QLineEdit, show: Any) -> None:
+        super().__init__(line_edit)
+        self._line_edit = line_edit
+        self._show = show
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's naming
+        if (event.type() == QEvent.Type.FocusIn
+                and not self._line_edit.text().strip()):
+            self._show()
+        return False
+
+
 def attach_to(line_edit: QLineEdit,
               only: Optional[Sequence[str]] = None,
               store: Any = None,
               catalogue: Optional[Sequence[Any]] = None,
               matcher: Any = None,
               resolve: Any = None,
-              lookup: Any = None) -> CommandPopup:
+              lookup: Any = None,
+              offers: Any = None) -> CommandPopup:
     """Wire a `CommandPopup` to a search box. Returns it, for tests and teardown.
 
     Kept as a function rather than a subclass of `QLineEdit` so the search view
@@ -468,6 +548,22 @@ def attach_to(line_edit: QLineEdit,
         word = text.rpartition(" ")[2]
         head = text[: len(text) - len(word)]
 
+        # **§2e, and it is checked first.** A row here is a whole query, not
+        # a fragment of one: it replaces the box rather than completing the
+        # word under the cursor, which is the opposite of what the other two
+        # modes do.
+        if popup.offering:
+            if popup.is_heading(row_text):
+                return                           # a heading is read, not chosen
+            line_edit.setText(popup.value_for_row(row_text))
+            line_edit.setCursorPosition(len(line_edit.text()))
+            popup.popup().hide()
+            # As if they had pressed Enter, because they chose a finished
+            # question. `setText` does not emit `textEdited`, so nothing else
+            # would have run it.
+            line_edit.returnPressed.emit()
+            return
+
         if popup.value_of:
             chosen_value = popup.value_for_row(row_text)
 
@@ -517,6 +613,24 @@ def attach_to(line_edit: QLineEdit,
         # with a colon and a blank is the half of this feature that was
         # missing: the question "what can I put here" is the harder one.
         offer_values(command.name, "")
+
+    def show_offers() -> None:
+        """§2e: an empty, focused box offers this person their own searches.
+
+        **Never raises**, and silent when there is nothing: a box that pops an
+        empty list open on every click would be worse than one that offers
+        nothing at all.
+        """
+        try:
+            if offers is None or line_edit.text().strip():
+                return
+            if popup.show_offers(offers()):
+                popup.complete()
+        except Exception:                        # noqa: BLE001 - see docstring
+            return
+
+    if offers is not None:
+        line_edit.installEventFilter(_OffersOnFocus(line_edit, show_offers))
 
     line_edit.textEdited.connect(on_text)
     popup.activated[str].connect(on_activated)

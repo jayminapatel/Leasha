@@ -120,6 +120,23 @@ class SearchBehaviourBox(QGroupBox):
         self.controls["notice_register"].setObjectName("SEARCH_PLAIN_WORDS")
         self.controls["explain_results"].setObjectName("SEARCH_EXPLAIN_RESULTS")
 
+        # **Not a `SearchPolicy` behaviour, and deliberately outside the
+        # grid.** The seven above are per-surface contracts about *what a
+        # search may do*, and `test_policy_reaches_the_engine` requires each
+        # of them to change the answer that comes back. This changes nothing
+        # about any answer - it decides whether an empty box offers you your
+        # own past questions - so making it an eighth behaviour would have
+        # meant a row in the grid with the same word in all four columns and
+        # a guard nobody could satisfy honestly.
+        self.offer_recent = QCheckBox("Offer what you searched for before")
+        self.offer_recent.setObjectName("SEARCH_OFFER_RECENT")
+        self.offer_recent.setToolTip(
+            "Clicking into an empty search box shows the last few things you "
+            "looked for, and the searches you saved. Switch it off on a "
+            "screen other people can see.")
+        self.offer_recent.stateChanged.connect(lambda _s: self._emit())
+        form.addRow(self.offer_recent)
+
         self.grid = self._build_grid()
 
         self.reset = QPushButton("Reset search behaviour to defaults")
@@ -196,6 +213,10 @@ class SearchBehaviourBox(QGroupBox):
             ):
                 self.controls[name].setChecked(
                     bool(getattr(settings, field, True)))
+            self.offer_recent.blockSignals(True)
+            self.offer_recent.setChecked(
+                bool(getattr(settings, "search_offer_recent", True)))
+            self.offer_recent.blockSignals(False)
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)
@@ -223,6 +244,7 @@ class SearchBehaviourBox(QGroupBox):
                 self.controls["notice_register"].isChecked()),
             "SEARCH_EXPLAIN_RESULTS": bool(
                 self.controls["explain_results"].isChecked()),
+            "SEARCH_OFFER_RECENT": bool(self.offer_recent.isChecked()),
         }
 
     def restore_defaults(self) -> None:
@@ -240,6 +262,9 @@ class SearchBehaviourBox(QGroupBox):
                          "version_folding", "notice_register",
                          "explain_results"):
                 self.controls[name].setChecked(True)
+            self.offer_recent.blockSignals(True)
+            self.offer_recent.setChecked(True)
+            self.offer_recent.blockSignals(False)
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)

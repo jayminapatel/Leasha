@@ -27,12 +27,18 @@ __all__ = [
 
 
 def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
-                store: Any = None) -> Any:
-    """The search box, with the `/` filter dropdown attached.
+                store: Any = None, on_scope: Any = None) -> Any:
+    """The search box, its `/` dropdown, and what it offers when empty.
 
-    Returns `(line_edit, completer)`. The completer must be kept alive by the
-    caller: a `QCompleter` that is garbage collected stops completing, silently,
-    and the dropdown would simply never appear again.
+    Returns `(line_edit, completer, saved)`. The completer must be kept alive
+    by the caller: a `QCompleter` that is garbage collected stops completing,
+    silently, and the dropdown would simply never appear again.
+
+    **`SavedSearches` is built here rather than in the view**, and that is not
+    tidiness: `search_view.py` sits at the 250-line guard, and the object is
+    only ever reached through this box - it decides what an empty one offers
+    (§2e) and what `saved:name` expands to (Adoptions §3). `on_scope` is what
+    a saved search calls when it carries one.
 
     **The placeholder advertises the doorway, not the grammar.** Every filter
     worked since Layer 4 and nothing in the application had ever mentioned them,
@@ -85,10 +91,18 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     # No `lookup`: the Code tab can offer real branch and author names because
     # it knows which repository is selected, and this box does not. The grammar's
     # own suggestions still appear, which is the honest half of that menu.
+    from app.ui.saved_box import SavedSearches
+
+    saved = SavedSearches(store, on_scope)
+    saved.refresh()
     return box, attach_to(
         box, store=store, catalogue=SEARCH_CATALOGUE,
         matcher=search_matching, resolve=search_command_for,
-    )
+        # §2e: the last few things this person searched for, and the searches
+        # they saved. Asked for at the moment the box is focused and empty,
+        # answered from lists already in memory - see `saved_box`.
+        offers=saved.sections,
+    ), saved
 
 #: (label, value). Value travels into `ParsedQuery.scope`.
 #:

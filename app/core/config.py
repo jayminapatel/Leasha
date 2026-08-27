@@ -158,6 +158,14 @@ class Settings(BaseModel):
     #: Adoptions §1. A result that cannot be interrogated is one
     #: somebody has to take on trust.
     search_explain_results: bool = True
+    #: Search-experience §2e. An empty, focused search box offers what this
+    #: person searched for before, and what they saved.
+    #:
+    #: **Off-able because it is a list of your own questions.** Everything
+    #: else this application shows is about the files; this is about the
+    #: person, on a shared screen, and "off" has to be one click rather than
+    #: an argument.
+    search_offer_recent: bool = True
 
     #: Which editor a code result opens in, and the command if it is not one
     #: this knows. `auto` picks the first installed from `ui/editors.py`.
@@ -340,6 +348,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_VERSION_FOLDING",
     "SEARCH_PLAIN_WORDS",
     "SEARCH_EXPLAIN_RESULTS",
+    "SEARCH_OFFER_RECENT",
     "CODE_EDITOR",
     "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
@@ -470,6 +479,9 @@ def load_settings(
             search_explain_results=_as_bool(
                 "SEARCH_EXPLAIN_RESULTS",
                 values.get("SEARCH_EXPLAIN_RESULTS", "true")),
+            search_offer_recent=_as_bool(
+                "SEARCH_OFFER_RECENT",
+                values.get("SEARCH_OFFER_RECENT", "true")),
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",

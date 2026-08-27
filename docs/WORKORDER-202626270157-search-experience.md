@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.17 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.18 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -71,7 +71,7 @@ and its quality pass is explicitly out of scope here.
   index-tuning order introduces (its 6e); if 6e was closed as not-built,
   fold on `content_hash` at file level instead. This is where the
   fifteen-years-eight-versions corpus stops embarrassing the results page.
-- [ ] **2e First-contact details.** Search is the default tab on launch; the
+- [x] **2e First-contact details.** Search is the default tab on launch; the
   box placeholder is a plain example sentence; an empty, focused box offers
   the user's own recent searches (from the existing usage log, newest
   first, off-able); result rows on tab one are generous — thumbnail where a
@@ -719,3 +719,56 @@ behaviour they exercise has a visible switch, and no control anywhere lacks a
 tooltip that says what it does. §3's `[TUNE]` markers surviving to the end is
 expected, not a failure — tuning is the owner's next agenda item after
 indexing.
+
+## Note on 2e, added 2026-08-28 — the attachment, and it closed two orders
+
+**The last piece of 2e was the widget, and it is the same widget Adoptions §3
+was waiting on.** Recent searches and saved searches are one dropdown; building
+them separately would have been two ways for the same box to behave.
+
+**A third mode on the `/` popup rather than a second popup.** A `QLineEdit`
+can only sensibly own one dropdown — two would race to appear on the same
+keystroke and the loser would flicker. `CommandPopup` already tells command
+mode from value mode by which list is filled; this is the third, marked by
+its headings.
+
+**A row here is a whole question, not a fragment of one.** The other two
+modes complete the word under the cursor. This replaces the box and presses
+Enter, because somebody choosing a search they have run before has finished
+asking — and `setText` emits no `textEdited`, so nothing else would ever have
+run it. Headings are drawn but cannot be chosen.
+
+**Recent inserts the text; saved inserts `saved:name`.** The reference, not a
+copy: *a smart folder, not a snapshot*, one level down.
+
+**`SEARCH_OFFER_RECENT`**, off-able as the item asks. Deliberately **not** an
+eighth `SearchPolicy` behaviour: the seven are per-surface contracts about
+what a search may *do*, and `test_policy_reaches_the_engine` requires each to
+change the answer that comes back. This changes no answer, so an eighth row
+would have been the same word in all four columns and a guard nobody could
+satisfy honestly. It is a plain setting beside them, with all four settings
+guards satisfied.
+
+The switch hides the **recent** half only. Saved searches are not a history —
+they are a list somebody curated on purpose — so hiding what you happened to
+type does not hide what you deliberately kept.
+
+**This item removed two lines from `search_view.py` rather than adding any.**
+`SavedSearches` moved into `build_input`, where it belongs: the object is only
+ever reached through the box, and it decides both what an empty one offers and
+what `saved:name` expands to. The view was at 249 of its 250; it is at 247.
+
+**A real bug the suite caught, from the previous item.** §7a's link handler
+used `self.tabs.setCurrentWidget(self.search_view)`, and
+`test_the_window_maps_views_to_tab_indexes` refuses that call by name: a view
+inside a scroll area is not the tab's own widget, so it does nothing at all —
+no error, no exception, the tab simply does not change. A `leasha://` link
+would have run its search on a tab nobody was looking at. Now `self._show`.
+
+Both fetches ride workers, as the earlier note requires, and land
+independently: the dropdown draws whichever has arrived rather than waiting
+for the slower of two reads on the keystroke where somebody is least willing
+to wait.
+
+Still not done in 2e: the thumbnail on a result row, which needs the window to
+judge — the same gate 5b's attachment-primary row sits behind.

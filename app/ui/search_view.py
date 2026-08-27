@@ -23,7 +23,6 @@ from typing import Any
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from app.ui.saved_box import SavedSearches
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -102,19 +101,16 @@ class SearchView(QWidget):
         self._index_count = 0
         self._last_terms: list = []
 
-        self.input, self.commands = build_input(
+        # `self.saved` is built by the box rather than here - it belongs to
+        # the box, and this file is at the 250-line guard. It decides what an
+        # empty box offers (§2e) and what `saved:name` expands to (§3).
+        self.input, self.commands, self.saved = build_input(
             self, self._on_text_changed, self._on_submitted,
             # Through the engine, which is what this view is given. Only the
             # *value* half of the `/` menu uses it, and `getattr` because an
             # engine without one is a menu offering the grammar's own values
             # rather than a view that fails to build.
-            store=getattr(engine, "store", None))
-
-        # Adoptions §3. Everything about saved searches that is not a widget
-        # lives in `saved_box`, because this file is at the 250-line guard and
-        # the guard is right: a rule written in a view is a rule nothing tests.
-        self.saved = SavedSearches(getattr(engine, "store", None), self.set_scope)
-        self.saved.refresh()
+            store=getattr(engine, "store", None), on_scope=self.set_scope)
 
         (self.scope, self.interpret_button, self.rerank_toggle,
          self.view_button, self.status) = build_controls(
@@ -166,6 +162,7 @@ class SearchView(QWidget):
     def set_search_preferences(self, found: dict) -> None:
         # Pushed in, never read here: `Settings` belongs to the window.
         self._search_preferences = dict(found or {})
+        self.saved.set_settings(found)
 
     def current_scope(self) -> str:
         return scope_value(self.scope)

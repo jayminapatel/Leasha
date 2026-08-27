@@ -533,8 +533,8 @@ def test_the_whole_journey_from_a_slash_to_a_search(store):
     store.note_saved_search_run("invoices")
     store.note_saved_search_run("invoices")
 
-    box, popup = build_input(None, lambda *_a: None, lambda *_a: None,
-                             store=store)
+    box, popup, _saved = build_input(None, lambda *_a: None, lambda *_a: None,
+                                     store=store)
 
     def rows():
         return [popup._model.item(i).text()
