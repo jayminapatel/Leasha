@@ -895,10 +895,22 @@ class SearchEngine:
         vocabulary cannot change under it without an index write, which bumps
         the generation and clears the result cache anyway.
         """
+        from app.search.numbers import expansions_for
         from app.search.wildcards import expand, needs_expansion
 
+        # §5c. **The same mechanism, for a different reason.** A quantity is
+        # written four ways and indexed four ways - `40000`, `40 000`, `40k` -
+        # and measured against a corpus naming one amount five times, no query
+        # found more than two of them. Rendered as a parenthesised OR in the
+        # position the number had, which is exactly what an expanded wildcard
+        # already does, so the FTS builder needs no new rule.
+        #
+        # Costs nothing when no number was typed, and needs no re-index: the
+        # documents are already tokenised, and what changes is the question.
+        numeric = expansions_for(parsed.terms)
+
         patterns = [term for term in parsed.terms if needs_expansion(term)]
-        if not patterns:
+        if not patterns and not numeric:
             return parsed, []
 
         # **Dropped when the index changes, which the comment above claimed
@@ -922,6 +934,11 @@ class SearchEngine:
             expansion = expand(self.store, pattern, cache=self._wildcard_cache)
             found.append(expansion)
             expansions.append((pattern, expansion.terms))
+        # After the wildcards, so a term that is somehow both keeps the
+        # vocabulary answer - which is the one that came from the index.
+        seen = {term for term, _alternatives in expansions}
+        expansions.extend((term, alternatives) for term, alternatives in numeric
+                          if term not in seen)
         return replace(parsed, expansions=tuple(expansions)), found
 
     # -- opening a result ---------------------------------------------------

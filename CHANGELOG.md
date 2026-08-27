@@ -1,6 +1,20 @@
 # Changelog
 
-**Doc version:** 3.77 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.78 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## £40,000 and 40000 and 40k are the same amount, and search knows it now
+
+- **Type an amount any way you like and you find every document that mentions
+  it.** Before this, five documents all naming the same figure could not find
+  each other: searching `40000` found one of them, `40,000` found two, and
+  `40000.00` found none at all - not even the invoice containing those exact
+  characters.
+- Nothing needs re-indexing. What changed is the question, not your index.
+- **A year is left alone on purpose.** Searching 2024 must not start matching
+  every document with a 2 and a 24 near each other.
+- Numbers under a thousand and very long numbers - order references, phone
+  numbers - are left alone too. They are not amounts, and treating them as
+  amounts would widen your search for nothing.
 
 ## Plain sentences become filters, without needing a model
 

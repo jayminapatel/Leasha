@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.5 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -137,7 +137,7 @@ corrects. Ollama is one backend; this adds the second.
   attachment-primary result row (the attachment is the object, its message
   is the context, open-attachment is the default action) — people remember
   "the file Dave sent", not the subject line.
-- [ ] **5c Numbers.** Measure first: do "40000", "40,000" and "£40k" find
+- [x] **5c Numbers.** Measure first: do "40000", "40,000" and "£40k" find
   each other across spreadsheet cells and document text? Record the answer
   here; build normalisation only if the measurement shows the gap.
 
@@ -369,6 +369,47 @@ residue to the model instead of the whole sentence. `Reading.residue` exists
 and is tested for exactly that purpose, so the seam is ready — but the change
 belongs in `QueryTranslator`, and it is worth doing when the owner's deferred
 tuning pass (3d) happens, against a machine that has Ollama to measure with.
+
+## Note on 5c, added 2026-08-27 (the measurement the item asked for)
+
+**Measured first, as instructed. The gap was total, so it was built.** Five
+documents naming the same amount, and what each query found before:
+
+| document text | indexed as | found by |
+|---|---|---|
+| `total 40000 for the site` | `40000` | `40000` |
+| `awarded at 40,000 pounds` | `40` · `000` | `40,000` |
+| `we agreed £40k for the package` | `40k` | `40k`, `£40k` |
+| `Invoice total: 40,000.00 GBP` | `40` · `000` · `00` | `40,000` |
+| `roughly forty thousand` | words | `forty thousand` |
+
+**No query found more than two of the five, and `40000.00` found nothing at
+all** — not even the document containing its exact characters, because
+`40,000.00` is three tokens and `40000.00` is one.
+
+After: every numeric form — `40000`, `40,000`, `40k`, `£40k`, `40000.00` —
+finds all four of the numeric documents. The words-in-full document is a
+separate problem and is not covered.
+
+**Query-side, so no re-index is needed.** The documents are already tokenised;
+what changes is the question. `"40000" OR "40 000" OR "40k"` reaches all of
+them, and `40 000` is an FTS5 phrase — exactly what a comma-separated number
+became when it was indexed. It rides the wildcard expansion mechanism, so the
+FTS builder needed no new rule and a query with no number in it costs nothing.
+
+Three guards, each because the alternative is a menace:
+
+* **A year is not a quantity.** `2024` must not drag in `2 024`.
+* **Below a thousand there is nothing to expand**, and above a ceiling a long
+  number is an order reference, not an amount.
+* **`40,000` reaches the engine as `40` and `000`** — the parser splits on
+  punctuation and cannot know the comma was inside the number. Reassembled on
+  a trailing group of exactly three digits, and the absorbed `000` is removed
+  from the query, or it would match every document containing a `000`.
+
+Corrected before shipping: `1.5m` read as one million, because the decimals
+were dropped before the multiplier was applied — a wrong answer that looks
+like a right one.
 
 ## Done means
 
