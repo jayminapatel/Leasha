@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.6 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -108,7 +108,7 @@ corrects. Ollama is one backend; this adds the second.
 
 ## 4. The Code tab — searching the way coders search
 
-- [ ] **4a Paste-an-error routing.** A query that looks pasted rather than
+- [x] **4a Paste-an-error routing.** A query that looks pasted rather than
   typed — contains `:` + parentheses, quote pairs, `Traceback`, or a
   path:line shape — routes to verbatim substring matching over the existing
   trigram index, punctuation preserved, no syntax required. The result
@@ -410,6 +410,45 @@ Three guards, each because the alternative is a menace:
 Corrected before shipping: `1.5m` read as one million, because the decimals
 were dropped before the multiplier was applied — a wrong answer that looks
 like a right one.
+
+## Note on 4a, added 2026-08-27 (delivery finding — item text unchanged)
+
+**The trigram index this item routes to does not exist for content.**
+`files_fts` is trigram but covers file *names* and folders; `chunks_fts` — the
+text — is `porter unicode61`, token-based, and cannot answer a substring query
+at all. Verified in `schema.sql`: those are the only two FTS tables.
+
+True verbatim matching over content needs a second FTS table with a trigram
+tokeniser over every chunk — **a schema change, a full re-index of the whole
+corpus, and roughly the same storage again**. That is a decision with a real
+cost and it belongs to the owner, so it is written down here rather than taken
+inside a delivery.
+
+**What shipped preserves order instead of punctuation**, which is the half
+that finds the line: the distinctive thing about a traceback is the sequence
+of its words, not its colons. Measured on a four-document corpus where two
+files hold the line:
+
+| | found |
+|---|---|
+| today, as a bag of ORed words | 4 of 4 — including both irrelevant files |
+| as a phrase, order preserved | 2 of 2 — exactly the files that have it |
+
+Needs no re-index, and it is announced (`NOTICE_EXACT`) with the way back,
+because a phrase search is a narrowing and every narrowing here has to be
+visible. Detection is deliberately hard to trigger: a named tell (`Traceback`,
+`engine.py:512`) fires on its own, everything else needs length *and* two
+independent signs of being code. A query that already carries quotes or a
+filter is left alone — they said what they wanted.
+
+**And it uncovered a crash in released code.** `_fts_quote` expands a
+camelCase word into `("getUserName" OR ("get" AND "user" AND "name"))`, which
+is correct in a term position and is not legal inside an adjacency chain: `+`
+joins strings and nothing else. So **typing `"getUserName handler"` into the
+box made FTS5 answer `syntax error near "+"` and failed the whole search.**
+Phrases now quote plainly. The narrower reading is also the right one —
+quoting is the most explicit statement of intent the box offers — and the
+document side of camelCase is already covered by the `symbols` column.
 
 ## Done means
 

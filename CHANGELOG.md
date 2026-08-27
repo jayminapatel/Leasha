@@ -1,6 +1,23 @@
 # Changelog
 
-**Doc version:** 3.78 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.79 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Paste an error message and get the files that contain it
+
+- **Pasting a traceback used to return everything.** The box split it on
+  punctuation and asked for any document containing "object", or "has", or
+  "no". Now the words are searched for in order, which is what makes a pasted
+  line findable - on a test corpus that went from four results, two of them
+  irrelevant, to exactly the two files that contain the line.
+- **It says so, and says how to undo it.** Searching for words in order is a
+  narrowing, so it is named on the page with the way back.
+- **Hard to trigger on purpose.** A traceback or a `file.py:512` is enough on
+  its own; anything else has to be long and carry two separate signs of being
+  code. Typing a real error from memory is still an ordinary search, because
+  the order you remember is rarely the order it was written in.
+- **Fixed on the way: quoting a phrase with a word like `getUserName` in it
+  broke the search entirely** - the whole query failed rather than returning
+  anything. Quoted phrases now match exactly what you quoted.
 
 ## £40,000 and 40000 and 40k are the same amount, and search knows it now
 

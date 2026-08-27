@@ -141,6 +141,7 @@
     <Compile Include="app\search\gitsearch.py" />
     <Compile Include="app\search\keyword.py" />
     <Compile Include="app\search\numbers.py" />
+    <Compile Include="app\search\pasted.py" />
     <Compile Include="app\search\plain_notices.py" />
     <Compile Include="app\search\policy.py" />
     <Compile Include="app\search\pwsh_completer.py" />
@@ -329,6 +330,7 @@
     <Compile Include="tests\unit\test_ocr_passes.py" />
     <Compile Include="tests\unit\test_ocr_strategy.py" />
     <Compile Include="tests\unit\test_odf.py" />
+    <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />

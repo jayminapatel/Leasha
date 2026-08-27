@@ -712,6 +712,17 @@ def _fts_quote(value: str) -> str:
     return f'"{body}"' + ("*" if prefix else "")
 
 
+def _fts_quote_plain(value: str) -> str:
+    r"""One token as an FTS5 string literal, with **no expansion of any kind**.
+
+    For inside a phrase, where `+` joins strings and a parenthesised boolean
+    is a syntax error rather than a cleverer match. See the phrase builder in
+    `to_fts_match` for the crash this exists to stop.
+    """
+    body = str(value or "").replace("*", "").replace('"', '""')
+    return f'"{body}"' if body else ""
+
+
 #: Words dropped from the FTS expression, and **only** from the FTS expression.
 #:
 #: Every term is joined with AND, so a query is satisfied only by a document
@@ -857,7 +868,18 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False,
     """
     phrase_clauses: list[str] = []
     for phrase in parsed.phrases:
-        tokens = [t for t in (_fts_quote(t) for t in _TERM.findall(phrase)) if t]
+        # **Quoted plainly, because `+` joins strings and nothing else.**
+        # `_fts_quote` turns a camelCase word into `("getUserName" OR ("get"
+        # AND "user" AND "name"))`, which is correct in a term position and
+        # not legal in an adjacency chain: FTS5 answers
+        # `syntax error near "+"` and the whole search fails. Typing
+        # `"getUserName handler"` therefore crashed, in released code, until
+        # a pasted-error query built the same shape and hit it.
+        #
+        # A phrase is a request for these tokens in this order, so the
+        # narrower reading is also the right one - and the document side of
+        # camelCase is already covered by the `symbols` column.
+        tokens = [t for t in (_fts_quote_plain(t) for t in _TERM.findall(phrase)) if t]
         if tokens:
             phrase_clauses.append(f"({' + '.join(tokens)})")   # + is FTS5 adjacency
 

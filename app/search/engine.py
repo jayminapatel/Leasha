@@ -47,6 +47,7 @@ __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
     "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
     "NOTICE_WILDCARD", "NOTICE_SORTED", "NOTICE_SPELLING", "NOTICE_RELAXED",
+    "NOTICE_EXACT",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -238,6 +239,10 @@ NOTICE_SPELLING = "NOTICE_SPELLING"
 #: spelling: results answering a question slightly different from the one
 #: asked are only honest while the difference is on the page.
 NOTICE_RELAXED = "NOTICE_RELAXED"
+#: The query looked pasted, so its words were searched for in order.
+#: **Named on the page, with the way back**, because a phrase search is a
+#: narrowing and every narrowing this application does has to be visible.
+NOTICE_EXACT = "NOTICE_EXACT"
 
 
 @dataclass(frozen=True)
@@ -531,6 +536,14 @@ class SearchEngine:
         # expression built from it is byte-identical to what it was before this
         # existed.
         parsed, wildcards = self._expand_wildcards(parsed)
+        # §4a. **A pasted error is not a bag of words.** Splitting it on
+        # punctuation and ORing the pieces asks for every document containing
+        # "object", or "has", or "no": measured on a four-document corpus
+        # where two files hold the line, that returned all four. Searched as a
+        # phrase it returns exactly the two.
+        exact = self._as_pasted(raw, parsed)
+        if exact is not None:
+            parsed = exact
         timings["parse"] = (time.perf_counter() - mark) * 1000
 
         if not parsed.has_text and not parsed.has_filters:
@@ -621,6 +634,15 @@ class SearchEngine:
                 f"Sorted by date, {parsed.sort} first — not by best match. "
                 f"Remove /{parsed.sort} to rank by relevance again.",
             ))
+        if exact is not None:
+            # **First, and with the way out.** A phrase search is a
+            # narrowing, and somebody who did not mean to paste needs to see
+            # both that it happened and how to undo it.
+            notices.append(Notice(
+                NOTICE_EXACT,
+                "That looked pasted, so these match your words in order. "
+                "Put quotes round part of it to search for that instead, or "
+                "delete the punctuation to search loosely."))
         if relaxed is not None:
             # **Above the spelling notice, because it is the larger claim.**
             # These results answer a question the person did not quite ask,
@@ -826,6 +848,39 @@ class SearchEngine:
         ]
         return _Retrieved(results=results, keyword_hits=keyword_hits,
                           vector_hits=vector_hits, reranked=bool(reranked))
+
+    def _as_pasted(self, raw: str, parsed: ParsedQuery) -> Optional[ParsedQuery]:
+        r"""The query as one phrase, when it looks pasted. **Never raises.**
+
+        Returns None for the ordinary case, which is almost every search.
+
+        **Order, not punctuation.** §4a asks for verbatim substring matching
+        over "the existing trigram index" - which does not exist for content:
+        `files_fts` is trigram over file *names*, and `chunks_fts` is
+        `porter unicode61`, token-based, and cannot answer a substring query.
+        Real verbatim matching would need a second FTS table with a trigram
+        tokeniser over every chunk: a schema change, a full re-index, and
+        roughly the same storage again. Preserving order needs none of that
+        and is the half that finds the line.
+
+        Left alone when the person already used quotes or a filter - they said
+        what they wanted, and guessing over the top of that is the behaviour
+        this order exists to remove.
+        """
+        try:
+            from app.search.pasted import as_phrase, looks_pasted
+
+            if parsed.phrases or parsed.has_filters or parsed.explicit_and:
+                return None
+            if not looks_pasted(raw):
+                return None
+            phrase = as_phrase(raw)
+            if len(phrase.split()) < 2:
+                return None
+            return replace(parsed, phrases=(phrase,), terms=(), or_groups=())
+        except Exception as exc:                   # noqa: BLE001 - a helper
+            _log.debug("not treating this query as pasted: {}", exc)
+            return None
 
     def _correct_spelling(self, parsed: ParsedQuery,
                           policy: SearchPolicy) -> tuple[ParsedQuery, Any]:
