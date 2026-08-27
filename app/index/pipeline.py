@@ -277,6 +277,12 @@ class IndexStats:
     #: Empty on a run too short to measure, which prints nothing rather than a
     #: row of zeroes.
     stages: dict[str, float] = field(default_factory=dict)
+    #: The tuning values this run actually used - §5c. **Recorded rather than
+    #: reconstructed**: settings change between runs, so reading them back
+    #: afterwards answers a question about now instead of about the run. A
+    #: measurement whose configuration cannot be recovered is a measurement
+    #: nobody can learn from, which is the whole point of taking it.
+    resolved: dict[str, Any] = field(default_factory=dict)
     #: Parallel work, unweighted and separately named so it can never be
     #: mistaken for wall time.
     worker_seconds: dict[str, float] = field(default_factory=dict)
@@ -377,6 +383,7 @@ class IndexStats:
             **({"stages": dict(self.stages)} if self.stages else {}),
             **({"worker_seconds": dict(self.worker_seconds)}
                if self.worker_seconds else {}),
+            **({"resolved": dict(self.resolved)} if self.resolved else {}),
         }
 
 
@@ -775,6 +782,17 @@ class Pipeline:
         # taken at three different moments.
         stats.stages = self._clock.seconds()
         stats.worker_seconds = self._clock.worker_seconds()
+        # §5c: what this run was configured with, recorded beside what it
+        # measured. The pipeline knows these because it was handed them; a
+        # reader afterwards would have to guess from settings that may since
+        # have changed.
+        stats.resolved = {
+            "workers": self.config.worker_count(),
+            "batch": self.config.embed_batch,
+            "device": getattr(self.embedder, "device", ""),
+            "threads": getattr(self.embedder, "threads", 0),
+            "dedup": bool(self.config.dedup_chunks),
+        }
         # **Said out loud, every run.** These files were skipped by an earlier
         # run and left alone by this one, which is the right thing to do and
         # also the thing nobody would otherwise know had happened. See

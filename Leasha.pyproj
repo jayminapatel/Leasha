@@ -139,6 +139,8 @@
     <Compile Include="app\search\gitquery.py" />
     <Compile Include="app\search\gitsearch.py" />
     <Compile Include="app\search\keyword.py" />
+    <Compile Include="app\search\plain_notices.py" />
+    <Compile Include="app\search\policy.py" />
     <Compile Include="app\search\pwsh_completer.py" />
     <Compile Include="app\search\query.py" />
     <Compile Include="app\search\rerank.py" />
@@ -209,6 +211,7 @@
     <Compile Include="app\ui\widgets\roots_box.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
     <Compile Include="app\ui\widgets\search_bar.py" />
+    <Compile Include="app\ui\widgets\search_behaviour_box.py" />
     <Compile Include="app\ui\widgets\search_box.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
@@ -354,6 +357,7 @@
     <Compile Include="tests\unit\test_scan.py" />
     <Compile Include="tests\unit\test_schedule.py" />
     <Compile Include="tests\unit\test_search_notices.py" />
+    <Compile Include="tests\unit\test_search_policy.py" />
     <Compile Include="tests\unit\test_search_quality.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
     <Compile Include="tests\unit\test_settings_are_used.py" />

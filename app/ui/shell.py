@@ -1010,10 +1010,15 @@ class MainWindow(QMainWindow):
         return {
             "stages": stats.get("stages") or {},
             "chunks_per_minute": (chunks / elapsed * 60) if elapsed > 0 else 0,
-            "resolved": {
-                "workers": stats.get("workers") or self._settings.index_workers,
-                "batch": stats.get("embed_batch") or self._settings.embed_batch,
-                "device": stats.get("device") or self._settings.embed_device,
+            # **What the run recorded, not what the settings say now.** The
+            # settings are a fallback for records written before §5c existed;
+            # reading them for a recent run would describe this moment rather
+            # than that one, which is the difference between a measurement and
+            # an anecdote.
+            "resolved": stats.get("resolved") or {
+                "workers": self._settings.index_workers,
+                "batch": self._settings.embed_batch,
+                "device": self._settings.embed_device,
             },
         }
 
@@ -1123,43 +1128,75 @@ class MainWindow(QMainWindow):
         model is not knowable from the numbers on the box, and §0 of the
         index-tuning order says so; this is how somebody finds out.
         """
-        from app.index.embed_bench import providers, run_benchmark
+        from app.core.compute_profile import cached_profile
+        from app.core.measured import remember
+        from app.index.index_bench import run_index_bench
+
+        # **The whole pipeline, not only the model.** This button used to run
+        # `embed_bench`, which answers "how fast is the model here" - the
+        # smaller half. A machine whose model is quick and whose disk is slow
+        # is bounded by the disk, and a screen holding only the model number
+        # will confidently recommend a graphics card to somebody who needs a
+        # different drive. `bench-index` on the command line does the same
+        # work; this is the same function, so the two cannot disagree.
+        devices = ("cpu", "gpu") if self._can_use_gpu() else None
 
         def measure() -> Any:
-            return providers(run_benchmark(
-                self._settings.embed_model,
-                Path(self._settings.model_cache),
-                passes=3,
-            ))
+            found = run_index_bench(self._settings, devices=devices)
+            if not found.error:
+                profile = cached_profile(self._store, self._settings.data_path)
+                remember(self._store, found.as_measured(profile.fingerprint()))
+            return found
 
         self.statusBar().showMessage(
-            "Timing the model on this machine - about half a minute…", 60_000)
+            "Timing this computer on a fixed workload - about a minute…",
+            120_000)
         worker = CallableWorker(measure, component="ui.tuning")
         worker.signals.finished.connect(self._benchmarked)
         worker.signals.failed.connect(self._show_error)
         run(QThreadPool.globalInstance(), worker)
 
-    def _benchmarked(self, result: Any) -> None:
-        """Report a benchmark, **including how much to trust it**.
+    def _can_use_gpu(self) -> bool:
+        """Is there a graphics card worth timing against the processor?
 
-        A single pass swung 44% between two runs on the same machine, which is
-        why `BenchResult` carries a spread at all. Printing a throughput figure
-        without saying it was unstable is how a number nobody should act on
-        gets quoted for a year.
+        The one question §0 says the specification sheet cannot answer, so it
+        is only worth the extra minute when there is something to compare.
         """
-        rates = getattr(result, "throughput", {}) or {}
+        try:
+            from app.core.compute_profile import cached_profile
+            from app.index.backends import why_unavailable
+
+            return not why_unavailable(
+                cached_profile(self._store, self._settings.data_path))
+        except Exception:                        # noqa: BLE001
+            return False
+
+    def _benchmarked(self, result: Any) -> None:
+        """Report a benchmark in the numbers somebody can act on.
+
+        **Reading, writing and the model, not only the model.** A run whose
+        model is quick and whose disk is slow is bounded by the disk, and the
+        three side by side are what say which.
+        """
         if getattr(result, "error", ""):
             self.statusBar().showMessage(
                 f"The benchmark could not run: {result.error}", 15_000)
             return
-        best = max(rates.values()) if rates else 0.0
-        unstable = getattr(result, "unstable", []) or []
-        caveat = (" - the machine was busy, so treat this as approximate"
-                  if unstable else "")
-        self.statusBar().showMessage(
-            f"{best:.1f} passages a second on "
-            f"{', '.join(getattr(result, 'available_providers', [])) or 'this machine'}"
-            f"{caveat}", 30_000)
+
+        rates = dict(getattr(result, "embed_per_second", {}) or {})
+        parts = [f"reading {result.extract_per_second:,.0f} files a second",
+                 f"writing {result.write_per_second:,.0f} chunks a second"]
+        parts += [f"meaning {rate:,.0f} a second on the "
+                  f"{'graphics card' if device == 'gpu' else 'processor'}"
+                  for device, rate in rates.items()]
+        # Notes carry the things that make a number untrustworthy - a model
+        # that would not load, a graphics card that declined. Saying the
+        # number without them is how a figure nobody should act on gets quoted
+        # for a year.
+        said = "; ".join(parts) + ("  " + " ".join(result.notes)
+                                   if result.notes else "")
+        self.statusBar().showMessage(f"This computer: {said}", 40_000)
+        self._refresh_tuning_status()
 
     def _focus_files(self) -> None:
         """Ctrl+P, the shortcut every editor uses for "go to file"."""

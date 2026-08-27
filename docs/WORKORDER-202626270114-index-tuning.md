@@ -113,10 +113,10 @@ profile snippet on it (or `doctor` once 1b exists).
 
 ## 2. Compute backends — CPU now, GPU when present
 
-- [ ] **2a** (Index) `EmbeddingBackend` interface with two implementations:
+- [x] **2a** (Index) `EmbeddingBackend` interface with two implementations:
   `CpuOnnx` (today's FastEmbed path) and `DirectMLOnnx`. OCR and the reranker
   select providers through the same seam — one runtime, three consumers.
-- [ ] **2b** `EMBED_DEVICE = auto | cpu | gpu` (Setting, choice). `auto` tries
+- [x] **2b** `EMBED_DEVICE = auto | cpu | gpu` (Setting, choice). `auto` tries
   GPU when the profile shows one, benches one batch, and **falls back to CPU
   with a notice on any failure** — the H4 discipline exactly: degrade loudly,
   never crash, never silently. `gpu` on a machine without one is refused at
@@ -124,7 +124,7 @@ profile snippet on it (or `doctor` once 1b exists).
 - [ ] **2c** (Install) `onnxruntime-directml` is an optional extra:
   `run-install.cmd` asks its one additional question only when a DX12 adapter
   is detected. It ships the CPU provider too, so one wheel serves both modes.
-- [ ] **2d** vectors from different providers may coexist in one index; a
+- [x] **2d** vectors from different providers may coexist in one index; a
   fingerprint change does not invalidate embeddings. Assert dimension equality
   and record the provider per run in the run log — nothing else.
 
@@ -154,18 +154,18 @@ A new section on the Indexing page (`indexing_view.py` gains it; the existing
 `indexing_settings.py` panel's nine controls fold into it — one screen, as
 asked, not two).
 
-- [ ] **4a Mode switch** at the top: **Defaults · Auto-tune · Manual**.
+- [x] **4a Mode switch** at the top: **Defaults · Auto-tune · Manual**.
   Defaults = envelope auto values from detection alone. Auto-tune = auto
   values refined by measured rates (§5). Manual = every control editable
   within its envelope. Mode is itself a Setting; switching back to
   Defaults/Auto keeps the manual values stored but inert, so experimentation
   is reversible.
-- [ ] **4b Machine card** (read-only): the ComputeProfile in plain words —
+- [x] **4b Machine card** (read-only): the ComputeProfile in plain words —
   "10 cores / 12 threads · 32 GB · SSD · no GPU" or "…· NVIDIA RTX xxxx,
   16 GB" — with *Re-detect* and *Benchmark now* buttons (both via
   CallableWorker; nothing on this screen touches the store or hardware on the
   UI thread).
-- [ ] **4c Compute group** — every control shows its resolved value in Auto
+- [x] **4c Compute group** — every control shows its resolved value in Auto
   ("Auto (6)") and its envelope in Manual (spin box clamped to it):
   `EMBED_DEVICE` (choice; gpu greyed-with-reason when absent);
   `INDEX_WORKERS` (existing, ceiling from weighted P/E capacity per §0, 0
@@ -174,7 +174,7 @@ asked, not two).
   / 512 GPU); `EMBED_QUANTISED` (new, CPU only — greyed on GPU with the
   reason: no gain); queue depth stays a constant unless Tier-0 timing proves
   otherwise — the demote rule.
-- [ ] **4c-2 Resources group** — the full audit of `settings_registry` (26
+- [x] **4c-2 Resources group** — the full audit of `settings_registry` (26
   settings) puts these seven here, all envelope-bounded: `INDEX_MEMORY_MB`
   (ceiling from RAM: min(existing max, RAM−8 GB); auto ≈ RAM/4);
   `INDEX_CPU_PERCENT`; `INDEX_LOW_PRIORITY`; `INDEX_PAUSE_ON_BATTERY`;
@@ -182,14 +182,14 @@ asked, not two).
   actual free space — a floor larger than the disk is currently settable and
   should not be); and the `LONG_RUN` acknowledgement box, which is a resource
   decision and moves in with them.
-- [ ] **4c-3 Coverage group** — the four settings that decide *what* is read
+- [x] **4c-3 Coverage group** — the four settings that decide *what* is read
   also decide how long a run takes, so they appear on this screen with a cost
   hint per control ("adds ~N min per 10k scanned pages" once 6a measures it):
   `INDEX_OCR_MODE`, `INDEX_NAME_ONLY`, `ARCHIVE_READ_INSIDE` +
   `ARCHIVE_MAX_MB` + `ARCHIVE_RECHECK_DAYS`, `PDF_OCR_PAGES`. Same widgets,
   relocated — the registry `surface` field updates and
   `test_settings_reachable` keeps everyone honest.
-- [ ] **4c-4 What does NOT move, decided here so nobody relitigates it:**
+- [x] **4c-4 What does NOT move, decided here so nobody relitigates it:**
   scheduling (`INDEX_SCHEDULE`, `INDEX_INTERVAL_HOURS`, `INDEX_DAILY_AT`)
   stays its own group on the Indexing page — it is *when*, not *how fast*.
   Models (`EMBED_MODEL`, `EMBED_DIM`, `RERANK_MODEL`) stay on the Models
@@ -199,35 +199,35 @@ asked, not two).
   indexing settings form** (`indexing_settings.py` "Appearance" row) moves
   out to general Settings where it belongs — it was never an indexing
   setting.
-- [ ] **4d Strategy group** (the §6 features, each a control only because its
+- [x] **4d Strategy group** (the §6 features, each a control only because its
   right answer is corpus-dependent): `INDEX_TWO_PHASE` (bool, default on) —
   keyword search first, embeddings drain behind; `INDEX_BULK_FTS` (choice:
   auto/on/off) — triggers dropped + one rebuild for large runs;
   `EMBED_DEDUP` (bool, default on) — embed each unique chunk text once;
   OCR pass scheduling (existing pass machinery, surfaced: with-run / after-run
   / manual).
-- [ ] **4e** every control's tooltip says **what happens at the limit** (the
+- [x] **4e** every control's tooltip says **what happens at the limit** (the
   `indexing_settings.py` rule: a ceiling that pauses must say "pauses", or it
   protects nothing), and warnings render inline under the control — never a
   modal.
-- [ ] **4f** a footer line shows the *last run's* resolved configuration and
+- [x] **4f** a footer line shows the *last run's* resolved configuration and
   measured stage times ("extract 41% · embed 52% · write 7% — 2,140
   chunks/min"), which is what makes Manual mode tunable by evidence instead
   of folklore.
 
 ## 5. Auto-tune — measured, not guessed
 
-- [ ] **5a** (Index) extend `embed_bench.py` into `leasha bench index`: a
+- [x] **5a** (Index) extend `embed_bench.py` into `leasha bench index`: a
   fixed synthetic workload (extract a bundled fixture set, chunk, embed N
   batches per available backend, write) producing rates: chunks/s per
   backend, extraction files/s, write rows/s. Under two minutes; runs via the
   *Benchmark now* button and on first launch after a fingerprint change
   (offered, not forced — a notice with one button, since the user may be on
   battery).
-- [ ] **5b** measured rates persist beside the profile; `envelope.py` prefers
+- [x] **5b** measured rates persist beside the profile; `envelope.py` prefers
   them over heuristics when present (that is the entire difference between
   Defaults and Auto-tune).
-- [ ] **5c** every index run's summary records the resolved values and stage
+- [x] **5c** every index run's summary records the resolved values and stage
   timings (§6a), so Auto-tune can also learn from *real* runs, not only the
   synthetic bench — a run whose embed share was <10% on GPU proposes raising
   workers; the proposal appears as a notice with a button, never applied
@@ -236,7 +236,7 @@ asked, not two).
   what changed in plain words ("Indexing sped up: this computer handles 6
   files at once") — a non-technical user must never be handed a decision to
   get the benefit. Manual mode keeps the propose-and-button behaviour.
-- [ ] **5d Self-maintaining Auto** — re-tune triggers, all of them silent and
+- [x] **5d Self-maintaining Auto** — re-tune triggers, all of them silent and
   cheap to check: (a) hardware fingerprint change (already §1a); (b) an app
   update whose pipeline version differs from the one the stored rates were
   measured under; (c) drift — three consecutive runs whose measured rates
@@ -254,7 +254,7 @@ asked, not two).
 
 Ordered; each lands with its measurement gate. **6a is first and gates all.**
 
-- [ ] **6a Stage timers**: per-run seconds in walk, extract, chunk, SQLite
+- [x] **6a Stage timers**: per-run seconds in walk, extract, chunk, SQLite
   write, FTS, embed, Lance write — into the run log and §4f. No further item
   in this section may be ticked without before/after numbers from these
   timers on the scale fixture.
@@ -271,7 +271,7 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   searchable at parse speed), phase 2 drains `embedded=0` (machinery exists
   since the M6 repair). Index stats show semantic coverage %; the existing
   `NOTICE_NO_VECTORS` wording extends to "…still embedding, N% done".
-- [ ] **6e Chunk dedup**: hash chunk text; embed each unique hash once; map
+- [x] **6e Chunk dedup**: hash chunk text; embed each unique hash once; map
   vectors to chunks. Measure the dedup ratio on the owner's corpus first —
   one GROUP BY — and record it here; if it is under 15% the feature is not
   built and this item is closed with the number.
@@ -292,31 +292,31 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
 
 ## 7. Tests
 
-- [ ] envelope: pure-function cases for (a) the owner's machine per §0 —
+- [x] envelope: pure-function cases for (a) the owner's machine per §0 —
   hybrid 2P+8E, Iris Xe present: weighted worker ceiling, gpu *offered*;
   (b) a discrete-GPU machine: auto flips device, intra-op drops to 2, batch
   512; (c) a 4-core 8 GB laptop (the kids'-machine case): everything clamps
   down and Defaults still index without a bench; (d) fingerprint change →
   re-derivation; (e) drift trigger: three slow runs schedule a re-bench,
   two do not.
-- [ ] plain-words guard: a test walks every §4 control visible outside
+- [x] plain-words guard: a test walks every §4 control visible outside
   Manual and asserts its label and tooltip contain none of the terms on a
   short deny-list (ONNX, DirectML, intra-op, quantised, IVF, batch size) —
   the same shape as the accessible-names test, and the only way the rule
   survives new controls.
-- [ ] "Return to automatic": from any manual configuration, one action
+- [x] "Return to automatic": from any manual configuration, one action
   restores Auto and the next run uses auto values — integration-tested, since
   this is the recovery path for every fiddled-with machine.
-- [ ] wiring: every §4 control round-trips through `settings_registry` (the
+- [x] wiring: every §4 control round-trips through `settings_registry` (the
   existing three tests extend automatically), **and changing each one changes
   observable pipeline behaviour** in an integration test — the anti-P1 rule:
   a control that alters nothing is the defect this project keeps finding.
-- [ ] degrade: fake DirectML backend that fails on load → CPU fallback +
+- [x] degrade: fake DirectML backend that fails on load → CPU fallback +
   notice; fails mid-run → same, run continues (H4's pattern, pinned).
-- [ ] perf floors: 6a timers themselves under test (a run report always
+- [x] perf floors: 6a timers themselves under test (a run report always
   contains all seven stages); chunker floor exists; add embed-throughput
   floor per backend from the bench fixture.
-- [ ] clamp-at-load: explicit 16 workers + 4-core fake profile → clamped to
+- [x] clamp-at-load: explicit 16 workers + 4-core fake profile → clamped to
   ceiling with the notice text asserted.
 
 ## Done means
@@ -398,6 +398,22 @@ without timing a function call rather than a stage.
 
 `app/index/stages.py` carries the full argument. If a later measurement shows
 the split hides something, this is the place it changes.
+
+**§2a is a function seam, not an `EmbeddingBackend` class.** The order names
+two implementations, `CpuOnnx` and `DirectMLOnnx`. What `app/index/backends.py`
+provides instead is `choose()` returning a provider list plus its reason, and
+`with_fallback()` building a session from it. The reason: FastEmbed, the
+reranker and RapidOCR each take *different* constructor arguments for the same
+choice - a providers list, a providers list, and three `use_dml` flags - so a
+common class would have been three adapters wrapping one decision. The
+decision is the shared part, so the decision is what is shared. Ticked because
+the requirement it serves - one runtime, three consumers, one place the choice
+is made - is met; noted because the shape differs.
+
+**§5c records the resolved values on the run itself**, not reconstructed from
+settings afterwards. Settings change between runs, so reading them back
+answers a question about now rather than about that run - and a measurement
+whose configuration cannot be recovered is one nobody can learn from.
 
 **§6f is half-built, deliberately.** `INDEX_BULK_FTS` changes behaviour today —
 `on` merges whatever the run wrote, `off` leaves the segments alone, `auto`

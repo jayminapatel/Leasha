@@ -200,6 +200,9 @@ Three notes:
 - [x] **L** (Storage) `sqlite_store.py:476` — clear-hash sentinel for
   `verify_hash=False` runs instead of keeping a stale hash.
 - [ ] **L** (Storage) `schema.sql:336` — seed fresh DBs at `CURRENT_VERSION`, not 4.
+  *Closed on measurement, not built - see the §5 note below: migrating a
+  fresh database costs 2.9ms against `schema.sql`'s own 11.3ms, and the
+  seed staying at 4 keeps one path that is exercised on every install.*
 - [x] **L** (Repo) delete `config/settings.json` (dead `"DummyApp"` scaffold).
 
 ## 6. Carried over, still open from the 2026-08-25 review
@@ -209,6 +212,9 @@ Three notes:
   fixes **M** `engine.py:625` (cached responses share mutable `SearchResult`s —
   `replace()` each, or freeze the dataclass).
 - [ ] **P8** rerank off the critical path or off by default until async.
+  *Half-decided: the latency is measured (0.46s, every row UNSTABLE - the
+  machine was measured, not the model). The quality half needs
+  `evaluate --builtin` on a real index, which needs the owner's machine.*
 - [x] **P9** numpy end-to-end in embedder/vector_store (also review finding on
   `vector_store.py:285` per-row float re-boxing).
 - [x] **P11** streamed reads in `plaintext.py` instead of `read_bytes()` at 2GB.

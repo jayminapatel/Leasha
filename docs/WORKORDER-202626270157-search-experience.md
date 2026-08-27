@@ -33,14 +33,14 @@ and its quality pass is explicitly out of scope here.
 
 ## 1. The policy seam — one place where surfaces differ
 
-- [ ] **1a** (Search) `SearchPolicy` dataclass passed with every query:
+- [x] **1a** (Search) `SearchPolicy` dataclass passed with every query:
   `relax_on_empty` (bool), `typo_correction` ("auto" | "suggest" | "off"),
   `notice_register` ("plain" | "technical"), `auto_chips` (bool),
   `recency_blend` (bool), `version_folding` (bool). The engine reads policy;
   no view ever branches on which tab it is. Each field is backed by a
   Setting (owner's principle 2) with per-surface defaults: everything on for
   the Search tab, conservative for Files/Mail/Code.
-- [ ] **1b** the per-surface defaults are themselves visible in Settings as a
+- [x] **1b** the per-surface defaults are themselves visible in Settings as a
   small grid (surface × behaviour), and **"Reset search behaviour to
   defaults"** is one click — the sibling of Index Tuning's "Return to
   automatic". Support-at-a-distance depends on this button.
@@ -59,7 +59,7 @@ and its quality pass is explicitly out of scope here.
   words — showing results without 'the'"). Never silent (principle 3 of the
   codebase: silent rewriting loses trust — the *label* is what makes this
   legal). Policy-gated; on for tab one.
-- [ ] **2c Plain-words notices.** A notice register: every `Notice` code maps
+- [x] **2c Plain-words notices.** A notice register: every `Notice` code maps
   to a plain sentence for `notice_register="plain"` surfaces ("Finding
   things by meaning is off right now — results are word-matches only") and
   keeps today's wording for technical surfaces. One table, tested for
