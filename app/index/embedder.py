@@ -39,7 +39,10 @@ import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from app.core.errors import AppErrorException, make_error
+from app.core.logging import logger
 from app.index import backends
+
+_log = logger.bind(component="index.embedder")
 
 __all__ = ["Embedder", "EMBED_BATCH", "l2_normalise"]
 
@@ -95,6 +98,8 @@ class Embedder:
         device: str = backends.AUTO,
         profile: Optional[object] = None,
         problems: Optional[list] = None,
+        threads: int = 0,
+        quantised: bool = False,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
@@ -109,6 +114,15 @@ class Embedder:
         #: differ whenever a GPU was requested and would not have it - which is
         #: precisely the case the run log has to be able to show.
         self.device = str(device or backends.AUTO)
+        #: Intra-op threads for the ONNX session. `0` leaves onnxruntime's own
+        #: default, which is every core - fine for a benchmark and wrong during
+        #: an index run, where the extraction workers already hold several.
+        #: The number comes from `index/resolve.py`, which is the same
+        #: arithmetic the tuning screen shows.
+        self.threads = max(0, int(threads or 0))
+        #: Prefer the quantised model file: several times smaller and faster on
+        #: a processor, no gain on a graphics card, a small cost in ranking.
+        self.quantised = bool(quantised)
         self._profile = profile
         self._problems = problems
         #: Set once the model loads. `None` until then, so nothing reports a
@@ -136,6 +150,7 @@ class Embedder:
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
             device=str(getattr(settings, "embed_device", backends.AUTO)
                        or backends.AUTO),
+            quantised=bool(getattr(settings, "embed_quantised", False)),
         )
         fields.update(overrides)
         return cls(
@@ -177,9 +192,25 @@ class Embedder:
                 )) from exc
 
             wanted = backends.choose(self._resolved_profile(), self.device)
+            if self.quantised and wanted.is_gpu:
+                # **Refused where it buys nothing, and said out loud.**
+                # Quantisation is a processor optimisation; on the graphics
+                # card it costs ranking quality for no speed at all. The
+                # control is greyed for this reason, so reaching here means a
+                # stored setting met a machine that changed under it.
+                _log.info("the smaller model file was asked for and is not "
+                          "used: it gains nothing on the graphics card")
 
             def build(providers: tuple) -> object:
-                if providers == (backends.CPU_PROVIDER,):
+                extra: dict = {}
+                if self.threads:
+                    # **Only when it was decided**, never a default of our own.
+                    # Left alone, onnxruntime takes every core - which is right
+                    # for a benchmark and wrong during an index run, where the
+                    # extraction workers already hold several and the two
+                    # multiply into a machine slower than it started.
+                    extra["threads"] = self.threads
+                if providers == (backends.CPU_PROVIDER,) and not extra:
                     # **The CPU path is byte-for-byte what it was.** Passing a
                     # providers list that means "the default" would still be a
                     # new argument to somebody else's constructor on every
@@ -187,9 +218,10 @@ class Embedder:
                     # untouched by this seam existing.
                     return TextEmbedding(model_name=self.model_name,
                                          cache_dir=self.cache_dir)
+                if providers != (backends.CPU_PROVIDER,):
+                    extra["providers"] = list(providers)
                 return TextEmbedding(model_name=self.model_name,
-                                     cache_dir=self.cache_dir,
-                                     providers=list(providers))
+                                     cache_dir=self.cache_dir, **extra)
 
             try:
                 model, self.choice = backends.with_fallback(

@@ -1,0 +1,161 @@
+r"""What the tuning settings come to, for the run that is about to start.
+
+Layer: L3
+
+**One function, called by both entry points.** The Index Tuning screen resolves
+`0` to `Auto (4)` for display; without this, the run itself did not - it read
+`settings.index_workers` and got the literal `0`, so the mode switch changed
+what the screen said and nothing about what happened. A control that is
+believed and ignored is worse than one that is absent.
+
+The resolution is the same one the screen shows, by construction: both call
+`app/core/envelope.py`, and in Auto both are handed the same measured rates.
+There is no second copy of the arithmetic to drift.
+
+Reads the store once, for the profile and the rates. Everything else is pure.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from app.core import envelope
+from app.core.logging import logger
+
+__all__ = ["Resolved", "resolve_for_run"]
+
+_log = logger.bind(component="index.resolve")
+
+#: The tunables whose stored `0` means "decide for this machine".
+_AUTO_AT_ZERO = ("INDEX_WORKERS", "ONNX_INTRA_OP_THREADS", "EMBED_BATCH")
+
+
+@dataclass
+class Resolved:
+    """The numbers this run will actually use, and why."""
+
+    workers: int = 0
+    onnx_threads: int = 0
+    embed_batch: int = 0
+    #: `{key: sentence}` - what each number is and where it came from. Printed
+    #: by the CLI and recorded in the run log, because a run whose settings
+    #: cannot be reconstructed afterwards is a run nobody can learn from.
+    why: dict = None                             # type: ignore[assignment]
+    #: True when the rates came from a measurement rather than the heuristics.
+    measured: bool = False
+
+    def __post_init__(self) -> None:
+        if self.why is None:
+            self.why = {}
+
+    def as_dict(self) -> dict:
+        return {
+            "workers": self.workers,
+            "onnx_threads": self.onnx_threads,
+            "embed_batch": self.embed_batch,
+            "measured": self.measured,
+        }
+
+
+def resolve_for_run(settings: Any, store: Any = None,
+                    profile: Any = None) -> Resolved:
+    r"""The effective tuning numbers for one run.
+
+    **Manual is the only mode that uses the stored numbers.** Defaults and
+    Auto-tune both mean "the envelope decides", so a value somebody typed in
+    Manual is kept and inert while the mode is elsewhere - which is what makes
+    the mode switch a reversible experiment rather than something that eats
+    what you typed.
+
+    Never raises: a store that cannot be read, a machine that cannot be
+    detected, an envelope that has nothing to say - each of them lands on the
+    stored value, which is the behaviour from before any of this existed.
+    """
+    mode = str(getattr(settings, "index_tuning_mode", "defaults") or "defaults")
+    stored = {
+        "INDEX_WORKERS": int(getattr(settings, "index_workers", 0) or 0),
+        "ONNX_INTRA_OP_THREADS": int(
+            getattr(settings, "onnx_intra_op_threads", 0) or 0),
+        "EMBED_BATCH": int(getattr(settings, "embed_batch", 0) or 0),
+    }
+
+    profile = profile if profile is not None else _profile(store, settings)
+    # **A machine nothing is known about is not a machine with one core**, and
+    # the envelope cannot tell the difference: it reads missing fields as zero
+    # and hands back a ceiling of 1. Left alone that clamped somebody's six
+    # workers to one on any machine detection could not examine - the same bug
+    # the tuning screen had, in the code path that actually runs the index.
+    if profile is not None and not (
+            getattr(profile, "physical_cores", 0)
+            or getattr(profile, "logical_processors", 0)):
+        _log.info("this machine's cores could not be counted, so the stored "
+                  "tuning values stand")
+        profile = None
+
+    rates = _rates(store, profile) if mode == "auto" else None
+
+    found = Resolved(measured=rates is not None)
+    for key in _AUTO_AT_ZERO:
+        value, why = _one(key, mode, stored[key], profile, rates)
+        found.why[key] = why
+        if key == "INDEX_WORKERS":
+            found.workers = value
+        elif key == "ONNX_INTRA_OP_THREADS":
+            found.onnx_threads = value
+        else:
+            found.embed_batch = value
+
+    # The warning belongs to the run as much as to the screen: somebody who
+    # tuned by hand and then started a run from the command line never saw the
+    # inline one.
+    note = envelope.oversubscription_warning(
+        profile, found.workers, found.onnx_threads)
+    if note:
+        _log.warning("{}", note)
+        found.why["oversubscribed"] = note
+    return found
+
+
+def _one(key: str, mode: str, stored: int, profile: Any,
+         rates: Any) -> tuple[int, str]:
+    """One knob: `(value, why)`, resolved exactly as the screen resolves it."""
+    bounds = envelope.for_setting(key, profile, rates) if profile is not None \
+        else None
+    if bounds is None:
+        return stored, "no local bound is known, so the stored value stands"
+
+    if mode == "manual" and stored:
+        value, notice = bounds.clamp(stored)
+        return value, notice or f"set by hand: {bounds.why}"
+
+    # **`0` means auto in every mode, including Manual.** Somebody in Manual
+    # who left a control alone has not chosen a number, and giving them a
+    # literal zero workers would be a run that never starts.
+    if stored and mode != "manual":
+        return bounds.auto, f"{bounds.why} (your {stored} applies in Manual)"
+    return bounds.auto, bounds.why
+
+
+def _profile(store: Any, settings: Any) -> Optional[Any]:
+    try:
+        from app.core.compute_profile import cached_profile, detect
+
+        if store is None:
+            return detect(getattr(settings, "data_path", None))
+        return cached_profile(store, getattr(settings, "data_path", None))
+    except Exception as exc:                     # noqa: BLE001 - never fatal
+        _log.debug("this machine could not be examined: {}", exc)
+        return None
+
+
+def _rates(store: Any, profile: Any) -> Optional[Any]:
+    if store is None or profile is None:
+        return None
+    try:
+        from app.core.measured import for_profile
+
+        return for_profile(store, profile)
+    except Exception as exc:                     # noqa: BLE001
+        _log.debug("the measured rates could not be read: {}", exc)
+        return None

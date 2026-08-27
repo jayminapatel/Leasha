@@ -18,6 +18,7 @@ the one paying the one-to-two second ONNX load.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
         # §5c. A finished run is the only free measurement this application
         # ever gets: it is a benchmark somebody already paid for.
         self.indexing_view.finished.connect(self._learn_from_run)
+        self.indexing_view.finished.connect(self._offer_images_pass)
         self.indexing_view.finished.connect(
             lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
         )
@@ -989,6 +991,36 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _ocr_mode_for_run(self) -> str:
+        r"""Which pass this run is, given *what* to read and *when*.
+
+        `INDEX_OCR_MODE` says what; `INDEX_OCR_PASS` says when. They meet here
+        because a run is only ever one pass: choosing to do the images after
+        the run means *this* run is the text one, and the images are a second
+        run. Neither setting can express that alone, which is why the schedule
+        is its own control rather than a fourth value crammed into the mode.
+        """
+        schedule = str(getattr(self._settings, "index_ocr_pass", "with-run")
+                       or "with-run")
+        if schedule in ("after-run", "manual"):
+            return "text"
+        return str(getattr(self._settings, "index_ocr_mode", "both"))
+
+    def _offer_images_pass(self, _stats: Any) -> None:
+        """After a text-only run, say the images are still to do.
+
+        **Offered, never started.** A second pass over a scanned corpus is
+        hours; launching it because a text run finished - possibly while
+        somebody has gone home - is the kind of surprise that gets an
+        application uninstalled. `manual` says nothing at all, which is what
+        the word means.
+        """
+        if str(getattr(self._settings, "index_ocr_pass", "")) != "after-run":
+            return
+        self.statusBar().showMessage(
+            "Text is indexed. Images and scans are still to read - press Start "
+            "again to do those.", 30_000)
+
     def _refresh_tuning_status(self) -> None:
         """§5d's status line, and the rates Auto-tune resolves against.
 
@@ -1498,9 +1530,18 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # **The same resolution the tuning screen shows.** One function, so a
+        # run started from the window and one started from the command line
+        # cannot disagree about what `Auto (4)` means.
+        from app.index.resolve import resolve_for_run
+
+        tuned = resolve_for_run(self._settings, self._store)
+        limits = replace(limits_from_settings(self._settings),
+                         workers=tuned.workers)
+
         pipeline = Pipeline(
             self._store, self._vectors,
-            Embedder.from_settings(self._settings),
+            Embedder.from_settings(self._settings, threads=tuned.onnx_threads),
             PipelineConfig(
                 walk=WalkConfig(
                     roots=[Path(root) for root in chosen],
@@ -1511,10 +1552,14 @@ class MainWindow(QMainWindow):
                 # Memory, CPU, battery and disk ceilings, from .env. Without
                 # these an index run competes with whatever the person is
                 # actually doing, and gets switched off for good.
-                limits=limits_from_settings(self._settings),
+                limits=limits,
                 min_free_gb=self._settings.min_free_gb,
                 required_free_gb=int(getattr(self._settings, "required_free_gb", 0)),
-                ocr_mode=str(getattr(self._settings, "index_ocr_mode", "both")),
+                ocr_mode=self._ocr_mode_for_run(),
+                embed_batch=tuned.embed_batch,
+                dedup_chunks=bool(getattr(self._settings, "embed_dedup", True)),
+                two_phase=bool(getattr(self._settings, "index_two_phase", True)),
+                bulk_fts=str(getattr(self._settings, "index_bulk_fts", "auto")),
                 prune_missing=roots is None,     # a folder-scoped run must not prune the rest
                 # A folder marked as an archive is walked once and then checked
                 # with one `stat` - the largest single saving available on a

@@ -1,6 +1,36 @@
 # Changelog
 
-**Doc version:** 3.70 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.71 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## The tuning controls now change the run, not just the screen
+
+- **Repeated text is embedded once.** Signatures, disclaimers and letterheads
+  repeat across thousands of documents and every copy cost a full pass through
+  the model. Measured on twenty documents sharing one confidentiality notice:
+  80 passages, of which the model needs to see 22. All 80 vectors are still
+  stored - identical text gives an identical vector, so this is arithmetic
+  avoided rather than a trade-off taken. The run says how many it saved.
+- **The tuning mode reaches the run.** The panel resolved `0` to `Auto (4)` for
+  display and the run read the literal `0` - so switching modes changed what
+  was shown and nothing about what happened. One function now answers for both,
+  so they cannot drift.
+- **"Threads per model call" reaches the model.** Left alone, the runtime takes
+  every core, which is right for a benchmark and wrong during a run where the
+  file readers already hold several and the two multiply into a machine slower
+  than it started.
+- **"When to read images" works**: during the run, after it, or only when you
+  ask. After-run is said, never started - a second pass over a scanned corpus
+  is hours, and launching it unasked is the kind of surprise that gets an
+  application uninstalled.
+- **A third settings guard.** One test proves a setting is declared, another
+  that a control exists - neither proved the value *does* anything, which is
+  the bug this project has shipped three times. The new guard caught seven
+  inert settings, all added by the tuning screen a day earlier. All seven are
+  now wired; the guard stands so the eighth cannot happen quietly.
+- Found by that guard's sibling test: **a machine that could not be examined
+  was treated as a machine with one core**, so somebody's six file-readers
+  became one on any box detection could not read - in the code path that
+  actually runs the index.
 
 ## Leasha now learns what your computer is good at
 

@@ -81,6 +81,7 @@
     <Compile Include="app\core\identifiers.py" />
     <Compile Include="app\core\index_move.py" />
     <Compile Include="app\core\logging.py" />
+    <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
     <Compile Include="app\core\scaffold.py" />
@@ -111,14 +112,17 @@
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
     <Compile Include="app\index\archives.py" />
+    <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
+    <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resources.py" />
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
+    <Compile Include="app\index\stages.py" />
     <Compile Include="app\index\walker.py" />
     <Compile Include="app\llm\__init__.py" />
     <Compile Include="app\llm\models.py" />
@@ -235,6 +239,7 @@
     <Compile Include="tests\unit\test_archive_run.py" />
     <Compile Include="tests\unit\test_archive_scan.py" />
     <Compile Include="tests\unit\test_archives.py" />
+    <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
@@ -356,6 +361,7 @@
     <Compile Include="tests\unit\test_shell.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
+    <Compile Include="tests\unit\test_stages.py" />
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />

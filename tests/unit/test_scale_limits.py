@@ -13,6 +13,7 @@ slow" a fortnight into a run.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 from app.storage.vector_store import INDEX_MIN_ROWS, MAX_PARTITIONS, VectorStore
 
@@ -175,6 +176,9 @@ def test_a_small_run_does_not_pay_for_a_merge(tmp_path):
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.store = Store()
     pipeline._log = __import__("app.core.logging", fromlist=["logger"]).logger
+    # The merge now also reads `bulk_fts` - `off` never merges, `on` always
+    # does, `auto` keeps the threshold this test is about. See index-tuning §6f.
+    pipeline.config = SimpleNamespace(bulk_fts="auto")
 
     pipeline._optimise_keyword_index(IndexStats(chunks=4))
     assert not calls

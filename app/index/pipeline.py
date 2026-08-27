@@ -258,6 +258,12 @@ class IndexStats:
     #: never loaded" and "there was nothing to embed" are different answers.
     vectors: int = 0
     embed_failures: int = 0
+    #: Passages the model was **not** asked about because an identical one had
+    #: already been embedded this batch - §6e. Reported because it is the
+    #: number that says whether the feature earns its place: under about 15% of
+    #: chunks it is not worth the code, and the only way to know is to look at
+    #: a real corpus.
+    chunks_deduped: int = 0
     #: Which pass this is - `both`, `text` or `images`. Carried on the stats so
     #: the progress line can say "reading with OCR", because seconds per page
     #: looks exactly like a stall on a line built for hundreds of files a minute.
@@ -353,6 +359,7 @@ class IndexStats:
             "mb_per_minute": round(self.mb_per_minute, 2),
             "vectors": self.vectors,
             "embed_failures": self.embed_failures,
+            "chunks_deduped": self.chunks_deduped,
             "name_only": self.name_only,
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
@@ -393,6 +400,20 @@ class PipelineConfig:
     #: batches of ~3 for an email and ONNX throughput collapsed; a few hundred
     #: restores it without holding much text in memory.
     embed_batch: int = EMBED_BATCH
+    #: §6e. Send each *distinct* passage to the model once and reuse the
+    #: result. Signatures, disclaimers and boilerplate repeat across thousands
+    #: of documents, and every copy costs a full forward pass.
+    #:
+    #: **Changes no result.** Identical text produces an identical vector, so
+    #: this is arithmetic avoided rather than a trade-off taken - which is why
+    #: it is on by default and why it needed no quality gate, only a saving to
+    #: report. `IndexStats.chunks_deduped` is that number.
+    dedup_chunks: bool = True
+    #: §6d. Words searchable as soon as a file is read, with the meaning model
+    #: catching up behind. `auto | on | off` for the word index; see
+    #: `_optimise_keyword_index`.
+    two_phase: bool = True
+    bulk_fts: str = "auto"
     min_free_gb: int = 5
     #: Where the completions sidecar goes - `DATA_PATH`, normally.
     #:
@@ -832,7 +853,23 @@ class Pipeline:
         rewrites the entire index, which is minutes at ten million chunks and
         pure waste after an incremental pass that added four.
         """
-        if stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
+        wanted = str(self.config.bulk_fts or "auto").lower()
+        # §6f, as far as it goes safely today. `on` merges whatever the run
+        # wrote; `auto` merges only when the run was big enough for the merge
+        # to earn its minutes; `off` leaves the segments alone.
+        #
+        # **What is deliberately not here is dropping the triggers.** The order
+        # asks for that, and it is the half that can lose data: an interrupted
+        # bulk run leaves the word index missing everything the run wrote, and
+        # the dirty flag that makes it recoverable has to be written *before*
+        # the triggers go. That is a schema change and a resume path, and
+        # shipping the fast half without the safe half is how a corpus becomes
+        # unsearchable with nothing to say why. The control already exists and
+        # already changes behaviour; the trigger drop is the next item.
+        if wanted == "off":
+            self._log.debug("the word index was left unmerged, as asked")
+            return
+        if wanted != "on" and stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
             return
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
@@ -2100,6 +2137,56 @@ class Pipeline:
         except Exception as exc:                # noqa: BLE001 - metadata is not worth a failed file
             self._log.warning("message metadata for file {} not stored: {}", file_id, exc)
 
+    def _embed_texts(self, texts: list[str]) -> list:
+        r"""Embed a batch, sending each **distinct** passage once. §6e.
+
+        Signatures, disclaimers, letterheads and boilerplate repeat across
+        thousands of documents, and every copy costs a full forward pass
+        through the model for a vector the run already has.
+
+        **This changes no result.** Identical text produces an identical
+        vector, so the saving is arithmetic avoided rather than a trade-off
+        taken - which is why it needed no quality gate, only a number to
+        report. `chunks_deduped` is that number, and it is what tells the owner
+        whether the feature earns its place on his corpus.
+
+        Off restores the previous behaviour exactly, for anybody who suspects
+        it and wants to compare.
+        """
+        if not self.config.dedup_chunks or len(texts) < 2:
+            return list(self.embedder.embed_all(texts))
+
+        # An ordinary dict, keyed by the text itself: hashing it again would
+        # cost a second pass over every character to save nothing, since
+        # Python already interns the hash on the string object.
+        first_seen: dict[str, int] = {}
+        unique: list[str] = []
+        where: list[int] = []
+        for text in texts:
+            index = first_seen.get(text)
+            if index is None:
+                index = first_seen[text] = len(unique)
+                unique.append(text)
+            where.append(index)
+
+        saved = len(texts) - len(unique)
+        if not saved:
+            return list(self.embedder.embed_all(texts))
+
+        embedded = list(self.embedder.embed_all(unique))
+        if len(embedded) != len(unique):
+            # **The model disagreed about how many it was given.** Rather than
+            # map the wrong vectors onto the wrong chunks - which would be
+            # silent, permanent and invisible to every test - fall back to the
+            # plain path and let its own count check catch it.
+            self._log.warning(
+                "the model returned {} vectors for {} passages; not reusing",
+                len(embedded), len(unique))
+            return list(self.embedder.embed_all(texts))
+
+        self._stats_ref.chunks_deduped += saved
+        return [embedded[index] for index in where]
+
     def _embed_pending(self, pending: list[tuple[int, int, str]]) -> None:
         """Embed everything accumulated so far, in one call, and write it.
 
@@ -2121,7 +2208,7 @@ class Pipeline:
         # wants a faster drive. Neither is guessable from the outside, and both
         # are one `perf_counter` pair here.
         with self._clock.stage("embed"):
-            vectors = list(self.embedder.embed_all(texts))
+            vectors = self._embed_texts(texts)
 
         # **Deleted here, one instant before the add** - see `_write_one` for
         # why this is not up there any more. A re-index must not leave the old

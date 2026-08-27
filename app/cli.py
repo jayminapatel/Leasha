@@ -1007,6 +1007,23 @@ def cmd_index(args: argparse.Namespace) -> int:
         ), args.json)
 
     limits = limits_from_settings(settings)
+
+    # **The tuning mode reaches the run, not only the screen.** Before this the
+    # panel resolved `0` to `Auto (4)` for display and the run read the literal
+    # `0`, so switching modes changed what was shown and nothing about what
+    # happened. `resolve_for_run` is the same arithmetic the screen uses - one
+    # function, so the two cannot drift.
+    from app.index.resolve import resolve_for_run
+
+    with SqliteStore(settings.fts_db) as _store:
+        tuned = resolve_for_run(settings, _store)
+    limits = replace(limits, workers=tuned.workers)
+    _tuning_log = logger.bind(component="cli.index")
+    for key, why in tuned.why.items():
+        _tuning_log.debug("{}: {}", key, why)
+
+    # `--workers` still wins: a flag typed on this command is a decision about
+    # this run, and a tuning mode is a standing preference.
     if args.workers:
         limits = replace(limits, workers=args.workers)
     if args.memory_mb:
@@ -1048,9 +1065,14 @@ def cmd_index(args: argparse.Namespace) -> int:
         archives=not bool(getattr(args, "all_roots", False)),
         recheck_archives=bool(getattr(args, "recheck_archives", False)),
         recheck_days=settings.archive_recheck_days,
+        # Resolved for this machine and this mode, above.
+        embed_batch=tuned.embed_batch,
+        dedup_chunks=settings.embed_dedup,
+        two_phase=settings.index_two_phase,
+        bulk_fts=settings.index_bulk_fts,
     )
 
-    embedder = Embedder.from_settings(settings)
+    embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 
     progress = ProgressLine(enabled=not args.quiet and not args.json)
 
@@ -1162,6 +1184,33 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(f"Waited    {stats.paused_seconds / 60:,.1f} min across {stats.pauses} "
               f"pause(s) to stay out of the way")
     print(f"          {stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min")
+    if stats.chunks_deduped:
+        # §6e's number, said every run. Whether repeated text is worth
+        # avoiding is a question about somebody's corpus, and this is the only
+        # place the answer ever appears.
+        share = stats.chunks_deduped / max(1, stats.chunks + stats.chunks_deduped)
+        print(f"Repeated  {stats.chunks_deduped:,} passage(s) were already "
+              f"embedded this run ({share:.0%}) and were not sent again")
+    if stats.stages:
+        # §6a, in the shape §4f shows: proportions, because the question this
+        # answers is "what should I change" and that is about shares.
+        total = sum(stats.stages.values()) or 1.0
+        shares = " · ".join(f"{name} {seconds / total:.0%}"
+                            for name, seconds in stats.stages.items())
+        print(f"Time      {shares}")
+        from app.index.stages import advice
+
+        said = advice(stats.stages, on_gpu=settings.embed_device == "gpu")
+        if said:
+            print(f"          {said}")
+    if _images_pass_follows(settings) and _ocr_mode(args, settings) == "text":
+        # **Said, not started.** A second pass over a scanned corpus is hours;
+        # launching it without asking, from a command somebody ran to index
+        # their documents, is the kind of surprise that gets an application
+        # uninstalled. The window schedules it; the command line names it.
+        print()
+        print("Images    Set to be read after the run. Start the second pass "
+              "with:  leasha index --only-ocr")
     if stats.name_only:
         # **Not "skipped".** Nothing went wrong: there is no reader for a
         # `.mp4`. Reported with the types, because that is the number that
@@ -1223,10 +1272,34 @@ def _ocr_mode(args: argparse.Namespace, settings: Settings) -> str:
         return "images"
     if getattr(args, "skip_ocr", False):
         return "text"
-    stored = str(getattr(settings, "index_ocr_mode", "both") or "both").strip().lower()
+
     from app.index.pipeline import OCR_MODES
 
+    # **`INDEX_OCR_PASS` decides *when*, `INDEX_OCR_MODE` decides *what*.**
+    # They meet here because a run is only ever one pass: asking for the images
+    # to be done after the run means this run is the text one, and the images
+    # pass is a second `--only-ocr` run. Neither setting can express that
+    # alone, which is why the schedule half is its own control rather than a
+    # fourth value squeezed into the mode.
+    schedule = str(getattr(settings, "index_ocr_pass", "with-run")
+                   or "with-run").strip().lower()
+    if schedule in ("after-run", "manual"):
+        return "text"
+
+    stored = str(getattr(settings, "index_ocr_mode", "both") or "both").strip().lower()
     return stored if stored in OCR_MODES else "both"
+
+
+def _images_pass_follows(settings: Settings) -> bool:
+    """Should an images pass be started once the text pass finishes?
+
+    `after-run` yes, `manual` no. The difference is the whole point of having
+    two words for it: somebody with a scanned corpus wants the text usable
+    today *and* the images eventually, and somebody on a laptop wants to choose
+    the evening it happens.
+    """
+    return str(getattr(settings, "index_ocr_pass", "with-run")
+               or "with-run").strip().lower() == "after-run"
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
