@@ -1,6 +1,22 @@
 # Changelog
 
-**Doc version:** 3.93 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.94 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Pin a document in its own window
+
+- **"Pin in a window"** on any preview opens that document in a window of its
+  own. Pin as many as you like — two drawings side by side, or the mail you
+  are answering while you search for what it mentions.
+- **Searching again never changes a pinned window.** That is the point of
+  pinning it.
+- **Rotate a sideways scan once and it opens that way for ever.** The file
+  itself is never changed.
+- Zoom with Ctrl+wheel, fit it to the window, print it — or print to PDF to
+  save a copy.
+- **Ctrl+F finds text inside a preview**, in the pinned window and in the
+  panel beside your results.
+- Keep any pinned window on top while you work in something else.
+
 
 ## The activity log, in colour and in its own window
 

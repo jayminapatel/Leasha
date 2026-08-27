@@ -1,6 +1,6 @@
 # Work order (One thread): workspace features — pop-outs, viewers, and the tools around search
 
-**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + preview loader + extract/converter + install docs)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626270157-search-experience.md`.
@@ -35,20 +35,20 @@ The in-app preview pane stays exactly where it is. "Pop out" opens an
 independent, view-only window showing the same document. Multiples are
 allowed and expected — compare falls out for free.
 
-- [ ] **2a** the window: title bar = filename, tooltip = full path, size
+- [x] **2a** the window: title bar = filename, tooltip = full path, size
   remembered, stay-on-top toggle (same control as 1d). Each pop-out owns its
   own load through the existing preview worker with **its own generation
   stamp** — a new search in the main window must never blank a pinned
   document; that is the opposite of why it was pinned.
-- [ ] **2b Find**: Ctrl+F inside the window — highlights, next/previous,
+- [x] **2b Find**: Ctrl+F inside the window — highlights, next/previous,
   match count. (Also wire the same find into the in-app preview pane; it is
   the last metre of every search.)
-- [ ] **2c Print**: prints what is shown, at the shown rotation. Windows'
+- [x] **2c Print**: prints what is shown, at the shown rotation. Windows'
   print-to-PDF makes this an export feature for free — no separate export is
   built.
-- [ ] **2d Zoom**: Ctrl+wheel and fit-width for images and PDFs; font-size
+- [x] **2d Zoom**: Ctrl+wheel and fit-width for images and PDFs; font-size
   bump for the text kinds. Standard behaviour, nothing custom.
-- [ ] **2e Rotate**: one button cycling 90°, whole document, images AND PDFs.
+- [x] **2e Rotate**: one button cycling 90°, whole document, images AND PDFs.
   Implementation rides the M11 pattern: pages/images render to `QImage` on
   the worker, so rotation and zoom are two parameters of one render call —
   one pipeline for both kinds, no UI-thread decoding. This replaces
@@ -57,13 +57,13 @@ allowed and expected — compare falls out for free.
   may be scoped out initially and noted). Rotation is remembered **per file
   in app state** — the sideways scan rotated once opens right-side-up
   forever — and the file itself is never touched.
-- [ ] **2f Copy text**: selectable/copyable text in the text kinds. View-only
+- [x] **2f Copy text**: selectable/copyable text in the text kinds. View-only
   still means copy-out works.
-- [ ] **2g The exits**: "Open the real file" and "Show in folder" buttons
+- [x] **2g The exits**: "Open the real file" and "Show in folder" buttons
   (via the existing worker-routed open paths), and for text-rendered Office
   kinds one plain sentence in the window: "shown as text — open the file for
   full layout" (see 4e for the better answer).
-- [ ] **2h Mail**: a message pops out exactly like a file — pin the mail
+- [x] **2h Mail**: a message pops out exactly like a file — pin the mail
   being answered while searching for what it mentions. Same window, no
   special casing beyond the synthetic-path load that already exists.
 
@@ -151,7 +151,7 @@ allowed and expected — compare falls out for free.
 
 - [x] log: level→token mapping (both themes), clickable error routing,
   pop-out update-while-minimised.
-- [ ] pop-outs: independent generation stamps (main-window search does not
+- [x] pop-outs: independent generation stamps (main-window search does not
   touch a pinned window — the regression test for 2a's whole point);
   rotation remembered per file and absent from the file itself (bytes
   unchanged, asserted); print honours rotation.
@@ -243,3 +243,65 @@ function and turns any earlier use into `UnboundLocalError`.
 Not verified on Windows: window flags are exactly where Linux lies, as the
 order's own "Done means" says. Worth one look at stay-on-top and at the log
 still updating while the main window is in the tray.
+
+## Note on §2, added 2026-08-28
+
+Delivered in two commits: the pieces first, then the window.
+
+**One render call, and it is what makes rotate and zoom parameters rather
+than features.** `render_page.render()` turns an image *or* a PDF page into a
+`QImage`; everything after it — rotating, scaling, printing, drawing — treats
+the two identically. `QImage` and never `QPixmap`, because Qt refuses to build
+a pixmap off the interface thread and crashes on some platforms rather than
+refusing. PyMuPDF, imported as `pymupdf` rather than the legacy `fitz` alias.
+**The cost is PDF text selection in the pop-out**, which the item explicitly
+allows scoping out; the in-app pane keeps `QPdfView` and keeps selection with
+it, so nothing anybody had is lost.
+
+**Two bugs of my own, both found by measuring rather than reading.**
+`_shape` scaled only when fitting, so an image at 2× rendered at 100% — a
+zoom control that visibly does nothing. And the find counter keyed off the
+match index, which is −1 for a fresh search, so typing a word that is *not* in
+the document said nothing at all; a find box that goes silent is one somebody
+presses harder. Both are covered by name.
+
+**Rotation is remembered per file, keyed by a hash of the path.** Not
+tidiness: `index_state` is a table somebody may open, and a list of every
+document they have ever rotated — with its full path — is not a thing to leave
+on a shared machine. The privacy order's reasoning one level down. **Zoom is
+deliberately not remembered**: it is something you do to look closer at one
+passage, and a file reopening at 400% because of something done in March reads
+as broken.
+
+**The generation stamp is per window, and that is 2a's whole point.** A search
+in the main window must never blank a pinned document. Two windows, two
+counters, and a test asserts one moving does not move the other — because a
+shared counter is exactly how this breaks the first time somebody tidies it
+into "one place".
+
+**View-only asserted on the bytes.** The rotation test reads the file before
+and after and compares them, and a grep guard refuses `write_text`,
+`write_bytes`, `shutil` and `"w"` anywhere in the window.
+
+**§2g's sentence is a flag, not a parsed notice.** `_extracted` now sets
+`meta["extracted"]`, because the rule this codebase set for notices — nothing
+reads a message string to decide anything — applies here too. A `.txt` shown
+as text has no layout to be missing; a `.docx` does.
+
+**Print has no export beside it**, per §2c: Windows' print-to-PDF is the
+export, and a second code path that wrote a file is the one thing §6 forbids.
+
+**Mail needed no special casing**, as §2h predicted — but the signal carries
+two things rather than one. A mail row has no file on disk, so the pane's
+`body_provider` travels with the row; that is the whole of it.
+
+**A wiring bug the sequence caught.** The loop connecting all four preview
+panes was first placed beside the log wiring — three views before those views
+exist. It would have been an `AttributeError` on the first window open.
+
+**A weak assertion caught while testing**: `not isVisible()` passes for any
+widget whose ancestors are not shown, so it would have passed over a find bar
+that never hides. `isHidden()` is the question actually being asked.
+
+Not verified on Windows, and the order says this is where Linux lies: window
+flags (stay-on-top), the print dialog, and Ctrl+wheel over a real trackpad.

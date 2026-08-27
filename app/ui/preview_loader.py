@@ -202,6 +202,12 @@ def _extracted(path: Path, *, title: str, subtitle: str) -> Preview:
         truncated=truncated,
         notice="Text extracted from the document - this is what was indexed, "
                "not how the file looks. Open it to see the formatting.",
+        # **A flag, not a sentence to parse.** Workspace §2g puts a line in
+        # the pop-out for exactly these kinds, and the rule this codebase set
+        # for notices applies: nothing reads a message string to decide
+        # anything. `.txt` shown as text has no layout to be missing; a
+        # `.docx` shown as text does.
+        meta={"extracted": True},
     )
 
 

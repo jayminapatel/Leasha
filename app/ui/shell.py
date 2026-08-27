@@ -252,6 +252,12 @@ class MainWindow(QMainWindow):
         #: to re-wire. Declared here because `_apply_theme` pushes the palette
         #: to whichever of the two exist, and it runs before anybody opens one.
         self._log_window: Any = None
+        #: Workspace §2. **Multiples are allowed and expected** - comparing
+        #: two versions of a drawing falls out for free, and pinning the mail
+        #: you are answering while you search for what it mentions is the
+        #: whole point. Held so Qt does not collect them the moment the local
+        #: name goes out of scope, which is how a window flashes and vanishes.
+        self._pinned: list = []
         self.settings_view.debug_pane.file_chosen.connect(self._open_path)
         self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
         self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
@@ -333,6 +339,16 @@ class MainWindow(QMainWindow):
             lambda path: self._open_path(path, reveal=True))
         self.code_view.indexing_requested.connect(
             lambda: self._show(self.indexing_view))
+
+        # **§2, and it goes here rather than beside Settings for a reason.**
+        # Every tab that has a preview can pin one, and each pane carries its
+        # own `body_provider` - §2h's "no special casing" for mail, whose
+        # message has no file on disk to open. This loop names all four
+        # views, so it has to come after the last of them is built; the first
+        # version sat beside the log wiring, three views too early.
+        for pane in (self.search_view.preview, self.files_view.preview,
+                     self.mail_view.preview, self.code_view.results.preview):
+            pane.pop_out_requested.connect(self._pin_document)
 
         self.tabs = QTabWidget()
         # (view, title, wrap in a scroll area?)
@@ -1285,6 +1301,36 @@ class MainWindow(QMainWindow):
                 )
             except Exception:                # noqa: BLE001 - older Qt, or no hints
                 pass
+
+    def _pin_document(self, row: Any, provider: Any = None) -> None:
+        r"""Open this document in a window of its own. Workspace §2.
+
+        **A copy, not a move**: the pane the button was pressed in keeps
+        showing what it showed. Never raises - a window that will not open
+        must not take the results with it.
+        """
+        try:
+            from app.ui.widgets.preview_window import PreviewWindow
+
+            window = PreviewWindow(row, state=self._log_window_state(),
+                                   body_provider=provider)
+            window.remember.connect(self._remember_log_window)
+            window.open_requested.connect(self._open_path)
+            window.reveal_requested.connect(
+                lambda path: self._open_path(path, reveal=True))
+            window.closed.connect(self._unpin)
+            self._pinned.append(window)
+            window.show()
+            window.raise_()
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.warning("could not pin {}: {}", getattr(row, "path", ""), exc)
+
+    def _unpin(self, window: Any) -> None:
+        """A pinned window closed. Drop it so it can go."""
+        try:
+            self._pinned.remove(window)
+        except ValueError:
+            return
 
     def _pop_out_log(self) -> None:
         r"""Open the log as its own window, or bring back the one that is open.

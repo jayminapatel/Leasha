@@ -227,6 +227,7 @@
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
     <Compile Include="app\ui\widgets\preview.py" />
+    <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
     <Compile Include="app\ui\widgets\roots_box.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
@@ -361,6 +362,7 @@
     <Compile Include="tests\unit\test_preview_pane.py" />
     <Compile Include="tests\unit\test_preview_rows.py" />
     <Compile Include="tests\unit\test_preview_view.py" />
+    <Compile Include="tests\unit\test_preview_window.py" />
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />

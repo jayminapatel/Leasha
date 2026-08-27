@@ -35,6 +35,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QFontDatabase, QPixmap
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSplitter,
@@ -99,6 +100,11 @@ class PreviewPane(QWidget):
 
     #: The person asked to open the file properly, from the pane.
     open_requested = pyqtSignal(object)
+    #: Workspace §2: pin this document in a window of its own. Carries the
+    #: pane's `body_provider` with it, because a mail row has no file on disk
+    #: and the provider is the only thing that can read the message - §2h's
+    #: "no special casing beyond the synthetic-path load that already exists".
+    pop_out_requested = pyqtSignal(object, object)
     error = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -175,6 +181,15 @@ class PreviewPane(QWidget):
         if self._pdf is not None:
             self.stack.addWidget(self._pdf)
 
+        self.pop_button = QPushButton("Pin in a window")
+        self.pop_button.setToolTip(
+            "Opens this document in its own window you can keep beside your "
+            "work. Searching again here will not change it.")
+        self.pop_button.setEnabled(False)
+        self.pop_button.clicked.connect(
+            lambda _c=False: self._row is not None
+            and self.pop_out_requested.emit(self._row, self.body_provider))
+
         self.open_button = QPushButton("Open")
         self.open_button.setToolTip("Open the file in the application that owns it")
         self.open_button.clicked.connect(
@@ -205,7 +220,12 @@ class PreviewPane(QWidget):
         layout.addWidget(self.notice)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.find)
-        layout.addWidget(self.open_button)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.open_button)
+        buttons.addWidget(self.pop_button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
 
         self.clear()
 
@@ -273,6 +293,7 @@ class PreviewPane(QWidget):
         self.text.setPlainText("")
         self.stack.setCurrentWidget(self.text)
         self.open_button.setEnabled(False)
+        self.pop_button.setEnabled(False)
 
     def show_row(self, row: Any) -> None:
         """Queue a preview of `row`. Safe to call on every arrow key."""
@@ -292,6 +313,7 @@ class PreviewPane(QWidget):
         self.subtitle.setText("Loading…")
         self.notice.setVisible(False)
         self.open_button.setEnabled(True)
+        self.pop_button.setEnabled(True)
         self._timer.start()
 
     def _start(self) -> None:
