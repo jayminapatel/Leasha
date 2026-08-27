@@ -1,6 +1,35 @@
 # Changelog
 
-**Doc version:** 3.71 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.72 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Search now knows which tab it is on, and what that tab is allowed to do
+
+- **Six switches for what search may do on your behalf**: fix an obvious
+  spelling, try again with fewer words, offer filters it recognises, prefer
+  recent documents, fold older versions together, explain in plain words. All
+  on, each one switch-off-able.
+- **A grid shows what each tab actually does with them**, because six switches
+  alone would be a lie by omission: "Fix obvious spelling" is on, and it still
+  does nothing on the Code tab, where a misspelt identifier may be exactly what
+  is in the codebase.
+- **A global switch can only turn a behaviour off, never force it on.** That is
+  what lets six settings do the work of twenty-four - off means off everywhere,
+  on means "follow this tab's contract" - and it is why spelling correction
+  stays away from code without anybody having to remember to keep it there.
+- **"Reset search behaviour to defaults" is one click**, and its tooltip says
+  what it will not touch. Support at a distance depends on that button: "press
+  that and tell me what happens" is one sentence instead of six.
+- **The same notice, in the register the tab asked for.** "Searching by meaning
+  is off at the moment, so these are word matches only" on the first tab;
+  today's wording, naming the command that fixes it, on the power tabs. Same
+  code, same fact, different reader.
+- **No view branches on which tab it is.** That was the alternative, and each
+  of the four would have written the rule twice - once where it was decided and
+  once where it was almost decided.
+- Caught by an existing guard: importing something called `translate` into
+  `engine.py` silently defeated the test that keeps the retrieval path away
+  from the query translator. Renamed, and the reason is now written where the
+  next person will look.
 
 ## The tuning controls now change the run, not just the screen
 

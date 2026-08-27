@@ -109,6 +109,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self._settings = settings
+        #: Settings changed in this session, by lower-cased key.
+        #:
+        #: **`Settings` is frozen**, so a control changed in the window cannot
+        #: write back to it - the value goes to `.env` and lands here, and
+        #: whatever needs it live reads both. Narrow on purpose: only the
+        #: search behaviours use it today, because they are the only ones that
+        #: must take effect before the next launch.
+        self._settings_overrides: dict = {}
         self._store = store
         self._vectors = vectors
         self._engine = engine
@@ -266,6 +274,10 @@ class MainWindow(QMainWindow):
         self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
         self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
         self.settings_view.theme_changed.connect(self._theme_changed)
+        # §1a. **What this surface may do on the person's behalf**, resolved
+        # once and pushed to the view - `Settings` belongs to the window, and a
+        # view that reaches for one has to be given one in every test.
+        self._apply_search_preferences()
         self.settings_view.environment.recording.setChecked(self.recorder.enabled)
         self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
         # **Both of these were emitted into nothing.** The rerank switch looked
@@ -785,6 +797,20 @@ class MainWindow(QMainWindow):
             self._show_error(to_app_error(exc, "ui.settings"))
             return
 
+        # §1a. **The search behaviours take effect on the very next search**,
+        # not at the next launch. For a switch somebody has just turned off,
+        # the difference is between a working control and one they conclude is
+        # broken - and they would be right to.
+        if any(key.startswith("SEARCH_") for key in values):
+            for key, value in values.items():
+                if key.startswith("SEARCH_"):
+                    # `Settings` is frozen, so the live object cannot be
+                    # updated - the preferences dictionary is built from these
+                    # values instead, which is the same answer by a route that
+                    # works. See task #238 for the frozen-Settings question.
+                    self._settings_overrides[key.lower()] = value
+            self._apply_search_preferences()
+
         # Reranking is the one that can take effect without a restart, and the
         # one people most want to see change - the rest are read when the thing
         # that uses them next starts.
@@ -1020,6 +1046,24 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Text is indexed. Images and scans are still to read - press Start "
             "again to do those.", 30_000)
+
+    def _apply_search_preferences(self) -> None:
+        """Push the search behaviours to the surfaces that read them.
+
+        Called at start-up and again whenever one is changed, so a switch takes
+        effect on the very next search rather than at the next launch - which
+        for a behaviour somebody has just switched off is the difference
+        between a working control and one they believe is broken.
+        """
+        try:
+            from app.search.policy import preferences
+
+            # What was changed in this session wins over what was loaded at
+            # start-up, which is the whole reason the overrides exist.
+            self.search_view.set_search_preferences(
+                preferences(self._settings, self._settings_overrides))
+        except Exception as exc:                 # noqa: BLE001 - never fatal
+            _log.debug("the search behaviours could not be applied: {}", exc)
 
     def _refresh_tuning_status(self) -> None:
         """§5d's status line, and the rates Auto-tune resolves against.

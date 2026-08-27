@@ -36,7 +36,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QWidget
 
-__all__ = ["ResultTable", "ROLE_ROW"]
+__all__ = ["ResultTable", "ROLE_ROW", "redraw_with_details"]
 
 #: Where the row object is kept. **On the item, not in a list beside the table.**
 #: Mail's table is sortable, and after a header click visual row 3 is not
@@ -119,3 +119,23 @@ class ResultTable(QTableWidget):
         selected since it appeared.
         """
         return self.row_object(self.currentRow())
+
+
+def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,
+                        extra: Any) -> None:
+    """Draw the same results again, now carrying their mail subtitles and
+    missing-file marks.
+
+    **`keep_scroll`, because this is not a new search.** The rows were painted
+    a moment ago from what was already known, and the metadata arrives from a
+    worker afterwards - so somebody who has started reading must not be moved
+    back to the top by the second paint.
+
+    Here rather than in `search_view.py` because it is painting, and that view
+    is at the 250-line guard: the rule that keeps views short is the rule that
+    keeps decisions out of them.
+    """
+    found = extra if isinstance(extra, dict) else {}
+    results.show_results(
+        response.results, terms, summary=summary, keep_scroll=True,
+        details=found.get("details", {}), missing=found.get("missing", set()))

@@ -114,6 +114,59 @@ SETTINGS: tuple[Setting, ...] = (
         help="How much of each result the reranker reads.",
     ),
 
+    # --- Search: what search may do on your behalf --------------------------
+    #
+    # **Six switches, not twenty-four.** Each names one behaviour, and each can
+    # only turn it *off*: on means "follow this surface's own contract", which
+    # is what keeps spelling correction away from identifiers on the Code tab
+    # and plain-words notices away from people who wanted the technical ones.
+    # See `app/search/policy.py` for the table of per-surface defaults.
+    #
+    # They ship **on**, per the order's §0: helpful behaviour is always-on and
+    # individually switch-off-able, because people mature and nobody should be
+    # forced in a direction.
+    Setting(
+        key="SEARCH_FIX_SPELLING", label="Fix obvious spelling", kind="choice",
+        default="auto", group="Search", surface="settings.search",
+        choices=("auto", "suggest", "off"),
+        help="When a word matches nothing at all, look for the closest real "
+             "word. Automatic uses it and says which word was used; Suggest "
+             "offers it without changing what you typed. Never applies to "
+             "code, where a misspelt name may be exactly what is there.",
+    ),
+    Setting(
+        key="SEARCH_RELAX_ON_EMPTY", label="Try again with fewer words",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="When nothing matches all your words, drop the rarest one and "
+             "show what matches the rest - labelled on the page, so you can "
+             "see what was dropped. Off means an empty result stays empty.",
+    ),
+    Setting(
+        key="SEARCH_AUTO_CHIPS", label="Offer filters it recognises",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="A name, a date or a kind of file in what you typed becomes a "
+             "chip you can accept or dismiss. What you typed is never changed.",
+    ),
+    Setting(
+        key="SEARCH_RECENCY_BLEND", label="Prefer recent documents",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Among equally good matches, newer ones come first. It never "
+             "hides an older document, it only orders them.",
+    ),
+    Setting(
+        key="SEARCH_VERSION_FOLDING", label="Fold older versions together",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Near-identical documents collapse into one row, newest shown, "
+             "with the rest one click away. Off shows every copy separately.",
+    ),
+    Setting(
+        key="SEARCH_PLAIN_WORDS", label="Explain in plain words", kind="bool",
+        default=True, group="Search", surface="settings.search",
+        help="Messages about what search could and could not do are written "
+             "for anybody rather than for a developer. The power tabs keep "
+             "the technical wording either way.",
+    ),
+
     # --- Indexing: *when* a run happens. How fast it goes is Tuning. -------
     Setting(
         key="INDEX_SCHEDULE", label="When to index", kind="choice",

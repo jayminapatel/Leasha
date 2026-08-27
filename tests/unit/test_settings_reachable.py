@@ -39,7 +39,11 @@ UI = PROJECT_ROOT / "app" / "ui"
 #: so that `settings_registry.py` stays importable without Qt and free of any
 #: knowledge of the UI - it is a declaration of intent, not a wiring diagram.
 SURFACE_MODULES = {
-    "settings.search": ("settings_view.py", "widgets/search_box.py"),
+    # `search_behaviour_box` too: the six behaviours from the search-experience
+    # order's §1 are their own group, because each one needs the effect grid
+    # beside it to be honest about what it does per tab.
+    "settings.search": ("settings_view.py", "widgets/search_box.py",
+                        "widgets/search_behaviour_box.py"),
     # Only *when* a run happens. Everything about how fast it goes moved to
     # `settings.tuning` - see §4 of the index-tuning order.
     "settings.indexing": ("indexing_settings.py",),

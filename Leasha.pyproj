@@ -299,6 +299,7 @@
     <Compile Include="tests\unit\test_index_panel.py" />
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />
+    <Compile Include="tests\unit\test_index_tuning_acceptance.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_launcher.py" />
@@ -448,6 +449,9 @@
     <Content Include="docs\WORKORDER-202626270513-offline-media-one-drives.md" />
     <Content Include="docs\WORKORDER-202626270514-offline-media-two-network-cloud.md" />
     <Content Include="docs\WORKORDER-202626270515-video-audio-DRAFT.md" />
+    <Content Include="docs\WORKORDER-202626270547-test-automation.md" />
+    <Content Include="docs\WORKORDER-202626270602-reports-and-timeline.md" />
+    <Content Include="docs\WORKORDER-202626270611-chat-tab.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

@@ -143,6 +143,19 @@ class Settings(BaseModel):
     # --- models -------------------------------------------------------------
     embed_model: str = "BAAI/bge-small-en-v1.5"
     embed_dim: int = 384
+    # --- search: what search may do on your behalf --------------------------
+    #
+    # **Each can only switch a behaviour off.** On means "follow the surface's
+    # own contract" - see `app/search/policy.py` for the table. That is what
+    # keeps spelling correction away from identifiers on the Code tab without
+    # needing twenty-four settings instead of six.
+    search_fix_spelling: str = "auto"
+    search_relax_on_empty: bool = True
+    search_auto_chips: bool = True
+    search_recency_blend: bool = True
+    search_version_folding: bool = True
+    search_plain_words: bool = True
+
     #: `auto | cpu | gpu` - which processor runs the ONNX models. One value for
     #: the embedder, the reranker and OCR, because a machine where two of the
     #: three used the graphics card is one nobody could reason about.
@@ -305,6 +318,12 @@ SETTING_KEYS: tuple[str, ...] = (
     "RERANK_ENABLED",
     "RERANK_TOP_N",
     "RERANK_WINDOW_CHARS",
+    "SEARCH_FIX_SPELLING",
+    "SEARCH_RELAX_ON_EMPTY",
+    "SEARCH_AUTO_CHIPS",
+    "SEARCH_RECENCY_BLEND",
+    "SEARCH_VERSION_FOLDING",
+    "SEARCH_PLAIN_WORDS",
     "OLLAMA_URL",
     "OLLAMA_MODEL",
     "INDEX_TUNING_MODE",
@@ -416,6 +435,18 @@ def load_settings(
                 "RERANK_TOP_N", values.get("RERANK_TOP_N") or "30"),
             rerank_window_chars=_as_int(
                 "RERANK_WINDOW_CHARS", values.get("RERANK_WINDOW_CHARS") or "600"),
+            search_fix_spelling=(
+                values.get("SEARCH_FIX_SPELLING") or "auto").strip().lower(),
+            search_relax_on_empty=_as_bool(
+                "SEARCH_RELAX_ON_EMPTY", values.get("SEARCH_RELAX_ON_EMPTY", "true")),
+            search_auto_chips=_as_bool(
+                "SEARCH_AUTO_CHIPS", values.get("SEARCH_AUTO_CHIPS", "true")),
+            search_recency_blend=_as_bool(
+                "SEARCH_RECENCY_BLEND", values.get("SEARCH_RECENCY_BLEND", "true")),
+            search_version_folding=_as_bool(
+                "SEARCH_VERSION_FOLDING", values.get("SEARCH_VERSION_FOLDING", "true")),
+            search_plain_words=_as_bool(
+                "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
             index_tuning_mode=(
@@ -499,6 +530,8 @@ def load_settings(
         ("INDEX_BULK_FTS", settings.index_bulk_fts, ("auto", "on", "off")),
         ("INDEX_OCR_PASS", settings.index_ocr_pass,
          ("with-run", "after-run", "manual")),
+        ("SEARCH_FIX_SPELLING", settings.search_fix_spelling,
+         ("auto", "suggest", "off")),
     ):
         if value not in allowed:
             raise AppErrorException(make_error(

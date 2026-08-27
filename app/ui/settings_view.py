@@ -47,6 +47,7 @@ from app.ui.widgets.file_types import FileTypesEditor
 from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.model_box import ModelBox
 from app.ui.widgets.roots_box import RootsBox
+from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
 from app.ui.widgets.search_box import SearchBox
 from app.ui.widgets.storage_box import StorageBox
 from app.ui.widgets.window_box import WindowBox
@@ -125,6 +126,12 @@ class SettingsView(QWidget):
         self.rerank_window = self.search_box.rerank_window
         self.rerank_model = self.search_box.rerank_model
         self.search_box.changed.connect(self.settings_changed)
+
+        # §1b. What search may do on your behalf, and what each tab does with
+        # it - see `widgets/search_behaviour_box.py` for why the grid is read
+        # only and why the reset button matters more than it looks.
+        self.search_behaviour = SearchBehaviourBox(settings)
+        self.search_behaviour.changed.connect(self.settings_changed)
         self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
@@ -250,6 +257,7 @@ class SettingsView(QWidget):
         layout.addWidget(self.code_types)
         layout.addWidget(pst_box)
         layout.addWidget(self.search_box)
+        layout.addWidget(self.search_behaviour)
         layout.addWidget(behaviour)
         layout.addWidget(self.window_box)
         layout.addWidget(self.storage_box)

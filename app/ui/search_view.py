@@ -37,6 +37,7 @@ from app.ui.presenter import (
 from app.ui.results_view import build_results_pane
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
+from app.ui.widgets.result_table import redraw_with_details
 from app.ui.widgets.search_bar import (
     build_controls,
     build_input,
@@ -84,6 +85,8 @@ class SearchView(QWidget):
         super().__init__(parent)
         self._engine = engine
         self._translator = translator
+        # Empty means "follow this surface's contract" - see policy.py.
+        self._search_preferences: dict = {}
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._shown_generation = -1
@@ -153,6 +156,10 @@ class SearchView(QWidget):
         self.input.selectAll()
 
     # -- dispatch -----------------------------------------------------------
+
+    def set_search_preferences(self, found: dict) -> None:
+        # Pushed in, never read here: `Settings` belongs to the window.
+        self._search_preferences = dict(found or {})
 
     def current_scope(self) -> str:
         return scope_value(self.scope)
@@ -235,7 +242,9 @@ class SearchView(QWidget):
 
         self._generation += 1
         options = search_options(tier, scope=self.current_scope(),
-                                 rerank=self.rerank_toggle.isChecked())
+                                 rerank=self.rerank_toggle.isChecked(),
+                                 surface="search",
+                                 preferences=self._search_preferences)
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )
@@ -333,16 +342,10 @@ class SearchView(QWidget):
 
     def _decorated(self, extra: Any, generation: int, terms: Any,
                    summary: str, response: Any) -> None:
-        """Redraw with the mail subtitles and missing-file marks.
-
-        Same results a moment later, so `keep_scroll` - this is not a new
-        search and must not move somebody who has started reading.
-        """
-        if generation != self._shown_generation:
-            return                               # a newer search has landed
-        self.results.show_results(
-            response.results, terms, summary=summary, keep_scroll=True,
-            details=extra.get("details", {}), missing=extra.get("missing", set()))
+        # Painting moved to `widgets/result_table.redraw_with_details`; what is
+        # left here is the staleness check, which is this view's business.
+        if generation == self._shown_generation:
+            redraw_with_details(self.results, response, terms, summary, extra)
 
     def interpret(self) -> None:
         """Translate the sentence in the box, then search what it produced."""

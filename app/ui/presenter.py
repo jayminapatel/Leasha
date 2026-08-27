@@ -932,15 +932,27 @@ def accessible_text(payload: Any) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def search_options(tier: str, *, scope: str, rerank: bool) -> dict:
-    """What to pass the engine for one tier.
+def search_options(tier: str, *, scope: str, rerank: bool,
+                   surface: str = "search", preferences: Any = None) -> dict:
+    r"""What to pass the engine for one tier.
 
     `rerank` is only meaningful on the full tier - the interim one is BM25 with
     no model at all, and passing it there would look like a setting that does
     nothing. Here rather than in the view because "which options apply to which
     tier" is a rule, and a rule inside a widget is a rule nobody can test.
+
+    `surface` chooses the **policy** - what this tab may do on the person's
+    behalf. It is resolved here, in the one function every search already goes
+    through, precisely so that no view ever grows `if self.is_search_tab:`.
+    That was the alternative, and it would have written each rule twice: once
+    where it was decided and once where it was almost decided.
     """
-    options: dict[str, Any] = {"scope": scope}
+    from app.search.policy import from_settings
+
+    options: dict[str, Any] = {
+        "scope": scope,
+        "policy": from_settings(surface, preferences),
+    }
     if tier == Tier.FULL:
         options["rerank"] = bool(rerank)
     return options

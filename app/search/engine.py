@@ -38,6 +38,8 @@ from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 from app.search import keyword, vector
 from app.search.fusion import RRF_K, fuse_hits
+from app.search.plain_notices import for_register
+from app.search.policy import SEARCH, SearchPolicy, for_surface
 from app.search.query import ParsedQuery, parse_query
 from app.search.rerank import Reranker
 
@@ -434,8 +436,17 @@ class SearchEngine:
         rerank: Optional[bool] = None,
         use_cache: bool = True,
         scope: str = "all",
+        policy: Optional[SearchPolicy] = None,
     ) -> SearchResponse:
-        """The full pipeline. What runs when someone stops typing or presses Enter."""
+        r"""The full pipeline. What runs when someone stops typing or presses Enter.
+
+        `policy` is **what this surface is allowed to do on the person's
+        behalf** - fix a spelling, drop a word, fold older versions. The engine
+        reads it; no view branches on which tab it is, which is the whole
+        reason it is a parameter rather than four `if` statements spread across
+        four view files. `None` means the universal surface's contract, because
+        that is what a caller who has not thought about it should get.
+        """
         # **First line, and it was buried three hundred lines down inside
         # `if use_cache and self.cache is not None:`.** No cache is ever
         # configured - `cache=` is passed at none of the four constructions - so
@@ -449,6 +460,13 @@ class SearchEngine:
         # its answer cannot depend on an unrelated feature being switched on.
         if self._closed:
             raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
+
+        # **After the guard, deliberately.** `test_searching_a_closed_engine_
+        # is_refused_without_a_cache` asserts the shutdown check is the first
+        # thing this method executes, and it is right to: everything below is
+        # unsafe once the executor is gone, and a line above it is a line that
+        # runs on a window that has already disappeared.
+        policy = policy or for_surface(SEARCH)
 
         started = time.perf_counter()
         timings: dict[str, float] = {}
@@ -666,7 +684,11 @@ class SearchEngine:
                 "Results were not reranked, so their order is weaker than "
                 "usual. Search is otherwise unaffected.",
             ))
-        response.notices = tuple(notices)
+        # §2c. **The same facts, in the register this surface asked for.**
+        # The codes are untouched - they are what the UI branches on, and a
+        # notice that changed its identity to change its wording would be one
+        # the window stopped recognising.
+        response.notices = for_register(tuple(notices), policy.notice_register)
 
         if use_cache and self.cache is not None:
             self._cache_set(cache_key, response)

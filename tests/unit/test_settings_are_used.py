@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -54,7 +55,20 @@ DECLARING = {
     "indexing_settings.py", "search_box.py", "storage_box.py",
     "window_box.py", "model_box.py", "file_types.py", "settings_view.py",
     "environment_box.py", "roots_box.py", "code_types_box.py",
+    "search_behaviour_box.py",
 }
+
+#: Names that reach a setting **as a literal string** rather than by attribute
+#: access.
+#:
+#: `policy.preferences` walks `SETTING_FIELDS` and calls `getattr(settings,
+#: field)` with a loop variable, which no AST scanner can see - the same trap
+#: the tuning screen's spin boxes fell into with `setObjectName`. So the
+#: literal keys of that table count: a `"search_fix_spelling"` written down in
+#: `app/` is evidence the value is reached, which is all this test claims.
+def _literal_strings(tree: Any) -> set:
+    return {node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)}
 
 #: Settings whose control exists before the behaviour behind it does.
 #:
@@ -99,7 +113,7 @@ def _mentions() -> dict[str, set[str]]:
                             names.add(argument.value)
             elif isinstance(node, ast.Name):
                 names.add(node.id)
-        found[str(path.relative_to(ROOT))] = names
+        found[str(path.relative_to(ROOT))] = names | _literal_strings(tree)
     return found
 
 

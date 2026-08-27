@@ -1,0 +1,238 @@
+r"""What search may do for you — six switches, and what each tab does with them.
+
+Layer: L6 (UI)
+
+**A switch and a grid, and the grid is the honest half.** Six switches on their
+own would be a lie by omission: "Fix obvious spelling" is on, and it still does
+nothing on the Code tab, because a misspelt identifier may be exactly what is
+in the codebase. Somebody who switches it on and finds no correction there has
+been misled by a control that was telling the truth.
+
+So the grid shows the *effect* per tab, read straight from
+`app/search/policy.py`. It is not editable: what a person controls is whether a
+behaviour is allowed at all, and each tab's contract is a design decision this
+application stands behind. Making every cell editable would be twenty-four
+controls in place of six, and twenty-three of them would be wrong to change.
+
+**"Reset search behaviour to defaults" is one click**, the sibling of Index
+Tuning's Return to automatic. Support at a distance depends on it: "press that
+button and tell me what happens" is a sentence somebody can follow over the
+telephone, and the alternative is six.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.search.policy import (
+    BEHAVIOURS,
+    SAFETY,
+    SURFACE_LABELS,
+    SURFACES,
+    for_surface,
+)
+
+__all__ = ["SearchBehaviourBox"]
+
+#: `behaviour -> registry key`. Written out because the two names differ on
+#: purpose - see `policy.SETTING_FIELDS` for the same reasoning.
+_KEYS = {
+    "typo_correction": "SEARCH_FIX_SPELLING",
+    "relax_on_empty": "SEARCH_RELAX_ON_EMPTY",
+    "auto_chips": "SEARCH_AUTO_CHIPS",
+    "recency_blend": "SEARCH_RECENCY_BLEND",
+    "version_folding": "SEARCH_VERSION_FOLDING",
+    "notice_register": "SEARCH_PLAIN_WORDS",
+}
+
+
+def _cell(value: Any) -> str:
+    """One grid cell: what this behaviour does on this tab, in two words.
+
+    Words rather than ticks. A tick means "on", and three of these have a third
+    state - *suggest* - which is the whole difference between the universal tab
+    and the power ones. A column of ticks would hide exactly the distinction
+    the grid exists to show.
+    """
+    if value in (True, "plain"):
+        return "Yes"
+    if value in (False, "off", "technical"):
+        return "No"
+    return str(value).capitalize()
+
+
+class SearchBehaviourBox(QGroupBox):
+    """The six switches, the effect grid, and the reset."""
+
+    #: `{registry key: value}` - the shape `_settings_changed` writes.
+    changed = pyqtSignal(dict)
+
+    def __init__(self, settings: Any = None,
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__("What search may do for you", parent)
+
+        self.controls: dict = {}
+        form = QFormLayout()
+
+        for name, label, help_text in BEHAVIOURS:
+            if name == "typo_correction":
+                control: Any = QComboBox()
+                control.addItem("Use the closest word and say so", "auto")
+                control.addItem("Suggest it, change nothing", "suggest")
+                control.addItem("Never", "off")
+                control.currentIndexChanged.connect(
+                    lambda _i: self._emit())
+                form.addRow(label, control)
+            else:
+                control = QCheckBox(label)
+                control.stateChanged.connect(lambda _s: self._emit())
+                form.addRow(control)
+            control.setObjectName(_KEYS[name])
+            control.setToolTip(help_text)
+            self.controls[name] = control
+
+        # Object names, spelled out as literals so `test_settings_reachable`
+        # can find them: it greps the source rather than building the widget,
+        # which is what lets it run on a machine with no display. Naming them
+        # from `_KEYS` above works at runtime and is invisible to that test -
+        # the same trap the tuning screen's AutoSpin fell into.
+        self.controls["typo_correction"].setObjectName("SEARCH_FIX_SPELLING")
+        self.controls["relax_on_empty"].setObjectName("SEARCH_RELAX_ON_EMPTY")
+        self.controls["auto_chips"].setObjectName("SEARCH_AUTO_CHIPS")
+        self.controls["recency_blend"].setObjectName("SEARCH_RECENCY_BLEND")
+        self.controls["version_folding"].setObjectName("SEARCH_VERSION_FOLDING")
+        self.controls["notice_register"].setObjectName("SEARCH_PLAIN_WORDS")
+
+        self.grid = self._build_grid()
+
+        self.reset = QPushButton("Reset search behaviour to defaults")
+        self.reset.setObjectName("reset-search-behaviour")
+        self.reset.setToolTip(
+            "Put all six back to how they arrived. Nothing else changes - "
+            "your folders, your index and everything you have found stay "
+            "exactly as they are.")
+        self.reset.clicked.connect(lambda _c=False: self.restore_defaults())
+
+        note = QLabel("Each tab uses these differently, and the table shows "
+                      "how. Switching one off here switches it off "
+                      "everywhere.\n\n" + "\n".join(f"• {line}"
+                                                    for line in SAFETY))
+        note.setWordWrap(True)
+        note.setObjectName("searchBehaviourNote")
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.grid)
+        layout.addWidget(self.reset)
+        layout.addWidget(note)
+
+        if settings is not None:
+            self.load(settings)
+
+    # -- the grid ------------------------------------------------------------
+
+    def _build_grid(self) -> QTableWidget:
+        """One row per behaviour, one column per tab, read from the policy."""
+        grid = QTableWidget(len(BEHAVIOURS), len(SURFACES) + 1, self)
+        grid.setObjectName("searchBehaviourGrid")
+        grid.setHorizontalHeaderLabels(
+            ["Behaviour"] + [SURFACE_LABELS[name] for name in SURFACES])
+        grid.verticalHeader().setVisible(False)
+        # Read-only on purpose: what somebody controls is whether a behaviour
+        # is allowed at all. Each tab's contract is a decision this
+        # application stands behind, and twenty-four editable cells would be
+        # twenty-three ways to make search worse.
+        grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        grid.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+
+        policies = {name: for_surface(name) for name in SURFACES}
+        for row, (name, label, _help) in enumerate(BEHAVIOURS):
+            grid.setItem(row, 0, QTableWidgetItem(label))
+            for column, surface in enumerate(SURFACES, start=1):
+                value = getattr(policies[surface], name, None)
+                grid.setItem(row, column, QTableWidgetItem(_cell(value)))
+        grid.resizeColumnsToContents()
+        return grid
+
+    # -- state ---------------------------------------------------------------
+
+    def load(self, settings: Any) -> None:
+        """Fill from Settings without emitting on the way in."""
+        for name, control in self.controls.items():
+            control.blockSignals(True)
+        try:
+            found = self.controls["typo_correction"].findData(
+                str(getattr(settings, "search_fix_spelling", "auto") or "auto"))
+            self.controls["typo_correction"].setCurrentIndex(
+                found if found >= 0 else 0)
+            for name, field in (
+                ("relax_on_empty", "search_relax_on_empty"),
+                ("auto_chips", "search_auto_chips"),
+                ("recency_blend", "search_recency_blend"),
+                ("version_folding", "search_version_folding"),
+                ("notice_register", "search_plain_words"),
+            ):
+                self.controls[name].setChecked(
+                    bool(getattr(settings, field, True)))
+        finally:
+            for control in self.controls.values():
+                control.blockSignals(False)
+
+    def values(self) -> dict:
+        """`{registry key: value}` for the writer.
+
+        **Spelled out rather than built from `_KEYS`.** A loop is shorter and
+        invisible to `test_settings_reachable`, which greps the source for the
+        key so that it can run on a machine with no display - and a control
+        that test cannot see is a control that can quietly stop saving. Six
+        literal lines is the price of the guard having teeth.
+        """
+        return {
+            "SEARCH_FIX_SPELLING": str(
+                self.controls["typo_correction"].currentData() or "auto"),
+            "SEARCH_RELAX_ON_EMPTY": bool(
+                self.controls["relax_on_empty"].isChecked()),
+            "SEARCH_AUTO_CHIPS": bool(self.controls["auto_chips"].isChecked()),
+            "SEARCH_RECENCY_BLEND": bool(
+                self.controls["recency_blend"].isChecked()),
+            "SEARCH_VERSION_FOLDING": bool(
+                self.controls["version_folding"].isChecked()),
+            "SEARCH_PLAIN_WORDS": bool(
+                self.controls["notice_register"].isChecked()),
+        }
+
+    def restore_defaults(self) -> None:
+        """All six back to how they arrived, in one click.
+
+        **Nothing else changes**, and the tooltip says so: somebody reaching
+        for a reset button while search is behaving oddly needs to know it will
+        not touch their index. That fear is why reset buttons go unpressed.
+        """
+        for control in self.controls.values():
+            control.blockSignals(True)
+        try:
+            self.controls["typo_correction"].setCurrentIndex(0)
+            for name in ("relax_on_empty", "auto_chips", "recency_blend",
+                         "version_folding", "notice_register"):
+                self.controls[name].setChecked(True)
+        finally:
+            for control in self.controls.values():
+                control.blockSignals(False)
+        self._emit()
+
+    def _emit(self) -> None:
+        self.changed.emit(self.values())

@@ -137,13 +137,35 @@ def test_keyword_hits_with_no_vectors_produces_a_notice(engine):
 
 
 def test_the_notice_says_what_still_works_and_how_to_fix_it(engine):
-    """A warning without an action is a warning somebody has to research."""
-    response = engine.search("pump station")
+    r"""A warning without an action is a warning somebody has to research.
+
+    **Asked for the technical register explicitly**, because that is the one
+    naming `reembed` - and naming a command is exactly what the plain register
+    must not do. Since the search-experience order the engine's default is
+    plain, so a test that wants the developer's wording has to say so; before
+    that it got it by accident, which is why it started failing rather than
+    silently checking the wrong thing.
+    """
+    from app.search.policy import CODE, for_surface
+
+    response = engine.search("pump station", policy=for_surface(CODE))
 
     message = next(n.message for n in response.notices
                    if n.code == NOTICE_NO_VECTORS)
     assert "keyword" in message.lower(), "it must say what still works"
     assert "reembed" in message, "it must name the remedy"
+
+
+def test_the_same_notice_in_plain_words_names_no_command(engine):
+    """The universal surface's half of the same fact. A child who reads it
+    learns that something is off and that nothing is broken - not that the fix
+    involves a command line she does not have."""
+    response = engine.search("pump station")
+
+    message = next(n.message for n in response.notices
+                   if n.code == NOTICE_NO_VECTORS)
+    assert "reembed" not in message and "app.cli" not in message
+    assert "word matches" in message.lower(), "it still says what still works"
 
 
 def test_a_query_that_matches_nothing_gets_no_vector_notice(engine):
