@@ -176,6 +176,7 @@
     <Compile Include="app\ui\files_view.py" />
     <Compile Include="app\ui\first_contact.py" />
     <Compile Include="app\ui\grammars.py" />
+    <Compile Include="app\ui\hotkey.py" />
     <Compile Include="app\ui\indexing_settings.py" />
     <Compile Include="app\ui\indexing_view.py" />
     <Compile Include="app\ui\log_lines.py" />
@@ -223,6 +224,7 @@
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
+    <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
@@ -340,6 +342,7 @@
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
+    <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />

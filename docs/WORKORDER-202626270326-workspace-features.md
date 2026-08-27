@@ -1,6 +1,6 @@
 # Work order (One thread): workspace features — pop-outs, viewers, and the tools around search
 
-**Doc version:** 1.2 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + preview loader + extract/converter + install docs)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626270157-search-experience.md`.
@@ -69,7 +69,7 @@ allowed and expected — compare falls out for free.
 
 ## 3. The workspace around results
 
-- [ ] **3a Global-hotkey mini-search**: a system-wide shortcut (default
+- [x] **3a Global-hotkey mini-search**: a system-wide shortcut (default
   chosen by the thread, changeable in Settings, conflicts detected) opens a
   small stay-on-top search box from the tray — type, pick, Enter opens the
   document, box vanishes. It runs the Search-tab policy (the kid-safe
@@ -158,7 +158,7 @@ allowed and expected — compare falls out for free.
 - [ ] viewers: each new kind routed correctly; spreadsheet cap line; full-
   layout cache hit on second open; suffix sets consistent between indexer
   and preview (the `.tiff` class of drift, as a test).
-- [ ] mini-search: hotkey conflict fallback; opens/dispatches/closes without
+- [x] mini-search: hotkey conflict fallback; opens/dispatches/closes without
   the main window shown; runs the Search-tab policy.
 - [ ] drag-out: a dropped file lands as a real path; pinned set survives a
   restart.
@@ -305,3 +305,59 @@ that never hides. `isHidden()` is the question actually being asked.
 
 Not verified on Windows, and the order says this is where Linux lies: window
 flags (stay-on-top), the print dialog, and Ctrl+wheel over a real trackpad.
+
+## Note on §3a, added 2026-08-28
+
+**Qt has no global hotkey, and that is not an oversight** — a shortcut that
+fires while another application has focus is an operating-system service, not
+a widget one. Windows offers `RegisterHotKey`, reached through **ctypes rather
+than pywin32**, for the reason `single_instance.py` records: pywin32 is
+optional, needed only for PST ingestion, and the feature the whole product is
+demonstrated with must not depend on an optional package.
+
+**A conflict is reported, never swallowed.** `RegisterHotKey` failing because
+something else owns the combination is the single most likely thing to happen
+on a real machine, and a shortcut that silently does not work is
+indistinguishable from a broken application. Settings carries a plain sentence
+under the box saying whether the operating system granted it.
+
+**`MOD_NOREPEAT`, and it is not a detail.** Without it, holding the
+combination fires dozens of times a second and each one opens the box and
+takes focus — a keyboard held a moment too long becomes a machine that cannot
+be typed on.
+
+**`Ctrl+Alt+L`, and the letter is the point.** The obvious candidates are all
+taken: `Ctrl+Space` is the IME switch on any machine with a second keyboard
+layout, `Win+S` is Windows' own search, `Ctrl+Shift+F` is find-in-files in
+every editor a developer has open. Being wrong here costs one trip to Settings
+rather than a shortcut that fights something else all day.
+
+**One canonical spelling.** `Alt+Ctrl+L` and `Ctrl+Alt+L` are one shortcut,
+and two spellings in Settings would be two rows nobody can tell apart — the
+same reasoning saved searches needed for names.
+
+**The box runs the Search tab's policy by name**, per §3a: somebody who
+summoned it from inside Excel is the least likely person to be in the mood to
+debug a query. Seven rows, a deliberate ceiling rather than a screenful — this
+is *"the thing I was thinking of, now"*, and a list long enough to scroll is
+one somebody reads instead of recognises. A row says what it is and where it
+lives and nothing else; a snippet would make it three lines tall and turn a
+recogniser into a reader.
+
+Escape closes it, clicking away closes it, choosing closes it, and it holds
+nothing afterwards — a box that reopened showing the last search would be
+showing somebody else's question on a machine anyone might walk past. Enter
+with nothing found hands the query to the main window instead of doing
+nothing: somebody who pressed Enter meant something to happen.
+
+**A third instance of one recurring mistake, recorded because it keeps
+happening.** A guard grepping for `"win32"` matched the module's own
+explanation of why *not* to use pywin32 — exactly as the `HKEY_LOCAL_MACHINE`
+guard did in the deep-link order, and the `chunk_by_id` one before that. The
+rule that comes out of it: **grep for what the code would do (`import win32`),
+never for the name its own justification contains.**
+
+Not verified on Windows, and this is the item where that matters most: the
+registration, the conflict path and the `WM_HOTKEY` filter are all Windows,
+and Linux cannot say anything about them. Worth pressing the combination once
+with Leasha minimised to the tray.

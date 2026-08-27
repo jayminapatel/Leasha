@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.94 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.95 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Search from anywhere with a shortcut
+
+- **Press Ctrl+Alt+L in any application** and a small search box appears.
+  Type, press Enter, the document opens, the box is gone.
+- Escape or clicking away closes it, and it never keeps what you typed.
+- Change the shortcut in Settings → Search, or switch it off. If another
+  program is already using the combination, Leasha says so rather than
+  leaving you with a key that does nothing.
+- Press Enter with nothing found and the full window opens with your search
+  already in it.
+
 
 ## Pin a document in its own window
 

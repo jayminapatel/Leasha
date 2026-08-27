@@ -258,6 +258,11 @@ class MainWindow(QMainWindow):
         #: whole point. Held so Qt does not collect them the moment the local
         #: name goes out of scope, which is how a window flashes and vanishes.
         self._pinned: list = []
+        #: Workspace §3a. The box a global shortcut opens, and the listener
+        #: that holds the shortcut. Built lazily - a person who never presses
+        #: it never pays for it.
+        self._mini: Any = None
+        self._hotkey: Any = None
         self.settings_view.debug_pane.file_chosen.connect(self._open_path)
         self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
         self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
@@ -291,6 +296,7 @@ class MainWindow(QMainWindow):
         # once and pushed to the view - `Settings` belongs to the window, and a
         # view that reaches for one has to be given one in every test.
         self._apply_search_preferences()
+        self._apply_hotkey()
         self.settings_view.environment.recording.setChecked(self.recorder.enabled)
         self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
         # **Both of these were emitted into nothing.** The rerank switch looked
@@ -834,6 +840,15 @@ class MainWindow(QMainWindow):
                     self._settings_overrides[key.lower()] = value
             self._apply_search_preferences()
 
+        # §3a: the shortcut is re-taken on the spot, because a combination
+        # somebody has just typed and cannot try until the next launch is a
+        # control they will conclude does not work.
+        if any(key.startswith("MINI_SEARCH") for key in values):
+            for key, value in values.items():
+                if key.startswith("MINI_SEARCH"):
+                    self._settings_overrides[key.lower()] = value
+            self._apply_hotkey()
+
         # Reranking is the one that can take effect without a restart, and the
         # one people most want to see change - the rest are read when the thing
         # that uses them next starts.
@@ -1092,6 +1107,64 @@ class MainWindow(QMainWindow):
                 preferences(self._settings, self._settings_overrides))
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("the search behaviours could not be applied: {}", exc)
+
+    # -- §3a: search from anywhere --------------------------------------------
+
+    def _apply_hotkey(self) -> None:
+        r"""Take, or give back, the global shortcut. **Never raises.**
+
+        Called at start-up and whenever the setting changes. The result is
+        pushed back into Settings as a sentence, because a shortcut the
+        operating system refused is otherwise indistinguishable from one that
+        works - and this is the feature the product is demonstrated with.
+        """
+        try:
+            from app.ui.hotkey import HotkeyListener
+
+            overrides = self._settings_overrides
+            wanted = overrides.get(
+                "mini_search_enabled",
+                getattr(self._settings, "mini_search_enabled", True))
+            text = str(overrides.get(
+                "mini_search_hotkey",
+                getattr(self._settings, "mini_search_hotkey", "")) or "")
+
+            if self._hotkey is None:
+                self._hotkey = HotkeyListener()
+            self._hotkey.stop()
+            taken = (self._hotkey.start(text, self._summon_mini)
+                     if wanted else False)
+            box = getattr(self.settings_view, "search_behaviour", None)
+            if box is not None and hasattr(box, "say_hotkey"):
+                box.say_hotkey(text, registered=taken or not wanted)
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.debug("could not set the global shortcut: {}", exc)
+
+    def _summon_mini(self) -> None:
+        """The shortcut was pressed. **Never raises**: this runs from a native
+        event filter, where an exception has nowhere sensible to go."""
+        try:
+            if self._mini is None:
+                from app.ui.widgets.mini_search import MiniSearch
+
+                self._mini = MiniSearch(self._engine)
+                self._mini.chosen.connect(self._open_result)
+                self._mini.expanded.connect(self._search_from_mini)
+            self._mini.summon()
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.warning("could not open the search box: {}", exc)
+
+    def _search_from_mini(self, query: str) -> None:
+        """"Show me all of it": bring the window up with this query in it."""
+        try:
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+            self._show(self.search_view)
+            self.search_view.input.setText(str(query or ""))
+            self.search_view.search_now()
+        except Exception as exc:                 # noqa: BLE001 - never fatal
+            _log.debug("could not expand the mini search: {}", exc)
 
     def _refresh_tuning_status(self) -> None:
         """§5d's status line, and the rates Auto-tune resolves against.

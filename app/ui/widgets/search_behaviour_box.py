@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QLineEdit,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -137,6 +138,34 @@ class SearchBehaviourBox(QGroupBox):
         self.offer_recent.stateChanged.connect(lambda _s: self._emit())
         form.addRow(self.offer_recent)
 
+        # **Workspace §3a.** A global shortcut is the most intrusive thing
+        # this application does to a machine, so it is switchable and its
+        # combination is typed rather than fixed. The line under it says
+        # whether the operating system actually granted it - a shortcut that
+        # silently does not work is indistinguishable from a broken
+        # application.
+        self.mini_search = QCheckBox("Search from anywhere with a shortcut")
+        self.mini_search.setObjectName("MINI_SEARCH_ENABLED")
+        self.mini_search.setToolTip(
+            "Press the shortcut in any application and a small search box "
+            "appears. Type, press Enter, and the document opens.")
+        self.mini_search.stateChanged.connect(lambda _s: self._emit())
+        form.addRow(self.mini_search)
+
+        self.mini_hotkey = QLineEdit()
+        self.mini_hotkey.setObjectName("MINI_SEARCH_HOTKEY")
+        self.mini_hotkey.setToolTip(
+            "Something like Ctrl+Alt+L. It needs at least one of Ctrl, Alt, "
+            "Shift or Win. If another program is already using it, Leasha "
+            "says so and nothing changes.")
+        self.mini_hotkey.editingFinished.connect(self._emit)
+        form.addRow("The shortcut that opens it", self.mini_hotkey)
+
+        self.mini_status = QLabel("")
+        self.mini_status.setObjectName("settingsHint")
+        self.mini_status.setWordWrap(True)
+        form.addRow("", self.mini_status)
+
         self.grid = self._build_grid()
 
         self.reset = QPushButton("Reset search behaviour to defaults")
@@ -217,6 +246,19 @@ class SearchBehaviourBox(QGroupBox):
             self.offer_recent.setChecked(
                 bool(getattr(settings, "search_offer_recent", True)))
             self.offer_recent.blockSignals(False)
+            for control, value in (
+                (self.mini_search,
+                 bool(getattr(settings, "mini_search_enabled", True))),
+                (self.mini_hotkey,
+                 str(getattr(settings, "mini_search_hotkey", "") or "")),
+            ):
+                control.blockSignals(True)
+                if isinstance(value, bool):
+                    control.setChecked(value)
+                else:
+                    control.setText(value)
+                control.blockSignals(False)
+            self.say_hotkey(getattr(settings, "mini_search_hotkey", ""))
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)
@@ -245,6 +287,8 @@ class SearchBehaviourBox(QGroupBox):
             "SEARCH_EXPLAIN_RESULTS": bool(
                 self.controls["explain_results"].isChecked()),
             "SEARCH_OFFER_RECENT": bool(self.offer_recent.isChecked()),
+            "MINI_SEARCH_ENABLED": bool(self.mini_search.isChecked()),
+            "MINI_SEARCH_HOTKEY": self.mini_hotkey.text().strip(),
         }
 
     def restore_defaults(self) -> None:
@@ -269,6 +313,16 @@ class SearchBehaviourBox(QGroupBox):
             for control in self.controls.values():
                 control.blockSignals(False)
         self._emit()
+
+    def say_hotkey(self, text: Any, *, registered: bool = True) -> None:
+        """Put the plain sentence about the shortcut under the box.
+
+        Pushed in by the window, because whether the operating system granted
+        the combination is something only the thing that asked for it knows.
+        """
+        from app.ui.hotkey import describe
+
+        self.mini_status.setText(describe(text, registered=registered))
 
     def _emit(self) -> None:
         self.changed.emit(self.values())

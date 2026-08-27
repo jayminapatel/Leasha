@@ -166,6 +166,14 @@ class Settings(BaseModel):
     #: person, on a shared screen, and "off" has to be one click rather than
     #: an argument.
     search_offer_recent: bool = True
+    #: Workspace §3a. The combination that opens the small search box from
+    #: anywhere, and whether to take it at all.
+    #:
+    #: **Off-able, like every behaviour** - a global shortcut is the most
+    #: intrusive thing this application does to a machine, and somebody who
+    #: does not want one must not have to guess how to stop it.
+    mini_search_enabled: bool = True
+    mini_search_hotkey: str = "Ctrl+Alt+L"
 
     #: Which editor a code result opens in, and the command if it is not one
     #: this knows. `auto` picks the first installed from `ui/editors.py`.
@@ -349,6 +357,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_PLAIN_WORDS",
     "SEARCH_EXPLAIN_RESULTS",
     "SEARCH_OFFER_RECENT",
+    "MINI_SEARCH_ENABLED",
+    "MINI_SEARCH_HOTKEY",
     "CODE_EDITOR",
     "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
@@ -482,6 +492,11 @@ def load_settings(
             search_offer_recent=_as_bool(
                 "SEARCH_OFFER_RECENT",
                 values.get("SEARCH_OFFER_RECENT", "true")),
+            mini_search_enabled=_as_bool(
+                "MINI_SEARCH_ENABLED",
+                values.get("MINI_SEARCH_ENABLED", "true")),
+            mini_search_hotkey=(
+                values.get("MINI_SEARCH_HOTKEY") or "Ctrl+Alt+L").strip(),
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",

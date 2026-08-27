@@ -182,6 +182,20 @@ SETTINGS: tuple[Setting, ...] = (
              "screen other people can see.",
     ),
     Setting(
+        key="MINI_SEARCH_ENABLED", label="Search from anywhere with a shortcut",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Press the shortcut in any application and a small search box "
+             "appears. Type, press Enter, and the document opens.",
+    ),
+    Setting(
+        key="MINI_SEARCH_HOTKEY", label="The shortcut that opens it",
+        kind="text", default="Ctrl+Alt+L", group="Search",
+        surface="settings.search",
+        help="Something like Ctrl+Alt+L. It needs at least one of Ctrl, Alt, "
+             "Shift or Win. If another program is already using it, Leasha "
+             "says so and nothing changes.",
+    ),
+    Setting(
         key="CODE_EDITOR", label="Open code results in", kind="choice",
         default="auto", group="Search", surface="settings.search",
         choices=("auto", "vscode", "cursor", "vscodium", "sublime",
