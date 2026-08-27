@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.search.commands import COMMANDS, Command
+from app.search.commands import ACTIONS, COMMANDS, Command
 from app.search.gitquery import GIT_COMMANDS
 from app.ui.presenter import CODE_COMMANDS
 
@@ -50,6 +50,9 @@ __all__ = [
     "CODE_CATALOGUE",
     "code_command_for",
     "code_matching",
+    "SEARCH_CATALOGUE",
+    "search_command_for",
+    "search_matching",
 ]
 
 
@@ -125,3 +128,40 @@ def git_values(repos: Any, text: str, kind: str, prefix: str, limit: int) -> lis
 
 #: The Code tab's spelling of the same function.
 code_matching = catalogue_matching
+
+
+# ---------------------------------------------------------------------------
+# Adoptions §3 — the search box offers one row the Code box does not
+# ---------------------------------------------------------------------------
+
+#: `ALL_CATALOGUE`, plus the actions. **The search box only.**
+#:
+#: A saved search carries a scope and re-runs through the main engine, and the
+#: Code box has neither - so offering `/saved` there would be a menu row that
+#: quietly does nothing, which is the exact failure the note at the top of
+#: `command_popup.py` exists to prevent and the reason `_only` exists at all.
+#:
+#: Kept here rather than in `commands.py` because this is the *merged* list -
+#: index switches, git switches and now actions - and there is one place that
+#: merges.
+SEARCH_CATALOGUE: tuple[Command, ...] = ALL_CATALOGUE + ACTIONS
+
+_SEARCH_BY_SPELLING = dict(_BY_SPELLING)
+_SEARCH_BY_SPELLING.update(
+    {spelling: command for command in ACTIONS
+     for spelling in command.spellings})
+
+
+def search_command_for(name: str) -> Optional[Command]:
+    """`catalogue_command_for`, and the actions as well."""
+    return _SEARCH_BY_SPELLING.get(
+        str(name).strip().lower().lstrip("/").rstrip(":"))
+
+
+def search_matching(prefix: str) -> list[Command]:
+    """`catalogue_matching`, over the list that includes the actions."""
+    wanted = str(prefix or "").strip().lower().lstrip("/")
+    if not wanted:
+        return list(SEARCH_CATALOGUE)
+    return [command for command in SEARCH_CATALOGUE
+            if any(spelling.startswith(wanted) for spelling in command.spellings)]

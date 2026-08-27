@@ -38,8 +38,11 @@ from typing import Optional
 __all__ = [
     "Command",
     "COMMANDS",
+    "ACTIONS",
+    "WITH_ACTIONS",
     "command_for",
     "matching",
+    "matching_all",
     "expand_slashes",
     "help_lines",
     "grammar_for_model",
@@ -250,6 +253,39 @@ COMMANDS: tuple[Command, ...] = (
     ),
 )
 
+#: Things the search box understands that are **not filters**. Adoptions §3.
+#:
+#: **Kept out of `COMMANDS` on purpose.** That tuple has a test asserting it
+#: matches `_FIELD_ALIASES` in `query.py` exactly - offered and parsed must be
+#: the same set - and `saved:` is neither. It is an *expansion*: it stands for
+#: a query somebody stored, and `saved.expand_saved` replaces it with that
+#: query before the parser is ever called, exactly as `expand_slashes` rewrites
+#: `/type pdf` first. Putting it in `COMMANDS` would have meant either breaking
+#: that test or teaching the parser a field that never survives to reach it.
+#:
+#: Same shape as a `Command`, because everything that reads one - the dropdown,
+#: `_hint`, `value_rows` - should not have to learn a second type to show one
+#: extra row.
+ACTIONS: tuple[Command, ...] = (
+    Command(
+        name="saved",
+        aliases=(),
+        summary="Run a search you saved",
+        example="/saved invoices",
+        value_hint="a name you saved; the search runs again, live",
+        icon="★",
+        source="saved",
+    ),
+)
+
+#: What a box offers when it offers everything: the filters, then the actions.
+#:
+#: Actions last, because the filters are the answer to "what can I type here"
+#: and a saved search is the answer to "what did I type before" - which is a
+#: question somebody only has once they have typed something worth saving.
+WITH_ACTIONS: tuple[Command, ...] = COMMANDS + ACTIONS
+
+
 #: Not filters, but the other two things the search box understands. Listed in
 #: the dropdown because a person looking for "how do I search" wants all of it
 #: in one place, and these are the two most useful and least guessable.
@@ -272,7 +308,8 @@ EXTRAS: tuple[tuple[str, str, str], ...] = (
 VALUELESS = frozenset({"newest", "latest", "oldest"})
 
 _BY_SPELLING = {
-    spelling: command for command in COMMANDS for spelling in command.spellings
+    spelling: command
+    for command in WITH_ACTIONS for spelling in command.spellings
 }
 
 #: `/name value` at a word boundary. The value is optional so a half-typed
@@ -285,19 +322,29 @@ def command_for(name: str) -> Optional[Command]:
     return _BY_SPELLING.get(name.strip().lower().lstrip("/").rstrip(":"))
 
 
-def matching(prefix: str) -> list[Command]:
+def matching(prefix: str, catalogue: Optional[tuple] = None) -> list[Command]:
     """Commands whose name or alias starts with `prefix`. For the dropdown.
 
     An empty prefix returns everything, which is what typing a bare `/` should
     show: the point is discovery, so the first keystroke reveals the whole set.
+
+    `catalogue` defaults to the filters alone. A box that also offers actions
+    passes `WITH_ACTIONS` - or uses `matching_all`, which is the same thing
+    with a name a caller can pass around as a matcher.
     """
+    offered = COMMANDS if catalogue is None else tuple(catalogue)
     cleaned = prefix.strip().lower().lstrip("/")
     if not cleaned:
-        return list(COMMANDS)
+        return list(offered)
     return [
-        command for command in COMMANDS
+        command for command in offered
         if any(spelling.startswith(cleaned) for spelling in command.spellings)
     ]
+
+
+def matching_all(prefix: str) -> list[Command]:
+    """`matching`, over the filters and the actions. Adoptions §3."""
+    return matching(prefix, WITH_ACTIONS)
 
 
 def expand_slashes(text: str) -> str:

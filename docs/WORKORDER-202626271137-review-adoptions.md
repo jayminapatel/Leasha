@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.2 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -40,13 +40,13 @@ these seven.
 
 ## 3. Saved searches
 
-- [ ] **3a** save the current query (text + chips + scope) under a name;
+- [x] **3a** save the current query (text + chips + scope) under a name;
   saved searches listed on the empty-focused search box beneath recent
   searches, and in the `/` menu (`/saved <name>` — values with counts via
   the existing machinery). Run = re-execute live (a smart folder, not a
   snapshot). Rename/delete; stored in the app's own state (one small
   table); per-account like everything.
-- [ ] **3b** no auto-saving, no suggestions to save — the user saves
+- [x] **3b** no auto-saving, no suggestions to save — the user saves
   (manual-model instinct). Export/import rides the settings story later.
   *Prerequisite: none.*
 
@@ -185,3 +185,61 @@ the filename, which would itself have failed on a file with no extension.
 rows show filename, folder, when" was marked already-true on the strength of
 `when` existing as a field. It existed and was always empty — the second time
 this session I checked a field rather than a value. The §2e note now says so.
+
+## Note on §3, added 2026-08-28
+
+**A query, not a result set — and the test says so literally.** *Run =
+re-execute live (a smart folder, not a snapshot)* is the sentence the whole
+design turns on, so `test_running_a_saved_search_finds_documents_indexed_
+after_it_was_saved` indexes a second document *after* the save and asserts it
+comes back. A stored list of ids would have been less code and would have
+passed every other test in the file.
+
+**`saved:name` is an expansion, not a filter, and that decided where it
+lives.** `COMMANDS` in `commands.py` has a test asserting it matches
+`_FIELD_ALIASES` in the parser exactly — offered and parsed are one set — and
+`saved:` is neither. It is replaced by the query it stands for *before*
+`parse_query` is called, exactly as `/type pdf` becomes `type:pdf` first. So
+it went into a new `ACTIONS` tuple beside `COMMANDS`, and the search box's
+catalogue is `SEARCH_CATALOGUE = ALL_CATALOGUE + ACTIONS`. **The Code box does
+not get it**: it has no scope and does not run the main engine, so the row
+would open, complete, and quietly search for two words — the "menu row that
+does nothing" failure `command_popup.py` opens by warning against.
+
+**Expanded in place.** `saved:weekly leeds` is the saved query *plus* leeds.
+Replacing the whole box would throw away something the person just typed, and
+no sentence on screen makes that feel right. A name nobody saved is **left
+exactly as typed**, the rule `expand_slashes` follows for an unknown `/word`.
+
+**The count in the menu is runs, not files.** "Values with counts via the
+existing machinery" is `distinct_value_counts`, and the honest number there is
+how often the search has been run: counting matching files would mean running
+every saved search behind a keystroke, which is the unbounded work that method
+exists to keep out. `VALUE_NOUNS["saved"] = "runs"`, so the row reads
+`invoices   2 runs` — and it is also the more useful number, because it puts
+the search somebody runs every Monday at the top.
+
+**Schema v15**, one small table. `name_lc` is folded in **Python**, for the
+reason v14 needed a whole column: `SELECT lower('JOSÉ')` returns `josÉ` in
+SQLite, so no SQL-side fold can carry a `UNIQUE` constraint over a name. The
+test measures that rather than asserting it from memory.
+
+**Where it went, and why the view barely changed.** `search_view.py` was at
+247 of the 250 code lines the presenter guard allows, so everything that is
+not a widget lives in `app/ui/saved_box.py`: which list is current, when it is
+re-read, what a token expands to, what the empty box offers. The view gained
+two lines and one replaced line, and is now at **249** — the next item
+touching it has to extract something first.
+
+**§3b is honoured by omission and asserted anyway.** Nothing writes to the
+table except `save_search`, and `test_nothing_is_ever_saved_without_being_
+asked` logs a search and checks the saved list is still empty — because
+`searches` has held every query since Layer 4, and a saved list filled from it
+would be a hundred half-typed queries and worth nothing. `suggest_name` fills
+a box in a dialog the person opened; that is the whole of the automation.
+
+Not done here: the Qt dialog for save/rename/delete, and drawing the two
+sections under the empty box. Both wait on §2e's recent-searches attachment in
+the search-experience order, which is the widget they share — the rules and
+the store side are complete and tested. Export/import rides the settings
+story, as §3b says.

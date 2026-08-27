@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 14
+CURRENT_VERSION = 15
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -803,6 +803,46 @@ def _v13_repair_indexes(conn: sqlite3.Connection) -> None:
             "running `app.cli stats` later will re-analyse.", exc)
 
 
+def _v15_saved_searches(conn: sqlite3.Connection) -> None:
+    r"""One small table for named searches. Adoptions §3.
+
+    **A query, not a result set.** The row holds the text somebody typed and
+    the scope they typed it in, and running it re-executes the search - so a
+    saved search is a smart folder rather than a snapshot, and a file indexed
+    tomorrow appears in it without anybody re-saving anything. Storing the
+    result ids instead would have been less code and a feature that silently
+    goes stale, which is the worse of the two by a distance.
+
+    **`name_lc` is folded in Python, for the reason v14 records at length.**
+    SQLite's `LOWER()` is ASCII-only and `UNIQUE` on the raw name would let
+    `Leeds` and `leeds` both exist - two rows nobody can tell apart in a menu.
+    The folded copy carries the uniqueness; the typed spelling is what is
+    shown, because showing somebody their own name back in a different case
+    reads as a correction.
+
+    Additive, and nothing else in the schema refers to it: a database that
+    fails to gain this table loses saved searches and keeps every document.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS saved_searches (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT    NOT NULL,
+            name_lc     TEXT    NOT NULL UNIQUE,
+            query       TEXT    NOT NULL,
+            scope       TEXT    NOT NULL DEFAULT 'all',
+            created_at  INTEGER NOT NULL,
+            run_count   INTEGER NOT NULL DEFAULT 0,
+            last_run_at INTEGER
+        );
+
+        -- The menu orders by how often a search is actually run, so that is
+        -- the column the menu's ORDER BY has to be able to walk. Forty rows
+        -- would not need it; it costs nothing and removes the question.
+        CREATE INDEX IF NOT EXISTS idx_saved_run_count
+            ON saved_searches(run_count DESC, name);
+    """)
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -828,6 +868,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     12: _v12_quoted_removed,
     13: _v13_repair_indexes,
     14: _v14_folded_mail_columns,
+    15: _v15_saved_searches,
 }
 
 

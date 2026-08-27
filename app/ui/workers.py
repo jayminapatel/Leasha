@@ -408,6 +408,52 @@ def recent_searches_async(store: Any, on_ready: Callable,
     run(QThreadPool.globalInstance(), worker)
 
 
+def saved_searches_async(store: Any, on_ready: Callable) -> None:
+    r"""The saved searches, off the interface thread. Adoptions §3.
+
+    **Fetched once and kept, because it is read on the search path.** The list
+    is what `saved.expand_saved` resolves `saved:invoices` against, and that
+    happens between a keystroke and a search - so the caller holds the answer
+    and refreshes it when it changes, rather than asking the database in the
+    one place this project has a standing rule against asking it.
+
+    `on_ready` is handed a tuple of `SavedSearch`, most-run first. A failure
+    is swallowed, which costs the saved-search list and nothing else.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.search.saved import ordered
+
+    def fetch() -> tuple:
+        return ordered(store.saved_searches())
+
+    worker = CallableWorker(fetch, component="ui.search.saved")
+    worker.signals.finished.connect(on_ready)
+    run(QThreadPool.globalInstance(), worker)
+
+
+def save_search_async(store: Any, name: str, query: str, scope: str,
+                      on_done: Callable) -> None:
+    """Store a named search, then hand back the refreshed list.
+
+    **One worker for the write and the re-read.** Two would race: the list
+    could come back from a read that started before the write committed, and
+    the search somebody just saved would be missing from the menu they saved
+    it in. That is the kind of bug that gets reported as "it did not save".
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.search.saved import ordered
+
+    def write() -> tuple:
+        store.save_search(name, query, scope)
+        return ordered(store.saved_searches())
+
+    worker = CallableWorker(write, component="ui.search.saved")
+    worker.signals.finished.connect(on_done)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
     """Record that a result was opened, off the interface thread.
 

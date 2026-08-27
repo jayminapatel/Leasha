@@ -1,6 +1,20 @@
 # Changelog
 
-**Doc version:** 3.87 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.88 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Searches you can name and keep
+
+- **Save a search under a name and run it again later.** It re-runs there and
+  then, so anything indexed since you saved it turns up too - it is a standing
+  question, not a photograph of an answer.
+- Type `/saved` in the search box and the names come up, with how many times
+  you have run each, the ones you use most at the top.
+- Rename them, delete them. Nothing is ever saved for you and nothing suggests
+  that you should - the list is yours and stays as short as you keep it.
+- The scope you were searching in is saved too, so a saved mail search comes
+  back as a mail search.
+- Add words after it: `saved:invoices leeds` runs your saved search and looks
+  for leeds inside it.
 
 ## Fixed: results never showed the date
 

@@ -3822,6 +3822,13 @@ VALUE_NOUNS: dict[str, str] = {
     "repo": "files",
     "ext": "files",
     "folder": "files",
+    # **Adoptions §3, and the noun is the whole honesty of the row.** The
+    # number beside a saved search is how many times it has been run, not how
+    # many files it would find - counting the second would mean running every
+    # saved search behind a keystroke. `invoices   12 runs` says what it is;
+    # `invoices   12 files` would be a number somebody would believe and act
+    # on, and it would be wrong.
+    "saved": "runs",
 }
 
 

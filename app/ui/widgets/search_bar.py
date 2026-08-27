@@ -67,8 +67,14 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     # The same list the Code tab uses. One catalogue, because the two boxes now
     # reach the same two engines and a second list would only be somewhere for
     # them to disagree.
+    #
+    # **`SEARCH_CATALOGUE`, not `ALL_CATALOGUE`.** Adoptions §3 adds `/saved`,
+    # which is an action rather than a filter and only this box can run one -
+    # it re-executes through the main engine and carries a scope, and the Code
+    # box has neither. Offering it there would be a row that quietly does
+    # nothing, which this widget's own opening note forbids.
     from app.ui.widgets.code_commands import (
-        ALL_CATALOGUE, catalogue_command_for, catalogue_matching,
+        SEARCH_CATALOGUE, search_command_for, search_matching,
     )
 
     # `store` only makes the *value* half of the menu better - which extensions
@@ -80,8 +86,8 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     # it knows which repository is selected, and this box does not. The grammar's
     # own suggestions still appear, which is the honest half of that menu.
     return box, attach_to(
-        box, store=store, catalogue=ALL_CATALOGUE,
-        matcher=catalogue_matching, resolve=catalogue_command_for,
+        box, store=store, catalogue=SEARCH_CATALOGUE,
+        matcher=search_matching, resolve=search_command_for,
     )
 
 #: (label, value). Value travels into `ParsedQuery.scope`.

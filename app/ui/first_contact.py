@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-__all__ = ["RECENT_LIMIT", "recent", "rows_for", "greeting"]
+__all__ = ["RECENT_LIMIT", "SAVED_LIMIT", "SAVED_HEADING", "RECENT_HEADING",
+           "recent", "rows_for", "greeting", "saved_rows", "sections"]
 
 #: **No placeholder is defined here, and that is a decision.**
 #:
@@ -116,3 +117,75 @@ def rows_for(rows: Any, settings: Any = None) -> Sequence[str]:
     if settings is not None:
         enabled = bool(getattr(settings, "search_offer_recent", True))
     return recent(rows, enabled=enabled)
+
+
+# ---------------------------------------------------------------------------
+# Adoptions §3 — saved searches, under the recent ones
+# ---------------------------------------------------------------------------
+
+#: How many saved searches an empty box offers.
+#:
+#: Larger than `RECENT_LIMIT`, and deliberately: a recent search is one of
+#: hundreds and the list is a sample, while saved searches are a set somebody
+#: **chose**, one at a time, on purpose. Truncating that set is throwing away
+#: the only work the person did to make this feature exist. Eight covers
+#: anybody's real list; past that the `/saved` menu is the right surface and
+#: says so.
+SAVED_LIMIT = 8
+
+#: The two headings. **Words, not styling** - a section anybody has to infer
+#: from a font weight is a section screen readers do not have at all, which is
+#: the same rule the meaning-match marker follows.
+RECENT_HEADING = "Recent"
+SAVED_HEADING = "Saved"
+
+
+def saved_rows(saved: Any, *, limit: int = SAVED_LIMIT,
+               settings: Any = None) -> tuple:
+    r"""`(label, token)` per saved search, most-run first. **Never raises.**
+
+    The label is what is read - `invoices — type:pdf from:accounts` - and the
+    token is what goes in the box: `saved:invoices`, not the query it stands
+    for.
+
+    **The reference, not the text**, and that is §3a's "a smart folder, not a
+    snapshot" made real one level down. Inserting the stored query would put a
+    frozen copy in the box: edit it, press Enter, and you have run something
+    that is no longer the thing you saved, with nothing on screen saying so.
+    The token stays a pointer, so the search that runs is always the one the
+    name currently means.
+    """
+    try:
+        from app.search.saved import ordered, summary
+
+        rows = []
+        for entry in ordered(saved, limit=max(0, int(limit))):
+            note = summary(entry)
+            rows.append(((f"{entry.name} — {note}" if note else entry.name),
+                         entry.as_token()))
+        return tuple(rows)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return ()
+
+
+def sections(rows: Any, saved: Any = None, settings: Any = None) -> tuple:
+    r"""What an empty, focused search box offers: recent first, then saved.
+
+    Returns `((heading, ((label, insert), …)), …)`, skipping any section with
+    nothing in it - a heading over an empty list is a promise the box does not
+    keep.
+
+    **Recent above saved**, which is the order §3a asks for and is also the
+    right one: recent is the answer to "carry on with what I was doing", which
+    is what somebody who has just opened the box is nearly always doing.
+    Saved is deliberate and rarer, and a rare thing at the top of a list is a
+    rare thing in everybody's way.
+    """
+    out = []
+    history = tuple((text, text) for text in rows_for(rows, settings))
+    if history:
+        out.append((RECENT_HEADING, history))
+    stored = saved_rows(saved, settings=settings)
+    if stored:
+        out.append((SAVED_HEADING, stored))
+    return tuple(out)

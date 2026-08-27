@@ -183,6 +183,22 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "repo": _ValueShape(
         "repos r LEFT JOIN files f ON f.repo_id = r.id", "r.name",
         "COUNT(f.id)", "r.name <> ''", "r.id, r.name"),
+    # **The one shape that does not touch `files`, and the one command that
+    # cannot be narrowed.** `/saved` carries no `scoped_by`, so `scope_for`
+    # returns None, so `_scope_sql` appends nothing - which is what makes it
+    # safe for this source to have no `f` to filter on. A `scoped_by` added to
+    # `/saved` later would break that silently, which is why it is said here
+    # rather than left to be noticed.
+    #
+    # The count is how often it has been run, not how many results it would
+    # return: the second is a search, and a menu that runs a search per row
+    # behind a keystroke is the unbounded work this whole method exists to
+    # keep out. Run count is a fact already recorded and is also the more
+    # useful of the two - it is what puts the search you use every Monday at
+    # the top of the list.
+    "saved": _ValueShape(
+        "saved_searches s", "s.name", "s.run_count", "s.name <> ''",
+        "s.id, s.name"),
 }
 
 
@@ -1711,6 +1727,119 @@ class SqliteStore:
             "SELECT * FROM searches ORDER BY searched_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(row) for row in rows]
+
+    # -- saved searches (Adoptions §3) ---------------------------------------
+
+    def save_search(self, name: str, query: str, scope: str = "all") -> bool:
+        r"""Store a named search, replacing one of the same name. False if empty.
+
+        **Replaces rather than refuses.** Saving over a name is what somebody
+        means when they type one they already used - the alternative is an
+        error message about a name they can see on the list in front of them.
+        The run count survives the replacement, because it is a fact about how
+        often they reach for that search and not about the text of it.
+
+        Names are folded and compared by `saved.name_key`, so `Leeds` and
+        `leeds` are one saved search rather than two nobody can tell apart.
+        """
+        from app.search.saved import clean_name, name_key
+
+        cleaned = clean_name(name)
+        text = str(query or "").strip()
+        if not cleaned or not text:
+            return False
+        with self.write() as conn:
+            conn.execute(
+                "INSERT INTO saved_searches "
+                "  (name, name_lc, query, scope, created_at, run_count) "
+                "VALUES (?, ?, ?, ?, ?, 0) "
+                "ON CONFLICT(name_lc) DO UPDATE SET "
+                "  name = excluded.name, query = excluded.query, "
+                "  scope = excluded.scope",
+                (cleaned, name_key(cleaned), text, str(scope or "all"),
+                 int(time.time())),
+            )
+        return True
+
+    def saved_searches(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Every saved search, the ones actually used first.
+
+        Ordered by run count rather than by name or by age: the list is read
+        at a glance and the one somebody wants is nearly always one of the two
+        or three they run every week. Ties break alphabetically, so the order
+        is stable rather than whatever the table happens to return.
+        """
+        rows = self.conn.execute(
+            "SELECT name, query, scope, run_count, created_at, last_run_at "
+            "FROM saved_searches ORDER BY run_count DESC, name COLLATE NOCASE "
+            "LIMIT ?", (max(1, int(limit)),)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def saved_search(self, name: str) -> Optional[dict[str, Any]]:
+        """One saved search by name, or None. Case-insensitive, Unicode-aware."""
+        from app.search.saved import name_key
+
+        key = name_key(name)
+        if not key:
+            return None
+        row = self.conn.execute(
+            "SELECT name, query, scope, run_count, created_at, last_run_at "
+            "FROM saved_searches WHERE name_lc = ?", (key,)).fetchone()
+        return dict(row) if row else None
+
+    def rename_saved_search(self, old: str, new: str) -> bool:
+        """Rename one. False if it does not exist, or the new name is taken.
+
+        **False rather than an exception**, and rather than silently merging
+        two saved searches into one: the caller is a dialog with a name box,
+        and "that name is already used" is something it can say.
+        """
+        from app.search.saved import clean_name, name_key
+
+        cleaned = clean_name(new)
+        if not cleaned or self.saved_search(old) is None:
+            return False
+        key = name_key(cleaned)
+        if key != name_key(old) and self.saved_search(cleaned) is not None:
+            return False
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE saved_searches SET name = ?, name_lc = ? "
+                "WHERE name_lc = ?", (cleaned, key, name_key(old)))
+        return True
+
+    def delete_saved_search(self, name: str) -> bool:
+        """Forget one. False if there was nothing by that name."""
+        from app.search.saved import name_key
+
+        key = name_key(name)
+        if not key:
+            return False
+        with self.write() as conn:
+            cursor = conn.execute(
+                "DELETE FROM saved_searches WHERE name_lc = ?", (key,))
+        return bool(cursor.rowcount)
+
+    def note_saved_search_run(self, name: str) -> None:
+        """Record that this one was just run. **Never raises.**
+
+        The count is what orders the menu, so it has to be written - but it is
+        a convenience, and a locked database during an index run must cost the
+        ordering of a list rather than the search somebody just asked for.
+        """
+        from app.search.saved import name_key
+
+        key = name_key(name)
+        if not key:
+            return
+        try:
+            with self.write() as conn:
+                conn.execute(
+                    "UPDATE saved_searches SET run_count = run_count + 1, "
+                    "last_run_at = ? WHERE name_lc = ?", (int(time.time()), key))
+        except sqlite3.Error as exc:
+            _log.debug("could not record a saved-search run: {}", exc)
 
     @staticmethod
     def _suspend_content_triggers(conn: sqlite3.Connection) -> list[str]:

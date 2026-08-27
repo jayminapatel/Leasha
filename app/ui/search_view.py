@@ -23,7 +23,7 @@ from typing import Any
 from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from app.search.commands import expand_slashes
+from app.ui.saved_box import SavedSearches
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS,
     TYPING_DEBOUNCE_MS,
@@ -109,6 +109,12 @@ class SearchView(QWidget):
             # engine without one is a menu offering the grammar's own values
             # rather than a view that fails to build.
             store=getattr(engine, "store", None))
+
+        # Adoptions §3. Everything about saved searches that is not a widget
+        # lives in `saved_box`, because this file is at the 250-line guard and
+        # the guard is right: a rule written in a view is a rule nothing tests.
+        self.saved = SavedSearches(getattr(engine, "store", None), self.set_scope)
+        self.saved.refresh()
 
         (self.scope, self.interpret_button, self.rerank_toggle,
          self.view_button, self.status) = build_controls(
@@ -231,8 +237,10 @@ class SearchView(QWidget):
 
     def _dispatch(self, tier: str) -> None:
         # `/type pdf` becomes `type:pdf` here, so nothing below this line -
-        # and nothing in the parser - has to know slashes exist.
-        query = expand_slashes(self.input.text().strip())
+        # and nothing in the parser - has to know slashes exist. `saved:name`
+        # becomes the query it stands for at the same moment, and for the same
+        # reason: one doorway, one grammar. See `saved_box.SavedSearches`.
+        query = self.saved.expand(self.input.text())
         if not query:
             self._shown_anything = False
             self._index_count = 0

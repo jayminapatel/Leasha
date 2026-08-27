@@ -151,6 +151,7 @@
     <Compile Include="app\search\relax.py" />
     <Compile Include="app\search\rerank.py" />
     <Compile Include="app\search\rerank_bench.py" />
+    <Compile Include="app\search\saved.py" />
     <Compile Include="app\search\spelling.py" />
     <Compile Include="app\search\translate.py" />
     <Compile Include="app\search\translate_rules.py" />
@@ -181,6 +182,7 @@
     <Compile Include="app\ui\result_delegate.py" />
     <Compile Include="app\ui\results_view.py" />
     <Compile Include="app\ui\sanitise.py" />
+    <Compile Include="app\ui\saved_box.py" />
     <Compile Include="app\ui\scheduler.py" />
     <Compile Include="app\ui\search_view.py" />
     <Compile Include="app\ui\settings_view.py" />
@@ -374,6 +376,7 @@
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
+    <Compile Include="tests\unit\test_saved_searches.py" />
     <Compile Include="tests\unit\test_scaffold.py" />
     <Compile Include="tests\unit\test_scale_limits.py" />
     <Compile Include="tests\unit\test_scan.py" />
