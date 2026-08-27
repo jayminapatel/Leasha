@@ -321,7 +321,64 @@ order or to the owner):**
     Life Timeline browsing surface. Read-only over existing tables; 0m stays
     last so its scenarios cover these surfaces too.
 
-0m. `WORKORDER-202626270547-test-automation.md` (RELEASED) — **LAST of the
+0o. `WORKORDER-202626271137-review-adoptions.md` (RELEASED) —
+    **gap-schedulable**, items independent with per-item prerequisites: the
+    seven adoptions from the owner's five-AI review ("Why this result?",
+    match-type indication, saved searches, selection-to-search, mini-search
+    count chips, spreadsheet cell locators, leasha:// links). Import nothing
+    from those documents beyond these seven. 0m still last.
+
+0p. `WORKORDER-202626271317-tables-sort-and-alignment.md` (RELEASED,
+    gap-schedulable) — owner's report: sorting on header click goes global
+    across every table (SORT_ROLE payloads everywhere, id-keyed selection,
+    ranked views get a restorable "Relevance" order superseding
+    files_view:111's deliberate refusal with its reasoning honoured), and
+    every header aligns the same way as its column (shared spec in
+    ResultTable, walker test).
+    *Note 2026-08-28: v1.1 adds owner's §4 — the main window remembers
+    its last state (maximised/normal + geometry) across launches, with
+    the off-screen/minimised edge cases handled. The order also records
+    the owner's Indexing-page-layout report as OUT of scope (deferred to
+    the pages reorg).*
+    *Note 2026-08-28 (later): §5 added — column widths forgotten, FIFTH
+    report. Owner: LOW priority, do LAST in this order. Diagnose via the
+    planted DEBUG lines first; deliverable includes the real-mouse
+    pywinauto drag regression test this bug class has never had.*
+
+0r. `WORKORDER-202626271510-results-presentation.md` (RELEASED,
+    gap-schedulable) — the results rows made world class: snippet windows
+    centred on the match and cut at sentence boundaries (two lines in
+    comfortable), a painted expansion chevron ("matched in 5 places"),
+    real file icons, sender-first mail rows, monospace code snippets,
+    left-elided locations + twin disambiguation, friendly dates
+    (register-gated), hover/pixel-scroll/terminator, the stable-update
+    rule, keyboard-first flow from the search box, and an accessibility
+    verification pass. Scope boundary: does NOT touch 0157 §2e's
+    thumbnails, 0p's tables, or 0o's landed markers.
+
+0s. `WORKORDER-202626271601-splash-and-fast-lifecycle.md` (RELEASED,
+    gap-schedulable) — the branded splash (design settled by the owner on a
+    live mock — navy, signature stripe, tagline "Forgets nothing. Tells no
+    one. Outlives the drives.", five rotating killer-case lines with vector
+    icons on ALL moments), plus startup made fast underneath it (splash
+    <300ms, deferred window population, honest handover wait, installer
+    model prefetch) and close made instant (hide-first, timed tail,
+    PRAGMA optimize to idle, os._exit after clean store close). Measured
+    numbers recorded in the order. Logo asset: assets/leasha-logo.png.
+
+0q. `WORKORDER-202626271328-pages-reorg.md` (**DRAFT — do not execute**) —
+    the pages reorg, ready and waiting: Settings gains categories + filter
+    box + last-category memory (labels relocate verbatim, registry surfaces
+    updated so test_settings_reachable enforces); Indexing splits into
+    Status · Schedule · Tuning (0114's screen slots in whole) and the
+    owner-reported broken layout is fixed BY the split. Promotion
+    condition: 0114 and 0157 fully ticked — the owner promotes, this line
+    then gains a queue position.
+
+0m. `WORKORDER-202626270547-test-automation.md` (**HELD by the owner
+    2026-08-28 — do not start; he will say when.** Was RELEASED/LAST; the
+    LAST intent stands at release. The per-order pytest-qt scenario
+    convention continues meanwhile.) — **LAST of the
     batch, deliberately**: pytest-qt scenarios pressing real keys in the
     assembled app (every order's acceptance sentence becomes a scenario),
     hypothesis property tests for the parser-shaped code, five pywinauto

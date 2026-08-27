@@ -940,6 +940,7 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
     #
     # A mouse-button check was the first guard and is not one: a header click
     # holds the button down, which is exactly when a sort resizes columns.
+    was_applying = bool(table.property(APPLYING))
     table.setProperty(APPLYING, True)
     try:
         # **Once per table, not once per fill.** "Initially auto fit" is what
@@ -977,7 +978,11 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         # why overruling them was the whole of the "it forgets my columns" bug.
         _cap_columns(table, order, shown, chosen=[k for k in saved if k in shown])
     finally:
-        table.setProperty(APPLYING, False)
+        # **Restored, not cleared.** This now runs nested inside
+        # `apply_to_table`, which sets the same flag for a wider span; forcing
+        # it False here would drop the guard for the rest of that span while
+        # the caller still believed it was up.
+        table.setProperty(APPLYING, bool(was_applying))
 
 
 def apply_to_table(
@@ -990,10 +995,50 @@ def apply_to_table(
     turning one back on needs no re-query and the row data stays addressable by
     a stable index.
     """
-    from PyQt6.QtGui import QFontMetrics
-
     order = [key for key, _heading in columns]
     shown = visible_columns(prefs, order, available)
+
+    # **Nothing Python may run from `sectionResized` while this is working.**
+    #
+    # This function hides columns, sets a stylesheet and restores widths, and
+    # every one of those makes the header resize sections. Each resize invoked
+    # the `resized` slot in `remember_widths` - measured, four of them on a
+    # three-column table - which is the exact condition the long note in
+    # `remember_widths` names as the cause of an access violation: *Qt calling
+    # into PyQt's glue during a layout pass the header has not finished.*
+    #
+    # That note's fix deferred the `connect()` past construction and the first
+    # theme pass, and it worked for start-up. It did not cover this path,
+    # which runs on **every fill**, long after the connection is live. Leasha
+    # died here twice on 2026-08-27 - the crash dump reads
+    # `_fill -> show_rows -> apply_prefs -> apply_to_table -> resized`, with
+    # `resized` at an unknown line because the frame faulted on entry, before
+    # a single bytecode ran. The same signature as the original.
+    #
+    # An early return inside the slot cannot fix it: that note records trying
+    # exactly that and changing nothing, because a Python bool cannot fault
+    # and the crash was never in the body. The invocation is the fault, so the
+    # invocation is what has to stop. Blocking the header's signals means Qt
+    # never reaches PyQt at all, which is the stronger form of what the
+    # APPLYING flag was reaching for - and the flag is still set, because
+    # `record` runs later from a timer and has to know these were ours.
+    header = table.horizontalHeader()
+    blocked = header is not None and not header.signalsBlocked()
+    if blocked:
+        header.blockSignals(True)
+    table.setProperty(APPLYING, True)
+    try:
+        return _apply_to_table(table, prefs, order, shown)
+    finally:
+        table.setProperty(APPLYING, False)
+        if blocked:
+            header.blockSignals(False)
+
+
+def _apply_to_table(table: Any, prefs: ViewPreferences, order: Sequence[str],
+                    shown: Sequence[str]) -> tuple[str, ...]:
+    """The body of `apply_to_table`, with the header's signals already off."""
+    from PyQt6.QtGui import QFontMetrics
 
     for index, key in enumerate(order):
         table.setColumnHidden(index, key not in shown)

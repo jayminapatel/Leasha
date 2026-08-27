@@ -1,6 +1,23 @@
 # Changelog
 
-**Doc version:** 3.96 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.97 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Fixed: Leasha closing itself while showing results
+
+- **Leasha could vanish while a list of results was being drawn** — no
+  message, no warning, the window simply gone. It happened twice on 27 August
+  and it was most likely on the Code page.
+- The cause was a collision inside the window itself. Every time results are
+  shown, the columns are re-sized to fit them; each of those re-sizes told the
+  part of Leasha that remembers your column widths, and it was being told
+  *while the table was still being rebuilt.* Occasionally the two met in the
+  middle and the whole program stopped.
+- Leasha now stays quiet about its own re-sizes until the table is finished.
+  Dragging a column still remembers the width exactly as before — that is the
+  only thing that was ever supposed to be listened to.
+- A note in this part of the code had already found and fixed this once, for
+  the moment the window first opens. This is the same fault on the path that
+  runs every time results arrive.
 
 ## When it crashes, it now says so
 
