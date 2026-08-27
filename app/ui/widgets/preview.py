@@ -187,11 +187,24 @@ class PreviewPane(QWidget):
         self._timer.setInterval(PREVIEW_DEBOUNCE_MS)
         self._timer.timeout.connect(self._start)
 
+        # **Workspace §2b, and the order asks for it here as well as in the
+        # pop-out**: *"Also wire the same find into the in-app preview pane;
+        # it is the last metre of every search."* One implementation, attached
+        # twice, so the keystroke cannot behave two ways.
+        #
+        # Over `self.text` only, and that is honest rather than partial: an
+        # image has no text to find, and the PDF view is Qt's own with its own
+        # search. Ctrl+F over those does nothing rather than something odd.
+        from app.ui.widgets.find_bar import attach_find
+
+        self.find = attach_find(self, self.text)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
         layout.addWidget(self.notice)
         layout.addWidget(self.stack, 1)
+        layout.addWidget(self.find)
         layout.addWidget(self.open_button)
 
         self.clear()
@@ -269,6 +282,10 @@ class PreviewPane(QWidget):
 
         self._row = row
         self._generation += 1
+        # A highlight from the last document painted over this one would be
+        # nonsense, and a count of matches in a file nobody is looking at any
+        # more is worse.
+        self.find.clear()
         # Named immediately, rendered shortly: the heading must follow the
         # selection at once or the pane looks a step behind the list.
         self.title.setText(str(getattr(row, "name", "") or getattr(row, "path", "")))

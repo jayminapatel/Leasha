@@ -182,6 +182,7 @@
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\presenter.py" />
     <Compile Include="app\ui\preview_loader.py" />
+    <Compile Include="app\ui\render_page.py" />
     <Compile Include="app\ui\result_delegate.py" />
     <Compile Include="app\ui\results_view.py" />
     <Compile Include="app\ui\sanitise.py" />
@@ -193,6 +194,7 @@
     <Compile Include="app\ui\theme.py" />
     <Compile Include="app\ui\tray.py" />
     <Compile Include="app\ui\tuning.py" />
+    <Compile Include="app\ui\view_of_file.py" />
     <Compile Include="app\ui\view_options.py" />
     <Compile Include="app\ui\widgets\__init__.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
@@ -210,6 +212,7 @@
     <Compile Include="app\ui\widgets\external_run.py" />
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
+    <Compile Include="app\ui\widgets\find_bar.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\history_pass.py" />
@@ -357,6 +360,7 @@
     <Compile Include="tests\unit\test_preview_loader.py" />
     <Compile Include="tests\unit\test_preview_pane.py" />
     <Compile Include="tests\unit\test_preview_rows.py" />
+    <Compile Include="tests\unit\test_preview_view.py" />
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
