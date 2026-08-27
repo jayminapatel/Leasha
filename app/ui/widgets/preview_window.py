@@ -340,8 +340,17 @@ class PreviewWindow(QWidget):
             _log.warning("could not print {}: {}", self._path, exc)
 
     def _print_picture(self, printer: Any) -> None:
-        """The pixmap on the page, scaled to fit, aspect kept."""
+        r"""The pixmap on the page, scaled to fit, aspect kept.
+
+        **`QPrinter` is imported here, not borrowed from `_print`.** It was
+        imported in the caller and used here, where the name does not exist -
+        a `NameError` the moment anybody printed a picture, which under PyQt6
+        is not an error message but a dead process. Found by `ruff --select
+        F821`, which had never been run over `app/`; `test_no_undefined_names`
+        now runs it on every suite.
+        """
         from PyQt6.QtGui import QPainter
+        from PyQt6.QtPrintSupport import QPrinter
 
         pixmap = self.picture.pixmap()
         if pixmap is None or pixmap.isNull():

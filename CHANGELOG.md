@@ -1,6 +1,19 @@
 # Changelog
 
-**Doc version:** 3.98 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.99 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Fixed: Leasha forgetting when it last indexed
+
+- **The moment an index run finished, the step that records the time failed**
+  — every time, since the scheduler was written. It never got as far as
+  writing anything down.
+- So after closing and reopening, Leasha had no idea when it had last
+  indexed, and worked out the next scheduled run from nothing.
+- Also fixed: printing a picture from a popped-out preview window failed the
+  same way.
+- Neither was ever visible, because both went to a console Leasha does not
+  have. The error reporting added yesterday caught the first one within
+  hours; a sweep for the same kind of mistake found the second.
 
 ## Fixed: Leasha closing itself for no apparent reason
 

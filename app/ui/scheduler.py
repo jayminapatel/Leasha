@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
 
 from app.core.logging import logger
 from app.index.schedule import SchedulePolicy, describe, is_due
