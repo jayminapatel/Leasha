@@ -380,6 +380,34 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
         return to_app_error(exc, "ui.open", path=str(target))
 
 
+def recent_searches_async(store: Any, on_ready: Callable,
+                          settings: Any = None) -> None:
+    r"""What this person searched for before, off the interface thread.
+
+    **A read of `searches` is still a read.** `test_no_store_call_outside_a_
+    worker` caught §2e's first version asking the store for this while a box
+    was being focused - which is a freeze waiting for a busy index, on the
+    keystroke where somebody is least willing to wait. The rules that turn
+    rows into a short list live in `first_contact`, which needs no store and
+    no window.
+
+    `on_ready` is handed a tuple of strings, newest first. A failure is
+    swallowed by the worker, so the box simply has no list - which is what
+    this should cost.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.first_contact import FETCH_MULTIPLE, RECENT_LIMIT, rows_for
+
+    def fetch() -> tuple:
+        rows = store.recent_searches(limit=RECENT_LIMIT * FETCH_MULTIPLE)
+        return tuple(rows_for(rows, settings))
+
+    worker = CallableWorker(fetch, component="ui.search.recent")
+    worker.signals.finished.connect(on_ready)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
     """Record that a result was opened, off the interface thread.
 

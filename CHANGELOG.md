@@ -1,6 +1,17 @@
 # Changelog
 
-**Doc version:** 3.75 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.76 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Your own recent searches, offered back
+
+- **The box will offer what you searched for before** — the last six, without
+  the near-identical refinements that come from typing the same thing four
+  ways, and without the `/` commands, which are a mechanism rather than
+  something you were looking for.
+- Shown in the words you typed them in. Handing them back in a case you did
+  not use reads as a correction.
+- Reading that history happens off the interface thread, so a busy index
+  cannot make clicking into the search box feel slow.
 
 ## Eight versions of the same letter, shown as one row
 

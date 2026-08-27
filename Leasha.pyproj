@@ -166,6 +166,7 @@
     <Compile Include="app\ui\code_view.py" />
     <Compile Include="app\ui\debug_recorder.py" />
     <Compile Include="app\ui\files_view.py" />
+    <Compile Include="app\ui\first_contact.py" />
     <Compile Include="app\ui\grammars.py" />
     <Compile Include="app\ui\indexing_settings.py" />
     <Compile Include="app\ui\indexing_view.py" />
@@ -287,6 +288,7 @@
     <Compile Include="tests\unit\test_file_menu.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
+    <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />

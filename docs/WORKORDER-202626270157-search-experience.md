@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.3 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -289,6 +289,43 @@ more column on a join both retrievers already did), the recency blend is off
 wherever `/newest` is in force, and an undatable file counts as ancient rather
 than new — the other way round is the sentinel bug that hid every PST, moved
 into the ranking.
+
+## Note on 2e, added 2026-08-27 (delivery finding — the item text is unchanged)
+
+**Four of the five sub-items were already built**, and one of them asks for a
+change this order's own principles forbid. Verified rather than assumed, and
+each is now pinned by a test so it cannot quietly stop being true:
+
+| sub-item | state |
+|---|---|
+| Search is the default tab on launch | **already true** — added first, nothing selects another |
+| Enter opens the document | **already true** — `activated` covers Enter and double-click |
+| result rows show filename, folder, when | **already true** — the delegate draws all three |
+| the box placeholder | **already there, and must not change** — see below |
+| an empty box offers recent searches | **new**; rules built and tested, attaching it deferred |
+
+**The placeholder is the interesting one.** 2e asks for "a plain example
+sentence". There is already a placeholder, argued where it is set: it names
+`/` and three real filters, and it is the only thing on screen saying the box
+reaches mail and repositories at all. Replacing it breaks **principle 4 of
+this same order — existing labels and descriptions never change**. The
+principle wins. The test pins that a placeholder exists, not its wording,
+so somebody who *means* to improve it still can.
+
+**Recent searches: the rules are built and tested, the attachment is not.**
+`app/ui/first_contact.py` turns logged rows into a short list — deduped
+case-insensitively but shown as typed, slash commands excluded (a slash
+command is a mechanism, not a memory), six of them. `workers.recent_searches_
+async` does the fetch, because `test_no_store_call_outside_a_worker` caught
+the first version reading `searches` on the UI thread while a box was being
+focused, and was right to.
+
+What is **not** done, and why it was not done blind: the box already carries
+the `/` command popup, and hanging a second dropdown off the same `QLineEdit`
+is exactly the change that produces two popups fighting over one keystroke.
+That cannot be verified in a headless environment, so it is left for the
+owner's machine. Same reason for the **thumbnail** half of "generous rows" —
+the only genuinely missing piece of that item.
 
 ## Done means
 
