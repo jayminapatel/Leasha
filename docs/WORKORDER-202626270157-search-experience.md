@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.7 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.8 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -123,7 +123,7 @@ corrects. Ollama is one backend; this adds the second.
   (`def`/`class`/`function`/assignment patterns per language, from the
   existing code_types machinery) ranks above hits that merely use it.
   Measured against `evaluate` code sentences before accepting.
-- [ ] **4d `/changed <text>` — the pickaxe.** Surface `git log -S` through
+- [x] **4d `/changed <text>` — the pickaxe.** Surface `git log -S` through
   the existing git layer: commits where the string was added or removed,
   shown with message, author, date. Nothing else on the market does this
   well, and the answer carries the *why* that grep cannot.
@@ -449,6 +449,25 @@ box made FTS5 answer `syntax error near "+"` and failed the whole search.**
 Phrases now quote plainly. The narrower reading is also the right one —
 quoting is the most explicit statement of intent the box offers — and the
 document side of camelCase is already covered by the `symbols` column.
+
+## Note on 4d, added 2026-08-27 (already built — verified, not rebuilt)
+
+**The pickaxe shipped with the git-search work and nobody ticked it.** Run
+against this repository's own history rather than assumed:
+
+    /changed AND_TERM_LIMIT
+    -> git log --find-renames -GAND_TERM_LIMIT
+       "every commit that touched it, in the last 2,000 commits"
+       6 commits, each with message, author and date
+
+The whole family is there: `/introduced` and `/removed` use `-S`,
+`/changed` uses `-G`, `/lifecycle` combines them, and `/file-history` follows
+renames. `test_changed_uses_G_rather_than_S` already documents the distinction
+the item glosses over — **`-S` is "the number of occurrences changed", `-G` is
+"the diff mentions it"** — and "every commit that changed this" wants the
+second.
+
+Nothing to build. The box was simply never ticked.
 
 ## Done means
 
