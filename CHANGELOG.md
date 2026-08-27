@@ -1,6 +1,20 @@
 # Changelog
 
-**Doc version:** 3.80 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.81 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Searching for a name finds where it is defined
+
+- **The file that defines a thing used to come last.** Search for a class or
+  function name and you got every file that calls it first, because those
+  mention it repeatedly and the definition appears once. On a five-file test
+  the defining file ranked fifth, below a document that merely talked about it.
+  It now ranks first.
+- **It only reorders, and only for a single name.** Search a sentence and
+  nothing changes; search an ordinary word and nothing changes either, because
+  no definition can match in ordinary prose.
+- A definition it recognises wrongly - a comment shaped like one - can move up
+  past the files that only use the name, but can never overtake a real
+  definition. That is by construction, not by luck.
 
 ## Paste an error message and get the files that contain it
 

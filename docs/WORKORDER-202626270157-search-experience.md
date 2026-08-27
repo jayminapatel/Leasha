@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.9 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.10 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -119,7 +119,7 @@ corrects. Ollama is one backend; this adds the second.
   editor at the line (`code -g file:line` for VS Code; the command is a
   Setting with detection, same pattern as converters), plus a copy-
   `path:line` action. Reveal-in-Explorer stays for documents.
-- [ ] **4c Definition boost.** A hit on the line *defining* the symbol
+- [x] **4c Definition boost.** A hit on the line *defining* the symbol
   (`def`/`class`/`function`/assignment patterns per language, from the
   existing code_types machinery) ranks above hits that merely use it.
   Measured against `evaluate` code sentences before accepting.
@@ -486,6 +486,45 @@ wrong file"* is a sentence inside a message, and neither produces the filter.
 The rest of 5b — an attachment-primary result row, where the attachment is the
 object and its message is the context — is a result-row change and is not
 done. It needs the window to judge, like 2e's thumbnails.
+
+## Note on 4c, added 2026-08-27 (measured, as the item requires)
+
+**BM25 cannot see the difference between defining a thing and using it**, and
+a declaration loses because it appears once while every caller repeats the
+name. Measured on five files, one declaring `SearchEngine`:
+
+| | before | after |
+|---|---|---|
+| `app/cli.py` — uses it twice | 1 | 2 |
+| `app/ui/shell.py` — uses it three times | 2 | 3 |
+| `tests/test_engine.py` — uses it twice | 3 | 4 |
+| `docs/DESIGN.md` — prose, mentions it twice | 4 | 5 |
+| **`app/search/engine.py` — DECLARES it** | **5** | **1** |
+
+Weight sweep, rank of the declaring file: 0.00 → 5th, 0.02 → 4th, 0.05 → 2nd,
+0.10 → 1st, 0.20 → 1st, 0.40 → 1st. **0.40 shipped**, comfortably above the
+0.10 threshold, because a corpus with a wider score spread needs the headroom.
+
+**The false-positive cost is weight-independent, which is why a large weight
+is safe here.** The boost *partitions* the list — everything that declares the
+symbol, then everything that does not — and preserves the fused order inside
+each part. So a comment the pattern wrongly matched can rise above the
+non-declaring files but can never outrank a true declaration that scored
+higher. Measured with a stale note reading "we used to have a class Governor
+here": it lands second at every weight from 0.10 to 0.80, never first.
+
+**Fires only on a single symbol-shaped word**, so a sentence never reaches it.
+An ordinary English word does reach it and costs nothing, because no
+declaration pattern can match in prose — cheaper than trying to tell code from
+English in a search box.
+
+**And the ordering bug it exposed.** Placed above `recency.blend`, the boost
+did nothing at all at any weight: `blend` re-sorts from `rrf_score`, which the
+definition boost deliberately does not write to, so the reorder was computed
+and then discarded. **Two rankers in sequence and the second silently threw
+away the first** — the order they run in is the whole behaviour, and a test
+now pins it by source order rather than by outcome, since an outcome test
+passes for the wrong reason whenever the scores happen to agree.
 
 ## Done means
 

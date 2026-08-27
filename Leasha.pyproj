@@ -132,6 +132,7 @@
     <Compile Include="app\search\__init__.py" />
     <Compile Include="app\search\commands.py" />
     <Compile Include="app\search\completions.py" />
+    <Compile Include="app\search\definitions.py" />
     <Compile Include="app\search\engine.py" />
     <Compile Include="app\search\evaluate.py" />
     <Compile Include="app\search\federate.py" />
@@ -274,6 +275,7 @@
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
+    <Compile Include="tests\unit\test_definitions.py" />
     <Compile Include="tests\unit\test_diagnostics.py" />
     <Compile Include="tests\unit\test_diagrams.py" />
     <Compile Include="tests\unit\test_distinct_values.py" />

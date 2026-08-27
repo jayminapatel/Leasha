@@ -36,7 +36,7 @@ from typing import Any, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import folding, keyword, recency, relax, vector
+from app.search import definitions, folding, keyword, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -841,6 +841,27 @@ class SearchEngine:
             # order that is already by date would be arithmetic with no effect
             # and a second rule to reason about.
             fused = recency.blend(fused)
+
+        # §4c. **Last, because it is the strongest claim and the ones above it
+        # re-sort from the untouched score.**
+        #
+        # Where is this defined beats where is it used, and BM25 cannot see
+        # the difference: a declaration appears once and every caller repeats
+        # the name, so the file that answers the question ranked last, behind
+        # four that merely call it and a Markdown file that talked about it.
+        #
+        # Placed above `recency.blend` first, and it did nothing at all -
+        # `blend` re-sorts from `rrf_score`, which this deliberately does not
+        # write to, so the reorder was computed and then thrown away. Two
+        # rankers in sequence and the second silently discards the first: the
+        # order they run in is the whole behaviour.
+        #
+        # Fires only on a single symbol-shaped word, so a sentence never
+        # reaches it - and in prose no declaration pattern can match, which
+        # makes it a no-op rather than a wrong answer.
+        symbol = definitions.looks_like_symbol(parsed.terms)
+        if symbol:
+            fused = definitions.boost(fused, symbol)
 
         results = [
             self._to_result(hit, rank, tuple(hit.get("sources", ())), hit.get("rrf_score", 0.0))
