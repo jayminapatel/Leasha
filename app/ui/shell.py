@@ -1479,6 +1479,40 @@ class MainWindow(QMainWindow):
     def _show_external_run(self, payload: dict) -> None:
         self.indexing_view.show_external(
             payload.get("record"), locked=bool(payload.get("locked")))
+        self._run_link(payload.get("link"))
+
+    def _run_link(self, request: Any) -> None:
+        r"""A `leasha://` link arrived while this window was open. §7a.
+
+        **The second copy did not become a window**, because two of those
+        cannot share one index - it left the query behind and exited. This is
+        the window picking it up: go to Search, put the words in the box, run
+        it, and come to the front. Somebody clicked a link; the answer is a
+        page of results, not a second application.
+
+        Never raises. A malformed request costs the link and not the window.
+        """
+        if request is None:
+            return
+        try:
+            query = str(getattr(request, "query", "") or "").strip()
+            if not query:
+                return
+            scope = str(getattr(request, "scope", "") or "")
+            self.tabs.setCurrentWidget(self.search_view)
+            if scope:
+                self.search_view.set_scope(scope)
+            self.search_view.input.setText(query)
+            self.search_view.search_now()
+            # In front of whatever they clicked the link in. `raise_` alone is
+            # advisory on Windows; `activateWindow` is the half that actually
+            # takes focus, and a search that ran behind another application is
+            # a search nobody saw.
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.warning("could not run a leasha:// link: {}", exc)
 
     def _stop_external_run(self) -> None:
         """Ask the other process to stop. A request, not a kill.

@@ -1342,13 +1342,29 @@ def _read_external_run(store: Any) -> dict:
     On a worker, because it runs on a timer for as long as the window is open
     and both halves touch something outside this process.
     """
+    from app.core.deeplink import take_pending
     from app.core.run_lock import active_run, is_indexing
 
+    found: dict = {"locked": False, "record": None, "link": None}
     try:
-        return {"locked": is_indexing(store), "record": active_run(store)}
+        found["locked"] = is_indexing(store)
+        found["record"] = active_run(store)
     except Exception as exc:                     # noqa: BLE001 - a watcher, not a run
         _log.debug("could not read the external run state: {}", exc)
-        return {"locked": False, "record": None}
+
+    # **Adoptions §7a rides this watcher rather than bringing a timer.** A
+    # `leasha://` link is delivered by a second process writing one
+    # `index_state` row and exiting - the channel `run_lock` already uses to
+    # say "please stop" - and something has to notice. Polling the database
+    # every second for the life of every session, so that a link somebody
+    # clicks once a week arrives instantly, is not a trade this codebase
+    # would make anywhere else. The cost is that a link takes up to the
+    # watcher's interval to land, which is said in the order's note.
+    try:
+        found["link"] = take_pending(store)
+    except Exception as exc:                     # noqa: BLE001 - a link, not a run
+        _log.debug("could not read the pending link: {}", exc)
+    return found
 
 
 def _scan_and_save(store: Any, roots: list[str]) -> dict:

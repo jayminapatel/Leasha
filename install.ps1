@@ -690,6 +690,43 @@ if (-not $SkipOptional -and -not $Preflight) {
 }
 
 # ---------------------------------------------------------------------------
+# leasha:// links - the second optional question. Adoptions §7a.
+# ---------------------------------------------------------------------------
+#
+# **Asked, never assumed**, for the same reason tab completion is: registering
+# a URL scheme changes how the whole machine treats a kind of link, and doing
+# that to somebody without telling them is how an application gets uninstalled.
+#
+# **Per-user, so no administrator rights** - HKCU\Software\Classes, the same
+# rule `add-to-path.ps1` and the completer both follow. `leasha open
+# unregister` removes it.
+#
+# **There is no uninstaller in this repository yet** - packaging is Layer 9 -
+# so the removal is a command rather than something that happens for you. The
+# order's note says so rather than promising a script nobody has written; the
+# hook belongs to L9 and `unregister()` is waiting for it.
+
+if (-not $SkipOptional -and -not $Preflight) {
+    Write-Title "leasha:// links (optional)"
+    Write-Host "  Lets a shortcut or a link open Leasha on a search:" -ForegroundColor Gray
+    Write-Host "    leasha://search?q=safety%20report" -ForegroundColor Gray
+    Write-Host "  Adds one key under your own registry. Remove it with" -ForegroundColor Gray
+    Write-Host "  '.\leasha open unregister'." -ForegroundColor Gray
+    Write-Host ""
+    $answer = Read-Host "  Set it up? [y/N]"
+    if ($answer -match '^(y|yes)$') {
+        Invoke-Step -Name "Register the leasha:// scheme" -Optional `
+            -Fix "Run it by hand later: .\leasha open register" `
+            -Action {
+                & "$ProjectPath\venv\Scripts\python.exe" -m app.cli open register
+                if ($LASTEXITCODE -ne 0) { throw "open register exited $LASTEXITCODE" }
+            }
+    } else {
+        Write-Host "  Skipped. '.\leasha open register' sets it up later." -ForegroundColor DarkGray
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -732,4 +769,5 @@ Write-Host "  Worth running once each:" -ForegroundColor Green
 Write-Host "    .\leasha commands            the filters you can type in the search box"
 Write-Host "    .\leasha evaluate --builtin  proves search works, in about ten seconds"
 Write-Host "    .\leasha formats             which file types are indexed, and which are off"
+Write-Host "    .\leasha open register       make leasha:// links open Leasha"
 Exit-Installer 0

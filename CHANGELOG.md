@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.90 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.91 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## leasha:// links
+
+- **A link can open Leasha on a search**: `leasha://search?q=safety%20report`
+  in a shortcut, a note, or anything else that opens links.
+- If Leasha is already open it runs the search in the window you have, rather
+  than refusing because a copy is running.
+- Set it up with `leasha open register`, or say yes when the installer asks.
+  `leasha open unregister` takes it back out.
+- A link can only ever run a search. It cannot index a folder, open a file or
+  change a setting, on purpose.
+
 
 ## Click any column heading to sort
 

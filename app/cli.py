@@ -2547,6 +2547,73 @@ def _log_shell_warmup(exc: BaseException) -> None:
     logger.bind(component="cli.shell").debug("warm-up failed: {}", exc)
 
 
+def cmd_open(args: argparse.Namespace) -> int:
+    r"""Act on a `leasha://` link. Adoptions §7a.
+
+    This is what Windows runs for a `leasha://search?q=...` URL, and it is
+    **not a way to start the window**. If a window is already open, the query
+    is left in `index_state` for it to pick up and this process exits; if one
+    is not, the link is still recorded, so the next start runs it. Either way
+    the person gets their search, which is the only thing they asked for.
+
+    `register` and `unregister` write and remove the per-user scheme. Both are
+    no-ops off Windows, and both say so rather than pretending.
+    """
+    from app.core.deeplink import (
+        SCHEME, handover, parse, register, registry_values, unregister,
+    )
+    from app.core.deeplink import open_command as _open_command
+
+    action = str(getattr(args, "url", "") or "").strip()
+
+    if action == "register":
+        target = str(getattr(args, "path", "") or "") or _launcher_path()
+        if register(target):
+            print(f"{SCHEME}:// links now open Leasha.")
+            return EXIT_OK
+        print(f"Could not register {SCHEME}:// links. "
+              f"This only works on Windows. The command it would have "
+              f"written is:\n  {_open_command(target)} \"%1\"")
+        return EXIT_OK
+
+    if action == "unregister":
+        print(f"{SCHEME}:// links no longer open Leasha."
+              if unregister() else
+              f"Nothing to remove: {SCHEME}:// was not registered here.")
+        return EXIT_OK
+
+    if action == "show":
+        for sub, value in registry_values(
+                _open_command(_launcher_path())).items():
+            print(f"{sub or '(default)':<20} {value}")
+        return EXIT_OK
+
+    request = parse(action)
+    if request is None:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.open", key="url",
+            reason=f"{action!r} is not a Leasha link",
+            suggestion=(
+                f"A link looks like {SCHEME}://search?q=safety%20report\n"
+                f"  leasha open register     make Windows open these links\n"
+                f"  leasha open unregister   stop it"),
+        ), args.json)
+
+    settings = load_settings()
+    from app.storage.sqlite_store import SqliteStore
+
+    with SqliteStore(settings.fts_db) as store:
+        handover(store, request)
+    print(f"Searching for {request.query!r} in Leasha.")
+    return EXIT_OK
+
+
+def _launcher_path() -> str:
+    """What Windows should run for a link: the installed `leasha.cmd`."""
+    found = project_root() / "leasha.cmd"
+    return str(found if found.exists() else Path(sys.executable))
+
+
 def cmd_completions(args: argparse.Namespace) -> int:
     r"""Emit or install the PowerShell tab completer.
 
@@ -3395,6 +3462,17 @@ def build_parser() -> argparse.ArgumentParser:
         "shell", parents=[common],
         help="interactive search with a dropdown (Ctrl+D to leave)")
     p_shell.set_defaults(func=cmd_shell)
+
+    p_open = sub.add_parser(
+        "open", parents=[common],
+        help="act on a leasha:// link, or register the scheme")
+    p_open.add_argument(
+        "url", nargs="?", default="",
+        help=("the link, or one of: register, unregister, show"))
+    p_open.add_argument(
+        "--path", default="",
+        help="what a link should run; defaults to this installation")
+    p_open.set_defaults(func=cmd_open)
 
     p_completions = sub.add_parser(
         "completions", parents=[common],

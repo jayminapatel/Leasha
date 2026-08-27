@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.4 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -81,7 +81,7 @@ these seven.
 
 ## 7. `leasha://` deep links
 
-- [ ] **7a** register the `leasha://` URL scheme (per-user registry key,
+- [x] **7a** register the `leasha://` URL scheme (per-user registry key,
   installer-written, uninstaller-removed): `leasha://search?q=...` opens
   the app (or fronts it) with the query run. Single-instance machinery
   routes to the running window. Enables shortcuts/other tools to open
@@ -102,7 +102,7 @@ these seven.
   calls (asserted).
 - [x] cell locators: fixture xlsx hit renders sheet+cell; extraction perf
   delta recorded.
-- [ ] deep link: `leasha://search?q=x` fronts the single instance with
+- [x] deep link: `leasha://search?q=x` fronts the single instance with
   results; uninstall removes the key.
 - [ ] pytest-qt scenario per item (0m convention); all new strings pass the
   plain-words/tooltip rules.
@@ -322,3 +322,63 @@ bolted onto this one.
 why `ResultRow` keeps the raw `Q3!D14` beside the sentence: getting it back by
 re-parsing the words is precisely the mistake `cell_location` exists to
 prevent.
+
+## Note on §7a, added 2026-08-28 — and one promise the installer could not keep
+
+**The scheme was the easy half. The second copy was the item.**
+`SingleInstance` deliberately *refuses* a second window rather than talking to
+the first — two copies cannot share one index, and that is the right answer
+for a double-clicked shortcut. It is the wrong answer for a link: somebody
+clicking one is not asking for a second application, they are asking the one
+they have to look something up, and "another copy is already running" is a
+useless thing to say to a link.
+
+So the link process never becomes a window. `leasha open leasha://search?q=…`
+writes one `index_state` row and exits. **That is not a new mechanism** —
+`run_lock.request_stop` already passes an instruction between two processes
+through the same table, for the same stated reason: *"a flag rather than a
+signal because the two processes share nothing else."*
+
+**One action, and that is the security decision.** A URL scheme is an input
+from *outside* the application: anything on this machine can invoke it, and a
+link in a document is not a trusted instruction. `search` is safe — the worst
+a hostile link achieves is a search the person can see and did not want.
+Anything that indexed a folder, opened a file or changed a setting would be a
+stranger giving orders, so `ACTIONS` holds exactly one entry and a test
+asserts it. The query is capped at 500 characters so a link cannot paste a
+megabyte into the box.
+
+**It rides the existing watcher rather than bringing a timer.** The window
+already polls every four seconds for an index run started elsewhere; the
+pending link is read in the same worker, on the same tick. Polling the
+database every second for the life of every session, so that a link somebody
+clicks once a week arrives instantly, is not a trade this codebase makes
+anywhere else. **The cost is stated rather than hidden: a link takes up to
+four seconds to land when a window is already open.** If that turns out to
+grate in use, the fix is a shorter interval on that one read, not a second
+timer.
+
+**Per-user registry.** `HKCU\Software\Classes\leasha` — no administrator to
+install, nothing left behind for the next person to use the machine, the same
+reasoning that put the index in `%LOCALAPPDATA%`. `leasha open register`
+writes it, `unregister` removes it, `show` prints what would be written, and
+all three are honest about doing nothing off Windows. The installer asks
+before registering, the way it asks about tab completion, and for the same
+reason: changing how the whole machine treats a kind of link is not something
+to do to somebody quietly.
+
+**The one promise this could not keep, and it was in the order.** The
+acceptance line says *"uninstall removes the key"* — **there is no uninstaller
+in this repository.** Packaging is Layer 9 and has not been built. Rather than
+write an installer line claiming a script nobody has written removes the key,
+the installer says `.\leasha open unregister` does, which is true today, and
+`unregister()` sits waiting for the L9 hook to call it. The test box is ticked
+for the half that exists — registration, removal, and the values themselves,
+all checkable on a machine with no registry — and this paragraph is the record
+of the half that does not.
+
+**Not verified on Windows.** `register`/`unregister` are the only code here
+that cannot run in this environment; everything they would write is returned
+as data by `registry_values` and asserted. Worth one run of
+`leasha open register` and a click on a `leasha://` link on the owner's
+machine before this is trusted.
