@@ -315,6 +315,28 @@ order or to the owner):**
 0l. `WORKORDER-202626270514-offline-media-two-network-cloud.md` — network
     shares (no credentials ever), cloud mounts (never hydrate by accident),
     the per-file placeholder model.
+0n. `WORKORDER-202626270602-reports-and-timeline.md` (RELEASED) — scheduled
+    AFTER 0l and BEFORE 0m: the Reports section (Digital Inheritance
+    catalogue-book PDF, the Space Report with uniqueness warnings) and the
+    Life Timeline browsing surface. Read-only over existing tables; 0m stays
+    last so its scenarios cover these surfaces too.
+
+0m. `WORKORDER-202626270547-test-automation.md` (RELEASED) — **LAST of the
+    batch, deliberately**: pytest-qt scenarios pressing real keys in the
+    assembled app (every order's acceptance sentence becomes a scenario),
+    hypothesis property tests for the parser-shaped code, five pywinauto
+    black-box journeys, theme-golden visual diffs, and the nightly system
+    loop on the owner's machine + windows CI for contributors. Owner has
+    installed pytest-qt/pywinauto/hypothesis.
+
+HELD (not for execution until the owner promotes it):
+`WORKORDER-202626270611-chat-tab.md` — the Chat tab, fully designed: agentic
+retrieval loop, no-sentence-without-a-receipt verification, aggregate
+questions answered by queries not generation, absence protocol, inline
+result-set answers, context shelf, measured floors before shipping. The
+owner will schedule it himself; promotion adds a dated note to the old
+search-and-chat scope order. Do not start.
+
 Draft (not for execution): `WORKORDER-202626270515-video-audio-DRAFT.md` —
     video/audio epoch, promoted only by the owner after the picture stack.
     Phones-as-drives (decided) also await their own future order.
