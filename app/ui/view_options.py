@@ -667,11 +667,12 @@ def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str],
     `_bound_to_table`, which is a much higher ceiling and is about usability
     rather than taste.
 
-    **Called with `APPLYING` already set.** `setColumnWidth` emits
-    `sectionResized`, which `remember_widths` listens to - see the note in
-    `_apply_widths` about the recursion that kills the process. This function
-    never sets the flag itself, so that it cannot be called from somewhere the
-    guard is missing and appear to work.
+    **Called with `APPLYING` already set.** Nothing is connected to
+    `sectionResized` any more - see `remember_widths` for the crash that
+    settled that - but the width watcher still reads the flag to tell this
+    module's own sizing from a person dragging a column. This function never
+    sets the flag itself, so that it cannot be called from somewhere the guard
+    is missing and appear to work.
 
     Two columns stay exempt for their own reasons. **The last visible one**,
     because `setStretchLastSection` owns its width and capping it is a fight
@@ -733,141 +734,173 @@ def _bound_to_table(width: int, available: int) -> int:
     return min(int(width), room)
 
 
-def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
-    """Save a column width when somebody drags it, and only then.
+#: How often the width watcher looks. Milliseconds.
+#:
+#: **Not a signal, and that is the entire point** - see `remember_widths`.
+#: Two thirds of a second is below the pause anybody makes after letting go of
+#: a column, and a dozen integer reads at that rate is nothing.
+WATCH_MS = 600
 
-    **`sectionResized` cannot tell a drag from a fit.** It fires for both, and
-    `resizeColumnsToContents` runs on every fill - so connecting it directly
-    would store a width on the first result set and pin the column there for
-    ever, silently disabling the fitting this exists alongside. Qt does report
-    the difference, through `QHeaderView.sectionHandleDoubleClicked` and through
-    the mouse, but the simple and reliable signal is this one: a resize that
-    happens while the header is being dragged.
+
+def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
+    r"""Save a column width when somebody drags it, and only then.
+
+    **This does not listen to `sectionResized`, and that is a fix rather than
+    an oversight.** It used to, and the connection killed the process.
+
+    The history is worth keeping because it took three goes. Leasha died in
+    C++ with no Python exception, first inside `MainWindow.__init__` and later
+    while results were being drawn - eight access violations across 26 and 27
+    August 2026, every one of them at the *same* offset in `python312.dll`,
+    and every crash dump naming the slot connected to `sectionResized` at an
+    **unknown line**: the frame faulted on entry, before a single bytecode.
+
+    What was tried, in order:
+
+    1. *Guard the body* - make the slot's first statement read a Python bool
+       and return. Changed nothing. A Python bool cannot fault, so the crash
+       was never in the body.
+    2. *Defer the `connect()`* past construction and the first theme pass. The
+       window then opened, and it looked solved for a fortnight. It was not:
+       it only moved the crash to every later resize.
+    3. *Block the header's signals while the view is applied.* Measurably
+       removed four invocations per fill - and the next two dumps showed the
+       slot reached straight from `application.exec()` instead, with nothing
+       of ours in between.
+
+    The experiment that actually settled it was an environment switch that
+    skipped the `connect()` entirely: with no connection, the window is fine.
+    So the fault is *invoking this Python slot from `sectionResized` at all* -
+    Qt calling into PyQt's glue from inside `QHeaderView`'s own layout - and
+    no amount of care inside the slot can help, because the slot never runs.
+
+    **So nothing is connected. A timer looks instead.** A `QTimer` fires from
+    the event loop, between events, when Qt is idle and no layout is running -
+    which is where every other slot in this application already runs safely.
+
+    Reading widths on a timer also turns out to be *better* at the job the
+    signal was bad at. `sectionResized` cannot tell a drag from a fit, and the
+    old code guessed with `QApplication.mouseButtons()` - a guess its own note
+    admitted could not be tested offscreen. The watcher does not guess:
+
+    * A width that changed **while this module was applying the view** is ours.
+      The `APPLYING` flag says so, and the baseline is resynced afterwards.
+    * A width that changed **in the same tick the viewport changed** is Qt
+      stretching the last column to fit a resized window. Not a choice.
+    * A width that changed and then **stayed put for a whole tick** is a
+      person who dragged a column and let go. That is the one worth saving.
     """
     header = table.horizontalHeader()
     if header is None:
         return
     order = [key for key, _heading in columns]
 
-    def record(index: int, new: int) -> None:
-        """The actual work, run from the event loop rather than inside Qt."""
+    from PyQt6.QtCore import QTimer
+
+    #: Widths as this module last left them. Anything else is somebody else.
+    baseline: dict = {}
+    #: A width seen changing, waiting to see whether it settles.
+    settling: dict = {}
+    #: The width of the viewport at the last look, so a window resize can be
+    #: told apart from a drag without asking Qt about the mouse.
+    viewport: list = [-1]
+
+    def widths_now() -> dict:
+        return {index: int(header.sectionSize(index))
+                for index in range(header.count())
+                if not table.isColumnHidden(index)}
+
+    def resync() -> None:
+        """Take the current widths as the new normal. Never raises.
+
+        Called at the end of `apply_to_table`, because everything it did was
+        this module's doing and none of it is a preference.
+        """
+        try:
+            baseline.clear()
+            baseline.update(widths_now())
+            settling.clear()
+            viewport[0] = _available_width(table)
+        except RuntimeError:
+            return
+
+    def look() -> None:
+        """One pass. **Never raises** - it runs forever, unattended."""
         try:
             if table.property(APPLYING):
+                return                           # mid-apply; ours, not theirs
+
+            room = _available_width(table)
+            current = widths_now()
+            if not baseline:
+                baseline.update(current)
+                viewport[0] = room
                 return
-            if 0 <= index < len(order) and new > 0:
-                # **Stored as dragged.** This used to apply `column_cap` - 40%
-                # of the viewport - on the way in, so a column dragged to 321px
-                # on a 900px table was stored as 250 and restored as 250. It
-                # snapped back on every drag and every launch, which is exactly
-                # "the UI does not remember column widths": the preference was
-                # saved and then overruled.
-                #
-                # The reasoning behind it was sound and applied to the wrong
-                # thing. Storing what will actually be shown *is* right - a
-                # preference the table contradicts is worse than either - but
-                # the answer is to stop contradicting a deliberate width rather
-                # than to shrink it before saving. `_cap_columns` now leaves
-                # chosen columns alone, so the two agree at the width asked for.
-                #
-                # **Stored raw.** Bounding belongs at *restore*, against the
-                # window that is on screen then - not here, against whatever the
-                # window happened to be when the drag happened. Doing it here is
-                # how a value gets baked in wrong and stays wrong: the store and
-                # the screen then agree on a number the person never chose.
-                width = int(new)
-                button.remember_width(order[index], width)
-                # **Logged because this is the link that cannot be tested
-                # here.** Everything either side of it is covered - the store
-                # round-trip, the restore, the cap - but whether a real drag on
-                # Windows reaches this line at all depends on Qt's mouse state,
-                # and no offscreen test can hold a mouse button down. One DEBUG
-                # line turns "it does not remember" into a question the run log
-                # answers.
-                _log.debug("column {} width saved as {} (table {}px)",
-                           order[index], width, _available_width(table))
+
+            if room != viewport[0]:
+                # The window changed size. `setStretchLastSection` moves a
+                # column for its own reasons and nobody chose that width.
+                viewport[0] = room
+                baseline.update(current)
+                settling.clear()
+                return
+
+            settled = []
+            for index, width in current.items():
+                if width == baseline.get(index):
+                    settling.pop(index, None)
+                    continue
+                if settling.get(index) != width:
+                    settling[index] = width      # still moving; look again
+                    continue
+                settled.append(index)            # a drag, and it has stopped
+
+            # **The stretched last column moved because another one did.**
+            # With `setStretchLastSection` on, narrowing column one widens the
+            # last to fill the gap - so it settles too, and would be recorded
+            # as a width somebody chose. It is dropped only when something
+            # *else* settled alongside it: if the last column is the only one
+            # that moved, it really was dragged, and refusing it there would
+            # mean the last column could never be sized at all.
+            if (len(settled) > 1 and header.stretchLastSection()
+                    and current):
+                last = max(current)
+                if last in settled:
+                    settled.remove(last)
+                    baseline[last] = current[last]
+
+            for index in settled:
+                width = current[index]
+                settling.pop(index, None)
+                baseline[index] = width
+                if 0 <= index < len(order) and width > 0:
+                    # **Stored raw.** Bounding belongs at *restore*, against
+                    # the window on screen then - not here, against whatever
+                    # the window happened to be during the drag. Doing it here
+                    # is how a value gets baked in wrong and stays wrong: the
+                    # store and the screen then agree on a number the person
+                    # never chose. `_cap_columns` leaves chosen columns alone,
+                    # so the two agree at the width asked for.
+                    button.remember_width(order[index], width)
+                    _log.debug("column {} width saved as {} (table {}px)",
+                               order[index], width, room)
         except RuntimeError:
-            # The table's C++ side went away between the resize and this
-            # callback - a tab closing, or shutdown. Nothing to save, and
-            # nothing worth reporting.
-            return
+            # The table's C++ side went away - a tab closing, or shutdown.
+            watcher.stop()
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.debug("could not check the column widths: {}", exc)
 
-    def resized(index: int, _old: int, new: int) -> None:
-        # **Ours, or theirs?** `sectionResized` fires for both, and recording a
-        # width we set ourselves feeds straight back into setting it again -
-        # see the note in `_apply_widths` for the crash that produced.
-        if table.property(APPLYING):
-            return
-        from PyQt6.QtCore import Qt as _Qt
-        from PyQt6.QtCore import QTimer
-        from PyQt6.QtWidgets import QApplication
+    # **Parented to the table**, so it dies with it and cannot outlive the
+    # widget it reads - the failure the old `RuntimeError` guard existed for.
+    watcher = QTimer(table)
+    watcher.setInterval(WATCH_MS)
+    watcher.timeout.connect(look)
+    watcher.start()
 
-        # A second, weaker signal for the resizes Qt does on its own - a
-        # window resize with `setStretchLastSection` on, for one. Those hold no
-        # mouse button; a drag does.
-        if not (QApplication.mouseButtons() & _Qt.MouseButton.LeftButton):
-            # Qt resizing on its own account - a window resize, a theme
-            # re-polish changing font metrics. Recorded at DEBUG rather than
-            # dropped silently, because "the width was never saved" and "the
-            # width was saved and then lost" need different fixes and the log
-            # is what tells them apart.
-            _log.debug("column resize ignored: no button held (section {})", index)
-            return
-
-        # **Never save from inside the signal, and this one crashed the app.**
-        #
-        # `sectionResized` is emitted from the middle of Qt's own layout, and
-        # `remember_width` saves preferences, which calls `on_change`, which
-        # re-applies the whole view - re-entering the layout that is still
-        # running. `_apply_widths` guards its own recursion with the APPLYING
-        # flag, but that only covers resizes *it* starts. This one arrives from
-        # `MainWindow._apply_theme`: setting a stylesheet on the top-level
-        # window re-polishes every child, font metrics change, header sections
-        # resize, and this fires with the flag clear.
-        #
-        # The window then died in C++ during construction with no Python
-        # exception - no traceback, no run-log footer, nothing on screen. The
-        # crash stack, once faulthandler was enabled, was exactly
-        # `__init__ -> _apply_theme -> resized`.
-        #
-        # A zero-delay timer moves the save to the next turn of the event loop,
-        # when Qt has finished laying out and re-entering it is safe. The width
-        # is captured now, so a later drag cannot change what gets recorded.
-        QTimer.singleShot(0, lambda i=index, n=new: record(i, n))
-
-    # **The connection is made after the window exists, not during construction.**
-    #
-    # This is the fix, and it took bisecting to find. The window died in C++
-    # inside `MainWindow.__init__`, every faulthandler dump naming
-    # `_apply_theme -> resized`. Three attempts at what the slot *does* -
-    # deferring the save, guarding the body so its first statement only read a
-    # Python bool, moving the background workers off construction - changed
-    # nothing. A Python bool cannot fault, so the crash was never in the body.
-    #
-    # An environment switch that skipped `connect()` entirely was the experiment
-    # that settled it: with no connection the window opens. So the fault is in
-    # *invoking a Python slot from `sectionResized` while `setStyleSheet` is
-    # re-polishing the widget tree* - Qt calling into PyQt's glue during a
-    # layout pass the header has not finished.
-    #
-    # Deferring the connection itself removes that window completely: during
-    # construction and the first theme pass nothing is attached to the signal,
-    # and afterwards this behaves exactly as it always did - a direct
-    # connection, so the APPLYING check still sees the flag its own resizes set.
-    #
-    # Nothing is lost. A column width can only be dragged by somebody looking at
-    # the window, and every resize before that point is Qt laying out, which
-    # this had to ignore anyway.
-    from PyQt6.QtCore import QTimer as _QTimer
-
-    def listen() -> None:
-        try:
-            header.sectionResized.connect(resized)
-        except RuntimeError:
-            # The table went away before the event loop turned - a view built
-            # and discarded during start-up. Nothing to connect to.
-            return
-
-    _QTimer.singleShot(0, listen)
+    # `apply_to_table` calls this so a fitted width is never mistaken for a
+    # chosen one. Without it, the first result set would pin every column for
+    # ever - which is the original bug this whole function exists around.
+    table.leasha_resync_widths = resync
 
 
 def apply_font(widget: Any, font_pt: int) -> None:
@@ -1030,6 +1063,15 @@ def apply_to_table(
     try:
         return _apply_to_table(table, prefs, order, shown)
     finally:
+        # **The baseline, before the flag drops.** Every width this function
+        # touched is this module's, not a preference - and the watcher in
+        # `remember_widths` would otherwise see a fitted column settle and
+        # record it as though somebody had dragged it, pinning every column on
+        # the first result set. That is the original bug this whole area
+        # exists around, so the resync is not optional.
+        resync = getattr(table, "leasha_resync_widths", None)
+        if callable(resync):
+            resync()
         table.setProperty(APPLYING, False)
         if blocked:
             header.blockSignals(False)

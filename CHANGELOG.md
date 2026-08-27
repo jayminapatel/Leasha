@@ -1,23 +1,26 @@
 # Changelog
 
-**Doc version:** 3.97 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.98 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 
-## Fixed: Leasha closing itself while showing results
+## Fixed: Leasha closing itself for no apparent reason
 
-- **Leasha could vanish while a list of results was being drawn** — no
-  message, no warning, the window simply gone. It happened twice on 27 August
-  and it was most likely on the Code page.
-- The cause was a collision inside the window itself. Every time results are
-  shown, the columns are re-sized to fit them; each of those re-sizes told the
-  part of Leasha that remembers your column widths, and it was being told
-  *while the table was still being rebuilt.* Occasionally the two met in the
-  middle and the whole program stopped.
-- Leasha now stays quiet about its own re-sizes until the table is finished.
-  Dragging a column still remembers the width exactly as before — that is the
-  only thing that was ever supposed to be listened to.
-- A note in this part of the code had already found and fixed this once, for
-  the moment the window first opens. This is the same fault on the path that
-  runs every time results arrive.
+- **Leasha could vanish while you were using it** — no message, no warning,
+  the window simply gone. Windows recorded eight of these on 26 and 27 August,
+  every one in the same place.
+- It came from the part of Leasha that remembers how wide you like your
+  columns. It was being told about every single column re-size, including the
+  hundreds that Leasha does itself, *and it was being told while the table was
+  still mid-rebuild.* Now and again the two collided and the program stopped
+  dead.
+- That listening has been removed entirely. Leasha now simply checks the
+  column widths a few times a second, quietly, when nothing else is happening.
+- **Dragging a column still remembers the width**, and rather better than
+  before: it can now tell the difference between a column you dragged, a
+  column Leasha fitted to its contents, and a column that moved because you
+  resized the window. It used to guess at that, and the guess was wrong often
+  enough to be reported as "it forgets my columns".
+- This is the third attempt at this fault. The first two made it rarer instead
+  of fixing it, which is why the code and its tests now carry the whole story.
 
 ## When it crashes, it now says so
 

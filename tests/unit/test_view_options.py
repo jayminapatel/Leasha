@@ -379,32 +379,42 @@ def test_every_field_survives_a_change_to_any_other_field():
             )
 
 
-# --- the crash that stopped the window opening ------------------------------
+# --- the crash that killed the process, twice over --------------------------
 #
-# `MainWindow._apply_theme` sets a stylesheet on the top-level window. Qt
-# re-polishes every child, font metrics change, header sections resize, and
-# `sectionResized` fires from inside Qt's own layout. `remember_widths` saved
-# from there, saving calls `on_change`, and `on_change` re-applies the view -
-# re-entering a layout that had not finished. The process died in C++ during
-# `MainWindow.__init__`: no Python exception, no traceback, no run-log footer,
-# no window. Diagnosed only after enabling faulthandler, whose stack read
-# `__init__ -> _apply_theme -> resized`.
+# Round one. `MainWindow._apply_theme` sets a stylesheet on the top-level
+# window. Qt re-polishes every child, font metrics change, header sections
+# resize, and `sectionResized` fires from inside Qt's own layout. The process
+# died in C++ during `MainWindow.__init__`: no Python exception, no traceback,
+# no run-log footer, no window. The fix deferred the `connect()` past
+# construction, and the window opened.
 #
-# `_apply_widths` guards the recursion it starts itself with the APPLYING flag.
-# It cannot guard this one, which arrives with the flag clear.
+# Round two, a fortnight later. It had never been fixed - only moved. Eight
+# access violations across 26-27 August 2026, every one at the same offset in
+# `python312.dll`, every dump naming the slot at an **unknown line** because
+# the frame faulted on entry, before a single bytecode. Blocking the header's
+# signals during `apply_to_table` removed four invocations per fill and the
+# next two dumps showed the slot reached straight from `application.exec()`.
+#
+# The conclusion the code now carries: no care taken *inside* the slot can
+# help, because the slot never runs. Nothing may be connected. A `QTimer`
+# reads the widths from the event loop instead, where Qt is idle - and it
+# turns out to tell a drag from a fit better than the signal ever could.
 
 
-def test_nothing_connects_to_sectionresized_during_construction():
-    """**The fix, and it took bisecting to find.**
+def test_nothing_is_connected_to_sectionresized_at_all():
+    """**Deferring the connection was not enough. Nothing may connect.**
 
-    Three attempts at what the slot *does* changed nothing - the last of them
-    made its first statement read a Python bool, which cannot fault. Skipping
-    the `connect()` entirely was the experiment that settled it: with no
-    connection the window opens.
+    The first fix here deferred the `connect()` past construction, and for a
+    fortnight that looked like the answer - the window opened. It was not: it
+    had only moved the crash to every *later* resize. Leasha died eight times
+    across 26-27 August 2026, always at the same offset in `python312.dll`,
+    and the last two dumps showed the slot reached straight from
+    `application.exec()` with nothing of ours in between.
 
-    So the fault is in invoking a Python slot from `sectionResized` while
-    `setStyleSheet` re-polishes the widget tree. The connection must be made
-    from the event loop, after construction, not during it.
+    So the connection itself is gone and a timer reads the widths instead.
+    `tests/unit/test_header_signal_safety.py` enforces this across the whole
+    of `app/` by parsing for the call rather than grepping for the name - the
+    name appears throughout the docstring that explains the ban.
 
     Asserted on the source rather than by driving Qt: the failure is a native
     crash, so a test that reproduces it takes the runner down instead of
@@ -419,56 +429,54 @@ def test_nothing_connects_to_sectionresized_during_construction():
         line for line in body.splitlines() if not line.strip().startswith("#")
     )
 
-    connect_at = code.index("sectionResized.connect")
-    defer_at = code.index("singleShot")
-    assert defer_at < connect_at, (
-        "sectionResized is connected during construction. Qt then invokes the "
-        "slot from inside setStyleSheet's polish, and the process dies in C++ "
-        "with no Python exception."
+    assert "sectionResized.connect" not in code, (
+        "sectionResized is connected again. Qt invokes the slot from inside "
+        "QHeaderView's own layout and the process dies in C++ with no Python "
+        "exception - read the note in remember_widths."
     )
-    assert "def listen(" in code, "the connection is not deferred behind a callback"
+    assert "QTimer(" in code, "the width watcher has gone; nothing records a drag"
 
 
-def test_a_header_resize_is_never_saved_from_inside_the_signal():
-    """Belt and braces: even once connected, the save is deferred.
+def test_the_width_watcher_leaves_qt_alone_while_the_view_is_applied():
+    """`remember_width` calls `on_change`, which re-applies the whole view.
 
-    `remember_width` calls `on_change`, which re-applies the whole view. Doing
-    that from inside `sectionResized` re-enters a layout that has not finished -
-    the recursion `_apply_widths` documents and guards with APPLYING.
+    Doing that while this module is mid-apply re-enters a layout that has not
+    finished - the recursion `_apply_widths` documents and guards with
+    APPLYING. The watcher reads the same flag and does nothing.
     """
     import inspect
 
     from app.ui import view_options
 
     body = inspect.getsource(view_options.remember_widths)
-    handler = body.split("def resized(")[1]
+    handler = body.split("def look(")[1]
     code = "\n".join(
         line for line in handler.splitlines()
         if not line.strip().startswith("#")
     )
 
-    assert "singleShot" in handler
-    assert "button.remember_width(" not in code, (
-        "the signal handler still calls remember_width directly; deferring the "
-        "call is the whole fix"
+    assert "APPLYING" in code, (
+        "the watcher no longer checks the applying flag, so a fitted width "
+        "will be recorded as one somebody chose"
     )
 
 
-def test_the_deferred_save_survives_a_table_that_has_gone_away():
-    """A queued callback outlives the widget that queued it.
+def test_the_watcher_survives_a_table_that_has_gone_away():
+    """A timer outlives nothing, but it must not raise on the way out.
 
-    A tab closing between the resize and the next event-loop turn leaves the
-    C++ side deleted, and PyQt raises RuntimeError on touch. Saving a column
-    width is not worth a traceback.
+    A tab closing between two ticks leaves the C++ side deleted, and PyQt
+    raises RuntimeError on touch. Saving a column width is not worth a
+    traceback - and this one runs unattended for the life of the window.
     """
     import inspect
 
     from app.ui import view_options
 
     body = inspect.getsource(view_options.remember_widths)
-    record = body.split("def record(")[1].split("def resized(")[0]
+    look = body.split("def look(")[1]
 
-    assert "RuntimeError" in record
+    assert "RuntimeError" in look
+    assert "watcher.stop()" in look, "a dead table would tick forever"
 
 
 def test_the_preview_toggle_is_offered_on_every_list_not_only_search():
@@ -571,6 +579,25 @@ def _table(app, *, text: str = "value"):
     table.show()
     app.processEvents()
     return table
+
+
+def _drag(table, index: int, width: int) -> None:
+    r"""Resize a column the way a person does, and let the watcher notice.
+
+    **No mouse button is held, because nothing asks about one any more.** The
+    old handler ran from `sectionResized` and guessed at a drag with
+    `QApplication.mouseButtons()`, which no offscreen test can answer honestly
+    - so these tests used to monkeypatch it. `remember_widths` now polls, and
+    treats a width that changed and then *stopped* changing as the drag. Two
+    ticks is exactly that: one to see it move, one to see it settle.
+    """
+    from PyQt6.QtCore import QTimer
+
+    table.horizontalHeader().resizeSection(index, width)
+    watchers = [child for child in table.children() if isinstance(child, QTimer)]
+    assert watchers, "no width watcher is running on this table"
+    watchers[0].timeout.emit()
+    watchers[0].timeout.emit()
 
 
 def _qt():
@@ -676,44 +703,33 @@ def test_a_dragged_width_survives_a_relaunch(tmp_path):
     fill, restore. Every link was verified separately and the report was still
     *"the column width resets every launch"* - so the chain is asserted whole.
 
-    The mouse button is held for the duration, because that is what
-    `remember_widths` uses to tell a drag from a fit and no offscreen test can
-    hold one down for real.
+    The drag goes through `_drag`, which ticks the width watcher rather than
+    pretending a mouse button is held - see that helper for why the pretence
+    is gone.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
-
     from app.storage.sqlite_store import SqliteStore
     from app.ui.view_options import apply_to_table, button as view_button
 
     app = _qt()
-    held = staticmethod(lambda: Qt.MouseButton.LeftButton)
-    original = QApplication.mouseButtons
-    QApplication.mouseButtons = held
-    try:
-        database = tmp_path / "index.db"
-        first = _table(app)
-        with SqliteStore(database) as store:
-            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
-                                  on_change=lambda _p: None, table=first)
-            apply_to_table(first, chooser.prefs, columns=COLUMNS_3,
-                           available=AVAILABLE_3)
-            app.processEvents()              # the deferred connect()
-            first.horizontalHeader().resizeSection(1, 320)
-            app.processEvents()              # the deferred record()
-            assert dict(chooser.prefs.widths).get("path") == 320
+    database = tmp_path / "index.db"
+    first = _table(app)
+    with SqliteStore(database) as store:
+        chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                              on_change=lambda _p: None, table=first)
+        apply_to_table(first, chooser.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
+        _drag(first, 1, 320)
+        assert dict(chooser.prefs.widths).get("path") == 320
 
-        second = _table(app)
-        with SqliteStore(database) as store:
-            reopened = view_button(None, store, "ui:files", columns=COLUMNS_3,
-                                   on_change=lambda _p: None, table=second)
-            apply_to_table(second, reopened.prefs, columns=COLUMNS_3,
-                           available=AVAILABLE_3)
+    second = _table(app)
+    with SqliteStore(database) as store:
+        reopened = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                               on_change=lambda _p: None, table=second)
+        apply_to_table(second, reopened.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
 
-        assert dict(reopened.prefs.widths).get("path") == 320
-        assert second.columnWidth(1) == 320
-    finally:
-        QApplication.mouseButtons = original
+    assert dict(reopened.prefs.widths).get("path") == 320
+    assert second.columnWidth(1) == 320
 
 
 def test_columns_are_measured_once_per_table_not_once_per_fill(monkeypatch):
@@ -828,8 +844,6 @@ def test_a_dragged_width_is_stored_as_dragged_rather_than_pre_trimmed():
     column narrow, and "Reset widths" appeared to do nothing because the value it
     reset to was the trimmed one.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
 
     from app.storage.sqlite_store import SqliteStore
     from app.ui.view_options import apply_to_table, button as view_button
@@ -839,21 +853,14 @@ def test_a_dragged_width_is_stored_as_dragged_rather_than_pre_trimmed():
     table = _table(app)
     wanted = _over_the_cap(table)
 
-    original = QApplication.mouseButtons
-    QApplication.mouseButtons = staticmethod(lambda: Qt.MouseButton.LeftButton)
-    try:
-        with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
-            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
-                                  on_change=lambda _p: None, table=table)
-            apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
-                           available=AVAILABLE_3)
-            app.processEvents()                      # the deferred connect()
-            table.horizontalHeader().resizeSection(1, wanted)
-            app.processEvents()                      # the deferred record()
+    with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
+        chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                              on_change=lambda _p: None, table=table)
+        apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
+        _drag(table, 1, wanted)
 
-            assert dict(chooser.prefs.widths).get("path") == wanted
-    finally:
-        QApplication.mouseButtons = original
+        assert dict(chooser.prefs.widths).get("path") == wanted
 
 
 def test_a_width_wider_than_the_table_is_brought_back_within_it():
@@ -910,8 +917,6 @@ def test_a_dragged_width_is_stored_exactly_as_dragged():
     140 is `MIN_COLUMN_CAP_PX`, applied as a floor to every saved width. A width
     somebody chose needs no floor: a 40px column showing an icon is a choice.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
 
     from app.storage.sqlite_store import SqliteStore
     from app.ui.view_options import apply_to_table, button as view_button
@@ -920,25 +925,18 @@ def test_a_dragged_width_is_stored_exactly_as_dragged():
     app = _qt()
     table = _table(app)
 
-    original = QApplication.mouseButtons
-    QApplication.mouseButtons = staticmethod(lambda: Qt.MouseButton.LeftButton)
-    try:
-        with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
-            chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
-                                  on_change=lambda _p: None, table=table)
-            apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
-                           available=AVAILABLE_3)
-            app.processEvents()                       # the deferred connect()
+    with SqliteStore(Path(tempfile.mkdtemp()) / "index.db") as store:
+        chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                              on_change=lambda _p: None, table=table)
+        apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
 
-            for dragged in (40, 90, 137, 300):
-                table.horizontalHeader().resizeSection(1, dragged)
-                app.processEvents()                   # the deferred record()
+        for dragged in (40, 90, 137, 300):
+            _drag(table, 1, dragged)
 
-                assert dict(chooser.prefs.widths).get("path") == dragged, (
-                    f"dragged to {dragged}, stored as "
-                    f"{dict(chooser.prefs.widths).get('path')}")
-    finally:
-        QApplication.mouseButtons = original
+            assert dict(chooser.prefs.widths).get("path") == dragged, (
+                f"dragged to {dragged}, stored as "
+                f"{dict(chooser.prefs.widths).get('path')}")
 
 
 def test_no_saved_width_means_fit_to_contents():
@@ -996,5 +994,18 @@ def test_nothing_between_the_drag_and_the_store_may_change_the_number():
         "the fitting cap must not touch a width somebody dragged")
     assert "_bound_to_table" not in called, (
         "bounding belongs at restore, against the window then on screen")
-    assert not {"max", "min"} & called, (
-        "record stores what was dragged; arithmetic here is how it stops doing that")
+
+    # **The width argument itself, not the whole function.** Banning `max` and
+    # `min` outright was the first shape of this guard, and it started firing
+    # on `max(current)` - which picks the last column *index* and never touches
+    # a width. Checking the value actually handed over is both narrower and
+    # stricter: it must be a plain name, so nothing can be computed into it.
+    stored = [node for node in ast.walk(tree)
+              if isinstance(node, ast.Call)
+              and getattr(node.func, "attr", "") == "remember_width"]
+    assert stored, "nothing stores a width any more"
+    for call in stored:
+        value = call.args[-1]
+        assert isinstance(value, ast.Name), (
+            f"the stored width is computed ({ast.dump(value)[:60]}...); it "
+            "must be exactly what was measured on screen")

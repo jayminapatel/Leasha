@@ -1,33 +1,30 @@
-r"""No Python may run from `sectionResized` while the view is being applied.
+r"""Nothing Python may be connected to `sectionResized`. It kills the process.
 
-Leasha died twice on 2026-08-27 with a Windows access violation. The crash
-dump - readable at last, once the reporter was fixed - named:
+Eight Windows access violations across 26-27 August 2026, every one at the
+same offset in `python312.dll`, every crash dump naming the slot connected to
+`QHeaderView.sectionResized` at an **unknown line** - the frame faulted on
+entry, before a single bytecode ran.
 
-    _fill -> show_rows -> apply_prefs -> apply_to_table -> resized
+Three fixes were tried inside the slot and none worked, because the slot never
+runs: the fault is Qt calling into PyQt's glue from inside `QHeaderView`'s own
+layout. The last dumps showed it reached straight from `application.exec()`,
+with nothing of ours in between. `remember_widths` carries the full history.
 
-with `resized` at an unknown line, because the frame faulted on *entry*,
-before one bytecode ran.
-
-`remember_widths` already carries a long note about the identical fault during
-window construction, and its conclusion is the thing these tests defend:
-
-    the fault is in *invoking a Python slot from `sectionResized` while Qt is
-    mid-layout* - Qt calling into PyQt's glue during a layout pass the header
-    has not finished.
-
-That note also records that guarding the *body* of the slot changed nothing,
-because a Python bool cannot fault. So an early return is not a fix here and a
-test that only checked the flag would pass over the bug. What has to be true
-is stronger: **the slot is never called at all.**
+So the invariant is structural and blunt - **no connection exists** - and a
+timer reads the widths instead. These tests defend both halves: the ban, and
+the feature the ban would otherwise have destroyed.
 """
 
 from __future__ import annotations
+
+import ast
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("PyQt6.QtWidgets")
 
-from PyQt6.QtCore import QCoreApplication                       # noqa: E402
+from PyQt6.QtCore import QTimer                                 # noqa: E402
 from PyQt6.QtWidgets import QTableWidgetItem                    # noqa: E402
 
 from app.ui.view_options import (                               # noqa: E402
@@ -35,6 +32,7 @@ from app.ui.view_options import (                               # noqa: E402
 )
 from app.ui.widgets.result_table import ResultTable             # noqa: E402
 
+APP = Path(__file__).resolve().parents[2] / "app"
 COLUMNS = [("name", "Name"), ("size", "Size"), ("when", "Modified")]
 
 
@@ -48,127 +46,179 @@ class _Button:
         self.saved.append((key, width))
 
 
-def _table(_qt_application) -> tuple:
-    """A populated table wired exactly as the four real views wire theirs."""
+def _wire(_qt_application, width: int = 900) -> tuple:
+    """A table wired exactly as the four real views wire theirs."""
     del _qt_application
     table = ResultTable([h for _k, h in COLUMNS], ranked=True,
                         aligns=["left", "right", "left"])
+    table.resize(width, 400)
+    table.show()
     button = _Button()
     remember_widths(table, button, COLUMNS)
-    # The connection is deferred by one turn of the event loop on purpose -
-    # see the note in `remember_widths`. Without this the test would measure a
-    # table nothing is listening to, and would pass for the wrong reason.
-    QCoreApplication.processEvents()
+    timers = [child for child in table.children() if isinstance(child, QTimer)]
+    assert timers, "remember_widths started no watcher"
 
-    table.setRowCount(3)
-    for row in range(3):
-        for column in range(3):
-            table.setItem(row, column,
-                          QTableWidgetItem(f"cell {row}{column} wwwwwwwwwwww"))
-    table.set_row_objects([object(), object(), object()])
-    return table, button
-
-
-class TestTheSlotIsNotCalledWhileTheViewIsApplied:
-
-    def test_no_section_resize_reaches_python(self, _qt_application) -> None:
-        """The regression. It was four invocations before the fix.
-
-        Counted on a spy attached to the same signal, so this measures what
-        Qt actually emitted rather than what the code intended.
-        """
-        table, _button = _table(_qt_application)
-        seen: list = []
-        table.horizontalHeader().sectionResized.connect(
-            lambda index, old, new: seen.append((index, old, new)))
-
-        apply_to_table(table, ViewPreferences(), columns=COLUMNS,
+    def fill(rows: int = 3, prefs=None) -> None:
+        table.setRowCount(rows)
+        for row in range(rows):
+            for column in range(3):
+                table.setItem(row, column, QTableWidgetItem(
+                    f"cell {row}{column} wwwwwwwwww"))
+        table.set_row_objects([object()] * rows)
+        apply_to_table(table, prefs or ViewPreferences(), columns=COLUMNS,
                        available=[key for key, _h in COLUMNS])
 
-        assert seen == [], (
-            f"{len(seen)} section resizes reached a Python slot from inside "
-            "apply_to_table - this is the access violation of 2026-08-27")
+    return table, button, timers[0].timeout.emit, fill
 
-    def test_a_resize_afterwards_still_reaches_python(self, _qt_application) -> None:
-        """The other half, without which the fix is just a broken feature.
 
-        Blocking too much would silently disable remembering column widths,
-        and nothing else in the suite would notice.
-        """
-        table, _button = _table(_qt_application)
-        apply_to_table(table, ViewPreferences(), columns=COLUMNS,
-                       available=[key for key, _h in COLUMNS])
+class TestNothingIsConnectedToSectionResized:
+    r"""The ban, checked by parsing rather than reading.
 
-        seen: list = []
-        table.horizontalHeader().sectionResized.connect(
-            lambda index, old, new: seen.append((index, old, new)))
+    **Grepping for `sectionResized` would be useless here**: the word appears
+    a dozen times in `view_options.py`, in the docstring that explains why
+    nothing may connect to it. A guard that trips on its own justification
+    gets deleted the first time somebody hits it. This looks for what the code
+    would *do* - an attribute call `<something>.sectionResized.connect(...)` -
+    which no amount of prose can contain.
+    """
+
+    def _connections(self, path: Path) -> list:
+        found: list = []
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            if not isinstance(target, ast.Attribute) or target.attr != "connect":
+                continue
+            inner = target.value
+            if isinstance(inner, ast.Attribute) and inner.attr == "sectionResized":
+                found.append(f"{path.name}:{node.lineno}")
+        return found
+
+    def test_no_module_connects_to_it(self) -> None:
+        offenders: list = []
+        for path in sorted(APP.rglob("*.py")):
+            offenders.extend(self._connections(path))
+        assert offenders == [], (
+            f"sectionResized is connected at {offenders}. This is the access "
+            "violation of 2026-08-27 - read the note in remember_widths "
+            "before reconnecting it.")
+
+    def test_the_detector_can_actually_see_one(self, tmp_path) -> None:
+        """Otherwise the test above passes on an empty search forever."""
+        bait = tmp_path / "bait.py"
+        bait.write_text("header.sectionResized.connect(slot)\n", encoding="utf-8")
+        assert self._connections(bait), "the detector finds nothing"
+
+
+class TestADraggedWidthIsStillRemembered:
+    """The ban is only acceptable if the feature survives it."""
+
+    def test_a_settled_drag_is_saved(self, _qt_application) -> None:
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
+        for _ in range(3):
+            tick()
+        assert button.saved == [], "a fill was mistaken for a drag"
+
         table.horizontalHeader().resizeSection(0, 321)
+        tick()
+        assert button.saved == [], "saved while the drag was still moving"
+        tick()
+        assert ("name", 321) in button.saved, "a finished drag was not saved"
 
-        assert seen, "the header stayed deaf after apply_to_table returned"
+    def test_it_is_saved_once(self, _qt_application) -> None:
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
+        table.horizontalHeader().resizeSection(0, 321)
+        for _ in range(5):
+            tick()
+        assert button.saved.count(("name", 321)) == 1
 
+    def test_dragging_only_the_last_column_still_counts(
+            self, _qt_application) -> None:
+        r"""The stretched column is skipped *only* when something else moved.
 
-class TestTheGuardsAreLeftAsTheyWereFound:
-
-    def test_the_header_is_unblocked_afterwards(self, _qt_application) -> None:
-        table, _button = _table(_qt_application)
-        apply_to_table(table, ViewPreferences(), columns=COLUMNS,
-                       available=[key for key, _h in COLUMNS])
-        assert not table.horizontalHeader().signalsBlocked()
-
-    def test_the_applying_flag_is_cleared_afterwards(self, _qt_application) -> None:
-        table, _button = _table(_qt_application)
-        apply_to_table(table, ViewPreferences(), columns=COLUMNS,
-                       available=[key for key, _h in COLUMNS])
-        assert table.property(APPLYING) is False
-
-    def test_a_header_already_blocked_is_left_blocked(self, _qt_application) -> None:
-        """Restore what was there, not what is convenient.
-
-        A caller that blocked the header for its own reasons must not find it
-        unblocked because this ran in the middle.
+        Refusing it outright would mean the last column could never be sized,
+        because `setStretchLastSection` stays on until a width is stored.
         """
-        table, _button = _table(_qt_application)
-        table.horizontalHeader().blockSignals(True)
-        try:
-            apply_to_table(table, ViewPreferences(), columns=COLUMNS,
-                           available=[key for key, _h in COLUMNS])
-            assert table.horizontalHeader().signalsBlocked()
-        finally:
-            table.horizontalHeader().blockSignals(False)
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
+        for _ in range(3):
+            tick()
+        header = table.horizontalHeader()
+        last = max(index for index in range(header.count())
+                   if not table.isColumnHidden(index))
+        header.resizeSection(last, 260)
+        tick()
+        tick()
+        assert button.saved, "the last column could not be sized at all"
 
-    def test_the_nested_width_pass_does_not_drop_the_flag(self, _qt_application) -> None:
-        r"""`_apply_widths` sets the same flag and used to force it False.
 
-        It runs *inside* the span `apply_to_table` now guards, so clearing it
-        on the way out would leave the rest of that span unguarded while the
-        caller still believed the guard was up.
+class TestNothingElseIsMistakenForAChoice:
+
+    def test_a_fill_saves_nothing(self, _qt_application) -> None:
+        r"""The original bug this whole area exists around.
+
+        Widths are fitted to content on every fill. Recording those would pin
+        every column at whatever the first result set happened to need.
         """
-        from app.ui.view_options import _apply_widths
+        table, button, tick, fill = _wire(_qt_application)
+        for rows in (3, 5, 8):
+            fill(rows)
+            for _ in range(3):
+                tick()
+        assert button.saved == []
 
-        table, _button = _table(_qt_application)
+    def test_a_window_resize_saves_nothing(self, _qt_application) -> None:
+        """`setStretchLastSection` moves a column; nobody chose that width."""
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
+        for _ in range(3):
+            tick()
+
+        table.resize(600, 400)
+        for _ in range(3):
+            tick()
+        assert button.saved == []
+
+    def test_a_stretched_last_column_is_not_pinned_by_another_drag(
+            self, _qt_application) -> None:
+        """Narrowing column one widens the last. Only one was dragged."""
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
+        for _ in range(3):
+            tick()
+        table.horizontalHeader().resizeSection(0, 321)
+        tick()
+        tick()
+        assert [key for key, _w in button.saved] == ["name"], (
+            f"the stretched column was recorded too: {button.saved}")
+
+
+class TestTheWatcherIsSafeToLeaveRunning:
+    """It ticks forever, unattended, for the life of the window."""
+
+    def test_it_is_parented_to_the_table(self, _qt_application) -> None:
+        """So it dies with the table instead of reading a deleted widget."""
+        table, _button, _tick, _fill = _wire(_qt_application)
+        timers = [child for child in table.children() if isinstance(child, QTimer)]
+        assert timers and timers[0].parent() is table
+
+    def test_a_tick_during_an_apply_records_nothing(self, _qt_application) -> None:
+        table, button, tick, fill = _wire(_qt_application)
+        fill()
         table.setProperty(APPLYING, True)
-        _apply_widths(table, ViewPreferences(), [k for k, _h in COLUMNS],
-                      [k for k, _h in COLUMNS])
-        assert table.property(APPLYING) is True, (
-            "the nested pass cleared a flag it did not set")
+        table.horizontalHeader().resizeSection(0, 321)
+        tick()
+        tick()
+        table.setProperty(APPLYING, False)
+        assert button.saved == []
 
-
-class TestTheViewIsStillApplied:
-    """A fix that stopped the function working would pass everything above."""
-
-    def test_columns_are_still_hidden_and_shown(self, _qt_application) -> None:
-        table, _button = _table(_qt_application)
-        prefs = ViewPreferences(columns=("name", "when"))
-        shown = apply_to_table(table, prefs, columns=COLUMNS,
-                               available=[key for key, _h in COLUMNS])
-
-        assert "name" in shown and "when" in shown
-        assert not table.isColumnHidden(0)
-        assert table.isColumnHidden(1), "the unchosen column is still visible"
-
-    def test_the_hidden_rank_column_stays_hidden(self, _qt_application) -> None:
-        """Ranked tables carry a hidden sort column; it is not a real one."""
-        table, _button = _table(_qt_application)
-        apply_to_table(table, ViewPreferences(), columns=COLUMNS,
-                       available=[key for key, _h in COLUMNS])
-        assert table.isColumnHidden(table.columnCount() - 1)
+    def test_apply_to_table_resyncs_the_baseline(self, _qt_application) -> None:
+        """Without the resync the watcher records the next fitted width."""
+        table, _button, _tick, fill = _wire(_qt_application)
+        fill()
+        assert callable(getattr(table, "leasha_resync_widths", None)), (
+            "apply_to_table has nothing to resync against")
