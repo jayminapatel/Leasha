@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.16 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.17 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -290,6 +290,15 @@ wherever `/newest` is in force, and an undatable file counts as ancient rather
 than new — the other way round is the sentinel bug that hid every PST, moved
 into the ranking.
 
+## Correction to the 2e note, 2026-08-28
+
+**"Result rows show when" was ticked on a field that was always empty.**
+`ResultGroup.when` exists and is drawn, and `to_row` never copied `mtime_ns`
+off the result — so every document row rendered with no date at all. Found
+while doing the adoptions order's §2, fixed there, and recorded here because
+the tick below was made on the strength of the field existing rather than
+having a value. That is the same mistake as the §2a one, in a quieter place.
+
 ## Note on 2e, added 2026-08-27 (delivery finding — the item text is unchanged)
 
 **Four of the five sub-items were already built**, and one of them asks for a
@@ -300,7 +309,7 @@ each is now pinned by a test so it cannot quietly stop being true:
 |---|---|
 | Search is the default tab on launch | **already true** — added first, nothing selects another |
 | Enter opens the document | **already true** — `activated` covers Enter and double-click |
-| result rows show filename, folder, when | **already true** — the delegate draws all three |
+| result rows show filename, folder, when | **filename and folder true; the date was always blank** — corrected 2026-08-28, see below |
 | the box placeholder | **already there, and must not change** — see below |
 | an empty box offers recent searches | **new**; rules built and tested, attaching it deferred |
 

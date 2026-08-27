@@ -1,6 +1,24 @@
 # Changelog
 
-**Doc version:** 3.86 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.87 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Fixed: results never showed the date
+
+- **Every document result showed no date at all.** The row was built without
+  it, so where the date should have been there was nothing - for as long as
+  the feature has existed. Emails were unaffected, which is why it went
+  unnoticed: they take their date from the message.
+- In a folder with fifteen years of work in it, the date is often the only
+  thing telling two results apart.
+
+## A result found by meaning says so
+
+- **A result with none of your words in it now says "meaning match".** It
+  looks like a mistake otherwise - and it is not one, it is the search
+  understanding what you meant.
+- Only that kind of result is marked. Putting a badge on every row would hide
+  the one that needs it.
+- It is a word, not a colour, so it works for everybody.
 
 ## Ask any result why it is there
 

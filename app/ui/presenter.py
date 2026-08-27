@@ -427,8 +427,23 @@ class ResultRow:
     score: float = 0.0
     #: Straight through from `SearchResult`, which now carries both. Kept on the
     #: row rather than only on the group so a flat list can show them too.
+    #:
+    #: **And `to_row` did not actually copy them, for the life of the
+    #: feature.** The comment above said "straight through" and the
+    #: constructor omitted both, so `ResultGroup.when` - built from
+    #: `rows[0].mtime_ns` - was `format_when(0)`, which is the empty string.
+    #: **Every document result showed no date at all.** Mail was unaffected
+    #: and hid it: a message takes its date from `sent_at` in the details map,
+    #: so the Mail tab looked right while the other three quietly did not.
     ext: str = ""
     mtime_ns: int = 0
+    #: Which retrievers found this, straight from `SearchResult.sources`.
+    #:
+    #: **Carried as data, not parsed back out of `explain`.** The rule this
+    #: codebase set for notices - the UI never reads a message string to
+    #: decide anything - applies just as well to a row deciding whether to
+    #: show a "meaning match" marker.
+    sources: tuple = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -454,6 +469,9 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
         explain=result.explain() if hasattr(result, "explain") else "",
         location=location,
         score=float(getattr(result, "score", 0.0) or 0.0),
+        ext=str(getattr(result, "ext", "") or ""),
+        mtime_ns=int(getattr(result, "mtime_ns", 0) or 0),
+        sources=tuple(getattr(result, "sources", ()) or ()),
     )
 
 
@@ -821,7 +839,7 @@ def why(row: Any) -> str:
 
 
 def group_subtitle(group: Any, *, show_scores: bool = False,
-                   expanded: bool = False) -> str:
+                   expanded: bool = False, policy: Any = None) -> str:
     """The grey line under the name: where it is, and how many matches.
 
     `expanded` is passed in rather than read off the group, because a
@@ -830,6 +848,13 @@ def group_subtitle(group: Any, *, show_scores: bool = False,
     on the dataclass would make two views of the same results fight over it.
     """
     bits = [getattr(group, "folder", "")]
+    # §2 of the adoptions order. **On the group's best row, and only there.**
+    # A badge on every row would make the one that matters invisible; this
+    # appears exactly where a person would otherwise think the search had
+    # made a mistake - a result with none of their words in it.
+    marker = match_marker(getattr(group, "best", None), policy)
+    if marker:
+        bits.append(marker)
     label = getattr(group, "match_label", "")
     if label:
         bits.append(f"{label} {'▾' if expanded else '▸'}")
@@ -4490,3 +4515,33 @@ def explain_for(result: Any, parsed: Any = None, policy: Any = None, *,
     register = str(getattr(policy, "notice_register", "plain") or "plain")
     return why_result(result, parsed, fold=fold, opens=opens,
                       register=register)
+
+
+# ---------------------------------------------------------------------------
+# Adoptions §2 — how it matched, not only that it did
+# ---------------------------------------------------------------------------
+
+#: What a result says about the way it was found. **Words, never colour
+#: alone**: the accessibility rule this codebase already applies to the focus
+#: ring applies here too, and a marker that is only a hue is a marker several
+#: people on any given day cannot see.
+MEANING_MARKER = "meaning match"
+
+
+def match_marker(row: Any, policy: Any = None) -> str:
+    r"""`"meaning match"` for a result no typed word appears in, else `""`.
+
+    **A keyword hit keeps today's highlight and says nothing extra.** The
+    marker exists for the row that has none of the person's words in it,
+    which reads as a mistake to anybody who does not know the search
+    understands meaning - and adding a badge to every row would make the one
+    that matters invisible.
+
+    Rides `explain_results`, deliberately: this is the shortest possible
+    answer to *why is this here*, and a separate eighth switch for one word
+    would be a preference nobody could tell apart from the seventh.
+    """
+    if policy is not None and not getattr(policy, "explain_results", True):
+        return ""
+    lanes = tuple(getattr(row, "sources", ()) or ())
+    return MEANING_MARKER if lanes == (1,) else ""

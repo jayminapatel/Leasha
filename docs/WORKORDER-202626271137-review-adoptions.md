@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.1 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -31,7 +31,7 @@ these seven.
 
 ## 2. Match-type indication
 
-- [ ] **2a** results and snippets subtly distinguish HOW they matched:
+- [x] **2a** results and snippets subtly distinguish HOW they matched:
   keyword hits keep today's highlight; a meaning-only match shows a small
   plain-words marker ("meaning match") instead of pretending words matched.
   Delegate-level styling; colour never the only signal (accessibility
@@ -92,7 +92,7 @@ these seven.
 
 - [x] why-result: fixture result's explanation lists exactly the recorded
   signals, no invented numbers; off-switch removes the affordance.
-- [ ] match-type: meaning-only fixture hit shows the marker; keyword hit
+- [x] match-type: meaning-only fixture hit shows the marker; keyword hit
   does not; not colour-only (asserted).
 - [ ] saved searches: save/rename/delete/re-run round-trip; appears in `/`
   menu with count; per-account isolation.
@@ -154,3 +154,34 @@ now, where the policy actually decides.
 
 Not done: the expandable affordance in the result row itself, which is view
 work like the rest of this session's UI items.
+
+## Note on §2, added 2026-08-28 — and a live bug it uncovered
+
+**Only the row that reads as a mistake gets a marker.** A result with none of
+the typed words in it looks like a bug to anybody who does not know the search
+understands meaning; a keyword hit keeps today's highlight and says nothing
+extra, because a badge on every row makes the one that matters invisible.
+
+The marker is a **word**, per the accessibility rule this codebase already
+applies to the focus ring: colour is never the only signal. It rides
+`explain_results` rather than taking an eighth switch — it is the shortest
+possible answer to *why is this here*, and a separate preference for one word
+is one nobody could tell apart from the other.
+
+**Read as data, not parsed out of `explain`.** `ResultRow` now carries
+`sources`; the rule this codebase set for notices — the UI never reads a
+message string to decide anything — applies to a row choosing a marker.
+
+**The bug: every document result has always shown a blank date.** `to_row`
+never copied `ext` or `mtime_ns` off the `SearchResult`, though the field
+comment on `ResultRow` said both went "straight through". `ResultGroup.when`
+is built from `rows[0].mtime_ns`, so it was `format_when(0)` — the empty
+string — for the life of the feature. **Mail hid it**: a message takes its
+date from `sent_at` in the details map, so the Mail tab looked right while the
+other three quietly did not. `kind` survived only by falling back to parsing
+the filename, which would itself have failed on a file with no extension.
+
+**This corrects a tick I made in the search-experience order.** §2e's "result
+rows show filename, folder, when" was marked already-true on the strength of
+`when` existing as a field. It existed and was always empty — the second time
+this session I checked a field rather than a value. The §2e note now says so.
