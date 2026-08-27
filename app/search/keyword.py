@@ -129,7 +129,7 @@ def search(
     # corpus.
     if where:
         sql = f"""
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
+            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.content_hash,
                    bm25(chunks_fts) AS score
@@ -143,7 +143,7 @@ def search(
         arguments = [expression, *params, limit]
     else:
         sql = """
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
+            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.content_hash,
                    top.score AS score
@@ -178,7 +178,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
     """One FTS5 query, in whichever of the two shapes suits the filters."""
     if where:
         sql = f"""
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
+            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.content_hash,
                    bm25(chunks_fts) AS score
@@ -192,7 +192,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
         arguments = [expression, *params, limit]
     else:
         sql = """
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
+            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.content_hash,
                    top.score AS score
@@ -230,7 +230,7 @@ def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[
     and recency is the only ranking signal available without a search term.
     """
     sql = f"""
-        SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
+        SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                c.char_start, c.char_end,
                f.path, f.ext, f.mtime_ns, f.content_hash,
                0.0 AS score

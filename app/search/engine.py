@@ -154,6 +154,14 @@ class SearchResult:
     page: Optional[int] = None
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+    #: Where inside the document this passage starts, when the extractor could
+    #: say: `Q3!A14` for a spreadsheet row. Adoptions §6a.
+    #:
+    #: **`page` was never enough for a spreadsheet.** It holds the sheet index,
+    #: so a hit in a forty-thousand-row workbook says "sheet 3" and stops. The
+    #: row is what makes it an answer. Empty for every other kind of document,
+    #: which is nearly all of them.
+    label: str = ""
     #: The file's extension and modification time, for the result row to show.
     #:
     #: **Both were already being fetched and thrown away.** `keyword.py` and
@@ -1229,6 +1237,7 @@ class SearchEngine:
             path=str(hit.get("path", "")),
             text=str(hit.get("text", "")),
             page=hit.get("page"),
+            label=str(hit.get("label", "") or ""),
             char_start=hit.get("char_start"),
             char_end=hit.get("char_end"),
             # Normalised the way `upsert_file` stores it - bare, lowercase, no

@@ -28,6 +28,7 @@ from app.core.errors import make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
+from app.extract.cells import cached_letter
 from app.extract.office import MAX_SHEET_COLUMNS, MAX_SHEET_ROWS
 
 __all__ = ["XlsExtractor"]
@@ -105,18 +106,36 @@ class XlsExtractor:
                 lines: list[str] = []
                 rows = min(sheet.nrows, MAX_SHEET_ROWS)
                 columns = min(sheet.ncols, MAX_SHEET_COLUMNS)
+                #: `(offset into this sheet's text, `Q3!B14`)` per written row.
+                #: Adoptions §6a, exactly as `office.py` does it - a 1998
+                #: workbook and a 2024 one should tell you the same things.
+                anchors: list[tuple[int, str]] = []
+                offset = 0
+                sheet_name = " ".join(str(name).split())
 
                 for row in range(rows):
-                    values = [
-                        text for text in (
-                            _cell_text(book, sheet.cell(row, column))
-                            for column in range(columns)
-                        ) if text
-                    ]
+                    # **The column of the first written cell, not the first
+                    # column.** A row whose data starts at D would otherwise be
+                    # located at A - the same trap `office.py` records.
+                    values: list[str] = []
+                    first_column = 0
+                    for column in range(columns):
+                        text = _cell_text(book, sheet.cell(row, column))
+                        if not text:
+                            continue
+                        if not first_column:
+                            first_column = column + 1       # xlrd counts from 0
+                        values.append(text)
                     if values:
+                        anchors.append((
+                            offset,
+                            f"{sheet_name}!{cached_letter(first_column)}{row + 1}",
+                        ))
                         # Tabs between cells: "Licence" and "12400" must stay
                         # adjacent, exactly as odf.py argues.
-                        lines.append("\t".join(values))
+                        line = "\t".join(values)
+                        lines.append(line)
+                        offset += len(line) + 1             # the joining newline
 
                 if sheet.nrows > MAX_SHEET_ROWS:
                     builder.warn(make_error(
@@ -137,6 +156,7 @@ class XlsExtractor:
                     page=index,
                     label=f"Sheet: {name}",
                     prefix_label=True,
+                    anchors=anchors,
                 )
 
             yield builder.build()

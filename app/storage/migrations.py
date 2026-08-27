@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 15
+CURRENT_VERSION = 16
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -843,6 +843,28 @@ def _v15_saved_searches(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v16_chunk_label(conn: sqlite3.Connection) -> None:
+    r"""`chunks.label` — where inside a document a chunk starts. Adoptions §6a.
+
+    **`page` was never enough for a spreadsheet.** It holds the sheet index, so
+    a hit in a forty-thousand-row workbook says "sheet 3" and stops. The row is
+    what turns that into an answer, and `Q3!A14` is an address the person can
+    paste into the Name Box.
+
+    One nullable column rather than three (sheet, row, column). The value is
+    only ever read whole, three columns would be three places to forget, and
+    `!` is the spreadsheet's own separator - so what is stored is also what
+    somebody could type. `extract/cells.py` builds it and parses it back.
+
+    Additive and nullable, so an index that has not been rebuilt keeps every
+    row and simply has no locators until the next run touches those files -
+    which is the correct degradation for a label.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+    if "label" not in existing:
+        conn.execute("ALTER TABLE chunks ADD COLUMN label TEXT")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -869,6 +891,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     13: _v13_repair_indexes,
     14: _v14_folded_mail_columns,
     15: _v15_saved_searches,
+    16: _v16_chunk_label,
 }
 
 

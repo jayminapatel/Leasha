@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.3 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -71,7 +71,7 @@ these seven.
 
 ## 6. Cell-level spreadsheet locators
 
-- [ ] **6a** spreadsheet extraction carries sheet name (exists as segment
+- [x] **6a** spreadsheet extraction carries sheet name (exists as segment
   labels — verify) AND cell/row references into segment labels where the
   extractor can know them; results and snippets for spreadsheet hits show
   "Sheet 'Q3' · near D14" and the grid preview (0326 §4b) scrolls to the
@@ -94,13 +94,13 @@ these seven.
   signals, no invented numbers; off-switch removes the affordance.
 - [x] match-type: meaning-only fixture hit shows the marker; keyword hit
   does not; not colour-only (asserted).
-- [ ] saved searches: save/rename/delete/re-run round-trip; appears in `/`
+- [x] saved searches: save/rename/delete/re-run round-trip; appears in `/`
   menu with count; per-account isolation.
 - [ ] selection-to-search: clipboard restored byte-perfect (the load-
   bearing test); no selection → plain open; off-switch honoured.
 - [ ] chips: counts equal the result set's; Tab cycles; zero extra engine
   calls (asserted).
-- [ ] cell locators: fixture xlsx hit renders sheet+cell; extraction perf
+- [x] cell locators: fixture xlsx hit renders sheet+cell; extraction perf
   delta recorded.
 - [ ] deep link: `leasha://search?q=x` fronts the single instance with
   results; uninstall removes the key.
@@ -243,3 +243,82 @@ sections under the empty box. Both wait on §2e's recent-searches attachment in
 the search-experience order, which is the widget they share — the rules and
 the store side are complete and tested. Export/import rides the settings
 story, as §3b says.
+
+## Note on §6a, added 2026-08-28
+
+**Verified first, as the item asks.** The sheet name *does* already reach the
+segment label and the indexed text - `office.py` has written `Sheet: Q3` since
+Layer 2, which is what makes searching for a sheet name work. What did not
+exist was any row or cell reference, and `chunks.page` holds the sheet
+*index*, so a hit in a forty-thousand-row workbook rendered as **"page 3"** -
+true, useless, and naming a thing no spreadsheet calls a page.
+
+**A live defect found on the way in, and it decided the design.** The old row
+flattener dropped empty cells while joining, so the first *written* cell of a
+row could be column F and any locator built by counting tab-separated fields
+would have said C. A cell reference that is confidently wrong is worse than
+none, so the column number now travels beside each value. **The indexed text
+is byte-for-byte what it always was** - asserted, because if it moved, every
+chunk boundary, every stored offset and the comparability of the measured
+retrieval baseline would move with it, for a label.
+
+**Anchors, not segments.** The obvious move - one segment per row - is wrong
+twice: `DocumentBuilder.SEPARATOR` is a paragraph break, so the chunker would
+split on every row, and a 5,000-row sheet would become 5,000 chunks. So a
+segment stays the unit of *structure* and an anchor is a landmark inside one:
+`Document.anchors`, `Document.anchor_lookup()`, resolved by the same binary
+search and the same *last one starting at or before* rule as `page_lookup`,
+so the two cannot disagree.
+
+**A second bug the first version had.** The label line `Sheet: Q3` sits above
+every anchor, so the first chunk of every sheet - which starts at offset zero -
+resolved to nothing and showed no locator at all. The first anchor now claims
+the top of its segment: a heading belongs to the rows under it.
+
+**Schema v16** adds one nullable `chunks.label`, not three columns. The value
+is only ever read whole, `!` is the spreadsheet's own separator, and what is
+stored - `Q3!D14` - is also what somebody could paste into the Name Box.
+`extract/cells.py` builds it and parses it back; `presenter.cell_location`
+turns it into *Sheet 'Q3' · near D14*. The store keeps a code and the words
+live in the presenter, exactly as the notices do.
+
+*near*, not *at*: the locator is the row the passage **starts** on, and a
+passage is several rows long. "at" would be a precision the value does not
+have, on the one screen where somebody is deciding whether to open a huge
+workbook.
+
+**Extraction cost, measured as the item requires.** 5,000 rows x 3 written
+columns, best-of-15 in a warm process:
+
+| | median | floor (min) |
+|---|---|---|
+| before | 206 ms | 175 ms |
+| after | 200 ms | 185 ms |
+
+Medians are indistinguishable - one *after* run came in faster than *before* -
+and the floor moves ~10ms, about **1.8 microseconds per row**, against a stage
+dominated by openpyxl's XML parsing. Negligible, which is what the item
+required. (An earlier reading of +54% was machine noise: seven runs, and its
+own minimum was above every later measurement. Fifteen runs and the minimum
+is the estimator that survives a loaded sandbox.)
+
+Two things paid for it rather than costing: the old comprehension evaluated
+`str(value).strip()` **twice per cell**, once to test and once to keep, and
+the plain loop that replaced it does it once; and the column letter is
+memoised, since a sheet has a few dozen written columns and tens of thousands
+of rows.
+
+`.xls` got the same treatment - a 1998 workbook and a 2024 one should tell you
+the same things, the rule `xls.py` already states about its row caps - and is
+tested through `xlwt`.
+
+**Not done: `.ods`.** `odf.py` is a flat event walk shared by `.odt`, `.ods`
+and `.odp` that tracks neither the sheet name nor the row index, and ODS rows
+carry `number-rows-repeated`, so a row counter there is a correctness problem
+rather than a counter. It needs its own pass and would have been guesswork
+bolted onto this one.
+
+**The grid-scroll half stays gated**, as the item says, on 0326 §4b - which is
+why `ResultRow` keeps the raw `Q3!D14` beside the sentence: getting it back by
+re-parsing the words is precisely the mistake `cell_location` exists to
+prevent.

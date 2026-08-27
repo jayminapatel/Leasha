@@ -28,7 +28,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Optional, Protocol, runtime_checkable
+from typing import (
+    Any, Callable, Iterable, Iterator, Optional, Protocol, Sequence,
+    runtime_checkable,
+)
 
 from app.core.errors import AppError, raise_error
 
@@ -98,6 +101,10 @@ class Document:
     #: Set only when one path yields many documents (PST messages), in which case
     #: it is the synthetic per-message path used as the `files.path` key.
     virtual_path: Optional[str] = None
+    #: `(char offset, locator)` landmarks inside the text, ascending. Adoptions
+    #: §6a: a spreadsheet's rows, as `Q3!A14`. Empty for everything else, which
+    #: is nearly every document - a tuple of nothing costs nothing.
+    anchors: tuple[tuple[int, str], ...] = ()
 
     @property
     def key(self) -> str:
@@ -136,6 +143,31 @@ class Document:
         def lookup(offset: int) -> Optional[int]:
             position = bisect.bisect_right(starts, offset) - 1
             return pages[max(position, 0)]
+
+        return lookup
+
+    def anchor_lookup(self) -> Callable[[int], Optional[str]]:
+        r"""The landmark at or before an offset, or None. Adoptions §6a.
+
+        Same shape and same rule as `page_lookup` - *last one starting at or
+        before* - so a chunk that begins between two rows is reported as
+        starting at the earlier one, which is the row a person would see at
+        the top of the snippet.
+
+        Returns a lookup that always answers None when there are no anchors,
+        which is every document that is not a spreadsheet.
+        """
+        import bisect
+
+        if not self.anchors:
+            return lambda _offset: None
+
+        starts = [offset for offset, _locator in self.anchors]
+        locators = [locator for _offset, locator in self.anchors]
+
+        def lookup(offset: int) -> Optional[str]:
+            position = bisect.bisect_right(starts, offset) - 1
+            return locators[position] if position >= 0 else None
 
         return lookup
 
@@ -184,6 +216,8 @@ class DocumentBuilder:
         self.warnings: list[AppError] = []
         self._parts: list[str] = []
         self._segments: list[Segment] = []
+        #: `(absolute offset, locator)`, in the order added. See `add`.
+        self._anchors: list[tuple[int, str]] = []
         self._cursor = 0
 
     def add(
@@ -193,18 +227,38 @@ class DocumentBuilder:
         page: Optional[int] = None,
         label: Optional[str] = None,
         prefix_label: bool = False,
+        anchors: Sequence[tuple[int, str]] = (),
     ) -> None:
-        """Append one segment. Empty and whitespace-only text is dropped.
+        r"""Append one segment. Empty and whitespace-only text is dropped.
 
         `prefix_label=True` writes the label into the indexed text as well, which
         is how a spreadsheet's sheet name or a slide's notes marker become
         searchable - there is no column for them.
+
+        `anchors` are `(offset_into_text, locator)` pairs marking places
+        *inside* one segment that a person could be pointed at - the row a
+        spreadsheet's line came from, in `Q3!A14` form. **Offsets are relative
+        to `text` as passed in**, before the label prefix and before the
+        separator, because that is the only frame the caller knows; both
+        shifts are applied here, where they cannot be forgotten.
+
+        A segment is the unit of *structure*; an anchor is a landmark within
+        one. Adding a segment per row instead would have been the obvious
+        move and is wrong twice over: `SEPARATOR` is a paragraph break, so the
+        chunker would split on every row, and a five-thousand-row sheet would
+        become five thousand chunks.
         """
         body = text.strip()
         if not body:
             return
+        # `strip()` moved the text under the offsets the caller gave, so the
+        # anchors move with it. Leading whitespace is the common case - a sheet
+        # that starts with a blank row - and an anchor that is off by that much
+        # points at the wrong row for the whole segment.
+        shift = -(len(text) - len(text.lstrip()))
         if prefix_label and label:
             body = f"{label}\n{body}"
+            shift += len(label) + 1
 
         if self._parts:
             self._parts.append(self.SEPARATOR)
@@ -216,6 +270,19 @@ class DocumentBuilder:
         self._segments.append(
             Segment(text=body, char_start=start, char_end=self._cursor, page=page, label=label)
         )
+        for position, (offset, locator) in enumerate(anchors or ()):
+            place = start + int(offset) + shift
+            # **The first anchor claims the top of its segment**, heading and
+            # all. Without this the label line `Sheet: Q3` sits above every
+            # anchor, so the *first chunk of every sheet* - which starts at
+            # offset zero - resolved to nothing and showed no locator at all.
+            # A heading belongs to the rows under it.
+            if position == 0:
+                place = start
+            # Clamped rather than dropped: an anchor a little before its
+            # segment - a caller counting from the unstripped text in a way
+            # this has not thought of - should still point at the right sheet.
+            self._anchors.append((max(start, min(place, self._cursor)), str(locator)))
 
     def warn(self, error: AppError) -> None:
         """Record a non-fatal problem. The document is still indexed."""
@@ -229,6 +296,7 @@ class DocumentBuilder:
             source_kind=self.source_kind,
             meta=dict(self.meta),
             warnings=tuple(self.warnings),
+            anchors=tuple(self._anchors),
         )
 
 

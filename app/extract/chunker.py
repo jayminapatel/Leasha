@@ -109,6 +109,10 @@ class Chunk:
     char_start: int
     char_end: int
     page: Optional[int] = None
+    #: Where inside the document this chunk starts, when the extractor could
+    #: say - `Q3!A14` for a spreadsheet row. Adoptions §6a. None for everything
+    #: else, which is nearly every document.
+    label: Optional[str] = None
 
     @property
     def tokens(self) -> int:
@@ -234,6 +238,7 @@ def chunk_text(
     target_tokens: int = TARGET_TOKENS,
     overlap_tokens: int = OVERLAP_TOKENS,
     page_lookup: Optional[Callable[[int], Optional[int]]] = None,
+    anchor_lookup: Optional[Callable[[int], Optional[str]]] = None,
     count_tokens: Callable[[str], float] = token_cost,
     min_chunk_chars: int = MIN_CHUNK_CHARS,
 ) -> list[Chunk]:
@@ -289,6 +294,7 @@ def chunk_text(
                 char_start=previous.char_start,
                 char_end=char_end,
                 page=previous.page,
+                label=previous.label,
             )
             break
 
@@ -299,6 +305,10 @@ def chunk_text(
                 char_start=char_start,
                 char_end=char_end,
                 page=page_lookup(char_start) if page_lookup else None,
+                # **The locator of where the chunk starts**, which is the row
+                # a person sees at the top of the snippet - the same rule
+                # `page_lookup` follows, for the same reason.
+                label=anchor_lookup(char_start) if anchor_lookup else None,
             )
         )
         ordinal += 1
@@ -327,5 +337,12 @@ def chunk_document(
         target_tokens=target_tokens,
         overlap_tokens=overlap_tokens,
         page_lookup=document.page_lookup(),                # type: ignore[attr-defined]
+        # **`getattr`, because a `Document` is duck-typed here on purpose.**
+        # This module deliberately does not import `base`, and several tests
+        # and the archive path pass objects that are document-shaped without
+        # being one. A stand-in with no anchors must cost the locator, never
+        # the chunking.
+        anchor_lookup=(document.anchor_lookup()               # type: ignore[attr-defined]
+                       if hasattr(document, "anchor_lookup") else None),
         count_tokens=count_tokens,
     )

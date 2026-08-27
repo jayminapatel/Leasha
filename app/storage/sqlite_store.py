@@ -1479,8 +1479,9 @@ class SqliteStore:
                 cursor = conn.execute(
                     """
                     INSERT INTO chunks (file_id, ordinal, text, symbols,
-                                        char_start, char_end, page, embedded)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                                        char_start, char_end, page, label,
+                                        embedded)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                     """,
                     (
                         file_id,
@@ -1494,6 +1495,10 @@ class SqliteStore:
                         chunk.get("char_start"),
                         chunk.get("char_end"),
                         chunk.get("page"),
+                        # Adoptions §6a: `Q3!A14`, or None for the great
+                        # majority of documents that have no interior address
+                        # anybody could act on.
+                        chunk.get("label"),
                     ),
                 )
                 ids.append(int(cursor.lastrowid))

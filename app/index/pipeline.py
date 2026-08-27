@@ -1661,6 +1661,9 @@ class Pipeline:
                     chunks.append({
                         "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
                         "char_start": chunk.char_start, "char_end": chunk.char_end,
+                        # Adoptions §6a. `None` for everything that is not a
+                        # spreadsheet, which is nearly every document.
+                        "label": chunk.label,
                     })
 
                 if not chunks:

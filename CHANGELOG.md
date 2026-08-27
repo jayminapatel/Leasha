@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.88 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.89 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Spreadsheet results say which row
+
+- **A hit in a spreadsheet now says where it is**: *Sheet 'Q3 Costs' · near
+  B14*, instead of "page 3".
+- In a workbook with forty thousand rows in it, "page 3" is somewhere to start
+  looking. The row is the answer.
+- It says *near* rather than *at* on purpose: it is the row the matching
+  passage starts on, and a passage covers several rows.
+- Works for both `.xlsx` and older `.xls` files. Existing spreadsheets pick it
+  up next time they are indexed.
+
 
 ## Searches you can name and keep
 

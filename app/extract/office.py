@@ -36,6 +36,7 @@ from typing import Any, Iterable, Iterator
 from app.core.errors import make_error, raise_error
 from app.core.format_health import Requirement
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
+from app.extract.cells import cached_letter
 
 __all__ = ["DocxExtractor", "XlsxExtractor", "PptxExtractor", "MAX_SHEET_ROWS"]
 
@@ -170,19 +171,58 @@ class XlsxExtractor:
             for index, name in enumerate(workbook.sheetnames, start=1):
                 sheet = workbook[name]
                 lines: list[str] = []
+                #: `(offset into this sheet's text, `Q3!A14`)` per written row.
+                #: Adoptions §6a - the row is what makes a hit in a
+                #: forty-thousand-row workbook into an answer rather than a
+                #: place to start looking.
+                anchors: list[tuple[int, str]] = []
+                offset = 0
                 truncated = False
+
+                # Hoisted: the sheet name is constant for the whole loop, and
+                # cleaning it five thousand times was most of the cost the
+                # first version of this measured.
+                sheet_name = " ".join(str(name).split())
+                letters = cached_letter
 
                 for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
                     if row_number > MAX_SHEET_ROWS:
                         truncated = True
                         break
-                    values = [
-                        str(value).strip()
-                        for value in row[:MAX_SHEET_COLUMNS]
-                        if value is not None and str(value).strip()
-                    ]
+                    # **Column numbers kept, not just the values.** The old
+                    # comprehension dropped empty cells, so the third *written*
+                    # cell of a row could be column F - and a locator built by
+                    # counting tab-separated fields would have said C. The
+                    # joined text below is byte-for-byte what it always was;
+                    # only the column travels alongside it.
+                    #
+                    # **A plain loop, and it is faster than the comprehension
+                    # it replaced.** That one evaluated `str(value).strip()`
+                    # twice for every cell - once to test it and again to keep
+                    # it - so doing it once here pays for the column tracking
+                    # and then some. Measured, not assumed: see the note in
+                    # the order.
+                    values: list[str] = []
+                    first_column = 0
+                    for column, value in enumerate(row[:MAX_SHEET_COLUMNS], start=1):
+                        if value is None:
+                            continue
+                        text = str(value).strip()
+                        if not text:
+                            continue
+                        if not first_column:
+                            first_column = column
+                        values.append(text)
+
                     if values:
-                        lines.append("\t".join(values))
+                        anchors.append((
+                            offset,
+                            f"{sheet_name}!{letters(first_column)}{row_number}",
+                        ))
+                        line = "\t".join(values)
+                        lines.append(line)
+                        # `+ 1` for the newline `"\n".join` will put after it.
+                        offset += len(line) + 1
 
                 if truncated:
                     builder.warn(
@@ -211,6 +251,7 @@ class XlsxExtractor:
                     page=index,
                     label=f"Sheet: {name}",
                     prefix_label=True,
+                    anchors=anchors,
                 )
 
             yield builder.build()

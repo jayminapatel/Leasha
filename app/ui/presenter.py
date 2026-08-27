@@ -40,6 +40,7 @@ from app.core.logging import logger
 _log = logger.bind(component="ui.presenter")
 
 __all__ = [
+    "cell_location",
     "GIT_ONLY",
     "CodeRoute",
     "code_route",
@@ -444,6 +445,11 @@ class ResultRow:
     #: decide anything - applies just as well to a row deciding whether to
     #: show a "meaning match" marker.
     sources: tuple = ()
+    #: The raw locator - `Q3!A14` - kept beside the sentence in `location`.
+    #: Adoptions §6a. The grid preview will need the machine-readable form to
+    #: scroll to the region, and re-parsing the sentence to get it back would
+    #: be the mistake `cell_location` exists to prevent.
+    label: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -454,10 +460,39 @@ class ResultRow:
         }
 
 
+def cell_location(locator: Any) -> str:
+    r"""`Q3!D14` as a sentence: *Sheet 'Q3' · near D14*. Adoptions §6a.
+
+    **The store keeps the code and the words are written here**, the same rule
+    the notices follow - nothing anywhere has to parse a sentence back apart,
+    and the wording can be changed without a migration.
+
+    *near*, not *at*. The locator is the row the chunk **starts** on, and a
+    passage is several rows long; saying "at" would be a precision the value
+    does not have, on the one screen where a person is deciding whether to
+    open a forty-thousand-row workbook.
+
+    `""` for anything that is not a locator, which is every document that is
+    not a spreadsheet.
+    """
+    from app.extract.cells import parse
+
+    found = parse(locator)
+    if found is None:
+        return ""
+    sheet, column, row = found
+    return f"Sheet '{sheet}' · near {column}{row}"
+
+
 def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> ResultRow:
     """Turn a `SearchResult` into something a list widget can draw."""
     page = getattr(result, "page", None)
-    location = f"page {page}" if page is not None else ""
+    # **The cell wins over the sheet number.** For a spreadsheet `page` is the
+    # sheet *index*, so "page 3" is both true and useless - it names a thing
+    # nobody's spreadsheet calls a page and gives no way to find the row.
+    location = cell_location(getattr(result, "label", ""))
+    if not location:
+        location = f"page {page}" if page is not None else ""
 
     return ResultRow(
         rank=getattr(result, "rank", 0),
@@ -472,6 +507,7 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
         ext=str(getattr(result, "ext", "") or ""),
         mtime_ns=int(getattr(result, "mtime_ns", 0) or 0),
         sources=tuple(getattr(result, "sources", ()) or ()),
+        label=str(getattr(result, "label", "") or ""),
     )
 
 

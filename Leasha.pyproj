@@ -93,6 +93,7 @@
     <Compile Include="app\extract\archive.py" />
     <Compile Include="app\extract\base.py" />
     <Compile Include="app\extract\cad.py" />
+    <Compile Include="app\extract\cells.py" />
     <Compile Include="app\extract\chunker.py" />
     <Compile Include="app\extract\cloudstub.py" />
     <Compile Include="app\extract\converter.py" />
@@ -260,6 +261,7 @@
     <Compile Include="tests\unit\test_backends.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
+    <Compile Include="tests\unit\test_cell_locators.py" />
     <Compile Include="tests\unit\test_chunker.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
     <Compile Include="tests\unit\test_cli_index.py" />
