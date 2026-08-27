@@ -257,6 +257,19 @@ def test_a_query_where_every_word_is_unknown_is_left_alone(engine):
     assert _notice(response) is None
 
 
+def test_two_unknown_words_among_three_is_still_left_alone(engine):
+    """**One mistyped word is a typo; two is the wrong corpus.**
+
+    Correcting only the first would leave the second still missing, and the
+    words are ORed - so the "corrected" query returns what the one working
+    word returned, under a notice claiming something was fixed.
+    """
+    response = engine.search("volcano zzzqqq wwwxxx",
+                             policy=for_surface(SEARCH), use_cache=False)
+    assert response.parsed.terms == ("volcano", "zzzqqq", "wwwxxx")
+    assert _notice(response) is None
+
+
 def test_nothing_close_enough_means_no_suggestion(engine):
     """A word nowhere near anything indexed gets the unmatched-terms notice it
     always got, and no invented correction."""

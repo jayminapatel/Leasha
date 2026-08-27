@@ -36,7 +36,7 @@ from typing import Any, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import keyword, vector
+from app.search import keyword, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -46,7 +46,7 @@ from app.search.rerank import Reranker
 __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
     "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
-    "NOTICE_WILDCARD", "NOTICE_SORTED", "NOTICE_SPELLING",
+    "NOTICE_WILDCARD", "NOTICE_SORTED", "NOTICE_SPELLING", "NOTICE_RELAXED",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -226,6 +226,11 @@ NOTICE_SORTED = "NOTICE_SORTED"
 #: **Never silent**: the whole licence for changing somebody's
 #: query is that the change is stated where they will see it.
 NOTICE_SPELLING = "NOTICE_SPELLING"
+#: A narrowing instruction was dropped because keeping it found nothing.
+#: **The label is the entire licence for the re-run**, exactly as with
+#: spelling: results answering a question slightly different from the one
+#: asked are only honest while the difference is on the page.
+NOTICE_RELAXED = "NOTICE_RELAXED"
 
 
 @dataclass(frozen=True)
@@ -246,6 +251,20 @@ class Notice:
 
     def as_dict(self) -> dict[str, str]:
         return {"code": self.code, "message": self.message}
+
+
+@dataclass(frozen=True)
+class _Retrieved:
+    """One pass of the retrieval pipeline. Internal, and never returned.
+
+    Exists so §2b can run that pipeline a second time without a second copy
+    of it - the four things the response needs, handed back together.
+    """
+
+    results: list
+    keyword_hits: list
+    vector_hits: list
+    reranked: bool
 
 
 @dataclass
@@ -281,6 +300,12 @@ class SearchResponse:
     #: Carried on the response so the chip can be drawn without the
     #: view re-deriving anything.
     spelling: Any = None
+    #: The `relax.Relaxation` that produced these results, or None when the
+    #: query ran as typed. **`parsed` is the relaxed query when this is set**,
+    #: because everything downstream - highlighting, the unmatched-terms
+    #: check, the usage log - must describe the search that actually ran.
+    #: `parsed.raw` still holds what the person typed.
+    relaxed: Any = None
 
     #: Degradations the person should be told about, already worded.
     #:
@@ -518,81 +543,27 @@ class SearchEngine:
         # buys the correction as well as the notice.
         parsed, spelling = self._correct_spelling(parsed, policy)
 
-        # Both retrievers at once: independent, so the slower one sets the floor
-        # rather than the sum setting it.
-        mark = time.perf_counter()
-        # **The eligible files, without listing them when there are too many.**
-        # This used to be `file_ids_matching`, which materialised every
-        # matching id before either retriever started: measured at 383ms and
-        # 46MB for `type:pdf` over 500,000 files, against a 300ms budget for
-        # the whole search. `Eligibility` stops at ELIGIBLE_CAP and answers the
-        # only question anything downstream actually asks.
-        allowed = keyword.Eligibility(self.store, parsed)
-        # **Why the vector half came back empty, if it did.** It no longer
-        # raises when the embedding model is broken - see `vector.search` - so
-        # without this the failure that most deserves saying out loud would be
-        # the one that looks exactly like a filter-only query.
         vector_problems: list[str] = []
-        keyword_future = self._pool.submit(keyword.search, self.store, parsed)
-        vector_future = self._pool.submit(
-            vector.search, self.vectors, self.embedder, parsed,
-            allowed_file_ids=allowed, problems=vector_problems,
-        )
-        # **Bounded, because the pool has two workers and no queue.** A hung
-        # LanceDB scan or a wedged SQLite read used to block `result()` for
-        # ever: that worker never returns, the next search takes the other one,
-        # and the third waits behind both. One stuck query froze searching for
-        # the rest of the session.
-        #
-        # A timed-out future is abandoned rather than cancelled - a running
-        # future cannot be cancelled, and killing a thread mid-read is worse
-        # than leaking one - so it finishes into nothing and the worker comes
-        # back. What matters is that the person gets the half that answered.
-        keyword_hits = _wait(keyword_future, "keyword", vector_problems)
-        raw_vector_hits = _wait(vector_future, "meaning-based", vector_problems)
-        timings["retrieve"] = (time.perf_counter() - mark) * 1000
+        retrieved = self._retrieve(parsed, raw, limit, want_rerank,
+                                   timings, vector_problems)
 
-        mark = time.perf_counter()
-        vector_hits = vector.hydrate(self.store, raw_vector_hits)
-        timings["hydrate"] = (time.perf_counter() - mark) * 1000
+        # §2b. **A second pass, and only where the alternative is an empty
+        # page.** `relax.candidates` is empty for the ordinary
+        # nothing-matched-anything query, so this costs one attribute read on
+        # every search that found something and every search there is nothing
+        # to relax towards.
+        relaxed = None
+        if policy.relax_on_empty and not retrieved.results:
+            for candidate in relax.candidates(parsed):
+                again = self._retrieve(candidate.query, raw, limit,
+                                       want_rerank, timings, vector_problems)
+                if again.results:
+                    parsed, retrieved, relaxed = candidate.query, again, candidate
+                    break
 
-        mark = time.perf_counter()
-        fused = fuse_hits(
-            [keyword_hits, vector_hits], id_key="chunk_id", k=self.rrf_k,
-            weights=list(self.weights) if self.weights else None, limit=limit,
-        )
-        timings["fuse"] = (time.perf_counter() - mark) * 1000
-
-        reranked = False
-        if want_rerank and fused:
-            mark = time.perf_counter()
-            before = [hit["chunk_id"] for hit in fused]
-            fused = self.reranker.rerank(parsed.embed_text or raw, fused, terms=parsed.terms)
-            reranked = [hit["chunk_id"] for hit in fused] != before or any(
-                "rerank_score" in hit for hit in fused
-            )
-            timings["rerank"] = (time.perf_counter() - mark) * 1000
-
-        # **Sorted after reranking, deliberately, and it abandons the order.**
-        #
-        # *"Which is the latest"* was unanswerable by any mechanism this
-        # application had: eleven filters that all narrow, and nothing that
-        # orders. Re-sorting the final set is cheap, gives Interpret something
-        # to emit for a phrase people use constantly, and is honest about the
-        # trade - relevance order is discarded, because the person asked for
-        # recency and cannot have both.
-        #
-        # After the reranker rather than instead of it: reranking still decides
-        # *which* fifty results these are, and a date sort over the best fifty
-        # is a far better answer than a date sort over an arbitrary fifty.
-        if parsed.sort:
-            fused.sort(key=lambda hit: int(hit.get("mtime_ns") or 0),
-                       reverse=parsed.sort != "oldest")
-
-        results = [
-            self._to_result(hit, rank, tuple(hit.get("sources", ())), hit.get("rrf_score", 0.0))
-            for rank, hit in enumerate(fused, start=1)
-        ]
+        keyword_hits, vector_hits = retrieved.keyword_hits, retrieved.vector_hits
+        reranked = retrieved.reranked
+        results = retrieved.results
 
         # **Which words found nothing.** Terms are ORed, so a query whose one
         # distinctive word is absent quietly becomes a search for its most
@@ -610,7 +581,7 @@ class SearchEngine:
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
             keyword_count=len(keyword_hits), vector_count=len(vector_hits),
-            unmatched=unmatched, spelling=spelling,
+            unmatched=unmatched, spelling=spelling, relaxed=relaxed,
             elapsed_ms=(time.perf_counter() - started) * 1000, timings=timings,
         )
         if unmatched:
@@ -631,6 +602,12 @@ class SearchEngine:
                 f"Sorted by date, {parsed.sort} first — not by best match. "
                 f"Remove /{parsed.sort} to rank by relevance again.",
             ))
+        if relaxed is not None:
+            # **Above the spelling notice, because it is the larger claim.**
+            # These results answer a question the person did not quite ask,
+            # and that has to be the first thing they read - otherwise they
+            # scan the list wondering why their filter appears not to work.
+            notices.append(Notice(NOTICE_RELAXED, relaxed.sentence()))
         if spelling is not None:
             # **Said whichever way it went.** Changing what somebody typed is
             # only legal because the change is on screen; offering a chip is
@@ -734,6 +711,97 @@ class SearchEngine:
         except Exception:                        # noqa: BLE001
             return -1
 
+    def _retrieve(self, parsed: ParsedQuery, raw: str, limit: int,
+                  want_rerank: bool, timings: dict, vector_problems: list
+                  ) -> "_Retrieved":
+        r"""Both retrievers, fused, reranked, sorted — for one query.
+
+        **A method rather than a block because §2b runs it twice.** Relaxation
+        is "try the same pipeline with one instruction removed", and a second
+        copy of forty lines would be two pipelines that drift apart: the day
+        somebody changes the fusion weights, only the first result set would
+        get them, and the difference would show up as results that reorder
+        themselves when a phrase is dropped.
+
+        `timings` and `vector_problems` are handed in and written through, so
+        a relaxed second pass reports the total spent rather than only its own
+        share - the person waited for both.
+        """
+        mark = time.perf_counter()
+        # **The eligible files, without listing them when there are too many.**
+        # This used to be `file_ids_matching`, which materialised every
+        # matching id before either retriever started: measured at 383ms and
+        # 46MB for `type:pdf` over 500,000 files, against a 300ms budget for
+        # the whole search. `Eligibility` stops at ELIGIBLE_CAP and answers the
+        # only question anything downstream actually asks.
+        allowed = keyword.Eligibility(self.store, parsed)
+        keyword_future = self._pool.submit(keyword.search, self.store, parsed)
+        vector_future = self._pool.submit(
+            vector.search, self.vectors, self.embedder, parsed,
+            allowed_file_ids=allowed, problems=vector_problems,
+        )
+        # **Bounded, because the pool has two workers and no queue.** A hung
+        # LanceDB scan or a wedged SQLite read used to block `result()` for
+        # ever: that worker never returns, the next search takes the other one,
+        # and the third waits behind both. One stuck query froze searching for
+        # the rest of the session.
+        #
+        # A timed-out future is abandoned rather than cancelled - a running
+        # future cannot be cancelled, and killing a thread mid-read is worse
+        # than leaking one - so it finishes into nothing and the worker comes
+        # back. What matters is that the person gets the half that answered.
+        keyword_hits = _wait(keyword_future, "keyword", vector_problems)
+        raw_vector_hits = _wait(vector_future, "meaning-based", vector_problems)
+        timings["retrieve"] = timings.get("retrieve", 0.0) + (
+            time.perf_counter() - mark) * 1000
+
+        mark = time.perf_counter()
+        vector_hits = vector.hydrate(self.store, raw_vector_hits)
+        timings["hydrate"] = timings.get("hydrate", 0.0) + (
+            time.perf_counter() - mark) * 1000
+
+        mark = time.perf_counter()
+        fused = fuse_hits(
+            [keyword_hits, vector_hits], id_key="chunk_id", k=self.rrf_k,
+            weights=list(self.weights) if self.weights else None, limit=limit,
+        )
+        timings["fuse"] = timings.get("fuse", 0.0) + (
+            time.perf_counter() - mark) * 1000
+
+        reranked = False
+        if want_rerank and fused:
+            mark = time.perf_counter()
+            before = [hit["chunk_id"] for hit in fused]
+            fused = self.reranker.rerank(parsed.embed_text or raw, fused, terms=parsed.terms)
+            reranked = [hit["chunk_id"] for hit in fused] != before or any(
+                "rerank_score" in hit for hit in fused
+            )
+            timings["rerank"] = timings.get("rerank", 0.0) + (
+                time.perf_counter() - mark) * 1000
+
+        # **Sorted after reranking, deliberately, and it abandons the order.**
+        #
+        # *"Which is the latest"* was unanswerable by any mechanism this
+        # application had: eleven filters that all narrow, and nothing that
+        # orders. Re-sorting the final set is cheap, gives Interpret something
+        # to emit for a phrase people use constantly, and is honest about the
+        # trade - relevance order is discarded, because the person asked for
+        # recency and cannot have both.
+        #
+        # After the reranker rather than instead of it: reranking still decides
+        # *which* fifty results these are, and a date sort over the best fifty
+        # is a far better answer than a date sort over an arbitrary fifty.
+        if parsed.sort:
+            fused.sort(key=lambda hit: int(hit.get("mtime_ns") or 0),
+                       reverse=parsed.sort != "oldest")
+
+        results = [
+            self._to_result(hit, rank, tuple(hit.get("sources", ())), hit.get("rrf_score", 0.0))
+            for rank, hit in enumerate(fused, start=1)
+        ]
+        return _Retrieved(results=results, keyword_hits=keyword_hits,
+                          vector_hits=vector_hits, reranked=bool(reranked))
+
     def _correct_spelling(self, parsed: ParsedQuery,
                           policy: SearchPolicy) -> tuple[ParsedQuery, Any]:
         r"""A word the index has never seen, and the word it probably was.
@@ -767,14 +835,14 @@ class SearchEngine:
                 return parsed, None
 
             missing = keyword.unmatched_terms(self.store, words)
-            if not missing or len(missing) == len(words):
-                # **All of them missing is not a typo.** One unknown word
-                # among several is somebody who mistyped; every word unknown
-                # is somebody searching a corpus that has nothing to do with
-                # what they asked, and correcting each one in turn would
-                # manufacture a query nobody typed.
-                if len(missing) != 1:
-                    return parsed, None
+            # **Exactly one unknown word, or nothing happens.** One among
+            # several is somebody who mistyped; two or more is somebody
+            # searching a corpus that has nothing to do with what they asked,
+            # and correcting each in turn would manufacture a query nobody
+            # typed - and still return nothing, because the words that stayed
+            # missing are ORed in with the corrected one.
+            if len(missing) != 1:
+                return parsed, None
 
             found = from_store(self.store, missing[0])
             if found is None:

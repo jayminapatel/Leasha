@@ -1,6 +1,28 @@
 # Changelog
 
-**Doc version:** 3.73 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.74 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## When nothing matches, it tells you what it let go of
+
+- **A search that finds nothing now tries once more without the thing that was
+  narrowing it**, and says so on the page. Quotes around a half-remembered
+  sentence, an `AND` you typed, a file-type filter left on from your last
+  search - each is dropped in turn until something comes back.
+- **Never silently.** "Nothing contains the exact phrase "volcano flavoured
+  bread" - these match its words instead." Results that answer a slightly
+  different question are honest only while the difference is on screen, and
+  the label is the first thing you read rather than a footnote.
+- **One thing at a time.** Two filters dropped together would show you results
+  from everywhere in every format, and you would have lost the thread of your
+  own search. One is named, one is dropped, and the sentence stays a sentence.
+- **Off on the Code tab**, where an exact phrase that matches nothing is the
+  true answer and its words scattered over three files is noise.
+- **What we found on the way, again worth writing down:** the plan was to drop
+  your rarest word and search again. It cannot work - words are already joined
+  with "or", so nothing-at-all means every word missed and there is no word to
+  drop to. What empties a page that had something to find is an instruction,
+  not a word, so instructions are what get relaxed. The result is closer to
+  what the feature was for.
 
 ## A misspelt word finds the document anyway
 

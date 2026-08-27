@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -54,7 +54,7 @@ and its quality pass is explicitly out of scope here.
   'volcanoes'"); `"suggest"`: a did-you-mean chip instead. The single
   highest-value item in this order — a child who gets zero results for
   "volcanoe" concludes her essay is gone.
-- [ ] **2b Visible relaxation on empty.** Zero results with ≥2 content terms:
+- [x] **2b Visible relaxation on empty.** Zero results with ≥2 content terms:
   drop the rarest term, re-run, label the page ("nothing matched all your
   words — showing results without 'the'"). Never silent (principle 3 of the
   codebase: silent rewriting loses trust — the *label* is what makes this
@@ -202,6 +202,42 @@ letters, then two), so a typo in the **first two letters** finds nothing —
 `vlocano` is not corrected. Widening it means scanning far more vocabulary on
 every keystroke, and the common typo is a transposition or doubled letter
 later in the word.
+
+## Note on 2b, added 2026-08-27 (delivery finding — the item text is unchanged)
+
+**"Drop the rarest term and re-run" cannot work, and what replaced it is
+closer to the item's own intent.** Plain words are already joined with `OR`
+(`AND_TERM_LIMIT = 1`, itself chosen against twenty real sentences), measured:
+
+| typed | expression | results |
+|---|---|---|
+| `volcano zzzqqq` | `"volcano" OR "zzzqqq"` | 1 |
+| `zzzqqq wwwxxx` | `"zzzqqq" OR "wwwxxx"` | 0 |
+
+So zero results from several plain words means **every one of them matched
+nothing**. There is no rarest term to drop — dropping any leaves words that
+have already failed — and the re-run would return the same nothing under a
+label claiming something had been done.
+
+What actually empties a page that had something to find is a **narrowing
+instruction**, and there are exactly three:
+
+| typed | what narrowed it | relaxed to |
+|---|---|---|
+| `"volcano flavoured bread"` | the phrase (every word, adjacent, in order) | its words |
+| `volcano AND bread` | an `AND` the person typed | `OR` |
+| `volcano type:pdf` | a filter that excluded everything | the filter dropped, one at a time |
+
+Each is dropped widest-effect-first, capped at two extra passes, each labelled
+in plain words ("Nothing matched with the file-type filter applied — these
+ignore it"). The item's requirement is met exactly: nothing is silent, and the
+label is what makes the re-run legal. **The all-words-unknown case is left
+alone deliberately** — it has nothing to relax towards and is already answered
+by 2a's spelling correction and the unmatched-terms notice.
+
+Also delivered here: `SearchEngine._retrieve`, because relaxation runs the
+same pipeline twice and a second copy of it would be two pipelines that drift
+apart.
 
 ## Done means
 
