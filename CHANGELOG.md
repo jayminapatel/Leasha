@@ -1,6 +1,15 @@
 # Changelog
 
-**Doc version:** 3.83 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.84 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## The window follows your text size
+
+- **If you have made text bigger in Windows, Leasha now grows with it.** Every
+  size in the window was fixed in pixels, which follows your screen's
+  resolution and ignores the setting that says you want larger letters.
+- Nothing changes on a machine with the standard text size: the same window,
+  the same density. The sizes are now expressed relative to your system font
+  rather than nailed down, so the two agree.
 
 ## Code results know how to open in your editor, at the line
 

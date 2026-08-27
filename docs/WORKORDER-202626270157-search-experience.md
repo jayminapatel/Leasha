@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.12 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -151,7 +151,7 @@ corrects. Ollama is one backend; this adds the second.
   tooltip that names a mechanism without naming its effect — allowed
   despite principle 4 because tooltips are help text, not labels; labels
   still never change.
-- [ ] **6b Scalable text.** Replace hardcoded pixel font sizes (17 rules,
+- [x] **6b Scalable text.** Replace hardcoded pixel font sizes (17 rules,
   theme.py) with point sizes or a scale factor honouring Windows display
   scaling — the one accessibility item the 25 Aug review left partial, and
   it matters for every older relative this product now targets.
@@ -592,6 +592,32 @@ it. `test_settings_reachable`'s surface table records that reasoning.
 beside it — both are the results view's context menu, which needs the window
 to judge. `editors.command_for` and `editors.copyable` are tested and waiting,
 the same shape as 5a's engine method.
+
+## Note on 6b, added 2026-08-27
+
+**Seventeen rules, exactly as the item says.** Qt scales a pixel size for DPI
+and does *not* scale it for the "Make text bigger" accessibility setting — so
+somebody who had turned their text up got a window that ignored them.
+
+**The multipliers are derived, not chosen.** At 96 DPI one point is 4/3 of a
+pixel and the Windows default font is 9pt, which is 12px. The existing scale
+of 12/13/15px is therefore **1.0, 1.083 and 1.25 times the system font**, so:
+
+| | at 9pt (default) | at 18pt |
+|---|---|---|
+| small — secondary and metadata | 9.0pt = 12px | 18.0pt |
+| body | 9.8pt = 13px | 19.5pt |
+| large — the two headlines that earn it | 11.2pt = 15px | 22.5pt |
+
+A default machine therefore sees the window it has always seen, and a machine
+with larger text set gets larger text. Guarded three ways: no `px` font size
+may reappear in the sheet, the default reproduces today's sizes, and the three
+keep their order at every scale — a scale that collapses at some sizes is not
+a scale.
+
+A font set in pixels reports `pointSizeF() == -1`, which is a real state on
+some Linux themes; left alone that negative would have gone into all seventeen
+rules.
 
 ## Done means
 

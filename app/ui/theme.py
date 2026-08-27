@@ -104,14 +104,14 @@ _TEMPLATE = """
    between them. 12/13/15 now: 12 for secondary and metadata, 13 for body, 15
    for the two headlines that earn it. A tool somebody keeps open all day wants
    more on screen, not larger letters. */
-QWidget {{ background: {window}; color: {text}; font-size: 13px; }}
+QWidget {{ background: {window}; color: {text}; font-size: {body}; }}
 
 /* **The search box is the one control that should feel large.** Everything
    else tightens; this stays roomy because it is where every session starts and
    because a cramped input invites cramped queries. */
 QLineEdit {{
     background: {surface}; border: 1px solid {border}; border-radius: 5px;
-    padding: 7px 10px; font-size: 15px; selection-background-color: {accent};
+    padding: 7px 10px; font-size: {large}; selection-background-color: {accent};
     selection-color: {selection_text};
 }}
 QLineEdit:hover {{ border-color: {border_strong}; }}
@@ -153,7 +153,7 @@ QListWidget::item, QListView::item, QTreeWidget::item {{
 QHeaderView {{ background: transparent; }}
 QHeaderView::section {{
     background: {surface}; color: {text_faint};
-    font-size: 12px; font-weight: 600;
+    font-size: {small}; font-weight: 600;
     border: none; border-bottom: 1px solid {border}; padding: 5px 6px;
 }}
 QHeaderView::section:hover {{ color: {text_dim}; background: {surface_alt}; }}
@@ -211,7 +211,7 @@ QMenu::separator {{ height: 1px; background: {divider}; margin: 4px 8px; }}
 QToolTip {{
     background: {surface_alt}; color: {text};
     border: 1px solid {border_strong}; border-radius: 5px;
-    padding: 5px 8px; font-size: 12px;
+    padding: 5px 8px; font-size: {small};
 }}
 
 QToolButton {{
@@ -288,7 +288,7 @@ QGroupBox {{
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; left: 10px; padding: 0 4px;
-    color: {text_dim}; font-size: 12px; font-weight: 600;
+    color: {text_dim}; font-size: {small}; font-weight: 600;
 }}
 
 /* Tabs drawn as tabs.
@@ -331,7 +331,7 @@ QTabBar::tab {{
        tools in a row of chunky tabs reads as a website's navigation; four
        compact ones read as panes of one application. */
     padding: 5px 14px; margin-right: 2px; margin-top: 3px;
-    font-size: 12px; font-weight: 600;
+    font-size: {small}; font-weight: 600;
 }}
 QTabBar::tab:hover:!selected {{ color: {text}; background: {surface}; }}
 QTabBar::tab:selected {{
@@ -367,18 +367,18 @@ QComboBox QAbstractItemView {{
 /* The name is the headline now - a browser result, not a printed report. It
    reads as primary text rather than as a link, because it is the thing being
    named and not the thing being navigated to. */
-#resultName {{ font-weight: 600; color: {text}; font-size: 15px; }}
+#resultName {{ font-weight: 600; color: {text}; font-size: {large}; }}
 /* A short text tag rather than an icon font: text survives dark mode, high-DPI
    and a missing font file, none of which is worth paying for yet. */
 /* A chip rather than an outline: a filled shape at 12px reads as a label at a
    glance, where a 10px outlined one reads as a smudge until you look at it. */
 #resultKind {{
-    color: {text_dim}; font-size: 12px; font-weight: 600;
+    color: {text_dim}; font-size: {small}; font-weight: 600;
     background: {surface_alt}; border: none; border-radius: 3px;
     padding: 1px 6px; margin-right: 6px;
 }}
-#resultMeta {{ color: {text_faint}; font-size: 12px; }}
-#resultMissing {{ color: {warning}; font-size: 12px; }}
+#resultMeta {{ color: {text_faint}; font-size: {small}; }}
+#resultMissing {{ color: {warning}; font-size: {small}; }}
 #resultSnippet {{ color: {text}; }}
 /* The snippet is painted by `result_delegate`, not laid out by Qt, so no
    stylesheet rule can reach the matched words - `#resultSnippet b` never
@@ -386,21 +386,21 @@ QComboBox QAbstractItemView {{
    the one cue somebody who cannot distinguish them has no substitute for.
    The delegate reads `highlight` from `theme_colours()` and draws it. */
 #resultSnippet b {{ color: {highlight}; font-weight: 700; }}
-#searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: 12px; }}
-#indexHeadline, #graphHeadline {{ font-size: 15px; font-weight: 600; }}
-#indexTotals {{ color: {text_dim}; font-size: 12px; }}
+#searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: {small}; }}
+#indexHeadline, #graphHeadline {{ font-size: {large}; font-weight: 600; }}
+#indexTotals {{ color: {text_dim}; font-size: {small}; }}
 #skipHeading {{ font-weight: 600; }}
 #skipFix {{ color: {text_dim}; }}
-#skipExamples {{ color: {text_faint}; font-size: 12px; }}
+#skipExamples {{ color: {text_faint}; font-size: {small}; }}
 /* The hint under a setting, and the tree's `N of M` line. One rule, because
    they are the same thing: a quiet sentence explaining the control above it. */
-#settingsHint {{ color: {text_faint}; font-size: 12px; }}
+#settingsHint {{ color: {text_faint}; font-size: {small}; }}
 /* A notice is not an error. It sits on the accent's soft ground so it reads as
    information the application is volunteering, rather than as a failure. */
 #noticeBar {{
     background: {accent_soft}; color: {text};
     border: 1px solid {border}; border-radius: 4px;
-    padding: 6px 10px; font-size: 12px;
+    padding: 6px 10px; font-size: {small};
 }}
 
 /* `index_stats` sets one of these two on every value it shows, and only
@@ -410,7 +410,7 @@ QComboBox QAbstractItemView {{
    not a signal everybody receives. */
 #statValue {{ color: {text}; font-weight: 600; }}
 #statWarn {{ color: {warning}; font-weight: 700; }}
-#statLabel {{ color: {text_faint}; font-size: 12px; }}
+#statLabel {{ color: {text_faint}; font-size: {small}; }}
 """
 
 
@@ -462,14 +462,66 @@ def theme_colours() -> dict[str, str]:
     return dict(_current)
 
 
-def stylesheet(preference: str = "system", *, detected: Optional[str] = None) -> str:
+#: The type scale, as multiples of the system font rather than as pixels.
+#:
+#: **§6b: text has to follow "Make text bigger".** The seventeen rules in the
+#: template were pixel sizes, which Qt scales for DPI and does *not* scale for
+#: the accessibility setting - so somebody who had turned their text up got a
+#: window that ignored them. That matters for every older relative this
+#: product now targets, and it was the one accessibility item the 25 August
+#: review left partial.
+#:
+#: **The multipliers are derived, not chosen.** At 96 DPI one point is 4/3 of
+#: a pixel and the Windows default font is 9pt, which is 12px. The existing
+#: scale of 12/13/15px is therefore 1.0, 1.083 and 1.25 times the system font
+#: - so on a default machine these reproduce today's window exactly, and on a
+#: machine with larger text they grow with it.
+SCALE: dict = {"small": 1.0, "body": 13.0 / 12.0, "large": 15.0 / 12.0}
+
+#: Used when there is no `QApplication` to ask - a test, or a stylesheet built
+#: before the app exists. 9pt is the Windows default.
+DEFAULT_POINT_SIZE = 9.0
+
+
+def base_point_size() -> float:
+    """The system font size in points. **Never raises.**
+
+    A pixel-sized font reports `pointSizeF() == -1`, which is a real state on
+    some Linux themes; the fallback covers it rather than propagating a
+    negative into every rule in the sheet.
+    """
+    try:
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            size = float(app.font().pointSizeF())
+            if size > 0:
+                return size
+    except Exception:                              # noqa: BLE001 - a lookup
+        pass
+    return DEFAULT_POINT_SIZE
+
+
+def font_sizes(base: Optional[float] = None) -> dict:
+    """`{small, body, large}` as `pt` strings for the sheet."""
+    point = float(base if base and base > 0 else base_point_size())
+    return {name: f"{round(point * factor, 1)}pt"
+            for name, factor in SCALE.items()}
+
+
+def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
+               base_pt: Optional[float] = None) -> str:
     """The full Qt stylesheet for a preference.
 
     Records the palette it used, so `theme_colours()` and the sheet can never
     describe different themes.
+
+    `base_pt` is for tests and for a caller that already knows the size; left
+    out, the system font is asked.
     """
     global _current
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours)
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt))

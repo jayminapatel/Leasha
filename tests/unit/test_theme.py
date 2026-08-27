@@ -213,3 +213,78 @@ def test_a_checkbox_is_tall_enough_for_its_own_label():
     finally:
         # Left applied, every later test in this process would inherit it.
         app.setStyleSheet("")
+
+
+# ---------------------------------------------------------------------------
+# §6b — text that follows "Make text bigger"
+# ---------------------------------------------------------------------------
+
+def test_no_font_size_is_measured_in_pixels():
+    r"""**Qt scales pixels for DPI and not for the accessibility setting.**
+
+    Seventeen rules in the template were pixel sizes, so somebody who had
+    turned their text up in Windows got a window that ignored them - the one
+    accessibility item the 25 August review left partial, and it matters for
+    every older relative this product now targets.
+    """
+    import re
+
+    from app.ui.theme import stylesheet
+
+    assert not re.findall(r"font-size:\s*\d+px", stylesheet("light", base_pt=9.0))
+
+
+def test_the_default_machine_sees_the_design_it_always_saw():
+    r"""**The multipliers are derived, not chosen.**
+
+    At 96 DPI one point is 4/3 of a pixel and the Windows default font is 9pt,
+    which is 12px. The existing 12/13/15px scale is therefore 1.0, 1.083 and
+    1.25 times the system font - so at 9pt these come back as the same sizes
+    the window has always drawn.
+    """
+    from app.ui.theme import font_sizes
+
+    found = font_sizes(9.0)
+    assert found["small"] == "9.0pt"                     # 12px
+    assert found["body"] == "9.8pt"                      # 13px
+    assert found["large"] == "11.2pt"                    # 15px
+
+
+def test_turning_the_system_text_up_turns_the_window_up():
+    from app.ui.theme import font_sizes
+
+    small = font_sizes(9.0)
+    large = font_sizes(18.0)
+    for name in ("small", "body", "large"):
+        assert float(large[name][:-2]) == pytest.approx(
+            float(small[name][:-2]) * 2, rel=0.02)
+
+
+def test_the_three_sizes_keep_their_order_at_every_scale():
+    """One scale, three steps: secondary, body, the two headlines that earn
+    it. A scale that collapses at some sizes is not a scale."""
+    from app.ui.theme import font_sizes
+
+    for base in (7.0, 9.0, 12.0, 16.0, 24.0):
+        found = font_sizes(base)
+        sizes = [float(found[name][:-2]) for name in ("small", "body", "large")]
+        assert sizes == sorted(sizes) and sizes[0] < sizes[-1]
+
+
+def test_a_pixel_sized_system_font_does_not_poison_every_rule():
+    """`pointSizeF()` returns -1 for a font set in pixels, which is a real
+    state on some Linux themes. Left alone it would put a negative number into
+    seventeen rules."""
+    from app.ui.theme import DEFAULT_POINT_SIZE, font_sizes
+
+    assert font_sizes(-1) == font_sizes(DEFAULT_POINT_SIZE)
+    assert font_sizes(0) == font_sizes(DEFAULT_POINT_SIZE)
+
+
+def test_the_sheet_still_builds_with_no_application(monkeypatch):
+    """A stylesheet can be asked for before the app exists - and a test asks
+    for one with no app at all."""
+    import app.ui.theme as theme
+
+    monkeypatch.setattr(theme, "base_point_size", lambda: 9.0)
+    assert "font-size: 9.8pt" in theme.stylesheet("dark")
