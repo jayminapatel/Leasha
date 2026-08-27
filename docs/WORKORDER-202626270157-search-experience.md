@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.4 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -83,7 +83,7 @@ Built now, tuned later (see Status). The seam already exists: translation
 produces the fixed filter grammar, the parser validates, the user sees and
 corrects. Ollama is one backend; this adds the second.
 
-- [ ] **3a Rules backend** (`app/search/translate_rules.py`, beside
+- [x] **3a Rules backend** (`app/search/translate_rules.py`, beside
   `translate.py`): deterministic slot-filling against vocabularies the index
   already owns — capitalised tokens matched to sender/recipient names via
   `distinct_values` → `from:`/`to:`; verb list (sent, emailed, received,
@@ -91,7 +91,7 @@ corrects. Ollama is one backend; this adds the second.
   spreadsheet, photo, deck, invoice…) → `type:`; date phrases ("before
   2023", "last summer", "in June") → `after:`/`before:`. Residual words pass
   through untouched. Pure, Qt-free, testable — no model, no network.
-- [ ] **3b Chips, not rewrites.** Extracted filters appear as removable chips
+- [x] **3b Chips, not rewrites.** Extracted filters appear as removable chips
   the user accepts with one click (`auto_chips` policy: on for tab one,
   behind Interpret elsewhere). The typed text is never altered — the chips
   sit beside it. High precision by construction (the name either is in the
@@ -101,7 +101,7 @@ corrects. Ollama is one backend; this adds the second.
   answers, and the deterministic part stays deterministic. When absent, the
   Interpret button remains, powered by rules alone; nothing on screen
   changes but the depth of what gets extracted.
-- [ ] **3d** quality pass **deferred by the owner** to after indexing work:
+- [x] **3d** quality pass **deferred by the owner** to after indexing work:
   the vocab/verb/noun/date tables land with obvious contents and their
   tests; tuning recall on real sentences is a later, separate effort. Leave
   a `[TUNE]` marker on each table.
@@ -326,6 +326,49 @@ is exactly the change that produces two popups fighting over one keystroke.
 That cannot be verified in a headless environment, so it is left for the
 owner's machine. Same reason for the **thumbnail** half of "generous rows" —
 the only genuinely missing piece of that item.
+
+## Note on 3a/3b/3d, added 2026-08-27 (delivery finding — item text unchanged)
+
+**Two rules were silently inert on the first pass, and nothing raised.**
+`translate_rules` asked the store for kinds called `from`, `to` and `type`.
+Those are the *operator* names; the store's are `sender`, `recipient` and
+`ext`, and `distinct_values` returns `[]` for a kind it does not know. So no
+person chip ever fired — and worse, the "only offer a type the corpus actually
+holds" safeguard passed everything, because the set it checked against was
+always empty. The output looked plausible either way. Running it against the
+fixture corpus is what showed it; two tests now pin both halves.
+
+Also corrected before shipping: **`recipient` is stored as JSON**
+(`'["me@acme.com"]'`), so every recipient lookup matched nothing until it was
+unpacked; and the sender/recipient rule read *"the report Dave sent me"* and
+*"what did I send to Priya"* the same way. The verb cannot separate those —
+word order can, and a first-person pronoun before the sending verb is now what
+means "I sent it".
+
+**3b lives on the presenter side, and that is a rule rather than a
+preference.** The first version put chips on `SearchResponse`, which tripped
+`test_the_search_engine_cannot_reach_the_translator` — `engine.py` may not
+know translation exists, because the retrieval path must never be able to
+spend a second on a model. **That is the second time in this order a module
+named `translate*` was imported into the engine, and the guard was right both
+times.** Chips are something said *about* a query rather than part of running
+one, so they sit with the translator where the Interpret button already is.
+The policy still decides (`auto_chips`), so no view carries a rule of its own.
+
+Cost, measured before wiring it in: **0.5ms median over 4,000 files** — three
+indexed `DISTINCT`s with a `LIMIT` — against a 300ms budget.
+
+**Deliberately not read: vague dates.** "about six months ago", "last summer",
+"a while back" mean different spans to different people, and a wrong date
+filter hides documents silently — the exact failure this order exists to
+remove. Bare years, `before`/`after` a year, month names and "last year" are
+read; the rest stay as words, where they cost nothing.
+
+**3c is not done.** Composing with Ollama means `translate.py` handing the
+residue to the model instead of the whole sentence. `Reading.residue` exists
+and is tested for exactly that purpose, so the seam is ready — but the change
+belongs in `QueryTranslator`, and it is worth doing when the owner's deferred
+tuning pass (3d) happens, against a machine that has Ollama to measure with.
 
 ## Done means
 

@@ -1,6 +1,30 @@
 # Changelog
 
-**Doc version:** 3.76 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.77 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Plain sentences become filters, without needing a model
+
+- **Type "the invoice Dave sent me last year" and Leasha offers you the
+  filters it recognised** — from Dave, PDF files, that year — as chips beside
+  what you typed. Until now noticing the word "pdf" needed a 4GB language
+  model that most machines do not have.
+- **What you typed is never changed.** The chips sit next to your words and
+  each is one click; a wrong one costs a glance, not a page of results.
+- **It only offers filters your own documents can satisfy.** A name becomes a
+  sender filter only if that person is in your index, and "spreadsheet" only
+  becomes a filter if you have spreadsheets. So the failure is a chip that
+  does not appear, never one that quietly empties the page.
+- **A first name matching two people is refused**, because picking one of them
+  for you would give you a page that looks complete and is not.
+- **"The report Dave sent me" and "what did I send to Priya" now mean
+  opposite things**, which they should - the same verb, and only the word
+  order says who sent it.
+- **Vague dates are left alone on purpose.** "About six months ago" means
+  different things to different people, and a wrong date filter hides
+  documents without saying so. Years, months and "last year" are read; the
+  rest stay as words.
+- Off on the Code tab and behind the Interpret button elsewhere, exactly as
+  the search behaviour table says.
 
 ## Your own recent searches, offered back
 

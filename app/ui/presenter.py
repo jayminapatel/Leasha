@@ -4324,3 +4324,36 @@ def git_result_row(row: Any, repo_root: str) -> Any:
         preview_text=(f"{row.subject}\n\n{row.author}   {row.date}   {row.commit}"
                       if row.kind == "commit" else row.text),
     )
+
+
+# ---------------------------------------------------------------------------
+# §3b — the filters the rules recognised, offered beside what was typed
+# ---------------------------------------------------------------------------
+
+def chips_for(store: Any, sentence: str, policy: Any = None) -> tuple:
+    r"""Filters the rules translator read out of a sentence. **Never raises.**
+
+    **Here rather than in the engine, and that is a rule not a preference.**
+    `test_the_search_engine_cannot_reach_the_translator` forbids `engine.py`
+    from knowing translation exists, because the retrieval path must never be
+    able to spend a second on a model. The first version of this put chips on
+    the response and tripped that guard - the same trap §1 hit with a module
+    called `translate`, and the guard was right both times. Chips are a thing
+    said *about* a query, not part of running one, so they belong with the
+    translator, on the presenter side, where the Interpret button already is.
+
+    **The policy still decides**, so no view carries a rule of its own: this
+    reads `auto_chips` exactly as the engine reads the other five behaviours.
+
+    Deterministic and offline - no model, no network - which is what makes
+    this the half of Interpret that works on every machine.
+    """
+    if policy is not None and not getattr(policy, "auto_chips", True):
+        return ()
+    try:
+        from app.search.translate_rules import read
+
+        return tuple(read(sentence, store).chips)
+    except Exception as exc:                       # noqa: BLE001 - a helper
+        _log.debug("no filter chips for this query: {}", exc)
+        return ()

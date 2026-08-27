@@ -150,6 +150,7 @@
     <Compile Include="app\search\rerank_bench.py" />
     <Compile Include="app\search\spelling.py" />
     <Compile Include="app\search\translate.py" />
+    <Compile Include="app\search\translate_rules.py" />
     <Compile Include="app\search\vector.py" />
     <Compile Include="app\search\wildcards.py" />
     <Compile Include="app\search\window.py" />
@@ -386,6 +387,7 @@
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_translate.py" />
+    <Compile Include="tests\unit\test_translate_rules.py" />
     <Compile Include="tests\unit\test_translate_timeout.py" />
     <Compile Include="tests\unit\test_translator_warm.py" />
     <Compile Include="tests\unit\test_tray.py" />
