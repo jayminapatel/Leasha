@@ -266,7 +266,7 @@ def hydrate(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         for record in store.conn.execute(
             f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
-                   c.char_start, c.char_end, f.path, f.ext, f.mtime_ns
+                   c.char_start, c.char_end, f.path, f.ext, f.mtime_ns, f.content_hash
             FROM chunks c JOIN files f ON f.id = c.file_id
             WHERE c.id IN ({placeholders})
             """,

@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.2 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -64,7 +64,7 @@ and its quality pass is explicitly out of scope here.
   things by meaning is off right now — results are word-matches only") and
   keeps today's wording for technical surfaces. One table, tested for
   coverage of every notice code.
-- [ ] **2d Recency blend + version folding.** A mild recency prior on the
+- [x] **2d Recency blend + version folding.** A mild recency prior on the
   fused score (measured against `evaluate --builtin` before accepting), and
   near-duplicate results folded into one row — newest shown, "N older
   versions" expandable. Folding keys on the chunk-dedup hashes the
@@ -238,6 +238,57 @@ by 2a's spelling correction and the unmatched-terms notice.
 Also delivered here: `SearchEngine._retrieve`, because relaxation runs the
 same pipeline twice and a second copy of it would be two pipelines that drift
 apart.
+
+## Note on 2d, added 2026-08-27 (delivery finding — the item text is unchanged)
+
+**The relevance gate did its job: the guessed weight was twice too strong.**
+Recall@1 over the twenty built-in sentences, through the real engine (keyword
+and fusion; the embedding model cannot load in this environment, which is the
+same pipeline `evaluate --builtin` measures):
+
+| weight | recall@1 | moved | lost | gained |
+|---|---|---|---|---|
+| off | 14/20 (70%) | – | – | – |
+| 0.01 | 14/20 (70%) | 0 | 0 | 0 |
+| 0.02 | 14/20 (70%) | 0 | 0 | 0 |
+| **0.03** | **15/20 (75%)** | 1 | 0 | 1 |
+| 0.04 | 13/20 (65%) | 3 | 2 | 1 |
+| 0.06 | 13/20 (65%) | 3 | 2 | 1 |
+| 0.10 | 9/20 (45%) | 7 | 6 | 1 |
+| 0.30 | 7/20 (35%) | 11 | 8 | 1 |
+
+`WEIGHT = 0.06` was written into the source on judgement alone before this
+ran. **The band that helps is narrow and there is a cliff at 0.04.** The one
+sentence 0.03 fixes is *"what did I send to Priya"*, which returned an invoice
+template and now returns the mail actually sent to her — exactly the case the
+feature is for, where the topic words tie and the date decides. 70% matches
+what `evaluate --builtin` reports, which is the cross-check that the harness
+measures the same thing the shipped command does. A test re-runs both halves,
+so the number cannot decay into a claim.
+
+**Version folding could not use 6e's hashes.** The index-tuning order's chunk
+dedup is in-run only — it never persisted a per-chunk hash — so this took the
+order's own stated fallback and folds on `content_hash` at file level. That
+alone is not enough: an exact hash only catches a file copied to two folders,
+never eight *versions*, which is the case the item names. So folding has two
+grounds and they are not equally safe:
+
+* **identical bytes** — a fact, folds anywhere, "1 identical copy elsewhere";
+* **the same document edited** — a guess, fenced by same folder, same
+  extension, and a **version marker** (`v2`, `final`, `draft`, `rev 3`, `(2)`,
+  a date) in at least one name.
+
+**A bare trailing number is deliberately not a marker**: `chapter 1.docx` and
+`chapter 2.docx` are two documents, and folding them would hide half a book.
+`results` is never shortened — `folds` describes how to draw the same list, so
+a view that ignores it draws the page it drew before, and nothing is hidden
+from anything that reads the results.
+
+Also from this section: `f.content_hash` now travels on the result rows (one
+more column on a join both retrievers already did), the recency blend is off
+wherever `/newest` is in force, and an undatable file counts as ancient rather
+than new — the other way round is the sentinel bug that hid every PST, moved
+into the ranking.
 
 ## Done means
 

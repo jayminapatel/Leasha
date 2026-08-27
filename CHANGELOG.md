@@ -1,6 +1,32 @@
 # Changelog
 
-**Doc version:** 3.74 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.75 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Eight versions of the same letter, shown as one row
+
+- **The same document saved eight times now takes one line**, with the newest
+  shown and "3 older versions" one click away. Fifteen years of a working life
+  makes `report.docx`, `report v2.docx`, `report FINAL.docx` and the copy
+  dragged to the desktop in 2019, and the one you want is the last one.
+- **The same file in two folders folds too**, because identical bytes are
+  identical bytes - "1 identical copy elsewhere".
+- **Nothing is hidden.** A fold shows the newest and keeps the rest one click
+  away, and the underlying list is untouched - expanding a fold gives back
+  exactly the page you would have seen.
+- **`chapter 1` and `chapter 2` never fold.** A bare number is not a version
+  marker; `v2`, `final`, `draft`, `rev 3`, `(2)` and dates are. Folding two
+  chapters together would hide half a book, which is a worse failure than
+  showing you a long list.
+- **Among equally good matches, the newer one comes first** - a nudge inside
+  relevance, not the date sort that /newest already does and already announces.
+  It never hides an older document, it only orders them.
+- **How strong that nudge is was measured, not chosen**, and the measurement
+  overruled the first answer: the value written in on judgement would have cost
+  five points of accuracy on the twenty test sentences. The one it fixes is
+  "what did I send to Priya", which used to return an invoice template and now
+  returns the mail actually sent to her.
+- A file whose date cannot be read counts as old, not new. The other way round
+  floats every unreadable archive to the top of every search.
 
 ## When nothing matches, it tells you what it let go of
 

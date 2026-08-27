@@ -131,7 +131,7 @@ def search(
         sql = f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns,
+                   f.path, f.ext, f.mtime_ns, f.content_hash,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -145,7 +145,7 @@ def search(
         sql = """
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns,
+                   f.path, f.ext, f.mtime_ns, f.content_hash,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -180,7 +180,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
         sql = f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns,
+                   f.path, f.ext, f.mtime_ns, f.content_hash,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -194,7 +194,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
         sql = """
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns,
+                   f.path, f.ext, f.mtime_ns, f.content_hash,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -232,7 +232,7 @@ def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[
     sql = f"""
         SELECT c.id AS chunk_id, c.file_id, c.text, c.page,
                c.char_start, c.char_end,
-               f.path, f.ext, f.mtime_ns,
+               f.path, f.ext, f.mtime_ns, f.content_hash,
                0.0 AS score
         FROM chunks c
         JOIN files f ON f.id = c.file_id

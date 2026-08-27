@@ -36,7 +36,7 @@ from typing import Any, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import keyword, recency, relax, vector
+from app.search import folding, keyword, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -163,6 +163,13 @@ class SearchResult:
     #: cost one line and no new query to show it.
     ext: str = ""
     mtime_ns: int = 0
+    #: blake2b of the file's bytes, when the index has read them.
+    #:
+    #: **Carried so §2d can fold identical copies without a second query.**
+    #: Both retrievers already joined `files`; this is one more column on a
+    #: row that was being fetched anyway. Empty for anything not yet hashed,
+    #: and an empty hash never folds - a shared blank is not a match.
+    content_hash: str = ""
     #: Which retrievers found it. Both agreeing is the strongest signal the
     #: pipeline produces, and the UI is expected to say so.
     sources: tuple[int, ...] = ()
@@ -300,6 +307,14 @@ class SearchResponse:
     #: Carried on the response so the chip can be drawn without the
     #: view re-deriving anything.
     spelling: Any = None
+    #: How to draw `results` as rows: one `folding.Fold` each, some carrying
+    #: older versions or identical copies behind them.
+    #:
+    #: **`results` is never shortened.** A view that ignores this draws exactly
+    #: what it drew before, and nothing is hidden from anything that reads the
+    #: list - which is the only safe way to ship a feature whose failure mode
+    #: is putting somebody's document behind a disclosure triangle.
+    folds: tuple = ()
     #: The `relax.Relaxation` that produced these results, or None when the
     #: query ran as typed. **`parsed` is the relaxed query when this is set**,
     #: because everything downstream - highlighting, the unmatched-terms
@@ -583,6 +598,9 @@ class SearchEngine:
             results=results, parsed=parsed, reranked=bool(reranked),
             keyword_count=len(keyword_hits), vector_count=len(vector_hits),
             unmatched=unmatched, spelling=spelling, relaxed=relaxed,
+            # §2d. **Alongside `results`, never instead of it.** A view that
+            # ignores this draws the same page it drew before.
+            folds=tuple(folding.fold(results, enabled=policy.version_folding)),
             elapsed_ms=(time.perf_counter() - started) * 1000, timings=timings,
         )
         if unmatched:
@@ -1047,6 +1065,7 @@ class SearchEngine:
             # result row's own label disagree about the same file.
             ext=str(hit.get("ext", "") or "").lower().lstrip("."),
             mtime_ns=int(hit.get("mtime_ns") or 0),
+            content_hash=str(hit.get("content_hash", "") or ""),
             score=float(hit.get("rerank_score", score) if "rerank_score" in hit else score),
             rank=rank,
             sources=tuple(sources),

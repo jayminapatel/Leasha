@@ -135,6 +135,7 @@
     <Compile Include="app\search\engine.py" />
     <Compile Include="app\search\evaluate.py" />
     <Compile Include="app\search\federate.py" />
+    <Compile Include="app\search\folding.py" />
     <Compile Include="app\search\fusion.py" />
     <Compile Include="app\search\gitquery.py" />
     <Compile Include="app\search\gitsearch.py" />
@@ -286,6 +287,7 @@
     <Compile Include="tests\unit\test_file_menu.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
+    <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fusion.py" />
