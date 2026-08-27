@@ -59,6 +59,15 @@ PLAIN: dict[str, Any] = {
     # surfaces; these are the sentences the universal tab shows.
     "NOTICE_SPELLING": lambda message: message,
     "NOTICE_RELAXED": lambda message: message,
+    # §4a's notice, and **it was missing until the §7 coverage test asked**.
+    # The technical form tells somebody to put quotes round part of it, which
+    # is syntax advice on the one tab that exists so nobody needs syntax; the
+    # plain form offers the same escape in words instead.
+    "NOTICE_EXACT": (
+        "That looked like something you pasted in, so these match your words "
+        "in the order they appear. Type it in your own words to search more "
+        "loosely."
+    ),
 }
 
 

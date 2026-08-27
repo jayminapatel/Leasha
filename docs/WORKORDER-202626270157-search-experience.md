@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.15 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.16 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -167,9 +167,9 @@ corrects. Ollama is one backend; this adds the second.
   sentence with a wrong word still lands via relaxation, and the label is
   asserted (2b); plain sentence with a known sender name produces the chip
   (3a/3b); every scenario runs with Ollama absent.
-- [ ] Policy: each `SearchPolicy` field provably changes engine behaviour
+- [x] Policy: each `SearchPolicy` field provably changes engine behaviour
   (the anti-P1 wiring rule); per-surface defaults assert the owner's matrix.
-- [ ] Notices: every notice code has a plain-register sentence (table
+- [x] Notices: every notice code has a plain-register sentence (table
   coverage test).
 - [x] Tooltips: the §6a walker test.
 - [x] Relevance gates: 2d recency and 4c definition boost each accepted only
@@ -679,6 +679,27 @@ asserts that guard is live.
 Also pinned by the scenarios: two misspelled words are deliberately *not*
 corrected (one is a typo, two is the wrong corpus), and the same query on the
 Code tab corrects nothing, relaxes nothing and offers no chips.
+
+## Note on §7's two guards, added 2026-08-27 — and what they caught
+
+**The anti-P1 rule needed its own test, and the existing policy tests were
+not it.** They assert the surface matrix and the off-means-off rule; neither
+proves a field *does* anything. So each of the six is now flipped and the
+**response** must differ — not the policy object, not a call count.
+
+**The notice-coverage test found a real gap on its first run**: `NOTICE_EXACT`,
+added by §4a earlier the same day, had no plain-register sentence. So on the
+everyday tab a pasted error fell through to the technical wording, which tells
+somebody to *put quotes round part of it* — syntax advice on the one tab that
+exists precisely so nobody needs syntax. That is now written, and the §4a test
+that asserted the technical form (and passed only because no plain form
+existed) asserts both registers instead.
+
+Both directions are guarded: a notice code with no plain sentence fails, and a
+plain sentence for a code nothing emits fails too — dead weight there hides
+the fact that a notice was removed. A separate test rejects `app.cli`, `--`,
+`()` and `_` in any plain sentence, because the register is the whole point of
+the table.
 
 ## Done means
 

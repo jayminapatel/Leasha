@@ -193,15 +193,32 @@ def test_a_pasted_error_finds_the_files_that_contain_it(engine):
 
 
 def test_the_notice_says_what_happened_and_how_to_undo_it(engine):
-    """A phrase search is a narrowing, and somebody who did not mean to paste
-    needs to see both that it happened and the way back."""
-    from app.search.engine import NOTICE_EXACT
+    r"""A phrase search is a narrowing, and somebody who did not mean to paste
+    needs to see both that it happened and the way back.
 
-    response = engine.search("Traceback (most recent call last): line 5 in run",
-                             use_cache=False)
-    message = next(notice.message for notice in response.notices
-                   if notice.code == NOTICE_EXACT)
-    assert "pasted" in message and "quotes" in message
+    **In whichever register the surface asked for.** This test used to assert
+    the technical wording and passed only because `NOTICE_EXACT` had no plain
+    form yet - the everyday tab was falling through to a sentence telling
+    somebody to put quotes round part of their query, which is syntax advice
+    on the one tab that exists so nobody needs syntax. The §7 coverage test
+    found it.
+    """
+    from app.search.engine import NOTICE_EXACT
+    from app.search.policy import CODE, SEARCH, for_surface
+
+    def message(surface):
+        response = engine.search(
+            "Traceback (most recent call last): line 5 in run",
+            policy=for_surface(surface), use_cache=False)
+        return next(notice.message for notice in response.notices
+                    if notice.code == NOTICE_EXACT)
+
+    plain = message(SEARCH)
+    assert "pasted" in plain and "your own words" in plain
+    assert "quotes" not in plain
+
+    technical = message(CODE)
+    assert "pasted" in technical and "quotes" in technical
 
 
 def test_a_typed_query_is_untouched(engine):
