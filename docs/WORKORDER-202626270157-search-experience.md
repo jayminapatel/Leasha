@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.14 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.15 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -162,7 +162,7 @@ corrects. Ollama is one backend; this adds the second.
 
 ## 7. Tests
 
-- [ ] **The 8-year-old scenarios**, as integration tests on the fixture
+- [x] **The 8-year-old scenarios**, as integration tests on the fixture
   corpus: misspelled single word finds the document (2a); over-specified
   sentence with a wrong word still lands via relaxation, and the label is
   asserted (2b); plain sentence with a known sender name produces the chip
@@ -171,8 +171,8 @@ corrects. Ollama is one backend; this adds the second.
   (the anti-P1 wiring rule); per-surface defaults assert the owner's matrix.
 - [ ] Notices: every notice code has a plain-register sentence (table
   coverage test).
-- [ ] Tooltips: the §6a walker test.
-- [ ] Relevance gates: 2d recency and 4c definition boost each accepted only
+- [x] Tooltips: the §6a walker test.
+- [x] Relevance gates: 2d recency and 4c definition boost each accepted only
   with `evaluate` numbers recorded in this file — a ranking change without
   its measurement is not done.
 
@@ -644,6 +644,41 @@ short, because a long one is a guard that has been argued down rather than met.
 that names a mechanism without naming its effect; reading them, the wording
 already does the second thing — `indexing_settings.py` opens by saying "the
 wording on these controls is the feature", and it holds.
+
+## Note on §7, added 2026-08-27 — and the bug the scenarios found
+
+**Writing the acceptance test found that §2a did not work.**
+
+The scenario is the order's own sentence: a child types a misspelled word and
+finds her essay. It failed. `parsed.terms` said `volcano`, the notice said
+*"also looked for 'volcano'"* — and `fts_match()` still emitted `"volcanno"`,
+so **the search that ran was the misspelled one and returned nothing.**
+
+`to_fts_match` builds its expression from `or_groups` when there is one and
+falls back to `terms` only when there is not. `dataclasses.replace(parsed,
+terms=...)` therefore changed the field the UI reads and left the query
+untouched. Both halves of the feature reported success and the page was empty.
+
+**I had verified the mechanism and not the outcome.** The §2a delivery check
+printed `terms=('volcano',)` and the notice text beside `results=0`, and I
+read the first two and explained the third away as the vector half being
+absent. The scenario test asserts what a person would see — *her essay is in
+the list* — which is why it caught what a field check could not.
+
+Fixed at the source: `query.with_terms` replaces terms **and** the single
+`or_groups` entry together, and both §2a and §2b's phrase relaxation go
+through it. Several OR groups are left alone deliberately — which alternative
+a corrected word belongs to is a guess, and guessing there would be the same
+silent wrongness somewhere subtler.
+
+**The scenarios run with no model at all.** The fixture's embedder raises on
+any call, so a scenario that only passes on a machine with Ollama or an
+embedding model fails here instead of passing for the wrong reason. A test
+asserts that guard is live.
+
+Also pinned by the scenarios: two misspelled words are deliberately *not*
+corrected (one is a typo, two is the wrong corpus), and the same query on the
+Code tab corrects nothing, relaxes nothing and offers no chips.
 
 ## Done means
 

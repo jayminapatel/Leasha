@@ -1,6 +1,16 @@
 # Changelog
 
-**Doc version:** 3.84 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.85 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Fixed: correcting a misspelling did not actually change the search
+
+- **The spelling correction announced itself and then did nothing.** Typing a
+  misspelled word showed "also looked for 'volcano'" above an empty page: the
+  correction reached the message and never reached the query. Now it finds the
+  document.
+- Found by writing the acceptance test the whole feature exists for - a child
+  typing a word wrong and looking for her homework - which checks what she
+  would see rather than what the code reports about itself.
 
 ## The window follows your text size
 

@@ -135,10 +135,14 @@ def _without_phrases(parsed: "ParsedQuery") -> Optional[Relaxation]:
     if not words:
         return None
     named = ", ".join(f'"{phrase}"' for phrase in parsed.phrases)
-    return Relaxation(
-        query=replace(parsed, phrases=(), terms=tuple(words)),
-        kind=PHRASE, dropped=named,
-    )
+    # **`with_terms`, because `or_groups` is what the expression is built
+    # from.** Dropping the quotes and leaving a stale group behind would run
+    # the query the person typed minus its phrase, which is neither what they
+    # asked for nor what the label says happened.
+    from app.search.query import with_terms
+
+    widened = with_terms(replace(parsed, phrases=()), tuple(words))
+    return Relaxation(query=widened, kind=PHRASE, dropped=named)
 
 
 def _without_and(parsed: "ParsedQuery") -> Optional[Relaxation]:

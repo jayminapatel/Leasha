@@ -283,6 +283,7 @@
     <Compile Include="tests\unit\test_distinct_values.py" />
     <Compile Include="tests\unit\test_docs_versioned.py" />
     <Compile Include="tests\unit\test_editors.py" />
+    <Compile Include="tests\unit\test_eight_year_old.py" />
     <Compile Include="tests\unit\test_email_pst.py" />
     <Compile Include="tests\unit\test_embed_bench.py" />
     <Compile Include="tests\unit\test_embedder.py" />

@@ -40,7 +40,7 @@ from app.search import definitions, folding, keyword, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
-from app.search.query import ParsedQuery, parse_query
+from app.search.query import ParsedQuery, parse_query, with_terms
 from app.search.rerank import Reranker
 
 __all__ = [
@@ -1018,7 +1018,12 @@ class SearchEngine:
 
             corrected = tuple(found.suggestion if term == found.typed else term
                               for term in parsed.terms)
-            return replace(parsed, terms=corrected), found
+            # **`with_terms`, not `replace`.** The expression is built from
+            # `or_groups` when there is one, so replacing `terms` alone left
+            # the query that actually ran as the misspelled original - the
+            # notice said the word had been corrected and the search had not
+            # been. See `query.with_terms`.
+            return with_terms(parsed, corrected), found
         except Exception as exc:                      # noqa: BLE001 - a helper
             _log.debug("no spelling suggestion for this query: {}", exc)
             return parsed, None

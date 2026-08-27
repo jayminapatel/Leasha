@@ -849,6 +849,34 @@ def _content_terms(terms: Sequence[str]) -> list[str]:
     return without_instructions or kept
 
 
+def with_terms(parsed: ParsedQuery, terms) -> ParsedQuery:
+    r"""A copy with `terms` replaced **and `or_groups` kept in step**.
+
+    **The bug this exists for, and it silently disabled a whole feature.**
+    `to_fts_match` builds its expression from `or_groups` when there is one,
+    falling back to `terms` only when there is not - so replacing `terms` with
+    `dataclasses.replace` changed the field the UI reads and left the query
+    that actually ran untouched.
+
+    §2a's spelling correction did exactly that: the notice said *"also looked
+    for 'volcano'"*, `parsed.terms` said `volcano`, and the search that ran
+    was still for `volcanno` and found nothing. Both halves of the feature
+    reported success and the person got an empty page.
+
+    A single group is replaced wholesale. **Several groups are left alone**:
+    `a b OR c` with one word corrected is a question about which alternative
+    the correction belongs to, and guessing there would be the same class of
+    silent wrongness in a subtler place.
+    """
+    from dataclasses import replace as _replace
+
+    wanted = tuple(str(term) for term in terms)
+    if len(parsed.or_groups) > 1:
+        return _replace(parsed, terms=wanted)
+    return _replace(parsed, terms=wanted,
+                    or_groups=((wanted,) if wanted else ()))
+
+
 def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False,
                  force_and: bool = False) -> str:
     """Build a MATCH expression that SQLite will always parse.
