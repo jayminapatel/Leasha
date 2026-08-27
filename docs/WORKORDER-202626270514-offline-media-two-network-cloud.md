@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media II — network shares, cloud mounts, and the placeholder rules
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage + Index + Offline Media tab)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0513 (the tab and the
 identity seam). **Phones (kind 4, MTP) are decided as removable drives but

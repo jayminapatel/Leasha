@@ -1,6 +1,6 @@
 # Work order (One thread): media files by default, and the OCR ladder that makes it affordable
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + Index pipeline + formats)
 **Status:** RELEASED by the owner 2026-08-28. Queue position: first of the new
 batch, after `WORKORDER-202626270326-workspace-features.md`. This order is the

@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order

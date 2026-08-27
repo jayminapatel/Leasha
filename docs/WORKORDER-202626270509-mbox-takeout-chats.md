@@ -1,6 +1,6 @@
 # Work order (One thread): mbox, Takeout, and chats — the rest of "all our data" that is just files
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + docs)
 **Status:** RELEASED by the owner 2026-08-28. Small and self-contained
 (extractors + one doc paragraph); schedulable into any gap, like the

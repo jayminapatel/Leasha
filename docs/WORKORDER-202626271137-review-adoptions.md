@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.5 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its

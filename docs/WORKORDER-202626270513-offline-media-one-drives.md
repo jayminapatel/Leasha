@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media I — drives in drawers, findable forever
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage core + Index + new tab UI + Search)
 **Status:** RELEASED by the owner 2026-08-28. **The deepest storage change in
 the batch — do NOT interleave with other pipeline orders.** Requires 0508

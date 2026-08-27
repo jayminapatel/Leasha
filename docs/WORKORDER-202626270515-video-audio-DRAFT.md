@@ -1,6 +1,6 @@
 # Work order (One thread): video and audio — DRAFT, the epoch after pictures
 
-**Doc version:** 0.1 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 0.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Status: DRAFT — NOT FOR EXECUTION.** Owner decision 2026-08-28: video comes
 AFTER the picture work (0508–0512). This draft preserves the agreed design so
 the collation session can promote it by bumping to 1.0 — do not start any

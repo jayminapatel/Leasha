@@ -1,6 +1,6 @@
 # Work order (One thread): the Photo Tagger — naming people, the Google Photos way, fully local
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Storage + new page UI + Search)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510 (image pass
 plumbing) and ideally 0511. **The principled line (owner-revised): detection

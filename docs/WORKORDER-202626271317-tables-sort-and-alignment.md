@@ -1,6 +1,6 @@
 # Work order (One thread): every table sorts, every header sits over its column
 
-**Doc version:** 1.1 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI widgets — `result_table.py` centred, views follow)
 **Status:** RELEASED by the owner 2026-08-28. Small and **gap-schedulable**
 (privacy-defaults pattern). Owner's report, verbatim intent: *Mail sorts on
@@ -111,6 +111,25 @@ column, and a ranked list can always find its way back to Relevance.
 Same bar as above; acceptance sentence: close Leasha however you left it,
 and it opens the next time exactly the way you left it — on a screen you
 can see.
+
+## 5. ADDED 2026-08-28 — column widths forgotten, FIFTH report (owner: LOW priority, do last in this order)
+
+- [ ] **5a** the owner reports again that column widths are not remembered.
+  History: fixed four times (CHANGELOG), twice the app's own guard was the
+  thing overruling the user. **Diagnose before touching anything** — the
+  planted DEBUG lines split the bug: `column <k> width saved as <n>` means
+  saved-then-lost-at-restore; `column resize ignored: no button held`
+  means the drag never registered (the mouse-button check in
+  `remember_widths.resized` — touchpad/pen input are prime suspects, and
+  it is the one link no offscreen test can cover). Also check: the LAST
+  column (stretch-owned until any width is saved — a first drag there
+  cannot stick), and tables outside Files/Mail/Code (roots, file types,
+  git tree) which may lack the machinery entirely.
+- [ ] **5b** whatever the cause: fix + a REAL-INPUT regression test —
+  a pywinauto drag (0m's tooling, runnable before 0m) that holds an
+  actual mouse button, drags a column, restarts the view, asserts the
+  width survived. This bug class has never had a true net; that test is
+  the deliverable that ends the series.
 
 ## Note added 2026-08-28 — the Indexing page layout
 

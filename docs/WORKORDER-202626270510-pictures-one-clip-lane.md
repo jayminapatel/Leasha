@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures I — the CLIP lane: find photos by describing them
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Index + Storage/vectors + Search + results UI)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
 ladder + EXIF dates) landed first. **Scope discipline: vectors and

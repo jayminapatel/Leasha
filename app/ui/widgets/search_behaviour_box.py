@@ -154,6 +154,11 @@ class SearchBehaviourBox(QGroupBox):
 
         self.mini_hotkey = QLineEdit()
         self.mini_hotkey.setObjectName("MINI_SEARCH_HOTKEY")
+        # A form label is not an accessible name on every reader, and this box
+        # holds the one setting somebody using a screen reader is most likely
+        # to want - the shortcut that opens search without the mouse.
+        self.mini_hotkey.setAccessibleName("The shortcut that opens search")
+        self.mini_hotkey.setPlaceholderText("Ctrl+Alt+L")
         self.mini_hotkey.setToolTip(
             "Something like Ctrl+Alt+L. It needs at least one of Ctrl, Alt, "
             "Shift or Win. If another program is already using it, Leasha "

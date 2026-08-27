@@ -1,6 +1,6 @@
 # Work order (One thread): test automation — the GUI clicked for real, the system proven nightly
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (tests + tooling; app code changes only where a test
 exposes a bug)
 **Status: HELD by the owner 2026-08-28 — do not execute until he says when.**
@@ -18,6 +18,26 @@ suite has ever *pressed a key in a real widget* or driven the assembled app.
 The rerank-toggle class of bug (emitted, connected to nothing, looks fine)
 lives exactly in that gap, and this project has met it repeatedly. This order
 closes the gap in layers, cheapest and most valuable first.
+
+## 0. ADDED by owner 2026-08-28 — the grab script: eyes for the AI (FIRST item when this order starts)
+
+- [ ] **0a** `tools/grab_ui.py`: constructs the real `MainWindow` offscreen
+  (`QT_QPA_PLATFORM=offscreen`) against a temp/fixture store, walks every
+  page and named surface (each tab, Settings, Indexing, dialogs where
+  constructible), calls `widget.grab().save(...)` per surface into
+  `outputs/screenshots/<surface>.png`, and exits. Optional args: one
+  surface only; a `--size WxH` to reproduce layout bugs at a given window
+  size. No new dependencies — `grab()` renders offscreen with what is
+  already installed.
+- [ ] **0b** why it is first: it gives the coding agent EYES. The workflow
+  it unlocks: "the Files tab looks wrong" → run the script → the agent
+  reads the PNG (it is multimodal) → hypothesis → pytest-qt regression →
+  fix → re-grab → visually confirm. Every later UI order benefits, and
+  §5's visual goldens are this script plus a stored baseline and a diff —
+  so 0a is the seed of §5, not a separate machine.
+- [ ] **0c** a smoke test: the script runs headless in CI, produces a
+  non-empty PNG per expected surface, and no surface list drift (a new
+  tab without a grab entry fails the test — the walker-test shape).
 
 ## 1. pytest-qt — real widgets, in-process (the core of the order)
 

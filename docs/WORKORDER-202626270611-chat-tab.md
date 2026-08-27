@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: HELD — created at the owner's request, to be scheduled BY THE OWNER
 later. Do not execute until he promotes it (registers a queue position in
@@ -142,6 +142,42 @@ through to the Chat role. **EMBED_MODEL stays OUT** — rebuild decision,
 separate home, its own warning. Eval floors (4b) and the translator
 [TUNE] pass are measured PER ASSIGNED MODEL. Schema leaves room for
 per-surface overrides within a role later, evidence-gated.
+
+## 4e. ADDED 2026-08-28 — adopted from the results-presentation order (202626271510)
+
+The Sources pane (3a) and inline result answers (3b) render with the same
+delegate the search pages use, so that order's row upgrades — snippet
+windows centred on the match, sentence-boundary cuts, real file icons,
+sender-first mail rows, monospace code snippets, hover, pixel scrolling,
+left-elided locations, twin disambiguation — **flow into chat
+automatically. Verify the inheritance at build time; re-implement
+nothing.** Four adaptations are chat's own:
+
+- [ ] **4e-1 Quotes cut at sentence boundaries.** 2b copies verbatim spans
+  by offsets the model selects; the system **snaps those offsets to
+  sentence boundaries** before printing (never mid-word, prefer whole
+  sentences — the 1c logic from the results order, reused). A quote that
+  reads like a sentence is trusted like one; verbatim is preserved because
+  snapping only widens or narrows to real text, never rewrites.
+- [ ] **4e-2 Stable streaming.** The results order's stable-update rule,
+  applied to chat: while tokens stream, the Sources pane may append but
+  never reshuffles — a receipt the user is mousing toward must not move.
+  Superscript numbering is assigned in first-mention order and never
+  renumbers mid-answer.
+- [ ] **4e-3 Keyboard flow in chat.** From the message box: ↓/↑ walk the
+  Sources pane with focus staying in the box, preview-on-selection,
+  Enter (with a source selected) opens it, Esc returns to the
+  conversation. The 6a convention, same muscle memory as search.
+- [ ] **4e-4 Answers end by saying so.** The terminator instinct (5c),
+  chat-shaped: an AGGREGATE answer states its scope in the same breath as
+  its number ("47 photos — counted across everything indexed, including
+  offline drives"), and a FIND answer's inline grid ends with "that's all
+  N". An answer that declares its edges reads as finished, not truncated.
+
+Tests ride the sections they touch: 4e-1 property test (snapped span is a
+substring of the chunk, verbatim, whole words); 4e-2 pytest-qt
+streaming-reshuffle assertion; 4e-3 the keyboard scenario; 4e-4 string
+checks in the aggregate/find fixtures.
 
 ## 5. Tests
 

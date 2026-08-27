@@ -1,6 +1,6 @@
 # Work order (One thread): the pages reorg — Settings finds its shelves, Indexing splits in three
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI structure only — no engine, no pipeline, no schema)
 **Status: DRAFT — NOT FOR EXECUTION until the owner promotes it.**
 Promotion condition, set by the owner ("once our workorders are in"): the

@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last

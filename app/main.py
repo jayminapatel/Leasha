@@ -131,14 +131,126 @@ def _catch_native_crashes(log_dir: "Any") -> None:
 
     import faulthandler
 
+    # **The file first, and that ordering is the whole fix.** This used to call
+    # `faulthandler.enable()` for the console before opening the file. Under
+    # `pythonw.exe` - which is how the shortcut, the installer and every real
+    # run start Leasha - `sys.stderr` is None, and `enable()` with no argument
+    # raises `RuntimeError: sys.stderr is None`. The blanket `except` below
+    # swallowed it and the *file* handler, three lines later, was never
+    # installed. So the diagnostic that exists precisely for the crash with no
+    # console was disabled by the absence of a console. Two hard deaths on
+    # 2026-08-27 left `logs/` with no crash.log in it at all - not an empty one,
+    # none, because the `open()` never ran either.
     try:
-        faulthandler.enable()                    # stderr, for a console run
-        crash_dir = Path(log_dir)
+        crash_dir = Path(log_dir) / "crash"
         crash_dir.mkdir(parents=True, exist_ok=True)
-        _CRASH_FILE = open(crash_dir / "crash.log", "a", buffering=1, encoding="utf-8")
+        _CRASH_FILE = open(crash_dir / "crash.log", "a", buffering=1,
+                           encoding="utf-8")
         faulthandler.enable(file=_CRASH_FILE, all_threads=True)
     except Exception:                            # noqa: BLE001
         # A diagnostic that prevents start-up is worse than no diagnostic.
+        pass
+
+    # stderr as well, when there is one. Additive: `enable()` replaces the
+    # destination, so this runs second and only when it can succeed.
+    try:
+        if sys.stderr is not None:
+            faulthandler.enable()
+    except Exception:                            # noqa: BLE001
+        pass
+
+
+def _log_every_unhandled_exception() -> None:
+    r"""Write down the exception PyQt is about to kill the process over.
+
+    **PyQt6 aborts on an exception that escapes a slot.** Not "prints and
+    continues" - since PyQt 5.5 an unhandled Python exception inside a slot
+    invoked from C++ calls `qFatal()`, which calls `abort()`. The process is
+    gone in the same instant.
+
+    On the way out PyQt hands the traceback to `sys.excepthook`, and the
+    default hook writes to `sys.stderr` - which under `pythonw.exe` is None.
+    So an ordinary `AttributeError` in a button handler becomes a window that
+    vanishes with an empty log and no exit code, which is indistinguishable
+    from a segfault and was diagnosed as one.
+
+    This puts the traceback in the log first. It costs nothing until something
+    throws, and it turns "it crashed" into a file and a line number.
+    """
+    import threading
+    import traceback
+
+    def _hook(kind, value, tb) -> None:
+        # **The logger is bound here, not at install time.** Binding it up
+        # front looked tidier and meant that if logging was itself the broken
+        # thing, *installing the crash reporter* raised - from `main`, before
+        # the window, turning a diagnostic into the failure. Caught by
+        # `test_the_hook_survives_a_broken_logger`.
+        try:
+            text = "".join(traceback.format_exception(kind, value, tb)).strip()
+            from app.core.logging import logger
+
+            logger.bind(component="main").error(
+                "unhandled exception - the process may stop here:\n{}", text)
+        except Exception:                        # noqa: BLE001 - the last hook
+            pass
+        try:
+            if _CRASH_FILE is not None:
+                _CRASH_FILE.write(
+                    "".join(traceback.format_exception(kind, value, tb)))
+        except Exception:                        # noqa: BLE001 - the last hook
+            pass
+        # Chain to whatever was there, so a console run still prints.
+        try:
+            sys.__excepthook__(kind, value, tb)
+        except Exception:                        # noqa: BLE001 - no stderr
+            pass
+
+    sys.excepthook = _hook
+    # **Worker threads too.** A raise on a `CallableWorker` does not abort the
+    # process, so it is quieter and lives longer - a feature that silently
+    # stopped working with nothing in the log at all.
+    try:
+        threading.excepthook = lambda args: _hook(
+            args.exc_type, args.exc_value, args.exc_traceback)
+    except Exception:                            # noqa: BLE001
+        pass
+
+
+def _log_qt_messages() -> None:
+    r"""Qt's own warnings and fatals, into the same log as everything else.
+
+    Qt writes to its own message handler, which by default goes to stderr -
+    None under `pythonw.exe`. `QWidget: Must construct a QApplication first`,
+    a bad pixmap, a layout warning: all invisible in exactly the runs where
+    they matter. A `QtFatalMsg` is the message immediately before an abort, so
+    it is the most valuable line the log can hold.
+    """
+    try:
+        from PyQt6.QtCore import (QtMsgType, qInstallMessageHandler)
+
+        from app.core.logging import logger
+
+        log = logger.bind(component="qt")
+        levels = {
+            QtMsgType.QtDebugMsg: log.debug,
+            QtMsgType.QtInfoMsg: log.info,
+            QtMsgType.QtWarningMsg: log.warning,
+            QtMsgType.QtCriticalMsg: log.error,
+            QtMsgType.QtFatalMsg: log.critical,
+        }
+
+        def _handler(kind, context, message) -> None:
+            try:
+                where = ""
+                if context is not None and getattr(context, "file", None):
+                    where = f" ({context.file}:{context.line})"
+                levels.get(kind, log.info)("{}{}", message, where)
+            except Exception:                    # noqa: BLE001 - a log line
+                pass
+
+        qInstallMessageHandler(_handler)
+    except Exception:                            # noqa: BLE001
         pass
 
 
@@ -163,6 +275,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # start" dialog leaves nothing else behind at all.
     run = start_run(log_dir_for(), "window", argv=arguments[1:])
     _catch_native_crashes(log_dir_for())
+    _log_every_unhandled_exception()
+    _log_qt_messages()
     code = 1
     try:
         code = _run_window(run, qt_arguments, debug)

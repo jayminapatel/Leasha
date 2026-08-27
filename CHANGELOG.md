@@ -1,6 +1,21 @@
 # Changelog
 
-**Doc version:** 3.95 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.96 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## When it crashes, it now says so
+
+- **A crash used to leave nothing behind at all.** No message, no error, no
+  file — the log simply stopped mid-line. Leasha closed twice like this on
+  27 August and there was literally nothing to read afterwards.
+- The reason was small and unlucky: the crash reporter wrote its report to the
+  console, and Leasha is started without one. It gave up at that point and
+  never got as far as writing the file. So the report that exists for exactly
+  this situation was switched off by exactly this situation.
+- Now the file is written first, and the console is a bonus when there is one.
+  A crash leaves `logs\crash\crash.log` naming the line it died on, and
+  ordinary faults are written into the normal log before the window goes.
+- Warnings from the graphics toolkit are recorded too. They used to go to the
+  same console that is not there.
 
 ## Search from anywhere with a shortcut
 
