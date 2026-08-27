@@ -44,10 +44,12 @@ __all__ = [
     "index_workers",
     "onnx_threads",
     "embed_batch",
+    "embed_batch_from_rates",
     "index_memory_mb",
     "oversubscription_warning",
     "for_setting",
     "ENVELOPES",
+    "MEASURED_ENVELOPES",
 ]
 
 #: The sentinel a setting holds when it has not been decided by hand.
@@ -155,6 +157,50 @@ def index_workers(profile: Any, *, hard_max: int = 32) -> Bounds:
     return Bounds(1, ceiling, min(auto, ceiling), why)
 
 
+def embed_batch_from_rates(profile: Any, measured: Any) -> Optional[Bounds]:
+    r"""`embed_batch`, sized by what the model actually managed here.
+
+    **§5b, and the whole of the difference between Defaults and Auto-tune.**
+    The heuristic below sizes a batch by installed memory, which is a proxy for
+    the thing that matters and is wrong in both directions: a machine with
+    plenty of memory and a slow processor gains nothing from a huge batch, and
+    one on the graphics card wants a larger batch than its memory would
+    suggest.
+
+    Returns `None` whenever the measurement does not clearly justify a
+    different answer - which is most of the time, and is the right default.
+    A measured number that is close to the heuristic should not displace it:
+    the two agreeing is not new information, and churning somebody's settings
+    to say so is how a self-tuning system loses trust.
+    """
+    if measured is None:
+        return None
+    rates = dict(getattr(measured, "embed_per_second", {}) or {})
+    if not rates:
+        return None
+
+    heuristic = embed_batch(profile)
+    fastest = max(rates.values())
+    if fastest <= 0:
+        return None
+
+    # **A batch is worth enlarging only when the model is fast enough to make
+    # per-call overhead the cost.** Below roughly 20 chunks a second the call
+    # overhead is already noise against the matrix work, and a bigger batch
+    # buys nothing while holding more text in memory.
+    if fastest < 20:
+        return heuristic
+
+    doubled = min(heuristic.ceiling, heuristic.auto * 2)
+    if doubled <= heuristic.auto:
+        return heuristic
+    return Bounds(
+        heuristic.floor, heuristic.ceiling, doubled,
+        f"measured at {fastest:.0f} chunks a second on this machine, which is "
+        f"fast enough that per-call overhead, not memory, is the limit",
+    )
+
+
 def onnx_threads(profile: Any, workers: Optional[int] = None) -> Bounds:
     """Intra-op threads for one ONNX session.
 
@@ -251,13 +297,37 @@ ENVELOPES = {
     "INDEX_MEMORY_MB": index_memory_mb,
 }
 
+#: The knobs a *measurement* can improve on, by the same names.
+#:
+#: **Deliberately a short list.** Most bounds are about what the machine has -
+#: memory, cores, disk - and no amount of measuring changes those. Only where
+#: the heuristic is a proxy for something that can be timed does a measured
+#: form earn its place, and each one here has to say what it does with the
+#: number and when it declines to use it.
+MEASURED_ENVELOPES = {
+    "EMBED_BATCH": embed_batch_from_rates,
+}
 
-def for_setting(key: str, profile: Any) -> Optional[Bounds]:
+
+def for_setting(key: str, profile: Any, measured: Any = None) -> Optional[Bounds]:
     """The envelope for one setting, or None when it has no per-machine bound.
 
     None is the ordinary answer for most settings - a theme or a schedule does
     not depend on the hardware - and the caller shows the registry's static
     bounds for those.
+
+    `measured` is §5b's half: when rates for *this* machine exist, a knob that
+    has a measured form uses it and every other knob is unaffected. Passing
+    None gives exactly the behaviour before Auto-tune existed, which is what
+    Defaults mode wants and what every caller gets until it asks otherwise.
     """
-    builder = ENVELOPES.get(str(key or "").upper())
+    name = str(key or "").upper()
+    if measured is not None:
+        refined = MEASURED_ENVELOPES.get(name)
+        if refined is not None:
+            bounds = refined(profile, measured)
+            if bounds is not None:
+                return bounds
+
+    builder = ENVELOPES.get(name)
     return builder(profile) if builder is not None else None

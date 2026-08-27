@@ -2139,6 +2139,68 @@ def cmd_embedbench(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_bench_index(args: argparse.Namespace) -> int:
+    r"""Time the whole pipeline here, and remember the answer.
+
+    **The model was only ever half the question.** `embed-bench` says how fast
+    the model is; a run whose model is fast and whose disk is slow is bounded
+    by the disk, and a tuning screen holding only the model number will
+    confidently recommend a graphics card to somebody who needs a different
+    drive. This times reading, writing and the model on the same fixed
+    workload, so the three are comparable.
+
+    The numbers are stored beside the compute profile, keyed by its
+    fingerprint, and that is what turns Defaults into Auto-tune. `--no-save`
+    is for measuring somebody else's machine, or for a comparison you do not
+    want acting on your settings.
+    """
+    from app.core.compute_profile import cached_profile
+    from app.core.measured import remember
+    from app.index.index_bench import run_index_bench
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    devices = ("cpu", "gpu") if args.both else None
+    if not args.json:
+        print("Timing this machine on a fixed workload. About a minute.",
+              flush=True)
+
+    result = run_index_bench(settings, devices=devices)
+    if args.json:
+        print(json.dumps(result.as_dict(), indent=2))
+    else:
+        print()
+        print("This machine, on the whole pipeline")
+        print("=" * 68)
+        print(f"  reading          {result.extract_per_second:,.0f} files a second, per reader")
+        print(f"  writing          {result.write_per_second:,.0f} chunks a second")
+        for device, rate in result.embed_per_second.items():
+            print(f"  meaning ({device})   {rate:,.1f} chunks a second")
+        print(f"  took             {result.seconds:.1f}s over "
+              f"{result.documents:,} documents and {result.chunks:,} chunks")
+        for note in result.notes:
+            print(f"  note             {note}")
+        if result.error:
+            print(f"  STOPPED          {result.error}")
+
+    if args.no_save or result.error:
+        return EXIT_OK
+
+    with SqliteStore(settings.fts_db) as store:
+        profile = cached_profile(store, settings.data_path)
+        stored = remember(store, result.as_measured(profile.fingerprint()))
+    if not args.json:
+        # **Said either way.** "Saved" is what makes Auto-tune mean something,
+        # and a silent failure to save would leave somebody believing their
+        # machine had been learned when it had not.
+        print("  saved            " + ("yes - Auto-tune will use these"
+                                       if stored else
+                                       "NO - the index could not be written to"))
+    return EXIT_OK
+
+
 def _bench_result(settings: Settings):
     from app.index.embed_bench import BenchResult
 
@@ -3210,6 +3272,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_bench.add_argument("--quick", action="store_true",
                          help="inspect the model but do not time it")
     p_bench.set_defaults(func=cmd_embedbench)
+
+    p_index_bench = sub.add_parser(
+        "bench-index", parents=[common],
+        help="time the whole pipeline on this machine - reading, writing and "
+             "the model - and remember the answer")
+    p_index_bench.add_argument(
+        "--both", action="store_true",
+        help="time the processor and the graphics card, to find out which is "
+             "actually faster here")
+    p_index_bench.add_argument(
+        "--no-save", action="store_true",
+        help="print the numbers without storing them for auto-tuning")
+    p_index_bench.set_defaults(func=cmd_bench_index)
 
     p_reembed = sub.add_parser(
         "reembed", parents=[common],

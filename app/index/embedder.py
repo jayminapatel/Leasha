@@ -126,13 +126,21 @@ class Embedder:
         One constructor is the fix, and new arguments now reach every caller by
         existing rather than by being copied.
         """
-        return cls(
-            str(getattr(settings, "embed_model", "") or "BAAI/bge-small-en-v1.5"),
+        # **Merged into a dict rather than passed alongside `**overrides`.**
+        # Spelling them out as keywords made `from_settings(s, device="cpu")`
+        # a `TypeError` - two values for one argument - which is precisely the
+        # call the benchmark makes to time both processors. An override that
+        # cannot override is not an override.
+        fields: dict = dict(
             dim=int(getattr(settings, "embed_dim", 384) or 384),
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
             device=str(getattr(settings, "embed_device", backends.AUTO)
                        or backends.AUTO),
-            **overrides,                            # type: ignore[arg-type]
+        )
+        fields.update(overrides)
+        return cls(
+            str(getattr(settings, "embed_model", "") or "BAAI/bge-small-en-v1.5"),
+            **fields,
         )
 
     # -- model lifecycle ----------------------------------------------------

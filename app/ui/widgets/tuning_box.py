@@ -75,6 +75,13 @@ class TuningBox(QGroupBox):
         self.mode_help.setWordWrap(True)
         self.mode_help.setObjectName("tuningModeHelp")
 
+        #: §5d asks for this **in every mode**, Manual included: when the
+        #: machine was last timed is a fact about the machine, not about the
+        #: mode somebody has chosen.
+        self.tuned_status = QLabel("Not yet timed on this computer.")
+        self.tuned_status.setObjectName("tuningStatus")
+        self.tuned_status.setWordWrap(True)
+
         self.machine = MachineCard()
         self.machine.profile_detected.connect(self.set_profile)
         self.machine.benchmark_requested.connect(self.benchmark_requested)
@@ -99,6 +106,7 @@ class TuningBox(QGroupBox):
         layout = QVBoxLayout(self)
         layout.addWidget(self.mode)
         layout.addWidget(self.mode_help)
+        layout.addWidget(self.tuned_status)
         layout.addWidget(self.machine)
         layout.addWidget(self.compute)
         layout.addWidget(self.resources)
@@ -144,6 +152,15 @@ class TuningBox(QGroupBox):
 
     def set_last_run(self, run: Optional[dict]) -> None:
         self.footer.setText(footer_text(run))
+
+    def set_tuned_status(self, text: str) -> None:
+        """"Tuned for this computer · last checked <date>", from §5d.
+
+        Passed in rather than read here: it comes from the store, and this
+        widget is built during `MainWindow.__init__` where nothing may touch
+        a database.
+        """
+        self.tuned_status.setText(str(text or ""))
 
     def start_detection(self, index_path: Any = None) -> None:
         """Detect the machine, off the UI thread.

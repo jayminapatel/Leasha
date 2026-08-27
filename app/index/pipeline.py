@@ -52,6 +52,7 @@ from app.extract.source_types import indexed_ext
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
+from app.index.stages import WAITING, StageClock
 from app.index.walker import (
     Candidate,
     WalkConfig,
@@ -261,6 +262,18 @@ class IndexStats:
     #: the progress line can say "reading with OCR", because seconds per page
     #: looks exactly like a stall on a line built for hundreds of files a minute.
     ocr_mode: str = "both"
+    #: Where the run's time went, on the consumer's critical path - §6a. See
+    #: `app/index/stages.py` for why extraction appears as `waiting` rather
+    #: than as its own worker-seconds total: four workers busy for a minute is
+    #: four worker-minutes and one wall minute, and a percentage built from the
+    #: first is meaningless.
+    #:
+    #: Empty on a run too short to measure, which prints nothing rather than a
+    #: row of zeroes.
+    stages: dict[str, float] = field(default_factory=dict)
+    #: Parallel work, unweighted and separately named so it can never be
+    #: mistaken for wall time.
+    worker_seconds: dict[str, float] = field(default_factory=dict)
 
     #: `(monotonic, indexed, bytes_read)` samples, for the windowed rates.
     #: Bounded by time rather than by count in `sample`, so the memory cost is
@@ -351,6 +364,12 @@ class IndexStats:
             "warned_by_code": dict(self.warned_by_code),
             "ocr_mode": self.ocr_mode,
             "stopped_early": self.stopped_early.code if self.stopped_early else None,
+            # §6a. Omitted entirely when nothing was measured, so a run too
+            # short to time prints nothing rather than a row of zeroes that
+            # reads as "every stage took no time".
+            **({"stages": dict(self.stages)} if self.stages else {}),
+            **({"worker_seconds": dict(self.worker_seconds)}
+               if self.worker_seconds else {}),
         }
 
 
@@ -590,6 +609,10 @@ class Pipeline:
         self.run_owner = COMMAND_LINE
         self._last_summary = 0.0
         self._stats_ref = IndexStats()
+        #: §6a. Built here rather than in `run` so a pipeline constructed and
+        #: never run still has one - several helpers touch it, and a `None`
+        #: they would each have to check is a `None` one of them would forget.
+        self._clock = StageClock()
         # Two different meanings, and conflating them cost a silent bug: the
         # prune step never ran, because run()'s cleanup sets the event and the
         # prune was guarded on it.
@@ -623,6 +646,10 @@ class Pipeline:
     ) -> IndexStats:
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
         self._stats_ref = stats          # workers announce the file they are on
+        # A fresh clock per run: a Pipeline reused for a second run would
+        # otherwise report the first one's stages added to the second's, and
+        # the number nobody can act on is a total over two different corpora.
+        self._clock = StageClock()
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
         self._run_started_wall = time.time()
@@ -722,6 +749,11 @@ class Pipeline:
             self._record_archive_pass(stats)
 
         stats.elapsed_s = time.perf_counter() - started
+        # §6a: copied onto the stats last, so the summary, the run log and the
+        # tuning footer all read the same numbers rather than three snapshots
+        # taken at three different moments.
+        stats.stages = self._clock.seconds()
+        stats.worker_seconds = self._clock.worker_seconds()
         # **Said out loud, every run.** These files were skipped by an earlier
         # run and left alone by this one, which is the right thing to do and
         # also the thing nobody would otherwise know had happened. See
@@ -1478,7 +1510,26 @@ class Pipeline:
             self._stats_ref.current_since = time.monotonic()
             self._stats_ref.current_item = 0
             try:
-                for item in self._extract_stream(candidate, digest):
+                # **Worker-seconds, kept apart from wall time on purpose.**
+                # This is real and worth having - "extraction cost 40
+                # worker-minutes" answers a question - but it is not a
+                # percentage of anything, because N of these run at once.
+                # The consumer's `waiting` is the wall-clock half.
+                #
+                # Timed one item at a time and **still lazy**: wrapping the
+                # whole generator in a `list` would time it just as well and
+                # buffer a 30GB archive's messages in memory, which is exactly
+                # the M16 fix undone for a stopwatch.
+                stream = self._extract_stream(candidate, digest)
+                while True:
+                    started = time.perf_counter()
+                    try:
+                        item = next(stream)
+                    except StopIteration:
+                        break
+                    finally:
+                        self._clock.add_worker(
+                            "extract", time.perf_counter() - started)
                     if self._stop.is_set():
                         break
                     self._offer(results, item)
@@ -1630,7 +1681,15 @@ class Pipeline:
                 break
 
             try:
-                item = results.get(timeout=0.25)
+                # **`waiting` is the honest name for "extraction is the
+                # bottleneck".** Timed around the blocking get rather than
+                # around extraction itself, because extraction runs on N
+                # threads and summing their seconds would give a percentage
+                # over 100. What the consumer waits for is what would go
+                # faster if more readers were added - which is the question
+                # the tuning screen is actually asked. See `index/stages.py`.
+                with self._clock.stage(WAITING):
+                    item = results.get(timeout=0.25)
             except queue.Empty:
                 # Nothing has finished, but a worker may be minutes into a large
                 # archive. Say so, rather than leaving a blank screen that reads
@@ -1699,7 +1758,8 @@ class Pipeline:
                     stats.skipped_by_code.get(item.error.code, 0) + 1
                 )
             else:
-                pending_vectors.extend(self._write_one(item))
+                with self._clock.stage("write"):
+                    pending_vectors.extend(self._write_one(item))
                 stats.indexed += 1
                 stats.chunks += len(item.chunks)
 
@@ -2056,7 +2116,12 @@ class Pipeline:
             return
 
         texts = [text for _cid, _fid, text in pending]
-        vectors = list(self.embedder.embed_all(texts))
+        # §6a's two most decision-shaped numbers. A run where `embed` dominates
+        # wants a bigger batch or the graphics card; one where `vectors` does
+        # wants a faster drive. Neither is guessable from the outside, and both
+        # are one `perf_counter` pair here.
+        with self._clock.stage("embed"):
+            vectors = list(self.embedder.embed_all(texts))
 
         # **Deleted here, one instant before the add** - see `_write_one` for
         # why this is not up there any more. A re-index must not leave the old
@@ -2073,11 +2138,12 @@ class Pipeline:
         self.vectors.delete_by_file_ids(
             list(dict.fromkeys(fid for _c, fid, _t in pending)))
 
-        written = self.vectors.add(
-            chunk_ids=[cid for cid, _f, _t in pending],
-            file_ids=[fid for _c, fid, _t in pending],
-            vectors=vectors,
-        )
+        with self._clock.stage("vectors"):
+            written = self.vectors.add(
+                chunk_ids=[cid for cid, _f, _t in pending],
+                file_ids=[fid for _c, fid, _t in pending],
+                vectors=vectors,
+            )
         # **The return value was ignored, and that is how a file ends up
         # INDEXED with no vector.**
         #

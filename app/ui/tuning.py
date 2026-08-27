@@ -150,7 +150,11 @@ def resolve(key: str, mode: str, stored: Any, profile: Any,
     honest about a feature that is present and not yet informed rather than
     pretending to a precision it has not got.
     """
-    bounds = envelope.for_setting(key, profile)
+    # **Only Auto-tune consults the measurements**, which is what makes the
+    # mode mean something: Defaults is reproducible from the specification
+    # sheet alone, and a person comparing two machines can rely on that.
+    rates = measured if str(mode) == AUTO else None
+    bounds = envelope.for_setting(key, profile, _rates_object(rates))
     if bounds is None:
         # No per-machine bound: a schedule, a theme. The stored value stands.
         return _as_int(stored), ""
@@ -165,8 +169,26 @@ def resolve(key: str, mode: str, stored: Any, profile: Any,
         return value, f"measured on this machine: {bounds.why}"
 
     if str(mode) == AUTO:
+        if "measured" in bounds.why:
+            return bounds.auto, bounds.why
         return bounds.auto, f"nothing measured yet, so: {bounds.why}"
     return bounds.auto, bounds.why
+
+
+def _rates_object(measured: Any) -> Any:
+    """A `Measured` from whatever the screen was handed.
+
+    The screen passes a plain dict - `{setting key: value}` - because that is
+    what a per-setting override is. `envelope`'s measured forms want the rates
+    object. Accepting both here keeps every caller from having to know which
+    kind it holds, and a dict that carries no rates simply yields nothing.
+    """
+    if measured is None:
+        return None
+    if hasattr(measured, "embed_per_second"):
+        return measured
+    rates = (measured or {}).get("rates") if isinstance(measured, dict) else None
+    return rates
 
 
 def resolved_text(key: str, mode: str, stored: Any, profile: Any,

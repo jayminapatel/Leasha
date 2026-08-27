@@ -225,6 +225,9 @@ class MainWindow(QMainWindow):
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
+        # §5c. A finished run is the only free measurement this application
+        # ever gets: it is a benchmark somebody already paid for.
+        self.indexing_view.finished.connect(self._learn_from_run)
         self.indexing_view.finished.connect(
             lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
         )
@@ -445,6 +448,7 @@ class MainWindow(QMainWindow):
             # machine, which are the cautious ones.
             self.indexing_view.tuning.start_detection(settings.data_path)
             self.indexing_view.tuning.set_last_run(self._last_run_record())
+            self._refresh_tuning_status()
             self._warm_translator()
             self._warm_models()
         except Exception as exc:                 # noqa: BLE001
@@ -984,6 +988,56 @@ class MainWindow(QMainWindow):
                 "device": stats.get("device") or self._settings.embed_device,
             },
         }
+
+    def _refresh_tuning_status(self) -> None:
+        """§5d's status line, and the rates Auto-tune resolves against.
+
+        Both read the store, so both happen here rather than in the widget -
+        the panel is built inside `MainWindow.__init__`, where nothing may
+        touch a database.
+        """
+        try:
+            from app.core.compute_profile import cached_profile
+            from app.core.measured import for_profile
+            from app.index.autotune import status_line
+
+            profile = cached_profile(self._store, self._settings.data_path)
+            self.indexing_view.tuning.set_tuned_status(
+                status_line(self._store, profile))
+            self.indexing_view.tuning.set_measured(
+                {"rates": for_profile(self._store, profile)})
+        except Exception as exc:                 # noqa: BLE001 - a status line
+            _log.debug("the tuning status could not be refreshed: {}", exc)
+
+    def _learn_from_run(self, stats: Any) -> None:
+        r"""§5c: what the run just measured, and what it argues for.
+
+        **In Auto the change applies itself and the notice is past tense.** The
+        product rule is explicit: a non-technical person must never be handed a
+        decision in order to get the benefit. In Manual it is a proposal, and
+        the status bar says so.
+
+        Wrapped whole, because none of this may cost somebody the end of an
+        index run that otherwise succeeded.
+        """
+        try:
+            from app.core.compute_profile import cached_profile
+            from app.index.autotune import learn
+
+            profile = cached_profile(self._store, self._settings.data_path)
+            found = learn(self._store, profile, stats,
+                          mode=self.indexing_view.tuning.current_mode(),
+                          device=self._settings.embed_device)
+            self._refresh_tuning_status()
+            self.indexing_view.tuning.set_last_run(self._last_run_record())
+            if not found:
+                return
+            if found.applied:
+                self._limits_changed({key.lower(): value
+                                      for key, value in found.values.items()})
+            self.statusBar().showMessage(found.message, 20_000)
+        except Exception as exc:                 # noqa: BLE001
+            _log.debug("nothing was learned from this run: {}", exc)
 
     def _benchmark_models(self) -> None:
         """Time the embedding model on this machine, off the UI thread.

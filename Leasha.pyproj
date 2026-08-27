@@ -170,6 +170,7 @@
     <Compile Include="app\ui\shell.py" />
     <Compile Include="app\ui\theme.py" />
     <Compile Include="app\ui\tray.py" />
+    <Compile Include="app\ui\tuning.py" />
     <Compile Include="app\ui\view_options.py" />
     <Compile Include="app\ui\widgets\__init__.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
@@ -194,6 +195,7 @@
     <Compile Include="app\ui\widgets\index_stats.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
+    <Compile Include="app\ui\widgets\machine_card.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
@@ -208,6 +210,8 @@
     <Compile Include="app\ui\widgets\sortable_item.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\table_filter.py" />
+    <Compile Include="app\ui\widgets\tuning_box.py" />
+    <Compile Include="app\ui\widgets\tuning_groups.py" />
     <Compile Include="app\ui\widgets\window_box.py" />
     <Compile Include="app\ui\workers.py" />
     <Compile Include="doctor.py" />
@@ -361,6 +365,8 @@
     <Compile Include="tests\unit\test_translate_timeout.py" />
     <Compile Include="tests\unit\test_translator_warm.py" />
     <Compile Include="tests\unit\test_tray.py" />
+    <Compile Include="tests\unit\test_tuning.py" />
+    <Compile Include="tests\unit\test_tuning_screen.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
     <Compile Include="tests\unit\test_ui_responsiveness.py" />
@@ -425,6 +431,14 @@
     <Content Include="docs\WORKORDER-202626270238-pyside6-migration.md" />
     <Content Include="docs\WORKORDER-202626270257-privacy-defaults.md" />
     <Content Include="docs\WORKORDER-202626270326-workspace-features.md" />
+    <Content Include="docs\WORKORDER-202626270508-media-by-default-and-ocr-ladder.md" />
+    <Content Include="docs\WORKORDER-202626270509-mbox-takeout-chats.md" />
+    <Content Include="docs\WORKORDER-202626270510-pictures-one-clip-lane.md" />
+    <Content Include="docs\WORKORDER-202626270511-pictures-two-tags-and-enrichment.md" />
+    <Content Include="docs\WORKORDER-202626270512-photo-tagger-people.md" />
+    <Content Include="docs\WORKORDER-202626270513-offline-media-one-drives.md" />
+    <Content Include="docs\WORKORDER-202626270514-offline-media-two-network-cloud.md" />
+    <Content Include="docs\WORKORDER-202626270515-video-audio-DRAFT.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

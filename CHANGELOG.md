@@ -1,6 +1,42 @@
 # Changelog
 
-**Doc version:** 3.69 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.70 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Leasha now learns what your computer is good at
+
+- **Every run says where its time went** - waiting for files, writing, working
+  out meaning, storing vectors. This is the measurement the rest of the speed
+  work is gated on: every idea in that list sounds plausible and at most two of
+  them are worth building on any given corpus.
+- **What gets timed is the critical path**, not worker time. Four readers busy
+  for a minute is four worker-minutes and one wall minute, and a percentage
+  built from the first is meaningless. What the run *waits* for is the honest
+  measure - and it is also the useful one, because it is exactly what more
+  readers would fix.
+- **`leasha bench-index`** times reading, writing and the model on one fixed
+  workload, in about a minute, and remembers the answer. The model was only
+  ever half the question: a run whose model is fast and whose disk is slow is
+  bounded by the disk, and a screen holding only the model number will
+  confidently recommend a graphics card to somebody who needs a drive.
+- **Auto-tune uses what was measured; Defaults uses what the specification
+  implies.** That is the whole of the difference, and it is why Defaults stays
+  reproducible from the box's numbers alone.
+- **In Auto, an adjustment applies itself and says so in plain words** -
+  "Indexing sped up: most of the last run was spent waiting for files to be
+  read, so more of them are read at once now." Nobody should have to interpret
+  a measurement to get the benefit of it. In Manual it waits for you.
+- **The rates are keyed to the machine that produced them.** A different
+  computer, an app update, three runs of disagreement, or nothing measured yet,
+  and they are ignored - so the failure mode of this whole feature is "no
+  better than before", never "wrong".
+- Found while testing it: **a drifting run was overwriting the baseline it
+  drifted from**, so the goalposts moved to meet each slow afternoon and one
+  bad run permanently redefined normal. The baseline is now replaced only by a
+  run that agrees with it.
+- Found while testing it: `Embedder.from_settings(settings, device="cpu")` was
+  a `TypeError` - two values for one argument - which is exactly the call the
+  new benchmark makes to time both processors. An override that cannot
+  override is not an override.
 
 ## One Index Tuning screen, on the page where you watch the run
 
