@@ -157,6 +157,15 @@ class AddFileTypeWizard(QDialog):
         )
         self.produces = QLineEdit("{stem}.txt")
         self.produces.setAccessibleName("File the converter produces")
+        # §6a. The one control in the window with neither a tooltip nor a
+        # placeholder - it has a default value instead, which says what the
+        # shape is and not what happens if you change it.
+        self.produces.setToolTip(
+            "What the converter leaves behind, so Leasha knows which file to "
+            "read next.\n\n"
+            "{stem} is the original name without its extension. Get this "
+            "wrong and the conversion runs, produces a file, and nothing is "
+            "indexed - because the file that was looked for is not there.")
         self.then = QComboBox()
         self.then.setToolTip(
             "Which reader handles the converted file. A converter usually "

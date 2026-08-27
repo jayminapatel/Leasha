@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.13 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.14 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -143,7 +143,7 @@ corrects. Ollama is one backend; this adds the second.
 
 ## 6. UI polish that carries the rest
 
-- [ ] **6a Tooltips state the effect — everywhere.** Every interactive
+- [x] **6a Tooltips state the effect — everywhere.** Every interactive
   control in every view gets a tooltip saying what it does and, where
   relevant, what happens at the limit. Enforced like accessible names: a
   test walks the widget tree and fails on any control without one
@@ -618,6 +618,32 @@ a scale.
 A font set in pixels reports `pointSizeF() == -1`, which is a real state on
 some Linux themes; left alone that negative would have gone into all seventeen
 rules.
+
+## Note on 6a, added 2026-08-27 (measured before the guard was written)
+
+**Already the house style, which is the good news and the reason to pin it.**
+Counted across `app/ui`: **116 actionable controls, 103 already carrying a
+tooltip.** The thirteen without were all text boxes, twelve of which have a
+*placeholder* — which is better than a tooltip, because it needs no hover and
+survives a touch screen.
+
+**Exactly one control in the whole window had neither**: the "file the
+converter produces" box, which had a default value instead. A default says
+what shape the answer takes and nothing about what happens if you get it
+wrong — and getting it wrong there means the conversion runs, produces a file,
+and nothing is indexed, because the file that was looked for is not there.
+That is now said.
+
+The guard accepts a tooltip **or** a placeholder, deliberately: demanding both
+would put two labels saying the same thing on the search box, which is text
+nobody reads twice. `QLabel` is not a control — a tooltip on a sentence,
+explaining the sentence, is noise. The allow-list is empty and a test keeps it
+short, because a long one is a guard that has been argued down rather than met.
+
+**No review pass was needed.** The item allows rewriting an existing tooltip
+that names a mechanism without naming its effect; reading them, the wording
+already does the second thing — `indexing_settings.py` opens by saying "the
+wording on these controls is the feature", and it holds.
 
 ## Done means
 
