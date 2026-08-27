@@ -166,6 +166,23 @@ SETTINGS: tuple[Setting, ...] = (
              "for anybody rather than for a developer. The power tabs keep "
              "the technical wording either way.",
     ),
+    Setting(
+        key="CODE_EDITOR", label="Open code results in", kind="choice",
+        default="auto", group="Search", surface="settings.search",
+        choices=("auto", "vscode", "cursor", "vscodium", "sublime",
+                 "notepadpp", "idea", "pycharm", "vim", "nvim", "emacs",
+                 "none"),
+        help="A code result opens at its line in this editor. Automatic uses "
+             "the first one it finds installed. None keeps the old behaviour "
+             "of showing the file in Explorer.",
+    ),
+    Setting(
+        key="CODE_EDITOR_COMMAND", label="Or a command of your own",
+        kind="text", default="", group="Search", surface="settings.search",
+        help="For an editor not in the list. Use {path} and {line} where they "
+             "belong - for example: myeditor --at {line} {path}. Left empty, "
+             "the choice above is used.",
+    ),
 
     # --- Indexing: *when* a run happens. How fast it goes is Tuning. -------
     Setting(

@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.82 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.83 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## Code results know how to open in your editor, at the line
+
+- **A code result is a place, not a document.** Showing you the folder that
+  contains line 512 makes you search for it again inside your editor. Leasha
+  now knows how to open it where you found it.
+- **Only editors actually on your machine are offered**, so nothing in the
+  list can be picked and then fail every time you click. Ten are recognised;
+  anything else is one line of configuration.
+- Editors that do not put themselves on the PATH are still found - Windows
+  installs several of them somewhere else, and looking only at the PATH is how
+  an application tells you to install something you already have.
 
 ## More like this
 

@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.11 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.12 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -115,7 +115,7 @@ corrects. Ollama is one backend; this adds the second.
   header names the mode ("exact match"); one click returns to normal
   search. This is the most common coder search and today tokenisation
   breaks it.
-- [ ] **4b Open in editor at line.** Code results open in the configured
+- [x] **4b Open in editor at line.** Code results open in the configured
   editor at the line (`code -g file:line` for VS Code; the command is a
   Setting with detection, same pattern as converters), plus a copy-
   `path:line` action. Reveal-in-Explorer stays for documents.
@@ -559,6 +559,39 @@ feature is this codebase's recurring defect; a test now pins the call shape.
 **Not done**: the right-click that invokes it. That is a menu in the results
 view and needs the window to judge, like 2e's thumbnails and 5b's attachment
 row. The engine method is tested against a real LanceDB table and waiting.
+
+## Note on 4b, added 2026-08-27
+
+**Detection follows the converters, and for the written-up reason.**
+`shutil.which` alone is not enough on Windows: several editors never put
+themselves on `PATH`, so a machine with VS Code installed and working would
+report nothing found and offer to install software already present. That exact
+bug is documented in `extract/converter.py` for LibreOffice; this is the same
+lookup with an editor table.
+
+**Only installed editors are offered**, so nothing in the list can be chosen
+and then fail on every click — the converter rule again. Ten are known, ordered
+by how likely somebody searching a code index is to have them rather than
+alphabetically, because the first one found wins. Each spells the line
+differently (`code -g {path}:{line}`, `subl {path}:{line}`, `notepad++
+-n{line} {path}`, `idea --line {line} {path}`, `vim +{line} {path}`), which is
+why there is a table rather than one template.
+
+**Two settings**, both through the registry and all four guards: the choice,
+and a free-text command with `{path}` and `{line}` that wins over it — an
+editor this has never heard of should be a line of configuration, not a
+feature request. A custom command with no `{line}` still opens the file:
+landing on line one of the right file is worth having.
+
+**Kept out of the six-behaviour box on purpose.** That box's reset button
+promises to restore exactly those six, and its tooltip says what it will not
+touch; an editor choice is not a search behaviour and must not be swept up by
+it. `test_settings_reachable`'s surface table records that reasoning.
+
+**Not done**: the menu item that invokes it, and the copy-`path:line` action
+beside it — both are the results view's context menu, which needs the window
+to judge. `editors.command_for` and `editors.copyable` are tested and waiting,
+the same shape as 5a's engine method.
 
 ## Done means
 

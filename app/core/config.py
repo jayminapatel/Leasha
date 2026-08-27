@@ -156,6 +156,18 @@ class Settings(BaseModel):
     search_version_folding: bool = True
     search_plain_words: bool = True
 
+    #: Which editor a code result opens in, and the command if it is not one
+    #: this knows. `auto` picks the first installed from `ui/editors.py`.
+    #:
+    #: **A code result is a place, not a document.** Reveal-in-Explorer is
+    #: right for a spreadsheet and wrong for line 512 of a file: somebody who
+    #: found that line wants to be at it, not in its folder.
+    code_editor: str = "auto"
+    #: A free-text command, with `{path}` and `{line}`. Wins over the choice
+    #: above, so an editor nobody here has heard of is a line of configuration
+    #: rather than a feature request.
+    code_editor_command: str = ""
+
     #: `auto | cpu | gpu` - which processor runs the ONNX models. One value for
     #: the embedder, the reranker and OCR, because a machine where two of the
     #: three used the graphics card is one nobody could reason about.
@@ -324,6 +336,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_RECENCY_BLEND",
     "SEARCH_VERSION_FOLDING",
     "SEARCH_PLAIN_WORDS",
+    "CODE_EDITOR",
+    "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
     "OLLAMA_MODEL",
     "INDEX_TUNING_MODE",
@@ -445,6 +459,10 @@ def load_settings(
                 "SEARCH_RECENCY_BLEND", values.get("SEARCH_RECENCY_BLEND", "true")),
             search_version_folding=_as_bool(
                 "SEARCH_VERSION_FOLDING", values.get("SEARCH_VERSION_FOLDING", "true")),
+            code_editor=(
+                values.get("CODE_EDITOR") or "auto").strip().lower(),
+            code_editor_command=(
+                values.get("CODE_EDITOR_COMMAND") or "").strip(),
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",

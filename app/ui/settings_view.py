@@ -47,6 +47,7 @@ from app.ui.widgets.file_types import FileTypesEditor
 from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.model_box import ModelBox
 from app.ui.widgets.roots_box import RootsBox
+from app.ui.widgets.editor_box import EditorBox
 from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
 from app.ui.widgets.search_box import SearchBox
 from app.ui.widgets.storage_box import StorageBox
@@ -132,6 +133,13 @@ class SettingsView(QWidget):
         # only and why the reset button matters more than it looks.
         self.search_behaviour = SearchBehaviourBox(settings)
         self.search_behaviour.changed.connect(self.settings_changed)
+
+        # §4b. Kept out of the box above on purpose: that one is the six
+        # behaviours and its reset button promises to restore exactly those.
+        # An editor choice is not a search behaviour and must not be swept up
+        # by a button whose tooltip says what it will not touch.
+        self.editor_box = EditorBox(settings)
+        self.editor_box.changed.connect(self.settings_changed)
         self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
@@ -258,6 +266,7 @@ class SettingsView(QWidget):
         layout.addWidget(pst_box)
         layout.addWidget(self.search_box)
         layout.addWidget(self.search_behaviour)
+        layout.addWidget(self.editor_box)
         layout.addWidget(behaviour)
         layout.addWidget(self.window_box)
         layout.addWidget(self.storage_box)

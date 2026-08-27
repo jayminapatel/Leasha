@@ -42,8 +42,14 @@ SURFACE_MODULES = {
     # `search_behaviour_box` too: the six behaviours from the search-experience
     # order's §1 are their own group, because each one needs the effect grid
     # beside it to be honest about what it does per tab.
+    # `editor_box` too, and kept apart from `search_behaviour_box` on purpose:
+    # that one is the six behaviours and its reset button promises to restore
+    # exactly those. Which editor a code result opens in is not a search
+    # behaviour and must not be swept up by a button whose tooltip says what
+    # it will not touch.
     "settings.search": ("settings_view.py", "widgets/search_box.py",
-                        "widgets/search_behaviour_box.py"),
+                        "widgets/search_behaviour_box.py",
+                        "widgets/editor_box.py"),
     # Only *when* a run happens. Everything about how fast it goes moved to
     # `settings.tuning` - see §4 of the index-tuning order.
     "settings.indexing": ("indexing_settings.py",),
