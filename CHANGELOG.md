@@ -1,6 +1,20 @@
 # Changelog
 
-**Doc version:** 3.89 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.90 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Click any column heading to sort
+
+- **Every list sorts now**, not just Mail — Files, the Code results, the file
+  list on the Code tab.
+- Sizes sort by size and dates by date, never by how they happen to be
+  written: "3 KB" no longer comes after "10 KB".
+- Search results are ordered by best match. Click a heading to sort, click it
+  again to reverse, and **click it a third time to get the best-match order
+  back** — nothing is lost by having a look.
+- Refreshing a list keeps the order you put it in.
+- **Every heading now sits over its column the way the column reads.** A
+  right-aligned column of sizes had a centred heading above it.
+
 
 ## Spreadsheet results say which row
 

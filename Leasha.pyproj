@@ -402,6 +402,7 @@
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
+    <Compile Include="tests\unit\test_table_sorting.py" />
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_tooltips.py" />
@@ -489,6 +490,7 @@
     <Content Include="docs\WORKORDER-202626270602-reports-and-timeline.md" />
     <Content Include="docs\WORKORDER-202626270611-chat-tab.md" />
     <Content Include="docs\WORKORDER-202626271137-review-adoptions.md" />
+    <Content Include="docs\WORKORDER-202626271317-tables-sort-and-alignment.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

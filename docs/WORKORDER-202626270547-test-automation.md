@@ -3,10 +3,14 @@
 **Doc version:** 1.0 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
 **Thread:** One thread (tests + tooling; app code changes only where a test
 exposes a bug)
-**Status:** RELEASED by the owner 2026-08-28. **Queue position: LAST of the
-released batch — after 0l (`WORKORDER-202626270514`)** — deliberately, so it
-thoroughly tests *everything the queue built*, assembled. Owner has installed
-`pytest-qt`, `pywinauto`, `hypothesis` into the venv.
+**Status: HELD by the owner 2026-08-28 — do not execute until he says when.**
+(Was: RELEASED 2026-08-28, queued LAST after 0l.) The owner will give the
+word to start; nothing here is cancelled, and the was-LAST intent stands —
+whenever he releases it, it still runs after whatever has landed, to test
+the assembled whole. The per-order scenario convention (each order writes
+pytest-qt scenarios for its own acceptance sentences) CONTINUES while this
+is held — that convention lives in the other orders, not here. Owner has
+installed `pytest-qt`, `pywinauto`, `hypothesis` into the venv.
 
 **Why this order exists**: the presenter split means logic tests without a
 display, and the wiring tests assert connections exist — but nothing in the

@@ -119,8 +119,9 @@ class MailView(QWidget):
         # Sortable, unlike the search results: these rows have no rank to
         # destroy, and "biggest attachment" and "oldest thread" are real
         # questions that a click on a header answers for free.
-        self.results = ResultTable([h for _k, h, _a, _r in COLUMNS],
-                                   sortable=True, alternating=True)
+        self.results = ResultTable(
+            [h for _k, h, _a, _r in COLUMNS], sortable=True, alternating=True,
+            aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)   # Subject
         header.setSectionsMovable(True)
@@ -227,15 +228,18 @@ class MailView(QWidget):
         # Off while filling, on afterwards. Qt re-sorts after every `setItem`
         # otherwise, which is O(n log n) per cell and turns five hundred rows
         # into a visible freeze.
-        self.results.setSortingEnabled(False)
+        #
+        # **2026-08-28, tables order:** this is now `ResultTable`'s own job -
+        # `setRowCount` turns sorting off and `set_row_objects` turns it back
+        # on and re-applies the sort somebody chose. The two lines here were
+        # the only place in the application that had worked it out, and three
+        # other tables had to be made sortable without inheriting the lesson.
         self.results.setRowCount(len(display))
         for index, row in enumerate(display):
-            for column, (_key, _heading, attribute, right) in enumerate(COLUMNS):
+            for column, (_key, _heading, attribute, _right) in enumerate(COLUMNS):
+                # The alignment comes from the column spec the table was built
+                # with, which is also what points the heading the same way.
                 item = SortableItem(getattr(row, attribute))
-                if right:
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    )
                 # Sort on the real value, not the formatted string: "3 KB" and
                 # "10 KB" sort the wrong way as text, and a date column sorted
                 # alphabetically is worse than one that does not sort at all.
@@ -250,7 +254,6 @@ class MailView(QWidget):
         # Before sorting is re-enabled: the objects are attached in table order
         # and a sort would already have moved the cells out from under them.
         self.results.set_row_objects(display)
-        self.results.setSortingEnabled(True)
 
         # Recomputed from the rows on screen, so a column is offered when the
         # data can fill it and disabled when it cannot - see `view_options`.

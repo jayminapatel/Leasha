@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 
 from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
+from app.ui.widgets.result_table import align_headers
 
 __all__ = ["RootsBox"]
 
@@ -68,6 +69,12 @@ class RootsBox(QGroupBox):
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
+        # §2b. **Not sortable**, and the reason is that the order is the
+        # person's: `current_roots` serialises what is on screen, so a header
+        # click would silently rewrite the saved list - and column 1 is a
+        # `QComboBox` per row through `setItemWidget`, which Qt does not move
+        # when it sorts. The heading still points the way its column reads.
+        align_headers(self.tree)
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)

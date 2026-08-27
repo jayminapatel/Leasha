@@ -23,12 +23,13 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.view_options import apply_to_table, available_columns
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
+from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
 
 __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 
@@ -58,6 +59,11 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
 #: repository a file is in is the tree this replaced.
 ALWAYS_OFFERED = ("name", "repo")
 
+#: What each column sorts on when it is not the text in it - attribute on
+#: `RepoFileRow`. `size` reads "12.4 KB" and `seen` reads "2 hours ago", and
+#: sorted as text both are wrong in the way people notice immediately.
+SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at"}
+
 
 class CodeResults(QWidget):
     """The table, the preview beside it, and the menu on a row."""
@@ -73,7 +79,12 @@ class CodeResults(QWidget):
         super().__init__(parent)
         self.available: tuple[str, ...] = tuple(key for key, *_ in COLUMNS)
 
-        self.table = ResultTable([heading for _k, heading, _a, _r in COLUMNS])
+        # **Ranked, and now sortable.** These rows arrive in match order and a
+        # header click used to be refused for that reason; the ranking is kept
+        # in a hidden column instead, and a third click returns to it.
+        self.table = ResultTable(
+            [heading for _k, heading, _a, _r in COLUMNS], ranked=True,
+            aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         self.table.setAccessibleName("Code files and repository history")
         self.table.itemDoubleClicked.connect(lambda _i: self.open_selected())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -98,8 +109,16 @@ class CodeResults(QWidget):
         """Replace the list. `rows` are `RepoFileRow`s from either engine."""
         self.table.setRowCount(len(rows))
         for index, row in enumerate(rows):
-            for column, (_k, _h, attribute, _r) in enumerate(COLUMNS):
-                item = QTableWidgetItem(str(getattr(row, attribute, "") or ""))
+            for column, (key, _h, attribute, _r) in enumerate(COLUMNS):
+                # **The right-aligned flag used to be destructured into a
+                # throwaway here**, so `Size` was declared right-aligned in
+                # `COLUMNS` and rendered left for the life of this table - the
+                # kind of thing a declaration in one place and a loop in
+                # another produces. The table reads the spec now.
+                item = SortableItem(str(getattr(row, attribute, "") or ""))
+                sort_by = SORT_KEYS.get(key)
+                if sort_by:
+                    item.setData(SORT_ROLE, getattr(row, sort_by, 0))
                 if column == 0:
                     item.setToolTip(getattr(row, "full_path", "") or "")
                 self.table.setItem(index, column, item)

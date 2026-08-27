@@ -126,6 +126,23 @@ codebase:
   measured and recorded; the loop's visible steps make honest latency feel
   fast — but measure anyway.
 
+## 4d. ADDED by owner idea 2026-08-28 — model ROLES, not one model
+
+Model selection is per-ROLE with a one-model-everywhere default:
+roles = **Interpret/translator** (tiny+fast, 1–3B class — shared by all
+search tabs), **Chat** (strongest affordable — this order's engine),
+**Describe** (vision-capable only). Defaults mode: one global model, all
+roles inherit (also the performance-correct default — Ollama model
+residency/reload cost makes one resident model right for most machines).
+Manual: a roles grid in Models & AI — dropdowns of INSTALLED models
+(`ollama list`), vision roles offer only vision-capable models
+(greyed-with-reason otherwise), with a RAM-honesty line ("these two
+together need ~11GB — you have 32"). Chat's in-tab Fast/Thoughtful writes
+through to the Chat role. **EMBED_MODEL stays OUT** — rebuild decision,
+separate home, its own warning. Eval floors (4b) and the translator
+[TUNE] pass are measured PER ASSIGNED MODEL. Schema leaves room for
+per-surface overrides within a role later, evidence-gated.
+
 ## 5. Tests
 
 - [ ] router: each class routed correctly on the fixture set (Qt-free).

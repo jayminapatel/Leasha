@@ -63,6 +63,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.widgets.no_scroll import protect_view
+from app.ui.widgets.result_table import align_headers
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
@@ -239,6 +240,14 @@ class FileTypesEditor(QGroupBox):
         self.table.setHorizontalHeaderLabels(
             ["Index", "Type", "Read by", "Status", "Limit"]
         )
+        # §2b: Qt centres a heading and left-aligns its column, which is the
+        # mismatch the owner reported. **Not made sortable**, and that is a
+        # decision with a reason: column 0 is a `QCheckBox` inside a
+        # `setCellWidget` holder, and Qt moves item *data* when it sorts and
+        # not cell widgets - so after one header click every checkbox would
+        # sit against the wrong row. The widget is there for the accessible
+        # names argued for in `_fill`, which a checkable item cannot carry.
+        align_headers(self.table)
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)

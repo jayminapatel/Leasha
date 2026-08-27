@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -45,11 +44,18 @@ from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
+from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
 from app.ui.workers import CallableWorker, open_async, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
 #: (key, heading, attribute on FileRow, right-aligned?)
+#:
+#: **The fourth field is now read by the table rather than by this file.** It
+#: says the same thing it always said; `ResultTable` turns it into an
+#: alignment for the cells *and for the heading above them*, which is what
+#: §2a is about - a right-aligned number under a centred heading reads as a
+#: table somebody stopped caring about halfway through.
 COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("name", "Name", "name", False),
     ("size", "Size", "size", True),
@@ -57,6 +63,15 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("type", "Type", "kind", False),
     ("folder", "Folder", "folder", False),
 )
+
+#: What each column sorts on, when it is not the text in it. Attribute on
+#: `FileRow`, or None to sort by what is shown.
+#:
+#: `size` and `modified` are formatted for reading - "10 KB", "3 weeks ago" -
+#: and both orders are wrong: 10 KB sorts before 3 KB and "3 weeks ago" before
+#: "yesterday". This is the U4 lesson, and it is why the raw values are now
+#: carried on the row.
+SORT_KEYS: dict[str, str] = {"size": "size_bytes", "modified": "mtime_ns"}
 
 #: A file list without a name is not a file list.
 ALWAYS_OFFERED = ("name",)
@@ -110,7 +125,17 @@ class FilesView(QWidget):
 
         # Not sortable: ranked by match quality, and a header click would throw
         # that away silently. See widgets/result_table.py.
-        self.results = ResultTable([h for _k, h, _a, _r in COLUMNS])
+        #
+        # **2026-08-28, tables order:** superseded, and the reasoning above is
+        # honoured rather than dropped. The ranking is no longer discarded by
+        # a click - `ranked=True` keeps it in a hidden column, and a third
+        # click on the same header puts the list back into best-match order.
+        # A list you cannot reorder is a list that cannot answer "which of
+        # these is the biggest", and that was the cost of being right about
+        # the ranking.
+        self.results = ResultTable(
+            [h for _k, h, _a, _r in COLUMNS], ranked=True,
+            aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
@@ -275,12 +300,13 @@ class FilesView(QWidget):
         display = file_rows(rows)
         self.results.setRowCount(len(display))
         for index, row in enumerate(display):
-            for column, (_key, _heading, attribute, right) in enumerate(COLUMNS):
-                item = QTableWidgetItem(getattr(row, attribute))
-                if right:
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    )
+            for column, (key, _heading, attribute, _right) in enumerate(COLUMNS):
+                # `SortableItem`, and the alignment comes from the column spec
+                # the table was built with - see COLUMNS.
+                item = SortableItem(getattr(row, attribute))
+                sort_by = SORT_KEYS.get(key)
+                if sort_by:
+                    item.setData(SORT_ROLE, getattr(row, sort_by, 0))
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row.file_id)
                     if row.note:

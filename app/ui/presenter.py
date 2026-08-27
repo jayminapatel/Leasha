@@ -704,6 +704,15 @@ class FileRow:
     kind: str
     size: str
     modified: str
+    #: The values those two are *formatted from*, so the columns can be sorted
+    #: by what they mean rather than by how they read.
+    #:
+    #: **The lesson `SortableItem` was written for, applied here.** "10 KB"
+    #: sorts before "3 KB" and "3 weeks ago" sorts before "yesterday"; the
+    #: numbers were thrown away at formatting time, so the Files list could
+    #: not have sorted correctly even if it had been allowed to.
+    size_bytes: int = 0
+    mtime_ns: int = 0
     #: The full path. `folder` is shortened for the column and cannot be
     #: rejoined to it, and the preview pane needs the real thing.
     path: str = ""
@@ -786,6 +795,8 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
             kind=(str(row.get("ext", "")) or "?").upper(),
             size=format_size(int(row.get("size_bytes", 0))),
             modified=format_when(int(row.get("mtime_ns", 0)), now=now),
+            size_bytes=int(row.get("size_bytes", 0)),
+            mtime_ns=int(row.get("mtime_ns", 0)),
             path=path,
             note=note,
         ))

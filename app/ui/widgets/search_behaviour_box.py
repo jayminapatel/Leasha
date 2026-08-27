@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.widgets.result_table import align_headers
 from app.search.policy import (
     BEHAVIOURS,
     SAFETY,
@@ -154,6 +155,10 @@ class SearchBehaviourBox(QGroupBox):
         grid.setHorizontalHeaderLabels(
             ["Behaviour"] + [SURFACE_LABELS[name] for name in SURFACES])
         grid.verticalHeader().setVisible(False)
+        # §2b. Not sortable: the rows are a fixed matrix of behaviour by tab,
+        # so there is no ordering question to answer - but a centred heading
+        # over a left-aligned column is the same mismatch everywhere.
+        align_headers(grid)
         # Read-only on purpose: what somebody controls is whether a behaviour
         # is allowed at all. Each tab's contract is a decision this
         # application stands behind, and twenty-four editable cells would be
