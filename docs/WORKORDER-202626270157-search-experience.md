@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.10 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.11 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -130,7 +130,7 @@ corrects. Ollama is one backend; this adds the second.
 
 ## 5. Finding by how people actually remember
 
-- [ ] **5a More like this.** Right-click on any result → nearest neighbours
+- [x] **5a More like this.** Right-click on any result → nearest neighbours
   by the document's own vectors. Everything required already exists; this
   is the feature that makes semantic search tangible.
 - [ ] **5b Attachments as first-class results.** `/has attachment` plus an
@@ -525,6 +525,40 @@ and then discarded. **Two rankers in sequence and the second silently threw
 away the first** — the order they run in is the whole behaviour, and a test
 now pins it by source order rather than by outcome, since an outcome test
 passes for the wrong reason whenever the scores happen to agree.
+
+## Note on 5a, added 2026-08-27
+
+**"Everything required already exists" was right, and that was the problem.**
+The passage was embedded at index time, `VectorStore.search` takes a raw
+vector, `vector.hydrate` turns rows into results — and there was no way to
+*ask*. Semantic search has been in this product since Layer 4 and has never
+once been something a person could point at.
+
+`SearchEngine.similar_to(chunk_id)` closes it. **No query, so no keyword half
+and no fusion**: there is no text to match, the question is "what else is like
+this", and the answer is the neighbours of one point ranked by distance.
+
+Two things it will not do. The source chunk is never its own neighbour — it is
+trivially the closest thing to itself. And the rest of its own file is dropped
+by default, because "more like this" answering with the next paragraph of the
+same document is a correct answer to a question nobody asked (`same_file=True`
+asks for it).
+
+**Read back, not re-embedded.** `VectorStore.vector_for` is new: `search`
+strips `vector` from every row, so this was the only missing piece. Embedding
+the passage again would cost a model load and — if the model changed since
+indexing — produce a vector that does not live in the same space as the rows
+it is about to be compared against.
+
+**The bug worth recording**: the first version looked the source chunk up with
+`store.chunk_by_id`, a method this store has never had, *inside a `try`*. So
+it failed on every call, the file id stayed 0, and the same-file exclusion
+silently did nothing. A guard that turns a typo into a quietly disabled
+feature is this codebase's recurring defect; a test now pins the call shape.
+
+**Not done**: the right-click that invokes it. That is a menu in the results
+view and needs the window to judge, like 2e's thumbnails and 5b's attachment
+row. The engine method is tested against a real LanceDB table and waiting.
 
 ## Done means
 

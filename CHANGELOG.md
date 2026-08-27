@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.81 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.82 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+
+## More like this
+
+- **Ask for other passages that read like one you are looking at.** Finding
+  things by meaning has been in Leasha since the beginning and has never been
+  something you could point at - it only ever happened invisibly, behind a
+  search box.
+- It never offers you back the thing you asked about, and by default it does
+  not offer you the next page of the same document either. You asked what
+  *else* is like this.
+- Costs nothing to run: the passage was already turned into numbers when it
+  was indexed, so this reads those back rather than doing the work again.
 
 ## Searching for a name finds where it is defined
 

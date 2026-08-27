@@ -382,6 +382,7 @@
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_shell.py" />
+    <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_speed_work.py" />

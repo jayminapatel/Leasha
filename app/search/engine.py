@@ -740,6 +740,71 @@ class SearchEngine:
         response.search_id = self._log_search(raw, parsed, response, want_rerank)
         return response
 
+    def similar_to(self, chunk_id: int, *, limit: int = 20,
+                   same_file: bool = False) -> SearchResponse:
+        r"""Passages that read like this one. **The vector half, made visible.**
+
+        §5a. Everything this needs already existed: the passage was embedded
+        at index time, `VectorStore.search` takes a raw vector, and
+        `vector.hydrate` turns rows into results. What was missing was a way
+        to *ask* - so semantic search has been in the product since Layer 4
+        and has never once been something a person could point at.
+
+        **No query, so no keyword half and no fusion.** There is no text to
+        match; the question is "what else is like this", and the answer is the
+        neighbours of one point. Ranked by distance, which is the only signal
+        there is.
+
+        The source chunk is always dropped - it is trivially its own nearest
+        neighbour - and by default so is the rest of its file, because "more
+        like this" answering with the next paragraph of the same document is
+        a correct answer to a question nobody asked.
+        """
+        if self._closed:
+            raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
+
+        started = time.perf_counter()
+        empty = SearchResponse(parsed=parse_query(""))
+        reader = getattr(self.vectors, "vector_for", None)
+        if reader is None:
+            return empty
+        try:
+            point = reader(int(chunk_id))
+        except Exception as exc:                   # noqa: BLE001 - a lookup
+            _log.debug("no vector to look near: {}", exc)
+            return empty
+        if not point:
+            # **Not an error.** A chunk with no vector is the ordinary state
+            # of a run that indexed text and has not embedded it yet, and the
+            # honest answer is an empty list rather than a failure.
+            return empty
+
+        # **`get_chunk`, and it has to exist.** The first version called a
+        # `chunk_by_id` that this store has never had, inside a `try` - so the
+        # lookup failed silently on every call and the same-file exclusion
+        # below quietly did nothing. A guard that turns a typo into a disabled
+        # feature is the defect this codebase keeps finding.
+        source_file = 0
+        record = self.store.get_chunk(int(chunk_id))
+        if record is not None:
+            source_file = int(getattr(record, "file_id", 0) or 0)
+
+        # Over-fetch, because the source's own siblings are about to be
+        # dropped and a limit applied before that would return short.
+        raw = self.vectors.search(point, k=max(limit * 4, limit + 8))
+        kept = [hit for hit in raw
+                if int(hit.get("chunk_id") or 0) != int(chunk_id)
+                and (same_file or int(hit.get("file_id") or 0) != source_file)]
+        hydrated = vector.hydrate(self.store, kept[:limit])
+        results = [
+            self._to_result(hit, rank, ("vector",), 1.0 / (1.0 + rank))
+            for rank, hit in enumerate(hydrated, start=1)
+        ]
+        return SearchResponse(
+            results=results, parsed=parse_query(""), vector_count=len(results),
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
+
     def _generation_now(self) -> int:
         """The store's write generation, or -1 if it cannot be read.
 

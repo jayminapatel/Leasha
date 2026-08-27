@@ -524,6 +524,34 @@ class VectorStore:
             results.append(row)
         return results
 
+    def vector_for(self, chunk_id: int) -> Optional[list]:
+        r"""The stored vector for one chunk, or None if it has none.
+
+        **Read back rather than re-embedded**, which is what "more like this"
+        needs: the passage was embedded once at index time, and embedding it
+        again costs a model load, tens of milliseconds, and - if the model has
+        changed since - gives a vector that does not live in the same space as
+        the rows it is about to be compared against.
+
+        `search` strips `vector` from every row it returns, so this is the only
+        way to get one back out.
+        """
+        if self._table is None:
+            return None
+        try:
+            rows = (self._table.search()
+                    .where(f"chunk_id = {int(chunk_id)}")
+                    .limit(1).to_list())
+        except Exception as exc:                   # noqa: BLE001 - a lookup
+            _log.debug("could not read the vector for chunk {}: {}",
+                       chunk_id, exc)
+            return None
+        for row in rows:
+            found = row.get("vector")
+            if found is not None:
+                return [float(value) for value in found]
+        return None
+
     def count(self) -> int:
         if self._table is None:
             return 0
