@@ -63,6 +63,26 @@ OneDrive Files On-Demand etc.)
 - [ ] **3d** results badge "online-only — opening will download", riding the
   0513 §3a decoration path.
 
+## 3b. ADDED by owner 2026-08-28 — tape and the archived-source kind
+
+- [ ] **3b-1 Kind 5: "manual/archived source" — the scan-before-archive
+  workflow.** "Mark as archived" detaches any catalogued source or folder
+  into a source whose identity is just a **name + free-text location**
+  ("LTO-7 tape B-0042, fire safe, IT room"): Rescan disabled (nothing to
+  reconnect), Browse and Delete remain, snapshot date preserved. Results
+  say "on tape B-0042 (archived Mar 2024)". Generalises to DVDs, destroyed
+  drives, media handed to third parties — the catalogue-of-record.
+- [ ] **3b-2 LTFS tapes** mount as filesystems and work as kind-1 volumes
+  already, with ONE rule: content scans of a volume whose filesystem
+  reports LTFS (or a "sequential medium" flag the user can set) process
+  files in **on-tape order** with a plain-words warning ("this reads the
+  tape end-to-end") — random-access walker order on tape is minutes per
+  seek. Names-only cataloguing stays instant (LTFS index).
+- [ ] **3b-3** proprietary backup formats (Veeam/NetBackup/tar-on-tape)
+  are OUT by doctrine — the backup product is the generating system; the
+  supported path is cataloguing the staging folder before the tape write,
+  which 3b-1 completes. One sentence in the tab's help says exactly this.
+
 ## 4. Tests (beyond those inline)
 
 - [ ] UNC identity: mapped-letter add stores UNC; letter remapped → same

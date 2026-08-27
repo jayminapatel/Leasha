@@ -119,6 +119,7 @@
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\repo_health.py" />
+    <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
@@ -354,6 +355,7 @@
     <Compile Include="tests\unit\test_search_notices.py" />
     <Compile Include="tests\unit\test_search_quality.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
+    <Compile Include="tests\unit\test_settings_are_used.py" />
     <Compile Include="tests\unit\test_settings_layout.py" />
     <Compile Include="tests\unit\test_settings_reachable.py" />
     <Compile Include="tests\unit\test_settings_registry.py" />
@@ -361,6 +363,7 @@
     <Compile Include="tests\unit\test_shell.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
+    <Compile Include="tests\unit\test_speed_work.py" />
     <Compile Include="tests\unit\test_stages.py" />
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />

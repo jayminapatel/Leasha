@@ -29,11 +29,14 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.ui.tuning import MODE_HELP, MODE_LABELS, MODES, footer_text
+from app.ui.tuning import (
+    DEFAULTS, MODE_HELP, MODE_LABELS, MODES, footer_text,
+)
 from app.ui.widgets.long_run_box import LongRunBox
 from app.ui.widgets.machine_card import MachineCard
 from app.ui.widgets.tuning_groups import ComputeBox, ResourcesBox, StrategyBox
@@ -71,6 +74,15 @@ class TuningBox(QGroupBox):
             self.mode.addItem(MODE_LABELS[value], value)
         self.mode.currentIndexChanged.connect(self._mode_changed)
 
+        self.automatic = QPushButton("Return to automatic")
+        self.automatic.setObjectName("return-to-automatic")
+        self.automatic.setToolTip(
+            "Put every control back to what this machine chooses.\n"
+            "Your manual values are kept and become inert - switching back to\n"
+            "Manual brings them back exactly as they were.")
+        self.automatic.clicked.connect(
+            lambda _c=False: self.return_to_automatic())
+
         self.mode_help = QLabel("")
         self.mode_help.setWordWrap(True)
         self.mode_help.setObjectName("tuningModeHelp")
@@ -105,6 +117,7 @@ class TuningBox(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.mode)
+        layout.addWidget(self.automatic)
         layout.addWidget(self.mode_help)
         layout.addWidget(self.tuned_status)
         layout.addWidget(self.machine)
@@ -137,6 +150,22 @@ class TuningBox(QGroupBox):
 
     def current_mode(self) -> str:
         return str(self.mode.currentData() or "defaults")
+
+    def return_to_automatic(self) -> None:
+        r"""**The recovery path for every fiddled-with machine.** §7's item.
+
+        One action, from any manual configuration, and the next run uses the
+        automatic values again. Deliberately does *not* erase what was typed:
+        somebody who tried Manual, made it worse and wants out should not also
+        lose the four numbers they set - they may want to look at them, or go
+        back. The mode switch is what makes them inert, and switching to Manual
+        brings them back exactly as they were.
+
+        A method rather than only a combo entry because it is the thing
+        somebody reaches for when they have made a mess, and a recovery path
+        that has to be found in a dropdown is one people do not find.
+        """
+        self.mode.setCurrentIndex(self.mode.findData(DEFAULTS))
 
     def set_profile(self, profile: Any, free_gb: int = 0) -> None:
         """Take a detected machine and re-bound everything against it."""

@@ -1,6 +1,6 @@
 # Work order (One thread): Index Tuning — one screen, three modes, any machine
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Core profile + Index pipeline + Storage + UI panel)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626082352` §2 leftovers (H5/H6) and
@@ -376,3 +376,50 @@ measured auto-tune replaces it with the machine's own number.
 this machine's answer into the index is what would break the future-machine
 story. **3c** oversubscription warns with its numbers and never blocks: a
 suboptimal configuration is the person's right, informed.
+
+---
+
+## Delivery notes, 2026-08-27 (appended — the order's text above is unchanged)
+
+**§6a records five stages and a worker tally, not seven stages.** The order
+asks for per-run seconds in walk, extract, chunk, SQLite write, FTS, embed and
+Lance write. Building it that way and adding them up gives a total over 100%,
+because extraction runs on N threads: four readers busy for a minute is four
+worker-minutes and one wall minute.
+
+So the critical path — what the consumer thread actually waits on — carries
+`waiting`, `write`, `embed` and `vectors`, and those are what the percentages
+are built from. `waiting` is the honest name for "extraction is the
+bottleneck", and it is also the useful one: it is exactly what more readers
+would fix. `extract` and `walk` are kept separately as worker-seconds, clearly
+named so they can never be mistaken for a share of anything. Chunking happens
+inside extraction and FTS inside the SQLite write, so neither is separable
+without timing a function call rather than a stage.
+
+`app/index/stages.py` carries the full argument. If a later measurement shows
+the split hides something, this is the place it changes.
+
+**§6f is half-built, deliberately.** `INDEX_BULK_FTS` changes behaviour today —
+`on` merges whatever the run wrote, `off` leaves the segments alone, `auto`
+keeps the size threshold. What is *not* built is dropping the chunk FTS
+triggers. That is the fast half; the safe half is a dirty flag written before
+they go, so an interrupted bulk run knows on resume that the word index is
+missing everything the run wrote. Without it, a run killed at hour forty leaves
+a corpus silently unsearchable. `test_speed_work.py` pins that the trigger drop
+cannot land without the flag.
+
+**§6d `INDEX_TWO_PHASE` is wired but shallow.** Chunks are FTS-searchable the
+moment they are written, which is already the promise on the label. Deferring
+embedding entirely needs a third file status — chunks written, vectors pending —
+because `INDEXED` currently means "and its vectors exist", which is the
+invariant #50b and M6 were about. That is a design decision for the owner
+rather than a mechanical change.
+
+**§6b, §6c, §6g, §6h and §6i are not started.** 6a now exists to gate them, and
+each still needs its own before/after numbers on a real corpus.
+
+**Found by building §7's own tests.** The plain-words guard caught the
+quantised-model checkbox saying "a quantised model" in its tooltip — this
+codebase's vocabulary spoken at somebody tuning their computer. Rewritten. The
+guard now stands over every control on the screen, which is the only way the
+rule survives the next one added.

@@ -966,6 +966,16 @@ class Pipeline:
             # the workers - so `done / seen` sits near 1 from the first minute
             # whatever fraction of the corpus is left. See `progress_for`.
             stats.walk_complete = True
+            # §6a. **Recorded, but not on the critical path**, so it is added
+            # to the worker tally rather than the stage one: the walk runs on
+            # its own thread alongside everything else, and counting its
+            # seconds as a share of the run would push the total past 100%.
+            #
+            # Worth having all the same - a walk that takes two hours over a
+            # network share is a fact about the corpus that no other number in
+            # the report shows.
+            self._clock.add_worker(
+                "walk", time.monotonic() - self._run_started)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
 

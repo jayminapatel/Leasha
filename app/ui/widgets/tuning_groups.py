@@ -137,10 +137,7 @@ class ComputeBox(QGroupBox):
 
         self.quantised = QCheckBox("Use the smaller model file")
         self.quantised.setObjectName("EMBED_QUANTISED")
-        self.quantised.setToolTip(
-            "A quantised model is several times smaller and faster on a\n"
-            "processor, at a small cost in ranking quality. Takes effect on\n"
-            "restart.")
+        self.quantised.setToolTip(self.QUANTISED_HELP)
         self._grey_quantised()
 
         #: §4e: **inline, never a modal.** The oversubscription warning fires
@@ -275,9 +272,16 @@ class ComputeBox(QGroupBox):
     #: The checkbox's explanation when it *is* available. Kept here so
     #: `_grey_quantised` can put it back, rather than leaving the "unavailable"
     #: sentence on a control that has become available again.
-    QUANTISED_HELP = ("A quantised model is several times smaller and faster "
-                      "on a\nprocessor, at a small cost in ranking quality. "
-                      "Takes effect on\nrestart.")
+    #:
+    #: **"Quantised" is not a word anybody has to know.** The label already
+    #: says "the smaller model file", which is what it is; the tooltip says
+    #: what that buys and what it costs. §7's plain-words guard caught this
+    #: sentence saying "a quantised model", which is this codebase's
+    #: vocabulary being spoken at somebody tuning their computer.
+    QUANTISED_HELP = ("The smaller file is several times faster on a "
+                      "processor,\nat a small cost in how well results are "
+                      "ordered. It gains\nnothing on a graphics card. Takes "
+                      "effect on restart.")
 
     def _grey_quantised(self) -> None:
         """Grey the smaller-model box **with its reason on it**.
