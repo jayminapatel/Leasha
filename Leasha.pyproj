@@ -416,6 +416,7 @@
     <Compile Include="tests\unit\test_vs_project.py" />
     <Compile Include="tests\unit\test_walker.py" />
     <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
+    <Compile Include="tests\unit\test_why_result.py" />
     <Compile Include="tests\unit\test_wildcards.py" />
     <Compile Include="tests\unit\test_window_opens.py" />
     <Compile Include="tests\unit\test_winfs.py" />
@@ -481,6 +482,7 @@
     <Content Include="docs\WORKORDER-202626270547-test-automation.md" />
     <Content Include="docs\WORKORDER-202626270602-reports-and-timeline.md" />
     <Content Include="docs\WORKORDER-202626270611-chat-tab.md" />
+    <Content Include="docs\WORKORDER-202626271137-review-adoptions.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

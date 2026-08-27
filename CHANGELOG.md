@@ -1,6 +1,18 @@
 # Changelog
 
-**Doc version:** 3.85 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 3.86 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Ask any result why it is there
+
+- **Every result can now explain itself in plain words**: which of your words
+  are in it, whether it was found by meaning rather than by matching, whether
+  it is recent, whether you have opened it before, whether it is where
+  something is defined, and how many copies were folded into the row.
+- **Facts only — it never invents a score.** No percentages, no "relevance
+  ratings". Everything it says is something you could check yourself, because
+  a number you cannot check is a number you would believe anyway.
+- Nothing to say means it says nothing, rather than padding.
+- Switch it off like any other behaviour.
 
 ## Fixed: correcting a misspelling did not actually change the search
 

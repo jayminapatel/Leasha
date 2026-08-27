@@ -155,6 +155,9 @@ class Settings(BaseModel):
     search_recency_blend: bool = True
     search_version_folding: bool = True
     search_plain_words: bool = True
+    #: Adoptions §1. A result that cannot be interrogated is one
+    #: somebody has to take on trust.
+    search_explain_results: bool = True
 
     #: Which editor a code result opens in, and the command if it is not one
     #: this knows. `auto` picks the first installed from `ui/editors.py`.
@@ -336,6 +339,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_RECENCY_BLEND",
     "SEARCH_VERSION_FOLDING",
     "SEARCH_PLAIN_WORDS",
+    "SEARCH_EXPLAIN_RESULTS",
     "CODE_EDITOR",
     "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
@@ -463,6 +467,9 @@ def load_settings(
                 values.get("CODE_EDITOR") or "auto").strip().lower(),
             code_editor_command=(
                 values.get("CODE_EDITOR_COMMAND") or "").strip(),
+            search_explain_results=_as_bool(
+                "SEARCH_EXPLAIN_RESULTS",
+                values.get("SEARCH_EXPLAIN_RESULTS", "true")),
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",

@@ -89,6 +89,9 @@ class SearchPolicy:
     recency_blend: bool = True
     #: Near-identical results collapse to one row, newest shown.
     version_folding: bool = True
+    #: Each result can say why it is on the page, from signals already
+    #: recorded. **Facts, never scores** - see `presenter.why_result`.
+    explain_results: bool = True
 
     def with_overrides(self, **changes: Any) -> "SearchPolicy":
         """A copy with some fields changed. Unknown names are ignored.
@@ -125,6 +128,10 @@ BEHAVIOURS = (
     ("version_folding", "Fold older versions together",
      "Near-identical documents collapse into one row with the newest shown "
      "and the rest one click away."),
+    ("explain_results", "Say why a result is here",
+     "Each result can show what put it there - which of your words are in it, "
+     "whether it was found by meaning, how recent it is, whether you have "
+     "opened it before. Facts only: it never invents a score."),
     ("notice_register", "Explain in plain words",
      "Messages about what search could and could not do are written for "
      "anybody rather than for a developer."),
@@ -246,6 +253,7 @@ SETTING_FIELDS = {
     "search_recency_blend": "recency_blend",
     "search_version_folding": "version_folding",
     "search_plain_words": "notice_register",
+    "search_explain_results": "explain_results",
 }
 
 
@@ -300,6 +308,14 @@ def describe(policy: SearchPolicy) -> list[str]:
     """
     said: list[str] = []
     for name, label, _help in BEHAVIOURS:
+        if name == "explain_results":
+            # **Not listed, because it does nothing to the search.** This
+            # function answers "why did my search behave like that", and the
+            # other six all alter what comes back or how it is worded. An
+            # explanation of a result is an affordance beside it; putting it
+            # here would make the Code tab - which acts on nobody's behalf -
+            # appear to be doing something.
+            continue
         value = getattr(policy, name, None)
         if value in (False, "off", ""):
             continue

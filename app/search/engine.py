@@ -171,6 +171,14 @@ class SearchResult:
     #: row that was being fetched anyway. Empty for anything not yet hashed,
     #: and an empty hash never folds - a shared blank is not a match.
     content_hash: str = ""
+    #: How fresh this is, 1.0 for today decaying towards 0. Written by
+    #: `recency.blend`, and **carried so the row can say why it is here**:
+    #: an order somebody cannot interrogate is an order they have to take on
+    #: trust, which is the thing this application keeps refusing to ask for.
+    recency: float = 0.0
+    #: True when this passage declares the symbol that was searched for.
+    #: Written by `definitions.boost`, and carried for the same reason.
+    declares: bool = False
     #: Which retrievers found it. Both agreeing is the strongest signal the
     #: pipeline produces, and the UI is expected to say so.
     sources: tuple[int, ...] = ()
@@ -1229,6 +1237,8 @@ class SearchEngine:
             ext=str(hit.get("ext", "") or "").lower().lstrip("."),
             mtime_ns=int(hit.get("mtime_ns") or 0),
             content_hash=str(hit.get("content_hash", "") or ""),
+            recency=float(hit.get("recency") or 0.0),
+            declares=bool(hit.get("declares") or False),
             score=float(hit.get("rerank_score", score) if "rerank_score" in hit else score),
             rank=rank,
             sources=tuple(sources),

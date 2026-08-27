@@ -1661,6 +1661,42 @@ class SqliteStore:
                 ],
             )
 
+    def open_counts(self, chunk_ids: Iterable[int]) -> dict:
+        r"""How many times each of these passages has been opened. Never raises.
+
+        **One query for the whole page, and it rides the partial index.**
+        `idx_hits_opened` covers `opened = 1` only, and opened rows are a tiny
+        fraction of `search_hits` - fifty hits are logged per search and
+        approximately one is opened - so this visits almost nothing. Asking
+        per row would be fifty statements against a table that grows with
+        every search anybody has ever run, which is the shape of the keyword
+        path this project already had to fix once.
+
+        Missing keys mean zero: **"never opened" is the ordinary state** and
+        does not deserve a row.
+        """
+        wanted = [int(chunk_id) for chunk_id in chunk_ids or ()]
+        if not wanted:
+            return {}
+        found: dict = {}
+        # Chunked, because SQLite's parameter limit is 999 by default and a
+        # caller with a long result list should get an answer rather than an
+        # exception about a limit they have never heard of.
+        for start in range(0, len(wanted), 500):
+            batch = wanted[start:start + 500]
+            marks = ",".join("?" * len(batch))
+            try:
+                rows = self.conn.execute(
+                    f"SELECT chunk_id, COUNT(*) FROM search_hits "
+                    f"WHERE opened = 1 AND chunk_id IN ({marks}) "
+                    f"GROUP BY chunk_id", batch).fetchall()
+            except Exception as exc:               # noqa: BLE001 - a courtesy
+                _log.debug("could not count opens: {}", exc)
+                return found
+            for row in rows:
+                found[int(row[0])] = int(row[1])
+        return found
+
     def mark_opened(self, search_id: int, chunk_id: int) -> None:
         """The single most valuable signal in the system: this one was useful."""
         with self.write() as conn:

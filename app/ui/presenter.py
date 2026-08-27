@@ -4357,3 +4357,136 @@ def chips_for(store: Any, sentence: str, policy: Any = None) -> tuple:
     except Exception as exc:                       # noqa: BLE001 - a helper
         _log.debug("no filter chips for this query: {}", exc)
         return ()
+
+
+# ---------------------------------------------------------------------------
+# Adoptions §1 — "why is this result here?"
+# ---------------------------------------------------------------------------
+
+#: How recent a document has to be before recency is worth mentioning.
+#:
+#: 0.5 is one half-life - about six months. Below that the blend contributed
+#: almost nothing and saying so would be **noise dressed as an explanation**,
+#: which is the failure this whole feature is trying to avoid.
+RECENT_ENOUGH = 0.5
+
+
+def _matched_words(result: Any, parsed: Any) -> tuple:
+    """Which of the typed words actually appear in this passage.
+
+    **Read off the text rather than inferred from the score**, because that
+    is the difference between a fact and a guess - and a guess in the
+    explanation is worse than no explanation at all.
+    """
+    text = str(getattr(result, "text", "") or "").lower()
+    if not text:
+        return ()
+    found = []
+    seen = set()
+    for term in getattr(parsed, "terms", ()) or ():
+        # **Shown as typed.** `SearchEngine` handed back as `searchengine`
+        # reads as a correction of something that was not wrong, which is the
+        # same discourtesy the recent-searches list was careful to avoid.
+        typed = str(term or "").strip().strip("*")
+        word = typed.lower()
+        if len(word) > 1 and word in text and word not in seen:
+            seen.add(word)
+            found.append(typed)
+    return tuple(found)
+
+
+def _when(mtime_ns: Any) -> str:
+    """A date somebody can read, or "" if there is none to show."""
+    try:
+        stamp = int(mtime_ns or 0)
+    except (TypeError, ValueError):
+        return ""
+    if stamp <= 0:
+        return ""
+    from datetime import datetime
+
+    return datetime.fromtimestamp(stamp / 1_000_000_000).strftime("%d %B %Y")
+
+
+def why_result(result: Any, parsed: Any = None, *, fold: Any = None,
+               opens: int = 0, register: str = "plain") -> tuple:
+    r"""The plain-words reasons this result is on the page. **Never raises.**
+
+    Adoptions §1, and the constraint is the whole point: **state facts, never
+    scores.** Every line below is read from something already recorded -
+    which retriever found it, whether the text contains the typed words, the
+    freshness the blend used, the usage log, the fold - and no line invents a
+    number or a percentage. "87% relevant" is a sentence nobody can check and
+    everybody would believe.
+
+    An empty tuple is a legitimate answer: a plain keyword hit with nothing
+    else to say about it should say nothing rather than pad.
+
+    `register` follows the notice pattern - `plain` for the everyday tab,
+    `technical` where the power surfaces have earned the detail.
+    """
+    try:
+        lines: list = []
+        technical = str(register or "plain").lower() == "technical"
+
+        words = _matched_words(result, parsed)
+        if words:
+            lines.append("Your words are in it: " + ", ".join(words))
+
+        sources = tuple(getattr(result, "sources", ()) or ())
+        if 0 in sources and 1 in sources:
+            lines.append("Found both by your words and by meaning - the "
+                         "strongest signal this search has.")
+        elif sources == (1,):
+            # **Said out loud, because it looks like a mistake otherwise.**
+            # A row with none of the typed words in it reads as a bug to
+            # somebody who does not know the search understands meaning.
+            lines.append("Found by meaning rather than by matching your "
+                         "words.")
+        elif sources == (0,) and not words:
+            lines.append("Your words are in this file, though not in the "
+                         "part shown here.")
+
+        if getattr(result, "declares", False):
+            lines.append("This is where it is defined, not just used.")
+
+        freshness = float(getattr(result, "recency", 0.0) or 0.0)
+        if freshness >= RECENT_ENOUGH:
+            when = _when(getattr(result, "mtime_ns", 0))
+            lines.append(
+                f"Recent, so it came slightly ahead of equally good older "
+                f"ones{f' - {when}' if when else ''}.")
+
+        if opens > 0:
+            # **A fact about them, not a score.** "You have opened this
+            # before" is checkable; "popular" is not.
+            lines.append("You have opened this before."
+                         if opens == 1 else
+                         f"You have opened this {opens} times before.")
+
+        older = tuple(getattr(fold, "older", ()) or ()) if fold else ()
+        if older:
+            lines.append(f"{len(older)} other cop{'y' if len(older) == 1 else 'ies'}"
+                         f" of this were folded into this row.")
+
+        if technical and getattr(result, "rerank_score", None) is not None:
+            lines.append("Reranked by the cross-encoder.")
+        return tuple(lines)
+    except Exception as exc:                       # noqa: BLE001 - a courtesy
+        _log.debug("no explanation for this result: {}", exc)
+        return ()
+
+
+def explain_for(result: Any, parsed: Any = None, policy: Any = None, *,
+                fold: Any = None, opens: int = 0) -> tuple:
+    """`why_result`, with the switch and the register read off the policy.
+
+    **The policy decides here rather than in the view**, exactly as
+    `chips_for` does - so no surface carries a rule of its own and the
+    off-switch cannot be honoured in three places and forgotten in a fourth.
+    """
+    if policy is not None and not getattr(policy, "explain_results", True):
+        return ()
+    register = str(getattr(policy, "notice_register", "plain") or "plain")
+    return why_result(result, parsed, fold=fold, opens=opens,
+                      register=register)

@@ -154,6 +154,26 @@ def test_auto_chips_changes_whether_filters_are_offered(engine):
     assert chips_for(store, "the report from 2024", _with(auto_chips=False)) == ()
 
 
+def test_explain_results_changes_whether_a_row_can_say_why(engine):
+    """**The seventh behaviour, and the only one that changes nothing about
+    the search.** It adds an explanation beside a result, so what it must
+    provably change is whether that explanation exists at all."""
+    from app.ui.presenter import explain_for
+
+    built, _store = engine
+    response = built.search("volcanoes", policy=_with(explain_results=True),
+                            use_cache=False)
+    result = response.results[0]
+
+    # **Through `explain_for`, not `why_result`.** The first version of this
+    # test branched on the policy in its own helper and then asserted the
+    # branch - a tautology that would have passed with the switch wired to
+    # nothing at all, which is the exact defect this file exists to catch.
+    assert explain_for(result, response.parsed, _with(explain_results=True))
+    assert explain_for(result, response.parsed,
+                       _with(explain_results=False)) == ()
+
+
 def test_every_behaviour_in_the_table_is_proved_above():
     r"""**The guard on the guard.** A seventh behaviour added to the policy
     with no test here would be a switch nobody proved does anything - which
@@ -163,6 +183,7 @@ def test_every_behaviour_in_the_table_is_proved_above():
     proved = {
         "typo_correction", "relax_on_empty", "recency_blend",
         "version_folding", "notice_register", "auto_chips",
+        "explain_results",
     }
     assert {name for name, _label, _help in BEHAVIOURS} == proved
 

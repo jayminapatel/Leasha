@@ -57,6 +57,7 @@ _KEYS = {
     "recency_blend": "SEARCH_RECENCY_BLEND",
     "version_folding": "SEARCH_VERSION_FOLDING",
     "notice_register": "SEARCH_PLAIN_WORDS",
+    "explain_results": "SEARCH_EXPLAIN_RESULTS",
 }
 
 
@@ -116,6 +117,7 @@ class SearchBehaviourBox(QGroupBox):
         self.controls["recency_blend"].setObjectName("SEARCH_RECENCY_BLEND")
         self.controls["version_folding"].setObjectName("SEARCH_VERSION_FOLDING")
         self.controls["notice_register"].setObjectName("SEARCH_PLAIN_WORDS")
+        self.controls["explain_results"].setObjectName("SEARCH_EXPLAIN_RESULTS")
 
         self.grid = self._build_grid()
 
@@ -185,6 +187,7 @@ class SearchBehaviourBox(QGroupBox):
                 ("recency_blend", "search_recency_blend"),
                 ("version_folding", "search_version_folding"),
                 ("notice_register", "search_plain_words"),
+                ("explain_results", "search_explain_results"),
             ):
                 self.controls[name].setChecked(
                     bool(getattr(settings, field, True)))
@@ -213,6 +216,8 @@ class SearchBehaviourBox(QGroupBox):
                 self.controls["version_folding"].isChecked()),
             "SEARCH_PLAIN_WORDS": bool(
                 self.controls["notice_register"].isChecked()),
+            "SEARCH_EXPLAIN_RESULTS": bool(
+                self.controls["explain_results"].isChecked()),
         }
 
     def restore_defaults(self) -> None:
@@ -227,7 +232,8 @@ class SearchBehaviourBox(QGroupBox):
         try:
             self.controls["typo_correction"].setCurrentIndex(0)
             for name in ("relax_on_empty", "auto_chips", "recency_blend",
-                         "version_folding", "notice_register"):
+                         "version_folding", "notice_register",
+                         "explain_results"):
                 self.controls[name].setChecked(True)
         finally:
             for control in self.controls.values():

@@ -167,6 +167,14 @@ SETTINGS: tuple[Setting, ...] = (
              "the technical wording either way.",
     ),
     Setting(
+        key="SEARCH_EXPLAIN_RESULTS", label="Say why a result is here",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Each result can show what put it there - which of your words "
+             "are in it, whether it was found by meaning, how recent it is, "
+             "whether you have opened it before. Facts only: it never "
+             "invents a score.",
+    ),
+    Setting(
         key="CODE_EDITOR", label="Open code results in", kind="choice",
         default="auto", group="Search", surface="settings.search",
         choices=("auto", "vscode", "cursor", "vscodium", "sublime",
