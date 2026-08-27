@@ -143,6 +143,7 @@
     <Compile Include="app\search\policy.py" />
     <Compile Include="app\search\pwsh_completer.py" />
     <Compile Include="app\search\query.py" />
+    <Compile Include="app\search\recency.py" />
     <Compile Include="app\search\relax.py" />
     <Compile Include="app\search\rerank.py" />
     <Compile Include="app\search\rerank_bench.py" />
@@ -335,6 +336,7 @@
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_quoting.py" />
+    <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_repo_attribution.py" />
     <Compile Include="tests\unit\test_repo_rows.py" />

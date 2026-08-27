@@ -36,7 +36,7 @@ from typing import Any, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import keyword, relax, vector
+from app.search import keyword, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -545,7 +545,7 @@ class SearchEngine:
 
         vector_problems: list[str] = []
         retrieved = self._retrieve(parsed, raw, limit, want_rerank,
-                                   timings, vector_problems)
+                                   timings, vector_problems, policy)
 
         # §2b. **A second pass, and only where the alternative is an empty
         # page.** `relax.candidates` is empty for the ordinary
@@ -556,7 +556,8 @@ class SearchEngine:
         if policy.relax_on_empty and not retrieved.results:
             for candidate in relax.candidates(parsed):
                 again = self._retrieve(candidate.query, raw, limit,
-                                       want_rerank, timings, vector_problems)
+                                       want_rerank, timings, vector_problems,
+                                       policy)
                 if again.results:
                     parsed, retrieved, relaxed = candidate.query, again, candidate
                     break
@@ -712,8 +713,8 @@ class SearchEngine:
             return -1
 
     def _retrieve(self, parsed: ParsedQuery, raw: str, limit: int,
-                  want_rerank: bool, timings: dict, vector_problems: list
-                  ) -> "_Retrieved":
+                  want_rerank: bool, timings: dict, vector_problems: list,
+                  policy: Optional[SearchPolicy] = None) -> "_Retrieved":
         r"""Both retrievers, fused, reranked, sorted — for one query.
 
         **A method rather than a block because §2b runs it twice.** Relaxation
@@ -794,6 +795,12 @@ class SearchEngine:
         if parsed.sort:
             fused.sort(key=lambda hit: int(hit.get("mtime_ns") or 0),
                        reverse=parsed.sort != "oldest")
+        elif policy is not None and policy.recency_blend:
+            # §2d. **Only when relevance is still in charge.** `/newest` is a
+            # date sort that abandons relevance and says so; nudging within an
+            # order that is already by date would be arithmetic with no effect
+            # and a second rule to reason about.
+            fused = recency.blend(fused)
 
         results = [
             self._to_result(hit, rank, tuple(hit.get("sources", ())), hit.get("rrf_score", 0.0))
