@@ -209,6 +209,22 @@ class WalkConfig:
     #: with no number moving anywhere. A count is the difference between "this
     #: corpus has no such files" and "nobody ever looked".
     stat_failures: dict[str, int] = field(default_factory=dict)
+    #: Roots the walk did not use at all, as `path -> reason`. The same sink
+    #: pattern as `stat_failures`, and it exists for the same reason at a much
+    #: larger scale.
+    #:
+    #: **A root that does not exist was skipped by a bare `continue`.** No log
+    #: line, no counter, no notice - so a folder on a drive that had not
+    #: mounted, or one renamed since it was added, made the entire corpus
+    #: vanish from the run while the run reported success. On 2026-08-27 that
+    #: produced an index run over a 30GB mail corpus with `seen: 0` and no
+    #: explanation anywhere, which reads from the outside as "it did not index
+    #: my mail" - because it did not.
+    #:
+    #: The reason matters as much as the count: "not found" is a folder to fix,
+    #: "excluded" is a setting to change, and they are not the same
+    #: conversation.
+    root_problems: dict[str, str] = field(default_factory=dict)
     #: Repository roots found during the walk, written here as they are seen,
     #: as `root_path -> kind`.
     #:
@@ -487,11 +503,17 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     for root in config.roots:
         root = Path(root)
         if not root.exists():
+            # **Recorded, not merely skipped.** See `root_problems`: this
+            # `continue` used to be silent, and a single mistyped or
+            # disconnected folder took the whole run with it without leaving a
+            # mark anywhere.
+            config.root_problems[str(root)] = "not found"
             continue
         if str(root).rstrip("\\/").lower() in blocked:
             # The root itself is excluded. Pruning only filters subdirectories,
             # so without this an indexed root pointed straight at the log or
             # index directory would still be walked in full.
+            config.root_problems[str(root)] = "excluded by a setting"
             continue
 
         for directory, subdirectories, filenames in os.walk(

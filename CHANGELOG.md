@@ -1,6 +1,22 @@
 # Changelog
 
-**Doc version:** 3.99 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 4.00 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## Fixed: a folder Leasha cannot find is no longer skipped in silence
+
+- **If one of your folders had moved, been renamed, or was on a drive that
+  was not plugged in, Leasha skipped it and said nothing at all.** No warning,
+  no note, no count — and the run then reported success.
+- With one folder set up, that meant the whole thing: an index run that looked
+  at nothing, finished, and showed zeroes. From the outside it reads as "it
+  did not index my mail", because it did not.
+- Leasha now names every folder it could not read, and says which is missing
+  and which is shut out by a setting. It says so even when the run indexed
+  plenty from your other folders — that case was invisible before, because
+  every number on the page looked healthy.
+- A run that found nothing at all now also explains which of the three
+  situations it is in: no folders set up, all of them marked as archives, or
+  the folders were read and held nothing.
 
 ## Fixed: Leasha forgetting when it last indexed
 

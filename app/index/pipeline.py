@@ -219,6 +219,11 @@ class IndexStats:
     #: that files invisible to the whole application are at least a number -
     #: see `walker._record_stat_failure`.
     unreachable_by_reason: dict[str, int] = field(default_factory=dict)
+    #: Roots the walk could not use, as `path -> reason`. Distinct from
+    #: `skipped_roots`, which is a deliberate archival decision: this is a
+    #: folder that is missing or shut out, and always wants somebody's
+    #: attention. See `WalkConfig.root_problems`.
+    root_problems: dict[str, str] = field(default_factory=dict)
     #: Archival roots this run did not walk, as `RootPlan.as_dict()`. Reported
     #: rather than merely acted on: *"skip cheaply, but never silently"*. A root
     #: skipped in silence is indistinguishable from one that was never indexed,
@@ -372,6 +377,7 @@ class IndexStats:
             "settled_by_code": dict(self.settled_by_code),
             "vectors_repaired": self.vectors_repaired,
             "unreachable_by_reason": dict(self.unreachable_by_reason),
+            "root_problems": dict(self.root_problems),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
             "warned_by_code": dict(self.warned_by_code),
@@ -825,6 +831,8 @@ class Pipeline:
                 sum(self._settled_skips.values()),
                 ", ".join(f"{code} ({count:,})" for code, count in worst),
             )
+        self._report_root_problems(stats)
+        self._say_if_nothing_was_walked(stats)
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
         self.vectors.maybe_create_index()
@@ -837,6 +845,102 @@ class Pipeline:
         self._write_completions()
         self._log.info("index run: {}", stats.as_dict())
         return stats
+
+    def _report_root_problems(self, stats: IndexStats) -> None:
+        r"""A folder that could not be walked is named. Never raises.
+
+        **This is the one that hid a 30GB corpus.** `walker.walk` skipped a
+        root that does not exist with a bare `continue`: no log line, no
+        counter, no notice. A drive that had not mounted, a folder renamed
+        since it was added, a path saved with a typo - any of them removed the
+        entire corpus from the run, and the run then reported success.
+
+        Reported even when the run indexed plenty, which is the case the
+        empty-run notice cannot reach: three folders configured, one of them
+        gone, thousands of files indexed from the other two, and the missing
+        third is invisible in every number on the page.
+        """
+        try:
+            problems = dict(
+                getattr(self.config.walk, "root_problems", {}) or {})
+            if not problems:
+                return
+            stats.root_problems = problems
+
+            missing = [path for path, why in problems.items() if why == "not found"]
+            listed = ", ".join(
+                f"{path} ({why})" for path, why in sorted(problems.items()))
+            notice = (
+                f"{len(problems)} of the folders you asked Leasha to search "
+                f"could not be read this run: {listed}."
+            )
+            if missing:
+                notice += (
+                    " Nothing in them is in the index. If that is a removable "
+                    "or network drive, connect it and index again.")
+            stats.notices.append(notice)
+            self._log.warning("{}", notice)
+        except Exception as exc:                    # noqa: BLE001 - a notice
+            self._log.debug("could not describe the unusable roots: {}", exc)
+
+    def _say_if_nothing_was_walked(self, stats: IndexStats) -> None:
+        r"""A run that looked at no files at all must say why. Never raises.
+
+        **This is the most confusing thing Leasha can do and it used to do it
+        in silence.** On 2026-08-27 an index run was started from the window,
+        took six minutes, reported success, and had `seen: 0` - it walked
+        nothing whatsoever. The Indexing page showed zeroes and offered no
+        reason, and the owner's reasonable conclusion was that his mail had
+        not been indexed. Nothing in the run said the walk had found no files,
+        because there was no such notice: `notices` was appended to in exactly
+        one place in this file, for archival roots.
+
+        The three ways it happens are genuinely different and want different
+        answers, so they are named separately rather than folded into one
+        "nothing to do":
+
+        * **No folders are configured.** Since the privacy work, roots start
+          empty on a fresh install - by design - so this is the expected state
+          of a new machine and the fix is one trip to Settings.
+        * **Every folder was skipped as archival.** Deliberate, already
+          reported per-root, but worth repeating when the *total* is nothing.
+        * **The folders were read and held nothing.** A drive that did not
+          mount comes back as an empty folder rather than an error, which is
+          the case worth naming out loud.
+
+        `unreachable` is deliberately not one of them: that already has its own
+        warning above, and a run can be both unreachable-heavy and non-empty.
+        """
+        try:
+            if stats.seen or stats.indexed or stats.unchanged:
+                return
+
+            walked = [str(root) for root in (self.config.walk.roots or [])]
+            skipped = len(stats.skipped_roots or [])
+
+            if not walked and not skipped:
+                notice = (
+                    "No folders are set up to be searched, so this run had "
+                    "nothing to look at. Add the folders you want indexed on "
+                    "the Settings page.")
+            elif not walked and skipped:
+                notice = (
+                    f"Nothing was indexed: all {skipped} folder(s) are marked "
+                    "as archives and were left alone this time. They are "
+                    "listed above with the date each was last read.")
+            else:
+                shown = ", ".join(walked[:3]) + ("..." if len(walked) > 3 else "")
+                notice = (
+                    f"Nothing was found to index in {shown}. The folder was "
+                    "read and held no files Leasha can index - if that is a "
+                    "removable or network drive, check it is connected.")
+
+            stats.notices.append(notice)
+            # WARNING, not INFO: a run that indexed nothing and said nothing is
+            # the report this exists to prevent.
+            self._log.warning("{}", notice)
+        except Exception as exc:                    # noqa: BLE001 - a notice
+            self._log.debug("could not describe an empty run: {}", exc)
 
     def _write_completions(self) -> None:
         """The shell's completion sidecar, refreshed at the end of the run.
