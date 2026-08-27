@@ -1,6 +1,16 @@
 # Changelog
 
-**Doc version:** 3.92 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 3.93 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+
+## The activity log, in colour and in its own window
+
+- **Warnings and errors stand out.** The level word is still on the line, so
+  it works whether or not you can tell the colours apart.
+- **Double-click an error that names a file** and it opens that file.
+- **Open the log in its own window** and keep it on top, so you can watch an
+  index run while working in something else. It stays in Settings as well.
+- The window remembers its size and whether you pinned it.
+
 
 ## Click into an empty search box and it offers your own searches
 

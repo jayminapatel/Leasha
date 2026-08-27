@@ -1,6 +1,6 @@
 # Work order (One thread): workspace features — pop-outs, viewers, and the tools around search
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + preview loader + extract/converter + install docs)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626270157-search-experience.md`.
@@ -15,17 +15,17 @@ in the document.
 
 ## 1. The log, made actionable
 
-- [ ] **1a Colours by level**: normal lines unchanged, warnings in the theme's
+- [x] **1a Colours by level**: normal lines unchanged, warnings in the theme's
   warn colour (`#statWarn`), errors in the theme's danger colour — **theme
   tokens only, never hardcoded hex** (a hardcoded red disappears on the dark
   theme), and the level word stays in the line: colour is never the only
   signal (the accessible-names philosophy, applied to colour).
-- [ ] **1b Clickable errors**: an error line naming a file or skip reason
+- [x] **1b Clickable errors**: an error line naming a file or skip reason
   jumps to that file's skip entry / row. A log you can act on, not just read.
-- [ ] **1c Pop-out**: the log opens as its own top-level window — geometry
+- [x] **1c Pop-out**: the log opens as its own top-level window — geometry
   remembered, keeps updating while the main window is minimised to tray,
   closing it returns nothing to re-wire (the in-app log never left).
-- [ ] **1d Stay-on-top**: a toggle on the popped-out log
+- [x] **1d Stay-on-top**: a toggle on the popped-out log
   (`WindowStaysOnTopHint`), remembered. The use case is watching a long
   index run while working in another app.
 
@@ -149,7 +149,7 @@ allowed and expected — compare falls out for free.
 
 ## 7. Tests
 
-- [ ] log: level→token mapping (both themes), clickable error routing,
+- [x] log: level→token mapping (both themes), clickable error routing,
   pop-out update-while-minimised.
 - [ ] pop-outs: independent generation stamps (main-window search does not
   touch a pinned window — the regression test for 2a's whole point);
@@ -176,3 +176,70 @@ when a user can: watch a colour-coded log in a pinned window during a run,
 pin three documents and a mail side by side, rotate a sideways scan once and
 never again, see a spreadsheet as a grid, summon search from anywhere with a
 hotkey, and drag the found file straight into an email.
+
+## Note on §1, added 2026-08-28
+
+**A `danger` token had to exist first.** The palette had `warning` and nothing
+below it, so an error and a warning were the same colour — and a log whose two
+not-fine states look identical cannot answer the question it is open to
+answer. Both palettes gained one, with different values, which is the reason
+the palette is two dictionaries rather than one with a flag. Muted rather than
+pillar-box: this sits in a wall of 12px text, where a saturated red vibrates
+against a dark ground.
+
+**Three buckets, not seven.** loguru has seven levels; a log rendering five of
+them in five colours is *harder* to scan than one rendered in none, because
+the eye is hunting the lines that are not fine. `LEVELS` maps everything to
+normal / warn / error and a test pins that it stays three.
+
+**The level word stays in the line**, per §1a's own instruction and this
+codebase's standing rule. Asserted, because "colour is never the only signal"
+is the kind of thing that is true when written and quietly stops being true.
+
+**A defect found while writing §1b, and it decided the regular expression.**
+The first path matcher stopped at the first space — so
+`C:\Users\jay\My Docs\a.docx`, the shape of most real paths on Windows,
+matched nothing at all. Now non-greedy up to the first extension followed by a
+boundary, which also handles `//server/share/site plan.dwg`. Four shapes are
+in the test table.
+
+**Only warnings and errors that name a file are clickable**, and that is a
+decision rather than an oversight: an underlined `INFO` that goes nowhere
+teaches people that none of the underlined things go anywhere. An extension is
+required too — a folder is not a file, and a click that opened the wrong thing
+is worse than a line that does not respond. **Double-click**, not single,
+because single click is how somebody selects a line to copy it, which is the
+first thing anyone does with a line that looks wrong.
+
+**The pop-out is a copy, exactly as §2 requires of previews.** `LogWindow`
+builds its own `DebugPane`; nothing re-parents the one in Settings, and a test
+greps for `setParent`/`takeWidget` to keep it that way. It is **not parented**
+to the main window either — a parented `QWidget` with a window flag is still
+owned by its parent, so minimising the main window would take the log with it,
+which is the one thing §1c exists to prevent. It keeps polling because the
+pane starts its own timer on `showEvent`, and nothing hides it when the main
+window hides.
+
+**`show()` after `setWindowFlag` is not optional**: changing a window flag
+re-creates the native window and Qt leaves the new one hidden, so a
+stay-on-top toggle without it makes the log vanish — which reads as the
+checkbox having closed it.
+
+**Geometry is four integers, not `saveGeometry()`'s blob.** Somebody working
+out why a window opened off-screen has to be able to read `index_state` and
+see where it thinks it is. A remembered size below the floor, or from a screen
+no longer attached, is discarded rather than used.
+
+**The pop-out button lives on the pane, not in Settings** — partly because it
+belongs beside the thing it pops out, and partly because `settings_view.py`
+was at 249 of the 250 lines its guard allows. The guard doing its job again.
+
+**And the suite caught one of mine.** `_remember_log_window` locally imported
+`CallableWorker`, which the module already imports;
+`test_no_function_reimports_a_name_the_module_already_has` refuses that,
+because a local import of a module-level name makes it local to the *whole*
+function and turns any earlier use into `UnboundLocalError`.
+
+Not verified on Windows: window flags are exactly where Linux lies, as the
+order's own "Done means" says. Worth one look at stay-on-top and at the log
+still updating while the main window is in the tray.

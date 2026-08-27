@@ -178,6 +178,7 @@
     <Compile Include="app\ui\grammars.py" />
     <Compile Include="app\ui\indexing_settings.py" />
     <Compile Include="app\ui\indexing_view.py" />
+    <Compile Include="app\ui\log_lines.py" />
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\presenter.py" />
     <Compile Include="app\ui\preview_loader.py" />
@@ -216,6 +217,7 @@
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
+    <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
@@ -330,6 +332,7 @@
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
+    <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_match_marker.py" />

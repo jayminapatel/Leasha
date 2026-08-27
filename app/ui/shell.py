@@ -247,6 +247,13 @@ class MainWindow(QMainWindow):
         self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
 
         self.settings_view = SettingsView(settings, store)
+        #: The popped-out log, or None. Workspace §1c: a **copy**, not a move -
+        #: the pane in Settings never leaves, so closing this returns nothing
+        #: to re-wire. Declared here because `_apply_theme` pushes the palette
+        #: to whichever of the two exist, and it runs before anybody opens one.
+        self._log_window: Any = None
+        self.settings_view.debug_pane.file_chosen.connect(self._open_path)
+        self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
         self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
         self.settings_view.roots_changed.connect(self._save_roots)
         self.settings_view.root_modes_changed.connect(self._save_root_modes)
@@ -1249,6 +1256,17 @@ class MainWindow(QMainWindow):
         detected = detect_scheme(QGuiApplication.instance())
         self.setStyleSheet(stylesheet(preference, detected=detected))
 
+        # **Workspace §1a: the log's colours are pushed, not read.** The pane
+        # paints warnings and errors from theme tokens, and this is the one
+        # place that knows which theme is on - so the palette arrives here,
+        # every time it changes, and a hardcoded hex never has to exist.
+        from app.ui.theme import palette_for
+
+        colours = palette_for(preference, detected=detected)
+        for target in (self.settings_view.debug_pane, self._log_window):
+            if target is not None:
+                target.set_palette(colours)
+
         # Qt 6.5+ emits this when the system switch is flipped, so the window
         # follows without a restart.
         #
@@ -1267,6 +1285,55 @@ class MainWindow(QMainWindow):
                 )
             except Exception:                # noqa: BLE001 - older Qt, or no hints
                 pass
+
+    def _pop_out_log(self) -> None:
+        r"""Open the log as its own window, or bring back the one that is open.
+
+        Workspace §1c. **One window, not one per click** - a second identical
+        log window is never what anybody meant, and closing the wrong one
+        afterwards is a small annoyance the feature does not need.
+
+        Never raises: this is a convenience beside a log, and a window that
+        will not open must not take the one you are looking at with it.
+        """
+        try:
+            if self._log_window is None:
+                from app.ui.widgets.log_window import LogWindow
+
+                window = LogWindow()
+                window.file_chosen.connect(self._open_path)
+                window.remember.connect(self._remember_log_window)
+                window.closed.connect(self._forget_log_window)
+                window.restore(self._log_window_state())
+                self._log_window = window
+                self._apply_theme()          # paints it in the current theme
+            self._log_window.show()
+            self._log_window.raise_()
+            self._log_window.activateWindow()
+        except Exception as exc:             # noqa: BLE001 - see docstring
+            _log.warning("could not open the log window: {}", exc)
+
+    def _log_window_state(self) -> dict:
+        """What the log window remembered last time. **Never raises.**"""
+        try:
+            return self._store.all_state()
+        except Exception:                    # noqa: BLE001 - a preference
+            return {}
+
+    def _remember_log_window(self, values: dict) -> None:
+        """Save the window's geometry or its stay-on-top flag, off this thread.
+
+        A move or a resize fires this on every pixel, so it goes to a worker
+        rather than fsyncing the database inside a drag.
+        """
+        store = self._store
+        run(QThreadPool.globalInstance(),
+            CallableWorker(lambda: store.set_states(dict(values or {})),
+                           component="ui.log.window"))
+
+    def _forget_log_window(self) -> None:
+        """It was closed. Let it go, so the next pop-out builds a fresh one."""
+        self._log_window = None
 
     def _show(self, view: QWidget) -> None:
         """Bring a view's tab forward, wrapped or not.

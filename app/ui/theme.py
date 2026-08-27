@@ -63,6 +63,13 @@ PALETTES: dict[str, dict[str, str]] = {
         "focus_ring": "#5f9fdd",
         "highlight": "#ffd479",
         "warning": "#d98b5b",
+        # **A third state, added for the log.** `warning` was the only
+        # not-fine colour, and a log that paints an error the same as a
+        # warning cannot answer the question it is open to answer - *which
+        # lines are the bad ones*. Muted rather than pillar-box: this sits in
+        # a wall of text, and a saturated red at 12px vibrates against a dark
+        # ground. See `ui/log_lines.TOKENS`, which names it and never a value.
+        "danger": "#d97070",
         "selection_text": "#ffffff",
         "scroll": "#3a3d42",
         "scroll_hover": "#4c5057",
@@ -93,6 +100,10 @@ PALETTES: dict[str, dict[str, str]] = {
         # the whole reason these are two palettes rather than one with a flag.
         "highlight": "#8a5a00",
         "warning": "#a5541f",
+        # Darker than the dark theme's, for the same reason the highlight is:
+        # the same token needs a different value on a white ground, which is
+        # why these are two palettes rather than one with a flag.
+        "danger": "#a32020",
         "selection_text": "#0b1620",
     },
 }
