@@ -312,6 +312,48 @@ def _exit_fast(code: int) -> None:
     os._exit(code)  # noqa: B605 - deliberate use of os._exit
 
 
+def _acquire_gui_lock_responsively(
+    gui_lock: Any,
+    wait_s: float,
+    application: Any,
+) -> Any:
+    r"""Acquire the single-instance lock without freezing the splash (§2c).
+
+    **`SingleInstance.acquire(wait_s=...)` blocks the calling thread in its own
+    retry loop** (`time.sleep` between attempts), and at this point in startup
+    `application.exec()` has not been called yet - there is no Qt event loop
+    running to pump. The splash's status was already being set to the honest
+    handover message (`"Waiting for the previous Leasha to finish closing…"`)
+    before this call, but with nothing pumping events during a call that can
+    block for up to `HANDOVER_WAIT_S` (12s), the widget never actually repaints
+    to show it, its case-rotation timer never fires, and Windows may mark the
+    window Not Responding. That is the exact "busy cursor and nothing else"
+    symptom from the work order's problem statement - still present underneath
+    a splash that was built specifically to explain it.
+
+    This polls instead: one non-blocking attempt (`wait_s=0.0`) at a time, with
+    `application.processEvents()` between attempts, so the splash keeps
+    genuinely repainting and rotating cases for the whole wait. It changes
+    nothing about `SingleInstance`'s own locking semantics or its error
+    contract - a timeout still raises the same `AppErrorException`
+    `acquire(wait_s=...)` would have raised, from the same deadline.
+    """
+    import time as _time
+
+    from app.core.errors import AppErrorException
+
+    deadline = _time.monotonic() + max(0.0, float(wait_s))
+    poll_s = 0.1
+    while True:
+        try:
+            return gui_lock.acquire(wait_s=0.0)
+        except AppErrorException:
+            if _time.monotonic() >= deadline:
+                raise
+            application.processEvents()
+            _time.sleep(poll_s)
+
+
 def _apply_pending_move(settings: Any) -> Any:
     """Carry out an index move recorded by Settings, if one is waiting.
 
@@ -419,7 +461,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # single-instance handover and model loading. It reports progress through
     # startup breadcrumbs and optionally a download progress bar.
     from app.ui.splash import SplashScreen, StatusReporter
-    from app.ui.startup_timing import StartupTimer
+    from app.ui.startup_timing import CloseTimer, StartupTimer
 
     startup_timer = StartupTimer()
     splash = SplashScreen()
@@ -446,10 +488,13 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     log = logger.bind(component="main")
 
+    import time
+
     code = 1
     try:
         log.info("startup: acquiring the single-instance lock")
         status_reporter("Waiting for the previous Leasha to finish closing…")
+        application.processEvents()
         # **Waited for, not asked about once.** Closing Leasha holds this lock
         # for as long as the stores stay open, which is seconds - and the window
         # has already vanished from the screen by then, so relaunching
@@ -460,12 +505,22 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         # a terminal impossible - a refusal that protected nothing, because a
         # window that is merely open is a reader. A second *window* is still
         # refused; see `core/run_lock.py` for the split.
-        with gui_lock.acquire(wait_s=HANDOVER_WAIT_S), \
+        #
+        # §2c: acquired responsively rather than via a single blocking call, so
+        # the splash's handover status genuinely repaints (and its case
+        # rotation genuinely runs) for the whole wait instead of freezing on
+        # whatever was painted last. See `_acquire_gui_lock_responsively`.
+        _acquire_gui_lock_responsively(gui_lock, HANDOVER_WAIT_S, application)
+
+        status_reporter("Opening your index…")
+        application.processEvents()
+        with gui_lock, \
                 SqliteStore(settings.fts_db) as store, \
                 VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
             log.info("startup: stores open, loading the embedding model",
                      model=settings.embed_model, cache=str(settings.model_cache))
             status_reporter("Loading the search engine…")
+            application.processEvents()
             embedder = Embedder.from_settings(settings)
 
             log.info("startup: loading the reranker",
@@ -486,6 +541,24 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             log.info("startup: warm-up complete")
             status_reporter("Ready")
             startup_timer.record_warm_up_complete()
+            # §2a: measured numbers, logged so every run captures them without
+            # anyone adding print statements by hand. See the work order §2a
+            # for the numbers recorded from this on the owner's machine.
+            #
+            # **Interpolated into the message, not passed as kwargs.** The
+            # file/console log format strings only render `{message}` plus
+            # `component`/`error_code` from `extra` - arbitrary `**kwargs`
+            # land in the record's `extra` dict but never appear in the
+            # rendered line, which is how the existing `model=...`/`cache=...`
+            # kwargs a few lines above this one have been silently invisible
+            # in every run log all along.
+            _timings = startup_timer.summary()
+            log.info(
+                "startup: timings - splash {}ms, window {}ms, ready {}ms",
+                _timings["process_start_to_splash_ms"],
+                _timings["process_start_to_window_ms"],
+                _timings["process_start_to_ready_ms"],
+            )
             # **Nothing closed the splash.** It showed, reported every stage
             # correctly, and then sat on screen rotating cases for the entire
             # life of the process - `hide_and_close` existed and was never
@@ -497,12 +570,53 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             log.info("startup: entering the event loop")
             code = application.exec()
             log.info("shutdown: the event loop returned", code=code)
+
+            # §3a: time the tail. The stage log used to end at "engine" close
+            # (see `MainWindow.closeEvent`'s own staged teardown) with nothing
+            # after it - a shutdown that took twenty seconds and one that took
+            # two looked identical from here on, and the single-instance lock
+            # is held for exactly this stretch, so a slow tail is what a
+            # relaunch runs into.
+            #
+            # **Closed explicitly here, ahead of the `with` block's own exit.**
+            # `SqliteStore.close()`, `VectorStore.close()` and
+            # `SingleInstance.release()` are all documented safe to call more
+            # than once, so the `with` statement's automatic exit below runs
+            # immediately afterwards as a harmless no-op - this does not change
+            # what gets closed or when, only names each stage as it happens.
+            # (kwargs are interpolated into the message, not passed as extra
+            # fields - see the §2a comment above on why: they render invisibly
+            # otherwise.)
+            close_timer = CloseTimer()
+            t0 = time.perf_counter()
+            store.close()
+            log.info("shutdown: sqlite store closed - {}s",
+                     round(time.perf_counter() - t0, 3))
+
+            t0 = time.perf_counter()
+            vectors.close()
+            log.info("shutdown: vector store closed - {}s",
+                     round(time.perf_counter() - t0, 3))
+            close_timer.record_stores_closed()
+
+            t0 = time.perf_counter()
+            gui_lock.release()
+            close_timer.record_lock_released()
+            log.info("shutdown: lock released - {}s",
+                     round(time.perf_counter() - t0, 3))
         # **After the context exits, stores and lock are released.** §3d: Skip
         # interpreter teardown of heavyweight native modules (onnxruntime, lance,
         # PyQt6) with os._exit(). This is the standard remedy for slow native
         # unload on Windows. The placement after store close is load-bearing -
         # it ensures SQLite and LanceDB __exit__ have run.
-        log.info("shutdown: stores and lock released, exiting")
+        _close_summary = close_timer.summary()
+        log.info(
+            "shutdown: stores and lock released, exiting - "
+            "stores {}ms, lock {}ms since event loop returned",
+            _close_summary["close_to_stores_closed_ms"],
+            _close_summary["close_to_lock_released_ms"],
+        )
+        close_timer.record_process_exiting()
         _exit_fast(code)
         # Never reached, but return for type checking
         return code
