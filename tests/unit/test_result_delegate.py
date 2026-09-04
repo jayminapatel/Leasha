@@ -476,6 +476,57 @@ def test_a_group_with_emphasis_paints_without_raising():
         painter.end()
 
 
+# ---------------------------------------------------------------------------
+# Item 5a: a subtle hover state
+# ---------------------------------------------------------------------------
+
+def test_hover_paints_a_different_background_from_the_ordinary_row():
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QImage, QPainter
+    from PyQt6.QtWidgets import QStyle
+
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
+
+    payload = group()
+
+    class Option:
+        def __init__(self, state):
+            self.rect = QRect(0, 0, 200, 40)
+            self.font = QFont()
+            self.state = state
+
+    class Index:
+        def data(self, role):
+            if role == ROLE_PAYLOAD:
+                return payload
+            if role == ROLE_EXPANDED:
+                return False
+            return None
+
+    def pixel_at(state):
+        image = QImage(200, 40, QImage.Format.Format_RGB32)
+        painter = QPainter(image)
+        ResultDelegate().paint(painter, Option(state), Index())
+        painter.end()
+        return image.pixelColor(2, 2)
+
+    plain = pixel_at(QStyle.StateFlag.State_Enabled)
+    hovered = pixel_at(QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_MouseOver)
+    assert plain != hovered, "hover must paint a visibly different background"
+
+
+def test_hover_never_wins_over_selection():
+    """Selection is the stronger signal - a selected, hovered row must still
+    read as selected, never fall back to the plain hover tint."""
+    from app.ui.result_delegate import ResultDelegate
+
+    source = DELEGATE.read_text(encoding="utf-8")
+    body = source.split("def paint")[1].split("\n    def ")[0]
+    # Selected is checked first, and hover is only an elif - a selected row
+    # can never also take the hover branch.
+    assert body.index("State_Selected") < body.index("State_MouseOver")
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""

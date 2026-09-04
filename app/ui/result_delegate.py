@@ -167,9 +167,13 @@ class ResultDelegate(QStyledItemDelegate):
         colours = theme_colours()
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, QColor(colours["accent_soft"]))
-            text_colour = QColor(colours["text"])
-        else:
-            text_colour = QColor(colours["text"])
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            # **Item 5a.** `surface_hover` already exists for the stylesheet's
+            # own `QListView::item:hover` rule, and that rule can never reach
+            # a row this delegate paints itself - the same reason selection
+            # is filled here rather than left to the palette, a few lines up.
+            painter.fillRect(option.rect, QColor(colours["surface_hover"]))
+        text_colour = QColor(colours["text"])
         faint = QColor(colours["text_faint"])
 
         metrics = Metrics.for_density(self.prefs.density)

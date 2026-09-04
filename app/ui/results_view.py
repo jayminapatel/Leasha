@@ -89,6 +89,7 @@ class ResultsView(QWidget):
         self._list.setUniformItemSizes(False)
         self._list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._list.setMouseTracking(True)          # item 5a: hover needs it
         self._list.activated.connect(self._on_activated)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)

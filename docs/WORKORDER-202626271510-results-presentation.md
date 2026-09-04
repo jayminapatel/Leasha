@@ -125,7 +125,7 @@ job.
 
 ## 5. Feel — the details that read as polish
 
-- [ ] **5a** rows paint a subtle **hover state** (`State_MouseOver`;
+- [x] **5a** rows paint a subtle **hover state** (`State_MouseOver`;
   theme token, both themes).
 - [x] **5b** the list scrolls **per pixel** (`ScrollPerPixel`) — per-item
   scrolling with tall rows feels notchy.
