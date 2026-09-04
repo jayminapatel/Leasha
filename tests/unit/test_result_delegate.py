@@ -210,6 +210,24 @@ def test_a_missing_file_says_so_in_the_tooltip():
     assert "missing" in result_tooltip(group(), missing=True).lower()
 
 
+def test_the_tooltip_always_carries_the_exact_date():
+    """Item 4b: the exact date is a tooltip promise, independent of whichever
+    register the visible row happens to be reading in."""
+    from app.ui.presenter import group_results, result_tooltip
+
+    built = group_results([row()], now=1_700_100_000, register="plain")[0]
+    assert "Date:" in result_tooltip(built)
+    assert built.when_exact in result_tooltip(built)
+
+
+def test_a_plain_result_row_without_a_group_still_gets_an_exact_date():
+    """The tooltip works on a raw `ResultRow` too - ungrouped mode shows those
+    directly, with no `ResultGroup.when_exact` to fall back on."""
+    from app.ui.presenter import result_tooltip
+
+    assert "Date:" in result_tooltip(row())
+
+
 def test_the_kind_tag_is_text_rather_than_an_icon():
     """Text survives dark mode, high-DPI and a missing font file. None of that
     is worth paying for before anybody says the tags are insufficient."""

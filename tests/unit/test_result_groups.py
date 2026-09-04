@@ -258,6 +258,45 @@ def test_details_may_be_omitted_entirely():
 
 
 # ---------------------------------------------------------------------------
+# Item 4b: friendly dates, register-gated
+# ---------------------------------------------------------------------------
+
+NOW = 1_700_100_000  # a few days after the fixture rows' fixed mtime
+
+def test_plain_register_reads_friendly():
+    group = group_results([row(1, 0.9)], now=NOW, register="plain")[0]
+    assert "20" not in group.when, "a friendly date has no bare four-digit year yet"
+
+
+def test_technical_register_keeps_an_exact_date():
+    group = group_results([row(1, 0.9)], now=NOW, register="technical")[0]
+    assert group.when == group.when_exact
+
+
+def test_the_exact_date_is_always_present_whichever_register_is_showing():
+    """The tooltip's promise: item 4b never loses the exact date, even on the
+    plain-register surface that never shows it on the row itself."""
+    plain = group_results([row(1, 0.9)], now=NOW, register="plain")[0]
+    technical = group_results([row(1, 0.9)], now=NOW, register="technical")[0]
+    assert plain.when_exact and plain.when_exact == technical.when_exact
+
+
+def test_an_unrecognised_register_falls_back_to_plain():
+    group = group_results([row(1, 0.9)], now=NOW, register="whatever")[0]
+    assert group.when != group.when_exact
+
+
+def test_a_message_group_s_date_is_also_register_gated():
+    friendly = group_results([row(9, 0.9)], details={9: MESSAGE}, now=NOW,
+                             register="plain")[0]
+    exact = group_results([row(9, 0.9)], details={9: MESSAGE}, now=NOW,
+                          register="technical")[0]
+    assert friendly.when != exact.when
+    assert friendly.when_exact == exact.when_exact
+    assert exact.when == exact.when_exact
+
+
+# ---------------------------------------------------------------------------
 # The engine must be untouched
 # ---------------------------------------------------------------------------
 

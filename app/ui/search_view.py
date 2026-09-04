@@ -28,6 +28,7 @@ from app.ui.presenter import (
     TYPING_DEBOUNCE_MS,
     Tier,
     federated_summary,
+    notice_register_for,
     result_view_state,
     search_options,
     search_shape,
@@ -338,7 +339,8 @@ class SearchView(QWidget):
         # subtitles and missing-file marks arrive a moment later.
         self._index_count = len(response.results)
         self._last_terms = terms
-        self.results.show_results(response.results, terms, summary=summary)
+        register = notice_register_for("search", self._search_preferences)
+        self.results.show_results(response.results, terms, summary=summary, register=register)
 
         generation = self._shown_generation
         decorate_results_async(

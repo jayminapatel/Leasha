@@ -119,6 +119,7 @@ __all__ = [
     "results_terminator",
     "CODE_EXTENSIONS",
     "is_code_kind",
+    "notice_register_for",
     "SNIPPET_CHARS",
     "TYPING_DEBOUNCE_MS",
     "IDLE_DEBOUNCE_MS",
@@ -683,6 +684,10 @@ class ResultGroup:
     path: str
     #: Every matching chunk, best first.
     rows: list[ResultRow] = field(default_factory=list)
+    #: The precise date `when` may have blurred into "yesterday" or "3 weeks
+    #: ago" - item 4b. Always computed, whatever register `when` itself is
+    #: reading in, so the tooltip can show it regardless.
+    when_exact: str = ""
 
     @property
     def best(self) -> Optional[ResultRow]:
@@ -716,6 +721,7 @@ def group_results(
     limit: int = 0,
     details: Optional[Mapping[int, Mapping[str, Any]]] = None,
     now: Optional[float] = None,
+    register: str = "plain",
 ) -> list[ResultGroup]:
     """Chunk rows to document groups, ordered by each group's best chunk.
 
@@ -726,6 +732,10 @@ def group_results(
     `store.messages_for`), so a message can use its subject rather than a
     synthetic path nobody would recognise. Absent, or missing an entry, falls
     back to the filename without raising.
+
+    `register` gates `when` between "yesterday"/"3 weeks ago" (`"plain"`, the
+    default) and an exact date (`"technical"`) - item 4b. Whichever it picks,
+    `ResultGroup.when_exact` always carries the exact date, for the tooltip.
     """
     order: list[int] = []
     collected: dict[int, list[ResultRow]] = {}
@@ -738,7 +748,8 @@ def group_results(
         collected[row.file_id].append(row)
 
     groups = [
-        _build_group(file_id, collected[file_id], (details or {}).get(file_id), now=now)
+        _build_group(file_id, collected[file_id], (details or {}).get(file_id),
+                    now=now, register=register)
         for file_id in order
     ]
     return groups[:limit] if limit else groups
@@ -750,12 +761,15 @@ def _build_group(
     detail: Optional[Mapping[str, Any]],
     *,
     now: Optional[float] = None,
+    register: str = "plain",
 ) -> ResultGroup:
     path = rows[0].path if rows else ""
     name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
     folder = breadcrumb(path[: len(path) - len(name)])
     kind = (rows[0].ext if rows else "") or _ext_of(name)
-    when = format_when(rows[0].mtime_ns, now=now) if rows else ""
+    friendly = str(register or "plain").lower() != "technical"
+    when_exact = _exact_date(rows[0].mtime_ns) if rows else ""
+    when = format_when(rows[0].mtime_ns, now=now) if (rows and friendly) else when_exact
 
     if detail:
         # A message: its path is a synthetic key nobody typed and nobody would
@@ -773,11 +787,14 @@ def _build_group(
         kind = "email"
         sent = detail.get("sent_at")
         if sent:
-            when = format_sent(sent, now=now)
+            when_exact = _exact_date_from_epoch(sent)
+            # A message's own sent date, in ns, so the same friendly ageing
+            # rules apply to mail as to a file - item 4b.
+            when = format_when(int(sent) * 1_000_000_000, now=now) if friendly else when_exact
 
     return ResultGroup(
         file_id=file_id, name=name, folder=folder, kind=kind,
-        when=when, path=path, rows=rows,
+        when=when, path=path, rows=rows, when_exact=when_exact,
     )
 
 
@@ -892,6 +909,42 @@ def format_when(mtime_ns: int, *, now: Optional[float] = None) -> str:
         weeks = days // 7
         return f"{weeks} week ago" if weeks == 1 else f"{weeks} weeks ago"
     return _time.strftime("%d %b %Y", _time.localtime(mtime_ns / 1_000_000_000))
+
+
+def _exact_date(mtime_ns: int) -> str:
+    """The precise moment `format_when` blurs into an age - item 4b.
+
+    Always available regardless of register, because the tooltip promises it
+    whichever way the visible row is reading.
+    """
+    if not mtime_ns:
+        return ""
+    return _time.strftime("%d %b %Y, %H:%M", _time.localtime(mtime_ns / 1_000_000_000))
+
+
+def _exact_date_from_epoch(epoch_seconds: Any) -> str:
+    """The same exact format as `_exact_date`, from a mail `sent_at` (seconds,
+    not nanoseconds)."""
+    try:
+        seconds = int(epoch_seconds)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    return _time.strftime("%d %b %Y, %H:%M", _time.localtime(seconds))
+
+
+def notice_register_for(surface: str, preferences: Any = None) -> str:
+    """`"plain"` or `"technical"` for this surface, right now - item 4b.
+
+    The same seam `search_options` resolves a `SearchPolicy` through
+    (`notice_register`), so a person who has switched off "Explain in plain
+    words" gets exact dates on the Search tab too, not just on the power
+    surfaces whose default already is technical.
+    """
+    from app.search.policy import from_settings
+
+    return from_settings(surface, preferences).notice_register
 
 
 #: What a status means to somebody looking at a list of files.
@@ -1065,12 +1118,17 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     """The full path and the explanation - both of which came off the row.
 
     The breadcrumb is a display choice; the tooltip is where the truth stays.
+    So is the date - item 4b promises the exact one here regardless of
+    whatever register the visible row is reading in.
     """
     path = getattr(payload, "path", "")
     best = getattr(payload, "best", payload)
     lines = [path]
     if best is not None:
         lines.append(why(best))
+    exact = getattr(payload, "when_exact", "") or _exact_date(getattr(best, "mtime_ns", 0))
+    if exact:
+        lines.append(f"Date: {exact}")
     if missing:
         lines.append("This file is missing - the index is stale for it.")
     return "\n\n".join(line for line in lines if line)

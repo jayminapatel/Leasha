@@ -38,6 +38,33 @@ def test_mid_keystroke_runs_nothing() -> None:
     assert tier_for("pump station", still_for_ms=20) == Tier.NONE
 
 
+# ---------------------------------------------------------------------------
+# Item 4b: the register seam that gates friendly vs exact dates
+# ---------------------------------------------------------------------------
+
+def test_the_search_tab_reads_plain_by_default() -> None:
+    from app.ui.presenter import notice_register_for
+
+    assert notice_register_for("search") == "plain"
+
+
+def test_a_files_tab_style_surface_reads_technical_by_default() -> None:
+    from app.ui.presenter import notice_register_for
+
+    assert notice_register_for("files") == "technical"
+
+
+def test_turning_off_plain_words_globally_reaches_the_search_tab_too() -> None:
+    """The global "Explain in plain words" switch is a veto, never a force -
+    see `policy.from_settings` - so switching it off must still reach the one
+    surface whose default is already plain. `from_settings` reads behaviour
+    names directly (`notice_register`), which is what a converted
+    preferences dict already holds by the time it reaches this seam."""
+    from app.ui.presenter import notice_register_for
+
+    assert notice_register_for("search", {"notice_register": "technical"}) == "technical"
+
+
 def test_a_short_pause_runs_the_keyword_tier() -> None:
     assert tier_for("pump station", still_for_ms=TYPING_DEBOUNCE_MS) == Tier.INTERIM
 

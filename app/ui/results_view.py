@@ -73,6 +73,8 @@ class ResultsView(QWidget):
         self._expanded: set[int] = set()
         #: Paths that no longer exist, decided on a worker - never statted here.
         self._missing: set[str] = set()
+        #: "plain" or "technical" - item 4b's date register, from the tab.
+        self._register = "plain"
 
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
@@ -129,6 +131,7 @@ class ResultsView(QWidget):
         details: Optional[dict[int, Any]] = None,
         missing: Optional[set[str]] = None,
         keep_scroll: bool = False,
+        register: Optional[str] = None,
     ) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
@@ -152,6 +155,11 @@ class ResultsView(QWidget):
         self._rows = to_rows(results, terms)
         self._details = dict(details or {})
         self._missing = set(missing or ())
+        if register is not None:
+            # **Only when told.** `redraw_with_details`'s follow-up paint of
+            # the same results omits this - item 4b's register must not reset
+            # to "plain" on every metadata redraw that happens to follow.
+            self._register = str(register)
         self._expanded.clear()
         self._summary.setText(summary)
         self._rebuild(keep_scroll=keep_scroll)
@@ -192,7 +200,8 @@ class ResultsView(QWidget):
 
         self._model.clear()
         if self._prefs.group_by_document:
-            for group in group_results(self._rows, details=self._details):
+            for group in group_results(self._rows, details=self._details,
+                                       register=self._register):
                 expanded = group.file_id in self._expanded
                 self._append(group, expanded=expanded)
                 if expanded and group.match_count > 1:

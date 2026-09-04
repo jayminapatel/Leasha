@@ -114,7 +114,7 @@ job.
   `…\Projects\Foo\Final` — because the leaf folder is the distinguishing
   part of a deep path. Same sin the name-elision fix corrected, one line
   down.
-- [ ] **4b** dates on plain-register surfaces read **friendly** —
+- [x] **4b** dates on plain-register surfaces read **friendly** —
   "yesterday", "last week", "Mar 2019" — with the exact date always in
   the tooltip; technical surfaces keep exact dates. Register-gated via
   the existing notice-register/policy seam, off-able.
