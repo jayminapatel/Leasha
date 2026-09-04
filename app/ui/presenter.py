@@ -101,6 +101,7 @@ __all__ = [
     "decorate_results",
     "record_open",
     "why",
+    "row_identity",
     "kind_tag",
     "group_subtitle",
     "result_tooltip",
@@ -1114,6 +1115,21 @@ KIND_LABELS = {
     "pptx": "PPT", "ppt": "PPT", "odp": "PPT",
     "txt": "TXT", "md": "TXT", "log": "TXT",
 }
+
+
+def row_identity(payload: Any) -> Any:
+    """A stable identity for a row or group - item 5d's stable-update rule.
+
+    "The row under the pointer must not visibly jump" needs to find *the same
+    payload* again after a rebuild adds rows or re-ranks them, which a screen
+    position or a model row index cannot do - both change on every rebuild by
+    definition. A `ResultGroup`'s `file_id` survives a re-rank; a chunk row
+    (expanded inside a group) is identified by its own `chunk_id`, since two
+    chunks of the same document share a `file_id`.
+    """
+    if isinstance(payload, ResultGroup):
+        return ("group", payload.file_id)
+    return ("chunk", getattr(payload, "chunk_id", None))
 
 
 def kind_tag(kind: str) -> str:

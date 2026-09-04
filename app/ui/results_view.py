@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui.presenter import (
     KIND_LABELS, ResultGroup, ResultRow, Terminator, accessible_text,
-    group_results, result_tooltip, results_terminator, to_rows, why,
+    group_results, result_tooltip, results_terminator, row_identity, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
@@ -198,18 +198,21 @@ class ResultsView(QWidget):
         """
         bar = self._list.verticalScrollBar()
         position = bar.value() if bar is not None and keep_scroll else 0
+        # Item 5d: *what* was current, not *where* - a rebuild that adds or
+        # re-ranks rows changes every screen position, never the payload.
+        anchor = row_identity(self._list.currentIndex().data(ROLE_PAYLOAD)) if keep_scroll else None
 
         self._model.clear()
         if self._prefs.group_by_document:
             for group in group_results(self._rows, details=self._details, register=self._register):
                 expanded = group.file_id in self._expanded
-                self._append(group, expanded=expanded)
+                self._append(group, expanded=expanded, anchor=anchor)
                 if expanded and group.match_count > 1:
                     for row in group.rows:
-                        self._append(row)
+                        self._append(row, anchor=anchor)
         else:
             for row in self._rows:
-                self._append(row)
+                self._append(row, anchor=anchor)
         # Item 5c: a quiet, unselectable row of its own, so reaching it by
         # scrolling is what answers "are there more" - see `Terminator`.
         if self._rows:
@@ -218,7 +221,7 @@ class ResultsView(QWidget):
         if bar is not None:
             bar.setValue(min(position, bar.maximum()))
 
-    def _append(self, payload: Any, *, expanded: bool = False) -> None:
+    def _append(self, payload: Any, *, expanded: bool = False, anchor: Any = None) -> None:
         item = QStandardItem()
         item.setEditable(False)
         item.setData(payload, ROLE_PAYLOAD)
@@ -237,6 +240,8 @@ class ResultsView(QWidget):
         item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
         item.setData(spoken, int(Qt.ItemDataRole.DisplayRole))
         self._model.appendRow(item)
+        if anchor is not None and row_identity(payload) == anchor:      # item 5d
+            self._list.setCurrentIndex(self._model.index(self._model.rowCount() - 1, 0))
 
     def _append_terminator(self, text: str) -> None:
         """Item 5c: not selectable or activatable - a fact, not a result."""
@@ -311,8 +316,7 @@ class ResultsView(QWidget):
         ))
 
 
-def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any,
-                       on_error: Any) -> tuple:
+def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_error: Any) -> tuple:
     r"""A `ResultsView`, wired, with its preview pane attached.
 
     Returns `(results, preview, split)`.

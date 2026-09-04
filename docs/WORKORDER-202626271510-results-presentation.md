@@ -142,7 +142,7 @@ job.
   > and `ResultsView._rebuild` appends one, non-selectable and disabled, after
   > every real row via `_append_terminator`. Count agrees with the status line
   > by construction, as the item says, because both read `len(self._rows)`.
-- [ ] **5d THE STABLE-UPDATE RULE**: when the full tier replaces the
+- [x] **5d THE STABLE-UPDATE RULE**: when the full tier replaces the
   interim tier (or repository rows append), the refresh may add and
   re-rank rows, but the row under the pointer — and the current
   selection — must not visibly jump. Selection is already id-keyed;

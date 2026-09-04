@@ -85,10 +85,16 @@ def test_the_view_uses_a_model_and_a_delegate():
 
 def test_expanded_chunks_are_model_rows_not_nested_widgets():
     """Nesting widgets inside a virtualised list defeats the virtualisation for
-    exactly the rows somebody is looking at."""
+    exactly the rows somebody is looking at.
+
+    `_append(row` (no closing paren) rather than `_append(row)`: item 5d added
+    an `anchor=` keyword to the same call, and the substring must still match
+    it - the point of this test is that a chunk is appended as a plain model
+    row at all, not the exact argument list.
+    """
     text = RESULTS_VIEW.read_text(encoding="utf-8")
     body = text.split("def _rebuild")[1].split("\n    def ")[0]
-    assert "_append(row)" in body
+    assert "_append(row" in body
 
 
 def test_scrolling_is_per_pixel():
