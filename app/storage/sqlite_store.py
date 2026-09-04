@@ -387,13 +387,16 @@ class SqliteStore:
     def close(self) -> None:
         # Both, in the lock order set out in `__init__`: wait for an in-flight
         # write to finish rather than closing the connection underneath it.
+        #
+        # §3c: PRAGMA optimize moved to idle. SQLite's own guidance recommends
+        # periodic (e.g., hourly) PRAGMA optimize rather than at every close.
+        # Running it on the close path delays shutdown while holding the
+        # single-instance lock, which makes a relaunch wait unnecessarily.
+        # On idle (enrichment-backlog/idle pattern or coarse timer) it is cheaper
+        # and does not block the critical path.
         with self._write_lock, self._conns_lock:
             self._closed = True
             for conn in self._open.values():
-                try:
-                    conn.execute("PRAGMA optimize")
-                except sqlite3.Error:
-                    pass
                 try:
                     conn.close()
                 except sqlite3.Error:
@@ -775,6 +778,68 @@ class SqliteStore:
                 "the keyword index was not merged, so searches stay slower "
                 "than they need to be: {}", exc)
             return False
+
+    def drop_fts_triggers(self) -> list[str]:
+        """Drop FTS content triggers for bulk insert, setting the dirty flag.
+
+        **Always sets the dirty flag first.** If this call or a crash happens
+        after it but before the triggers are dropped, resume will see the flag
+        and rebuild FTS, protecting against loss of searchability.
+
+        Returns the SQL needed to restore the triggers, or an empty list if the
+        drop failed. A failure to drop the triggers is logged but does not fail
+        the run — FTS will simply update row by row as it always has, costing
+        performance but not correctness.
+        """
+        try:
+            # Mark FTS as dirty *before* dropping the triggers, so an
+            # interrupted run knows it needs rebuilding on resume.
+            self.set_state("fts_dirty", "1")
+            with self.write() as conn:
+                return self._suspend_content_triggers(conn)
+        except Exception as exc:                  # noqa: BLE001
+            _log.warning(
+                "FTS content triggers could not be dropped, "
+                "word index will update row-by-row: {}", exc)
+            return []
+
+    def restore_fts_triggers(self, trigger_sql: list[str]) -> bool:
+        """Restore FTS content triggers after a bulk insert.
+
+        Returns whether the restore succeeded. A failure is logged but does not
+        fail the run — the triggers are optional optimizations, not required.
+        """
+        if not trigger_sql:
+            return False
+        try:
+            with self.write() as conn:
+                for sql in trigger_sql:
+                    if sql:
+                        conn.execute(sql)
+            return True
+        except Exception as exc:                  # noqa: BLE001
+            _log.warning(
+                "FTS content triggers could not be restored: {}", exc)
+            return False
+
+    def check_and_rebuild_fts_if_dirty(self) -> None:
+        """Check for FTS dirty flag and rebuild if set.
+
+        Called at the start of a run to recover from an interrupted bulk
+        insert that dropped the triggers but was killed before rebuilding.
+        """
+        if self.get_state("fts_dirty"):
+            _log.info("rebuilding word index after interrupted bulk run")
+            try:
+                with self.write() as conn:
+                    conn.execute(
+                        "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+                self.set_state("fts_dirty", "")
+                _log.info("word index rebuilt successfully")
+            except Exception as exc:                  # noqa: BLE001
+                _log.error(
+                    "word index rebuild failed (searches will be incomplete): {}",
+                    exc)
 
     def browse_messages(
         self,

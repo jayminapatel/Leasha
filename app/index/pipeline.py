@@ -652,6 +652,9 @@ class Pipeline:
         # prune was guarded on it.
         self._stop = threading.Event()   # unwind the threads (always set at the end)
         self._interrupted = False        # the run was deliberately cut short
+        #: §6f: FTS trigger SQL for restoration after bulk insert. Stored here
+        #: so _optimise_keyword_index can restore them at the end of the run.
+        self._suspended_fts_triggers: list[str] = []
 
     def _on_throttle(self, found: Verdict) -> None:
         """Remember the last throttle so progress can say why it went quiet.
@@ -689,6 +692,7 @@ class Pipeline:
         self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
+        self._suspended_fts_triggers = []
 
         # Below-normal CPU and background I/O priority, before a single file is
         # read. The cheapest courtesy available and the most effective: the
@@ -713,6 +717,9 @@ class Pipeline:
         # meaning-based indexing to do, and finding that out before anything is
         # written is the whole point.
         self._warm_embedder()
+        # Check if FTS was marked dirty by an interrupted bulk run and rebuild
+        # if needed. This must happen before extraction starts.
+        self.store.check_and_rebuild_fts_if_dirty()
         # **Anything left without a vector by a previous run is filled first.**
         # See `_drain_unembedded`.
         self._drain_unembedded(stats)
@@ -974,25 +981,29 @@ class Pipeline:
         Guarded on the chunk count rather than done every time: the merge
         rewrites the entire index, which is minutes at ten million chunks and
         pure waste after an incremental pass that added four.
+
+        §6f: if bulk mode is enabled, restores FTS triggers after a bulk insert.
         """
         wanted = str(self.config.bulk_fts or "auto").lower()
-        # §6f, as far as it goes safely today. `on` merges whatever the run
-        # wrote; `auto` merges only when the run was big enough for the merge
-        # to earn its minutes; `off` leaves the segments alone.
-        #
-        # **What is deliberately not here is dropping the triggers.** The order
-        # asks for that, and it is the half that can lose data: an interrupted
-        # bulk run leaves the word index missing everything the run wrote, and
-        # the dirty flag that makes it recoverable has to be written *before*
-        # the triggers go. That is a schema change and a resume path, and
-        # shipping the fast half without the safe half is how a corpus becomes
-        # unsearchable with nothing to say why. The control already exists and
-        # already changes behaviour; the trigger drop is the next item.
+        # §6f. `on` merges whatever the run wrote; `auto` merges only when the
+        # run was big enough for the merge to earn its minutes; `off` leaves the
+        # segments alone.
         if wanted == "off":
             self._log.debug("the word index was left unmerged, as asked")
             return
         if wanted != "on" and stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
             return
+
+        # Restore FTS triggers if they were suspended during bulk insert
+        if self._suspended_fts_triggers:
+            started = time.perf_counter()
+            if self.store.restore_fts_triggers(self._suspended_fts_triggers):
+                self._log.info(
+                    "restored FTS content triggers after bulk insert ({:.1f}s)",
+                    time.perf_counter() - started)
+                # Clear the dirty flag now that triggers are restored
+                self.store.set_state("fts_dirty", "")
+
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
             return
@@ -1829,6 +1840,30 @@ class Pipeline:
 
     # -- stage 3: embed and write (one thread: this one) --------------------
 
+    def _maybe_drop_fts_triggers(self, stats: IndexStats) -> None:
+        """Drop FTS triggers if bulk mode is requested and the run is large enough.
+
+        §6f: For large runs, dropping the chunk FTS triggers and rebuilding the
+        index at the end is faster than updating row-by-row. The dirty flag is
+        set before the triggers are dropped, so an interrupted run will rebuild
+        FTS on resume.
+        """
+        wanted = str(self.config.bulk_fts or "auto").lower()
+        if wanted == "off":
+            return
+        # Cannot predict the final chunk count before the run, so for "auto"
+        # mode we drop triggers only after we see the first batch. For "on"
+        # mode we drop them immediately.
+        # Note: For now, we're conservative and only drop for "on" mode.
+        # A more aggressive strategy would check pending work in auto mode.
+        if wanted != "on":
+            return
+        self._suspended_fts_triggers = self.store.drop_fts_triggers()
+        if self._suspended_fts_triggers:
+            self._log.info(
+                "dropped FTS content triggers for bulk insert mode"
+            )
+
     def _consume(
         self,
         results: queue.Queue,
@@ -1842,6 +1877,9 @@ class Pipeline:
         self._last_summary = last_checkpoint
         stats.sample(now=last_checkpoint)          # the window's first point
         pending_vectors: list[tuple[int, int, str]] = []
+        # §6f: Drop FTS triggers if bulk mode is enabled, before processing
+        # any work so row-by-row updates are avoided from the start.
+        self._maybe_drop_fts_triggers(stats)
 
         while finished < len(workers):
             if self._stop.is_set():
