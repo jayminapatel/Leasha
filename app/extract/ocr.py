@@ -282,6 +282,7 @@ class OcrExtractor:
     name = "ocr"
     extensions = frozenset({
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif",
+        ".heic", ".heif", ".svg",
     })
     reads_externally = False
     #: Declared so Settings and `doctor` can say "images are indexed by name
@@ -292,6 +293,9 @@ class OcrExtractor:
                     provides="text inside images", hard=True),
         Requirement("PIL", "pillow",
                     provides="image loading for formats ONNX cannot open",
+                    hard=False),
+        Requirement("pillow_heif", "pillow-heif",
+                    provides="HEIC/HEIF image support (Apple Photos)",
                     hard=False),
     )
 
@@ -332,6 +336,15 @@ class OcrExtractor:
 
         builder = DocumentBuilder(path, source_kind=SourceKind.FILE)
         builder.add(result.text, label="Text read from the image")
+
+        # **EXIF date is THE date for photos.** File mtime lies after 20 years of
+        # drive-to-drive copies; EXIF DateTimeOriginal survives them. If present,
+        # use it; otherwise fall back to file mtime.
+        from app.extract.exif import read_datetime
+        exif_date = read_datetime(path)
+        if exif_date is not None:
+            builder.date = exif_date
+
         builder.meta.update({
             "format": "ocr",
             "ocr_lines": result.lines,

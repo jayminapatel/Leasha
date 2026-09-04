@@ -123,6 +123,24 @@ requests==2.34.2      # only used for optional Ollama calls
 rapidocr-onnxruntime==1.4.4
 pillow==12.3.0
 
+# --- Optional: HEIC/HEIF images via pillow-heif -----------------------------
+# Install to support HEIC/HEIF image format (Apple Photos). Without it, these
+# formats degrade to name-only indexing.
+#     venv\Scripts\python.exe -m pip install pillow-heif
+#
+# Verified against pillow-heif 0.14.0. Optional at runtime.
+
+# --- Optional: RAW camera formats via rawpy ----------------------------------
+# Install to extract previews from Canon (.cr2), Nikon (.nef), Adobe (.dng),
+# and Sony (.arw) RAW files. Without it, these formats degrade to name-only.
+#     venv\Scripts\python.exe -m pip install rawpy
+#
+# Verified against rawpy 0.23.0. Optional at runtime. rawpy wraps the LibRaw
+# C library via Cython - it is not pure Python - but it ships a prebuilt
+# cp312 win_amd64 wheel, so installing it needs no local compiler or build
+# tools, matching this file's own wheel rule (numpy is already a transitive
+# dependency of fastembed, so this adds just the library itself).
+
 # `leasha shell` - the interactive session with a dropdown (slash-menu order
 # §4g). Pure Python, one effective transitive dependency (wcwidth), and
 # first-class Windows console support, which is why it was chosen over the

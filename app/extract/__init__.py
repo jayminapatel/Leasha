@@ -19,6 +19,7 @@ from app.extract import cloudstub as cloudstub  # noqa: F401,E402
 from app.extract import diagrams as diagrams  # noqa: F401,E402
 from app.extract import ebook as ebook  # noqa: F401,E402
 from app.extract import email_files as email_files  # noqa: F401,E402
+from app.extract import email_mbox as email_mbox  # noqa: F401,E402
 from app.extract import ocr as ocr  # noqa: F401,E402
 from app.extract import odf as odf  # noqa: F401,E402
 from app.extract import office as office  # noqa: F401,E402
@@ -29,6 +30,7 @@ from app.extract import office as office  # noqa: F401,E402
 # was blamed for the file it was reading.
 from app.extract import pdf as pdf  # noqa: F401,E402
 from app.extract import plaintext as plaintext  # noqa: F401,E402
+from app.extract import raw as raw  # noqa: F401,E402
 from app.extract import rtf as rtf  # noqa: F401,E402
 from app.extract import xls as xls  # noqa: F401,E402
 from app.extract.base import (  # noqa: F401

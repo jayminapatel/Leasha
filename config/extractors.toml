@@ -37,6 +37,14 @@ enabled = true
 #
 # Only extensions that need to differ from the extractor's own defaults need an
 # entry. Everything an extractor already claims in code keeps working untouched.
+#
+# **No content deny-lists.** Leasha reads exactly what the login can read, by the
+# owner's design decision (2026-08-28). There is no format skip-list, no header
+# sniffs to guess content sensitivity, and no automatic skipping based on file type.
+# It is a lens, not a censor. Sensitivity enforcement belongs to the generating
+# system (encryption, file ACLs); Leasha's index is treated as sensitive data by
+# whoever owns the machine. If a file should not be indexed, it should not be
+# readable by the login that is indexing.
 # ---------------------------------------------------------------------------
 
 [extensions]
@@ -89,6 +97,17 @@ enabled = true
 ".bmp"  = { extractor = "ocr", max_bytes = 26214400 }
 ".webp" = { extractor = "ocr", max_bytes = 26214400 }
 ".gif"  = { extractor = "ocr", max_bytes = 26214400 }
+".heic" = { extractor = "ocr", max_bytes = 26214400 }
+".heif" = { extractor = "ocr", max_bytes = 26214400 }
+".svg"  = { extractor = "ocr", max_bytes = 26214400 }
+
+# RAW camera formats: extract the embedded JPEG preview via rawpy, then OCR that.
+# Never decode the full RAW — it adds no text value and wastes time. If rawpy is
+# not installed, these fall back to indexing by filename only.
+".cr2"  = { extractor = "raw", max_bytes = 104857600 }
+".nef"  = { extractor = "raw", max_bytes = 104857600 }
+".dng"  = { extractor = "raw", max_bytes = 104857600 }
+".arw"  = { extractor = "raw", max_bytes = 104857600 }
 
 # --- AutoCAD ----------------------------------------------------------------
 # `.dxf` is read natively by app/extract/cad.py (notes, title-block attributes,
