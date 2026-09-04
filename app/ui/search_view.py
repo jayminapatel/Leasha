@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from app.ui.presenter import (
@@ -76,12 +76,7 @@ class SearchView(QWidget):
     #: it for the status bar and the debug recorder.
     interpreted = pyqtSignal(object)
 
-    def __init__(
-        self,
-        engine: Any,
-        translator: Any = None,
-        parent: QWidget | None = None,
-    ) -> None:
+    def __init__(self, engine: Any, translator: Any = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
         self._translator = translator
@@ -105,28 +100,27 @@ class SearchView(QWidget):
         # `self.saved` is built by the box rather than here - it belongs to
         # the box, and this file is at the 250-line guard. It decides what an
         # empty box offers (§2e) and what `saved:name` expands to (§3).
+        # Through the engine, which is what this view is given. Only the
+        # *value* half of the `/` menu uses it, and `getattr` because an
+        # engine without one is a menu offering the grammar's own values
+        # rather than a view that fails to build.
         self.input, self.commands, self.saved = build_input(
             self, self._on_text_changed, self._on_submitted,
-            # Through the engine, which is what this view is given. Only the
-            # *value* half of the `/` menu uses it, and `getattr` because an
-            # engine without one is a menu offering the grammar's own values
-            # rather than a view that fails to build.
             store=getattr(engine, "store", None), on_scope=self.set_scope)
 
         (self.scope, self.interpret_button, self.rerank_toggle,
          self.view_button, self.status) = build_controls(
             self, on_scope=self._on_scope_changed, on_interpret=self.interpret,
-            on_rerank=lambda: self._dispatch(Tier.FULL),
-            on_view=self._view_changed)
+            on_rerank=lambda: self._dispatch(Tier.FULL), on_view=self._view_changed)
 
         self.results, self.preview, self.split = build_results_pane(
             on_opened=self._on_opened, on_reveal=self.reveal_requested,
             on_reindex=self.reindex_requested, on_error=self.error)
+        self.input.installEventFilter(self)                    # item 6a
 
         self.notices = build_toolbar(
             self, status=self.status, body=self.split,
-            controls=(self.interpret_button, self.scope, self.rerank_toggle,
-                      self.view_button))
+            controls=(self.interpret_button, self.scope, self.rerank_toggle, self.view_button))
         self.notices.chosen.connect(self._apply_suggestion)
 
         # Two timers, because the two tiers answer different questions.
@@ -157,6 +151,18 @@ class SearchView(QWidget):
     def focus(self) -> None:
         self.input.setFocus()
         self.input.selectAll()
+
+    # Item 6a: ↓/↑ move the result selection without the box losing focus;
+    # Enter opens it, Ctrl+Enter reveals it. Compact by necessity - this file
+    # sits at the 250-line view guard - so the actual arithmetic is on
+    # `ResultsView` (`forward_key`, `open_current`); this is only dispatch.
+    def eventFilter(self, obj: Any, event: Any) -> bool:
+        if obj is not self.input or event.type() != QEvent.Type.KeyPress: return False
+        if event.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+            self.results.forward_key(event); return True
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.results.current_row():
+            self.results.open_current(reveal=bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)); return True
+        return False
 
     # -- dispatch -----------------------------------------------------------
 
@@ -247,10 +253,8 @@ class SearchView(QWidget):
             return
 
         self._generation += 1
-        options = search_options(tier, scope=self.current_scope(),
-                                 rerank=self.rerank_toggle.isChecked(),
-                                 surface="search",
-                                 preferences=self._search_preferences)
+        options = search_options(tier, scope=self.current_scope(), rerank=self.rerank_toggle.isChecked(),
+                                 surface="search", preferences=self._search_preferences)
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )

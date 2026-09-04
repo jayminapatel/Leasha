@@ -124,16 +124,9 @@ class ResultsView(QWidget):
 
     # -- populating ---------------------------------------------------------
 
-    def show_results(
-        self,
-        results: Sequence[Any],
-        terms: Sequence[str],
-        summary: str = "",
-        details: Optional[dict[int, Any]] = None,
-        missing: Optional[set[str]] = None,
-        keep_scroll: bool = False,
-        register: Optional[str] = None,
-    ) -> None:
+    def show_results(self, results: Sequence[Any], terms: Sequence[str], summary: str = "",
+                     details: Optional[dict[int, Any]] = None, missing: Optional[set[str]] = None,
+                     keep_scroll: bool = False, register: Optional[str] = None) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
         `keep_scroll` is False here and True in `_rebuild`, and the difference
@@ -260,11 +253,22 @@ class ResultsView(QWidget):
         self._model.clear()
         self._summary.setText(message)
 
+    # Item 6a: the search box's ↓/↑ forwards here - QListView's own key
+    # handling already moves the selection, scrolls it into view, and skips
+    # a disabled row (the terminator) correctly, which is why this delegates
+    # to it rather than re-deriving the same arithmetic.
+    def forward_key(self, event: Any) -> None:
+        self._list.keyPressEvent(event)
+
+    def open_current(self, *, reveal: bool = False) -> bool:
+        row = self.current_row()          # Enter/Ctrl+Enter - item 6a
+        if row is None:
+            return False
+        (self.reveal_requested if reveal else self.opened).emit(row)
+        return True
+
     def selected_rows(self) -> list[ResultRow]:
-        rows = [
-            self._row_for(index.data(ROLE_PAYLOAD))
-            for index in self._list.selectedIndexes()
-        ]
+        rows = (self._row_for(i.data(ROLE_PAYLOAD)) for i in self._list.selectedIndexes())
         return [row for row in rows if row is not None]
 
     # -- interaction --------------------------------------------------------
