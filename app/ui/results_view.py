@@ -229,7 +229,7 @@ class ResultsView(QWidget):
         #
         # `DisplayRole` is set too and is harmless: the delegate draws the row
         # itself and never consults it, so nothing appears twice.
-        spoken = accessible_text(payload)
+        spoken = accessible_text(payload, expanded=expanded)      # item 7a
         item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
         item.setData(spoken, int(Qt.ItemDataRole.DisplayRole))
         self._model.appendRow(item)

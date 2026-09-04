@@ -226,6 +226,49 @@ def test_the_tooltip_always_carries_the_exact_date():
     assert built.when_exact in result_tooltip(built)
 
 
+def test_the_tooltip_carries_the_kind_word():
+    """Item 3a moved the kind word off the painted row and onto the icon;
+    item 7a's pass confirms it actually reached the tooltip, as promised."""
+    from app.ui.presenter import result_tooltip
+
+    assert "PDF" in result_tooltip(group())
+
+
+def test_accessible_text_carries_the_kind_word():
+    from app.ui.presenter import accessible_text
+
+    assert "PDF" in accessible_text(group())
+
+
+def test_accessible_text_announces_a_multi_match_group_s_state():
+    """The chevron is a purely visual cue - item 7a makes the state a
+    screen reader can hear too."""
+    from app.ui.presenter import accessible_text
+
+    collapsed = accessible_text(group(matches=3), expanded=False)
+    expanded = accessible_text(group(matches=3), expanded=True)
+    assert "matches" in collapsed and "collapsed" in collapsed
+    assert "matches" in expanded and "expanded" in expanded
+
+
+def test_accessible_text_says_nothing_about_expansion_for_a_single_match():
+    from app.ui.presenter import accessible_text
+
+    assert "expanded" not in accessible_text(group(matches=1))
+    assert "collapsed" not in accessible_text(group(matches=1))
+
+
+def test_accessible_text_prefers_the_exact_date_over_the_friendly_one():
+    """Sighted or not - item 7a: this is the one line meant to be trusted
+    outright, never the register's "yesterday"."""
+    from app.ui.presenter import accessible_text, group_results
+
+    built = group_results([row()], now=1_700_100_000, register="plain")[0]
+    spoken = accessible_text(built)
+    assert built.when_exact in spoken
+    assert built.when not in spoken or built.when == built.when_exact
+
+
 def test_a_plain_result_row_without_a_group_still_gets_an_exact_date():
     """The tooltip works on a raw `ResultRow` too - ungrouped mode shows those
     directly, with no `ResultGroup.when_exact` to fall back on."""
@@ -577,6 +620,95 @@ def test_a_terminator_paints_without_raising():
     finally:
         painter.end()
     assert hint.height() > 0
+
+
+# ---------------------------------------------------------------------------
+# Item 7a: the accessibility pass - text scaling and the highlight signal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scale", [1.0, 1.25, 1.5, 2.0])
+def test_the_delegate_scales_with_the_system_font(scale):
+    """Windows text scaling reaches this delegate the same way the rest of
+    the application's "Make text bigger" support does - through the font
+    the view hands it, never a fixed pixel count of its own. 125/150/200%
+    must all still measure and paint in agreement, not merely at 100%."""
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import ResultDelegate
+
+    base_pt = 13
+    base = QFont()
+    base.setPointSize(int(round(base_pt * scale)))
+    delegate = ResultDelegate()
+    name_font, meta_font, body_font = delegate._fonts(base)
+    assert name_font.pointSize() > body_font.pointSize() > 0
+    assert meta_font.pointSize() > 0
+    # The hierarchy is relative to *this* base, not a hard-coded pair of
+    # numbers - scaling the base scales the gap between name and body too.
+    if scale > 1.0:
+        assert name_font.pointSize() > int(round(13 * 1.0)) + 2
+
+
+def test_sizehint_grows_with_a_scaled_font_rather_than_clipping():
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
+
+    payload = group()
+
+    class Option:
+        def __init__(self, point_size):
+            self.rect = QRect(0, 0, 300, 999)
+            self.font = QFont()
+            self.font.setPointSize(point_size)
+
+    class Index:
+        def data(self, role):
+            if role == ROLE_PAYLOAD:
+                return payload
+            if role == ROLE_EXPANDED:
+                return False
+            return None
+
+    delegate = ResultDelegate()
+    small = delegate.sizeHint(Option(10), Index())
+    large = delegate.sizeHint(Option(20), Index())
+    assert large.height() > small.height(), "a 200% font must reserve more room, not the same"
+
+
+def test_the_highlight_is_signalled_by_weight_and_by_colour():
+    """Colour is never the only signal, per this order's own standing rule -
+    a bold run and a plain run must differ in *both* font and pen."""
+    from PyQt6.QtGui import QColor, QFont, QPen
+
+    from app.ui.result_delegate import _draw_run
+
+    calls: list[tuple[str, Any]] = []
+
+    class RecordingPainter:
+        def setFont(self, font):
+            calls.append(("font", QFont(font)))
+
+        def setPen(self, pen):
+            calls.append(("pen", QColor(pen.color())))
+
+        def drawText(self, *args):
+            pass
+
+    plain_colour = QColor("black")
+    matched_colour = QColor("blue")
+    bold_font = QFont()
+    bold_font.setBold(True)
+    text = "the pump station report"
+    _draw_run(RecordingPainter(), text, 0, len(text), [(4, 8)], 0, 0, 10_000,
+             QFont(), bold_font, QPen(plain_colour), QPen(matched_colour))
+    fonts = [value for kind, value in calls if kind == "font"]
+    colours = [value for kind, value in calls if kind == "pen"]
+    assert any(f.bold() for f in fonts), "the matched run must be bold"
+    assert any(not f.bold() for f in fonts), "the plain run must not be"
+    assert matched_colour in colours, "the matched run must also use the highlight colour"
+    assert plain_colour in colours, "the plain run must use the ordinary colour"
 
 
 def test_the_delegate_holds_no_store_or_engine():

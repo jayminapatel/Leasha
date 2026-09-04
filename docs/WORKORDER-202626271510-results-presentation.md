@@ -185,7 +185,7 @@ job.
 
 ## 7. Accessibility verification (a pass, not a feature)
 
-- [ ] **7a** painted delegates are where accessibility silently dies:
+- [x] **7a** painted delegates are where accessibility silently dies:
   verify `accessible_text` for every row form this order adds or changes
   (icons carry the kind word; sender-first mail reads sensibly; chevron
   state announced; friendly dates read as their exact date). Verify the
@@ -193,6 +193,25 @@ job.
   font machinery should — prove it) and that the highlight remains
   signalled by weight as well as colour. World class means the screen
   reader user and the 8-year-old both get the good version.
+
+  > **2026-09-05 (session 3).** This pass found two of the four
+  > sub-verifications were not actually true and fixed them rather than
+  > just recording the gap: `accessible_text`/`result_tooltip` never
+  > mentioned the kind word at all (item 3a's icon replaced the `[PDF]` text
+  > tag that used to carry it visually, but nothing was ever added to speak
+  > or hover it - `kind_tag` is now in both) and the chevron's expanded/
+  > collapsed state was purely visual (`accessible_text` now takes an
+  > `expanded` flag from `ResultsView._append`, which already had it, and
+  > says "5 matches, expanded"/"collapsed"). **Sender-first mail** already
+  > read sensibly, for free - item 3b's name field IS what `accessible_text`
+  > speaks. **Friendly dates** now read as their exact date deliberately:
+  > `accessible_text` prefers `when_exact` over `when`, so a screen reader
+  > never hears the register's "yesterday" approximation, sighted or not.
+  > Text scaling (125/150/200%) and the weight-plus-colour highlight signal
+  > were both already true by construction (`_fonts` is relative to
+  > `option.font`, never a fixed pixel count; `_draw_run` sets a bold font
+  > and a distinct pen for every highlighted run) - each now has its own
+  > test proving it rather than resting on that being obviously so.
 
 ## 8. Tests
 

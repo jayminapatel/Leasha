@@ -1209,11 +1209,16 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
 
     The breadcrumb is a display choice; the tooltip is where the truth stays.
     So is the date - item 4b promises the exact one here regardless of
-    whatever register the visible row is reading in.
+    whatever register the visible row is reading in. Item 3a/7a: the kind
+    word (`kind_tag`) is here too, now that the painted row shows an icon
+    instead of the `[PDF]` text it used to carry the word in directly.
     """
     path = getattr(payload, "path", "")
     best = getattr(payload, "best", payload)
     lines = [path]
+    kind = str(getattr(payload, "kind", "") or "")
+    if kind:
+        lines.append(kind_tag(kind))
     if best is not None:
         lines.append(why(best))
     exact = getattr(payload, "when_exact", "") or _exact_date(getattr(best, "mtime_ns", 0))
@@ -1273,7 +1278,7 @@ def pst_status_text(available: bool) -> str:
     )
 
 
-def accessible_text(payload: Any) -> str:
+def accessible_text(payload: Any, *, expanded: bool = False) -> str:
     r"""One line naming a result, for anything that cannot see it drawn.
 
     **The delegate migration left the model empty.** Painting moved into
@@ -1287,16 +1292,31 @@ def accessible_text(payload: Any) -> str:
     and an explanation, which is right to *hover* and wrong to have read aloud
     for every row while somebody arrows down a list. This is the name, the
     folder and the date - what a sighted reader takes from the row at a glance.
+
+    Item 7a's three additions, each because a sighted reader gets the
+    equivalent for free and a screen reader user must not be the one person
+    who does not: **the kind word** (`kind_tag`) now that a picture has
+    replaced the `[PDF]` text that used to carry it; **whether a multi-match
+    group is expanded**, since the chevron is otherwise a purely visual cue;
+    and **the exact date**, never the register's friendly "yesterday" -
+    sighted or not, this is the one line meant to be trusted outright.
     """
     name = str(getattr(payload, "name", "") or getattr(payload, "title", "") or "")
     if not name:
         path = str(getattr(payload, "path", "") or "")
         name = path.replace("\\", "/").rsplit("/", 1)[-1] or path
     parts = [name]
+    kind = str(getattr(payload, "kind", "") or "")
+    if kind:
+        parts.append(kind_tag(kind))
     folder = str(getattr(payload, "folder", "") or "")
     if folder:
         parts.append(f"in {folder}")
-    when = str(getattr(payload, "when", "") or getattr(payload, "modified", "") or "")
+    label = str(getattr(payload, "match_label", "") or "")
+    if label:
+        parts.append(f"{label}, {'expanded' if expanded else 'collapsed'}")
+    when = str(getattr(payload, "when_exact", "") or getattr(payload, "when", "")
+              or getattr(payload, "modified", "") or "")
     if when:
         parts.append(when)
     return ", ".join(part for part in parts if part)
