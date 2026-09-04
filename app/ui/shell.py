@@ -2037,20 +2037,64 @@ class MainWindow(QMainWindow):
     SHUTDOWN_GRACE_MS = 4_000
 
     def changeEvent(self, event: Any) -> None:          # noqa: N802
-        """Hide to the tray when minimised, if that was asked for."""
+        """Hide to the tray when minimised; force a repaint when un-minimised.
+
+        **The restore half exists because of a real, reproducible bug**: on
+        Windows, going native-minimise (the plain taskbar button - this needs
+        no tray setting at all) then restoring left the frame and title bar
+        painting correctly while every child widget's content stayed whatever
+        it last was - blank on first repro, and *worse* (solid black) after a
+        further maximise/restore, because nothing here ever asked Qt to
+        actually repaint the tree. `update()` schedules a paint and normally
+        that is enough, but the DWM-composited backing store for a window that
+        was just minimised is not guaranteed still valid, so a scheduled
+        update against stale geometry can be a no-op. Walking every child and
+        asking it to redraw is the blunt, reliable fix; it costs one pass over
+        the widget tree, once, only on a real restore - not a per-frame cost.
+        """
         from PyQt6.QtCore import QEvent
 
         super().changeEvent(event)
-        if (event.type() == QEvent.Type.WindowStateChange
-                and self.isMinimized() and self.tray.minimise_to_tray
-                and self.tray.installed):
-            # Deferred: hiding inside the state-change handler leaves Qt
-            # half-way through a transition it has not finished describing.
-            QTimer.singleShot(0, self._hide_to_tray)
+        if event.type() != QEvent.Type.WindowStateChange:
+            return
+        if self.isMinimized():
+            if self.tray.minimise_to_tray and self.tray.installed:
+                # Deferred: hiding inside the state-change handler leaves Qt
+                # half-way through a transition it has not finished describing.
+                QTimer.singleShot(0, self._hide_to_tray)
+            return
+        # Not minimised any more: either just restored, or some other state
+        # change (e.g. maximise) that changeEvent also reports. Both are cheap
+        # to repaint and neither should ever be left stale.
+        QTimer.singleShot(0, self._repaint_after_state_change)
 
     def _hide_to_tray(self) -> None:
         self.hide()
         self.tray.notify_hidden()
+
+    def _repaint_after_state_change(self) -> None:
+        """Force every child to actually redraw. See `changeEvent`.
+
+        **Measured, not assumed.** A diagnostic build of this method logged
+        `isVisible()` at the moment it ran, right after a real restore
+        (taskbar click, and separately confirmed via `ShowWindow(SW_RESTORE)`)
+        - it printed `False`. Qt's own internal visibility bookkeeping had not
+        caught up with the native window, which the OS already reports as
+        shown, at the point this deferred callback runs. `update()` (and
+        `repaint()`) are no-ops on a widget Qt believes is not visible, so the
+        very code meant to fix the blank window was being silently skipped by
+        the thing it was calling. `setVisible(True)` forces Qt to reconcile
+        its bookkeeping with reality before anything is asked to redraw.
+        """
+        # Only the top level's own bookkeeping needs correcting - forcing
+        # every descendant to setVisible(True) would wrongly reveal anything
+        # legitimately hidden (an inactive tab's page, a collapsed panel, a
+        # closed popup). Fixing the ancestor is enough for update() to reach
+        # everything that is actually supposed to be shown.
+        self.setVisible(True)
+        self.update()
+        for child in self.findChildren(QWidget):
+            child.update()
 
     def closeEvent(self, event: Any) -> None:           # noqa: N802
         """Ask every background job to stop, then wait briefly before closing.
