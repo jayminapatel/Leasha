@@ -434,6 +434,48 @@ def test_a_prose_row_keeps_the_ordinary_font():
     assert _snippet_font(base, "pdf") is base
 
 
+# ---------------------------------------------------------------------------
+# Item 4c: twin disambiguation actually paints
+# ---------------------------------------------------------------------------
+
+def test_a_group_with_emphasis_paints_without_raising():
+    """A real paint pass, not just the presenter's text decision - this is
+    the one place a bad character range in `folder_emphasis` would show up
+    as a crash rather than a wrong pixel."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QPixmap, QPainter
+
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
+    from app.ui.presenter import ResultGroup
+
+    twin = ResultGroup(file_id=1, name="invoice.pdf", folder="… > ClientA > 2019 > Q1",
+                       kind="pdf", when="12 Mar 2019", path=r"D:\a\invoice.pdf",
+                       rows=[row()], folder_emphasis=(4, 11))
+
+    from PyQt6.QtWidgets import QStyle
+
+    class Option:
+        def __init__(self):
+            self.rect = QRect(0, 0, 300, 60)
+            self.font = QFont()
+            self.state = QStyle.StateFlag.State_Enabled
+
+    class Index:
+        def data(self, role):
+            if role == ROLE_PAYLOAD:
+                return twin
+            if role == ROLE_EXPANDED:
+                return False
+            return None
+
+    pixmap = QPixmap(300, 60)
+    painter = QPainter(pixmap)
+    try:
+        ResultDelegate().paint(painter, Option(), Index())
+    finally:
+        painter.end()
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""

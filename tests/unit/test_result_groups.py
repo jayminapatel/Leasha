@@ -286,6 +286,56 @@ def test_an_unrecognised_register_falls_back_to_plain():
     assert group.when != group.when_exact
 
 
+# ---------------------------------------------------------------------------
+# Item 4c: twin disambiguation - two results sharing a display name
+# ---------------------------------------------------------------------------
+
+def test_unique_names_carry_no_emphasis():
+    groups = group_results([row(1, 0.9), row(2, 0.8)])
+    assert all(g.folder_emphasis == (0, 0) for g in groups)
+
+
+def test_two_invoices_in_different_clients_get_the_client_emphasised():
+    """The ordinary 3-part breadcrumb tail - "Q1 > Reports > Final" - is
+    identical for both; only extending past it reveals the client, which is
+    what item 4c must both surface and emphasise."""
+    rows = [
+        row(1, 0.9, path=r"D:\Archive\ClientA\2019\Q1\Reports\Final\invoice.pdf"),
+        row(2, 0.8, path=r"D:\Archive\ClientB\2019\Q1\Reports\Final\invoice.pdf"),
+    ]
+    groups = group_results(rows)
+    assert len(groups) == 2
+    for g in groups:
+        assert g.folder_emphasis != (0, 0), g.folder
+        start, end = g.folder_emphasis
+        assert g.folder[start:end] in ("ClientA", "ClientB")
+    # And the two twins now read differently from each other.
+    assert groups[0].folder != groups[1].folder
+
+
+def test_eight_invoices_are_all_told_apart():
+    """The work order's own example: `invoice.pdf` x 8."""
+    rows = [
+        row(i, 0.9 - i * 0.01,
+            path=rf"D:\Archive\Client{i}\2019\Q1\Reports\Final\invoice.pdf")
+        for i in range(8)
+    ]
+    groups = group_results(rows)
+    assert len({g.folder for g in groups}) == 8, "every twin must read differently"
+    assert all(g.folder_emphasis != (0, 0) for g in groups)
+
+
+def test_twins_already_distinguished_by_the_ordinary_breadcrumb_are_untouched():
+    """Two different-named folders three levels up already read differently
+    at the normal breadcrumb depth - nothing needs extending."""
+    rows = [
+        row(1, 0.9, path=r"D:\Archive\A\B\Leeds\invoice.pdf"),
+        row(2, 0.8, path=r"D:\Archive\A\B\York\invoice.pdf"),
+    ]
+    groups = group_results(rows)
+    assert all(g.folder_emphasis == (0, 0) for g in groups)
+
+
 def test_a_message_group_s_date_is_also_register_gated():
     friendly = group_results([row(9, 0.9)], details={9: MESSAGE}, now=NOW,
                              register="plain")[0]

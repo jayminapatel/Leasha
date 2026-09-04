@@ -118,7 +118,7 @@ job.
   "yesterday", "last week", "Mar 2019" — with the exact date always in
   the tooltip; technical surfaces keep exact dates. Register-gated via
   the existing notice-register/policy seam, off-able.
-- [ ] **4c** when two results in one set share a display name
+- [x] **4c** when two results in one set share a display name
   (`invoice.pdf` × 8), the **distinguishing path segment is emphasised**
   in the location line — the identically-named-tabs trick editors use.
   Computed in the presenter over the result set in hand; zero queries.

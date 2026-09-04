@@ -237,12 +237,25 @@ class ResultDelegate(QStyledItemDelegate):
         painter.setFont(meta_font)
         painter.setPen(QPen(faint))
         meta_metrics = QFontMetrics(meta_font)
-        painter.drawText(QRect(left, y, width, meta_metrics.height()),
-                         int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                         meta_metrics.elidedText(
-                             group_subtitle(group, show_scores=self.prefs.show_scores,
-                                            expanded=expanded),
-                             Qt.TextElideMode.ElideRight, width))
+        subtitle = group_subtitle(group, show_scores=self.prefs.show_scores, expanded=expanded)
+        # **Item 4c**: two results sharing a display name get the segment
+        # that tells them apart bolded, in the same slot the folder always
+        # occupies - `group_subtitle` puts `folder` first, so the emphasis
+        # range `_distinguish_twins` computed against `folder` alone still
+        # lands correctly against the assembled subtitle. `(0, 0)` - no twin
+        # in this result set - takes the exact path painted here before.
+        start, end = getattr(group, "folder_emphasis", (0, 0))
+        if end > start:
+            bold_meta = QFont(meta_font)
+            bold_meta.setBold(True)
+            plain_pen = QPen(faint)
+            _draw_run(painter, subtitle, 0, len(subtitle), [(start, end)],
+                     left, y + meta_metrics.ascent(), left + width,
+                     meta_font, bold_meta, plain_pen, plain_pen)
+        else:
+            painter.drawText(QRect(left, y, width, meta_metrics.height()),
+                             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                             meta_metrics.elidedText(subtitle, Qt.TextElideMode.ElideRight, width))
         return y + meta_metrics.height() + metrics.gap
 
     def _paint_chunk(self, painter, row, left, y, width, meta_font, faint, metrics) -> int:

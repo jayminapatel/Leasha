@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import re
 import time as _time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping, NamedTuple, Optional, Sequence
 
@@ -688,6 +688,11 @@ class ResultGroup:
     #: ago" - item 4b. Always computed, whatever register `when` itself is
     #: reading in, so the tooltip can show it regardless.
     when_exact: str = ""
+    #: `(start, end)` into `folder` - item 4c. `(0, 0)` means nothing to
+    #: emphasise: the common case, where no other result in the set shares
+    #: this group's name. Set only by `group_results`, over the whole result
+    #: set already in hand - never a second query.
+    folder_emphasis: tuple[int, int] = (0, 0)
 
     @property
     def best(self) -> Optional[ResultRow]:
@@ -752,7 +757,75 @@ def group_results(
                     now=now, register=register)
         for file_id in order
     ]
+    groups = _distinguish_twins(groups)
     return groups[:limit] if limit else groups
+
+
+def _path_pieces(path: str) -> list[str]:
+    """A path's folder segments, root to leaf, drive letter dropped."""
+    cleaned = (path or "").replace("\\", "/").strip("/")
+    pieces = [piece for piece in cleaned.split("/") if piece]
+    if pieces and pieces[0].endswith(":"):
+        pieces = pieces[1:]
+    return pieces[:-1] if len(pieces) > 1 else []
+
+
+def _distinguish_twins(groups: list[ResultGroup]) -> list[ResultGroup]:
+    """Item 4c: when two groups in one set share a display name, extend the
+    shorter of their breadcrumbs until they read differently, and mark where
+    the newly-added, distinguishing segment starts.
+
+    Computed once over the whole set already in hand - zero extra queries,
+    the same discipline `group_results` already keeps. A name that appears
+    once is untouched: this is the rare case, not the common one.
+    """
+    by_name: dict[str, list[int]] = {}
+    for index, group in enumerate(groups):
+        by_name.setdefault(group.name.strip().lower(), []).append(index)
+
+    twins = {index: [j for j in indices if j != index]
+            for indices in by_name.values() if len(indices) > 1
+            for index in indices}
+    if not twins:
+        return groups
+
+    out = list(groups)
+    for index, rivals in twins.items():
+        group = out[index]
+        pieces = _path_pieces(group.path)
+        rival_pieces = [_path_pieces(out[j].path) for j in rivals]
+        folder, emphasis = _twin_breadcrumb(pieces, rival_pieces)
+        if folder:
+            out[index] = replace(group, folder=folder, folder_emphasis=emphasis)
+    return out
+
+
+def _twin_breadcrumb(pieces: list[str],
+                     rival_pieces: list[list[str]]) -> tuple[str, tuple[int, int]]:
+    """The breadcrumb for one twin, extended only as far as it needs to read
+    differently from every rival's own folder segments - item 4c.
+
+    Returns `(text, (start, end))`; `(0, 0)` means the ordinary
+    `BREADCRUMB_PARTS`-deep breadcrumb already told the two apart, so there is
+    nothing new to draw attention to.
+    """
+    if not pieces:
+        return "", (0, 0)
+    for depth in range(min(BREADCRUMB_PARTS, len(pieces)), len(pieces) + 1):
+        tail = pieces[-depth:]
+        # A rival shallower than this depth cannot have the same tail at this
+        # depth at all, so it can never collide - only a rival at least this
+        # deep needs comparing.
+        if all(rival[-depth:] != tail for rival in rival_pieces if len(rival) >= depth):
+            prefix = "… > " if depth < len(pieces) else ""
+            text = prefix + " > ".join(tail)
+            if depth == min(BREADCRUMB_PARTS, len(pieces)):
+                return text, (0, 0)          # already distinct at the usual depth
+            return text, (len(prefix), len(prefix) + len(tail[0]))
+    # Identical all the way to the root - genuinely the same folder. Show the
+    # full path's worth of breadcrumb; there is no single segment to point at.
+    text = " > ".join(pieces)
+    return text, (0, 0)
 
 
 def _build_group(
