@@ -210,14 +210,24 @@ MESSAGE = {
 
 def test_a_message_group_uses_its_subject_as_the_name():
     """A message's path is a synthetic key nobody typed and nobody would
-    recognise."""
+    recognise.
+
+    Order 0q item 3b: the name leads with the sender - "Chris Bell — Licence
+    renewal" - because that is how people remember mail. The subject is still
+    in there, just no longer alone.
+    """
     group = group_results([row(9, 0.9, path="pst://x/0001")], details={9: MESSAGE})[0]
-    assert group.name == "Licence renewal"
+    assert group.name == "Chris Bell — Licence renewal"
 
 
-def test_a_message_group_shows_the_sender_instead_of_a_folder():
+def test_a_message_group_leads_with_the_sender_not_a_folder():
+    """Order 0q item 3b: the sender used to sit in the folder line as "from
+    Chris Bell"; it now leads the name instead, so the folder line is free for
+    whatever else a message has to say (an attachment, say) rather than
+    repeating what the name already shows."""
     group = group_results([row(9, 0.9)], details={9: MESSAGE})[0]
-    assert "Chris Bell" in group.folder
+    assert group.name.startswith("Chris Bell —")
+    assert "Chris Bell" not in group.folder
 
 
 def test_a_message_with_an_attachment_says_so():

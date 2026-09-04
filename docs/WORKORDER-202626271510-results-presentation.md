@@ -80,7 +80,7 @@ job.
   the tag used; correct in both themes). Recognised faster than read —
   the 8-year-old knows the red icon before she can read "PDF". The
   kind *word* stays available in the tooltip and accessible text.
-- [ ] **3b** mail rows lead with the **sender** — "Mum — Re: holiday
+- [x] **3b** mail rows lead with the **sender** — "Mum — Re: holiday
   photos" — because that is how people remember mail; subject follows,
   date stays right. Display order only: grouping, payloads and actions
   unchanged.

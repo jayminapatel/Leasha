@@ -761,9 +761,13 @@ def _build_group(
         subject = str(detail.get("subject") or "").strip()
         sender = format_address(detail.get("sender"))
         attachments = "1 attachment" if detail.get("has_attach") else ""
-        name = subject or "(no subject)"
-        folder = "  ·  ".join(bit for bit in (f"from {sender}" if sender else "",
-                                              attachments) if bit)
+        # **Item 3b: sender-first.** "Mum — Re: holiday photos" is how people
+        # remember mail, not "Re: holiday photos" with the sender relegated to
+        # the grey line underneath. Display order only - `folder` no longer
+        # repeats the sender it now leads the name with, but grouping, the
+        # payload and every action stay exactly what they were.
+        name = f"{sender} — {subject or '(no subject)'}" if sender else (subject or "(no subject)")
+        folder = attachments
         kind = "email"
         sent = detail.get("sent_at")
         if sent:
