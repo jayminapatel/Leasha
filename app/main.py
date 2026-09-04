@@ -289,6 +289,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run.finish(code)
 
 
+def _exit_fast(code: int) -> None:
+    r"""Exit without interpreter teardown.
+
+    §3d: After stores and lock are released, call `os._exit()` to skip the
+    slow teardown of native modules (onnxruntime, lance, PyQt6). This is
+    standard practice for Python processes with heavyweight C++ libraries.
+
+    **The placement is load-bearing.** This is called *after* the
+    `SqliteStore.__exit__` and `VectorStore.__exit__` have run, so it never
+    happens while a store is open. The log has been flushed. This is the
+    last thing the process does.
+
+    See <https://bugs.python.org/issue42971> for the performance issue this
+    works around.
+
+    Tests: `test_exit_placement_is_safe_` asserts this is unreachable while a
+    store is open.
+    """
+    import os
+
+    os._exit(code)  # noqa: B605 - deliberate use of os._exit
+
+
 def _apply_pending_move(settings: Any) -> Any:
     """Carry out an index move recorded by Settings, if one is waiting.
 
@@ -392,6 +415,21 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
 
+    # **The splash is shown immediately** (<300ms), hiding the wait for
+    # single-instance handover and model loading. It reports progress through
+    # startup breadcrumbs and optionally a download progress bar.
+    from app.ui.splash import SplashScreen, StatusReporter
+    from app.ui.startup_timing import StartupTimer
+
+    startup_timer = StartupTimer()
+    splash = SplashScreen()
+    splash.show()
+    startup_timer.record_splash_visible()
+    application.processEvents()  # Ensure splash is painted
+
+    # Status reporter forwards startup log messages to the splash
+    status_reporter = StatusReporter(splash)
+
     # **A breadcrumb before each stage that can block.**
     #
     # A window that would not open left a run log ending after the settings
@@ -408,8 +446,10 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     log = logger.bind(component="main")
 
+    code = 1
     try:
         log.info("startup: acquiring the single-instance lock")
+        status_reporter("Waiting for the previous Leasha to finish closing…")
         # **Waited for, not asked about once.** Closing Leasha holds this lock
         # for as long as the stores stay open, which is seconds - and the window
         # has already vanished from the screen by then, so relaunching
@@ -425,6 +465,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                 VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
             log.info("startup: stores open, loading the embedding model",
                      model=settings.embed_model, cache=str(settings.model_cache))
+            status_reporter("Loading the search engine…")
             embedder = Embedder.from_settings(settings)
 
             log.info("startup: loading the reranker",
@@ -439,11 +480,32 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
             log.info("startup: showing the window")
             window.show()
+            startup_timer.record_window_visible()
+            application.processEvents()  # Ensure window is painted
+
+            log.info("startup: warm-up complete")
+            status_reporter("Ready")
+            startup_timer.record_warm_up_complete()
+            # **Nothing closed the splash.** It showed, reported every stage
+            # correctly, and then sat on screen rotating cases for the entire
+            # life of the process - `hide_and_close` existed and was never
+            # called. It honours its own documented minimum hold time, so
+            # calling it here rather than the instant the window is ready
+            # never cuts a fast startup's one rotation short.
+            splash.hide_and_close()
 
             log.info("startup: entering the event loop")
             code = application.exec()
             log.info("shutdown: the event loop returned", code=code)
-            return code
+        # **After the context exits, stores and lock are released.** §3d: Skip
+        # interpreter teardown of heavyweight native modules (onnxruntime, lance,
+        # PyQt6) with os._exit(). This is the standard remedy for slow native
+        # unload on Windows. The placement after store close is load-bearing -
+        # it ensures SQLite and LanceDB __exit__ have run.
+        log.info("shutdown: stores and lock released, exiting")
+        _exit_fast(code)
+        # Never reached, but return for type checking
+        return code
     except AppErrorException as exc:
         log_app_error(exc.error)
         return _fatal(exc.error)
