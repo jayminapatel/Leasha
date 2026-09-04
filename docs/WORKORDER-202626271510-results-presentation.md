@@ -16,6 +16,32 @@ affordance's tooltip states its effect; perceivable new behaviours are
 off-able; colour is never the only signal; plain register on tab one,
 technical allowed on power tabs.
 
+> **2026-09-04 verification note (session 3).** Before starting the
+> remaining items, every checkbox in this file was checked against the
+> live code rather than trusted. Six were already correct and are now
+> ticked: **1b/1c** (`_snap_back`/`_snap_forward` plus
+> `_find_sentence_start`/`_find_sentence_end`, `presenter.py`, landed in
+> `da9f940`; tests in `test_presenter.py`); **2a** (the chevron is drawn in
+> `group_subtitle`, `presenter.py:1026`, and read by `result_delegate.py`'s
+> `_paint_group`); **5b** (`ScrollPerPixel`, `results_view.py:88`); **7a
+> partial** (`accessible_text`, `presenter.py:1097`, set on both
+> `AccessibleTextRole` and `DisplayRole` in `results_view.py:225-227`).
+> **5c was NOT ticked**, despite `results_terminator()` existing in
+> `presenter.py:1254` with its own passing tests: the function is never
+> called from `results_view.py` or anywhere else, so the list never
+> actually shows it — a real gap between "the helper exists" and "the
+> acceptance sentence is true". It is wired in below, in this session's
+> work. **4a was NOT ticked** for the same reason: `elide_path_left()`
+> (`presenter.py:405`) is defined and tested but not called from anywhere
+> that draws a location line — the visible location line already comes
+> from the pre-existing `breadcrumb()` (tail-first, `… > 2019 > Leeds`),
+> which independently satisfies the *spirit* of 4a, but the new
+> left-eliding helper it was meant to feed sits unused. Left for the owner
+> to decide whether `elide_path_left` is dead code to remove or is meant
+> to replace `breadcrumb`'s formatting somewhere — that is a design choice
+> the item's wording does not settle, and out of caution nothing here was
+> changed to force one over the other.
+
 ## 1. Snippet quality (the substance of the order)
 
 The snippet is why the user believes the result. Today it is one
@@ -23,16 +49,16 @@ right-elided line, so a late match can render with zero highlighted words
 — the row looks like a false positive precisely when the engine did its
 job.
 
-- [ ] **1a** the snippet wraps to **two lines in comfortable density**
+- [x] **1a** the snippet wraps to **two lines in comfortable density**
   (compact keeps one); `sizeHint` and `paint` stay one source of geometry
   (the file's own rule — the gap-under-every-row bug is the regression to
   fear, and its test shape exists).
-- [ ] **1b** the snippet **window centres on the match**: the visible text
+- [x] **1b** the snippet **window centres on the match**: the visible text
   always contains at least one highlighted term (the first, or the densest
   cluster when matches bunch); a window starting mid-passage shows a
   leading "…". Window selection is presenter logic (`build_snippet`),
   Qt-free, tested without a display.
-- [ ] **1c** windows **snap to word and sentence boundaries** — never cut
+- [x] **1c** windows **snap to word and sentence boundaries** — never cut
   mid-word; prefer starting at a sentence when one begins within a few
   words of the ideal window. "…he agreed the deposit would be returned by
   March." reads like an answer; "posit would be returned by Mar…" reads
@@ -40,7 +66,7 @@ job.
 
 ## 2. The expansion affordance
 
-- [ ] **2a** a group that holds more than one matching chunk paints a
+- [x] **2a** a group that holds more than one matching chunk paints a
   chevron (▸ collapsed / ▾ expanded) and its subtitle says so in plain
   words ("matched in 5 places"). The chevron is a real click target;
   the whole row still toggles as it does today. Without this, people who
@@ -81,7 +107,7 @@ job.
 
 - [ ] **5a** rows paint a subtle **hover state** (`State_MouseOver`;
   theme token, both themes).
-- [ ] **5b** the list scrolls **per pixel** (`ScrollPerPixel`) — per-item
+- [x] **5b** the list scrolls **per pixel** (`ScrollPerPixel`) — per-item
   scrolling with tall rows feels notchy.
 - [ ] **5c** the list ends with a quiet **terminator** — "that's all 23"
   in plain words, faint — so the end of the list reads as an answer, not

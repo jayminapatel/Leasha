@@ -82,7 +82,8 @@ class ResultDelegate(QStyledItemDelegate):
             rows.insert(0, QFontMetrics(name_font).height())
         if self._shows_snippet(payload):
             text = _snippet_text(payload)
-            rows.append(_snippet_height(body_font, text, width - 2 * metrics.pad_x))
+            rows.append(_snippet_height(body_font, text, width - 2 * metrics.pad_x,
+                                        max_lines=_max_snippet_lines(self.prefs.density)))
 
         height = sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y
         return QSize(width, height)
@@ -144,7 +145,8 @@ class ResultDelegate(QStyledItemDelegate):
         if self._shows_snippet(payload):
             painter.setFont(body_font)
             _draw_snippet(painter, _snippet_payload(payload),
-                          QRect(left, y, width, option.rect.bottom() - y), text_colour)
+                          QRect(left, y, width, option.rect.bottom() - y), text_colour,
+                          max_lines=_max_snippet_lines(self.prefs.density))
         painter.restore()
 
     def _paint_group(self, painter, group, left, y, width,
@@ -214,54 +216,84 @@ def _snippet_text(payload: Any) -> str:
     return getattr(snippet, "text", "") if snippet else ""
 
 
-def _snippet_height(font: QFont, text: str, width: int) -> int:
+def _max_snippet_lines(density: str) -> int:
+    """Item 1a: two lines in comfortable density; compact keeps one.
+
+    `Density` has no third "generous" value in `view_options.py` today - only
+    `COMPACT` and `NORMAL` - so "comfortable" here means "not compact".
+    """
+    return 1 if density == Density.COMPACT else 2
+
+
+def _wrap_ranges(metrics: QFontMetrics, text: str, width: int, max_lines: int) -> list[tuple[int, int]]:
+    r"""Character ranges for up to `max_lines` word-wrapped lines of `text`.
+
+    Greedy word wrap over the *original* string rather than a list of split
+    words, so a highlight's `(start, end)` offsets stay valid against whichever
+    line they land in without any re-slicing. The last line reserves room for
+    an ellipsis when text remains beyond what `max_lines` can hold - `paint`
+    draws the "…" itself once it knows a line was the truncated one.
+    """
+    if width <= 0 or not text or max_lines <= 0:
+        return []
+    ranges: list[tuple[int, int]] = []
+    pos, n = 0, len(text)
+    while pos < n and len(ranges) < max_lines:
+        last_line = len(ranges) == max_lines - 1
+        budget = width - (metrics.horizontalAdvance("…") if last_line else 0)
+        end, last_break = pos, -1
+        while end < n and metrics.horizontalAdvance(text[pos:end + 1]) <= budget:
+            if text[end] == " ":
+                last_break = end
+            end += 1
+        if end >= n:
+            ranges.append((pos, n))
+            break
+        if last_line:
+            ranges.append((pos, end))
+            break
+        if last_break > pos:
+            ranges.append((pos, last_break))
+            pos = last_break + 1
+        else:
+            # A single word wider than the row - forced to break mid-word
+            # rather than looping forever with no progress.
+            ranges.append((pos, max(end, pos + 1)))
+            pos = max(end, pos + 1)
+    return ranges
+
+
+def _snippet_height(font: QFont, text: str, width: int, *, max_lines: int = 1) -> int:
     r"""How tall the snippet actually draws. Used by `sizeHint` only.
 
-    **One line, because `_paint_snippet` draws one line.** This reserved up to
-    *two* - `min(wrapped, metrics.height() * 2)` - and the painter has always
-    laid the snippet out on a single baseline, eliding at the right edge rather
-    than wrapping. So every row whose snippet was longer than the pane carried
-    an empty line under it: a gap that looks like a spacing bug, costing about a
-    result per screenful.
-
-    The two must agree, and the cheapest way to make them agree is for the hint
-    to describe what the paint does rather than what it might have done.
+    **Wraps up to `max_lines`, because `_draw_snippet` wraps up to
+    `max_lines`.** This used to reserve exactly one line while claiming to
+    reserve two - `_draw_snippet` had always laid the snippet out on a single
+    baseline, eliding at the right edge rather than wrapping - and every row
+    whose snippet was longer than the pane carried an empty line under it: a
+    gap that looks like a spacing bug, costing about a result per screenful.
+    The two must agree, and the cheapest way to make them agree is for the
+    hint to describe what the paint does rather than what it might have done.
     """
     if not text or width <= 0:
         return 0
-    return QFontMetrics(font).height()
+    lines = max(1, len(_wrap_ranges(QFontMetrics(font), text, width, max_lines)))
+    return QFontMetrics(font).height() * lines
 
 
-def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) -> None:
-    """Draw the passage with its matched terms in bold.
+def _draw_run(painter: QPainter, text: str, line_start: int, line_end: int,
+             highlights: list, x: int, y: int, limit: int,
+             base: QFont, bold: QFont, plain: QPen, matched: QPen) -> int:
+    """One wrapped line's worth of runs, alternating plain/bold at `highlights`.
 
-    Runs of bold rather than rich text: a `QTextDocument` per row would put back
-    most of the cost this delegate exists to remove, and the highlight ranges
-    are already computed by `presenter.build_snippet`.
+    Runs of bold rather than rich text: a `QTextDocument` per row would put
+    back most of the cost this delegate exists to remove, and the highlight
+    ranges are already computed by `presenter.build_snippet`.
     """
-    if snippet is None or not getattr(snippet, "text", ""):
-        return
-    text = snippet.text
-    highlights = sorted(getattr(snippet, "highlights", ()) or ())
-
-    # **Colour as well as weight.** `#resultSnippet b` in the stylesheet was
-    # meant to do this and never could: the snippet is painted here, and no
-    # stylesheet rule reaches a QPainter. So a match was signalled by boldness
-    # alone - the one cue that is invisible to somebody scanning quickly, and
-    # the first thing lost at small text sizes.
-    plain = QPen(colour)
-    matched = QPen(QColor(theme_colours()["highlight"]))
-    painter.setPen(plain)
-
-    base = QFont(painter.font())
-    bold = QFont(base)
-    bold.setBold(True)
-    metrics = QFontMetrics(base)
-
-    x, y = rect.left(), rect.top() + metrics.ascent()
-    limit = rect.right()
-    cursor = 0
-    for start, end in [*highlights, (len(text), len(text))]:
+    cursor = line_start
+    bounds = [(max(s, line_start), min(e, line_end))
+             for s, e in highlights if e > line_start and s < line_end]
+    for start, end in [*bounds, (line_end, line_end)]:
         for piece, font, pen in (
             (text[cursor:start], base, plain),
             (text[start:end], bold, matched),
@@ -278,5 +310,42 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor) 
             painter.drawText(x, y, piece)
             x += advance
         cursor = end
+    return x
+
+
+def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor,
+                  *, max_lines: int = 1) -> None:
+    """Draw the passage with its matched terms in bold, wrapped to `max_lines`.
+
+    **Colour as well as weight.** `#resultSnippet b` in the stylesheet was
+    meant to do this and never could: the snippet is painted here, and no
+    stylesheet rule reaches a QPainter. So a match was signalled by boldness
+    alone - the one cue that is invisible to somebody scanning quickly, and
+    the first thing lost at small text sizes.
+    """
+    if snippet is None or not getattr(snippet, "text", ""):
+        return
+    text = snippet.text
+    highlights = sorted(getattr(snippet, "highlights", ()) or ())
+
+    plain = QPen(colour)
+    matched = QPen(QColor(theme_colours()["highlight"]))
+    painter.setPen(plain)
+
+    base = QFont(painter.font())
+    bold = QFont(base)
+    bold.setBold(True)
+    metrics = QFontMetrics(base)
+
+    ranges = _wrap_ranges(metrics, text, rect.width(), max_lines)
+    truncated = bool(ranges) and ranges[-1][1] < len(text)
+    for index, (start, end) in enumerate(ranges):
+        y = rect.top() + index * metrics.height() + metrics.ascent()
+        x = _draw_run(painter, text, start, end, highlights, rect.left(), y,
+                     rect.right(), base, bold, plain, matched)
+        if index == len(ranges) - 1 and truncated and x < rect.right():
+            painter.setFont(base)
+            painter.setPen(plain)
+            painter.drawText(x, y, "…")
     painter.setFont(base)
     painter.setPen(plain)

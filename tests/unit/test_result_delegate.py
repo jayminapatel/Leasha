@@ -230,6 +230,100 @@ def test_an_unknown_kind_still_gets_a_short_tag():
 # The delegate must not become a second presenter
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Item 1a: two-line snippet wrapping in comfortable density
+# ---------------------------------------------------------------------------
+
+def test_compact_keeps_one_snippet_line():
+    from app.ui.result_delegate import _max_snippet_lines
+    from app.ui.view_options import Density
+
+    assert _max_snippet_lines(Density.COMPACT) == 1
+
+
+def test_normal_density_allows_two_snippet_lines():
+    from app.ui.result_delegate import _max_snippet_lines
+    from app.ui.view_options import Density
+
+    assert _max_snippet_lines(Density.NORMAL) == 2
+
+
+def test_a_long_snippet_wraps_to_two_ranges_at_two_lines():
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    from app.ui.result_delegate import _wrap_ranges
+
+    font = QFont()
+    metrics = QFontMetrics(font)
+    text = "The quick brown fox jumps over the lazy dog near the old mill by the river"
+    narrow = metrics.horizontalAdvance("The quick brown fox")
+    ranges = _wrap_ranges(metrics, text, narrow, max_lines=2)
+    assert len(ranges) == 2
+    # Contiguous, and nothing is skipped between the two lines.
+    assert ranges[0][1] <= ranges[1][0]
+    assert ranges[0][0] == 0
+
+
+def test_a_short_snippet_does_not_manufacture_a_second_line():
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    from app.ui.result_delegate import _wrap_ranges
+
+    font = QFont()
+    metrics = QFontMetrics(font)
+    text = "short passage"
+    wide = metrics.horizontalAdvance(text) + 200
+    ranges = _wrap_ranges(metrics, text, wide, max_lines=2)
+    assert len(ranges) == 1
+    assert ranges[0] == (0, len(text))
+
+
+def test_snippet_height_matches_the_number_of_wrapped_lines():
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    from app.ui.result_delegate import _snippet_height
+
+    font = QFont()
+    line_height = QFontMetrics(font).height()
+    text = "The quick brown fox jumps over the lazy dog near the old mill by the river"
+    narrow = QFontMetrics(font).horizontalAdvance("The quick brown fox")
+    assert _snippet_height(font, text, narrow, max_lines=1) == line_height
+    assert _snippet_height(font, text, narrow, max_lines=2) == line_height * 2
+
+
+def test_sizehint_and_paint_still_agree_at_two_lines():
+    """The gap-under-every-row regression this file exists to guard: `sizeHint`
+    must reserve exactly as many lines as `paint` draws, at every density."""
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD
+    from app.ui.view_options import ViewPreferences, Density
+
+    class Option:
+        def __init__(self, width):
+            from PyQt6.QtCore import QRect
+            from PyQt6.QtGui import QFont
+            self.rect = QRect(0, 0, width, 999)
+            self.font = QFont()
+
+    class Index:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def data(self, role):
+            return self._payload if role == ROLE_PAYLOAD else None
+
+    delegate = ResultDelegate()
+    delegate.prefs = ViewPreferences(density=Density.NORMAL)
+    long_text = "The quick brown fox jumps over the lazy dog near the old mill by the river"
+    payload = row(explain="")
+    payload = ResultRow(**{**payload.__dict__, "snippet": Snippet(long_text)})
+    hint = delegate.sizeHint(Option(160), Index(payload))
+    # Two lines of body text plus the meta line must fit; a narrow row with a
+    # long snippet must be taller than one with a short one at the same width.
+    short_payload = ResultRow(**{**payload.__dict__, "snippet": Snippet("short")})
+    short_hint = delegate.sizeHint(Option(160), Index(short_payload))
+    assert hint.height() > short_hint.height()
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""
