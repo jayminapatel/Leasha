@@ -174,6 +174,15 @@ class Settings(BaseModel):
     #: does not want one must not have to guess how to stop it.
     mini_search_enabled: bool = True
     mini_search_hotkey: str = "Ctrl+Alt+L"
+    #: Adoptions §4a. Pre-fill the box from whatever is selected in the
+    #: foreground application when the shortcut is pressed.
+    #:
+    #: **Its own switch, separate from `mini_search_enabled`.** Somebody may
+    #: want the box without ever having it read another application's
+    #: selection - reading text out of whatever you were looking at is the
+    #: more intrusive half of the two, and "off" for one must not mean "off"
+    #: for both.
+    mini_search_prefill_selection: bool = True
 
     #: Which editor a code result opens in, and the command if it is not one
     #: this knows. `auto` picks the first installed from `ui/editors.py`.
@@ -359,6 +368,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_OFFER_RECENT",
     "MINI_SEARCH_ENABLED",
     "MINI_SEARCH_HOTKEY",
+    "MINI_SEARCH_PREFILL_SELECTION",
     "CODE_EDITOR",
     "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
@@ -497,6 +507,9 @@ def load_settings(
                 values.get("MINI_SEARCH_ENABLED", "true")),
             mini_search_hotkey=(
                 values.get("MINI_SEARCH_HOTKEY") or "Ctrl+Alt+L").strip(),
+            mini_search_prefill_selection=_as_bool(
+                "MINI_SEARCH_PREFILL_SELECTION",
+                values.get("MINI_SEARCH_PREFILL_SELECTION", "true")),
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",

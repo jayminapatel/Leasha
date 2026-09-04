@@ -19,20 +19,29 @@ notices happens where it already happens.
 **Escape and losing focus both close it.** A stay-on-top box left behind in
 front of somebody's work is worse than no box, and the one thing nobody will
 forgive is a window they cannot get rid of.
+
+**Live counts per kind, and Tab cycles them.** Adoptions §5a: beneath the
+list, "7 files · 2 emails" - read from the one response already in hand, so
+cycling with Tab re-filters instantly and calls the engine exactly as many
+times as a keystroke does, which is zero extra.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from app.core.logging import logger
 
-__all__ = ["MiniSearch", "ROWS", "DEBOUNCE_MS", "row_label"]
+__all__ = [
+    "MiniSearch", "ROWS", "DEBOUNCE_MS", "row_label", "CHIP_ORDER",
+    "kind_bucket", "chip_label",
+]
 
 _log = logger.bind(component="ui.mini")
 
@@ -52,6 +61,43 @@ DEBOUNCE_MS = 180
 #: The size it opens at. Wide enough for a filename and a folder, short enough
 #: that it never covers the document somebody is reading.
 WIDTH, HEIGHT = 620, 320
+
+#: **Three plain words, not one chip per extension.** Adoptions §5a: "14 pdf ·
+#: 3 docx · 2 xlsx" is a catalogue; "files · mail · code" is the shape of the
+#: question this box exists to answer fast. Fixed order, so the chips do not
+#: reshuffle between one keystroke and the next.
+CHIP_ORDER = ("files", "mail", "code")
+
+#: `bucket -> (singular, plural)`, for `chip_label`.
+_CHIP_WORDS = {
+    "files": ("file", "files"),
+    "mail": ("email", "emails"),
+    "code": ("code result", "code results"),
+}
+
+
+def kind_bucket(kind: str) -> str:
+    r"""A `ResultGroup.kind` - `"email"`, or a file extension - as one of
+    `CHIP_ORDER`. Adoptions §5a.
+
+    **Read from `_EXT_GROUPS["code"]`, the parser's own table**, the same
+    table `/type code` already answers from - a second list of code
+    extensions here would be the drift this project keeps finding and fixing
+    elsewhere.
+    """
+    from app.search.query import _EXT_GROUPS
+
+    if kind == "email":
+        return "mail"
+    if kind in _EXT_GROUPS.get("code", ()):
+        return "code"
+    return "files"
+
+
+def chip_label(bucket: str, count: int) -> str:
+    """`"7 files"`, `"1 email"` - plain words, singular where it matters."""
+    singular, plural = _CHIP_WORDS.get(bucket, (bucket, bucket))
+    return f"{count} {singular if count == 1 else plural}"
 
 
 def row_label(row: Any) -> str:
@@ -89,6 +135,18 @@ class MiniSearch(QFrame):
         self._engine = engine
         self._generation = 0
         self._rows: list = []
+        #: Every group the last response produced, before the chip filter -
+        #: what "the result set already in hand" means for §5a. `_rows` is
+        #: the filtered, display-capped view of this.
+        self._all_groups: list = []
+        #: `bucket -> count`, over `_all_groups`. Empty when there is nothing
+        #: to show a chip for.
+        self._chip_counts: dict = {}
+        #: The buckets with a chip showing, in `CHIP_ORDER`. Parallel to the
+        #: buttons in `self._chip_buttons`.
+        self._chip_kinds: list = []
+        #: `None` for "all", or one of `_chip_kinds`.
+        self._active_chip: Optional[str] = None
 
         self.setObjectName("miniSearch")
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -99,15 +157,31 @@ class MiniSearch(QFrame):
         self.box.setAccessibleName("Search")
         self.box.textEdited.connect(self._typed)
         self.box.returnPressed.connect(self._take)
+        # **Tab cycles the chips instead of leaving the box.** A plain
+        # QLineEdit hands Tab to Qt's focus-next-widget machinery before
+        # `keyPressEvent` ever sees it, so intercepting it here - on the box
+        # itself, via an event filter - is the one place that works.
+        self.box.installEventFilter(self)
 
         self.list = QListWidget()
         self.list.setAccessibleName("Results")
         self.list.itemActivated.connect(lambda _item: self._take())
         self.list.itemClicked.connect(lambda _item: self._take())
 
+        #: §5a's chip row. Built fresh on every response, since which kinds
+        #: appear - and whether any chip is worth showing at all - changes
+        #: with the query.
+        self.chips = QWidget()
+        self.chips.setObjectName("miniChips")
+        self._chips_layout = QHBoxLayout(self.chips)
+        self._chips_layout.setContentsMargins(0, 4, 0, 0)
+        self._chip_buttons: list = []
+        self.chips.hide()
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.box)
         layout.addWidget(self.list, stretch=1)
+        layout.addWidget(self.chips)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -116,7 +190,7 @@ class MiniSearch(QFrame):
 
     # -- appearing and disappearing -------------------------------------------
 
-    def summon(self) -> None:
+    def summon(self, prefill: str = "") -> None:
         """Show it, centred on the active screen, ready to type.
 
         **Centred rather than remembered.** A box that appears where it was
@@ -124,6 +198,12 @@ class MiniSearch(QFrame):
         middle of the screen they are using is one they can aim at without
         thinking. This is the opposite decision from the pinned windows, and
         deliberately: those are furniture, this is a prompt.
+
+        **`prefill`, selected rather than merely present.** Adoptions §4a: a
+        text selection in the foreground application arrives here already
+        read, and is never searched by itself - it only replaces the "type
+        your query" step with "one keystroke replaces what's highlighted",
+        which is what makes it safe to always show even when it is wrong.
         """
         try:
             from PyQt6.QtGui import QGuiApplication
@@ -139,10 +219,33 @@ class MiniSearch(QFrame):
         self.box.clear()
         self.list.clear()
         self._rows = []
+        self._reset_chips()
         self.show()
         self.raise_()
         self.activateWindow()
         self.box.setFocus()
+        if prefill:
+            self.box.setText(prefill)
+            self.box.selectAll()
+
+    def offer_prefill(self, text: str) -> None:
+        r"""A selection read *after* the box was already shown. Adoptions §4a.
+
+        **Reading it must never delay opening the box**, so `_summon_mini`
+        shows the box first and hands the read to a worker - this is where
+        the answer lands, a beat later, and where "too late" is decided:
+
+        * the box was dismissed in the meantime - `isVisible()` is False;
+        * or somebody already started typing - `self.box.text()` is not
+          empty, and arriving text must never overwrite a real keystroke.
+
+        Either one loses to what is actually true on screen, silently: this
+        is an offer, not a command.
+        """
+        if not text or not self.isVisible() or self.box.text():
+            return
+        self.box.setText(text)
+        self.box.selectAll()
 
     def dismiss(self) -> None:
         """Gone, and holding nothing. Escape, focus loss, or a chosen result."""
@@ -152,6 +255,7 @@ class MiniSearch(QFrame):
         self.box.clear()
         self.list.clear()
         self._rows = []
+        self._reset_chips()
 
     def keyPressEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
         key = event.key()
@@ -168,6 +272,20 @@ class MiniSearch(QFrame):
             return
         super().keyPressEvent(event)
 
+    def eventFilter(self, obj: Any, event: Any) -> bool:     # noqa: N802 - Qt's name
+        r"""Tab, caught before Qt spends it on focus-next. Adoptions §5a.
+
+        **On the box, not on this frame.** A `QLineEdit` answers a Tab key
+        press itself - `QWidget`'s own focus-traversal handling, underneath
+        anything `keyPressEvent` could intercept - so the box is the only
+        place this event can be caught rather than merely observed.
+        """
+        if obj is self.box and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Tab:
+                self._cycle_chip()
+                return True
+        return super().eventFilter(obj, event)
+
     def focusOutEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
         """Clicking away closes it. See the module docstring."""
         super().focusOutEvent(event)
@@ -181,13 +299,13 @@ class MiniSearch(QFrame):
 
     def _search(self) -> None:
         """One tier, on a worker, carrying a generation. Never raises."""
-        from app.ui.presenter import file_rows
         from app.ui.workers import CallableWorker, run
 
         query = self.box.text().strip()
         if not query or self._engine is None:
             self.list.clear()
             self._rows = []
+            self._reset_chips()
             return
 
         self._generation += 1
@@ -196,40 +314,53 @@ class MiniSearch(QFrame):
 
         def ask() -> Any:
             from app.search.policy import SEARCH, for_surface
+            from app.ui.presenter import fetch_depth, mail_details
 
             # **The Search tab's policy, by name.** §3a is explicit: the
             # kid-safe surface. Somebody who summoned this from inside Excel
             # is the least likely person to want to debug a query.
-            return engine.search(query, limit=ROWS,
-                                 policy=for_surface(SEARCH))
+            #
+            # **Fetched deeper than it is shown.** §5a's chips need to count
+            # more than the seven rows on screen, or "14 files" is never
+            # true of anything this box could display - `fetch_depth` is the
+            # same "fetch deeper than the display" rule grouping already
+            # uses, not a second one invented here.
+            response = engine.search(query, limit=fetch_depth(ROWS),
+                                     policy=for_surface(SEARCH))
+            # **One more query, batched, on the same worker.** The rule
+            # `mail_details` states: never one lookup per row. Without it a
+            # message result has no subject and buckets as "files" for want
+            # of a kind - this is the one call that fixes both.
+            details = mail_details(getattr(engine, "store", None),
+                                   getattr(response, "results", []) or [])
+            return response, details
 
         worker = CallableWorker(ask, component="ui.mini.search")
         worker.signals.finished.connect(
-            lambda response, g=generation: self._show(response, g))
+            lambda payload, g=generation: self._show(payload, g))
         worker.signals.failed.connect(
             lambda error, g=generation: self._failed(error, g))
         run(QThreadPool.globalInstance(), worker)
 
-    def _show(self, response: Any, generation: int) -> None:
+    def _show(self, payload: Any, generation: int) -> None:
         if generation != self._generation:
             return                               # a later keystroke won
         from app.ui.presenter import group_results, to_rows
 
         try:
+            response, details = payload
             terms = tuple(getattr(getattr(response, "parsed", None),
                                   "terms", ()) or ())
             groups = group_results(to_rows(
-                getattr(response, "results", []) or [], terms))[:ROWS]
+                getattr(response, "results", []) or [], terms), details=details)
         except Exception as exc:                 # noqa: BLE001 - a list
             _log.debug("could not draw the mini results: {}", exc)
             return
 
-        self._rows = list(groups)
-        self.list.clear()
-        for group in self._rows:
-            self.list.addItem(QListWidgetItem(row_label(group)))
-        if self._rows:
-            self.list.setCurrentRow(0)
+        self._all_groups = list(groups)
+        self._active_chip = None
+        self._rebuild_chips()
+        self._apply_chip_filter()
 
     def _failed(self, error: Any, generation: int) -> None:
         if generation != self._generation:
@@ -237,6 +368,91 @@ class MiniSearch(QFrame):
         _log.debug("mini search failed: {}", error)
         self.list.clear()
         self._rows = []
+        self._reset_chips()
+
+    # -- §5a: live counts per kind ----------------------------------------------
+
+    def _reset_chips(self) -> None:
+        """Nothing to count and nothing to show. Summon, dismiss, a failure."""
+        self._all_groups = []
+        self._chip_counts = {}
+        self._active_chip = None
+        self._rebuild_chips()
+
+    def _apply_chip_filter(self) -> None:
+        """The displayed rows: `_all_groups`, filtered and capped. No engine
+        call - this only ever redraws what a response already delivered."""
+        groups = self._all_groups
+        if self._active_chip is not None:
+            groups = [group for group in groups
+                     if kind_bucket(group.kind) == self._active_chip]
+        self._rows = groups[:ROWS]
+        self.list.clear()
+        for group in self._rows:
+            self.list.addItem(QListWidgetItem(row_label(group)))
+        if self._rows:
+            self.list.setCurrentRow(0)
+
+    def _rebuild_chips(self) -> None:
+        """One chip per kind present, counted from `_all_groups`.
+
+        **Rebuilt rather than relabelled.** Which kinds are present changes
+        with every query - a search all-code has no "mail" chip to update,
+        it has none to show at all - so the row is thrown away and remade
+        rather than carrying stale buttons from the last query forward.
+        """
+        counts: dict = {}
+        for group in self._all_groups:
+            bucket = kind_bucket(group.kind)
+            counts[bucket] = counts.get(bucket, 0) + 1
+        self._chip_counts = counts
+
+        while self._chips_layout.count():
+            item = self._chips_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._chip_buttons = []
+
+        present = [bucket for bucket in CHIP_ORDER if counts.get(bucket)]
+        # **Nothing to distinguish, nothing to show.** One chip repeating the
+        # same count the list above it already shows is noise, not an
+        # answer - the whole reason a chip exists is a choice between kinds,
+        # and one kind is not a choice.
+        if len(present) < 2:
+            present = []
+        self._chip_kinds = present
+        self.chips.setVisible(bool(present))
+        for bucket in present:
+            button = QPushButton(chip_label(bucket, counts[bucket]))
+            button.setObjectName(f"miniChip_{bucket}")
+            button.setCheckable(True)
+            button.setFlat(True)
+            button.setChecked(bucket == self._active_chip)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(
+                lambda _checked=False, k=bucket: self._select_chip(k))
+            self._chips_layout.addWidget(button)
+            self._chip_buttons.append(button)
+
+    def _select_chip(self, bucket: Optional[str]) -> None:
+        """Show only that kind - a scope filter over the rows already in
+        hand, never a re-search."""
+        self._active_chip = bucket
+        for button, kind in zip(self._chip_buttons, self._chip_kinds):
+            button.setChecked(kind == bucket)
+        self._apply_chip_filter()
+
+    def _cycle_chip(self) -> None:
+        """Tab steps through the chips and back to "all". Adoptions §5a."""
+        if not self._chip_kinds:
+            return
+        order = [None, *self._chip_kinds]
+        try:
+            index = order.index(self._active_chip)
+        except ValueError:
+            index = 0
+        self._select_chip(order[(index + 1) % len(order)])
 
     # -- choosing -------------------------------------------------------------
 

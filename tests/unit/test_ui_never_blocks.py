@@ -128,6 +128,12 @@ WORKER_ONLY = {
     # rather than methods on the pane" - its own opening sentence, and the
     # reason the pane hands it a store at all.
     "preview_loader.py",
+    # `read_foreground_selection` polls the clipboard for up to `COPY_TIMEOUT_S`
+    # while waiting for a synthetic Ctrl+C to answer. Adoptions §4a: called
+    # from `shell._offer_foreground_selection` on a `CallableWorker`, precisely
+    # so that wait never lands on the UI thread - `MiniSearch.offer_prefill`
+    # is where the answer arrives back, a beat after the box was shown.
+    "selection.py",
 }
 
 

@@ -196,6 +196,15 @@ SETTINGS: tuple[Setting, ...] = (
              "says so and nothing changes.",
     ),
     Setting(
+        key="MINI_SEARCH_PREFILL_SELECTION",
+        label="Pre-fill the box from a text selection",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="If you have text selected in another program when you press "
+             "the shortcut, the box opens with it already typed in - "
+             "selected, so the next keystroke replaces it. It never searches "
+             "by itself.",
+    ),
+    Setting(
         key="CODE_EDITOR", label="Open code results in", kind="choice",
         default="auto", group="Search", surface="settings.search",
         choices=("auto", "vscode", "cursor", "vscodium", "sublime",

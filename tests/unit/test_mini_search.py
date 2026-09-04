@@ -22,6 +22,7 @@ without Windows is, and the part that cannot says so rather than pretending.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import tempfile
@@ -34,7 +35,7 @@ pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt                                     # noqa: E402
-from PyQt6.QtGui import QKeyEvent                               # noqa: E402
+from PyQt6.QtGui import QKeyEvent                                # noqa: E402
 from PyQt6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.hotkey import (                                     # noqa: E402
@@ -42,7 +43,7 @@ from app.ui.hotkey import (                                     # noqa: E402
     available, describe, parse, spell,
 )
 from app.ui.widgets.mini_search import (                        # noqa: E402
-    ROWS, MiniSearch, row_label,
+    CHIP_ORDER, ROWS, MiniSearch, chip_label, kind_bucket, row_label,
 )
 
 
@@ -67,6 +68,54 @@ def engine():
             f"C:/work/{name}", parent_dir="C:/work", ext="txt", size_bytes=1,
             mtime_ns=1, status="INDEXED", source_kind="file")
         store.replace_chunks(file_id, [{"ordinal": 0, "text": text}])
+
+    class _NoVectors:
+        def search(self, *_a, **_k):
+            return []
+
+    class _NoModel:
+        def embed(self, _t):
+            raise RuntimeError("no model")
+
+        def embed_all(self, _t):
+            raise RuntimeError("no model")
+
+    built = SearchEngine(store, _NoVectors(), _NoModel())
+    yield built
+    built.close()
+
+
+@pytest.fixture(scope="module")
+def mixed_engine():
+    r"""Files, code and mail, all matching one word - §5a needs more than one
+    kind in the result set to prove the chips count each of them correctly."""
+    from app.search.engine import SearchEngine
+    from app.storage.sqlite_store import SqliteStore
+
+    store = SqliteStore(pathlib.Path(tempfile.mkdtemp()) / "mixed.db").connect()
+    for name, ext, text in (
+        ("alpha.txt", "txt", "widget assembly notes"),
+        ("beta.txt", "txt", "widget shipping schedule"),
+        ("gamma.py", "py", "def widget(): pass"),
+    ):
+        file_id = store.upsert_file(
+            f"C:/work/{name}", parent_dir="C:/work", ext=ext, size_bytes=1,
+            mtime_ns=1, status="INDEXED", source_kind="file")
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": text}])
+
+    message_id = store.upsert_file(
+        "pst://msg/1", parent_dir="pst://msg", size_bytes=1, mtime_ns=1,
+        status="INDEXED", source_kind="pst_message")
+    with store.write() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO messages "
+            "(file_id, subject, sender, recipients, sent_at, has_attach) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (message_id, "Widget delivery", "chris@example.com",
+             json.dumps([]), 0, 0),
+        )
+    store.replace_chunks(
+        message_id, [{"ordinal": 0, "text": "widget delivery confirmation"}])
 
     class _NoVectors:
         def search(self, *_a, **_k):
@@ -400,3 +449,338 @@ def test_settings_says_out_loud_whether_the_shortcut_was_taken(qapp):
     assert built.mini_status.text().strip()
     built.say_hotkey("L")
     assert "Ctrl" in built.mini_status.text()
+
+
+# ---------------------------------------------------------------------------
+# §4a: selection-to-search
+# ---------------------------------------------------------------------------
+
+def test_the_prefill_setting_is_declared_shown_and_read(qapp):
+    r"""**Its own switch, separate from `MINI_SEARCH_ENABLED`.** Reading a
+    selection out of whatever application somebody was looking at is the more
+    intrusive half of the feature, and "off" for one must not mean "off" for
+    both."""
+    from app.core.config import SETTING_KEYS, Settings
+    from app.core.settings_registry import SETTINGS
+    from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
+
+    assert "MINI_SEARCH_PREFILL_SELECTION" in SETTING_KEYS
+    assert any(setting.key == "MINI_SEARCH_PREFILL_SELECTION"
+              for setting in SETTINGS)
+    assert Settings.model_fields["mini_search_prefill_selection"].default is True
+
+    built = SearchBehaviourBox()
+    assert built.mini_prefill.objectName() == "MINI_SEARCH_PREFILL_SELECTION"
+    built.mini_prefill.setChecked(False)
+    assert built.values()["MINI_SEARCH_PREFILL_SELECTION"] is False
+
+
+def test_a_selection_pre_fills_the_box_selected(qapp, engine):
+    r"""**One keystroke replaces it.** The box opens with the text already
+    there *and* highlighted, so typing over it needs no Select All, no
+    Backspace, nothing but what somebody would already be doing."""
+    box = MiniSearch(engine)
+    box.summon("the leeds site survey")
+    assert box.box.text() == "the leeds site survey"
+    assert box.box.selectedText() == "the leeds site survey"
+    box.dismiss()
+
+
+def test_summoning_with_no_selection_opens_plain(qapp, engine):
+    """No selection is the common case, and it must look exactly like the box
+    always looked - `summon()` with nothing given, unaffected."""
+    box = MiniSearch(engine)
+    box.box.setText("left over")
+    box.summon("")
+    assert box.box.text() == ""
+    box.dismiss()
+
+
+def test_offer_prefill_fills_the_box_when_nothing_has_happened_yet(qapp, engine):
+    r"""**The async-arrival path.** Reading the selection happens on a worker
+    after the box is already open, so `offer_prefill` is where the answer
+    lands - and the ordinary case is that nothing has happened in between."""
+    box = MiniSearch(engine)
+    box.summon()
+    box.offer_prefill("the leeds site survey")
+    assert box.box.text() == "the leeds site survey"
+    assert box.box.selectedText() == "the leeds site survey"
+    box.dismiss()
+
+
+def test_offer_prefill_is_ignored_once_the_box_is_dismissed(qapp, engine):
+    """The person closed the box before the worker answered - the box being
+    hidden must not be reopened or refilled by a late arrival."""
+    box = MiniSearch(engine)
+    box.summon()
+    box.dismiss()
+    box.offer_prefill("arrived too late")
+    assert box.box.text() == ""
+    assert box.isHidden()
+
+
+def test_offer_prefill_never_overwrites_a_real_keystroke(qapp, engine):
+    """Somebody typed in the gap between the box opening and the selection
+    arriving - what they typed is real and the arriving text is not."""
+    box = MiniSearch(engine)
+    box.summon()
+    box.box.setText("already typing")
+    box.offer_prefill("the selection that arrived late")
+    assert box.box.text() == "already typing"
+    box.dismiss()
+
+
+def test_offer_prefill_does_nothing_for_an_empty_answer(qapp, engine):
+    """No selection: the worker answers with "", and the box stays exactly
+    as it opened."""
+    box = MiniSearch(engine)
+    box.summon()
+    box.offer_prefill("")
+    assert box.box.text() == ""
+    box.dismiss()
+
+
+def test_a_pre_fill_is_never_searched_by_itself(qapp, engine):
+    """Pre-fill only. Nobody typed Enter, so nothing may have been sent to the
+    engine yet - the list stays empty until they do something."""
+    box = MiniSearch(engine)
+    box.summon("safety")
+    assert box.list.count() == 0
+    box.dismiss()
+
+
+def test_clipboard_snapshot_restores_byte_perfect(qapp):
+    r"""**The load-bearing test.** Whatever was on the clipboard before this
+    feature ran must be there afterwards, format for format and byte for
+    byte - a search box that leaves somebody's clipboard full of the wrong
+    thing is a much worse bug than one that fails to pre-fill."""
+    from PyQt6.QtCore import QByteArray, QMimeData
+    from PyQt6.QtGui import QGuiApplication
+
+    from app.ui.selection import restore_clipboard, snapshot_clipboard
+
+    clipboard = QGuiApplication.clipboard()
+    original_bytes = bytes(range(256))
+
+    data = QMimeData()
+    data.setText("what was really on the clipboard")
+    data.setData("application/x-leasha-test", QByteArray(original_bytes))
+    clipboard.setMimeData(data)
+
+    snapshot = snapshot_clipboard()
+    # Something else lands on the clipboard in between - the whole reason a
+    # snapshot has to be an independent copy rather than a live reference.
+    clipboard.setText("something else was copied in the meantime")
+
+    restore_clipboard(snapshot)
+
+    restored = clipboard.mimeData()
+    assert restored.text() == "what was really on the clipboard"
+    assert bytes(restored.data("application/x-leasha-test").data()) == (
+        original_bytes)
+
+
+def test_no_selection_leaves_the_clipboard_untouched(qapp, monkeypatch):
+    r"""**No change within the timeout means no selection.** A synthetic
+    Ctrl+C into a window with nothing highlighted must not be mistaken for an
+    answer - the clipboard's text staying exactly as it was is the signal
+    this reads, and it must give back `None` rather than the stale text."""
+    import app.ui.selection as selection
+
+    from PyQt6.QtGui import QGuiApplication
+
+    monkeypatch.setattr(selection, "available", lambda: True)
+    monkeypatch.setattr(selection, "_send_copy", lambda: True)
+    monkeypatch.setattr(selection, "COPY_TIMEOUT_S", 0.05)
+
+    clipboard = QGuiApplication.clipboard()
+    clipboard.setText("unchanged throughout")
+
+    assert selection.read_foreground_selection() is None
+    assert clipboard.text() == "unchanged throughout"
+
+
+def test_a_selection_is_read_and_the_clipboard_is_restored(qapp, monkeypatch):
+    r"""The other half: a copy that *does* change the clipboard is read back
+    and the clipboard is put back exactly as it was found."""
+    import app.ui.selection as selection
+
+    from PyQt6.QtGui import QGuiApplication
+
+    clipboard = QGuiApplication.clipboard()
+    clipboard.setText("what was on the clipboard before")
+
+    def _fake_copy() -> bool:
+        clipboard.setText("the words that were highlighted")
+        return True
+
+    monkeypatch.setattr(selection, "available", lambda: True)
+    monkeypatch.setattr(selection, "_send_copy", _fake_copy)
+
+    found = selection.read_foreground_selection()
+
+    assert found == "the words that were highlighted"
+    assert clipboard.text() == "what was on the clipboard before"
+
+
+def test_off_windows_nothing_is_read_and_nothing_is_touched(qapp, monkeypatch):
+    import app.ui.selection as selection
+
+    from PyQt6.QtGui import QGuiApplication
+
+    monkeypatch.setattr(selection, "available", lambda: False)
+    clipboard = QGuiApplication.clipboard()
+    clipboard.setText("must not move")
+
+    assert selection.read_foreground_selection() is None
+    assert clipboard.text() == "must not move"
+
+
+def test_a_failed_copy_returns_none_and_never_raises(qapp, monkeypatch):
+    import app.ui.selection as selection
+
+    monkeypatch.setattr(selection, "available", lambda: True)
+    monkeypatch.setattr(selection, "_send_copy", lambda: False)
+
+    assert selection.read_foreground_selection() is None
+
+
+# ---------------------------------------------------------------------------
+# §5a: live category-count chips
+# ---------------------------------------------------------------------------
+
+def test_kind_bucket_sorts_email_code_and_everything_else():
+    assert kind_bucket("email") == "mail"
+    assert kind_bucket("py") == "code"
+    assert kind_bucket("pdf") == "files"
+    assert kind_bucket("") == "files"
+
+
+@pytest.mark.parametrize(("bucket", "count", "said"), [
+    ("files", 1, "1 file"), ("files", 7, "7 files"),
+    ("mail", 1, "1 email"), ("mail", 5, "5 emails"),
+    ("code", 1, "1 code result"), ("code", 3, "3 code results"),
+])
+def test_chip_label_is_plain_words_and_singular_where_it_matters(
+    bucket, count, said
+):
+    assert chip_label(bucket, count) == said
+
+
+def test_chips_count_the_result_set_already_in_hand(qapp, mixed_engine):
+    r"""**Counts equal the result set's.** Three kinds went in - two files, one
+    code, one mail - and the chips must add up to exactly what was fetched,
+    not to some other number."""
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+
+    assert box._chip_counts == {"files": 2, "code": 1, "mail": 1}
+    assert sum(box._chip_counts.values()) == len(box._all_groups)
+    assert not box.chips.isHidden()
+    assert [button.text() for button in box._chip_buttons] == [
+        "2 files", "1 email", "1 code result"]
+    box.dismiss()
+
+
+def test_no_chips_when_there_is_nothing_to_count(qapp, engine):
+    """A single-kind result set is not worth a chip row - three buttons all
+    saying the same number as the list above them is noise, not an answer."""
+    box = MiniSearch(engine)
+    box.summon()
+    _searched(qapp, box, "safety")
+
+    assert set(box._chip_counts) <= {"files"}
+    assert box.chips.isHidden()
+    box.dismiss()
+
+
+def test_tab_cycles_the_chips_and_re_filters_instantly(qapp, mixed_engine):
+    r"""Tab steps through the kinds present and back to "all", and each step
+    is a filter over rows already fetched - never a new call to the engine."""
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+
+    calls = []
+    real_search = mixed_engine.search
+    mixed_engine.search = lambda *a, **k: (calls.append(1) or real_search(*a, **k))
+    try:
+        assert box._active_chip is None
+        assert box.list.count() == 4
+
+        box._cycle_chip()                        # -> "files" (first in CHIP_ORDER)
+        assert box._active_chip == "files"
+        assert [g.kind for g in box._rows] == ["txt", "txt"]
+
+        box._cycle_chip()                        # -> "mail"
+        assert box._active_chip == "mail"
+        assert [g.kind for g in box._rows] == ["email"]
+
+        box._cycle_chip()                        # -> "code"
+        assert box._active_chip == "code"
+        assert [g.kind for g in box._rows] == ["py"]
+
+        box._cycle_chip()                        # -> back to "all"
+        assert box._active_chip is None
+        assert box.list.count() == 4
+    finally:
+        mixed_engine.search = real_search
+
+    assert calls == [], "cycling the chips must never call the engine again"
+    box.dismiss()
+
+
+def test_tab_in_the_box_is_caught_by_the_event_filter_not_focus_change(
+    qapp, mixed_engine
+):
+    r"""The load-bearing mechanic: Tab pressed while the box has focus must
+    reach the chip cycle, not Qt's own focus-next-widget handling."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+
+    event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab,
+                      Qt.KeyboardModifier.NoModifier)
+    handled = box.eventFilter(box.box, event)
+
+    assert handled is True
+    assert box._active_chip == "files"
+    box.dismiss()
+
+
+def test_clicking_a_chip_selects_it_and_clicking_cycling_stay_in_sync(
+    qapp, mixed_engine
+):
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+
+    mail_button = next(b for b in box._chip_buttons if "mail" in b.objectName())
+    mail_button.click()
+
+    assert box._active_chip == "mail"
+    assert mail_button.isChecked()
+    assert all(not b.isChecked() for b in box._chip_buttons if b is not mail_button)
+    assert [g.kind for g in box._rows] == ["email"]
+    box.dismiss()
+
+
+def test_dismissing_or_a_fresh_summon_clears_the_chips(qapp, mixed_engine):
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+    assert box._chip_counts
+
+    box.dismiss()
+    assert box._chip_counts == {}
+    assert box._all_groups == []
+    assert box.chips.isHidden()
+
+    box.summon()
+    assert box._chip_counts == {}
+    assert box.chips.isHidden()
+    box.dismiss()

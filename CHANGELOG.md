@@ -93,6 +93,29 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   already in it.
 
 
+### The search-anywhere box now opens around what you had selected
+
+- **Select some text anywhere, press the shortcut, and it is already in the
+  box** — highlighted, so typing replaces it in one go. Nothing is searched
+  until you say so; it only saves you the retyping.
+- No selection, and the box opens exactly as it always has: empty, ready to
+  type.
+- Reading the selection never delays the box appearing — it opens first, and
+  fills in a moment later if there was anything to read.
+- Switch it off separately from the shortcut itself, in Settings → Search,
+  if you would rather the box never look at what else you were doing.
+
+### Live counts under the search-anywhere box
+
+- **"7 files · 2 emails" appears under the results**, so you can tell at a
+  glance what kind of thing you are looking at before opening anything.
+- Press Tab to step through the kinds and narrow the list to just one of
+  them; press it again to cycle to the next, and once more to see everything
+  again.
+- Nothing is searched again to produce this — it counts what was already
+  found. A result set that is only one kind shows no counts at all, since
+  there is nothing to choose between.
+
 ### Pin a document in its own window
 
 - **"Pin in a window"** on any preview opens that document in a window of its

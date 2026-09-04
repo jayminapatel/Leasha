@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.5 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -52,7 +52,7 @@ these seven.
 
 ## 4. Selection-to-search (mini-search upgrade)
 
-- [ ] **4a** when the global-hotkey mini-search opens, if the foreground
+- [x] **4a** when the global-hotkey mini-search opens, if the foreground
   app has a text selection, it pre-fills the box — selected, so one
   keystroke replaces it (never auto-searches; pre-fill only). Read via
   UI-automation/clipboard-preserving technique — clipboard contents must
@@ -62,7 +62,7 @@ these seven.
 
 ## 5. Live category-count chips in the mini-search
 
-- [ ] **5a** beneath the mini-search results: live counts per kind
+- [x] **5a** beneath the mini-search results: live counts per kind
   ("14 files · 5 emails · 3 photos"); Tab cycles the chips and re-filters
   instantly (scope filter, not a re-search where the engine allows).
   Plain-words labels; counts from the result set already in hand — zero
@@ -96,9 +96,9 @@ these seven.
   does not; not colour-only (asserted).
 - [x] saved searches: save/rename/delete/re-run round-trip; appears in `/`
   menu with count; per-account isolation.
-- [ ] selection-to-search: clipboard restored byte-perfect (the load-
+- [x] selection-to-search: clipboard restored byte-perfect (the load-
   bearing test); no selection → plain open; off-switch honoured.
-- [ ] chips: counts equal the result set's; Tab cycles; zero extra engine
+- [x] chips: counts equal the result set's; Tab cycles; zero extra engine
   calls (asserted).
 - [x] cell locators: fixture xlsx hit renders sheet+cell; extraction perf
   delta recorded.
@@ -243,6 +243,92 @@ sections under the empty box. Both wait on §2e's recent-searches attachment in
 the search-experience order, which is the widget they share — the rules and
 the store side are complete and tested. Export/import rides the settings
 story, as §3b says.
+
+## Note on §4a, added 2026-09-04
+
+**A synthetic Ctrl+C, restored byte-perfect, not UI Automation.** The item
+offered a choice; IUIAutomation is a COM interface with no ctypes precedent in
+this codebase and answers inconsistently across applications, where a copy
+keystroke is something every text control already implements correctly. The
+whole feature stands or falls on the restore, so `app/ui/selection.py` keeps
+`snapshot_clipboard`/`restore_clipboard` as their own functions, tested on
+their own: a fresh `QMimeData` copy of every format on the clipboard, not a
+live reference to it — `clipboard.mimeData()` describes the *system*
+clipboard at the instant it is called, and reading it again after the
+clipboard changes underneath is not the same object answering twice.
+
+**No selection is read from the clipboard not changing.** There is no
+Windows API that answers "is there a selection" directly; a synthetic Ctrl+C
+into a window with nothing highlighted either does nothing or copies nothing
+new, so `clipboard.text()` staying exactly as it was within `COPY_TIMEOUT_S`
+*is* the signal. That is also what keeps this honest when there is no
+foreground application worth asking - it returns `None` the same way.
+
+**`summon()` must never wait on it, and the first version did.** Reading a
+selection is a keystroke and a short poll of the clipboard - never longer
+than 0.25s, but `test_ui_never_blocks.py` correctly refused a `time.sleep` in
+`app/ui/` outside a worker, and it was right to: the box opening is the part
+that has to be instant, and blocking `_summon_mini` on the read would have
+delayed it for exactly the person in the most hurry. So the box opens first,
+empty, and `shell._offer_foreground_selection` reads the selection on a
+`CallableWorker`, handing the answer to `MiniSearch.offer_prefill` a beat
+later. That method is where "too late" is decided, on the box's own side: a
+dismissed box (`isVisible()` is False) or a box somebody has already started
+typing into (`self.box.text()` is not empty) both discard the arriving text
+rather than let it clobber what is actually true on screen. `selection.py`
+joins `presenter.py`, `workers.py` and `preview_loader.py` in
+`test_ui_never_blocks.py`'s `WORKER_ONLY` list for exactly this reason - it is
+a module built to be called from a worker, the same shape as the other three.
+
+**Its own switch**, `MINI_SEARCH_PREFILL_SELECTION` - separate from
+`MINI_SEARCH_ENABLED`, because reading a selection out of whatever
+application somebody was looking at is the more intrusive half of the two
+behaviours, and switching off the box must not be the only way to switch off
+that.
+
+## Note on §5a, added 2026-09-04
+
+**Fetched deeper than it is shown, the same rule grouping already uses.**
+The mini box asked the engine for exactly `ROWS` (seven) results, so there
+was never a result set larger than the display to count kinds over -
+"14 files" could never have been true of anything this box could produce.
+`fetch_depth(ROWS)` - the same "fetch four times what you mean to group"
+constant `presenter.py` documents for the main results view - is used here
+too rather than a second number invented for this item, and the seven-row
+*display* cap is unchanged.
+
+**One more query, and it was missing before this too.** The mini box never
+passed `details` to `group_results`, so a mail hit had no subject and no
+`"email"` kind - it fell back to the synthetic path and bucketed as a file.
+`mail_details`, already the one-query-for-the-page answer `presenter.py`
+built for exactly this, is now called once per search inside the same
+worker that runs the search itself - not a second engine call, and not a
+per-row lookup.
+
+**Three buckets, not one chip per extension.** "14 pdf · 3 docx · 2 xlsx" is
+a catalogue; "files · mail · code" is the shape of the question this box
+exists to answer fast, and it is read from `_EXT_GROUPS["code"]` - the
+parser's own table, the same one `/type code` already answers from - rather
+than a second list of code extensions invented here.
+
+**No chip row for a single kind.** A result set that is entirely files gets
+no chips at all: one chip repeating the count the list above it already
+shows is noise, not an answer, and the whole reason a chip exists is a
+choice between kinds. `_chip_counts` still holds the true count either way -
+only the row of buttons is withheld.
+
+**Tab is caught on the box, not on the frame.** A plain `QLineEdit` hands Tab
+to Qt's own focus-next-widget handling before `keyPressEvent` on the
+containing frame ever sees it - the same trap the arrow keys did *not* fall
+into, because `QLineEdit` has no special handling for Up/Down and lets them
+through. An event filter installed on `self.box` is the one place Tab can be
+intercepted rather than merely observed after the fact.
+
+**Zero extra engine calls, asserted rather than assumed.** Cycling through
+every chip and back to "all" is a client-side filter over `_all_groups` -
+the ungrouped response already sitting in memory - and a test replaces
+`engine.search` with a counting wrapper for the length of a full cycle and
+asserts it is never called again.
 
 ## Note on §6a, added 2026-08-28
 

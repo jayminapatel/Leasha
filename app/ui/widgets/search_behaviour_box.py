@@ -171,6 +171,20 @@ class SearchBehaviourBox(QGroupBox):
         self.mini_status.setWordWrap(True)
         form.addRow("", self.mini_status)
 
+        # **Adoptions §4a, and its own switch.** Reading a selection out of
+        # whatever application you were looking at is the more intrusive half
+        # of the two, so it is switchable separately from the box itself -
+        # "off" for one must not mean "off" for both.
+        self.mini_prefill = QCheckBox("Pre-fill the box from a text selection")
+        self.mini_prefill.setObjectName("MINI_SEARCH_PREFILL_SELECTION")
+        self.mini_prefill.setToolTip(
+            "If you have text selected in another program when you press "
+            "the shortcut, the box opens with it already typed in - "
+            "selected, so the next keystroke replaces it. It never searches "
+            "by itself.")
+        self.mini_prefill.stateChanged.connect(lambda _s: self._emit())
+        form.addRow(self.mini_prefill)
+
         self.grid = self._build_grid()
 
         self.reset = QPushButton("Reset search behaviour to defaults")
@@ -256,6 +270,8 @@ class SearchBehaviourBox(QGroupBox):
                  bool(getattr(settings, "mini_search_enabled", True))),
                 (self.mini_hotkey,
                  str(getattr(settings, "mini_search_hotkey", "") or "")),
+                (self.mini_prefill,
+                 bool(getattr(settings, "mini_search_prefill_selection", True))),
             ):
                 control.blockSignals(True)
                 if isinstance(value, bool):
@@ -294,6 +310,7 @@ class SearchBehaviourBox(QGroupBox):
             "SEARCH_OFFER_RECENT": bool(self.offer_recent.isChecked()),
             "MINI_SEARCH_ENABLED": bool(self.mini_search.isChecked()),
             "MINI_SEARCH_HOTKEY": self.mini_hotkey.text().strip(),
+            "MINI_SEARCH_PREFILL_SELECTION": bool(self.mini_prefill.isChecked()),
         }
 
     def restore_defaults(self) -> None:

@@ -1172,8 +1172,45 @@ class MainWindow(QMainWindow):
                 self._mini.chosen.connect(self._open_result)
                 self._mini.expanded.connect(self._search_from_mini)
             self._mini.summon()
+            self._offer_foreground_selection()
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.warning("could not open the search box: {}", exc)
+
+    def _offer_foreground_selection(self) -> None:
+        r"""§4a: read whatever is selected in the foreground application, off
+        a worker, and offer it to the box that is already open.
+
+        **On a worker, never inline.** Reading a selection is a synthetic
+        Ctrl+C and a short wait for the clipboard to answer -
+        `COPY_TIMEOUT_S` in `app.ui.selection` - and `_summon_mini` opens the
+        box before this is even asked for, so a person who never selected
+        anything never waits on it either. `MiniSearch.offer_prefill` is
+        where "arrived too late" is handled, on the box's own side.
+
+        **Its own switch.** Reading a selection out of whatever application
+        somebody was looking at is the more intrusive half of the feature, so
+        it is checked separately from `mini_search_enabled` - overrides win
+        the same way `_apply_hotkey` already reads them, for a setting just
+        changed in this session.
+        """
+        try:
+            overrides = self._settings_overrides
+            wanted = overrides.get(
+                "mini_search_prefill_selection",
+                getattr(self._settings, "mini_search_prefill_selection", True))
+            if not wanted:
+                return
+            from app.ui.selection import read_foreground_selection
+
+            mini = self._mini
+            worker = CallableWorker(
+                read_foreground_selection, component="ui.mini.selection")
+            worker.signals.finished.connect(
+                lambda text: mini.offer_prefill(text or ""))
+            worker.signals.failed.connect(lambda _error: None)
+            run(QThreadPool.globalInstance(), worker)
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.debug("could not read the foreground selection: {}", exc)
 
     def _search_from_mini(self, query: str) -> None:
         """"Show me all of it": bring the window up with this query in it."""
