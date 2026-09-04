@@ -43,8 +43,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.presenter import (
-    KIND_LABELS, ResultGroup, ResultRow, accessible_text, group_results,
-    result_tooltip, to_rows, why,
+    KIND_LABELS, ResultGroup, ResultRow, Terminator, accessible_text,
+    group_results, result_tooltip, results_terminator, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
@@ -201,8 +201,7 @@ class ResultsView(QWidget):
 
         self._model.clear()
         if self._prefs.group_by_document:
-            for group in group_results(self._rows, details=self._details,
-                                       register=self._register):
+            for group in group_results(self._rows, details=self._details, register=self._register):
                 expanded = group.file_id in self._expanded
                 self._append(group, expanded=expanded)
                 if expanded and group.match_count > 1:
@@ -211,6 +210,10 @@ class ResultsView(QWidget):
         else:
             for row in self._rows:
                 self._append(row)
+        # Item 5c: a quiet, unselectable row of its own, so reaching it by
+        # scrolling is what answers "are there more" - see `Terminator`.
+        if self._rows:
+            self._append_terminator(results_terminator(len(self._rows)))
 
         if bar is not None:
             bar.setValue(min(position, bar.maximum()))
@@ -220,10 +223,8 @@ class ResultsView(QWidget):
         item.setEditable(False)
         item.setData(payload, ROLE_PAYLOAD)
         item.setData(expanded, ROLE_EXPANDED)
-        item.setData(
-            result_tooltip(payload,
-                           missing=getattr(payload, "path", "") in self._missing),
-            int(Qt.ItemDataRole.ToolTipRole))
+        item.setData(result_tooltip(payload, missing=getattr(payload, "path", "") in self._missing),
+                    int(Qt.ItemDataRole.ToolTipRole))
         # **Both roles, or the list is empty to a screen reader.** The delegate
         # paints from `ROLE_PAYLOAD`, so the item carried no text of its own -
         # and `QAccessible` reads `AccessibleTextRole`, falling back to
@@ -235,6 +236,17 @@ class ResultsView(QWidget):
         spoken = accessible_text(payload)
         item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
         item.setData(spoken, int(Qt.ItemDataRole.DisplayRole))
+        self._model.appendRow(item)
+
+    def _append_terminator(self, text: str) -> None:
+        """Item 5c: not selectable or activatable - a fact, not a result."""
+        if not text:
+            return
+        item = QStandardItem()
+        item.setEditable(False)
+        item.setData(Terminator(text), ROLE_PAYLOAD)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEnabled)
+        item.setData(text, int(Qt.ItemDataRole.AccessibleTextRole))
         self._model.appendRow(item)
 
     def clear(self, message: str = "") -> None:

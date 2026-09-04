@@ -117,6 +117,7 @@ __all__ = [
     "format_size",
     "format_when",
     "results_terminator",
+    "Terminator",
     "CODE_EXTENSIONS",
     "is_code_kind",
     "notice_register_for",
@@ -1426,6 +1427,19 @@ def results_terminator(count: int) -> str:
     if count == 1:
         return "That's all — 1 result."
     return f"That's all — {count:,} results."
+
+
+@dataclass(frozen=True, slots=True)
+class Terminator:
+    """The end-of-list row itself - item 5c.
+
+    A model row of its own, painted by `result_delegate.ResultDelegate`,
+    rather than text bolted onto the summary label above the list: the point
+    is that scrolling *to the bottom* is what answers "are there more", and
+    that only reads as an answer from inside the list somebody is already
+    scrolling.
+    """
+    text: str
 
 
 def results_message(response: Any) -> tuple[str, str]:

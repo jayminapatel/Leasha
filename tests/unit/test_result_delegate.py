@@ -527,6 +527,52 @@ def test_hover_never_wins_over_selection():
     assert body.index("State_Selected") < body.index("State_MouseOver")
 
 
+# ---------------------------------------------------------------------------
+# Item 5c: the terminator row, actually wired in (it wasn't - see the dated
+# note on this item in the work order)
+# ---------------------------------------------------------------------------
+
+def test_the_terminator_is_appended_after_every_rebuild():
+    text = RESULTS_VIEW.read_text(encoding="utf-8")
+    body = text.split("def _rebuild")[1].split("\n    def ")[0]
+    assert "_append_terminator" in body
+    assert "results_terminator" in body
+
+
+def test_the_terminator_row_is_not_selectable():
+    text = RESULTS_VIEW.read_text(encoding="utf-8")
+    body = text.split("def _append_terminator")[1].split("\n    def ")[0]
+    assert "ItemIsSelectable" in body
+
+
+def test_a_terminator_paints_without_raising():
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QPixmap, QPainter
+    from PyQt6.QtWidgets import QStyle
+
+    from app.ui.presenter import Terminator
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD
+
+    class Option:
+        def __init__(self):
+            self.rect = QRect(0, 0, 200, 30)
+            self.font = QFont()
+            self.state = QStyle.StateFlag.State_Enabled
+
+    class Index:
+        def data(self, role):
+            return Terminator("That's all — 23 results.") if role == ROLE_PAYLOAD else None
+
+    pixmap = QPixmap(200, 30)
+    painter = QPainter(pixmap)
+    try:
+        ResultDelegate().paint(painter, Option(), Index())
+        hint = ResultDelegate().sizeHint(Option(), Index())
+    finally:
+        painter.end()
+    assert hint.height() > 0
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""

@@ -26,7 +26,7 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
 
-from app.ui.presenter import ResultGroup, group_subtitle, is_code_kind, why
+from app.ui.presenter import ResultGroup, Terminator, group_subtitle, is_code_kind, why
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
@@ -122,6 +122,10 @@ class ResultDelegate(QStyledItemDelegate):
         metrics = Metrics.for_density(self.prefs.density)
         width = max(120, option.rect.width())
 
+        if isinstance(payload, Terminator):
+            # Item 5c: one plain line, not the group/chunk geometry below.
+            return QSize(width, QFontMetrics(meta_font).height() + 2 * metrics.pad_y)
+
         rows = [QFontMetrics(meta_font).height()]
         if isinstance(payload, ResultGroup):
             rows.insert(0, QFontMetrics(name_font).height())
@@ -150,6 +154,9 @@ class ResultDelegate(QStyledItemDelegate):
         payload = index.data(ROLE_PAYLOAD)
         if payload is None:
             super().paint(painter, option, index)
+            return
+        if isinstance(payload, Terminator):
+            self._paint_terminator(painter, payload, option)
             return
 
         painter.save()
@@ -274,6 +281,15 @@ class ResultDelegate(QStyledItemDelegate):
                          meta_metrics.elidedText("  ·  ".join(b for b in bits if b),
                                                  Qt.TextElideMode.ElideRight, width))
         return y + meta_metrics.height() + metrics.gap
+
+    def _paint_terminator(self, painter: QPainter, payload: Terminator, option: Any) -> None:
+        """Item 5c: "That's all — 23 results.", centred and faint."""
+        painter.save()
+        _, meta_font, _ = self._fonts(option.font)
+        painter.setFont(meta_font)
+        painter.setPen(QPen(QColor(theme_colours()["text_faint"])))
+        painter.drawText(option.rect, int(Qt.AlignmentFlag.AlignCenter), payload.text)
+        painter.restore()
 
 
 # ---------------------------------------------------------------------------

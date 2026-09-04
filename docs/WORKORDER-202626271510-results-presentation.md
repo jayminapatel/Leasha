@@ -129,10 +129,19 @@ job.
   theme token, both themes).
 - [x] **5b** the list scrolls **per pixel** (`ScrollPerPixel`) — per-item
   scrolling with tall rows feels notchy.
-- [ ] **5c** the list ends with a quiet **terminator** — "that's all 23"
+- [x] **5c** the list ends with a quiet **terminator** — "that's all 23"
   in plain words, faint — so the end of the list reads as an answer, not
   a stall. Plain register wording; count agrees with the status line by
   construction (same source).
+
+  > **2026-09-04 (session 3).** Now actually ticked. As the verification
+  > note above this file's section 1 says, `results_terminator()` existed
+  > with its own tests but nothing ever called it - the list never showed
+  > it. `presenter.Terminator` is now a small frozen dataclass the delegate
+  > recognises and paints centred and faint (`ResultDelegate._paint_terminator`),
+  > and `ResultsView._rebuild` appends one, non-selectable and disabled, after
+  > every real row via `_append_terminator`. Count agrees with the status line
+  > by construction, as the item says, because both read `len(self._rows)`.
 - [ ] **5d THE STABLE-UPDATE RULE**: when the full tier replaces the
   interim tier (or repository rows append), the refresh may add and
   re-rank rows, but the row under the pointer — and the current
