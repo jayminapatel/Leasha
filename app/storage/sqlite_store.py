@@ -384,16 +384,41 @@ class SqliteStore:
                 self._migrated = True
         return self
 
+    def optimize_query_planner(self) -> bool:
+        r"""Run `PRAGMA optimize`, refreshing the query planner's statistics.
+
+        **§3c: moved here from the close path, and this is the other half of
+        that move that was missing.** The close-path call was deleted with a
+        comment saying it belonged on an idle timer instead - but nothing was
+        ever added to call it from anywhere, silently losing the optimize
+        entirely rather than relocating it. `MainWindow` schedules this on a
+        coarse timer (hourly) while the app is open; this method is what
+        that timer calls.
+
+        Never raises - the same reasoning as `optimize_fts`: an older
+        SQLite, a locked database mid-write, a store already closed by the
+        time this fires - none of those are worth losing to. Returns
+        whether it actually ran.
+        """
+        try:
+            with self.write() as conn:
+                conn.execute("PRAGMA optimize")
+            return True
+        except Exception as exc:                  # noqa: BLE001 - see the docstring
+            _log.warning(
+                "the query planner was not refreshed, so query plans may "
+                "drift stale: {}", exc)
+            return False
+
     def close(self) -> None:
         # Both, in the lock order set out in `__init__`: wait for an in-flight
         # write to finish rather than closing the connection underneath it.
         #
-        # §3c: PRAGMA optimize moved to idle. SQLite's own guidance recommends
-        # periodic (e.g., hourly) PRAGMA optimize rather than at every close.
-        # Running it on the close path delays shutdown while holding the
-        # single-instance lock, which makes a relaunch wait unnecessarily.
-        # On idle (enrichment-backlog/idle pattern or coarse timer) it is cheaper
-        # and does not block the critical path.
+        # §3c: PRAGMA optimize moved to idle - see optimize_query_planner()
+        # above. SQLite's own guidance recommends periodic (e.g., hourly)
+        # PRAGMA optimize rather than at every close. Running it on the
+        # close path delays shutdown while holding the single-instance lock,
+        # which makes a relaunch wait unnecessarily.
         with self._write_lock, self._conns_lock:
             self._closed = True
             for conn in self._open.values():

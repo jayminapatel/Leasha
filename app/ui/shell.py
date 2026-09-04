@@ -252,6 +252,18 @@ class MainWindow(QMainWindow):
         self._watch_timer = QTimer(self)
         self._watch_timer.setInterval(4_000)
         self._watch_timer.timeout.connect(self._poll_external_run)
+
+        # §3c: `PRAGMA optimize` refreshes the query planner's statistics.
+        # It used to run on every close, which delayed shutdown while
+        # holding the single-instance lock - a relaunch would wait on it
+        # unnecessarily. Moved here: a coarse, hourly timer while the app is
+        # open, which is what SQLite's own guidance recommends anyway
+        # (periodic, not per-close). Built here, started in
+        # `_start_background_work`, for the same construction-race reason
+        # as `_watch_timer` above.
+        self._optimize_timer = QTimer(self)
+        self._optimize_timer.setInterval(3_600_000)
+        self._optimize_timer.timeout.connect(self._run_idle_optimize)
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -498,6 +510,7 @@ class MainWindow(QMainWindow):
             # `__init__` for the reason this whole method exists.
             self._watch_timer.start()
             self._poll_external_run()
+            self._optimize_timer.start()
             self.indexing_view.refresh_totals(store, settings)
             # The two Settings labels that need the store or an import. They
             # used to be filled during `SettingsView.__init__`, which is inside
@@ -1724,6 +1737,21 @@ class MainWindow(QMainWindow):
         self.indexing_view.show_external(
             payload.get("record"), locked=bool(payload.get("locked")))
         self._run_link(payload.get("link"))
+
+    def _run_idle_optimize(self) -> None:
+        r"""§3c: refresh the query planner's statistics, off the UI thread.
+
+        Fires once an hour for as long as the window is open (see
+        `_optimize_timer` in `__init__`). Off the UI thread for the same
+        reason `_poll_external_run` is: this touches the store, and "cheap"
+        on the UI thread is still a stutter nobody can attribute. No signal
+        connected to the result - there is nothing to show for a query-planner
+        refresh succeeding, and `optimize_query_planner` already logs a
+        warning on the way it can fail.
+        """
+        worker = CallableWorker(self._store.optimize_query_planner,
+                                 component="ui.optimize")
+        run(QThreadPool.globalInstance(), worker)
 
     def _run_link(self, request: Any) -> None:
         r"""A `leasha://` link arrived while this window was open. §7a.
