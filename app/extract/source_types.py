@@ -291,7 +291,7 @@ DOCS_AND_DATA = frozenset({
     ".tex", ".bib", ".ltx", ".sty", ".cls",
     ".log", ".csv", ".tsv", ".psv",
     ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".xml", ".xsd", ".xsl",
-    ".xslt", ".dtd", ".wsdl", ".svg",
+    ".xslt", ".dtd", ".wsdl",
     ".ini", ".cfg", ".toml",
     ".srt", ".vtt", ".ics", ".vcf",
     ".diff", ".patch",
