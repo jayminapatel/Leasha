@@ -117,6 +117,8 @@ __all__ = [
     "format_size",
     "format_when",
     "results_terminator",
+    "CODE_EXTENSIONS",
+    "is_code_kind",
     "SNIPPET_CHARS",
     "TYPING_DEBOUNCE_MS",
     "IDLE_DEBOUNCE_MS",
@@ -990,6 +992,31 @@ KIND_LABELS = {
 def kind_tag(kind: str) -> str:
     """Four characters at most, so an unknown type still gets a legible tag."""
     return KIND_LABELS.get(kind, (kind or "?").upper()[:4])
+
+
+#: Extensions painted in monospace - item 3c. Deliberately narrower than
+#: `preview_loader`'s text-file list: that one decides what can be *read* at
+#: all, this one decides what reads like *code* to the form coders already
+#: use everywhere else. `.txt`/`.md`/`.csv` are prose and data, not source,
+#: and stay in the ordinary body font.
+CODE_EXTENSIONS = frozenset({
+    "py", "js", "jsx", "ts", "tsx", "java", "c", "h", "cpp", "hpp", "cc",
+    "cs", "go", "rs", "rb", "php", "sql", "ps1", "sh", "bash", "bat", "cmd",
+    "kt", "swift", "scala", "lua", "pl", "r", "css", "scss", "html", "htm",
+})
+
+
+def is_code_kind(kind: str) -> bool:
+    """Whether `kind` (a `ResultGroup.kind` or `ResultRow.ext`) is source code.
+
+    Item 3c: **only the font changes here.** A line number was asked for
+    alongside the monospace font and is deliberately not shown - see the
+    dated note on item 3c in the work order. Nothing from extraction through
+    to a `SearchResult` carries a line number today, chunk-relative or
+    absolute, and painting a guessed one would cost this list more trust than
+    it earns, on the one order whose acceptance sentence is about trust.
+    """
+    return (kind or "").lower() in CODE_EXTENSIONS
 
 
 def why(row: Any) -> str:

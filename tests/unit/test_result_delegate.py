@@ -376,6 +376,46 @@ def test_the_kind_word_still_reaches_the_tooltip_and_accessible_text():
     assert result_tooltip(payload)
 
 
+# ---------------------------------------------------------------------------
+# Item 3c: code rows in monospace (the line number is a documented gap)
+# ---------------------------------------------------------------------------
+
+def test_a_python_file_is_recognised_as_code():
+    from app.ui.presenter import is_code_kind
+
+    assert is_code_kind("py")
+    assert is_code_kind("PY"), "extensions arrive lower-cased from disk, not always"
+
+
+def test_prose_and_data_formats_are_not_code():
+    from app.ui.presenter import is_code_kind
+
+    for kind in ("txt", "md", "csv", "pdf", "email", ""):
+        assert not is_code_kind(kind), kind
+
+
+def test_a_code_row_gets_a_monospace_font():
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import _snippet_font
+
+    base = QFont()
+    base.setPointSize(11)
+    mono = _snippet_font(base, "py")
+    assert mono.fixedPitch() or mono.styleHint() == QFont.StyleHint.Monospace \
+        or mono.family() != base.family()
+    assert mono.pointSize() == base.pointSize(), "the size must not change, only the family"
+
+
+def test_a_prose_row_keeps_the_ordinary_font():
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import _snippet_font
+
+    base = QFont()
+    assert _snippet_font(base, "pdf") is base
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""

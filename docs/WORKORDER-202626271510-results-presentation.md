@@ -88,6 +88,26 @@ job.
   number** — the form coders already read everywhere else. Spreadsheet
   hits already carry Sheet/cell (0o §6a, landed): inherit, don't touch.
 
+  > **2026-09-04 (session 3).** Left unticked - only half of this is done.
+  > `presenter.is_code_kind` and `result_delegate._snippet_font` paint a
+  > code-extension row's snippet in the system monospace font, at the same
+  > size, and that half is tested and working. **The line number is a real
+  > infrastructure gap, not an oversight**: verified by reading
+  > `app/extract/plaintext.py`, `app/extract/chunker.py` and
+  > `app/extract/base.py`'s `Segment` - none of them track a line number,
+  > chunk-relative or absolute, so nothing between extraction and a
+  > `SearchResult` carries one for this order's Qt-free layer to show.
+  > `presenter.Snippet` has no offset into its source chunk either. Adding
+  > one would mean changing the extractors, which is outside this order's
+  > file scope (`app/ui/presenter.py`, `result_delegate.py`, `results_view.py`,
+  > `search_view.py` only) - and a *guessed* line number (say, counting
+  > newlines within the snippet window alone, which is all the data in
+  > reach) would not correspond to the real file and would be actively
+  > misleading rather than merely absent, on the one order whose acceptance
+  > sentence is "every row earns its trust". Left for the owner: either scope
+  > a follow-up order through `app/extract/` to carry a line number the whole
+  > way, or drop the line-number half of this item's wording.
+
 ## 4. Locations, dates, and twins
 
 - [ ] **4a** the location line **elides on the left**, keeping the tail —

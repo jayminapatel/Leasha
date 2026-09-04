@@ -26,7 +26,7 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
 
-from app.ui.presenter import ResultGroup, group_subtitle, why
+from app.ui.presenter import ResultGroup, group_subtitle, is_code_kind, why
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
@@ -127,7 +127,8 @@ class ResultDelegate(QStyledItemDelegate):
             rows.insert(0, QFontMetrics(name_font).height())
         if self._shows_snippet(payload):
             text = _snippet_text(payload)
-            rows.append(_snippet_height(body_font, text, width - 2 * metrics.pad_x,
+            snippet_font = _snippet_font(body_font, _payload_kind(payload))
+            rows.append(_snippet_height(snippet_font, text, width - 2 * metrics.pad_x,
                                         max_lines=_max_snippet_lines(self.prefs.density)))
 
         height = sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y
@@ -188,7 +189,7 @@ class ResultDelegate(QStyledItemDelegate):
                                   meta_font, faint, metrics)
 
         if self._shows_snippet(payload):
-            painter.setFont(body_font)
+            painter.setFont(_snippet_font(body_font, _payload_kind(payload)))
             _draw_snippet(painter, _snippet_payload(payload),
                           QRect(left, y, width, option.rect.bottom() - y), text_colour,
                           max_lines=_max_snippet_lines(self.prefs.density))
@@ -267,6 +268,27 @@ def _snippet_payload(payload: Any) -> Any:
     if isinstance(payload, ResultGroup):
         return payload.best.snippet if payload.best else None
     return getattr(payload, "snippet", None)
+
+
+def _payload_kind(payload: Any) -> str:
+    """`ResultGroup.kind`, or a chunk row's own `ext` when there is no group."""
+    return getattr(payload, "kind", None) or getattr(payload, "ext", None) or ""
+
+
+def _snippet_font(base: QFont, kind: str) -> QFont:
+    """Item 3c: code rows paint in monospace, at the same size as `base`.
+
+    No line number - see `presenter.is_code_kind`'s docstring for why.
+    """
+    if not is_code_kind(kind):
+        return base
+    from PyQt6.QtGui import QFontDatabase
+    mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    if base.pointSize() > 0:
+        mono.setPointSize(base.pointSize())
+    elif base.pixelSize() > 0:
+        mono.setPixelSize(base.pixelSize())
+    return mono
 
 
 def _snippet_text(payload: Any) -> str:
