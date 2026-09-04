@@ -68,12 +68,23 @@ computer where people share one login, Leasha works like the rest of that login
 - anyone using it can find anything it can read. If that matters in your home,
 give each person their own Windows account before installing, or choose the
 folders Leasha indexes so shared spaces stay shared and private ones stay out.
+Leasha's index contains copies of text from your files — treat the index as being as
+sensitive as the most sensitive thing you index.
 
 Full detail, including every installer parameter, in `LOCAL_KNOWLEDGE_GRAPH_V2.md`.
 
+## Your Google data
+
+Download your Google Takeout, put the zip in an indexed folder — Leasha does the rest.
+Nothing connects to Google. Every email, note, and photo is instantly searchable by content
+and date, completely offline.
+
+The Takeout archive is processed like any other zip: Gmail is indexed as mail, Keep notes
+as text, and photos with their metadata intact. No setup, no configuration, no import wizard.
+
 ## Developing
 
-Open the folder in VS Code, or double-click `SearchProject.code-workspace`. See
+Open the folder in VS Code, or double-click `Leasha.code-workspace`. See
 `docs/VSCODE.md`. Then:
 
 ```powershell
@@ -97,6 +108,8 @@ See `docs/TROUBLESHOOTING.md`.
 |---|---|
 | `HANDOFF.md` | **Start here if picking this up cold.** State, decisions, traps, how to resume |
 | `docs/PROJECT_INSTRUCTIONS.md` | The standing rules for working on this project |
+| `docs/ORDER_REGISTER.md` | Every work order, its status and where it sits in the queue |
+| `docs/GLOSSARY.md` | What the terms mean here |
 | `LOCAL_KNOWLEDGE_GRAPH_V2.md` | Architecture, error contract, PST strategy, honest performance numbers |
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9), schemas, acceptance tests, performance budget |
 | `docs/VERSIONING.md` | Version scheme, git conventions, release checklist |

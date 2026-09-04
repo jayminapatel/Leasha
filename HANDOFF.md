@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.7 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.8 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,7 +62,7 @@ verified* - three of them carry a check nobody has run yet, and those are §11's
 | Layer | What it is | State |
 |---|---|---|
 | L0 | Foundation: config, errors, logging, single-instance, CLI | **Done** - acceptance suite passes |
-| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - schema at v13, acceptance suite passes |
+| L1 | Storage: SQLite/FTS5, LanceDB, migrations | **Done** - schema at v16, acceptance suite passes |
 | L2 | Extraction: PDF, Office, plaintext, Outlook/PST, chunking | **Code-complete** - one manual check left, see below |
 | L3 | Indexing pipeline: walker, workers, resumable cursor | **Code-complete** - never run at real scale |
 | L4 | Search: BM25 + ANN, RRF fusion, rerank, filters | **Code-complete** - measured, §3b. One acceptance box open: first search under 3s needs the real ONNX load |
@@ -220,6 +220,29 @@ job wired to its own button. Building the UI first is how the 300ms budget
 gets lost by accident.
 
 ### What is **Next**
+
+> **Read `docs/ORDER_REGISTER.md` first — it is now the register.** This section is
+> the reasoning; that table is the state. Every order, its status, its queue position
+> and its done/open count live there, counted from the checkboxes rather than
+> asserted. Before it existed the queue lived here and each order's `**Status:**`
+> line pointed back at this section, which is a circular register — and by
+> 2026-08-30 this half had gone stale while the orders had moved on.
+>
+> **Corrected on 2026-08-30, against the tree at `e3c9682`.** Three things below were
+> wrong in the most misleading direction available, which is the same fault this
+> section already records itself committing once:
+>
+> - **`202626270046` (0a) is finished** — 25 items, 0 open — while its header still
+>   reads ACTIVE and this section still queues work behind it.
+> - **`202626270257` (0d, privacy defaults) is finished** — 9 of 9.
+> - **`202626270326` (0e, workspace features) is a third built, not future work.**
+>   §1 the colour log, §2 the pop-out preview windows and §3a the global-hotkey
+>   mini-search shipped in `aa9fb28`, `ec40c40` and `b1fdd7c`. 16 of 30 items are
+>   ticked. The text below still describes the whole order as something to start
+>   after the search-experience order.
+>
+> Also corrected: the L1 row above said schema v13; `migrations.CURRENT_VERSION` is
+> **16**.
 
 In order, and grouped by what is actually blocking.
 
@@ -850,6 +873,31 @@ Reopening these without new evidence wastes time. The reasoning matters more tha
 | Translation never blocks a search | Ollama missing, slow or answering nonsense all fall back to the raw text. The worst case is the behaviour before it existed | Nothing |
 | One catalogue for the filters | `commands.py` feeds the `/` dropdown, `app.cli commands` and the model's prompt. Three descriptions of one grammar is how a filter gets offered that the parser rejects | Nothing |
 
+### 5a. Decisions taken in conversation, written down 2026-08-30
+
+Everything above was already here. Everything below was settled by the owner between
+2026-08-26 and 2026-08-29 and existed only in an assistant memory note or in a chat
+transcript — which is to say it was one lost thread away from being reopened blind.
+Dated, because several of them supersede an earlier position.
+
+| Date | Decision | Made by | Why | Supersedes |
+|---|---|---|---|---|
+| 2026-08-27 | **Working version first.** No structural refactor — `cli.py` split, `presenter.py` split, `shell.py` controllers — until the feature orders are done. Bug fixes and measured performance work are exempt | Owner | He intends to publish, to friends and to children's machines. A working product beats internal tidiness | — |
+| 2026-08-27 | **Progressive disclosure by tab.** Tab one is the universal surface and must pass the eight-year-old test; Files, Mail and Code are power surfaces and keep the `/` grammar. Same engine, different contracts | Owner | — | — |
+| 2026-08-27 | **DWG via a user-installed converter, subprocess only.** LibreDWG or ODA File Converter, detected like LibreOffice, never bundled, never via Python bindings | Owner | Linking would impose GPL on the app; invoking a binary the user installed is mere aggregation | — |
+| 2026-08-28 | **Offline Media, not "removable drives".** The category is anything catalogued then disconnected; drives are only kind 1 | Owner | A further use case was coming that the narrow name would not have covered | The removable-drives framing of 2026-08-27 |
+| 2026-08-28 | **Fully manual.** A source joins the list because the user pressed Scan. No arrival prompts, no automatic anything | Owner | "Nothing happens to a removable drive unless you pressed the button" — the trust, kid-proof and borrowed-stick answer in one | An earlier auto-offer design |
+| 2026-08-28 | **Drive letters are never stored.** Identity is the volume GUID plus hardware serial; paths are `(volume_id, relative_path)` resolved at open time. Network sources normalise to UNC | Owner | The letter is assumed different on every plug-in | — |
+| 2026-08-28 | **EXIF `DateTimeOriginal` is the date for photos**, falling back to file time only when absent | Owner | File mtime is a lie on old photo corpora — twenty years of drive-to-drive copies reset it. Without this, `after:`, era hints and the timeline give confidently wrong answers on exactly the shelf-drive corpus that motivates the feature | Using file time uniformly |
+| 2026-08-28 | **Face detection and clustering automatic; identity only ever from the user.** Off by default, one plain-words switch, deletable, names never leave the machine | Owner | The principled line moved from "no faces" to "no *automatic* identification" — the same place digiKam, Immich and Apple landed. Face embeddings are biometric-adjacent, so the guardrails are load-bearing, not decoration | The earlier faces-never rule |
+| 2026-08-28 | **"If we can index, we will index."** No content policing, no format deny-lists, no header sniffs. Leasha reads exactly what the login can read | Owner | It is a lens, not a censor. The onus to encrypt sits with the generating system. Folded in by disclosure instead: indexing copies text, so the index is as sensitive as the most sensitive thing in it | An assistant-proposed skip-list and content guards |
+| 2026-08-28 | **Phones are Offline Media kind 4**, with the landing folder as the recommended daily flow | Owner | — | Phones as a separate strand |
+| 2026-08-28 | **Cloud sources only through the vendor's own desktop mount.** No OAuth, no network code in Leasha. API connectors deferred indefinitely | Owner | It would bend the "nothing is ever sent anywhere" paragraph, and start a connector treadmill. The fair ask is "install Google's own Drive for Desktop" | — |
+| 2026-08-28 | **Slow scans of photo and video drives are accepted** — "expected, small price to pay" | Owner | Never trade corpus coverage for speed on media drives. The ladder and trickle enrichment manage the cost; they do not cut the corpus | — |
+| 2026-08-28 | **mbox is a must; bookmarks are withdrawn; calendar and contacts dropped** | Owner | One stdlib extractor unlocks Takeout Gmail, Thunderbird and Unix mail. Sync products own the bookmark space | — |
+| 2026-08-28 | **History search is its own job, not a mode of the search box** | Backend measurement, ratified by owner | `git log -S` cost 1.59s over 75 commits against a 300ms budget, and the cost is proportional to history. Not a marginal call | Option 1 and option 3 of `HANDOFF-ui-to-backend.md` B4 |
+| 2026-08-26 | **`LICENSE` added: MIT** | Owner | — | **Reopens a closed question.** `202626082213` concluded free SignPath code signing was unavailable *because* the repository had no OSS licence. That premise no longer holds — see `docs/ORDER_REGISTER.md` §5 |
+
 ## 6. Traps
 
 Things that have already caused real failures, or will.
@@ -1012,13 +1060,25 @@ Not blockers, but decide them deliberately rather than by accident.
 
 | Document | For |
 |---|---|
+| `CLAUDE.md` | The front door. Loaded automatically at the start of a session |
 | `docs/PROJECT_INSTRUCTIONS.md` | The rules. Read before writing code |
+| `docs/ORDER_REGISTER.md` | Every work order, its status and queue position |
+| `docs/GLOSSARY.md` | What a term means here |
 | `BUILD_SPEC_V2.md` | What each layer delivers and its acceptance tests |
 | `LOCAL_KNOWLEDGE_GRAPH_V2.md` | Architecture, error contract, email and cloud strategy |
 | `docs/TROUBLESHOOTING.md` | When something breaks |
 | `docs/VSCODE.md` | Editor setup |
 | `docs/VERSIONING.md` | Version scheme, git conventions, release checklist |
+| `docs/PARKED-IDEAS.md` | Approved in discussion, not ordered. Nothing here may be started |
 | `CHANGELOG.md` | What changed, when, and why |
+
+**`docs/_superseded/`** holds four modules quarantined on 2026-08-30:
+`drag_out.py`, `pinned.py`, `timeline.py` and `working_set.py`. All four were written
+on 27 August at 16:33-16:38, were never committed, and were never imported by anything
+tracked — `working_set` imported `pinned` and nothing imported either. The pop-out
+feature they were drafts for shipped as `app/ui/widgets/preview_window.py` in
+`ec40c40`. They are moved rather than deleted because they were untracked, so git
+holds no copy. Delete the folder once you have confirmed you want nothing from them.
 
 ## 9. Keeping this document true
 

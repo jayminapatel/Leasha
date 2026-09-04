@@ -1,8 +1,23 @@
 # Changelog
 
-**Doc version:** 4.00 · **Updated:** 2026-08-28 · **Applies to:** app v0.3.3
+**Doc version:** 4.01 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
 
-## Fixed: a folder Leasha cannot find is no longer skipped in silence
+All notable changes to this project are recorded here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+versioning follows the scheme in `docs/VERSIONING.md`.
+
+> **Restructured 2026-08-30.** Thirty-six sections had been written *above* the
+> `## [Unreleased]` heading, and above this preamble - outside the Keep a Changelog
+> structure entirely. Run as it stood, step 7 of the release checklist would have
+> promoted the older content under `[Unreleased]` to the new version and left the
+> newest six hundred lines orphaned above it. Nothing was reworded; the heading and
+> this preamble moved up so that everything unreleased now sits beneath them, and
+> those thirty-six headings dropped from `##` to `###` so they nest under it rather
+> than sitting beside it. Heading text is untouched.
+
+## [Unreleased]
+
+### Fixed: a folder Leasha cannot find is no longer skipped in silence
 
 - **If one of your folders had moved, been renamed, or was on a drive that
   was not plugged in, Leasha skipped it and said nothing at all.** No warning,
@@ -18,7 +33,7 @@
   situations it is in: no folders set up, all of them marked as archives, or
   the folders were read and held nothing.
 
-## Fixed: Leasha forgetting when it last indexed
+### Fixed: Leasha forgetting when it last indexed
 
 - **The moment an index run finished, the step that records the time failed**
   — every time, since the scheduler was written. It never got as far as
@@ -31,7 +46,7 @@
   have. The error reporting added yesterday caught the first one within
   hours; a sweep for the same kind of mistake found the second.
 
-## Fixed: Leasha closing itself for no apparent reason
+### Fixed: Leasha closing itself for no apparent reason
 
 - **Leasha could vanish while you were using it** — no message, no warning,
   the window simply gone. Windows recorded eight of these on 26 and 27 August,
@@ -51,7 +66,7 @@
 - This is the third attempt at this fault. The first two made it rarer instead
   of fixing it, which is why the code and its tests now carry the whole story.
 
-## When it crashes, it now says so
+### When it crashes, it now says so
 
 - **A crash used to leave nothing behind at all.** No message, no error, no
   file — the log simply stopped mid-line. Leasha closed twice like this on
@@ -66,7 +81,7 @@
 - Warnings from the graphics toolkit are recorded too. They used to go to the
   same console that is not there.
 
-## Search from anywhere with a shortcut
+### Search from anywhere with a shortcut
 
 - **Press Ctrl+Alt+L in any application** and a small search box appears.
   Type, press Enter, the document opens, the box is gone.
@@ -78,7 +93,7 @@
   already in it.
 
 
-## Pin a document in its own window
+### Pin a document in its own window
 
 - **"Pin in a window"** on any preview opens that document in a window of its
   own. Pin as many as you like — two drawings side by side, or the mail you
@@ -94,7 +109,7 @@
 - Keep any pinned window on top while you work in something else.
 
 
-## The activity log, in colour and in its own window
+### The activity log, in colour and in its own window
 
 - **Warnings and errors stand out.** The level word is still on the line, so
   it works whether or not you can tell the colours apart.
@@ -104,7 +119,7 @@
 - The window remembers its size and whether you pinned it.
 
 
-## Click into an empty search box and it offers your own searches
+### Click into an empty search box and it offers your own searches
 
 - **The last few things you looked for, and the searches you saved.** Pick one
   and it runs.
@@ -115,7 +130,7 @@
   see. That hides your history; it does not hide the searches you saved.
 
 
-## leasha:// links
+### leasha:// links
 
 - **A link can open Leasha on a search**: `leasha://search?q=safety%20report`
   in a shortcut, a note, or anything else that opens links.
@@ -127,7 +142,7 @@
   change a setting, on purpose.
 
 
-## Click any column heading to sort
+### Click any column heading to sort
 
 - **Every list sorts now**, not just Mail — Files, the Code results, the file
   list on the Code tab.
@@ -141,7 +156,7 @@
   right-aligned column of sizes had a centred heading above it.
 
 
-## Spreadsheet results say which row
+### Spreadsheet results say which row
 
 - **A hit in a spreadsheet now says where it is**: *Sheet 'Q3 Costs' · near
   B14*, instead of "page 3".
@@ -153,7 +168,7 @@
   up next time they are indexed.
 
 
-## Searches you can name and keep
+### Searches you can name and keep
 
 - **Save a search under a name and run it again later.** It re-runs there and
   then, so anything indexed since you saved it turns up too - it is a standing
@@ -167,7 +182,7 @@
 - Add words after it: `saved:invoices leeds` runs your saved search and looks
   for leeds inside it.
 
-## Fixed: results never showed the date
+### Fixed: results never showed the date
 
 - **Every document result showed no date at all.** The row was built without
   it, so where the date should have been there was nothing - for as long as
@@ -176,7 +191,7 @@
 - In a folder with fifteen years of work in it, the date is often the only
   thing telling two results apart.
 
-## A result found by meaning says so
+### A result found by meaning says so
 
 - **A result with none of your words in it now says "meaning match".** It
   looks like a mistake otherwise - and it is not one, it is the search
@@ -185,7 +200,7 @@
   the one that needs it.
 - It is a word, not a colour, so it works for everybody.
 
-## Ask any result why it is there
+### Ask any result why it is there
 
 - **Every result can now explain itself in plain words**: which of your words
   are in it, whether it was found by meaning rather than by matching, whether
@@ -197,7 +212,7 @@
 - Nothing to say means it says nothing, rather than padding.
 - Switch it off like any other behaviour.
 
-## Fixed: correcting a misspelling did not actually change the search
+### Fixed: correcting a misspelling did not actually change the search
 
 - **The spelling correction announced itself and then did nothing.** Typing a
   misspelled word showed "also looked for 'volcano'" above an empty page: the
@@ -207,7 +222,7 @@
   typing a word wrong and looking for her homework - which checks what she
   would see rather than what the code reports about itself.
 
-## The window follows your text size
+### The window follows your text size
 
 - **If you have made text bigger in Windows, Leasha now grows with it.** Every
   size in the window was fixed in pixels, which follows your screen's
@@ -216,7 +231,7 @@
   the same density. The sizes are now expressed relative to your system font
   rather than nailed down, so the two agree.
 
-## Code results know how to open in your editor, at the line
+### Code results know how to open in your editor, at the line
 
 - **A code result is a place, not a document.** Showing you the folder that
   contains line 512 makes you search for it again inside your editor. Leasha
@@ -228,7 +243,7 @@
   installs several of them somewhere else, and looking only at the PATH is how
   an application tells you to install something you already have.
 
-## More like this
+### More like this
 
 - **Ask for other passages that read like one you are looking at.** Finding
   things by meaning has been in Leasha since the beginning and has never been
@@ -240,7 +255,7 @@
 - Costs nothing to run: the passage was already turned into numbers when it
   was indexed, so this reads those back rather than doing the work again.
 
-## Searching for a name finds where it is defined
+### Searching for a name finds where it is defined
 
 - **The file that defines a thing used to come last.** Search for a class or
   function name and you got every file that calls it first, because those
@@ -254,7 +269,7 @@
   past the files that only use the name, but can never overtake a real
   definition. That is by construction, not by luck.
 
-## Paste an error message and get the files that contain it
+### Paste an error message and get the files that contain it
 
 - **Pasting a traceback used to return everything.** The box split it on
   punctuation and asked for any document containing "object", or "has", or
@@ -271,7 +286,7 @@
   broke the search entirely** - the whole query failed rather than returning
   anything. Quoted phrases now match exactly what you quoted.
 
-## £40,000 and 40000 and 40k are the same amount, and search knows it now
+### £40,000 and 40000 and 40k are the same amount, and search knows it now
 
 - **Type an amount any way you like and you find every document that mentions
   it.** Before this, five documents all naming the same figure could not find
@@ -285,7 +300,7 @@
   numbers - are left alone too. They are not amounts, and treating them as
   amounts would widen your search for nothing.
 
-## Plain sentences become filters, without needing a model
+### Plain sentences become filters, without needing a model
 
 - **Type "the invoice Dave sent me last year" and Leasha offers you the
   filters it recognised** — from Dave, PDF files, that year — as chips beside
@@ -314,7 +329,7 @@
 - Off on the Code tab and behind the Interpret button elsewhere, exactly as
   the search behaviour table says.
 
-## Your own recent searches, offered back
+### Your own recent searches, offered back
 
 - **The box will offer what you searched for before** — the last six, without
   the near-identical refinements that come from typing the same thing four
@@ -325,7 +340,7 @@
 - Reading that history happens off the interface thread, so a busy index
   cannot make clicking into the search box feel slow.
 
-## Eight versions of the same letter, shown as one row
+### Eight versions of the same letter, shown as one row
 
 - **The same document saved eight times now takes one line**, with the newest
   shown and "3 older versions" one click away. Fifteen years of a working life
@@ -351,7 +366,7 @@
 - A file whose date cannot be read counts as old, not new. The other way round
   floats every unreadable archive to the top of every search.
 
-## When nothing matches, it tells you what it let go of
+### When nothing matches, it tells you what it let go of
 
 - **A search that finds nothing now tries once more without the thing that was
   narrowing it**, and says so on the page. Quotes around a half-remembered
@@ -373,7 +388,7 @@
   not a word, so instructions are what get relaxed. The result is closer to
   what the feature was for.
 
-## A misspelt word finds the document anyway
+### A misspelt word finds the document anyway
 
 - **A word your documents have never contained is quietly checked against the
   words they do contain**, and the closest one is searched for instead. Type
@@ -402,7 +417,7 @@
   in the word, and fixing the rest would cost a scan of the whole vocabulary on
   every keystroke.
 
-## Search now knows which tab it is on, and what that tab is allowed to do
+### Search now knows which tab it is on, and what that tab is allowed to do
 
 - **Six switches for what search may do on your behalf**: fix an obvious
   spelling, try again with fewer words, offer filters it recognises, prefer
@@ -431,7 +446,7 @@
   from the query translator. Renamed, and the reason is now written where the
   next person will look.
 
-## The tuning controls now change the run, not just the screen
+### The tuning controls now change the run, not just the screen
 
 - **Repeated text is embedded once.** Signatures, disclaimers and letterheads
   repeat across thousands of documents and every copy cost a full pass through
@@ -461,7 +476,7 @@
   became one on any box detection could not read - in the code path that
   actually runs the index.
 
-## Leasha now learns what your computer is good at
+### Leasha now learns what your computer is good at
 
 - **Every run says where its time went** - waiting for files, writing, working
   out meaning, storing vectors. This is the measurement the rest of the speed
@@ -497,7 +512,7 @@
   new benchmark makes to time both processors. An override that cannot
   override is not an override.
 
-## One Index Tuning screen, on the page where you watch the run
+### One Index Tuning screen, on the page where you watch the run
 
 - **Everything that decides how fast a run goes is in one place**, beside the
   progress bar rather than three tabs away. These numbers interact - workers
@@ -537,7 +552,7 @@
   somebody's six workers became one just by looking at the screen. Two tests
   now stand over that.
 
-## The machine is looked at, and one setting decides which processor runs the models
+### The machine is looked at, and one setting decides which processor runs the models
 
 - **Leasha now knows what it is running on.** Cores are counted by kind - two
   performance cores and eight efficiency ones read differently from ten of the
@@ -569,7 +584,7 @@
   applied in the window and not on the command line. There is one constructor
   now, and one answer.
 
-## The `/` menu answers the query you are building — and the CLI gets one too
+### The `/` menu answers the query you are building — and the CLI gets one too
 
 - **Values are narrowed by what is already typed.** `repo:leasha branch:` offers
   that checkout's branches; `type:pdf from:` offers the people who sent PDFs.
@@ -589,7 +604,7 @@
   It reads a small file the indexer writes, so a Tab press starts no process at
   all; the fallback that does answers in 35ms.
 
-## Privacy defaults - a per-account index and an offer that adds nothing
+### Privacy defaults - a per-account index and an offer that adds nothing
 
 - **The index defaults to `%LOCALAPPDATA%\Leasha`**, which Windows ACLs to one
   account. Two people on one machine get two private indexes and nothing had to
@@ -606,7 +621,7 @@
 - **`doctor` says where the index is and who can read it** - one factual line,
   which always passes: a shared location is a choice, not a fault.
 
-## Review remediation, sections 6 and 8
+### Review remediation, sections 6 and 8
 
 - **Fifteen dead knowledge-graph methods removed** from `SqliteStore` - 303
   lines that nothing in `app/`, `tests/` or `scripts/` called.
@@ -636,7 +651,7 @@ Still open in that order: the reranker's place on the critical path, which
 needs a measurement from a machine that can download the model, and the
 structural splits, which the owner deferred.
 
-## Review remediation, section 5 - core, extract, CLI and storage
+### Review remediation, section 5 - core, extract, CLI and storage
 
 - **An environment variable now overrides a setting the .env file never
   mentions.** Only keys already written down were overridden, so
@@ -669,11 +684,6 @@ structural splits, which the owner deferred.
 Not done, and why: seeding fresh databases at `CURRENT_VERSION` would skip the
 migrations that build mail search. See the work order.
 
-All notable changes to this project are recorded here.
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-versioning follows the scheme in `docs/VERSIONING.md`.
-
-## [Unreleased]
 
 ### Fixed — §3: wrong answers that looked exactly like right ones
 
