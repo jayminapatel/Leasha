@@ -4161,8 +4161,6 @@ def scope_for(command: Any, context: Any) -> Any:
     if context is None or not getattr(command, "scoped_by", ()):
         return None
 
-    from dataclasses import replace
-
     allowed = {name for spelling in command.scoped_by
                for name in _SCOPE_FIELDS.get(spelling, ())}
     if not allowed:
