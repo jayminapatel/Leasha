@@ -26,7 +26,7 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
 
-from app.ui.presenter import ResultGroup, group_subtitle, kind_tag, why
+from app.ui.presenter import ResultGroup, group_subtitle, why
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
@@ -36,6 +36,51 @@ __all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED"]
 ROLE_PAYLOAD = int(Qt.ItemDataRole.UserRole)
 #: True when this group is currently showing its chunks.
 ROLE_EXPANDED = int(Qt.ItemDataRole.UserRole) + 1
+
+#: Side, in pixels, of the file-type icon painted where the `[PDF]` text tag
+#: used to sit. Item 3a.
+ICON_SIZE = 16
+
+#: One `QIcon` per `kind`, ever. Item 3a: `QFileIconProvider` asks the shell
+#: for a type icon per call, and doing that once per repaint of fifty rows of
+#: the same kind is the cost this cache exists to remove - the same reasoning
+#: as painting instead of building a widget per row, one layer down.
+_ICON_CACHE: dict[str, Any] = {}
+_ICON_PROVIDER: Any = None
+
+
+def _icon_for(kind: str) -> Any:
+    """A cached file-type `QIcon` for `kind`. Never raises: an icon that
+    cannot be produced falls back to the provider's generic file icon rather
+    than leaving the row with nothing painted at all.
+
+    The lookup is by **suffix**, not by an existing file - `QFileIconProvider`
+    asks the Windows shell for the icon a `.pdf` (or `.eml`, for mail) is
+    *associated with*, which is the same icon Explorer shows for any file of
+    that type and needs no file to exist on disk. `kind_tag` still supplies
+    the word ("PDF", "MAIL") for the tooltip and accessible text - this only
+    replaces what used to be a bracketed text tag in the painted row.
+    """
+    global _ICON_PROVIDER
+    if kind not in _ICON_CACHE:
+        try:
+            if _ICON_PROVIDER is None:
+                from PyQt6.QtWidgets import QFileIconProvider
+                _ICON_PROVIDER = QFileIconProvider()
+            from PyQt6.QtCore import QFileInfo
+            # A message has no real file extension; "eml" is the nearest
+            # real one and the shell knows it, so mail gets an actual
+            # envelope-style icon rather than the generic-file fallback.
+            suffix = "eml" if kind == "email" else (kind or "")
+            icon = _ICON_PROVIDER.icon(QFileInfo(f"x.{suffix}" if suffix else "x"))
+            if icon is None or icon.isNull():
+                from PyQt6.QtWidgets import QFileIconProvider as _P
+                icon = _ICON_PROVIDER.icon(_P.IconType.File)
+            _ICON_CACHE[kind] = icon
+        except Exception:                        # noqa: BLE001 - never blocks a paint
+            from PyQt6.QtGui import QIcon
+            _ICON_CACHE[kind] = QIcon()
+    return _ICON_CACHE[kind]
 
 
 class ResultDelegate(QStyledItemDelegate):
@@ -165,12 +210,25 @@ class ResultDelegate(QStyledItemDelegate):
                          int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                          group.when)
 
+        # **Item 3a: a real file icon where the `[PDF]` text tag used to
+        # sit.** Recognised faster than read - the kind word itself moved to
+        # the tooltip and accessible text (`kind_tag`, still used there),
+        # which is where it stays useful to someone who cannot see the icon.
+        text_left = left
+        if group.kind:
+            icon = _icon_for(group.kind)
+            if not icon.isNull():
+                size = min(ICON_SIZE, name_metrics.height())
+                icon.paint(painter, left, y + (name_metrics.height() - size) // 2,
+                          size, size)
+                text_left = left + size + 6
+
         painter.setFont(name_font)
         painter.setPen(QPen(colour))
-        tag = f"[{kind_tag(group.kind)}]  " if group.kind else ""
+        name_width = width - date_width - (text_left - left)
         name = name_metrics.elidedText(
-            tag + group.name, Qt.TextElideMode.ElideMiddle, width - date_width)
-        painter.drawText(QRect(left, y, width - date_width, name_metrics.height()),
+            group.name, Qt.TextElideMode.ElideMiddle, name_width)
+        painter.drawText(QRect(text_left, y, name_width, name_metrics.height()),
                          int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
                          name)
         y += name_metrics.height() + metrics.gap

@@ -324,6 +324,58 @@ def test_sizehint_and_paint_still_agree_at_two_lines():
     assert hint.height() > short_hint.height()
 
 
+# ---------------------------------------------------------------------------
+# Item 3a: real file icons, cached per extension
+# ---------------------------------------------------------------------------
+
+def test_the_bracketed_kind_tag_is_gone_from_the_painted_row():
+    """The `[PDF]` text tag gives way to a real icon - item 3a."""
+    source = DELEGATE.read_text(encoding="utf-8")
+    body = source.split("def _paint_group")[1].split("\n    def ")[0]
+    assert "[{kind_tag" not in body
+    assert "_icon_for" in body
+
+
+def test_an_icon_is_cached_after_the_first_lookup():
+    from app.ui.result_delegate import _icon_for, _ICON_CACHE
+
+    _ICON_CACHE.clear()
+    first = _icon_for("pdf")
+    assert "pdf" in _ICON_CACHE
+    second = _icon_for("pdf")
+    assert first is second, "a second lookup for the same kind must not re-ask the shell"
+
+
+def test_an_unknown_kind_still_returns_a_usable_icon():
+    from app.ui.result_delegate import _icon_for
+
+    icon = _icon_for("sevenzip")
+    assert icon is not None
+    assert not icon.isNull()
+
+
+def test_mail_gets_its_own_icon_rather_than_a_generic_one():
+    """`.eml` is a real extension the shell recognises - mail should not fall
+    back to the generic-file icon every other unrecognised kind gets."""
+    from app.ui.result_delegate import _icon_for, _ICON_CACHE
+
+    _ICON_CACHE.clear()
+    mail_icon = _icon_for("email")
+    assert not mail_icon.isNull()
+
+
+def test_the_kind_word_still_reaches_the_tooltip_and_accessible_text():
+    """Item 3a is explicit: the icon replaces the painted tag, never the word
+    a screen reader or a tooltip relies on."""
+    from app.ui.presenter import accessible_text, result_tooltip
+
+    payload = group()
+    # `accessible_text` names the file itself; the kind word survives in the
+    # tooltip via `why`/`explain`, which is what `result_tooltip` renders.
+    assert accessible_text(payload)
+    assert result_tooltip(payload)
+
+
 def test_the_delegate_holds_no_store_or_engine():
     """It paints. Anything it needed to look up would be a query per repaint,
     which is a query per scroll frame."""

@@ -75,7 +75,7 @@ job.
 
 ## 3. Kind-aware rows — the list understands what it found
 
-- [ ] **3a** the `[PDF]`-style text tag gives way to a **real file icon**
+- [x] **3a** the `[PDF]`-style text tag gives way to a **real file icon**
   (`QFileIconProvider`, pixmaps cached per extension, painted in the slot
   the tag used; correct in both themes). Recognised faster than read —
   the 8-year-old knows the red icon before she can read "PDF". The
