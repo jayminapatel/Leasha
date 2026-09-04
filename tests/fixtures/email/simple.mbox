@@ -1,0 +1,20 @@
+From sender@example.com Thu Jan 01 12:00:00 2025
+Date: Thu, 1 Jan 2025 12:00:00 +0000
+From: sender@example.com
+To: recipient@example.com
+Subject: Test Message One
+Message-ID: <msg1@example.com>
+
+This is the body of the first message.
+It contains some test content.
+
+From another@example.com Thu Jan 01 13:00:00 2025
+Date: Thu, 1 Jan 2025 13:00:00 +0000
+From: another@example.com
+To: recipient@example.com
+Subject: Second Message
+References: <msg1@example.com>
+In-Reply-To: <msg1@example.com>
+Message-ID: <msg2@example.com>
+
+This is a reply to the first message.

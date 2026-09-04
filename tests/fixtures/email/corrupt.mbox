@@ -1,0 +1,9 @@
+From sender@example.com Thu Jan 01 12:00:00 2025
+Date: Thu, 1 Jan 2025 12:00:00 +0000
+From: sender@example.com
+To: recipient@example.com
+Subject: Test Message One
+Message-ID: <msg1@example.com>
+
+This is the body of the first message.
+[CORRUPT BINARY DATA]
