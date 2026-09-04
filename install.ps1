@@ -97,6 +97,8 @@ function Write-SharedComputerNotice {
     Write-Host "  matters in your home, give each person their own Windows account" -ForegroundColor Gray
     Write-Host "  before installing, or choose the folders Leasha indexes so shared" -ForegroundColor Gray
     Write-Host "  spaces stay shared and private ones stay out." -ForegroundColor Gray
+    Write-Host "  Leasha's index contains copies of text from your files — treat the index as being as" -ForegroundColor Gray
+    Write-Host "  sensitive as the most sensitive thing you index." -ForegroundColor Gray
 }
 
 function Write-Utf8NoBom {
@@ -578,6 +580,86 @@ print('rerank scores:', list(m.rerank('warmup query', ['warmup document'])))
             throw "model download or warm-up failed (python exit code $script:LastPythonExit)"
         }
     }
+
+# ---------------------------------------------------------------------------
+# Optional: DirectML GPU acceleration (CPU fallback always available)
+# ---------------------------------------------------------------------------
+#
+# DirectML offloads embedding to compatible GPUs when available. Detection
+# matches app/core/compute_profile.py: check if this Windows machine has a
+# video controller and whether onnxruntime has DirectML available. Ask the
+# user to install the optional provider wheel only when both are true.
+
+$directmlAvailable = $false
+
+# First, check if onnxruntime-cpu already has DirectML built in. Only ask if
+# there's no DirectML available yet.
+$code = @"
+try:
+    import sys
+    # Not Windows, or PowerShell not available? Skip the question.
+    if sys.platform != 'win32':
+        print('False')
+        sys.exit(0)
+
+    # Can onnxruntime already access DirectML?
+    import onnxruntime
+    has_dml = 'DmlExecutionProvider' in onnxruntime.get_available_providers()
+
+    # Ask only if DirectML is NOT already available.
+    if not has_dml:
+        # Check if there's a video controller on this machine.
+        import subprocess
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+             'Get-CimInstance Win32_VideoController -ErrorAction Stop'],
+            capture_output=True, text=True, timeout=5)
+        # If the PowerShell command succeeded, there's video hardware.
+        print('True' if result.returncode == 0 and result.stdout else 'False')
+    else:
+        print('False')  # DirectML already available, no need to ask
+except Exception:
+    print('False')
+"@
+
+$tmp = Join-Path $env:TEMP ("dml_check_" + [guid]::NewGuid().ToString("N") + ".py")
+try {
+    Write-Utf8NoBom -Path $tmp -Content $code
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $Python $tmp 2>&1 | Out-String
+        $directmlAvailable = $output.Trim() -eq "True"
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+} catch {
+    $directmlAvailable = $false
+} finally {
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+}
+
+# Ask only if DirectML is potentially available and not already installed.
+if ($directmlAvailable -and -not $SkipOptional -and -not $Preflight) {
+    Write-Title "GPU Acceleration (optional)"
+    Write-Host "  This computer has a DirectML-capable GPU that can speed up text" -ForegroundColor Gray
+    Write-Host "  embedding. The CPU will still work perfectly without it, falling" -ForegroundColor Gray
+    Write-Host "  back automatically if anything goes wrong." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Install the GPU support? [y/N]" -ForegroundColor Gray
+    $answer = Read-Host ""
+    if ($answer -match '^(y|yes)$') {
+        Invoke-Step -Name "Install onnxruntime-directml (optional GPU acceleration)" -Optional `
+            -Fix "You can install it later: venv\Scripts\python.exe -m pip install onnxruntime-directml --upgrade-strategy only-if-needed" `
+            -Action {
+                & $Python -m pip install onnxruntime-directml --upgrade-strategy only-if-needed
+                if ($LASTEXITCODE -ne 0) { throw "pip install onnxruntime-directml exited with code $LASTEXITCODE" }
+            }
+    } else {
+        Write-Host "  Skipped. Install it later with:" -ForegroundColor DarkGray
+        Write-Host "    venv\Scripts\python.exe -m pip install onnxruntime-directml" -ForegroundColor DarkGray
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Optional: Ollama (RAG answers + entity extraction only - never in search)
