@@ -460,7 +460,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # **The splash is shown immediately** (<300ms), hiding the wait for
     # single-instance handover and model loading. It reports progress through
     # startup breadcrumbs and optionally a download progress bar.
-    from app.ui.splash import SplashScreen, StatusReporter
+    from app.ui.splash import SplashScreen, StatusReporter, get_splash_status_text
     from app.ui.startup_timing import CloseTimer, StartupTimer
 
     startup_timer = StartupTimer()
@@ -521,7 +521,19 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                      model=settings.embed_model, cache=str(settings.model_cache))
             status_reporter("Loading the search engine…")
             application.processEvents()
-            embedder = Embedder.from_settings(settings)
+            # §1c: fastembed's own download has no progress hook this
+            # application can reach - TextEmbedding.__init__ drops any extra
+            # kwargs before they would reach huggingface_hub's tqdm_class -
+            # so Embedder measures progress from the outside (the cache
+            # directory's growth) and calls this from its own background
+            # thread. Splash's status text becomes the plain-words message
+            # already used elsewhere for a first-run download, now paired
+            # with a real, moving number instead of a static line.
+            embedder = Embedder.from_settings(
+                settings,
+                on_progress=lambda pct: status_reporter(
+                    get_splash_status_text("model_download"), pct),
+            )
 
             log.info("startup: loading the reranker",
                      model=settings.rerank_model, enabled=settings.rerank_enabled)

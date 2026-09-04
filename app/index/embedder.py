@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import math
 import threading
+from pathlib import Path
 
 import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
@@ -45,6 +46,78 @@ from app.index import backends
 _log = logger.bind(component="index.embedder")
 
 __all__ = ["Embedder", "EMBED_BATCH", "l2_normalise"]
+
+#: Rough download size in bytes, keyed by the model names this application
+#: actually ships with - for progress display only, never for correctness.
+#: fastembed's own `TextEmbedding(...)` call does not forward a progress
+#: hook this far (its __init__ calls `download_model(...)` with a fixed
+#: argument list that drops any extra kwargs before they would reach
+#: huggingface_hub's `tqdm_class` parameter), so progress here is measured
+#: from the outside: how big the cache directory has grown, against this
+#: estimate. A model larger than expected simply stops advancing before
+#: 100% rather than reporting something false; the "download finished"
+#: signal is the constructor call returning, not the bar reaching the end.
+_APPROX_MODEL_BYTES: dict[str, int] = {
+    "BAAI/bge-small-en-v1.5": 130_000_000,
+}
+_DEFAULT_APPROX_BYTES = 500_000_000
+
+#: How often the progress watcher re-measures the cache directory.
+_PROGRESS_POLL_SECONDS = 0.3
+
+
+def _directory_size(path: Path) -> int:
+    """Total bytes under `path`, recursively. 0 if it does not exist."""
+    total = 0
+    try:
+        for entry in path.rglob("*"):
+            if entry.is_file():
+                try:
+                    total += entry.stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+class _DownloadProgressWatcher:
+    """Polls a cache directory's growth on a background thread.
+
+    Reports an approximate 0-100 progress to `on_progress` until `stop()` is
+    called. A daemon thread, and every call to `on_progress` is guarded -
+    this exists to make a splash screen more informative, and must never be
+    the reason a model fails to load.
+    """
+
+    def __init__(
+        self,
+        cache_dir: str,
+        on_progress: Callable[[float], None],
+        approx_total_bytes: int,
+    ) -> None:
+        self._cache_dir = Path(cache_dir)
+        self._on_progress = on_progress
+        self._approx_total = max(1, approx_total_bytes)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            size = _directory_size(self._cache_dir)
+            percent = min(99.0, 100.0 * size / self._approx_total)
+            try:
+                self._on_progress(percent)
+            except Exception:                      # noqa: BLE001 - a UI callback must never break loading
+                pass
+            self._stop.wait(_PROGRESS_POLL_SECONDS)
 
 #: Chunks per `embed()` call, and **the only definition of that number**.
 #:
@@ -100,6 +173,7 @@ class Embedder:
         problems: Optional[list] = None,
         threads: int = 0,
         quantised: bool = False,
+        on_progress: Optional[Callable[[float], None]] = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
@@ -128,6 +202,11 @@ class Embedder:
         #: Set once the model loads. `None` until then, so nothing reports a
         #: provider that has not yet been proven to work.
         self.choice: Optional[backends.Choice] = None
+        #: Called with 0-100 while a first-run model download is in
+        #: progress, so a caller (the splash screen at startup) can show
+        #: real numbers rather than a static "downloading" message. `None`
+        #: when nobody asked, and cheap to check when nobody did.
+        self._on_progress = on_progress
 
     @classmethod
     def from_settings(cls, settings: object, **overrides: object) -> "Embedder":
@@ -223,6 +302,7 @@ class Embedder:
                 return TextEmbedding(model_name=self.model_name,
                                      cache_dir=self.cache_dir, **extra)
 
+            watcher = self._start_progress_watcher_if_downloading()
             try:
                 model, self.choice = backends.with_fallback(
                     build, wanted, problems=self._problems)
@@ -231,6 +311,16 @@ class Embedder:
                     "ERR_MODEL_LOAD", "index.embedder",
                     details=f"{self.model_name}: {type(exc).__name__}: {exc}",
                 )) from exc
+            finally:
+                if watcher is not None:
+                    watcher.stop()
+                    if self._on_progress is not None:
+                        # Whatever the estimate said, the real signal that
+                        # the download is over is this call returning.
+                        try:
+                            self._on_progress(100.0)
+                        except Exception:          # noqa: BLE001
+                            pass
 
             if wanted.fell_back_from and self._problems is not None:
                 self._problems.append(wanted.why)
@@ -238,6 +328,27 @@ class Embedder:
             backends.record_provider("meaning model", self.choice)
             self._encoder = lambda texts: model.embed(list(texts))
             return self._encoder
+
+    def _start_progress_watcher_if_downloading(self) -> Optional["_DownloadProgressWatcher"]:
+        r"""Start watching the cache directory grow, if there is anyone to tell.
+
+        **Only when there is real work to report.** A first-run download and
+        an ordinary load of an already-cached model both call the same
+        `TextEmbedding(...)` constructor from the caller's point of view -
+        the only visible difference is whether the cache directory is
+        already close to the model's expected size. Starting the watcher
+        unconditionally would report a spurious "downloading" progress bar
+        on every ordinary, already-cached warm-up.
+        """
+        if self._on_progress is None or not self.cache_dir:
+            return None
+        approx_total = _APPROX_MODEL_BYTES.get(self.model_name, _DEFAULT_APPROX_BYTES)
+        already_cached = _directory_size(Path(self.cache_dir)) >= approx_total * 0.9
+        if already_cached:
+            return None
+        watcher = _DownloadProgressWatcher(self.cache_dir, self._on_progress, approx_total)
+        watcher.start()
+        return watcher
 
     def _resolved_profile(self) -> object:
         """The profile to decide against - the given one, or this machine's.

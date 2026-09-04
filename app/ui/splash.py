@@ -110,10 +110,19 @@ class StatusReporter(Callable[[str], None]):
     def __init__(self, splash: SplashScreen) -> None:
         self.splash = splash
 
-    def __call__(self, message: str) -> None:
-        """Report a status message. Called synchronously during startup."""
+    def __call__(self, message: str, progress: Optional[float] = None) -> None:
+        """Report a status message, and optionally a 0-100 download progress.
+
+        Called synchronously during startup, and also from a background
+        thread during a first-run model download (`Embedder`'s
+        `on_progress` callback runs on a plain `threading.Thread`, not the
+        GUI thread). Verified live rather than assumed: `report_progress`
+        only sets plain attributes and calls `QWidget.update()`, which
+        internally posts a `QEvent` - `QCoreApplication::postEvent` is
+        documented as thread-safe, unlike most direct widget calls.
+        """
         if self.splash is not None:
-            self.splash.report_progress(message)
+            self.splash.report_progress(message, progress)
 
 
 class SplashScreen:

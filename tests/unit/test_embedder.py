@@ -343,3 +343,93 @@ def test_a_zero_vector_is_not_divided_by(tmp_path) -> None:
     got = embedder.embed(["x"])[0]
     assert got == [0.0] * 384
     assert not any(g != g for g in got), "nan reached the index"
+
+
+# --- §1c: download progress reaches the splash, not just the model cache ---
+
+
+def test_on_progress_reports_a_simulated_download(tmp_path, monkeypatch) -> None:
+    """fastembed itself has no progress hook this application can reach -
+    `TextEmbedding.__init__` calls `download_model(...)` with a fixed
+    argument list that drops any extra kwargs before they would reach
+    huggingface_hub's `tqdm_class` - so progress is measured from the
+    outside: how big the cache directory has grown, polled on a background
+    thread while the (here, fake) constructor call is in flight.
+    """
+    import time
+    from pathlib import Path
+
+    class FakeTextEmbedding:
+        """Simulates a slow download by writing to the cache dir over time."""
+
+        def __init__(self, model_name, cache_dir=None, **_kwargs):
+            target = Path(cache_dir)
+            target.mkdir(parents=True, exist_ok=True)
+            # Three writes with real pauses between them, so the watcher's
+            # 0.3s poll has more than one opportunity to see growth.
+            for chunk in range(3):
+                (target / f"part{chunk}.bin").write_bytes(b"x" * 4_000_000)
+                time.sleep(0.35)
+
+        def embed(self, texts):
+            return [[0.0] * 384 for _ in texts]
+
+    import app.index.embedder as embedder_module
+
+    monkeypatch.setattr("fastembed.TextEmbedding", FakeTextEmbedding)
+    monkeypatch.setitem(embedder_module._APPROX_MODEL_BYTES, "fake/model", 12_000_000)
+
+    progress: list[float] = []
+    embedder = Embedder(
+        "fake/model", cache_dir=str(tmp_path), on_progress=progress.append)
+
+    embedder.warm_up()
+
+    assert progress, "on_progress must be called at least once during a download"
+    assert progress[-1] == 100.0, "the final call must report completion"
+    assert progress[0] < 100.0, "progress must not start already at 100%"
+    # Monotonic: the directory only grows during this fake download, so
+    # reported progress must never go backwards.
+    assert progress == sorted(progress)
+
+
+def test_on_progress_is_not_called_for_an_already_cached_model(tmp_path) -> None:
+    """An ordinary warm-up of a cached model is not a download - no spurious
+    progress bar should appear for it."""
+    from pathlib import Path as _Path
+
+    model_dir = _Path(tmp_path)
+    (model_dir / "already-here.bin").write_bytes(b"x" * 200_000_000)
+
+    progress: list[float] = []
+    embedder = Embedder(
+        "BAAI/bge-small-en-v1.5", cache_dir=str(tmp_path),
+        encoder=lambda texts: [[0.0] * 384 for _ in texts],
+        on_progress=progress.append,
+    )
+    embedder.warm_up()
+
+    assert progress == [], \
+        "an injected encoder never reaches the watcher, but a real cached " \
+        "load must not report progress either"
+
+
+def test_on_progress_is_called_even_if_the_load_fails(monkeypatch, tmp_path) -> None:
+    """A failed download must still report 100% - "downloading" cannot be
+    the status a splash screen is stuck on after loading has already given
+    up and raised."""
+    class FailingTextEmbedding:
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("simulated ONNX load failure")
+
+    monkeypatch.setattr("fastembed.TextEmbedding", FailingTextEmbedding)
+
+    progress: list[float] = []
+    embedder = Embedder(
+        "BAAI/bge-small-en-v1.5", cache_dir=str(tmp_path),
+        on_progress=progress.append)
+
+    with pytest.raises(AppErrorException):
+        embedder.warm_up()
+
+    assert progress and progress[-1] == 100.0
