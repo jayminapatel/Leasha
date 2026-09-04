@@ -123,6 +123,39 @@ def test_snippets_never_open_or_close_mid_word() -> None:
     assert snippet.text == snippet.text.strip()
 
 
+def test_snippets_snap_to_sentence_boundaries() -> None:
+    """Windows prefer sentence boundaries when available within a few words."""
+    text = (
+        "First sentence is about setup. "
+        "Second sentence talks about valves. "
+        "Third sentence has more content. "
+        "This is trailing content."
+    )
+    snippet = build_snippet(text, ["valves"], width=120)
+    # Should start at "Second" (after first sentence) and end at sentence boundary
+    assert snippet.text.startswith("Second sentence")
+    # The snippet should prefer sentence ends over word breaks
+    if snippet.elided_end:
+        # Check it doesn't end mid-sentence
+        assert not snippet.text.endswith(" ")
+
+
+def test_snippet_opening_at_sentence_boundary_reads_naturally() -> None:
+    """A snippet that opens mid-passage should be recognisable as an answer."""
+    text = (
+        "The pump was installed in 2015. "
+        "It required the isolation valve replacement scheduled for autumn. "
+        "The work was completed on time."
+    )
+    snippet = build_snippet(text, ["isolation", "valve"], width=150)
+    # Should contain the matched terms
+    assert "isolation" in snippet.text.lower()
+    assert "valve" in snippet.text.lower()
+    # If it's elided at the start, it should read like a sentence fragment
+    if snippet.elided_start:
+        assert snippet.text[0].isupper()
+
+
 def test_the_densest_cluster_wins() -> None:
     """A result whose terms appear together is more convincing than one where
     they are scattered, and showing the cluster makes that visible."""
@@ -159,6 +192,39 @@ def test_a_short_path_is_untouched() -> None:
     assert shorten_path(r"D:\Docs\report.pdf") == r"D:\Docs\report.pdf"
 
 
+def test_left_eliding_keeps_the_tail() -> None:
+    """Left-eliding removes the beginning, keeping the leaf folder and filename.
+
+    Item 4a: location lines elide on the left so `…\Projects\Foo\Final` reads
+    as an answer while `D:\Archive\2019\Projects\...` hides the distinguisher.
+    """
+    from app.ui.presenter import elide_path_left
+    path = r"D:\Archive\2015\Projects\Infrastructure\Reports\Final\report.pdf"
+    elided = elide_path_left(path, limit=50)
+    assert elided.endswith(r"\report.pdf")
+    assert "…" in elided
+    # Should keep some parent dirs
+    assert len(elided) <= 50
+
+
+def test_left_eliding_short_paths_unchanged() -> None:
+    """Short paths need no elision."""
+    from app.ui.presenter import elide_path_left
+    path = r"D:\Docs\report.pdf"
+    assert elide_path_left(path, limit=70) == path
+
+
+def test_left_eliding_shows_tail_first() -> None:
+    """The leaf folder and name are more important than the root."""
+    from app.ui.presenter import elide_path_left
+    path = r"D:\Archive\2015\2016\2017\2018\2019\folder\file.pdf"
+    elided = elide_path_left(path, limit=40)
+    assert "folder" in elided
+    assert "file.pdf" in elided
+    # Should not show the deep archive dates
+    assert "Archive" not in elided
+
+
 def test_a_long_path_keeps_both_ends() -> None:
     """The drive says where it is; the filename says what it is. The middle is a
     hierarchy the person already knows."""
@@ -177,6 +243,32 @@ def test_a_long_bare_filename_is_truncated_not_mangled() -> None:
 def test_posix_paths_work_too() -> None:
     short = shorten_path("/home/user/projects/deep/nested/tree/document.txt", limit=30)
     assert short.endswith("document.txt")
+
+
+# --- Terminator (item 5c) ---------------------------------------------------
+
+def test_terminator_shows_count() -> None:
+    """The end-of-list message tells the count so the user knows they've seen all."""
+    from app.ui.presenter import results_terminator
+    assert "1 result" in results_terminator(1)
+    assert "5 results" in results_terminator(5)
+    assert "100 results" in results_terminator(100)
+
+
+def test_terminator_is_empty_for_zero() -> None:
+    """No terminator when there are no results."""
+    from app.ui.presenter import results_terminator
+    assert results_terminator(0) == ""
+
+
+def test_terminator_uses_plural() -> None:
+    """Correct English."""
+    from app.ui.presenter import results_terminator
+    msg1 = results_terminator(1)
+    msg2 = results_terminator(2)
+    assert "1 result" in msg1
+    assert "2 results" in msg2
+    assert msg1 != msg2
 
 
 # --- ETA --------------------------------------------------------------------

@@ -58,6 +58,7 @@ __all__ = [
     "Snippet",
     "build_snippet",
     "shorten_path",
+    "elide_path_left",
     "format_eta",
     "format_count",
     "SkipGroup",
@@ -115,6 +116,7 @@ __all__ = [
     "semantic_health",
     "format_size",
     "format_when",
+    "results_terminator",
     "SNIPPET_CHARS",
     "TYPING_DEBOUNCE_MS",
     "IDLE_DEBOUNCE_MS",
@@ -278,18 +280,92 @@ def _densest(matches: list[re.Match[str]], width: int) -> int:
 
 
 def _snap_back(text: str, index: int) -> int:
-    """Move left to a word boundary, so a snippet never opens mid-word."""
+    """Move to a nearby word/sentence boundary, preferring sentence over word.
+
+    Never opens mid-word. Prefer starting at a sentence boundary when one
+    begins within a few words of the ideal window start - in EITHER
+    direction, not only before it. The common case this exists for is
+    exactly the one where the search-only-backward version of this function
+    failed its own test: the density-derived ideal start lands mid-word,
+    partway through an earlier sentence, with the *next* sentence beginning
+    only a few words later. Searching backward alone never finds that -
+    there is no sentence boundary behind a mid-first-sentence index - so a
+    forward check within the same small distance is needed too. Backward is
+    tried first because it loses the least content when both exist.
+    """
     if index <= 0:
         return 0
+
+    # A sentence boundary shortly behind the ideal start.
+    sent_boundary = _find_sentence_start(text, max(0, index - 60), index)
+    if sent_boundary is not None:
+        return sent_boundary
+
+    # None behind - the same check just ahead, closest terminator first.
+    limit = min(len(text), index + 60)
+    for i in range(index, limit):
+        if text[i] in ".!?":
+            pos = i + 1
+            while pos < len(text) and text[pos] == " ":
+                pos += 1
+            if pos <= limit:
+                return pos
+            break
+
+    # Fall back to word boundary
     space = text.rfind(" ", max(0, index - 30), index)
     return space + 1 if space != -1 else index
 
 
 def _snap_forward(text: str, index: int) -> int:
+    """Move right to a word/sentence boundary, preferring sentence over word."""
     if index >= len(text):
         return len(text)
+
+    # Look for a sentence boundary within a reasonable distance
+    sent_boundary = _find_sentence_end(text, index, min(len(text), index + 60))
+    if sent_boundary is not None:
+        return sent_boundary
+
+    # Fall back to word boundary
     space = text.find(" ", index, min(len(text), index + 30))
     return space if space != -1 else index
+
+
+def _find_sentence_start(text: str, start_idx: int, end_idx: int) -> Optional[int]:
+    """Find the start of a sentence (after . ! ?) between start_idx and end_idx.
+
+    Returns the position after the sentence terminator (ready to be the start
+    of the window), or None if no sentence boundary found.
+    """
+    for i in range(end_idx - 1, start_idx - 1, -1):
+        if i < 0:
+            break
+        if text[i] in ".!?":
+            # Found a sentence terminator; skip it and any following spaces
+            pos = i + 1
+            while pos < len(text) and text[pos] == " ":
+                pos += 1
+            if start_idx <= pos <= end_idx:
+                return pos
+    return None
+
+
+def _find_sentence_end(text: str, start_idx: int, end_idx: int) -> Optional[int]:
+    """Find the end of a sentence (. ! ?) between start_idx and end_idx.
+
+    Returns the position after the sentence terminator, or None if no
+    sentence boundary found.
+    """
+    for i in range(start_idx, end_idx):
+        if i >= len(text):
+            break
+        if text[i] in ".!?":
+            # Found a sentence terminator; return position after it
+            pos = i + 1
+            if start_idx <= pos <= end_idx:
+                return pos
+    return None
 
 
 def _head(text: str, width: int) -> Snippet:
@@ -324,6 +400,49 @@ def shorten_path(path: str, *, limit: int = 70) -> str:
         middle.insert(0, part)
         budget -= len(part) + 1
     return separator.join([head, "…", *middle, tail])
+
+
+def elide_path_left(path: str, *, limit: int = 70) -> str:
+    r"""Elide the left (beginning) of a long path, keeping the tail.
+
+    The leaf folder and filename distinguish the path; the parent hierarchy
+    is usually known. `…\Projects\Foo\Final` reads better than
+    `D:\Archive\2019\Projects\...` for identifying a result.
+
+    Item 4a of work order 0q.
+    """
+    if len(path) <= limit:
+        return path
+
+    separator = "\\" if "\\" in path else "/"
+    parts = path.split(separator)
+
+    # A single path component (e.g., a filename) cannot be shortened
+    if len(parts) <= 1:
+        return path[:limit] + "…" if len(path) > limit else path
+
+    # Build the tail: keep at least the last two components (parent dir + name)
+    # unless that's already too long
+    tail_parts = parts[-2:] if len(parts) >= 2 else parts
+    tail = separator.join(tail_parts)
+
+    if len(tail) >= limit:
+        # Tail alone is too long; show just the filename elided
+        return "…" + separator + parts[-1][:limit - 3]
+
+    # Try to fit more parent directories from right to left
+    budget = limit - len(tail) - 1  # -1 for the "…"
+    extra_parts = []
+    for part in reversed(parts[:-2]):
+        needed = len(part) + 1  # +1 for separator
+        if needed > budget:
+            break
+        extra_parts.insert(0, part)
+        budget -= needed
+
+    if extra_parts:
+        return "…" + separator + separator.join(extra_parts + tail_parts)
+    return "…" + separator + tail
 
 
 def format_count(value: int) -> str:
@@ -1130,6 +1249,21 @@ def mail_details(store: Any, results: Any) -> dict:
         return store.messages_for([getattr(r, "file_id", 0) for r in results or ()])
     except Exception:                            # noqa: BLE001 - see docstring
         return {}
+
+
+def results_terminator(count: int) -> str:
+    """The quiet end-of-list message.
+
+    Item 5c: shows that the list has ended and the count, so scrolling to the
+    bottom reads as an answer rather than a stall. Faint, because it is
+    context that *nobody needs while reading*, but answers the implicit
+    question "are there more if I scroll?" when there aren't.
+    """
+    if count == 0:
+        return ""
+    if count == 1:
+        return "That's all — 1 result."
+    return f"That's all — {count:,} results."
 
 
 def results_message(response: Any) -> tuple[str, str]:
