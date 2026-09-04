@@ -2193,7 +2193,7 @@ class MainWindow(QMainWindow):
         # matching decode in `__init__`.
         import base64
         geometry_b64 = base64.b64encode(save_window_state(self)).decode("ascii")
-        self.set_states({"ui:window_geometry": geometry_b64})
+        self._store.set_states({"ui:window_geometry": geometry_b64})
 
         # §3b: Hide the window first (perceived instant close). User sees the
         # app gone from the screen immediately, then the staged teardown runs

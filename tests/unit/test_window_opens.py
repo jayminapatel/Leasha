@@ -78,6 +78,15 @@ class _Engine:
     def warm_up(self) -> None:
         pass
 
+    def close(self) -> None:
+        # closeEvent's teardown calls this unconditionally (stage("engine",
+        # self._engine.close)). The app's own stage() wrapper catches an
+        # AttributeError from a missing close() and only logs a warning, but
+        # pytest-qt's Qt-event-loop exception hook still reports it as a test
+        # failure regardless - this stub needs the real SearchEngine's
+        # interface, not just enough to construct a window.
+        pass
+
 
 @pytest.fixture(scope="module")
 def window(tmp_path_factory):
@@ -227,6 +236,63 @@ def test_window_can_restore_from_saved_state(tmp_path):
         assert window2.width() == 900, "width should be restored"
         assert window2.height() == 700, "height should be restored"
 
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_close_event_persists_geometry_without_raising(tmp_path):
+    r"""§3b/§4a: a real close hides the window, persists geometry, and never raises.
+
+    **A regression, found live.** `closeEvent` called `self.set_states(...)` -
+    `MainWindow` has no such method, only `self._store.set_states(...)` does
+    (every other call site in this file gets this right). The `AttributeError`
+    fired *before* `self.hide()` and the entire staged teardown below it, so a
+    real close never hid the window and never ran cleanup (workers, the
+    scheduler, the engine, the store) - confirmed by actually launching the
+    app and closing it, where the run log showed the exception immediately
+    followed by the event loop returning.
+
+    None of the tests above catch this: `test_window_saves_geometry_on_close`
+    calls `save_window_state` directly, and `test_window_can_restore_from_saved_state`
+    never calls `.close()` at all - neither goes through the real `closeEvent`
+    override this bug lived in. This one does, by actually calling `.close()`
+    on a real window rather than mocking around it.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "window_close"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        built.resize(640, 480)
+        built.show()
+        for _ in range(3):
+            app.processEvents()
+
+        # The real override, not a mocked slot - this is the exact path that
+        # raised AttributeError in production.
+        built.close()
+        for _ in range(3):
+            app.processEvents()
+
+        assert not built.isVisible(), \
+            "closeEvent's self.hide() must run - it never did while the " \
+            "AttributeError above it was unhandled"
+        assert store.get_state("ui:window_geometry"), \
+            "closeEvent must persist window geometry via self._store.set_states"
     finally:
         store.close()
         vectors.close()
