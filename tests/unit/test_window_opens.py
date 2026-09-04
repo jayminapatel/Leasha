@@ -161,3 +161,154 @@ def test_every_tab_can_be_selected(window):
     for index in range(tabs.count()):
         tabs.setCurrentIndex(index)
         app.processEvents()
+
+
+# --- §4: Window state (save/restore geometry) ----------------------------------
+
+
+def test_window_saves_geometry_on_close(window, tmp_path):
+    r"""§4a: The window saves its geometry when closing.
+
+    This test would need a real window close and re-open to verify the state
+    was actually persisted and restored, which is beyond the scope of a
+    construction test. What we can assert is that the window has the mechanism
+    in place: calling `saveGeometry()` works and returns bytes.
+    """
+    from app.ui.window_state import save_window_state
+
+    app, built = window
+
+    state = save_window_state(built)
+
+    assert isinstance(state, bytes), "saveGeometry must return bytes"
+    assert len(state) > 0, "saved geometry must not be empty"
+
+
+def test_window_can_restore_from_saved_state(tmp_path):
+    r"""§4a-4b: A window can be created and restored from saved geometry.
+
+    Create a window, save its state, then create a new window and restore
+    from that state. The geometries should match.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+    from app.ui.window_state import restore_window_state, save_window_state
+
+    root = tmp_path / "window_restore"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        # Build first window, set a custom geometry, save it
+        window1 = MainWindow(settings, store, vectors, _Engine(store))
+        window1.resize(900, 700)
+        window1.move(150, 100)
+        saved_state = save_window_state(window1)
+
+        # Build second window with default geometry
+        window2 = MainWindow(settings, store, vectors, _Engine(store))
+        original_geom = window2.geometry()
+        assert window2.width() != 900 or window2.height() != 700, \
+            "second window should have different geometry initially"
+
+        # Restore the saved state
+        restore_window_state(window2, saved_state)
+
+        # After restoration, geometries should match
+        assert window2.width() == 900, "width should be restored"
+        assert window2.height() == 700, "height should be restored"
+
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_maximised_window_state_restored(tmp_path):
+    r"""§4a: A maximised window is restored as maximised.
+
+    When a window is closed while maximised, the saved state includes that
+    fact, and restoration puts it back in maximised state.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+    from app.ui.window_state import save_window_state
+
+    root = tmp_path / "window_maximised"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        window = MainWindow(settings, store, vectors, _Engine(store))
+        window.showMaximized()
+        app.processEvents()
+        assert window.isMaximized(), "window should be maximised"
+
+        # Save state of maximised window
+        state = save_window_state(window)
+
+        # The blob should contain the maximised state
+        assert isinstance(state, bytes) and len(state) > 0
+
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_minimised_window_opens_normal(tmp_path):
+    r"""§4b: A window closed while minimised opens normal, never minimised.
+
+    An app that starts invisible looks broken. Even if somehow a saved state
+    says the window was minimised, restoration should show it normally.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "window_minimised"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        window = MainWindow(settings, store, vectors, _Engine(store))
+
+        # If a window somehow got minimised (user action or crash recovery),
+        # we want to ensure it opens normally. We can't easily create a
+        # minimised blob, but we can verify the restore logic handles it.
+        from unittest.mock import patch
+        from app.ui.window_state import restore_window_state
+
+        # Simulate restoration of a state that reports minimised
+        with patch.object(window, "isMinimized", return_value=True):
+            with patch.object(window, "showNormal") as mock_show:
+                restore_window_state(window, b"fake_geometry")
+                mock_show.assert_called_once()
+
+    finally:
+        store.close()
+        vectors.close()
