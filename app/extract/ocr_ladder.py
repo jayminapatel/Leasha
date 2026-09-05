@@ -152,15 +152,22 @@ def route(source: Path | bytes, *, check_metadata: bool = True) -> LadderResult:
     started = time.monotonic()
 
     # Rung 0: metadata (free)
+    #
+    # **Every non-None decision from this rung is a stop, including
+    # METADATA_ROUTE.** `_metadata_decision` uses METADATA_ROUTE as its own
+    # "ambiguous, this rung is done, hand it onward" sentinel - it is not a
+    # signal to keep descending through rungs 1-2 *inside this call*. Filtering
+    # it out here used to send every camera-default photo (IMG_/DSC_/
+    # Screenshot/WhatsApp/Signal) straight past the free rung and into the
+    # detection probe, paying for a rung that had already made its call.
     if check_metadata and isinstance(source, Path):
         decision = _metadata_decision(source)
         if decision is not None:
-            if decision != RouteDecision.METADATA_ROUTE:
-                return LadderResult(
-                    decision=decision,
-                    elapsed_ms=(time.monotonic() - started) * 1000,
-                    reason="metadata_route",
-                )
+            return LadderResult(
+                decision=decision,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+                reason="metadata_route",
+            )
 
     # Rung 1: thumbnail stats (~5ms)
     result = _thumbnail_stats(source)
