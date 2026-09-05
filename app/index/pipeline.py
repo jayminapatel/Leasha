@@ -63,6 +63,7 @@ from app.extract import chunk_document, extract
 from app.extract.base import reads_externally
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
+from app.index import backends
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
@@ -506,6 +507,18 @@ class PipelineConfig:
     #: could never be rebuilt except by deleting the database. Seventeen files
     #: seen, seventeen unchanged, zero chunks, and the run reported success.
     force: bool = False
+    #: §6g. Extraction workers may grow past the static count above, one at a
+    #: time, up to this many - never past it. `0` (the default) disables
+    #: growth entirely and is exactly today's behaviour: the static count is
+    #: the count, for every existing caller that has not set this.
+    #:
+    #: **The floor of a range, not the answer** - the static `workers` value
+    #: stays the safe number to start at (and the number a machine with
+    #: nothing better to offer falls back to); this is only ever a ceiling
+    #: raising *toward*, never a replacement for it. Resolving this from the
+    #: envelope is `resolve.py`'s job, the same as every other tunable here -
+    #: `Pipeline` only ever spends what it is given.
+    worker_ceiling: int = 0
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -581,6 +594,18 @@ _STOP = object()
 #: has nothing else to do until the next `embed_batch` chunks accumulate
 #: anyway.
 _FEEDER_QUEUE_SIZE = 1
+
+#: §6g. How dominant `waiting` must be, as a share of the critical path,
+#: before another extraction worker is worth starting. The same threshold
+#: `stages.advice()` uses for "this run is extraction-bound" - one number,
+#: not two, for the same conclusion.
+_GROWTH_WAITING_SHARE = 0.5
+
+#: §6g. Seconds between growth attempts. Checked at the same checkpoints as
+#: everything else in `_consume`, so this is a ceiling on how often a new
+#: thread can start, not a schedule of its own - a corpus of many tiny files
+#: checkpoints often, and nothing here should turn that into a thread storm.
+_GROWTH_COOLDOWN_S = 10.0
 
 
 class Pipeline:
@@ -693,6 +718,25 @@ class Pipeline:
         #: `_wait_for_feeder` can tell "still working" from "gone" - the
         #: difference between waiting and giving up.
         self._feeder_thread: Optional[threading.Thread] = None
+        #: §6g. Extraction workers started past the static count, in the order
+        #: they were started. Only the consumer thread ever appends to this,
+        #: from `_maybe_grow_workers`, so no lock guards it.
+        self._dynamic_workers: list[threading.Thread] = []
+        #: §6g. Set for as long as the feeder thread is actually inside
+        #: `_embed_pending` - not merely "has a batch queued" - so growth can
+        #: tell "the model is chewing through a batch right now" from "a
+        #: batch is waiting its turn". Only matters together with the device
+        #: check in `_maybe_grow_workers`: on a graphics card nothing here
+        #: competes with extraction for the same cores.
+        self._embedding_now = threading.Event()
+        #: §6g. `time.monotonic()` of the last growth, so `_GROWTH_COOLDOWN_S`
+        #: has something to measure against.
+        self._last_growth = 0.0
+        #: §6g. How many `_STOP` markers `_consume` must see in `results`
+        #: before extraction is really finished - the static worker count,
+        #: plus one more for every dynamically-started worker since each of
+        #: those enqueues its own matching marker. Set in `run()`.
+        self._expected_stops = 0
 
     def _on_throttle(self, found: Verdict) -> None:
         """Remember the last throttle so progress can say why it went quiet.
@@ -729,6 +773,10 @@ class Pipeline:
         # second run must not inherit a queue or an error from the first.
         self._feeder_queue = queue.Queue(maxsize=_FEEDER_QUEUE_SIZE)
         self._feeder_errors = []
+        # §6g: same reason - a second run starts back at the static count.
+        self._dynamic_workers = []
+        self._embedding_now.clear()
+        self._last_growth = 0.0
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
         self._run_started_wall = time.time()
@@ -797,6 +845,10 @@ class Pipeline:
                              name=f"extract-{i}", daemon=True)
             for i in range(self.config.worker_count())
         ]
+        # §6g: `_produce` sends exactly this many `_STOP` markers; every
+        # worker `_maybe_grow_workers` starts later raises this by one, each
+        # backed by its own marker. See `_offer_stop_token`.
+        self._expected_stops = len(workers)
         # §6b: started alongside extraction, not inside `_consume`, for the
         # same reason the extraction workers are started here rather than in
         # `_produce` - thread lifecycle belongs at the one place that tears
@@ -810,13 +862,17 @@ class Pipeline:
         feeder.start()
 
         try:
-            self._consume(results, workers, stats, on_progress)
+            self._consume(results, workers, stats, on_progress, work=work)
         finally:
             self._stop.set()                    # unblock producer and workers
             _drain(work)
             _drain(results)
             producer.join(timeout=5)
             for worker in workers:
+                worker.join(timeout=5)
+            # §6g: whatever `_maybe_grow_workers` started, this run also ends -
+            # the static workers above are not the only ones reading `work`.
+            for worker in self._dynamic_workers:
                 worker.join(timeout=5)
             # **After** the extraction threads, never before: `_consume`'s own
             # final flush (`_feed_sync`) already waited for every batch it
@@ -862,6 +918,11 @@ class Pipeline:
             "threads": getattr(self.embedder, "threads", 0),
             "dedup": bool(self.config.dedup_chunks),
         }
+        # §6g: only worth a line when it actually happened - a run where the
+        # ceiling was never set, or was never reached, says nothing extra.
+        if self._dynamic_workers:
+            stats.resolved["workers_grown_to"] = (
+                self.config.worker_count() + len(self._dynamic_workers))
         # **Said out loud, every run.** These files were skipped by an earlier
         # run and left alone by this one, which is the right thing to do and
         # also the thing nobody would otherwise know had happened. See
@@ -1779,6 +1840,102 @@ class Pipeline:
                 self._stats_ref.current_item = 0
                 work.task_done()
 
+    def _maybe_grow_workers(
+        self, work: "queue.PriorityQueue[Any]", results: queue.Queue,
+        workers: list[threading.Thread],
+    ) -> None:
+        r"""§6g: one more extraction worker, when idle capacity allows it.
+
+        **The static count stays the floor of a range, never the answer
+        raised past.** `worker_ceiling` is `0` for every caller that has not
+        set it - `resolve.py`'s job, not this method's - so this is a no-op
+        by default and changes nothing for an existing caller that never
+        asked for it.
+
+        Three conditions, all of them cheap: the run is actually
+        extraction-bound (`waiting` dominant - the same number
+        `stages.advice()` already uses for the same conclusion), there is
+        room under the ceiling, and the model is not genuinely mid-batch on
+        a processor right now (it would compete for the same cores; on a
+        graphics card it would not, so that half does not apply there).
+        A new thread just joins the same `work`/`results` queues everything
+        else already uses, and is torn down in `run()`'s `finally` exactly
+        like the static ones - the existing pause/backoff at the producer
+        (`governor.wait_while_throttled`) already applies to however many
+        extraction workers exist, so nothing new is needed for that half.
+
+        **`_consume`'s own `_STOP` accounting has to grow with it, or a file
+        goes missing.** `_produce` enqueues exactly one `_STOP` per *static*
+        worker, and `_consume` used to stop consuming once it had seen that
+        many. A dynamically-started worker never has a `_STOP` addressed to
+        it, and if the static one happens to reach `results` first,
+        `_consume` would return while the new worker was still mid-file -
+        losing whatever it was about to hand over, silently. So starting a
+        worker here always enqueues one more `_STOP` first, and only
+        counts as growth (`_expected_stops` rises, the thread starts) once
+        that succeeds - the two must not come apart under backpressure.
+        """
+        if self.config.worker_ceiling <= 0:
+            return
+        now = time.monotonic()
+        if now - self._last_growth < _GROWTH_COOLDOWN_S:
+            return
+        total = len(workers) + len(self._dynamic_workers)
+        if total >= self.config.worker_ceiling:
+            return
+        if self._clock.share(WAITING) < _GROWTH_WAITING_SHARE:
+            return
+        choice = getattr(self.embedder, "choice", None)
+        is_gpu = bool(choice is not None
+                      and getattr(choice, "device", "") == backends.GPU)
+        if self._embedding_now.is_set() and not is_gpu:
+            return
+
+        if not self._offer_stop_token(work):
+            # The work queue would not take one more entry in time - the
+            # walker is well ahead of extraction, which is exactly the state
+            # that argued for growth, so this is not surprising. Skipped
+            # rather than forced: starting the thread without its matching
+            # `_STOP` is the exact bug this method exists to avoid, so no
+            # token means no worker, this round.
+            self._log.debug(
+                "held off adding an extraction worker - the work queue "
+                "would not take its stop marker in time")
+            return
+
+        self._last_growth = now
+        self._expected_stops += 1
+        worker = threading.Thread(
+            target=self._extract_worker, args=(work, results),
+            name=f"extract-dynamic-{len(self._dynamic_workers) + 1}", daemon=True)
+        self._dynamic_workers.append(worker)
+        worker.start()
+        self._log.info(
+            "raised extraction workers to {} (ceiling {}) - most of the run "
+            "has been spent waiting for files to be read",
+            total + 1, self.config.worker_ceiling)
+
+    def _offer_stop_token(self, work: "queue.PriorityQueue[Any]") -> bool:
+        r"""Enqueue one more `_STOP` marker for a worker about to start.
+
+        Priority `10_000` is the sentinel band `_produce` already uses -
+        comfortably past any real candidate's priority, so this marker is
+        only ever taken once every real file ahead of it in the queue has
+        been. Bounded rather than a plain `put()`: the work queue is exactly
+        as likely to be full as growth is likely to be warranted, since both
+        follow from the same fact - the walker is outpacing extraction.
+        """
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if self._stop.is_set():
+                return False
+            try:
+                work.put((10_000, 0, _STOP, None), timeout=0.25)
+                return True
+            except queue.Full:
+                continue
+        return False
+
     def _offer(self, results: queue.Queue, item: Any) -> None:
         """Hand a result to the consumer, giving up if the run is stopping.
 
@@ -1926,6 +2083,7 @@ class Pipeline:
         workers: list[threading.Thread],
         stats: IndexStats,
         on_progress: Optional[Callable[[IndexStats], None]],
+        work: Optional["queue.PriorityQueue[Any]"] = None,
     ) -> None:
         finished = 0
         since_checkpoint = 0
@@ -1937,7 +2095,7 @@ class Pipeline:
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
 
-        while finished < len(workers):
+        while finished < self._expected_stops:
             if self._stop.is_set():
                 # Asked to stop - by the UI's pause button, or by the disk
                 # guard. Everything already written stays written; the files
@@ -2073,6 +2231,11 @@ class Pipeline:
                     self._log.warning("progress reporting failed: {}", exc)
                 if not self._disk_ok(stats):
                     break
+                if work is not None:
+                    try:
+                        self._maybe_grow_workers(work, results, workers)
+                    except Exception as exc:      # noqa: BLE001 - never costs the run
+                        self._log.warning("could not add an extraction worker: {}", exc)
 
         # **The final flush, before anything else can go wrong.** Everything
         # above may have left up to `embed_batch` passages committed to SQLite
@@ -2120,18 +2283,28 @@ class Pipeline:
         loudly, exactly as it did before this thread existed. The loop then
         stops rather than silently discarding every batch still behind the
         one that failed.
+
+        **§6g reads `_embedding_now` from the consumer thread**, set for
+        exactly the span of the call below - not from the moment a batch is
+        queued, which could be a while before the model actually runs. A
+        worker started while a CPU embed is genuinely mid-batch would
+        compete with it for the same cores; one started while a batch is
+        merely *waiting its turn* would not.
         """
         while True:
             batch = self._feeder_queue.get()
             if batch is _STOP:
                 self._feeder_queue.task_done()
                 return
+            self._embedding_now.set()
             try:
                 self._embed_pending(batch)
             except BaseException as exc:              # noqa: BLE001 - reraised, not lost
                 self._feeder_errors.append(exc)
                 self._feeder_queue.task_done()
                 return
+            finally:
+                self._embedding_now.clear()
             self._feeder_queue.task_done()
 
     def _raise_if_feeder_failed(self) -> None:

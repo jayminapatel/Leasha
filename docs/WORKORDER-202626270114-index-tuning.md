@@ -459,10 +459,68 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   `Pipeline.check_and_rebuild_fts_if_dirty()`; dirty-flag-before-drop
   ordering confirmed on read. Test coverage for this path is still thin —
   see ACTIVE_WORK.md.
-- [ ] **6g Dynamic workers**: the governor may raise extraction workers above
+- [x] **6g Dynamic workers**: the governor may raise extraction workers above
   the static default toward the envelope ceiling when measured idle allows
   and the embedder is not mid-batch on CPU; backs off exactly as it does
   today. The static cap becomes the floor of a range, not the answer.
+  **Delivered 2026-09-05, mechanism complete, one hop of wiring left for
+  whoever owns `resolve.py`.** `app/index/pipeline.py`: a new
+  `PipelineConfig.worker_ceiling` (default `0` - disabled, exactly today's
+  behaviour for every existing caller) and `Pipeline._maybe_grow_workers`,
+  checked at the same checkpoints as everything else in `_consume`. It
+  starts one more extraction worker, up to the ceiling, when `waiting` is
+  dominant (the same `>= 0.5` share `stages.advice()` already uses for "this
+  run is extraction-bound") and the model is not genuinely mid-batch on a
+  processor right now (`_embedding_now`, an event set only for the span of
+  the feeder thread's actual `_embed_pending` call, §6b) - the device check
+  means that condition does not apply on a graphics card, where extraction
+  and the model do not compete for the same cores. A 10-second cooldown
+  keeps a corpus of tiny, frequent checkpoints from turning this into a
+  thread storm. Backing off needs no new code: the existing
+  `governor.wait_while_throttled` pause already lives at the producer, not
+  per worker, so it already applies to however many extraction threads
+  exist.
+  **A real correctness gap found and closed before it shipped.** `_produce`
+  enqueues exactly one `_STOP` marker per *static* worker; a dynamically
+  started worker has no marker of its own addressed to it. The first working
+  version let `_consume` stop once it had seen that many `_STOP`s regardless
+  of how many worker threads actually existed - so if the static worker
+  happened to process the last marker while a dynamically-started one was
+  still mid-file, `_consume` returned and that file's result was silently
+  orphaned in `results`. Caught by
+  `test_a_real_extraction_bound_run_grows_and_still_indexes_correctly` in the
+  new `tests/unit/test_dynamic_workers.py` (`stats.indexed` came back 23 of
+  24), not by inspection. The fix: growth now enqueues its own `_STOP`
+  marker first (`_offer_stop_token`, bounded rather than a blocking `put` -
+  the work queue is exactly as likely to be full as growth is likely to be
+  warranted, since both follow from the walker outpacing extraction) and
+  only starts the thread, and only counts it in `_expected_stops`
+  (`_consume`'s new exit condition, replacing the old `len(workers)`), once
+  that marker is actually queued. No marker, no thread, that round - checked
+  again next cooldown.
+  **Measured, not assumed** (`bench_dynamic_workers.py`, session scratchpad):
+  the same A/B methodology as §6b - identical code, `worker_ceiling=0` vs a
+  real ceiling - against a corpus of 60 files with an artificial 80ms/file
+  extraction delay standing in for a slow disk or parser. Four trials:
+  **5.09s / 5.13s / 5.09s / 5.47s (ceiling disabled) against 2.64s / 2.67s /
+  2.67s / 2.73s (ceiling 4, grew to 2 workers) - a consistent 47.5% to 50.1%
+  faster**, matching the arithmetic a single-threaded I/O-bound task doubling
+  its readers predicts. Far more stable than §6b's own measurement, because
+  the artificial delay here dominates real background noise by a wider
+  margin.
+  **The wiring gap, named rather than left implicit**: nothing outside this
+  file sets `worker_ceiling` above `0` today, so in production this is
+  inert until `resolve.py` (out of this thread's file scope) is taught to
+  pass `envelope.index_workers(profile).ceiling` through when it builds a
+  `PipelineConfig`. Ticked anyway, unlike §6h and §6c: this item names a
+  mechanism ("the governor may raise..."), which is now built, tested end to
+  end through a real `Pipeline.run()`, and measured - not an external
+  acceptance gate this thread cannot evaluate, which is what kept those two
+  open. Whoever wires `resolve.py` next has a `worker_ceiling` field waiting
+  for a number.
+  Tests: `tests/unit/test_dynamic_workers.py` (9, new). `pytest -q` on the
+  full set is clean except the same five pre-existing, unrelated failures
+  noted under §6b.
 - [ ] **6h Quantised model option** (CPU): int8 variant behind
   `EMBED_QUANTISED`, accepted only if `evaluate --builtin` recall stays
   within the tolerance recorded in this file when it lands.
