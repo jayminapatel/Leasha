@@ -288,7 +288,10 @@ Not done until all of these pass.
 **Editor**
 - [x] Presenter tests for enable, disable, edit cap, add and remove a custom extension.
 - [x] The presenter still does not import Qt - the existing guard test must stay green.
-- [ ] Changing a mapping bumps the index generation.
+- [x] Changing a mapping bumps the index generation.
+  **Fixed 2026-09-05:** was genuinely unimplemented - new
+  `SqliteStore.bump_generation()`, wired into `MainWindow._file_types_saved`.
+  See `tests/unit/test_generation_bump.py`.
 - [x] The Test button returns extracted text for a good file and a rendered `AppError` for a
       bad one.
 
