@@ -23,6 +23,7 @@ from app.ui.preview_loader import (
     CAPS,
     KIND_HTML,
     KIND_IMAGE,
+    KIND_MARKDOWN,
     KIND_NONE,
     KIND_PDF,
     KIND_TEXT,
@@ -35,18 +36,48 @@ from app.ui.preview_loader import (
 
 @pytest.mark.parametrize("name,expected", [
     ("notes.txt", KIND_TEXT),
-    ("README.md", KIND_TEXT),
     ("data.csv", KIND_TEXT),
     ("script.PY", KIND_TEXT),          # case is not a different file type
+    # §4a: rendered through QTextDocument.setMarkdown, not shown as raw text.
+    ("README.md", KIND_MARKDOWN),
+    ("notes.markdown", KIND_MARKDOWN),
     ("mail.eml", KIND_HTML),
     ("page.html", KIND_HTML),
     ("report.pdf", KIND_PDF),
     ("scan.PNG", KIND_IMAGE),
+    # §4a: SVG via QtSvg (Qt already decodes it through QImage in this build).
+    ("drawing.svg", KIND_IMAGE),
+    # §4a: the indexer's own scanner-output extensions - see the note on
+    # `_IMAGE_SUFFIXES`.
+    ("scan.tif", KIND_IMAGE),
+    ("scan.TIFF", KIND_IMAGE),
+    # §4d: HEIC/HEIF, extending the image pipeline rather than a new kind.
+    ("photo.heic", KIND_IMAGE),
+    ("photo.HEIF", KIND_IMAGE),
     ("archive.zip", KIND_NONE),
     ("no-extension", KIND_NONE),
 ])
 def test_the_renderer_is_chosen_by_extension(name, expected):
     assert kind_for(Path(name)) == expected
+
+
+def test_markdown_has_its_own_cap_equal_to_text():
+    """Not a separate number to keep in step - prose is prose."""
+    assert CAPS[KIND_MARKDOWN] == CAPS[KIND_TEXT]
+
+
+def test_a_markdown_file_comes_back_as_markdown_not_text(tmp_path: Path):
+    note = tmp_path / "notes.md"
+    note.write_text("# Barnsley Dairy\n\nHACCP review notes.", encoding="utf-8")
+
+    preview = load_preview(str(note))
+
+    assert preview.kind == KIND_MARKDOWN
+    assert "HACCP" in preview.body
+    assert "# Barnsley Dairy" in preview.body, (
+        "the raw markup is kept in `body` - rendering happens in the widget, "
+        "via QTextDocument.setMarkdown, not here"
+    )
 
 
 def test_choosing_a_renderer_never_touches_the_file():

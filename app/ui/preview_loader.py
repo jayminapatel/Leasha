@@ -24,8 +24,8 @@ from app.core.errors import AppError, make_error
 from app.core.logging import logger
 
 __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
-           "KIND_NONE", "kind_for", "load_preview", "load_preview_for", "stored_text",
-           "CAPS"]
+           "KIND_MARKDOWN", "KIND_NONE", "kind_for", "load_preview",
+           "load_preview_for", "stored_text", "CAPS"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -33,6 +33,13 @@ KIND_TEXT = "text"
 KIND_HTML = "html"
 KIND_PDF = "pdf"
 KIND_IMAGE = "image"
+#: Workspace §4a. Rendered through `QTextDocument.setMarkdown` rather than as
+#: raw text - a `.md` file is prose with structure in it, and showing the
+#: literal `#`, `**` and `-` characters is showing the markup rather than the
+#: document. A kind of its own rather than a flag on `KIND_TEXT`, because the
+#: pane's dispatch is already a kind-by-kind `if`/`elif` and a boolean bolted
+#: onto one branch is the first place the next reader looks past.
+KIND_MARKDOWN = "markdown"
 KIND_NONE = "none"          # nothing to render; show the card
 
 #: How much of each kind is worth reading, in bytes.
@@ -48,6 +55,9 @@ CAPS: dict[str, int] = {
     KIND_IMAGE: 25 * 1024 * 1024,
     KIND_PDF: 0,                     # paged by the viewer; never read here
 }
+#: Markdown is prose, so it reads the same amount as plain text - a second
+#: number here would be two caps to keep in step for no reason.
+CAPS[KIND_MARKDOWN] = CAPS[KIND_TEXT]
 
 #: Characters of an extracted document worth showing. Lower than the text cap
 #: because extraction has already cost a zip open and an XML parse, and a Word
@@ -80,15 +90,25 @@ def _extractable(path: Path) -> bool:
         return False
 
 _TEXT_SUFFIXES = frozenset({
-    ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json",
+    ".txt", ".rst", ".log", ".csv", ".tsv", ".json",
     ".yaml", ".yml", ".xml", ".ini", ".cfg", ".toml", ".py", ".js", ".ts",
     ".sql", ".ps1", ".bat", ".cmd", ".sh", ".c", ".h", ".cpp", ".cs", ".java",
     ".go", ".rs", ".rb", ".php", ".css", ".env", ".conf", ".properties",
     ".tex", ".bib", ".adoc", ".org", ".srt", ".vtt", ".jsonl", ".ndjson",
 })
+#: Workspace §4a: rendered through `QTextDocument.setMarkdown` rather than as
+#: raw text. Its own set, checked before `_TEXT_SUFFIXES`, rather than a flag -
+#: see `KIND_MARKDOWN`.
+_MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 _HTML_SUFFIXES = frozenset({".html", ".htm", ".eml", ".msg"})
+#: **Kept equal to `OcrExtractor.extensions` in `app/extract/ocr.py`.**
+#: That is the indexer's own list of what counts as an image - OCR is what
+#: reads one, whatever else it also has an extractor for - and a preview that
+#: drifts from it is exactly the `.tiff` class of bug the order names: a type
+#: the index reads happily shown as "no preview" because this set forgot it.
+#: `test_viewer_suffixes.py` pins the two sets equal.
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
-                             ".tif", ".tiff"})
+                             ".tif", ".tiff", ".svg", ".heic", ".heif"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +143,8 @@ def kind_for(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in _HTML_SUFFIXES:
         return KIND_HTML
+    if suffix in _MARKDOWN_SUFFIXES:
+        return KIND_MARKDOWN
     if suffix in _TEXT_SUFFIXES:
         return KIND_TEXT
     if suffix in _IMAGE_SUFFIXES:
@@ -318,7 +340,7 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
             subtitle=subtitle, truncated=truncated, notice=cleaned.notice(),
         )
 
-    return Preview(kind=KIND_TEXT, body=text, path=path_text, title=title,
+    return Preview(kind=kind, body=text, path=path_text, title=title,
                    subtitle=subtitle, truncated=truncated)
 
 

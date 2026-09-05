@@ -50,6 +50,7 @@ from app.ui.preview_loader import (
     decode_image,
     KIND_HTML,
     KIND_IMAGE,
+    KIND_MARKDOWN,
     KIND_NONE,
     KIND_PDF,
     KIND_TEXT,
@@ -365,6 +366,15 @@ class PreviewPane(QWidget):
             # twice - once with the previous file's grammar.
             self._highlight_as(preview.path)
             self.text.setPlainText(preview.body)
+            self.stack.setCurrentWidget(self.text)
+        elif preview.kind == KIND_MARKDOWN:
+            # Workspace §4a. `setMarkdown` rather than `setPlainText`: a `.md`
+            # file is prose with structure in it, and showing the literal `#`
+            # and `**` characters is showing the markup rather than the
+            # document. No highlighter - the document supplies its own
+            # formatting, exactly as the HTML branch above already argues.
+            self._highlight_as(None)
+            self.text.document().setMarkdown(preview.body)
             self.stack.setCurrentWidget(self.text)
         elif preview.kind == KIND_IMAGE:
             self._show_image(preview.path)

@@ -214,7 +214,9 @@ class PreviewWindow(QWidget):
     def _loaded(self, preview: Any, generation: int) -> None:
         if generation != self._generation:
             return                               # a later request won
-        from app.ui.preview_loader import KIND_HTML, KIND_IMAGE, KIND_PDF
+        from app.ui.preview_loader import (
+            KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF,
+        )
 
         self._kind = str(getattr(preview, "kind", "none"))
         # §2g: say when the layout is missing rather than letting the document
@@ -229,6 +231,9 @@ class PreviewWindow(QWidget):
         body = str(getattr(preview, "body", "") or "")
         if self._kind == KIND_HTML:
             self.text.setHtml(body)
+        elif self._kind == KIND_MARKDOWN:
+            # §4a, same as the in-app pane: rendered, not shown as raw markup.
+            self.text.document().setMarkdown(body)
         else:
             self.text.setPlainText(body)
         self.stack.setCurrentWidget(self.text)
