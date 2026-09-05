@@ -194,16 +194,46 @@ class Reranker:
         The tail below `top_n` keeps its fused order and is appended unchanged -
         reranking is a reordering of the head, not a filter, and dropping the
         tail would silently shrink every result list.
+
+        **A row with no `text_key` never reaches the model.** `hydrate_images`
+        (`vector.py`) hands back photo hits with a path and an ext, and
+        deliberately no text - there is no passage, no page, no `chunks` row to
+        take one from. Scoring an empty string against it is not "no opinion";
+        a cross-encoder reads an empty passage as having nothing in common with
+        the query and says so with the same confidence as a real verdict, which
+        buries every image hit at the bottom of the head. So these rows are
+        pulled out before scoring - by index, never by substituting the
+        filename or anything else as a stand-in passage - and reinserted
+        afterwards at the exact index fusion put them at, untouched.
         """
         results = list(hits)
         if not results or not query.strip():
+            return results
+
+        # Partition by fused index, before the scorer is even loaded: an
+        # index in `textless` never becomes a passage, and its original
+        # position is what lets it go straight back in below.
+        textless: dict[int, dict[str, Any]] = {}
+        scoreable: list[dict[str, Any]] = []
+        for index, hit in enumerate(results):
+            if str(hit.get(text_key, "")).strip():
+                scoreable.append(hit)
+            else:
+                textless[index] = hit
+
+        if not scoreable:
+            # An all-image result set. There is nothing to rerank, so there
+            # is nothing to load the model for either.
             return results
 
         scorer = self._ensure_scorer()
         if scorer is None:
             return results
 
-        head, tail = results[: self.top_n], results[self.top_n :]
+        # The head/tail split is over the *scoreable* rows only - a photo
+        # sitting near the top of the fused list must not spend one of the
+        # `top_n` slots that real passages compete for.
+        head, tail = scoreable[: self.top_n], scoreable[self.top_n :]
 
         # **Only the part worth scoring.** A cross-encoder's cost is at best
         # linear in passage length and usually worse, and it was being handed
@@ -247,4 +277,12 @@ class Reranker:
         # Stable sort on score alone: ties keep their fused order, which is the
         # better fallback and keeps the whole pipeline deterministic.
         head.sort(key=lambda hit: -hit["rerank_score"])
-        return head + tail
+        ranked = iter(head + tail)
+
+        # Reassemble to the original length: every textless row goes back to
+        # its own fused index, and the scored rows fill every other slot in
+        # their new order.
+        return [
+            textless[index] if index in textless else next(ranked)
+            for index in range(len(results))
+        ]

@@ -268,6 +268,94 @@ def test_one_bad_rerank_does_not_disable_reranking_for_the_session():
     assert not ranker.available, "the budget must eventually be spent"
 
 
+# ---------------------------------------------------------------------------
+# Reranking an image hit is a wrong opinion, not no opinion
+# ---------------------------------------------------------------------------
+
+class _SpyScorer:
+    """A fake cross-encoder that records exactly what it was asked to score.
+
+    `scores` is returned in full on every call - these tests only ever call
+    `rerank()` once, so a fixed list keyed by call position is enough to prove
+    both what reached the scorer and how its verdict reordered the head.
+    """
+
+    def __init__(self, scores):
+        self.scores = list(scores)
+        self.calls: list[tuple] = []
+
+    def __call__(self, query, passages):
+        self.calls.append((query, list(passages)))
+        return list(self.scores)
+
+
+def test_textless_hits_are_excluded_from_reranking_and_reinserted_in_place():
+    r"""**The finding, in one line.** `hydrate_images` (`app/search/vector.py`)
+    gives a photo hit no `text_key` at all - confirmed by
+    `grep -n "text" app/search/vector.py` around `hydrate_images`, which shows
+    it filling in only `path`, `ext`, `mtime_ns`, `content_hash`, `distance`
+    and `chunk_id`, never `text`. The reranker used to read that gap as
+    `hit.get("text", "")` and score the empty string, which is not "no
+    opinion" about the photo - it is a confident wrong one, and it buried
+    every image hit at the bottom of the reordered head."""
+    from app.search.rerank import Reranker
+
+    hits = [
+        {"chunk_id": 1, "text": "pump station alpha, commissioning report"},
+        {"chunk_id": 2, "path": r"D:\photos\pump.jpg"},                 # no "text" key at all
+        {"chunk_id": 3, "text": "pump valve beta, inspection notes"},
+        {"chunk_id": 4, "text": "", "path": r"D:\photos\valve.jpg"},    # blank "text"
+        {"chunk_id": 5, "text": "pump station gamma, longer maintenance log entry"},
+    ]
+
+    # One score per texted passage, in the order the scorer will see them
+    # (chunk 1, then 3, then 5 - their fused order). Deliberately not
+    # monotonic with that order, so a reorder among the texted hits alone
+    # is visible in the assertions below.
+    spy = _SpyScorer([10.0, 30.0, 20.0])
+    ranker = Reranker("model", enabled=True, scorer=spy, top_n=10)
+
+    ranked = ranker.rerank("pump", hits, terms=["pump"])
+
+    assert len(ranked) == len(hits), "reranking must never change how many hits come back"
+    assert ranked[1] is hits[1], "the textless hit must land back at its own fused index"
+    assert ranked[3] is hits[3], "the blank-text hit must land back at its own fused index"
+
+    assert len(spy.calls) == 1
+    _query, passages = spy.calls[0]
+    assert len(passages) == 3, "only the three texted hits should ever reach the scorer"
+    assert all(passage.strip() for passage in passages), (
+        "a textless row's empty passage must never reach the scorer"
+    )
+
+    texted_order = [ranked[0]["chunk_id"], ranked[2]["chunk_id"], ranked[4]["chunk_id"]]
+    assert texted_order == [3, 5, 1], (
+        "texted hits reorder among themselves by the scorer's verdict, "
+        "independent of where the textless hits sit"
+    )
+
+
+def test_an_all_image_result_set_is_returned_unchanged():
+    r"""Nothing to rerank means nothing to score - and nothing to load the
+    1.1GB model for, either."""
+    from app.search.rerank import Reranker
+
+    hits = [
+        {"chunk_id": 1, "path": r"D:\photos\a.jpg"},
+        {"chunk_id": 2, "text": "", "path": r"D:\photos\b.jpg"},
+        {"chunk_id": 3, "text": "   ", "path": r"D:\photos\c.jpg"},   # whitespace-only
+    ]
+
+    spy = _SpyScorer([])
+    ranker = Reranker("model", enabled=True, scorer=spy, top_n=10)
+
+    ranked = ranker.rerank("pump", hits, terms=["pump"])
+
+    assert ranked == hits
+    assert ranked[0] is hits[0] and ranked[1] is hits[1] and ranked[2] is hits[2]
+    assert spy.calls == [], "the scorer must never be invoked for an all-image result set"
+
+
 def test_an_ocr_engine_that_will_not_load_is_not_reported_as_a_blank_image():
     r"""**`ERR_NO_TEXT_LAYER` is a claim about the file.**
 
