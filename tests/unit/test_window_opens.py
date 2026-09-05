@@ -239,6 +239,7 @@ def test_window_can_restore_from_saved_state(tmp_path):
     Create a window, save its state, then create a new window and restore
     from that state. The geometries should match.
     """
+    from PyQt6.QtGui import QGuiApplication
     from PyQt6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -256,25 +257,38 @@ def test_window_can_restore_from_saved_state(tmp_path):
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
 
+    # A size guaranteed to fit the real screen without Qt's own
+    # restoreGeometry() silently shrinking it to fit. Found by running this
+    # suite: the offscreen QPA platform here provides only an 800x800
+    # virtual screen, so the previous hardcoded 900x700 got clamped by Qt on
+    # restore and the exact-pixel assertions below failed - not a
+    # save/restore bug, just a magic number that only held on a big enough
+    # screen.
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    if avail.width() < 300 or avail.height() < 300:
+        pytest.skip(f"screen too small ({avail.width()}x{avail.height()}) for this test")
+    width = min(900, avail.width() - 60)
+    height = min(700, avail.height() - 60)
+
     try:
         # Build first window, set a custom geometry, save it
         window1 = MainWindow(settings, store, vectors, _Engine(store))
-        window1.resize(900, 700)
+        window1.resize(width, height)
         window1.move(150, 100)
         saved_state = save_window_state(window1)
 
         # Build second window with default geometry
         window2 = MainWindow(settings, store, vectors, _Engine(store))
         original_geom = window2.geometry()
-        assert window2.width() != 900 or window2.height() != 700, \
+        assert window2.width() != width or window2.height() != height, \
             "second window should have different geometry initially"
 
         # Restore the saved state
         restore_window_state(window2, saved_state)
 
         # After restoration, geometries should match
-        assert window2.width() == 900, "width should be restored"
-        assert window2.height() == 700, "height should be restored"
+        assert window2.width() == width, "width should be restored"
+        assert window2.height() == height, "height should be restored"
 
     finally:
         store.close()

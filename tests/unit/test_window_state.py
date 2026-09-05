@@ -23,8 +23,8 @@ pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtGui import QScreen  # noqa: E402
+from PyQt6.QtCore import Qt, QRect  # noqa: E402
+from PyQt6.QtGui import QGuiApplication, QScreen  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QWidget  # noqa: E402
 from unittest.mock import Mock, patch  # noqa: E402
 
@@ -34,6 +34,28 @@ from app.ui.window_state import restore_window_state, save_window_state  # noqa:
 @pytest.fixture(scope="module")
 def qapp():
     yield QApplication.instance() or QApplication([])
+
+
+def _safe_window_size(want_width: int, want_height: int, margin: int = 60):
+    """A window size guaranteed to fit the current screen without Qt's own
+    `restoreGeometry()` silently shrinking it to fit (independent of
+    `_clamp_to_visible_screen` - Qt does its own on-screen-fit clamping
+    inside `restoreGeometry` itself).
+
+    Found by running the suite: the offscreen QPA platform used here provides
+    only an 800x800 virtual screen, smaller than the 800/1024/900px sizes
+    these tests used to assume unconditionally, so a saved geometry wider
+    than that got silently clamped by Qt on restore and the exact-pixel
+    assertions failed - not a bug in save/restore, just a magic number that
+    only held on a screen big enough. Skips cleanly on a screen too small to
+    hold even a reduced size.
+    """
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    if avail.width() < 300 or avail.height() < 300:
+        pytest.skip(
+            f"screen too small ({avail.width()}x{avail.height()}) for this test"
+        )
+    return min(want_width, avail.width() - margin), min(want_height, avail.height() - margin)
 
 
 class TestWindowStateSaveAndRestore:
@@ -52,8 +74,9 @@ class TestWindowStateSaveAndRestore:
 
     def test_restore_applies_saved_geometry(self, qapp):
         """restore_window_state applies a saved geometry blob."""
+        width, height = _safe_window_size(800, 600)
         widget1 = QWidget()
-        widget1.resize(800, 600)
+        widget1.resize(width, height)
         widget1.move(100, 100)
 
         state = save_window_state(widget1)
@@ -63,10 +86,11 @@ class TestWindowStateSaveAndRestore:
         widget2.move(0, 0)
         restore_window_state(widget2, state)
 
-        # After restoration, geometries should match (within tolerance for
-        # platform differences)
-        assert widget2.geometry().width() == 800
-        assert widget2.geometry().height() == 600
+        # After restoration, geometries should match. `width`/`height` are
+        # sized to comfortably fit the real screen (see _safe_window_size),
+        # so this is not a magic pixel count that only holds on one screen.
+        assert widget2.geometry().width() == width
+        assert widget2.geometry().height() == height
 
     def test_restore_with_none_does_nothing(self, qapp):
         """restore_window_state with None does nothing."""
@@ -114,19 +138,19 @@ class TestWindowStateSaveAndRestore:
         widget = QWidget()
 
         # Simulate the case where the window ends up off-screen after restore.
-        # We'll mock the geometry and screen to make the check happen.
+        # We'll mock the geometry and screen to make the check happen. Use
+        # real QRect objects (not bare Mock(width=..., height=...)) - QRect's
+        # x()/y()/width()/height()/intersects() are methods, not attributes,
+        # so a plain Mock(width=800) previously made `geom.width()` raise
+        # "'int' object is not callable" the moment this path actually ran.
         with patch.object(widget, "frameGeometry") as mock_frame:
             with patch.object(widget, "setGeometry") as mock_set_geom:
-                # Simulate a geometry that doesn't intersect with available screen
-                mock_frame.return_value = Mock(
-                    x=-2000, y=-2000, width=800, height=600,
-                    intersects=Mock(return_value=False)
-                )
+                # Off-screen position - genuinely does not intersect the
+                # available screen mocked below (a monitor no longer attached).
+                mock_frame.return_value = QRect(-2000, -2000, 800, 600)
                 with patch("app.ui.window_state.QGuiApplication") as mock_app:
                     mock_screen = Mock()
-                    mock_screen.availableGeometry.return_value = Mock(
-                        x=0, y=0, width=1920, height=1080
-                    )
+                    mock_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
                     mock_app.primaryScreen.return_value = mock_screen
 
                     restore_window_state(widget, b"fake_geometry", ensure_visible=True)
@@ -160,8 +184,9 @@ class TestWindowStateIntegration:
 
     def test_save_and_restore_round_trip(self, qapp):
         """A saved state can be restored to recreate the same geometry."""
+        width, height = _safe_window_size(1024, 768)
         widget1 = QWidget()
-        widget1.resize(1024, 768)
+        widget1.resize(width, height)
         widget1.move(200, 150)
 
         saved = save_window_state(widget1)
@@ -170,9 +195,11 @@ class TestWindowStateIntegration:
         widget2.resize(400, 300)
         restore_window_state(widget2, saved)
 
-        # The restored widget should have the same size
-        assert widget2.width() == 1024
-        assert widget2.height() == 768
+        # The restored widget should have the same size. `width`/`height`
+        # are sized to comfortably fit the real screen (see
+        # _safe_window_size), not a magic pixel count.
+        assert widget2.width() == width
+        assert widget2.height() == height
 
     def test_maximised_state_survives_round_trip(self, qapp):
         """A maximised window is restored as maximised."""
@@ -224,23 +251,25 @@ class TestWindowStateEdgeCases:
 
         with patch("app.ui.window_state.QGuiApplication") as mock_app:
             mock_screen = Mock()
-            mock_screen.availableGeometry.return_value = Mock(
-                x=0, y=0, width=1920, height=1080
-            )
+            mock_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
             mock_app.primaryScreen.return_value = mock_screen
 
             with patch.object(widget, "frameGeometry") as mock_frame:
                 with patch.object(widget, "setGeometry") as mock_set_geom:
-                    mock_frame.return_value = Mock(
-                        x=0, y=0, width=9999, height=9999,
-                        intersects=Mock(return_value=False)
-                    )
+                    # A huge window positioned off in the corner (e.g. from a
+                    # disconnected large monitor) - genuinely does not
+                    # intersect the 1920x1080 screen mocked above. Using a
+                    # real QRect (not Mock(width=9999, ...)) matters:
+                    # frameGeometry().width() is a method call in the
+                    # production code, and a plain Mock kwarg makes that
+                    # attribute an int, not a callable.
+                    mock_frame.return_value = QRect(-20000, -20000, 9999, 9999)
 
                     restore_window_state(widget, b"fake", ensure_visible=True)
 
                     # setGeometry should be called with clamped size
-                    if mock_set_geom.called:
-                        call_args = mock_set_geom.call_args[0]
-                        # Width and height should be <= screen size
-                        assert call_args[2] <= 1920
-                        assert call_args[3] <= 1080
+                    mock_set_geom.assert_called_once()
+                    call_args = mock_set_geom.call_args[0]
+                    # Width and height should be <= screen size
+                    assert call_args[2] <= 1920
+                    assert call_args[3] <= 1080
