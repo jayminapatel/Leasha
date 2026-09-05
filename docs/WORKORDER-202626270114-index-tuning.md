@@ -714,8 +714,23 @@ because `INDEXED` currently means "and its vectors exist", which is the
 invariant #50b and M6 were about. That is a design decision for the owner
 rather than a mechanical change.
 
-**§6b, §6c, §6g, §6h and §6i are not started.** 6a now exists to gate them, and
-each still needs its own before/after numbers on a real corpus.
+**Re-checked 2026-09-05, still true and still not this thread's to build.**
+The third file status is a schema and `FileStatus` change in
+`app/storage/sqlite_store.py`, which is outside this thread's file scope
+for Order 0b (pipeline/embedder/compute-profile work only) as well as
+needing the owner's design decision the note above already asks for. Left
+exactly as found rather than attempted.
+
+**§6b and §6g are delivered 2026-09-05** (feeder thread; dynamic extraction
+workers), each with its own before/after numbers, next to the items above.
+**§6c and §6h were investigated and left open**, each for a reason recorded
+next to the item rather than for lack of trying: §6c's real saving lives in
+`app/storage/vector_store.py`, outside this thread's scope; §6h has no int8
+build to switch to without a new dependency or an unvetted external model,
+either of which is a decision for the owner. **§6d and §6i remain not
+started** - 6a gates them and each still needs its own before/after numbers
+on a real corpus, and 6d additionally needs the schema decision above before
+either applies.
 
 **Found by building §7's own tests.** The plain-words guard caught the
 quantised-model checkbox saying "a quantised model" in its tooltip — this
