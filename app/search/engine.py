@@ -45,9 +45,9 @@ from app.search.rerank import Reranker
 
 __all__ = [
     "SearchEngine", "SearchResult", "SearchResponse", "Notice",
-    "NOTICE_NO_VECTORS", "NOTICE_UNMATCHED_TERMS", "NOTICE_RERANK_UNAVAILABLE",
-    "NOTICE_WILDCARD", "NOTICE_SORTED", "NOTICE_SPELLING", "NOTICE_RELAXED",
-    "NOTICE_EXACT",
+    "NOTICE_NO_VECTORS", "NOTICE_NO_IMAGES", "NOTICE_UNMATCHED_TERMS",
+    "NOTICE_RERANK_UNAVAILABLE", "NOTICE_WILDCARD", "NOTICE_SORTED",
+    "NOTICE_SPELLING", "NOTICE_RELAXED", "NOTICE_EXACT",
 ]
 
 #: Results returned after fusion, before reranking. From the spec's pipeline.
@@ -60,10 +60,11 @@ INTERIM_LIMIT = 20
 #:
 #: **Forty times the whole budget, on purpose.** This is not a performance
 #: setting - a search that takes twelve seconds is already broken and this will
-#: not save it. It is a liveness setting: the pool has two workers, so a future
-#: that never returns takes one of them for ever, the next search takes the
-#: other, and everything after that waits behind both. One wedged LanceDB scan
-#: used to end searching for the rest of the session.
+#: not save it. It is a liveness setting: the pool has as many workers as
+#: retrievers (see `SearchEngine._pool`), so a future that never returns takes
+#: one of them for ever, the next search takes another, and eventually
+#: everything waits behind all of them. One wedged LanceDB scan used to end
+#: searching for the rest of the session.
 #:
 #: High enough that a genuinely slow first query on a cold index - the ONNX load
 #: alone is seconds - is never cut off and reported as a failure.
@@ -115,6 +116,29 @@ class _LruCache:
 def _fold(values: Any) -> tuple:
     """Lowercase a tuple of strings for the cache key. See `_cache_key`."""
     return tuple(str(value).lower() for value in (values or ()))
+
+
+def _result_chunk_id(hit: dict[str, Any]) -> int:
+    """`SearchResult.chunk_id` for one fused row - `file_id` for an image hit.
+
+    **Found while wiring the image lane in, not assumed.** `search_images`
+    (`app/search/vector.py`) deliberately rewrites an image hit's fused key
+    to the namespaced string `"img:<file_id>"`, precisely so it cannot
+    collide with a real `chunks.id` inside `fuse_hits` - two independent
+    SQLite sequences that both start at 1. `int("img:5")` raises, and every
+    fused row used to be cast with a bare `int(hit.get("chunk_id", 0))`
+    here, which would have crashed the very first search that fused in a
+    photo. The namespacing has done its job by the time a row reaches this
+    point - fusion is over - so `SearchResult.chunk_id` stays a plain int
+    for every caller downstream by falling back to `file_id`, which is
+    already the whole key for a table with no chunk concept (see
+    `ImageVectorStore`'s docstring).
+    """
+    raw = hit.get("chunk_id", 0)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(hit.get("file_id", 0) or 0)
 
 
 def _wait(future: Any, half: str, problems: list[str]) -> list:
@@ -238,6 +262,16 @@ class SearchResult:
 #: Codes for `Notice`. Stable, because the UI branches on them and a renamed
 #: code is a silently-dropped notice.
 NOTICE_NO_VECTORS = "NOTICE_NO_VECTORS"
+#: Work order 0h SS1c: the CLIP image lane broke and degraded. **A separate
+#: code from `NOTICE_NO_VECTORS`, not a shared one** - the two lanes fail
+#: independently (a broken CLIP text-tower model says nothing about the
+#: FastEmbed text model, and vice versa), and the fix this file already
+#: shipped once for `NOTICE_NO_VECTORS` - see the "sixty occurrences, every
+#: one a false alarm" comment below - is precisely the bug reusing one
+#: code for two lanes would reintroduce: a person told "meaning-based
+#: search is not working" while it is in fact working fine and only the
+#: picture lane is degraded.
+NOTICE_NO_IMAGES = "NOTICE_NO_IMAGES"
 NOTICE_UNMATCHED_TERMS = "NOTICE_UNMATCHED_TERMS"
 NOTICE_RERANK_UNAVAILABLE = "NOTICE_RERANK_UNAVAILABLE"
 #: What a wildcard turned into - how many terms, whether it was capped, and
@@ -286,13 +320,18 @@ class _Retrieved:
     """One pass of the retrieval pipeline. Internal, and never returned.
 
     Exists so §2b can run that pipeline a second time without a second copy
-    of it - the four things the response needs, handed back together.
+    of it - the five things the response needs, handed back together.
     """
 
     results: list
     keyword_hits: list
     vector_hits: list
     reranked: bool
+    #: CLIP image hits, hydrated - `[]` when the lane is off
+    #: (`image_vectors`/`clip_text_embedder` either `None`) or found nothing.
+    #: Not distinguishable from here which of those it was; `image_problems`
+    #: (see `_retrieve`) is what tells a real failure from an empty result.
+    image_hits: list
 
 
 @dataclass
@@ -317,6 +356,13 @@ class SearchResponse:
     #: it. This is the same shape as the sentinel bug that hid every PST.
     keyword_count: int = 0
     vector_count: int = 0
+    #: Work order 0h §1c's third lane. `0` both when it is off
+    #: (`image_vectors`/`clip_text_embedder` not given to the engine) and
+    #: when it ran and found nothing - same shape as `vector_count`, same
+    #: reason: a lane that is silently absent looks identical to one that
+    #: found no photos, and only `notices` (`NOTICE_NO_IMAGES`) tells a
+    #: real failure apart from either.
+    image_count: int = 0
     #: Query words that appear nowhere in the index.
     #:
     #: **Usually the entire explanation for a baffling result list.** Terms are
@@ -393,11 +439,36 @@ class SearchEngine:
         rrf_k: int = RRF_K,
         weights: Optional[tuple[float, float]] = None,
         log_usage: bool = True,
+        image_vectors: Any = None,
+        clip_text_embedder: Any = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
         self.embedder = embedder
         self.reranker = reranker
+        #: Work order 0h SS1c: the third retrieval lane, CLIP image search.
+        #: `image_vectors` is an `app.storage.vector_store.ImageVectorStore`;
+        #: `clip_text_embedder` is a plain `app.index.embedder.Embedder`
+        #: configured for the CLIP **text** tower (`Qdrant/clip-ViT-B-32-
+        #: text`, 512-dim) - deliberately not `ClipImageEmbedder`, which is
+        #: the vision tower `Pipeline` uses at index time, and deliberately
+        #: not this engine's own `self.embedder`, which is the FastEmbed text
+        #: model living in a different embedding space entirely. Named
+        #: `clip_text_embedder` rather than a shorter `image_embedder` so the
+        #: two cannot be confused at a call site - see `app/search/vector.py`
+        #: `search_images` for the full reasoning.
+        #:
+        #: **Both optional, both `None` by default, H4 throughout.** When
+        #: either is `None` the engine behaves exactly as it did before this
+        #: lane existed - no third future submitted, no third hit list, no
+        #: third notice code ever raised. Neither loads anything at
+        #: construction: `Embedder`/`ImageVectorStore` are both already lazy
+        #: on first use, and `warm_up()` below deliberately does not touch
+        #: `clip_text_embedder` either - the window startup budget (work
+        #: order 0r) has no room for a second eager ONNX load, so this one
+        #: loads on the first search that actually reaches it instead.
+        self.image_vectors = image_vectors
+        self.clip_text_embedder = clip_text_embedder
         # **A cache by default, at last.** `cache=` is passed at none of the
         # four constructions, so for a year every review has recorded "no warm
         # search" against machinery that was complete, correct and unreachable:
@@ -417,10 +488,21 @@ class SearchEngine:
         self.cache = _LruCache() if cache is None else (cache or None)
         self.rrf_k = rrf_k
         #: (keyword, vector). Equal today; Layer 10 is where these stop being a
-        #: guess and start being measured against this corpus.
+        #: guess and start being measured against this corpus. **Still a pair,
+        #: deliberately**, even with the image lane wired in below: work order
+        #: 0h SS1c's literal answer is that the image lane's weight is 1.0, which
+        #: is what passing no third element here already means to `fuse_hits`
+        #: (`None` weights, or a weights list one entry too short for the
+        #: image lane, both treat every list as equal - see `_retrieve`). A
+        #: three-lane tuning surface is future work, not assumed here.
         self.weights = weights
         self.log_usage = log_usage
-        self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="search")
+        #: One worker per retriever, so a third, optional lane never
+        #: serialises behind the other two when it is active - see
+        #: `RETRIEVER_TIMEOUT_S`'s docstring. An idle third thread when the
+        #: image lane is off (`image_vectors`/`clip_text_embedder` both
+        #: `None`) costs nothing: nothing is ever submitted to it.
+        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="search")
         self._closed = False
         #: Wildcard pattern -> `Expansion`, for this session.
         #:
@@ -466,7 +548,16 @@ class SearchEngine:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
     def warm_up(self) -> None:
-        """Load the models now, off the first search's critical path."""
+        """Load the models now, off the first search's critical path.
+
+        **Deliberately does not warm `clip_text_embedder`.** Work order 0r's
+        startup budget has no room for a second eager ONNX load beside
+        `embedder`'s; the CLIP text tower stays lazy and pays its load cost
+        on whichever search first reaches `vector.search_images` - the same
+        contract `Embedder`/`ImageVectorStore` already promise on their own
+        (see their docstrings: nothing touches the network or the model
+        cache until first use).
+        """
         try:
             self.embedder.warm_up()
         except AppErrorException as exc:
@@ -588,8 +679,14 @@ class SearchEngine:
         parsed, spelling = self._correct_spelling(parsed, policy)
 
         vector_problems: list[str] = []
+        #: Work order 0h §1c. Kept separate from `vector_problems` - see
+        #: `NOTICE_NO_IMAGES`'s docstring for why sharing one list between
+        #: two independently-failing lanes would be the bug this file
+        #: already fixed once for `NOTICE_NO_VECTORS`, reintroduced.
+        image_problems: list[str] = []
         retrieved = self._retrieve(parsed, raw, limit, want_rerank,
-                                   timings, vector_problems, policy)
+                                   timings, vector_problems, policy,
+                                   image_problems)
 
         # §2b. **A second pass, and only where the alternative is an empty
         # page.** `relax.candidates` is empty for the ordinary
@@ -601,12 +698,13 @@ class SearchEngine:
             for candidate in relax.candidates(parsed):
                 again = self._retrieve(candidate.query, raw, limit,
                                        want_rerank, timings, vector_problems,
-                                       policy)
+                                       policy, image_problems)
                 if again.results:
                     parsed, retrieved, relaxed = candidate.query, again, candidate
                     break
 
         keyword_hits, vector_hits = retrieved.keyword_hits, retrieved.vector_hits
+        image_hits = retrieved.image_hits
         reranked = retrieved.reranked
         results = retrieved.results
 
@@ -626,6 +724,7 @@ class SearchEngine:
         response = SearchResponse(
             results=results, parsed=parsed, reranked=bool(reranked),
             keyword_count=len(keyword_hits), vector_count=len(vector_hits),
+            image_count=len(image_hits),
             unmatched=unmatched, spelling=spelling, relaxed=relaxed,
             # §2d. **Alongside `results`, never instead of it.** A view that
             # ignores this draws the same page it drew before.
@@ -738,6 +837,28 @@ class SearchEngine:
             # no longer shouts about it.
             _log.debug(
                 "no vector hits and nothing to embed - a filter-only query")
+        # Work order 0h §1c. **Simpler than the block above, deliberately.**
+        # `image_problems` is populated by the exact same `vector.search`
+        # this engine already trusts for the text-vector half (`search_images`
+        # calls it unmodified - see its docstring) - so it is *already* only
+        # ever non-empty on a genuine embed or ANN failure, never on "nothing
+        # to embed" or "filters excluded everything", both of which return
+        # `[]` upstream before `problems` is ever touched. The extra
+        # "but only if X and Y and Z" gating above exists because
+        # `NOTICE_NO_VECTORS` used to fire on those ordinary states too - a
+        # bug this file already paid to find and fix once (the "sixty
+        # occurrences, every one a false alarm" comment above). There is no
+        # equivalent bug to guard against here, so there is no equivalent
+        # gate: an empty `image_hits` with nothing in `image_problems` is the
+        # ordinary "no photo matched" case and says nothing at all.
+        if image_problems:
+            _log.warning("the picture lane is degraded: {}",
+                         "; ".join(image_problems))
+            notices.append(Notice(
+                NOTICE_NO_IMAGES,
+                "Photo search is not working right now, so these results "
+                "are text and keyword matches only. " + " ".join(image_problems),
+            ))
         if want_rerank and not reranked and self.reranker is not None:
             notices.append(Notice(
                 NOTICE_RERANK_UNAVAILABLE,
@@ -835,7 +956,8 @@ class SearchEngine:
 
     def _retrieve(self, parsed: ParsedQuery, raw: str, limit: int,
                   want_rerank: bool, timings: dict, vector_problems: list,
-                  policy: Optional[SearchPolicy] = None) -> "_Retrieved":
+                  policy: Optional[SearchPolicy] = None,
+                  image_problems: Optional[list] = None) -> "_Retrieved":
         r"""Both retrievers, fused, reranked, sorted — for one query.
 
         **A method rather than a block because §2b runs it twice.** Relaxation
@@ -847,7 +969,10 @@ class SearchEngine:
 
         `timings` and `vector_problems` are handed in and written through, so
         a relaxed second pass reports the total spent rather than only its own
-        share - the person waited for both.
+        share - the person waited for both. `image_problems` is the same
+        pattern for the third lane, kept separate from `vector_problems` -
+        see `NOTICE_NO_IMAGES`'s docstring for why the two must not share one
+        list.
         """
         mark = time.perf_counter()
         # **The eligible files, without listing them when there are too many.**
@@ -862,30 +987,72 @@ class SearchEngine:
             vector.search, self.vectors, self.embedder, parsed,
             allowed_file_ids=allowed, problems=vector_problems,
         )
-        # **Bounded, because the pool has two workers and no queue.** A hung
-        # LanceDB scan or a wedged SQLite read used to block `result()` for
-        # ever: that worker never returns, the next search takes the other one,
-        # and the third waits behind both. One stuck query froze searching for
-        # the rest of the session.
+        # Work order 0h §1c: the CLIP image lane, submitted alongside the
+        # other two rather than after them - `self._pool` carries a worker
+        # per retriever precisely so this never queues behind them. `None`
+        # unless both `clip_text_embedder` and `image_vectors` were handed to
+        # the constructor (H4: absent means off, exactly as it always did
+        # before this lane existed).
+        image_future = None
+        if self.clip_text_embedder is not None and self.image_vectors is not None:
+            image_future = self._pool.submit(
+                vector.search_images, self.image_vectors, self.clip_text_embedder,
+                parsed, allowed_file_ids=allowed, problems=image_problems,
+            )
+        # **Bounded, because the pool has one worker per retriever and no
+        # queue deep enough to hide a wedge.** A hung LanceDB scan or a
+        # wedged SQLite read used to block `result()` for ever: that worker
+        # never returns, the next search takes another, and eventually
+        # everything waits behind all of them. One stuck query froze
+        # searching for the rest of the session.
         #
         # A timed-out future is abandoned rather than cancelled - a running
         # future cannot be cancelled, and killing a thread mid-read is worse
         # than leaking one - so it finishes into nothing and the worker comes
-        # back. What matters is that the person gets the half that answered.
+        # back. What matters is that the person gets the halves that answered.
         keyword_hits = _wait(keyword_future, "keyword", vector_problems)
         raw_vector_hits = _wait(vector_future, "meaning-based", vector_problems)
+        raw_image_hits = (
+            _wait(image_future, "picture", image_problems)
+            if image_future is not None else []
+        )
         timings["retrieve"] = timings.get("retrieve", 0.0) + (
             time.perf_counter() - mark) * 1000
 
         mark = time.perf_counter()
         vector_hits = vector.hydrate(self.store, raw_vector_hits)
+        image_hits = (
+            vector.hydrate_images(self.store, raw_image_hits)
+            if raw_image_hits else []
+        )
         timings["hydrate"] = timings.get("hydrate", 0.0) + (
             time.perf_counter() - mark) * 1000
 
         mark = time.perf_counter()
+        # **`hit_lists` and `weights` built as parallel lists, so a future
+        # tuned `weights=` cannot throw.** `self.weights` is `None` at every
+        # construction site today (work order 0h §1c's literal answer: the
+        # image lane's weight is 1.0, which is exactly what an absent third
+        # entry already means to `fuse_hits` - see `self.weights`'s
+        # docstring). But `rrf()` raises `ValueError` on a length mismatch
+        # between `weights` and the rankings it is given, so appending the
+        # image hit list to `hit_lists` while leaving an *explicit* two-entry
+        # `weights` untouched would be exactly that mismatch, waiting for the
+        # day somebody sets `weights=(2.0, 1.0)` to tune keyword against
+        # vector and the image lane happens to be on. Appending 1.0 here only
+        # when `weights` is not `None` keeps the two lists in step in both
+        # states: `None` stays `None` (fuse_hits treats every list as equal
+        # already, so nothing needs adding), and an explicit pair grows to a
+        # triple rather than becoming one entry too short.
+        hit_lists = [keyword_hits, vector_hits]
+        weights = list(self.weights) if self.weights else None
+        if image_future is not None:
+            hit_lists.append(image_hits)
+            if weights is not None:
+                weights.append(1.0)
         fused = fuse_hits(
-            [keyword_hits, vector_hits], id_key="chunk_id", k=self.rrf_k,
-            weights=list(self.weights) if self.weights else None, limit=limit,
+            hit_lists, id_key="chunk_id", k=self.rrf_k,
+            weights=weights, limit=limit,
         )
         timings["fuse"] = timings.get("fuse", 0.0) + (
             time.perf_counter() - mark) * 1000
@@ -949,7 +1116,8 @@ class SearchEngine:
             for rank, hit in enumerate(fused, start=1)
         ]
         return _Retrieved(results=results, keyword_hits=keyword_hits,
-                          vector_hits=vector_hits, reranked=bool(reranked))
+                          vector_hits=vector_hits, reranked=bool(reranked),
+                          image_hits=image_hits)
 
     def _as_pasted(self, raw: str, parsed: ParsedQuery) -> Optional[ParsedQuery]:
         r"""The query as one phrase, when it looks pasted. **Never raises.**
@@ -1232,7 +1400,7 @@ class SearchEngine:
         self, hit: dict[str, Any], rank: int, sources: tuple[int, ...], score: float
     ) -> SearchResult:
         return SearchResult(
-            chunk_id=int(hit.get("chunk_id", 0)),
+            chunk_id=_result_chunk_id(hit),
             file_id=int(hit.get("file_id", 0)),
             path=str(hit.get("path", "")),
             text=str(hit.get("text", "")),

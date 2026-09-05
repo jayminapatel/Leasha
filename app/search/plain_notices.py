@@ -39,6 +39,13 @@ PLAIN: dict[str, Any] = {
         "only. You may find fewer things than usual - try different words if "
         "something is missing."
     ),
+    # Work order 0h §1c. A separate sentence from `NOTICE_NO_VECTORS`,
+    # because the two lanes fail independently - see that code's own
+    # docstring in `app/search/engine.py`.
+    "NOTICE_NO_IMAGES": (
+        "Finding photos by what is in them is off at the moment. Word and "
+        "meaning matches still work as usual."
+    ),
     "NOTICE_RERANK_UNAVAILABLE": (
         "The best matches may not be at the very top today. Everything is "
         "here - just in a slightly rougher order."
