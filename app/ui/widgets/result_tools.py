@@ -18,13 +18,17 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QSplitter, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox, QHBoxLayout, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
+)
 
 from app.ui import drag_out
 from app.ui.results_view import ResultsView
 from app.ui.widgets import pinned_panel as _pinned_mod
+from app.ui.widgets import thumbnail_grid as _grid_mod
 from app.ui.widgets import timeline_strip as _timeline_mod
 from app.ui.widgets.pinned_panel import PANEL_ENABLED_KEY, PinnedPanel
+from app.ui.widgets.thumbnail_grid import GRID_ENABLED_KEY, ThumbnailGrid
 from app.ui.widgets.timeline_strip import STRIP_ENABLED_KEY, TimelineStrip
 
 __all__ = ["build_results_pane"]
@@ -66,8 +70,9 @@ def _write_flag(store: Any, key: str, value: bool) -> None:
 
 
 def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineStrip,
+              stack: QStackedWidget, split: QWidget, grid: ThumbnailGrid,
               store: Any) -> QWidget:
-    """The three off switches §6 requires, in one row above everything else."""
+    """The off switches §6 requires, in one row above everything else."""
 
     def toggle_drag(checked: bool) -> None:
         results.set_drag_enabled(checked)
@@ -80,6 +85,12 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
     def toggle_timeline(checked: bool) -> None:
         timeline.set_enabled(checked)
         _write_flag(store, STRIP_ENABLED_KEY, checked)
+
+    def toggle_grid(checked: bool) -> None:
+        # Work order 0h §3a: list stays the default; the grid is a view the
+        # list swaps out for, never a second copy of it running beside it.
+        stack.setCurrentWidget(grid if checked else split)
+        _write_flag(store, GRID_ENABLED_KEY, checked)
 
     drag_box = QCheckBox("Drag results out")
     drag_box.setToolTip(
@@ -96,8 +107,11 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
     timeline_box = _timeline_mod.enabled_checkbox(store, on_toggle=toggle_timeline)
     toggle_timeline(timeline_box.isChecked())
 
+    grid_box = _grid_mod.enabled_checkbox(store, on_toggle=toggle_grid)
+    toggle_grid(grid_box.isChecked())
+
     row = QHBoxLayout()
-    for box in (timeline_box, pinned_box, drag_box):
+    for box in (timeline_box, pinned_box, drag_box, grid_box):
         row.addWidget(box)
     row.addStretch(1)
     holder = QWidget()
@@ -106,21 +120,34 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
 
 
 def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_error: Any,
-                       store: Any = None, search_box: Any = None, on_filter: Any = None) -> tuple:
+                       store: Any = None, search_box: Any = None, on_filter: Any = None,
+                       on_pop_out: Any = None, on_similar: Any = None) -> tuple:
     r"""A `ResultsView`, wired, with its preview pane, pinned set and timeline.
 
     Returns `(results, preview, split)` - the same three names as before;
-    `split` now also carries the switches, the timeline strip and the pinned
-    panel, so nothing calling this had to change shape, only its arguments.
+    `split` now also carries the switches, the timeline strip, the pinned
+    panel and the thumbnail grid (work order 0h §3a), so nothing calling this
+    had to change shape, only its arguments. `results` is always the real
+    `ResultsView` - the grid sits *beside* it in a `QStackedWidget`, never
+    replacing what this function returns, so every existing caller of
+    `results.<method>` keeps working exactly as it did.
 
-    `store` persists the pinned set and the three switches; without one (a
-    test's bare stand-in engine) everything still works, session-only, every
-    switch on - the same fallback `view_options.load_prefs` already uses.
+    `store` persists the pinned set and the switches; without one (a test's
+    bare stand-in engine) everything still works, session-only, every switch
+    at its own documented default - the same fallback `view_options.load_prefs`
+    already uses.
 
     `search_box` and `on_filter` are how a clicked band on the timeline
     becomes a search: appended to whatever is already typed, then dispatched
     through the same path Enter already uses. Neither is required - without
     them the strip still shows, it just cannot be clicked into a filter.
+
+    `on_pop_out` is work order 0h §3b's hook: a thumbnail opened from the
+    grid (double-click or Enter) calls it with `(row, siblings)`, the same
+    shape `PreviewWindow` needs for next/previous - the caller (`search_view`)
+    forwards it to whatever opens a pop-out window. `on_similar` is §2d's:
+    "more like this" from either surface's right-click menu, one handler for
+    both so a photo and a passage go through the same code.
     """
     from app.ui.widgets.preview import attach_preview
 
@@ -152,6 +179,8 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     pinned.remember.connect(remember)
     results.pin_requested.connect(pinned.pin)
     pinned.open_all.connect(open_all)
+    if on_similar is not None:
+        results.similar_requested.connect(on_similar)
 
     timeline = TimelineStrip()
     results.rows_changed.connect(timeline.set_rows)
@@ -162,12 +191,32 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
             on_filter()
         timeline.filter_chosen.connect(_apply)
 
+    # Work order 0h §3a. The grid shows the same rows the list already has -
+    # `rows_changed` already fires on every search and every federated
+    # append (the timeline strip listens to the identical signal above), so
+    # the grid needs no search-specific wiring, only a filter down to the
+    # photos it already knows how to recognise.
+    grid = ThumbnailGrid()
+    results.rows_changed.connect(grid.show_rows)
+    grid.reveal_requested.connect(on_reveal)
+    grid.pin_requested.connect(pinned.pin)
+    if on_similar is not None:
+        grid.similar_requested.connect(on_similar)
+    if on_pop_out is not None:
+        grid.opened.connect(on_pop_out)
+
+    stack = QStackedWidget()
+    stack.addWidget(split)          # index 0: list + preview - the default
+    stack.addWidget(grid)           # index 1: thumbnails
+
     left = QWidget()
     left_layout = QVBoxLayout(left)
     left_layout.setContentsMargins(0, 0, 0, 0)
-    left_layout.addWidget(_switches(results=results, pinned=pinned, timeline=timeline, store=store))
+    left_layout.addWidget(_switches(
+        results=results, pinned=pinned, timeline=timeline,
+        stack=stack, split=split, grid=grid, store=store))
     left_layout.addWidget(timeline)
-    left_layout.addWidget(split, stretch=1)
+    left_layout.addWidget(stack, stretch=1)
 
     outer = QSplitter()
     outer.addWidget(left)
