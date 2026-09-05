@@ -695,6 +695,15 @@ class ResultGroup:
     #: this group's name. Set only by `group_results`, over the whole result
     #: set already in hand - never a second query.
     folder_emphasis: tuple[int, int] = (0, 0)
+    #: §5b: this row's file is an email attachment, not the message itself.
+    #: **The attachment is the object, its message is the context** - `name`
+    #: stays the attachment's own filename (unlike a message, whose path is a
+    #: synthetic key nobody would recognise) and `folder` carries who sent it
+    #: and what it was about instead of a breadcrumb through a `pst://` key
+    #: nobody typed. `kind` is untouched too, deliberately: it is the
+    #: attachment's own real extension, so the icon painted is the document's
+    #: actual type rather than a generic "attachment" glyph.
+    is_attachment: bool = False
 
     @property
     def best(self) -> Optional[ResultRow]:
@@ -846,7 +855,32 @@ def _build_group(
     when_exact = _exact_date(rows[0].mtime_ns) if rows else ""
     when = format_when(rows[0].mtime_ns, now=now) if (rows and friendly) else when_exact
 
-    if detail:
+    is_attachment = bool(detail and detail.get("attachment_of"))
+
+    if detail and is_attachment:
+        # §5b: **the attachment is the object, its message is the context.**
+        # `name` and `kind` are left exactly as computed above - the
+        # attachment's own filename and real extension, the same as any
+        # other file result - and only `folder` changes, from a breadcrumb
+        # through a `pst://…/attachments/…` key nobody typed to who sent it
+        # and what it was about. This is the *parent* message's detail
+        # (`mail_details` resolved it that way), never this row's own.
+        subject = str(detail.get("subject") or "").strip()
+        sender = format_address(detail.get("sender"))
+        context = f"from {sender}" if sender else ""
+        if subject:
+            context = f"{context} · {subject}" if context else subject
+        folder = context or "from a message"
+        sent = detail.get("sent_at")
+        if sent:
+            when_exact = _exact_date_from_epoch(sent)
+            # **The message's own sent date, not the attachment file's own
+            # `mtime_ns`.** The latter is when the attachment was written out
+            # during indexing - today, for every attachment, on every run -
+            # which tells nobody anything; when the message went out is the
+            # date that actually distinguishes one attachment from another.
+            when = format_when(int(sent) * 1_000_000_000, now=now) if friendly else when_exact
+    elif detail:
         # A message: its path is a synthetic key nobody typed and nobody would
         # recognise, so the subject is the only usable name.
         subject = str(detail.get("subject") or "").strip()
@@ -870,6 +904,7 @@ def _build_group(
     return ResultGroup(
         file_id=file_id, name=name, folder=folder, kind=kind,
         when=when, path=path, rows=rows, when_exact=when_exact,
+        is_attachment=is_attachment,
     )
 
 
@@ -1431,12 +1466,45 @@ def missing_paths(paths: Any) -> set[str]:
     return missing
 
 
+#: §5b. The path convention `email_pst.py`'s `_attachment_documents` writes:
+#: `f"{message_key}/attachments/{name}"`. Read back here rather than carried
+#: as a column, because no schema holds the link - the file's own `path`
+#: already says everything needed, and reading it beats a migration nobody
+#: asked this order to make.
+_ATTACHMENT_MARKER = "/attachments/"
+
+
+def _attachment_parent_path(path: str) -> str:
+    """The message this attachment belongs to, or `""` if `path` is not one.
+
+    **Only the PST-via-Outlook attachment convention produces this shape.**
+    A standalone `.eml`/`.msg` or an mbox message never separately indexes
+    its attachments - only their *names*, inside the message's own text and
+    `has_attach` - so those never reach here at all; `/has attachment` still
+    finds the message, just never gets a row of its own for what was
+    attached to it.
+    """
+    text = str(path or "")
+    index = text.find(_ATTACHMENT_MARKER)
+    return text[:index] if index > 0 else ""
+
+
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 
     **One query for the page, never one per row.** At the fetch depth grouping
     needs, a per-row lookup is fifty queries per keystroke - the shape of
     slowness that gets blamed on the search itself.
+
+    **§5b's exception, and it is a real one.** An attachment's own file_id
+    has no row in `messages` - it is not itself a message - so its *parent's*
+    row is what supplies "its message is the context" (§5b). The parent is
+    found by path (`_attachment_parent_path`), which costs one indexed
+    `get_file` lookup per *distinct attachment* on the page - never per row,
+    and zero when a page holds no attachments at all, which is nearly every
+    page. A bulk by-path lookup in `sqlite_store.py` would remove even that,
+    and is the natural next step for whoever next has that file open; it is
+    outside this order's file scope today.
 
     Never raises. A missing subtitle is a cosmetic loss; failing the search that
     produced it is not, and a store that has been closed underneath a worker is
@@ -1445,7 +1513,41 @@ def mail_details(store: Any, results: Any) -> dict:
     if store is None or not hasattr(store, "messages_for"):
         return {}
     try:
-        return store.messages_for([getattr(r, "file_id", 0) for r in results or ()])
+        results = list(results or ())
+        file_ids = [getattr(r, "file_id", 0) for r in results]
+
+        parent_id_of: dict[int, int] = {}
+        if hasattr(store, "get_file"):
+            # **Keyed by path, not by row.** Several attachments can share one
+            # parent message - a reply with the same two files re-attached is
+            # the ordinary case - and resolving each would be exactly the
+            # per-row lookup this function's own docstring exists to avoid.
+            resolved: dict[str, Optional[int]] = {}
+            for result in results:
+                file_id = getattr(result, "file_id", 0)
+                parent_path = _attachment_parent_path(getattr(result, "path", ""))
+                if not parent_path:
+                    continue
+                if parent_path not in resolved:
+                    try:
+                        record = store.get_file(parent_path)
+                    except Exception:              # noqa: BLE001 - a subtitle, not the search
+                        record = None
+                    resolved[parent_path] = record.id if record is not None else None
+                parent_id = resolved[parent_path]
+                if parent_id is not None:
+                    parent_id_of[file_id] = parent_id
+
+        wanted = list(dict.fromkeys([*file_ids, *parent_id_of.values()]))
+        details = dict(store.messages_for(wanted))
+        for file_id, parent_id in parent_id_of.items():
+            parent_detail = details.get(parent_id)
+            if parent_detail:
+                # Marked so `_build_group` draws this as an attachment whose
+                # *parent's* detail this is, never as a message in its own
+                # right - the two share every other key.
+                details[file_id] = {**parent_detail, "attachment_of": parent_id}
+        return details
     except Exception:                            # noqa: BLE001 - see docstring
         return {}
 

@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.19 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.20 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -133,7 +133,7 @@ corrects. Ollama is one backend; this adds the second.
 - [x] **5a More like this.** Right-click on any result → nearest neighbours
   by the document's own vectors. Everything required already exists; this
   is the feature that makes semantic search tangible.
-- [ ] **5b Attachments as first-class results.** `/has attachment` plus an
+- [x] **5b Attachments as first-class results.** `/has attachment` plus an
   attachment-primary result row (the attachment is the object, its message
   is the context, open-attachment is the default action) — people remember
   "the file Dave sent", not the subject line.
@@ -553,6 +553,93 @@ wrong file"* is a sentence inside a message, and neither produces the filter.
 The rest of 5b — an attachment-primary result row, where the attachment is the
 object and its message is the context — is a result-row change and is not
 done. It needs the window to judge, like 2e's thumbnails.
+
+*(Superseded 2026-09-05 — see the note on 5b below: the row is built.)*
+
+## Note on 5b, added 2026-09-05 (the row, and the two data-model gaps it exposed)
+
+**Checked before building anything: does an attachment already have an
+identity of its own to make a row out of?** Only sometimes. `email_pst.py`
+(the Outlook COM extractor) saves each attachment's bytes to a temp file,
+indexes it through the ordinary extractor registry and gives it its own
+`virtual_path` — `f"{message_key}/attachments/{name}"` — so it is already a
+first-class row in `files`, with its own `file_id`, its own real extension,
+its own extracted text. `pst_libpff.py`, `email_files.py` (standalone
+`.eml`/`.msg`) and `email_mbox.py` do not: they record attachment *names*
+into the message's own text and `has_attach`, and go no further. So this
+item's row exists for the attachments Outlook already reads directly, and
+cannot for the other three paths without extending extraction to match —
+out of this order's file scope (`app/extract/*`, `app/index/pipeline.py`).
+Written down rather than guessed past, the same way 4a's trigram gap was.
+
+**No schema change was needed for the ones that do exist.** There is no
+column anywhere linking an attachment's `file_id` back to its message — the
+link lives only in the *path string*, `.../attachments/<name>`, which
+`email_pst.py` writes and nothing had ever read back. `presenter._attachment_
+parent_path` reads it: strip from the first `/attachments/` segment and what
+is left is the parent message's own `path`. Entirely a presentation-layer
+fact, so nothing in `app/storage/schema.sql` moved.
+
+**The row itself, in `presenter.py`:**
+
+* `ResultGroup.is_attachment` — a plain fact, not string-sniffed out of
+  `folder` by anything that needs to know.
+* `_build_group` grows a third branch beside "plain file" and "message":
+  `name` and `kind` are left exactly as already computed — the attachment's
+  own filename and its own real extension, so the icon painted is the
+  document's actual type, never a generic one — and only `folder` changes,
+  from a breadcrumb through a `pst://` key nobody typed to who sent it and
+  what it was about: `"from Chris Bell · Licence renewal"`. `when` takes the
+  *message's* `sent_at`, not the attachment file's own `mtime_ns` — the
+  latter is when the temp file was written out during indexing, which is
+  today, for every attachment, on every run, and distinguishes nothing.
+* `mail_details` resolves the parent: one `store.get_file(parent_path)` per
+  **distinct** attachment path on the page (never per row — two attachments
+  off the same message, the ordinary case of a reply re-attaching what it
+  already had, cost one lookup), zero calls at all on the (nearly every)
+  page with no attachments on it. A bulk by-path lookup in
+  `sqlite_store.py` would remove even that; it is the natural next step for
+  whoever next has that file open, and outside this order's scope today.
+* Reused, not duplicated: `group_subtitle`, `result_tooltip` and
+  `accessible_text` already read `group.folder`/`group.kind` generically,
+  so the tooltip, the accessible-text line and the painted subtitle all
+  picked up the new wording for free. **`result_delegate.py` needed no
+  change at all** — the existing icon-by-kind and subtitle-by-folder
+  painting already does the right thing once `_build_group` says so.
+
+**"Open-attachment is the default action" was already true, and for a
+reason worth stating rather than assuming.** An attachment result's
+`file_id`/`path` were always its *own* — that is what "already a first-class
+row in `files`" means — never the message's. So `ResultsView.opened.emit(row)`
+on such a row was always emitting the attachment, not the email; there was
+never a second row competing for the same click to redirect away from. What
+was missing was purely that the row was indistinguishable from a plain file
+with a meaningless synthetic path, which is what the `folder` change above
+fixes.
+
+**The pre-existing gap this surfaces, verified rather than assumed: opening
+any synthetic `pst://` result — a message or an attachment, before or after
+this change — fails.** `open_in_explorer` (`app/ui/workers.py`) does
+`Path(path).exists()` and returns `ERR_FILE_CORRUPT`, "the file has moved or
+been deleted... re-index this folder", for a path that was never a real
+file to begin with. Confirmed by reading the function in full and finding no
+`pst://` handling anywhere in `shell.py` or `workers.py` — this is not new
+and not specific to attachments; it affects every message-shaped search
+result today, with or without this item. Fixing it needs `app/ui/shell.py`
+and/or `app/ui/workers.py`, both outside this order's file scope, so it is
+named here rather than fixed quietly inside a delivery that was not asked to
+touch either file.
+
+**Tests**: `tests/unit/test_result_groups.py` — the attachment keeps its own
+filename and kind, the folder becomes the sender/subject context (and
+degrades in plain words when one or both are missing), the date is the
+message's `sent_at` and is register-gated like every other date on this
+page, `is_attachment` is set only when the rules say so, and a plain file
+path containing the literal word "attachments" (Windows backslashes, no
+`/attachments/` segment) is never mistaken for one. `mail_details` is tested
+directly against a fake store: it resolves the parent, costs one lookup per
+distinct attachment path and none on a page without any, and a broken lookup
+costs the context, never the search.
 
 ## Note on 4c, added 2026-08-27 (measured, as the item requires)
 

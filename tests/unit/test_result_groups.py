@@ -26,6 +26,7 @@ from app.ui.presenter import (
     breadcrumb,
     fetch_depth,
     group_results,
+    mail_details,
 )
 
 
@@ -255,6 +256,176 @@ def test_a_file_with_no_message_row_falls_back_without_raising():
 
 def test_details_may_be_omitted_entirely():
     assert group_results([row(1, 0.9)], details=None)[0].name == "file1.pdf"
+
+
+# ---------------------------------------------------------------------------
+# §5b: attachments as first-class results - the attachment is the object,
+# its message is the context
+# ---------------------------------------------------------------------------
+
+#: What `mail_details` hands `_build_group` for an attachment: the *parent*
+#: message's own fields, plus the marker that says whose they are.
+ATTACHMENT = {
+    "subject": "Licence renewal",
+    "sender": "Chris Bell <chris@acme.com>",
+    "sent_at": int(time.time()) - 86_400,
+    "attachment_of": 9,
+}
+
+
+def test_an_attachment_keeps_its_own_filename_as_the_name():
+    """The attachment is the object - unlike a message, whose synthetic path
+    is not a name anybody would recognise, the attachment's own filename is
+    exactly the useful name and stays untouched."""
+    group = group_results(
+        [row(1, 0.9, path="pst://x/0001/attachments/report.pdf")],
+        details={1: ATTACHMENT},
+    )[0]
+    assert group.name == "report.pdf"
+
+
+def test_an_attachment_shows_who_sent_it_and_what_it_was_about():
+    """Its message is the context - sender and subject, not a breadcrumb
+    through a path nobody typed."""
+    group = group_results([row(1, 0.9)], details={1: ATTACHMENT})[0]
+    assert group.folder == "from Chris Bell · Licence renewal"
+
+
+def test_an_attachment_with_no_subject_still_names_the_sender():
+    group = group_results(
+        [row(1, 0.9)], details={1: {**ATTACHMENT, "subject": ""}})[0]
+    assert group.folder == "from Chris Bell"
+
+
+def test_an_attachment_with_neither_sender_nor_subject_still_says_something():
+    group = group_results(
+        [row(1, 0.9)], details={1: {"attachment_of": 9}})[0]
+    assert group.folder == "from a message"
+
+
+def test_an_attachment_keeps_its_own_kind_not_email():
+    """Unlike a message row, `kind` is untouched: it is the attachment's own
+    real extension, so the icon painted is the document's actual type."""
+    group = group_results([row(1, 0.9, ext="pdf")], details={1: ATTACHMENT})[0]
+    assert group.kind == "pdf"
+
+
+def test_an_attachment_is_flagged_on_the_group():
+    assert group_results([row(1, 0.9)], details={1: ATTACHMENT})[0].is_attachment
+    assert not group_results([row(1, 0.9)], details={1: MESSAGE})[0].is_attachment
+    assert not group_results([row(1, 0.9)])[0].is_attachment
+
+
+def test_an_attachments_date_is_the_messages_sent_date():
+    """Not the attachment file's own `mtime_ns` - that is when it was written
+    out during indexing, which is today, for every attachment, on every run,
+    and tells nobody anything."""
+    group = group_results([row(1, 0.9, mtime_ns=1)], details={1: ATTACHMENT})[0]
+    assert group.when != ""
+    assert group.when_exact == _exact_date_from_epoch_for_test(ATTACHMENT["sent_at"])
+
+
+def _exact_date_from_epoch_for_test(epoch: int) -> str:
+    from app.ui.presenter import _exact_date_from_epoch
+
+    return _exact_date_from_epoch(epoch)
+
+
+def test_an_attachment_group_s_date_is_also_register_gated():
+    friendly = group_results([row(1, 0.9)], details={1: ATTACHMENT}, now=NOW,
+                             register="plain")[0]
+    exact = group_results([row(1, 0.9)], details={1: ATTACHMENT}, now=NOW,
+                          register="technical")[0]
+    assert friendly.when != exact.when
+    assert friendly.when_exact == exact.when_exact
+
+
+# ---------------------------------------------------------------------------
+# §5b: `mail_details` resolves the parent by path, one lookup per distinct
+# attachment - never per row, never for a page with no attachments at all.
+# ---------------------------------------------------------------------------
+
+class _AttachmentStore:
+    """Just enough of `SqliteStore` for `mail_details` to resolve a parent."""
+
+    def __init__(self, files: dict, messages: dict):
+        self._files = files          # path -> file_id
+        self._messages = messages    # file_id -> mail metadata
+        self.get_file_calls: list[str] = []
+
+    def get_file(self, path: str):
+        self.get_file_calls.append(path)
+        file_id = self._files.get(path)
+        if file_id is None:
+            return None
+
+        class _Record:
+            id = file_id
+
+        return _Record()
+
+    def messages_for(self, file_ids):
+        return {fid: dict(self._messages[fid])
+                for fid in file_ids if fid in self._messages}
+
+
+def test_mail_details_resolves_an_attachments_parent_by_path():
+    store = _AttachmentStore(
+        files={"pst://x/0001": 9},
+        messages={9: {"subject": "Licence renewal", "sender": "Chris Bell",
+                      "sent_at": 1_700_000_000, "has_attach": 1}},
+    )
+    results = [row(1, 0.9, path="pst://x/0001/attachments/report.pdf")]
+
+    details = mail_details(store, results)
+
+    assert details[1]["subject"] == "Licence renewal"
+    assert details[1]["attachment_of"] == 9
+
+
+def test_mail_details_costs_one_lookup_per_distinct_attachment_not_per_row():
+    """Two rows, two attachments off the *same* message - a reply with the
+    same file re-attached is the ordinary case - cost one `get_file` call
+    for the shared parent, not one per row."""
+    store = _AttachmentStore(
+        files={"pst://x/0001": 9},
+        messages={9: {"subject": "s", "sender": "d", "sent_at": 1, "has_attach": 1}},
+    )
+    results = [
+        row(1, 0.9, path="pst://x/0001/attachments/report.pdf"),
+        row(2, 0.8, path="pst://x/0001/attachments/report_v2.pdf"),
+    ]
+
+    mail_details(store, results)
+
+    assert store.get_file_calls == ["pst://x/0001"]
+
+
+def test_mail_details_costs_nothing_extra_on_a_page_with_no_attachments():
+    store = _AttachmentStore(files={}, messages={9: dict(MESSAGE)})
+    mail_details(store, [row(9, 0.9, path="pst://x/0001")])
+    assert store.get_file_calls == []
+
+
+def test_an_ordinary_file_path_is_never_mistaken_for_an_attachment():
+    store = _AttachmentStore(files={}, messages={})
+    results = [row(1, 0.9, path=r"D:\Archive\2019\attachments\report.pdf")]
+
+    details = mail_details(store, results)
+
+    assert details == {}
+    assert store.get_file_calls == []
+
+
+def test_a_broken_parent_lookup_costs_the_context_not_the_search():
+    class _Broken(_AttachmentStore):
+        def get_file(self, path):
+            raise RuntimeError("the index is locked")
+
+    store = _Broken(files={}, messages={})
+    results = [row(1, 0.9, path="pst://x/0001/attachments/report.pdf")]
+
+    assert mail_details(store, results) == {}
 
 
 # ---------------------------------------------------------------------------
