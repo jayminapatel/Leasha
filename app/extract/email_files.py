@@ -169,8 +169,16 @@ def build_email_document(
 
     builder.meta.update(
         {
-            "subject": subject or None,
-            "sender": sender or None,
+            # Plain empty string when absent, not None: every caller already
+            # defaults its own argument to "" (mbox: `str(... or "").strip()`,
+            # eml/msg the same), and no downstream code anywhere checks for
+            # None specifically on either field (searched the whole tree) -
+            # `or None` here just turned that "" back into None right before
+            # storage, for no reason anyone was relying on. Confirmed safe:
+            # the schema column is a nullable TEXT with no NOT NULL
+            # constraint or COALESCE logic keyed on the distinction.
+            "subject": subject,
+            "sender": sender,
             "recipients": json.dumps(recipients),
             "sent_at": sent_at,
             "conversation": conversation,
