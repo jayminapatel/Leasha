@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from PyQt6.QtGui import QGuiApplication
+
 __all__ = ["save_window_state", "restore_window_state"]
 
 
@@ -99,8 +101,6 @@ def _clamp_to_visible_screen(window: Any) -> None:
     This is a safety check only - `restoreGeometry` already tries to handle
     this, but Qt's logic can be conservative on some platforms.
     """
-    from PyQt6.QtGui import QGuiApplication
-
     # Get the window's current geometry and the available screen geometry.
     geom = window.frameGeometry()
     available = QGuiApplication.primaryScreen().availableGeometry()
