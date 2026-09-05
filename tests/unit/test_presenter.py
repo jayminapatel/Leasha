@@ -278,7 +278,7 @@ def test_a_short_path_is_untouched() -> None:
 
 
 def test_left_eliding_keeps_the_tail() -> None:
-    """Left-eliding removes the beginning, keeping the leaf folder and filename.
+    r"""Left-eliding removes the beginning, keeping the leaf folder and filename.
 
     Item 4a: location lines elide on the left so `…\Projects\Foo\Final` reads
     as an answer while `D:\Archive\2019\Projects\...` hides the distinguisher.
