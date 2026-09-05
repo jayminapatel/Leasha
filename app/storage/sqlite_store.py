@@ -259,18 +259,10 @@ class FileRecord:
     skip_detail: Optional[str]
     indexed_at: Optional[int]
     source_kind: str
-    #: Work order 0h §2a. A perceptual hash, `NULL` until the images pass has
-    #: touched this file - see `app/storage/migrations.py`'s `_v17_image_phash`
-    #: for why it lives here rather than on the image-vector table. Defaulted
-    #: so `from_row`'s generic construction below keeps working against a
-    #: database that has not been migrated yet in a test double that builds
-    #: rows by hand without this key.
-    phash: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
-        return cls(**{key: row[key] for key in cls.__dataclass_fields__
-                      if key in row.keys()})
+        return cls(**{key: row[key] for key in cls.__dataclass_fields__})
 
 
 @dataclass(frozen=True)
@@ -721,32 +713,6 @@ class SqliteStore:
                 "skip_detail = NULL WHERE id = ?",
                 [(FileStatus.INDEXED, now, file_id) for (file_id,) in ids],
             )
-
-    def set_phashes(self, phashes: dict[int, str]) -> None:
-        r"""Write perceptual hashes for photos, one transaction for the batch.
-
-        Work order 0h §2a. Same batching reasoning as `mark_indexed_many`
-        just above: `Pipeline._flush_pending_phashes` gathers one pHash per
-        photo, computed synchronously and independently of the CLIP vector
-        (see `_maybe_compute_phash`'s docstring), and flushes them together
-        at the same checkpoints the CLIP vectors are flushed at - so this is
-        called once per flush, not once per photo. A run over a folder of
-        ten thousand photos costs one commit here per flush, not ten
-        thousand.
-
-        Rows whose hash is empty or `None` are dropped rather than written
-        as an empty string - `files.phash` is nullable precisely so "not
-        computed yet" stays distinguishable from "computed and empty", and
-        the latter can never legitimately happen (`PhashComputer.compute`
-        raises rather than returning one).
-        """
-        items = [(str(value), int(file_id))
-                 for file_id, value in phashes.items() if value]
-        if not items:
-            return
-        with self.write() as conn:
-            conn.executemany(
-                "UPDATE files SET phash = ? WHERE id = ?", items)
 
     def mark_skipped(self, file_id: int, error: AppError) -> None:
         """Record why a file was skipped, so the UI can group and retry.

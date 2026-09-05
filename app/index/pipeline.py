@@ -67,7 +67,6 @@ from app.index import backends
 from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
-from app.index.phash import PhashComputer
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
 from app.index.stages import WAITING, StageClock
 from app.index.walker import (
@@ -635,7 +634,6 @@ class Pipeline:
         *,
         image_embedder: Optional[ClipImageEmbedder] = None,
         image_vectors: Optional[ImageVectorStore] = None,
-        phash_computer: Optional[PhashComputer] = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
@@ -648,24 +646,9 @@ class Pipeline:
         # `_maybe_embed_image` and `_flush_pending_images`.
         self.image_embedder = image_embedder
         self.image_vectors = image_vectors
-        # Work order 0h §2a. `None` by default, same reasoning, and
-        # deliberately independent of the two above: a pHash is not derived
-        # from the CLIP model at all (see `app/index/phash.py`), so a run
-        # with a working `image_embedder` and no `phash_computer` still
-        # writes CLIP vectors and simply gets no perceptual hashes, and a run
-        # with the reverse still gets hashes with no vectors. Neither implies
-        # the other; see `_maybe_compute_phash`.
-        self.phash_computer = phash_computer
         #: CLIP vectors computed but not yet written - see `_flush_pending_images`.
         #: Reset per run in `run()`, same as `_seen_paths` and the feeder queue.
         self._pending_images: list[tuple[int, list[float], str, int]] = []
-        #: Work order 0h §2a. `file_id -> pHash hex string`, computed but not
-        #: yet written - a dict, not a list like `_pending_images`, because a
-        #: pHash is one value per file and a later write for the same file id
-        #: within a batch should simply replace the earlier one rather than
-        #: queuing a second `UPDATE` for it. Reset per run in `run()`, same as
-        #: `_pending_images`. See `_maybe_compute_phash`/`_flush_pending_phashes`.
-        self._pending_phashes: dict[int, str] = {}
         # **The batch the config asks for is the batch the model gets.**
         #
         # `_embed_pending` gathers `config.embed_batch` chunks and hands them to
@@ -843,8 +826,6 @@ class Pipeline:
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
-        # Work order 0h §2a: same reasoning, for pending pHashes.
-        self._pending_phashes = {}
 
         # Below-normal CPU and background I/O priority, before a single file is
         # read. The cheapest courtesy available and the most effective: the
@@ -2791,10 +2772,6 @@ class Pipeline:
         # same argument `_embed_pending`'s comment makes for the LanceDB
         # delete below.
         self._maybe_embed_image(candidate, file_id)
-        # Work order 0h §2a. Independent of the CLIP call just above - see
-        # `_maybe_compute_phash`'s docstring for why a pHash is computed and
-        # gated on its own rather than folded into `_maybe_embed_image`.
-        self._maybe_compute_phash(candidate, file_id)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
@@ -2942,94 +2919,8 @@ class Pipeline:
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
 
-    def _maybe_compute_phash(self, candidate: Candidate, file_id: int) -> None:
-        r"""One perceptual hash for a ladder-passed image, queued for a batched flush.
-
-        Work order 0h §2a. **A parallel gate to `_maybe_embed_image`, not a
-        step inside it.** Both are gated on `self.<thing> is None` and on
-        `reads_by_ocr(path)` - the same two questions, asked independently -
-        because the two capabilities genuinely are independent: a pHash is a
-        DCT over the pixels (`app/index/phash.py`), nothing to do with CLIP's
-        embedding model, so a CLIP failure must not cost the pHash and a
-        pHash failure must not cost the CLIP vector. Folding this into
-        `_maybe_embed_image` would make one `try/except` respond to two
-        unrelated kinds of failure, which is exactly the shape that hides
-        which one actually happened when the log is read a year later.
-
-        **Computed synchronously, right here**, same reasoning as the CLIP
-        call beside it: `imagehash.phash` is a few milliseconds of pure CPU
-        with nothing to batch across images - only the SQLite write is
-        gathered, by `_flush_pending_phashes`.
-
-        **H4 discipline**, identical in shape to `_maybe_embed_image`: a
-        missing Pillow, a corrupt image, an unreadable path is logged,
-        counted, and returns quietly. The file stays fully indexed and fully
-        CLIP-searchable regardless - only this one photo's duplicate and
-        near-duplicate detection is missing until a later run re-touches it.
-        """
-        if self.phash_computer is None:
-            return
-
-        from app.extract.base import reads_by_ocr
-
-        path = candidate.path
-        if not reads_by_ocr(path):
-            return
-
-        try:
-            with self._clock.stage("phash"):
-                value = self.phash_computer.compute(path)
-        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
-            self._log.warning(
-                "no perceptual hash for {}: {}. It stays searchable and "
-                "CLIP-findable as usual - only duplicate/near-duplicate "
-                "detection misses this photo.", path, exc)
-            code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_PHASH")
-            self._stats_ref.warned_by_code[code] = (
-                self._stats_ref.warned_by_code.get(code, 0) + 1)
-            return
-
-        self._pending_phashes[file_id] = value
-
-    def _flush_pending_phashes(self) -> None:
-        r"""Write accumulated pHashes in one batch - the H7 shape, over SQLite.
-
-        Work order 0h §2a. Called from the top of `_flush_pending_images`, so
-        it runs at exactly the same checkpoints - before every point that can
-        mark a file INDEXED - without a second set of call sites to keep in
-        step by hand. A no-op whenever nothing is pending, which is every
-        run where `phash_computer` is not configured, so this costs nothing
-        for a caller that has not opted in.
-
-        **H4 discipline**, same shape as `_flush_pending_images`'s own store-
-        level guard: a SQLite failure here (disk, a locked file) is logged
-        and counted, never raised - those photos stay searchable and CLIP-
-        findable exactly as before, only duplicate detection is missing.
-        """
-        if not self._pending_phashes:
-            return
-        batch = self._pending_phashes
-        self._pending_phashes = {}
-        try:
-            self.store.set_phashes(batch)
-        except Exception as exc:                # noqa: BLE001 - H4: never costs the run
-            self._log.warning(
-                "{} perceptual hash(es) could not be written: {}. Those "
-                "photos stay searchable as usual; only duplicate detection "
-                "is missing for them.", len(batch), exc)
-            self._stats_ref.warned_by_code["ERR_PHASH_STORE"] = (
-                self._stats_ref.warned_by_code.get("ERR_PHASH_STORE", 0) + 1)
-
     def _flush_pending_images(self) -> None:
         r"""Write accumulated CLIP vectors in one batch - the H7 shape.
-
-        **Also flushes pending pHashes, first.** Work order 0h §2a's pHashes
-        are computed independently of the CLIP vectors (see
-        `_maybe_compute_phash`) but need the identical M6 ordering - written
-        before a file can read as INDEXED - and reuse this method's existing
-        call sites rather than adding a second set that could drift out of
-        step with the first. See `_flush_pending_phashes` for that half;
-        everything below is the CLIP-vector half, unchanged.
 
         **Never one delete-and-add per file.** `_maybe_embed_image` computes
         each vector immediately, but the LanceDB write is gathered here and
@@ -3053,8 +2944,6 @@ class Pipeline:
         raised - those photos stay searchable by every route except CLIP
         similarity, and nothing here can fail the run those images belong to.
         """
-        self._flush_pending_phashes()
-
         if self.image_vectors is None or not self._pending_images:
             return
 
@@ -3267,9 +3156,6 @@ class Pipeline:
         # confidently more able to open a file OCR could not.
         if item.error is not None and item.error.code == "ERR_NO_TEXT_LAYER":
             self._maybe_embed_image(candidate, file_id)
-            # Work order 0h §2a: same reasoning as the CLIP call just above -
-            # a photo OCR found no text in is still a photo worth hashing.
-            self._maybe_compute_phash(candidate, file_id)
 
     # -- guards and bookkeeping ---------------------------------------------
 
