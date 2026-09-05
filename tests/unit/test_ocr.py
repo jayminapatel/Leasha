@@ -306,3 +306,67 @@ def test_bytes_source_is_also_routed(monkeypatch):
     ocr_image(preview, engine=lambda _s: None)
 
     assert calls == [preview]
+
+
+# ---------------------------------------------------------------------------
+# Rung 2 (2c): the detection-only probe, wired end to end through `_detect_only`
+# ---------------------------------------------------------------------------
+
+def _detecting_engine(det_boxes, rec_rows=()):
+    """A fake RapidOCR-shaped engine honouring `use_det`/`use_cls`/`use_rec`,
+    so rung 2's real wiring (`ocr.py`'s `_detect_only`) can be exercised
+    without the real engine installed - the same reason `engine_returning`
+    exists for the recognition-only tests above."""
+    def _run(source, use_det=None, use_cls=None, use_rec=None):
+        if use_rec is False:
+            return (det_boxes, [0.05])
+        return ([list(row) for row in rec_rows], 0.02)
+    return _run
+
+
+@pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")
+def test_a_wall_photo_settles_no_text_without_recognition_ever_running(tmp_path):
+    """§4 'ladder:' item - end to end through `ocr_image`, not just `route()`
+    directly: a photograph with no text at all costs one detection pass and
+    never reaches recognition. `checked_no_text` is the truthful settled
+    state this proves, distinct from an ordinary empty OCR result."""
+    from PIL import Image
+
+    photo = tmp_path / "wall.jpg"  # no rung-0 pattern, not white-heavy
+    Image.new("RGB", (256, 256), color="blue").save(photo)
+
+    recognition_calls = []
+
+    def engine(source, use_det=None, use_cls=None, use_rec=None):
+        if use_rec is False:
+            return (None, None)  # RapidOCR's own shape: detection found nothing
+        recognition_calls.append(source)
+        raise AssertionError("recognition ran after rung 2 already settled this")
+
+    result = ocr_image(photo, engine=engine)
+
+    assert result.checked_no_text is True
+    assert result.empty
+    assert recognition_calls == []
+
+
+@pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")
+def test_a_receipt_photo_reaches_full_ocr_end_to_end(tmp_path):
+    """§4 'ladder:' item, the routes-not-rejects proof: a document that is a
+    photograph rather than a scan - generic filename, not white-heavy - still
+    reaches full recognition the moment rung 2's detector finds text on it."""
+    from PIL import Image
+
+    photo = tmp_path / "counter_photo.jpg"
+    Image.new("RGB", (256, 256), color="blue").save(photo)
+
+    box = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    engine = _detecting_engine(
+        det_boxes=[box],
+        rec_rows=[(box, "TOTAL 12.99", 0.95)],
+    )
+
+    result = ocr_image(photo, engine=engine)
+
+    assert result.checked_no_text is False
+    assert result.text == "TOTAL 12.99"

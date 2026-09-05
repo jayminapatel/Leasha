@@ -172,6 +172,26 @@ class PdfExtractor:
                 return
 
             if empty_pages:
+                # **2d: the ladder is the router for scanned-PDF pages too,
+                # even inside a document that is mostly born-digital.** Before
+                # this, a report with one scanned appendix indexed the text
+                # pages and just warned about the rest - the same budget
+                # (`PDF_OCR_PAGES`) that already reads a wholly-scanned
+                # manual's first pages had never been offered this document at
+                # all, because `result.is_empty` was False. `_ocr_specific_pages`
+                # gives each of *these specific* pages the same `ocr_image()`
+                # call - and therefore the same ladder - a mostly-text PDF
+                # stops paying for the pages that turn out to have no text
+                # boxes, exactly like any other image would.
+                read_pages, ocr_elapsed = _ocr_specific_pages(
+                    document, path, builder, empty_pages)
+                if read_pages:
+                    builder.meta["ocr_pages"] = len(read_pages)
+                    builder.meta["ocr_seconds"] = round(ocr_elapsed, 2)
+                    empty_pages = [p for p in empty_pages if p not in read_pages]
+                    result = builder.build()
+
+            if empty_pages:
                 result.warnings = (
                     *result.warnings,
                     make_error(
@@ -244,6 +264,59 @@ def _pages_from_settings() -> int:
         except Exception:                        # noqa: BLE001 - a budget
             _SETTINGS_PAGES = 0
     return int(_SETTINGS_PAGES)
+
+
+def _ocr_specific_pages(
+    document: object, path: Path, builder: object, pages: list[int],
+) -> tuple[list[int], float]:
+    """OCR each page in `pages` (1-based) that is worth it, budget allowing.
+
+    2d's own half: `_ocr_pages` below handles the *wholly*-scanned PDF, trying
+    the first N pages of a document that had no text layer anywhere. This
+    handles the *partly*-scanned one - a born-digital report with one scanned
+    appendix - where `pages` is exactly the page numbers that had no text
+    layer, not the first N of the document. Same budget
+    (`_pdf_ocr_pages()`/`PDF_OCR_PAGES`), same `ocr_image()` call, and
+    therefore the same ladder, as `_ocr_pages` - kept as a separate function
+    rather than a shared one because `_ocr_pages`'s own whitebox tests
+    (`test_pdf_ocr.py`) assert on literal calls in *its* source specifically.
+
+    Returns `(page_numbers_read, elapsed_seconds)`. An empty list means
+    nothing usable came back - OCR not installed, the budget is 0, or every
+    one of these pages genuinely has no text either way.
+
+    **Never raises.** Runs inside an extraction worker on a corpus of unknown
+    provenance - one unreadable page costs one page, not the file, exactly
+    like `_ocr_pages`.
+    """
+    limit = _pdf_ocr_pages()
+    if limit <= 0:
+        return [], 0.0
+
+    from app.extract.ocr import available, ocr_image
+
+    if not available():
+        return [], 0.0
+
+    import time
+
+    started = time.monotonic()
+    read: list[int] = []
+    for number in pages[:limit]:
+        try:
+            page = document.load_page(number - 1)               # type: ignore[attr-defined]
+            image = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
+        except Exception as exc:                                 # noqa: BLE001
+            log.debug("could not render page {} of {}: {}", number, path, exc)
+            continue
+
+        result = ocr_image(image)
+        text = normalise_whitespace(getattr(result, "text", "") or "")
+        if len(text) >= MIN_PAGE_CHARS:
+            builder.add(text, page=number)                       # type: ignore[attr-defined]
+            read.append(number)
+
+    return read, time.monotonic() - started
 
 
 def _ocr_pages(document: object, path: Path, builder: object) -> object:
