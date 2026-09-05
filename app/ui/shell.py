@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         vectors: Any,
         engine: Any,
         *,
+        image_vectors: Any = None,
         debug: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -121,6 +122,14 @@ class MainWindow(QMainWindow):
         self._store = store
         self._vectors = vectors
         self._engine = engine
+        #: Work order 0h §1c's follow-up: the same `ImageVectorStore` the
+        #: search engine already has (`app.main` opens one and hands it to
+        #: both), so a run started from this window writes CLIP vectors the
+        #: same way `app.cli index` was already fixed to. `None` is a valid,
+        #: H4-shaped input - `_start_indexing` degrades to the pre-existing
+        #: behaviour (no image lane) rather than raising, exactly like
+        #: `SearchEngine`'s own `image_vectors=`/`clip_text_embedder=`.
+        self._image_vectors = image_vectors
 
         self.setWindowTitle(window_title())
         self.resize(1100, 760)
@@ -1914,6 +1923,7 @@ class MainWindow(QMainWindow):
 
     def _start_indexing(self, *, roots: Optional[list[str]] = None,
                         recheck_archives: bool = False) -> None:
+        from app.index.clip_embedder import ClipImageEmbedder
         from app.index.embedder import Embedder
         from app.index.pipeline import Pipeline, PipelineConfig
         from app.index.walker import WalkConfig
@@ -1946,6 +1956,19 @@ class MainWindow(QMainWindow):
         limits = replace(limits_from_settings(self._settings),
                          workers=tuned.workers)
 
+        # Work order 0h §1c's flagged gap, closed: the only real Pipeline(
+        # construction site that had never been given image_embedder=/
+        # image_vectors= (app.cli's cmd_index was fixed earlier this
+        # session; grep -n "Pipeline(" app/ui/shell.py confirmed this is
+        # the window's only one). H4: self._image_vectors is None on a
+        # window built without one (an older caller, or a test stub), and
+        # ClipImageEmbedder is lazy - nothing loads until the first image
+        # is actually embedded, so building it unconditionally here costs
+        # nothing on a run that never reaches an image file.
+        image_embedder = (
+            ClipImageEmbedder.from_settings(self._settings)
+            if self._image_vectors is not None else None
+        )
         pipeline = Pipeline(
             self._store, self._vectors,
             Embedder.from_settings(self._settings, threads=tuned.onnx_threads),
@@ -1975,6 +1998,7 @@ class MainWindow(QMainWindow):
                 recheck_archives=recheck_archives,
                 recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
             ),
+            image_embedder=image_embedder, image_vectors=self._image_vectors,
         )
         # **The window's run is a writer like any other**, so it names itself
         # on the published record and holds the same lock the CLI takes. The

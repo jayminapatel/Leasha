@@ -559,7 +559,8 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             )
 
             log.info("startup: constructing the window")
-            window = MainWindow(settings, store, vectors, engine, debug=debug)
+            window = MainWindow(settings, store, vectors, engine,
+                                image_vectors=image_vectors, debug=debug)
 
             log.info("startup: showing the window")
             window.show()
