@@ -340,8 +340,6 @@ def _acquire_gui_lock_responsively(
     """
     import time as _time
 
-    from app.core.errors import AppErrorException
-
     deadline = _time.monotonic() + max(0.0, float(wait_s))
     poll_s = 0.1
     while True:

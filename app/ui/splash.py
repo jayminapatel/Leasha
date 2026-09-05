@@ -325,7 +325,6 @@ class SplashScreen:
     def _load_or_create_white_wordmark(self) -> Optional[Any]:
         """Load the logo, creating a white-wordmark variant if needed."""
         from PyQt6.QtGui import QImage, QPixmap
-        from pathlib import Path
 
         # Try to load the original logo
         try:
