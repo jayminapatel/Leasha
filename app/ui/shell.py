@@ -347,11 +347,7 @@ class MainWindow(QMainWindow):
         self.settings_view.move_index_requested.connect(self._change_index_location)
         self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
         self.settings_view.error.connect(self._show_error)
-        self.settings_view.file_types.changes_saved.connect(
-            lambda changes: self.statusBar().showMessage(
-                f"File types saved - {len(changes)} differ from the defaults. "
-                "They apply to the next index run.", 12_000)
-        )
+        self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
         self.settings_view.environment.set_recording_status(
             f"Recording to {self.recorder.path.name}" if self.recorder.enabled
             else "Not recording."
@@ -1732,6 +1728,25 @@ class MainWindow(QMainWindow):
                                 component="ui.index.watch")
         worker.signals.finished.connect(self._show_external_run)
         run(QThreadPool.globalInstance(), worker)
+
+    def _file_types_saved(self, changes: dict) -> None:
+        """A file-type mapping changed - bump the generation, then say so.
+
+        Every other write that bumps the generation happens inside a
+        `write()` block already, because it just changed rows the search
+        cache is keyed on. This one is different: `FileTypesEditor.save()`
+        writes a config file on disk, not a table, and a mapping change
+        (a format switched on/off, a converter route added, a size cap
+        changed) invalidates cached search results exactly the same way a
+        document write does - stale results from before the change must
+        not linger. `bump_generation()` is the entry point for exactly
+        this: a cache-invalidating event with no natural write() to
+        piggy-back on.
+        """
+        self._store.bump_generation()
+        self.statusBar().showMessage(
+            f"File types saved - {len(changes)} differ from the defaults. "
+            "They apply to the next index run.", 12_000)
 
     def _show_external_run(self, payload: dict) -> None:
         self.indexing_view.show_external(

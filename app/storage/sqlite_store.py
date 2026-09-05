@@ -2571,6 +2571,18 @@ class SqliteStore:
     def _bump_generation(self, conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE index_generation SET generation = generation + 1 WHERE id = 1")
 
+    def bump_generation(self) -> None:
+        """Invalidate the search cache from outside a write batch.
+
+        Every other caller of `_bump_generation` already holds a `write()`
+        connection because it just changed rows the cache is keyed on - a
+        file-type mapping change is different: it edits a config file on
+        disk, not a table, so there is no natural `write()` block to piggy-
+        back the bump onto. This is that missing public entry point.
+        """
+        with self.write() as conn:
+            self._bump_generation(conn)
+
     @property
     def generation(self) -> int:
         """Increments on every write. The search cache keys on it, so stale
