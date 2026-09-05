@@ -17,6 +17,7 @@ Nothing imports Qt, so every decision here is testable without a display.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,7 +28,9 @@ __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
            "KIND_MARKDOWN", "KIND_SPREADSHEET", "KIND_EPUB", "KIND_NONE",
            "kind_for", "load_preview", "load_preview_for", "stored_text",
            "CAPS", "SheetGrid", "SHEET_PREVIEW_MAX_ROWS",
-           "SHEET_PREVIEW_MAX_COLUMNS", "EpubChapter"]
+           "SHEET_PREVIEW_MAX_COLUMNS", "EpubChapter",
+           "office_converter_available", "office_pdf_cache_path",
+           "ensure_office_pdf", "OFFICE_CONVERTER_MISSING_NOTE"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -266,7 +269,13 @@ def _extracted(path: Path, *, title: str, subtitle: str) -> Preview:
         # for notices applies: nothing reads a message string to decide
         # anything. `.txt` shown as text has no layout to be missing; a
         # `.docx` shown as text does.
-        meta={"extracted": True},
+        #
+        # **§4e's detection travels here, not into the pane.** Whether
+        # LibreOffice is on this machine is answered by walking Program
+        # Files - real filesystem work, which belongs on the worker this
+        # function already runs on, never in a Qt slot on the UI thread.
+        meta={"extracted": True,
+             "office_converter_available": office_converter_available()},
     )
 
 
@@ -959,3 +968,147 @@ def _decode_heif(path: str):
     except Exception as exc:                       # noqa: BLE001 - see docstring
         _log.debug("could not decode HEIC/HEIF {}: {}", path, exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Workspace §4e: "Show full layout", on demand
+# ---------------------------------------------------------------------------
+#
+# A text-rendered Office/ODF preview (`_extracted`, `meta["extracted"]`) can
+# ask, once, to see the real thing - converted to PDF through the existing
+# LibreOffice converter route and cached beside the index, keyed by a hash of
+# the file's own bytes so an edited-then-reverted document converts again and
+# an unchanged one never pays twice. Never at index time: this only runs when
+# a person presses the button.
+
+#: Where the cache lives, under the app's own cache directory - never beside
+#: the user's file, and never the document itself. `office_pdf_cache_path`
+#: joins this onto `settings.cache_path`.
+OFFICE_PDF_CACHE_DIRNAME = "office_preview"
+
+#: §4e's sentence for when no converter is on this machine - the button is
+#: hidden and this replaces it, in the same shape `format_health`'s own
+#: converter rows already use for the identical fact.
+OFFICE_CONVERTER_MISSING_NOTE = (
+    "Install LibreOffice to see the full layout of this document: "
+    "winget install --id TheDocumentFoundation.LibreOffice -e"
+)
+
+
+def office_converter_available(binaries: Optional[dict] = None) -> bool:
+    """Is LibreOffice on this machine, under either of its two binary names?
+
+    **One question, one answer**, shared with the index's own detection: the
+    button asks exactly what `format_health._converter_status` already asks
+    for `.doc`/`.ppt`/etc, so a machine that has LibreOffice installed gets
+    the same answer in Settings and in this window - two separate probes
+    would risk two different answers to "is it installed".
+    """
+    if binaries is None:
+        return _office_converter_default()
+    return bool((binaries or {}).get("soffice") or (binaries or {}).get("libreoffice"))
+
+
+@lru_cache(maxsize=1)
+def _office_converter_default() -> bool:
+    """The real probe, cached. It walks `PATH` and Program Files - real
+    filesystem work, worth doing once per process rather than once per
+    preview render, since the answer cannot change while this process is
+    running an older install. `format_health.module_present` caches its own
+    probe for the identical reason.
+    """
+    try:
+        from app.extract.converter import available_binaries
+        binaries = available_binaries()
+    except Exception:                              # noqa: BLE001 - absence is an answer
+        binaries = {}
+    return bool(binaries.get("soffice") or binaries.get("libreoffice"))
+
+
+def office_pdf_cache_path(path: Path, *, cache_root: Optional[Path] = None) -> Path:
+    """Where a converted PDF for `path` would live, keyed by content hash.
+
+    **A hash of the bytes, not the path or the mtime.** Two different files
+    that happen to render the same PDF share a cache entry for free, and a
+    file edited and then reverted converts again rather than trusting a
+    modification time that copying a file around can make meaningless.
+    `content_hash` is `app.index.walker`'s own - the one the indexer already
+    uses to answer "are these the same bytes?" - reused rather than a second
+    hashing scheme invented for one button.
+    """
+    from app.index.walker import content_hash
+
+    if cache_root is None:
+        from app.core.config import load_settings
+
+        cache_root = load_settings().cache_path / OFFICE_PDF_CACHE_DIRNAME
+    digest = content_hash(Path(path))
+    return Path(cache_root) / f"{digest}.pdf"
+
+
+def ensure_office_pdf(path_text: str) -> Preview:
+    """§4e: convert to PDF through the existing LibreOffice converter route,
+    caching the result beside the index. **Worker thread. Never raises.**
+
+    A cache hit skips the conversion entirely - "paid once per document a
+    user actually opens" is the item's own wording, and the check is a
+    single `is_file()` before anything else happens.
+    """
+    path = Path(path_text)
+    title = path.name
+
+    try:
+        cache_file = office_pdf_cache_path(path)
+    except Exception as exc:                      # noqa: BLE001 - never raise
+        return Preview(
+            kind=KIND_NONE, path=path_text, title=title,
+            error=make_error("ERR_UNEXPECTED", "ui.preview",
+                             details=f"{type(exc).__name__}: {exc}"),
+        )
+
+    if not cache_file.is_file():
+        from app.core.errors import AppErrorException
+        from app.core.formats import ConverterRule
+        from app.extract.converter import available_binaries, convert
+
+        binaries = available_binaries()
+        binary = ("soffice" if binaries.get("soffice")
+                 else "libreoffice" if binaries.get("libreoffice") else "")
+        if not binary:
+            return Preview(
+                kind=KIND_NONE, path=path_text, title=title,
+                error=make_error("ERR_CONVERTER_MISSING", "ui.preview",
+                                 binary="soffice", ext=path.suffix,
+                                 path=path_text),
+            )
+
+        # A rule built here rather than read from `extractors.toml` - this is
+        # a preview action a person asked for, not an indexing route, and
+        # `.doc`/`.xlsx`/etc already have *different* converter rules there
+        # (to plain text or CSV, for the index). One extra rule, to PDF, for
+        # this one button - still `soffice`/`libreoffice`, still on the same
+        # allow-list, still run through the same `convert()`.
+        rule = ConverterRule(
+            extension=path.suffix.lower(),
+            command=(binary, "--headless", "--convert-to", "pdf",
+                    "--outdir", "{outdir}", "{input}"),
+            produces="{stem}.pdf",
+            then="pdf",
+            enabled=True,
+        )
+        try:
+            with convert(path, rule) as result:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                cache_file.write_bytes(Path(result.path).read_bytes())
+        except AppErrorException as exc:
+            return Preview(kind=KIND_NONE, path=path_text, title=title,
+                           error=exc.error)
+        except OSError as exc:
+            return Preview(
+                kind=KIND_NONE, path=path_text, title=title,
+                error=make_error("ERR_UNEXPECTED", "ui.preview",
+                                 details=f"{type(exc).__name__}: {exc}"),
+            )
+
+    return Preview(kind=KIND_PDF, path=str(cache_file), title=title,
+                  subtitle=_describe(cache_file))

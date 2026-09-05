@@ -80,6 +80,11 @@ class PreviewWindow(QWidget):
         super().__init__(None)
         self._row = row
         self._path = str(getattr(row, "path", "") or "")
+        #: What `_render` actually reads. Equal to `self._path` until §4e's
+        #: "Show full layout" swaps it for a cached converted PDF - `_path`
+        #: itself never changes, because "Open the real file" and "Show in
+        #: folder" have to keep pointing at the original document.
+        self._display_path = self._path
         self._body_provider = body_provider
         #: **This window's own counter.** Nothing outside can move it, which
         #: is what stops a search in the main window blanking a pinned page.
@@ -144,6 +149,17 @@ class PreviewWindow(QWidget):
         self.note.setWordWrap(True)
         self.note.setVisible(False)
 
+        # Workspace §4e: the better answer 2g's sentence points at. Hidden
+        # until a text-rendered Office/ODF preview arrives *and* a converter
+        # is detected - see `_loaded`.
+        self.full_layout_button = self._button(
+            "Show full layout",
+            "Converts this document to PDF through LibreOffice and shows "
+            "the real layout here - rotate, zoom and print all work on it. "
+            "Converted once and cached; opening it again is instant.",
+            self._show_full_layout)
+        self.full_layout_button.setVisible(False)
+
         self.on_top = QCheckBox("Keep on top")
         self.on_top.setToolTip(
             "Keeps this window in front of everything else, so it stays "
@@ -184,9 +200,13 @@ class PreviewWindow(QWidget):
 
         self.find = attach_find(self, self.text)
 
+        note_row = QHBoxLayout()
+        note_row.addWidget(self.note, 1)
+        note_row.addWidget(self.full_layout_button)
+
         layout = QVBoxLayout(self)
         layout.addLayout(bar)
-        layout.addWidget(self.note)
+        layout.addLayout(note_row)
         layout.addWidget(self.stack, stretch=1)
         layout.addWidget(self.find)
         layout.addLayout(exits)
@@ -227,15 +247,30 @@ class PreviewWindow(QWidget):
             return                               # a later request won
         from app.ui.preview_loader import (
             KIND_EPUB, KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF,
-            KIND_SPREADSHEET,
+            KIND_SPREADSHEET, OFFICE_CONVERTER_MISSING_NOTE,
         )
 
         self._kind = str(getattr(preview, "kind", "none"))
+        # A fresh load starts from the original file - §4e's swap to a cached
+        # PDF applies only until the next reload, exactly like rotation and
+        # zoom apply only to what is currently on screen.
+        self._display_path = self._path
+        meta = getattr(preview, "meta", {}) or {}
         # §2g: say when the layout is missing rather than letting the document
         # look damaged. Only for what was *extracted* to text - a `.txt` file
         # shown as text has no layout to be missing.
-        self.note.setVisible(bool(getattr(preview, "meta", {}).get("extracted")))
+        extracted = bool(meta.get("extracted"))
+        self.note.setVisible(extracted)
         self.note.setText(TEXT_ONLY_NOTE)
+        # §4e: the better answer 2g's own sentence points at. Offered only
+        # where §2g's sentence already appears, and only when a converter is
+        # actually there to run - `office_converter_available` was asked on
+        # the worker that built this preview, never here.
+        can_convert = extracted and bool(meta.get("office_converter_available"))
+        self.full_layout_button.setVisible(can_convert)
+        self.full_layout_button.setEnabled(True)
+        if extracted and not can_convert:
+            self.note.setText(f"{TEXT_ONLY_NOTE} {OFFICE_CONVERTER_MISSING_NOTE}")
 
         if self._kind in (KIND_IMAGE, KIND_PDF):
             self._render()
@@ -262,6 +297,48 @@ class PreviewWindow(QWidget):
         self.stack.setCurrentWidget(self.text)
         self._enable_picture_controls(False)
 
+    def _show_full_layout(self) -> None:
+        """§4e: convert once through the existing LibreOffice converter
+        route, cached beside the index. Worker, always - a real conversion
+        can take seconds, and this button is pressed on the UI thread.
+        """
+        from app.ui.preview_loader import ensure_office_pdf
+        from app.ui.workers import CallableWorker, run
+
+        # Disabled rather than hidden: hiding it mid-conversion reads as the
+        # button having done nothing, when it is working.
+        self.full_layout_button.setEnabled(False)
+        self._generation += 1
+        generation = self._generation
+        worker = CallableWorker(
+            ensure_office_pdf, self._path, component="ui.preview.window")
+        worker.signals.finished.connect(
+            lambda preview, g=generation: self._full_layout_ready(preview, g))
+        worker.signals.failed.connect(
+            lambda _error, g=generation: self._show_card(
+                "The full layout could not be prepared.", g))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _full_layout_ready(self, preview: Any, generation: int) -> None:
+        """UI thread. A converted PDF (cached, or just produced), or an
+        error - never a traceback for a document somebody merely clicked a
+        button on."""
+        if generation != self._generation:
+            return                               # a later request won
+        self.full_layout_button.setEnabled(True)
+        error = getattr(preview, "error", None)
+        if error is not None:
+            self._show_card(error.render(), generation)
+            return
+
+        from app.ui.preview_loader import KIND_PDF
+
+        self._kind = KIND_PDF
+        self._display_path = str(getattr(preview, "path", "") or self._display_path)
+        self.full_layout_button.setVisible(False)
+        self.note.setVisible(False)
+        self._render()
+
     def _render(self) -> None:
         """Ask for the page at this rotation and zoom. Worker, always."""
         from app.ui.render_page import render
@@ -271,7 +348,7 @@ class PreviewWindow(QWidget):
         generation = self._generation
         target = (self.stack.width(), self.stack.height())
         worker = CallableWorker(
-            render, self._path, kind=self._kind, view=self._view,
+            render, self._display_path, kind=self._kind, view=self._view,
             fit_to=target, component="ui.preview.render")
         worker.signals.finished.connect(
             lambda image, g=generation: self._drawn(image, g))
