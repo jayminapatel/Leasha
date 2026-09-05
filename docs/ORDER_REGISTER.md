@@ -54,7 +54,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | RELEASED | 29 / 1 | After 0c |
 | 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 0 / 17 | Foundation for 0h–0j |
 | 0g | `202626270509` | mbox, Takeout, chats | RELEASED | 0 / 7 | Gap-schedulable |
-| 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 4 / 9 | 0f |
+| 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 5 / 8 | 0f |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 0 / 17 | Deepest storage change — no interleaving |
