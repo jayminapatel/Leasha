@@ -272,7 +272,7 @@ The owner chose this on a live mock; implement it faithfully.
   > documentation says can be non-trivial on a large index — this session's
   > single-digit-millisecond measurement is only representative of a store
   > that never ran it.
-- [ ] **3b** perceived-instant close: on a real quit the window **hides
+- [x] **3b** perceived-instant close: on a real quit the window **hides
   first**, then the existing staged teardown runs invisibly. The
   disable-input discipline of `_drain_workers` stays; the tray icon (when
   installed) is the only visible remnant and disappears last.
@@ -297,7 +297,22 @@ The owner chose this on a live mock; implement it faithfully.
   > not fixed here because `app/ui/shell.py` is outside this session's
   > file-touch scope. **This also means the "close: hide-first verified"
   > test in §4 cannot be written and pass honestly until that bug is fixed.**
-- [ ] **3c** `PRAGMA optimize` moves off the exit path: run it on idle
+  >
+  > **Ticked 2026-09-05, a later session.** The `self.set_states` bug
+  > (`task_6c99824d`) was fixed in an earlier session today - verified live,
+  > not assumed: `grep -n "self\.set_states\|self\._store\.set_states"
+  > app/ui/shell.py` shows every call site correctly uses
+  > `self._store.set_states(...)` now, and `closeEvent`'s own docstring
+  > (line ~2214) documents the hide-first ordering the code carries out at
+  > line ~2244, before the `stage()` loop begins. The §4 test this note
+  > said could not honestly be written until the bug was fixed is now
+  > written: `tests/unit/test_window_opens.py::
+  > test_close_hides_before_the_staged_teardown_begins` hooks the *first*
+  > teardown stage and asserts the window is already invisible at that
+  > exact moment - proving the ordering, not just that it ends up hidden
+  > eventually (which `test_close_event_persists_geometry_without_raising`,
+  > already passing, would not have caught on its own).
+- [x] **3c** `PRAGMA optimize` moves off the exit path: run it on idle
   (the enrichment-backlog/idle pattern, or a coarse every-N-hours timer)
   instead of once per connection at close. SQLite's own guidance is
   periodic, not at-exit; close then pays nothing for it.
@@ -314,6 +329,17 @@ The owner chose this on a live mock; implement it faithfully.
   > opposite failure mode from the one this item names. `app/storage/
   > sqlite_store.py` is outside this session's file-touch scope, so this is
   > flagged as `task_c21f9a55` rather than fixed here.
+  >
+  > **Ticked 2026-09-05, a later session.** `task_c21f9a55` is done -
+  > verified live: `SqliteStore.optimize_query_planner()`
+  > (`app/storage/sqlite_store.py`) is a public wrapper round `PRAGMA
+  > optimize`, called from `MainWindow._run_idle_optimize`
+  > (`app/ui/shell.py`) off the UI thread via `CallableWorker`, on an
+  > hourly `QTimer` (`self._optimize_timer`, interval 3,600,000ms) started
+  > in `__init__`. `grep -n "PRAGMA optimize\|optimize_query_planner"
+  > app/storage/sqlite_store.py app/ui/shell.py` shows both ends of the
+  > wiring; `close()` no longer calls it, matching this item's own
+  > requirement that close pay nothing for it.
 - [x] **3d** after the stores and lock are cleanly released, skip
   interpreter teardown of the heavyweight native modules with
   `os._exit(code)` — placed so it is provably after `SqliteStore.__exit__`
@@ -395,7 +421,7 @@ The owner chose this on a live mock; implement it faithfully.
   > (only stdlib+Qt precede splash-show in `main.py`) held up in every live
   > run measured for 2a (splash visible in 152–304ms), so there was no
   > regression to chase — but the test itself is still missing.
-- [ ] close: hide-first verified (window invisible before drain begins);
+- [x] close: hide-first verified (window invisible before drain begins);
   `os._exit` placement — a test proves the exit call is unreachable while
   a store is open; idle-optimize runs and close no longer calls it.
   > **2026-09-04: partially true, not ticked.** `os._exit` placement:
@@ -407,6 +433,17 @@ The owner chose this on a live mock; implement it faithfully.
   > editing to fix the underlying behaviour (`app/ui/shell.py`,
   > `app/storage/sqlite_store.py`) are outside this session's scope; see
   > `task_6c99824d` and `task_c21f9a55`.
+  >
+  > **Ticked 2026-09-05, a later session.** All three now written and
+  > green: `test_close_hides_before_the_staged_teardown_begins` (hide-first,
+  > as an ordering - the window is already invisible when the *first*
+  > teardown stage runs, not merely by the time `close()` returns),
+  > `test_idle_optimize_timer_actually_calls_the_store` (the hourly timer's
+  > handler really invokes `store.optimize_query_planner`, not just that
+  > the method works in isolation), both in `tests/unit/test_window_opens.py`;
+  > `test_close_no_longer_runs_pragma_optimize_itself`
+  > (`tests/unit/test_idle_optimize.py`) already covered the "close no
+  > longer calls it" half. `os._exit` placement was already green.
 - [x] measurements recorded in this file: 2a, 2b target, 3a, 3e.
   > **2026-09-04:** real numbers recorded for all four under their own
   > items above — 2a's three-run table, 2b's target-vs-measured gap (2.8–6.6s
