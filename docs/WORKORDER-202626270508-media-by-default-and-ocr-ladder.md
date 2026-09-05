@@ -111,12 +111,43 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   `before:2010` finds it" scenario specifically - only
   `test_read_datetime_never_raises` covers this function today. Ticked on
   the wiring, not the missing end-to-end proof; see §4.
-- [ ] **3b EXIF orientation** honoured wherever images are decoded (previews,
+- [x] **3b EXIF orientation** honoured wherever images are decoded (previews,
   future thumbnails) — portrait photos must not render sideways.
   **Checked 2026-09-05, genuinely not done:** `read_orientation()` exists in
   `app/extract/exif.py` but nothing calls it anywhere in the tree - searched
   `app/ui/preview_loader.py` and both image extractors specifically.
-- [ ] **3c HEIC/HEIF** via `pillow-heif` (installed by owner); **TIFF** and
+  > **2026-09-05 (format-support session):** wired. `decode_image()` in
+  > `app/ui/preview_loader.py` is the sole place an image is decoded to
+  > pixels for display anywhere in the tree - confirmed by grepping
+  > `app/extract/` for `QImage`/`QPixmap` (none - nothing below `app/ui/`
+  > touches Qt) and `app/ui/` for `QImage(`/`Image.open(` (only
+  > `preview_loader.py`, `render_page.py` and `splash.py`; see below for
+  > `render_page.py`). Neither `OcrExtractor` nor `RawExtractor` decodes
+  > pixels for display - `OcrExtractor._worth_reading` opens an image only to
+  > read its size, and `RawExtractor.extract_preview` hands raw JPEG bytes
+  > straight to OCR, never to a `QImage` - so "the image extractor(s) that
+  > build a preview" resolved to no additional call site once checked, not a
+  > second one left undone. Both of `decode_image`'s branches - the plain
+  > `QImage(path)` path every non-HEIF format takes, and `_decode_heif` for
+  > HEIC/HEIF - now call `read_orientation()` and apply the correction via a
+  > new `_apply_orientation()` helper before the pane ever sees the pixels.
+  > Tests: `tests/unit/test_image_orientation.py` (new), 9 tests - the pure
+  > transform for all eight EXIF codes plus the "1 or unrecognised is a
+  > no-op" cases, then `decode_image()` against a real JPEG fixture with a
+  > written Orientation tag (dimensions swap correctly for a 90°/270°
+  > correction), and the HEIC branch with the same faked-`pillow_heif` seam
+  > `test_heif_preview.py` already uses. **Found but out of scope, flagged
+  > separately (not fixed here):** `app/ui/render_page.py`'s own `_image()`
+  > (used by the "pin in its own window" pop-out, `preview_window.py`) is an
+  > *independent* second decode path with the identical gap - no orientation
+  > correction, and no HEIC/HEIF handling at all, since it never routes
+  > through `preview_loader.py`. This session's scope was `preview_loader.py`
+  > only; the pop-out window is a different file this order did not name, so
+  > a portrait photo previews upright in the main pane after this fix but can
+  > still preview sideways (or blank, for HEIC/HEIF) if pinned to its own
+  > window. Flagged as a follow-up task rather than fixed on this session's
+  > own initiative.
+- [x] **3c HEIC/HEIF** via `pillow-heif` (installed by owner); **TIFF** and
   **SVG** join the preview image suffixes (indexer and preview suffix sets
   asserted consistent by test — the drift class found in review).
   **Checked 2026-09-05:** the formats themselves are enabled (see 1a), but
@@ -124,14 +155,34 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   test" this item calls for does not exist - searched for a suffix-
   consistency test and found only an unrelated one (table-alignment, not
   images).
+  > **2026-09-05 (format-support session):** already done by the time this
+  > session checked - not by this session. `tests/unit/test_viewer_suffixes.py`
+  > (`test_image_suffixes_match_the_indexers_ocr_extensions`, "Workspace §7")
+  > and the underlying `_IMAGE_SUFFIXES`/`KIND_MARKDOWN` wiring in
+  > `app/ui/preview_loader.py` landed via the Workspace order's own commits
+  > (`1caa388` "Workspace §4a: SVG, .heic/.heif and .tif/.tiff as images,
+  > Markdown rendered") - dated 2026-09-05, the same day as the note above,
+  > and evidently after it: the note's own search for a suffix-consistency
+  > test predates that commit landing on `main`. Re-ran the test against
+  > current `main` (2f2e8ee) and it passes. Nothing to build; the item's
+  > condition is satisfied and the earlier "not done" note was correct at
+  > the time it was written, not stale by omission.
 - [x] **3d RAW** (cr2/nef/dng/arw): extract the embedded JPEG preview via
   `rawpy` for both indexing (ladder input) and preview. Never decode full RAW.
   **Verified 2026-09-05:** `app/extract/raw.py`'s `extract_preview()` does
   exactly this via `rawpy.imread(...).extract_thumb()`.
-- [ ] **3e Markdown** preview renders via `QTextDocument.setMarkdown`
+- [x] **3e Markdown** preview renders via `QTextDocument.setMarkdown`
   (one-liner from the viewer-gaps list; lives here because it is hygiene).
   **Checked 2026-09-05, not done:** no `setMarkdown` call anywhere in
   `app/ui/`.
+  > **2026-09-05 (format-support session):** already done by the time this
+  > session checked - not by this session, for the same reason as 3c above.
+  > `app/ui/widgets/preview.py:387` and `app/ui/widgets/preview_window.py:294`
+  > both call `self.text.document().setMarkdown(...)`, landed in the same
+  > `1caa388` "Workspace §4a" commit. `tests/unit/test_preview_loader.py`
+  > covers `kind_for` routing `.md`/`.markdown` to `KIND_MARKDOWN` rather than
+  > `KIND_TEXT`. Confirmed by grep (`grep -rn setMarkdown app/`) and by
+  > reading both call sites.
 
 ## 4. Tests
 
