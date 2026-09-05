@@ -44,12 +44,17 @@ class FileActions:
         reveal: Optional[Callable[[], None]] = None,
         search_inside: Optional[Callable[[], None]] = None,
         reindex: Optional[Callable[[], None]] = None,
+        pin: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.open_file = open_file
         self.reveal = reveal
         self.search_inside = search_inside
         self.reindex = reindex
+        #: Workspace §3c: gather this result into the pinned panel. Offered
+        #: whatever the file's own state - even a missing one is worth
+        #: keeping track of, which "Open" and "Show in folder" are not.
+        self.pin = pin
         #: `(label, text)` pairs to offer alongside "Copy path". For mail:
         #: subject and sender are what people actually want on the clipboard,
         #: and a message's "file name" is a synthetic key nobody would
@@ -84,6 +89,11 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
         # in it. Without this, the filename browser is a dead end.
         action = QAction("Search inside this file", parent)
         action.triggered.connect(lambda: actions.search_inside())
+        menu.addAction(action)
+
+    if actions.pin is not None:
+        action = QAction("Pin", parent)
+        action.triggered.connect(lambda: actions.pin())
         menu.addAction(action)
 
     menu.addSeparator()

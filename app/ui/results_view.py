@@ -33,7 +33,7 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QStandardItem
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QLabel,
@@ -49,8 +49,9 @@ from app.ui.presenter import (
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.result_drag_model import DraggableResultsModel
 
-__all__ = ["ResultsView", "KIND_LABELS", "build_results_pane"]
+__all__ = ["ResultsView", "KIND_LABELS"]
 
 class ResultsView(QWidget):
     """A painted list of search results, grouped by document."""
@@ -61,6 +62,11 @@ class ResultsView(QWidget):
     #: The row under the cursor changed. The preview pane listens; nothing else
     #: does, and nothing here knows the preview exists.
     selected = pyqtSignal(object)
+    #: "Pin" chosen from the right-click menu - workspace §3c.
+    pin_requested = pyqtSignal(object)
+    #: The rows on screen changed - a new search or a federated append. The
+    #: timeline strip listens; nothing here knows it exists either.
+    rows_changed = pyqtSignal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -79,13 +85,15 @@ class ResultsView(QWidget):
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
 
-        self._model = QStandardItemModel(self)
+        # §3b: the same model, wherever it drags to - see `result_drag_model`.
+        self._model = DraggableResultsModel(self, missing=lambda: self._missing)
         self._delegate = ResultDelegate(self)
 
         self._list = QListView()
         self._list.setModel(self._model)
         self._list.setItemDelegate(self._delegate)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._list.setDragEnabled(True)          # §3b; see `set_drag_enabled`
         self._list.setUniformItemSizes(False)
         self._list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -121,6 +129,10 @@ class ResultsView(QWidget):
         self._delegate.prefs = self._prefs
         if self._rows:
             self._rebuild()
+
+    def set_drag_enabled(self, enabled: bool) -> None:
+        """§6's off switch for §3b. On by default."""
+        self._list.setDragEnabled(bool(enabled))
 
     # -- populating ---------------------------------------------------------
 
@@ -213,6 +225,7 @@ class ResultsView(QWidget):
 
         if bar is not None:
             bar.setValue(min(position, bar.maximum()))
+        self.rows_changed.emit(self._rows)          # the timeline strip listens
 
     def _append(self, payload: Any, *, expanded: bool = False, anchor: Any = None) -> None:
         item = QStandardItem()
@@ -316,26 +329,6 @@ class ResultsView(QWidget):
             open_file=lambda: self.opened.emit(row),
             reveal=lambda: self.reveal_requested.emit(row),
             reindex=lambda: self.reindex_requested.emit(row),
+            pin=lambda: self.pin_requested.emit(row),
             copy=[("Why this result?", why(row))],
         ))
-
-
-def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_error: Any) -> tuple:
-    r"""A `ResultsView`, wired, with its preview pane attached.
-
-    Returns `(results, preview, split)`.
-
-    Construction rather than behaviour, and here for the same reason
-    `search_bar.build_controls` is there: `search_view.py` sits under a 250-line
-    guard, and four `connect` calls plus a splitter say nothing about how
-    searching works. The preview is off until asked for - `Ctrl+P` or the View
-    menu; see `widgets/preview.py`.
-    """
-    from app.ui.widgets.preview import attach_preview
-
-    results = ResultsView()
-    results.opened.connect(on_opened)
-    results.reveal_requested.connect(on_reveal)
-    results.reindex_requested.connect(on_reindex)
-    preview, split = attach_preview(results, on_opened, on_error)
-    return results, preview, split

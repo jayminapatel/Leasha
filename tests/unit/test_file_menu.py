@@ -98,6 +98,27 @@ def test_every_action_fires_its_callback_when_triggered(qapp, tmp_path: Path, co
     assert copied == [str(target), "report.docx"]
 
 
+def test_pin_action_fires_whatever_the_files_state(qapp, tmp_path: Path, copied):
+    """Workspace §3c: offered whatever the file's own state - even a missing
+    file is worth keeping track of, which "Open" is not."""
+    gone = tmp_path / "vanished.pdf"
+
+    fired: list[str] = []
+    parent = QWidget()
+    menu = build_menu(parent, str(gone), FileActions(pin=lambda: fired.append("pin")))
+
+    pin = _action(menu, "Pin")
+    assert pin.isEnabled(), "pinning a result does not depend on the file existing"
+    pin.trigger()
+    assert fired == ["pin"]
+
+
+def test_no_pin_action_when_not_offered(qapp, tmp_path: Path):
+    parent = QWidget()
+    menu = build_menu(parent, str(tmp_path / "a.pdf"), FileActions())
+    assert all(action.text() != "Pin" for action in menu.actions())
+
+
 def test_missing_file_offers_reindex_and_it_fires(qapp, tmp_path: Path, copied):
     gone = tmp_path / "vanished.pdf"
 

@@ -85,3 +85,59 @@ def test_no_current_row_means_nothing_to_anchor(qtbot):
     view.show_results([result(1, 1)], ["pump"])
     view.show_results([result(1, 1), result(2, 2)], ["pump"], keep_scroll=True)
     assert view._model.rowCount() >= 2
+
+
+# ---------------------------------------------------------------------------
+# Workspace §3b/§3c: dragging out, and the "Pin" menu action
+# ---------------------------------------------------------------------------
+
+def test_drag_is_on_by_default(qtbot):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    assert view._list.dragEnabled()
+
+
+def test_set_drag_enabled_toggles_the_list(qtbot):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.set_drag_enabled(False)
+    assert not view._list.dragEnabled()
+    view.set_drag_enabled(True)
+    assert view._list.dragEnabled()
+
+
+def test_context_menu_wires_pin_to_the_row_under_the_cursor(qtbot, monkeypatch):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1)], ["pump"])
+    from PyQt6.QtCore import QItemSelectionModel
+    index = view._model.index(0, 0)
+    view._list.setCurrentIndex(index)
+    view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
+
+    captured: dict = {}
+
+    def fake_show_for(_widget, _point, _path, actions):
+        captured["actions"] = actions
+
+    import app.ui.results_view as results_view_module
+    monkeypatch.setattr(results_view_module, "show_for", fake_show_for)
+
+    view._on_context_menu(view._list.visualRect(view._model.index(0, 0)).center())
+    assert "actions" in captured and captured["actions"].pin is not None
+
+    pinned: list = []
+    view.pin_requested.connect(pinned.append)
+    captured["actions"].pin()
+    assert len(pinned) == 1
+    assert pinned[0].file_id == 1
+
+
+def test_rows_changed_fires_on_a_fresh_search(qtbot):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    seen: list = []
+    view.rows_changed.connect(seen.append)
+    view.show_results([result(1, 1), result(2, 2)], ["pump"])
+    assert len(seen) == 1
+    assert len(seen[0]) == 2
