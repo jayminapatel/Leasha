@@ -90,6 +90,87 @@ class TestThumbnailStats:
         )
 
 
+@pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")
+class TestRungOneFastAccept:
+    """§4 'ladder:' item, part one - a text scan fast-accepts at rung 1, with
+    no detector even offered, because the white-heavy thumbnail alone is
+    already confident enough."""
+
+    def test_a_text_scan_fast_accepts_at_rung_1(self, tmp_path):
+        from PIL import Image, ImageDraw
+
+        # A page of black text on a white background - overwhelmingly white
+        # by pixel count, which is rung 1's whole signal.
+        page = Image.new("RGB", (900, 1200), "white")
+        draw = ImageDraw.Draw(page)
+        for y in range(40, 1160, 40):
+            draw.text((40, y), "the quick brown fox jumps", fill="black")
+        path = tmp_path / "page1.png"
+        page.save(path)
+
+        def detector_that_must_not_run(_source):
+            raise AssertionError("rung 1 should have settled this before rung 2")
+
+        result = route(path, detect=detector_that_must_not_run)
+
+        assert result.decision == RouteDecision.FULL_OCR
+        assert result.reason.startswith("white_fraction=")
+
+
+class TestDetectionProbe:
+    """§4 'ladder:' item, parts two and three - rung 2's own detection-only
+    probe (item 2c). `detect` here stands in for `ocr.py`'s `_detect_only`,
+    which closes over the real engine; the ladder itself has no OCR engine of
+    its own, so every rung-2 behaviour is testable through this seam alone."""
+
+    def test_a_wall_photo_settles_as_no_text_found_checked(self, tmp_path):
+        """Zero boxes from the detector -> `NO_TEXT`, a truthful settled
+        state - not a guess, and not the placeholder `DETECTION_ROUTE` this
+        returned before rung 2 was wired to a real probe."""
+        photo = tmp_path / "wall.jpg"  # no metadata pattern, not white-heavy
+        if HAS_PIL:
+            from PIL import Image
+            Image.new("RGB", (256, 256), color="blue").save(photo)
+
+        result = route(photo, detect=lambda _source: [])
+
+        assert result.decision == RouteDecision.NO_TEXT
+        assert result.reason == "detection_probe_zero_boxes"
+
+    def test_a_receipt_photo_reaches_full_ocr_via_rung_2(self, tmp_path):
+        """The routes-not-rejects proof: a document photographed rather than
+        scanned, with a filename that tells rung 0 nothing and a thumbnail
+        that is not white-heavy enough for rung 1 to settle it - still reaches
+        full OCR the moment rung 2's detector finds even one text box."""
+        photo = tmp_path / "counter_photo.jpg"
+        if HAS_PIL:
+            from PIL import Image
+            Image.new("RGB", (256, 256), color="blue").save(photo)
+
+        result = route(photo, detect=lambda _source: [[[0, 0], [10, 0], [10, 10], [0, 10]]])
+
+        assert result.decision == RouteDecision.FULL_OCR
+        assert result.reason == "detection_probe_1_box(es)"
+
+    def test_no_detector_supplied_falls_back_to_the_caller_placeholder(self, tmp_path):
+        """`detect=None` (the default) behaves exactly as it did before rung 2
+        existed - the caller decides. This is what every non-Path/bytes
+        source and every caller that has not been updated yet still gets."""
+        result = route(Path("photo.jpg"))
+        assert result.decision == RouteDecision.DETECTION_ROUTE
+
+    def test_a_broken_detector_never_claims_no_text(self):
+        """A detector that raises is a smaller problem than a wall photo
+        wrongly marked settled forever - the ladder falls back to handing the
+        decision to the caller, exactly as if no detector had been supplied."""
+        def broken(_source):
+            raise RuntimeError("the detector blew up")
+
+        result = route(Path("photo.jpg"), detect=broken)
+
+        assert result.decision == RouteDecision.DETECTION_ROUTE
+
+
 class TestLadderCost:
     """The ladder must complete in reasonable time."""
 

@@ -177,6 +177,58 @@ def test_asking_whether_anything_is_indexed_does_not_count_anything(
 # long as it did.
 
 
+# --- the OCR ladder: what 2c/2e exist to buy back ----------------------------
+#
+# The whole argument for the ladder (module docstring, `app/extract/ocr_ladder.py`)
+# is arithmetic: a corpus of 1000 photos costs 5 + 50 + 3600 seconds routed,
+# against 3.6M run through the full engine unrouted. Nothing timed rung 0/1
+# together on a real fixture corpus until this floor - the module's own numbers
+# were the design target, never a measurement.
+
+#: Measured 2026-09-05 on 200 fixture photos (256x256, half solid-blue and half
+#: solid-white, generic filenames matching no rung-0 pattern - the worst case
+#: for cost, since every one reaches rung 1's Pillow decode and numpy histogram):
+#: **444ms** best-of-three for all 200 (~2.2ms/photo), on the machine this suite
+#: runs on. No detector is supplied, so this is rungs 0-1 only - the free/cheap
+#: part every image pays regardless of what rung 2 or full OCR eventually does.
+LADDER_FLOOR_MS = 450 * SLACK
+
+
+@pytest.fixture(scope="module")
+def ladder_photo_corpus(tmp_path_factory) -> list[Path]:
+    """200 small photos with generic filenames, so every one reaches rung 1
+    (no rung-0 metadata pattern short-circuits it) - the ladder's own worst
+    case for what rungs 0-1 cost before an image ever nears the OCR engine."""
+    from PIL import Image
+
+    root = tmp_path_factory.mktemp("ladder_perf")
+    paths = []
+    for i in range(200):
+        path = root / f"photo_{i:04d}.jpg"
+        Image.new("RGB", (256, 256), color=("blue" if i % 2 else "white")).save(path)
+        paths.append(path)
+    return paths
+
+
+@pytest.mark.slow
+def test_two_hundred_photos_clear_rungs_zero_and_one_fast(
+    ladder_photo_corpus: list[Path],
+) -> None:
+    """2c/2e's perf floor: routing 200 photos through the free/cheap rungs
+    alone must stay fast, or the whole point of the ladder - not running the
+    ~3.6s engine on a corpus of wall photos - is defeated before rung 2 or
+    full OCR ever enters the picture."""
+    from app.extract import ocr_ladder
+
+    took = elapsed_ms(
+        lambda: [ocr_ladder.route(path) for path in ladder_photo_corpus])
+    assert took < LADDER_FLOOR_MS, (
+        f"routing 200 photos through rungs 0-1 took {took:.0f}ms against a "
+        f"{LADDER_FLOOR_MS}ms floor. The ladder's whole argument is that this "
+        f"stays cheap - see the module docstring's '5 + 50 + 3600' arithmetic."
+    )
+
+
 @pytest.mark.slow
 def test_a_wildcard_lookup_over_a_realistic_vocabulary_stays_bounded(
     tmp_path_factory

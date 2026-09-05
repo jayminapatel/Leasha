@@ -16,8 +16,14 @@ that have no text at all.
    White-heavy documents route straight to full OCR. Non-documents cost nothing.
 
 3. **Rung 2 — detection probe** (~50-150ms): Run the OCR engine's detection
-   stage alone. No text boxes → record "no text found (checked)" and skip OCR.
-   Boxes found → run full recognition on that region only.
+   stage alone (`use_det=True, use_rec=False` - RapidOCR's own split). No text
+   boxes → record "no text found (checked)" and skip recognition entirely.
+   Boxes found → fall through to full OCR. **Costs a second detection pass**
+   for that minority case (RapidOCR's own crop-and-recognise is not exposed as
+   a resumable call), which is the trade this rung makes: the pass it might
+   duplicate is ~50-150ms, and the pass it reliably skips for every genuinely
+   textless photo is the ~3.6s recognition pass - the corpus this rung exists
+   for is mostly the latter.
 
 4. **Full OCR** (~3.6s): The entire pipeline for text-heavy images.
 
@@ -41,7 +47,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from app.core.logging import logger
 
@@ -140,7 +146,12 @@ def _thumbnail_stats(source: Path | bytes) -> Optional[LadderResult]:
         return None
 
 
-def route(source: Path | bytes, *, check_metadata: bool = True) -> LadderResult:
+def route(
+    source: Path | bytes,
+    *,
+    check_metadata: bool = True,
+    detect: Optional[Callable[[Path | bytes], object]] = None,
+) -> LadderResult:
     """Route an image through the OCR ladder.
 
     Returns the decision (which rung to run) and the cost so far.
@@ -148,6 +159,20 @@ def route(source: Path | bytes, *, check_metadata: bool = True) -> LadderResult:
     Args:
         source: Path or bytes of the image
         check_metadata: Whether to check filename metadata (Rung 0)
+        detect: **Rung 2's detection-only probe** (~50-150ms), supplied by the
+            caller rather than imported here. `ocr_ladder.py` has no OCR engine
+            of its own on purpose - rungs 0-1 (filename, thumbnail histogram)
+            are free/cheap and must stay importable and testable with nothing
+            but Pillow installed. `ocr_image()` (`app/extract/ocr.py`) is the
+            one real caller and passes a closure over the already-loaded
+            engine, run with `use_rec=False` - detection only, no recognition -
+            so rung 2 costs what the module docstring promises and not a
+            second full OCR pass. Called with `source`; expected to return a
+            falsy value (`None`, `[]`) for "no text boxes found" and a
+            non-empty sequence for "boxes found". Any exception, or `detect`
+            left `None`, is treated exactly like "not confident yet" - the
+            ladder hands the decision to the caller (`DETECTION_ROUTE`) rather
+            than ever inventing a `NO_TEXT` it did not actually check for.
     """
     started = time.monotonic()
 
@@ -176,8 +201,31 @@ def route(source: Path | bytes, *, check_metadata: bool = True) -> LadderResult:
             result.elapsed_ms = (time.monotonic() - started) * 1000
             return result
 
-    # If we get here, run detection probe (Rung 2)
-    # The caller (ocr_image) will handle the full OCR/detection decision
+    # Rung 2: detection probe (~50-150ms) - only if the caller gave us a
+    # detector to run it with. **Never rejects on our own say-so**: a missing
+    # detector or one that raises falls through to DETECTION_ROUTE, the same
+    # "the caller must decide" placeholder this returned before rung 2 existed
+    # - not to NO_TEXT, which is a claim that detection actually ran and found
+    # nothing.
+    if detect is not None:
+        try:
+            boxes = detect(source)
+        except Exception as exc:                     # noqa: BLE001 - a broken probe is not "no text"
+            log.debug("detection probe failed: {}: {}", type(exc).__name__, exc)
+        else:
+            if not boxes:
+                return LadderResult(
+                    decision=RouteDecision.NO_TEXT,
+                    elapsed_ms=(time.monotonic() - started) * 1000,
+                    reason="detection_probe_zero_boxes",
+                )
+            return LadderResult(
+                decision=RouteDecision.FULL_OCR,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+                reason=f"detection_probe_{len(boxes)}_box(es)",
+            )
+
+    # No detector supplied (or it failed): hand the decision to the caller.
     return LadderResult(
         decision=RouteDecision.DETECTION_ROUTE,
         elapsed_ms=(time.monotonic() - started) * 1000,
