@@ -16,6 +16,13 @@ exists to do.
 **It survives the session.** One `index_state` row, the same channel every
 other preference uses. Somebody who spent ten minutes gathering nine documents
 and then closed the window by accident has not lost the ten minutes.
+
+**Moved here unchanged from `docs/_superseded/pinned.py`.** Checked against
+the current `ResultRow`/`ResultGroup` shapes first: both carry `.path`, and
+`ResultGroup` also carries `.name` for the friendly label - `_as_pin` reads
+either generically, so nothing in this file needed to change. The Qt half is
+`widgets/pinned_panel.py`, adapted from the matching draft
+(`docs/_superseded/working_set.py`) rather than written fresh.
 """
 
 from __future__ import annotations

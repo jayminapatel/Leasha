@@ -17,6 +17,12 @@ undoable, because what it produces is visible in the search box.
 **The scale is chosen from the span, not fixed.** A corpus spanning fifteen
 years bucketed by month is a hundred and eighty bars nobody can hit; one
 spanning a fortnight bucketed by year is a single bar saying nothing.
+
+**Moved here unchanged from `docs/_superseded/timeline.py`.** `bands()` reads
+only `row.mtime_ns`, which `ResultRow` already carries field-for-field, so
+nothing needed adapting. The Qt half - the strip itself, and the off switch
+§6 requires of it - is new: `widgets/timeline_strip.py`. No Qt draft existed
+to check it against.
 """
 
 from __future__ import annotations
