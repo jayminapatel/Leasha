@@ -119,6 +119,29 @@ def test_no_pin_action_when_not_offered(qapp, tmp_path: Path):
     assert all(action.text() != "Pin" for action in menu.actions())
 
 
+def test_more_like_this_fires_whatever_the_files_state(qapp, tmp_path: Path):
+    r"""Work order 0h §2d. A vector neighbour search does not care whether
+    the file is still on disk - same reasoning as "Pin", offered whatever
+    `_exists` says."""
+    gone = tmp_path / "vanished.jpg"
+
+    fired: list[str] = []
+    parent = QWidget()
+    menu = build_menu(
+        parent, str(gone), FileActions(similar=lambda: fired.append("similar")))
+
+    action = _action(menu, "More like this")
+    assert action.isEnabled()
+    action.trigger()
+    assert fired == ["similar"]
+
+
+def test_no_more_like_this_action_when_not_offered(qapp, tmp_path: Path):
+    parent = QWidget()
+    menu = build_menu(parent, str(tmp_path / "a.pdf"), FileActions())
+    assert all(action.text() != "More like this" for action in menu.actions())
+
+
 def test_missing_file_offers_reindex_and_it_fires(qapp, tmp_path: Path, copied):
     gone = tmp_path / "vanished.pdf"
 
