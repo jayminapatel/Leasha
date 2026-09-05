@@ -94,7 +94,7 @@ allowed and expected — compare falls out for free.
   suffixes (scanner output — verify against what the indexer already
   accepts); Markdown rendered via `QTextDocument.setMarkdown` instead of raw
   text.
-- [ ] **4b Spreadsheets as tables**: `.xlsx` (and `.xls` via the existing
+- [x] **4b Spreadsheets as tables**: `.xlsx` (and `.xls` via the existing
   converter route) preview becomes a real grid — `QTableView`, sheet tabs,
   read from `openpyxl` (already a dependency) on the worker, row/column cap
   with a "large sheet — showing first N rows" line. The biggest preview
