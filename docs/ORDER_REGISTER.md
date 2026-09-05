@@ -61,7 +61,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | RELEASED | 17 / 0 | Gap-schedulable. §5 = column widths, do last |
-| 0q | `202626271510` | The results, world class | RELEASED | 0 / 25 | Gap-schedulable |
+| 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 0 / 18 | Design settled |
 | 0s | `202626271137` | The seven adoptions — five-AI review | RELEASED | 12 / 5 | Gap-schedulable |
 

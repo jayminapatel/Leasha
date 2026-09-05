@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
+from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from app.ui.presenter import ResultGroup, Terminator, group_subtitle, is_code_kind, why
 from app.ui.theme import theme_colours
@@ -290,6 +290,47 @@ class ResultDelegate(QStyledItemDelegate):
         painter.setPen(QPen(QColor(theme_colours()["text_faint"])))
         painter.drawText(option.rect, int(Qt.AlignmentFlag.AlignCenter), payload.text)
         painter.restore()
+
+    def subtitle_rect(self, option: Any, payload: Any) -> Optional[QRect]:
+        """Item 2a: where the "N matches ▸/▾" line paints, for a multi-match
+        group - the chevron's own click target.
+
+        `None` for anything that is not an expandable group, so a caller
+        hit-testing a click falls through to the ordinary whole-row toggle
+        (double-click/Enter, unchanged) rather than claiming the click.
+
+        Mirrors the y-arithmetic `_paint_group` already does for the name
+        line, rather than a second copy of it: both read `Metrics.for_density`
+        and `_fonts` off the same `option.font`/`self.prefs`, so a click and a
+        paint can never disagree about where this line sits.
+        """
+        if not isinstance(payload, ResultGroup) or payload.match_count <= 1:
+            return None
+        metrics = Metrics.for_density(self.prefs.density)
+        name_font, meta_font, _ = self._fonts(option.font)
+        top = option.rect.top() + metrics.pad_y + QFontMetrics(name_font).height() + metrics.gap
+        left = option.rect.left() + metrics.pad_x
+        width = option.rect.width() - 2 * metrics.pad_x
+        return QRect(left, top, width, QFontMetrics(meta_font).height())
+
+    def chevron_hit(self, view: Any, pos: Any) -> Optional[int]:
+        """Item 2a: the `file_id` to toggle if `pos` (viewport coordinates)
+        landed on a multi-match group's chevron line, else `None`.
+
+        The click arithmetic lives here rather than in `results_view.py`:
+        `subtitle_rect` already owns the one true copy of this geometry, and
+        a second copy in the view would be exactly the drift that file's own
+        line-count guard exists to catch.
+        """
+        index = view.indexAt(pos)
+        if not index.isValid():
+            return None
+        payload = index.data(ROLE_PAYLOAD)
+        option = QStyleOptionViewItem()
+        view.initViewItemOption(option)
+        option.rect = view.visualRect(index)
+        rect = self.subtitle_rect(option, payload)
+        return payload.file_id if rect is not None and rect.contains(pos) else None
 
 
 # ---------------------------------------------------------------------------

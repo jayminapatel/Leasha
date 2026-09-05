@@ -208,3 +208,64 @@ def test_image_rows_keeps_only_photos_in_order():
     photo_b = result(3, 3, path=r"D:\Photos\b.png"); photo_b.ext = "png"
     view.show_results([text_row, photo_a, photo_b], [])
     assert [row.file_id for row in view.image_rows()] == [2, 3]
+
+
+# ---------------------------------------------------------------------------
+# Item 2a: the chevron is a real click target, alongside the whole row
+# ---------------------------------------------------------------------------
+
+def test_a_click_on_the_chevron_expands_the_group(qtbot):
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+
+    from app.ui.result_delegate import ROLE_PAYLOAD
+
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.resize(400, 300)
+    view.show_results([result(1, 1, rank=0), result(1, 2, rank=1), result(1, 3, rank=2)],
+                      ["pump"])
+    index = view._model.index(0, 0)
+    from PyQt6.QtWidgets import QStyleOptionViewItem
+
+    option = QStyleOptionViewItem()
+    view._list.initViewItemOption(option)
+    option.rect = view._list.visualRect(index)
+    rect = view._delegate.subtitle_rect(option, index.data(ROLE_PAYLOAD))
+    assert rect is not None, "a 3-match group must paint a chevron line"
+
+    point = QPointF(rect.center())
+    press = QMouseEvent(QEvent.Type.MouseButtonPress, point, Qt.MouseButton.LeftButton,
+                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    assert view.eventFilter(view._list.viewport(), press) is True
+    assert 1 in view._expanded, "the click must have toggled the group open"
+
+
+def test_a_click_off_the_chevron_does_not_toggle(qtbot):
+    """A click on the name or date must fall through to Qt's ordinary
+    selection handling, not be swallowed as a toggle."""
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.resize(400, 300)
+    view.show_results([result(1, 1, rank=0), result(1, 2, rank=1)], ["pump"])
+
+    press = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5), Qt.MouseButton.LeftButton,
+                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    assert view.eventFilter(view._list.viewport(), press) is False
+    assert not view._expanded, "the name line is not the chevron's click target"
+
+
+def test_the_whole_row_still_toggles_by_activation(qtbot):
+    """Item 2a's own wording: "the whole row still toggles as it does
+    today" - double-click/Enter (`activated`) must keep working exactly as
+    it did before the chevron gained its own click target."""
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1, rank=0), result(1, 2, rank=1)], ["pump"])
+    view._on_activated(view._model.index(0, 0))
+    assert 1 in view._expanded
+    view._on_activated(view._model.index(0, 0))
+    assert 1 not in view._expanded
