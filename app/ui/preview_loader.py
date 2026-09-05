@@ -901,6 +901,51 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
 _HEIF_SUFFIXES = frozenset({".heic", ".heif"})
 
 
+#: 3b. `Qt` reads the pixels but not the orientation tag - `QImageReader`
+#: only auto-rotates when told to, and `QImage(path)` never asks. A camera
+#: held upright writes Orientation 6 or 8 into a landscape sensor frame, and
+#: without this a portrait photo previews on its side. `read_orientation`
+#: already existed in `app/extract/exif.py`; nothing called it anywhere in
+#: the tree - this is that wiring, in the one place every displayed image
+#: (this function's two branches) passes through.
+#:
+#: The standard EXIF 1-8 orientation table, expressed as the correction each
+#: code needs (not the rotation the camera applied - the inverse of it).
+#: 1 and any unrecognised code are absent on purpose: "do nothing" is the
+#: fallback in `_apply_orientation` itself, not an entry here.
+def _apply_orientation(image: Any, orientation: int) -> Any:
+    """Rotate/mirror a decoded `QImage` to the upright EXIF recorded.
+
+    `orientation` is the raw EXIF tag (1-8) from `read_orientation`. 1 (or
+    anything unrecognised) is returned unchanged - the common case, and the
+    safe default for a tag that could not be read.
+    """
+    if orientation not in range(2, 9):
+        return image
+
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QTransform
+
+    transform = QTransform()
+    if orientation == 2:                 # mirrored horizontally
+        transform.scale(-1, 1)
+    elif orientation == 3:               # rotated 180
+        transform.rotate(180)
+    elif orientation == 4:               # mirrored vertically
+        transform.scale(1, -1)
+    elif orientation == 5:               # mirrored + rotated 90 CW
+        transform.rotate(90)
+        transform.scale(-1, 1)
+    elif orientation == 6:               # rotated 90 CW
+        transform.rotate(90)
+    elif orientation == 7:               # mirrored + rotated 90 CCW
+        transform.rotate(-90)
+        transform.scale(-1, 1)
+    elif orientation == 8:               # rotated 90 CCW
+        transform.rotate(-90)
+    return image.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+
+
 def decode_image(path: str):
     """Read and decode an image file to a `QImage`. **Worker thread only.**
 
@@ -925,7 +970,12 @@ def decode_image(path: str):
         image = QImage(str(path))
     except Exception:                            # noqa: BLE001 - boundary
         return None
-    return None if image.isNull() else image
+    if image.isNull():
+        return None
+
+    from app.extract.exif import read_orientation
+    orientation = read_orientation(Path(str(path)))
+    return _apply_orientation(image, orientation)
 
 
 def _decode_heif(path: str):
@@ -964,10 +1014,17 @@ def _decode_heif(path: str):
             # does not take ownership of it - the same use-after-free
             # `render_page._pdf_page` already guards against for the same
             # reason.
-            return image.copy()
+            image = image.copy()
     except Exception as exc:                       # noqa: BLE001 - see docstring
         _log.debug("could not decode HEIC/HEIF {}: {}", path, exc)
         return None
+
+    # 3b: HEIC/HEIF phones carry the same Orientation tag a JPEG does, and
+    # PIL's plain `Image.open` does not auto-rotate any more than Qt does -
+    # this needs the same correction the generic branch above applies.
+    from app.extract.exif import read_orientation
+    orientation = read_orientation(Path(str(path)))
+    return _apply_orientation(image, orientation)
 
 
 # ---------------------------------------------------------------------------

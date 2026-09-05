@@ -17,6 +17,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Portrait photos preview the right way up
+
+- A photo taken holding the camera sideways carries an EXIF tag recording
+  that; until now nothing read it, so the single-item preview pane showed
+  every such photo lying on its side regardless of how it was actually
+  held. `read_orientation()` (`app/extract/exif.py`) existed already but was
+  never called from anywhere - work order 0f §3b. Now every image the
+  preview pane decodes, including HEIC/HEIF, is corrected before it is
+  shown.
+- **A known gap, flagged rather than silently left:** the "pin in its own
+  window" pop-out preview decodes images through a separate code path
+  (`app/ui/render_page.py`) that this fix does not reach - a photo pinned to
+  its own window can still preview sideways. Flagged as a follow-up.
+
 ### Photos can now be found by describing them, not just by filename
 
 - Work order 0h's CLIP image lane reaches an actual search box for the first
