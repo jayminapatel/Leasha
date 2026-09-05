@@ -25,6 +25,7 @@ import pytest
 
 from app.core.errors import AppErrorException
 from app.extract import ocr as module
+from app.extract import ocr_ladder
 from app.extract.ocr import MIN_CONFIDENCE, OcrExtractor, available, ocr_image
 
 HAS_OCR = importlib.util.find_spec("rapidocr_onnxruntime") is not None
@@ -206,3 +207,102 @@ def test_the_shipped_config_has_a_smaller_size_cap_for_images():
 
     rules = load_rules()
     assert rules.max_bytes_for(".png") < rules.default_max_bytes
+
+
+# ---------------------------------------------------------------------------
+# The OCR ladder: `ocr_image` is the one call site every real caller shares
+# ---------------------------------------------------------------------------
+
+def test_the_ladder_is_consulted_for_a_real_path(tmp_path, monkeypatch):
+    """A `Path` source is routed through the ladder before the engine runs -
+    this is the wiring that was previously missing entirely: `route()` was
+    never called from outside its own test file."""
+    calls = []
+
+    def fake_route(source, **kwargs):
+        calls.append(source)
+        return ocr_ladder.LadderResult(
+            decision=ocr_ladder.RouteDecision.FULL_OCR,
+            elapsed_ms=0.1,
+            reason="test",
+        )
+
+    monkeypatch.setattr(ocr_ladder, "route", fake_route)
+
+    image = tmp_path / "IMG_1234.jpg"
+    image.write_bytes(b"x")
+    ocr_image(image, engine=lambda _s: None)
+
+    assert calls == [image]
+
+
+def test_a_fake_string_source_never_touches_the_ladder(monkeypatch):
+    """The unit tests above drive `ocr_image` with plain strings to exercise
+    the fake `engine` seam without a real file. Those must behave exactly as
+    before: no ladder, no routing, straight to the engine."""
+    calls = []
+    monkeypatch.setattr(ocr_ladder, "route", lambda *a, **k: calls.append(1))
+
+    ocr_image("x", engine=lambda _s: None)
+
+    assert calls == []
+
+
+def test_a_ladder_settled_no_text_skips_the_engine_entirely(tmp_path, monkeypatch):
+    """When the ladder's detection rung has already found zero text boxes,
+    recognition never runs - `checked_no_text` is a truthful settled state,
+    not a guess, and distinct from an ordinary empty result."""
+    monkeypatch.setattr(
+        ocr_ladder, "route",
+        lambda *a, **k: ocr_ladder.LadderResult(
+            decision=ocr_ladder.RouteDecision.NO_TEXT,
+            elapsed_ms=42.0,
+            reason="test",
+        ),
+    )
+
+    def engine_that_must_not_run(_source):
+        raise AssertionError("recognition ran after the ladder already settled this")
+
+    image = tmp_path / "wall.jpg"
+    image.write_bytes(b"x")
+    result = ocr_image(image, engine=engine_that_must_not_run)
+
+    assert result.checked_no_text is True
+    assert result.empty
+
+
+def test_ladder_routing_never_takes_an_image_down(tmp_path, monkeypatch):
+    """A broken ladder is a smaller problem than a crashed extractor - OCR
+    falls back to running the engine as if the ladder were never wired in."""
+    def broken_route(*_a, **_k):
+        raise RuntimeError("ladder exploded")
+
+    monkeypatch.setattr(ocr_ladder, "route", broken_route)
+
+    image = tmp_path / "IMG_1234.jpg"
+    image.write_bytes(b"x")
+    result = ocr_image(image, engine=engine_returning(([[0, 0]], "text", 0.9)))
+
+    assert result.text == "text"
+
+
+def test_bytes_source_is_also_routed(monkeypatch):
+    """RAW previews reach `ocr_image` as bytes, not a `Path` - the RAW
+    extractor's own path to the ladder, one call site for every caller."""
+    calls = []
+
+    def fake_route(source, **kwargs):
+        calls.append(source)
+        return ocr_ladder.LadderResult(
+            decision=ocr_ladder.RouteDecision.FULL_OCR,
+            elapsed_ms=0.1,
+            reason="test",
+        )
+
+    monkeypatch.setattr(ocr_ladder, "route", fake_route)
+
+    preview = b"fake jpeg bytes"
+    ocr_image(preview, engine=lambda _s: None)
+
+    assert calls == [preview]

@@ -36,6 +36,7 @@ from typing import Any, Callable, Iterable, Optional
 from app.core.errors import raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
+from app.extract import ocr_ladder
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
 
 __all__ = [
@@ -72,7 +73,10 @@ _engine_failed = False
 class OcrResult:
     """Text read from one image, with what it cost and how sure it was."""
 
-    __slots__ = ("text", "lines", "elapsed_s", "mean_confidence", "engine_missing")
+    __slots__ = (
+        "text", "lines", "elapsed_s", "mean_confidence", "engine_missing",
+        "checked_no_text",
+    )
 
     def __init__(
         self,
@@ -81,12 +85,20 @@ class OcrResult:
         elapsed_s: float = 0.0,
         mean_confidence: float = 0.0,
         engine_missing: bool = False,
+        checked_no_text: bool = False,
     ) -> None:
         #: **The difference between "nothing to read" and "nothing read it".**
         #: An empty result means a blank image; this means the engine never
         #: ran, and the two must not share a skip code - one is a fact about
         #: the file and the other is a fact about this machine.
         self.engine_missing = engine_missing
+        #: **Settled by the ladder, not merely empty.** True when the OCR
+        #: ladder (`app.extract.ocr_ladder`) found no text boxes at its
+        #: detection rung and the recognition pass never ran at all - a
+        #: truthful "checked, nothing there" rather than a guess. Distinct
+        #: from an ordinary empty result, where recognition ran and simply
+        #: found nothing to keep.
+        self.checked_no_text = checked_no_text
         self.text = text
         self.lines = lines
         self.elapsed_s = elapsed_s
@@ -230,10 +242,32 @@ def ocr_image(
     `source` is a path or raw bytes. `engine` is the seam: a callable returning
     RapidOCR's `(results, elapsed)` shape, so every path here is testable with
     no OCR installed.
+
+    **Every real image pays the ladder once, here** - the one call site both
+    `OcrExtractor` and `RawExtractor` (RAW previews) go through, so "one
+    implementation in the OCR layer, every caller inherits it" is literally
+    true rather than a docstring's aspiration. A `source` that is not a `Path`
+    or `bytes` (the fake string sources the unit tests below use to drive the
+    fake `engine` seam) skips routing entirely and behaves exactly as before.
     """
     run = engine or _load_engine()
     if run is None:
         return OcrResult(engine_missing=True)
+
+    if isinstance(source, (Path, bytes)):
+        try:
+            routed = ocr_ladder.route(source)
+        except Exception as exc:                 # noqa: BLE001 - the ladder must never take an image down
+            log.debug("ocr ladder routing failed: {}: {}", type(exc).__name__, exc)
+            routed = None
+
+        if routed is not None and routed.decision is ocr_ladder.RouteDecision.NO_TEXT:
+            # The detection rung already found zero text boxes - recognition
+            # would spend the expensive pass to confirm what is already known.
+            return OcrResult(
+                elapsed_s=routed.elapsed_ms / 1000.0,
+                checked_no_text=True,
+            )
 
     started = time.monotonic()
     try:
