@@ -64,8 +64,12 @@ class ResultsView(QWidget):
     selected = pyqtSignal(object)
     #: "Pin" chosen from the right-click menu - workspace §3c.
     pin_requested = pyqtSignal(object)
+    #: "More like this" chosen from the right-click menu - work order 0h §2d.
+    similar_requested = pyqtSignal(object)
     #: The rows on screen changed - a new search or a federated append. The
-    #: timeline strip listens; nothing here knows it exists either.
+    #: timeline strip listens; nothing here knows it exists either. The
+    #: thumbnail grid (work order 0h §3a) listens too, and filters it down to
+    #: the photos on its own.
     rows_changed = pyqtSignal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -330,5 +334,25 @@ class ResultsView(QWidget):
             reveal=lambda: self.reveal_requested.emit(row),
             reindex=lambda: self.reindex_requested.emit(row),
             pin=lambda: self.pin_requested.emit(row),
+            # Work order 0h §2d: offered for every row, photos included -
+            # `similar_requested` carries whichever row was right-clicked,
+            # and the handler (result_tools._run_similar) is the one place
+            # that knows whether this chunk_id is a real passage or a
+            # photo's file_id wearing one. See that function's docstring for
+            # the image-row caveat: this action is wired to `similar_to`
+            # exactly as the engine has it today.
+            similar=lambda: self.similar_requested.emit(row),
             copy=[("Why this result?", why(row))],
         ))
+
+    def image_rows(self) -> list[ResultRow]:
+        """The photo rows currently on screen, in list order.
+
+        Work order 0h §3b: the lightbox's sibling list when a pop-out is
+        opened for a photo found through the list rather than the grid - the
+        two surfaces show the same result set, so arrow-key navigation
+        should walk the same photos whichever one somebody opened it from.
+        """
+        from app.ui.thumbnail_loader import is_image_result
+
+        return [row for row in self._rows if is_image_result(getattr(row, "ext", ""))]
