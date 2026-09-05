@@ -36,13 +36,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   A machine with no display adapter, or with one but no `onnxruntime-directml`
   installed, goes straight to the processor with no notice at all, since
   nothing was tried and failed.
-- **Measured honestly, not assumed:** this machine's own venv reports
-  `onnxruntime.get_available_providers() == ['AzureExecutionProvider',
-  'CPUExecutionProvider']` - no DirectML provider installed here, matching
-  what the text embedder's run log already said earlier in this project. So
-  the fallback path is what this machine actually runs today; a real
-  GPU-accelerated number still needs a machine with `onnxruntime-directml`
-  installed to measure, and is not claimed here.
+- **Re-measured after `onnxruntime-directml` was installed into this venv**,
+  same day: CPU steady-state dropped to **69.1ms/image** (from 1,675.6ms -
+  see the caveat below on why that magnitude of change should not be fully
+  trusted), GPU (DirectML, Iris Xe) to **37.5ms/image** single-call - both
+  now comfortably inside the original 50-150ms budget. Oddly, the GPU
+  *loses* on a batch of 8 (97.1ms/image vs the CPU's 75.7ms/image) - a real,
+  reported result rather than a smoothed-over one, and since an index run
+  always calls in batches of 16, it genuinely is not clear from this
+  fixture alone that `auto` should prefer the GPU here at all.
+- **Honestly flagged:** the ~24x CPU speedup between the two measurements
+  has two entangled causes - no concurrent background test sweep this time
+  (the first measurement named one as a likely confound) and the
+  `onnxruntime` package itself changing version, 1.29.0 to 1.24.4, as a
+  side effect of installing the DirectML wheel (both wheels provide the
+  same `onnxruntime` import name and cannot coexist, so the DirectML
+  install replaces the plain one - the same swap `install.ps1` already does
+  for an accepted GPU install per work order 0114 §2c). Which cause did
+  most of the work is not known and not claimed - full detail and both raw
+  tables are in the 0h work order.
 - Five new tests in `tests/unit/test_clip_embedder.py` prove the wiring
   itself (not `backends.choose`/`with_fallback`'s own correctness, already
   covered in `test_backends.py`): the CPU path passes no `providers` kwarg
