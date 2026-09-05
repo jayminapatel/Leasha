@@ -337,15 +337,93 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
 - [ ] **2d more-like-this for images**: the existing right-click action
   extended to photo results via the image table.
 
+  **2026-09-05, §3 build session - UI half done; the backend half is not
+  and this is a real gap, not a formality.** There was no existing
+  right-click action to extend - `grep -rn "similar_to" app/ui/` returned
+  nothing before this session; `SearchEngine.similar_to` had never been
+  wired into the UI at all. Built fresh: `FileActions.similar` /
+  `build_menu`'s "More like this" item (`app/ui/widgets/file_menu.py`),
+  `ResultsView.similar_requested` and its context-menu wiring
+  (`app/ui/results_view.py`), and `result_tools._wire_similar`
+  (`app/ui/widgets/result_tools.py`), which runs `SearchEngine.similar_to`
+  on a worker and redraws the results list with what comes back. The menu
+  item appears identically for a text row and a photo row - a photo is just
+  a `SearchResult` with an image `ext`, and nothing in `results_view.py`
+  special-cases it.
+
+  **Read closely, per this instruction, rather than assumed: `similar_to`
+  does not correctly answer for a photo today.** It reads a vector back via
+  `self.vectors.vector_for(int(chunk_id))` - the **text** `VectorStore`,
+  fixed at construction - and searches within that same table. A photo's
+  `SearchResult.chunk_id` is a bare int equal to `file_id` by the time it
+  reaches the UI (`_result_chunk_id`'s fallback, once fusion's namespacing
+  has done its job and been discarded); `self.vectors.vector_for(file_id)`
+  either finds nothing (`chunks.id` and `files.id` are independent
+  sequences with no reason to align - the ordinary case, an honest empty
+  "no similar results") or, on an unlucky numeric coincidence, returns a
+  real but unrelated **passage's** neighbours. Never a crash - `similar_to`
+  itself never raises for a bad id - but not a working feature for a photo.
+  Wired anyway, exactly as this order's own instruction asked, so the gap
+  is visible and testable rather than quietly avoided; documented in
+  `result_tools._wire_similar`'s own docstring and pinned by
+  `tests/unit/test_results_view.py::test_context_menu_offers_more_like_this_for_a_photo_row_too`
+  (proves the menu item and the signal; does not and cannot claim the
+  answer is correct). **Needs the §2 backend job's follow-up**: an
+  image-aware path in `app/search/engine.py` reading `self.image_vectors`
+  instead of `self.vectors` for a photo's source chunk - out of this
+  session's scope (`app/search/*` was off-limits).
+
 ## 3. Presentation
 
-- [ ] **3a** thumbnail-grid toggle on image-heavy results (list stays
+- [x] **3a** thumbnail-grid toggle on image-heavy results (list stays
   default; the toggle is a per-surface preference, off-able like every
   behaviour); thumbnails decoded on workers (M11 pattern), orientation-
   correct (0508 §3b).
-- [ ] **3b** pop-out viewer gains next/previous (arrow keys) = the lightbox;
+
+  **2026-09-05, §3 build session.** Built as `app.ui.widgets.thumbnail_grid.
+  ThumbnailGrid`, a `QListWidget` in icon mode beside the existing list in a
+  `QStackedWidget` (`result_tools.build_results_pane`) - the list is index 0
+  and stays the default shown; a new "Thumbnail grid" checkbox in the
+  switches row toggles which is visible. The toggle is a per-surface
+  `index_state` preference (`GRID_ENABLED_KEY = "ui:thumbnail_grid_enabled"`),
+  the same mechanism `timeline_strip.enabled_checkbox`/`pinned_panel.
+  enabled_checkbox` already use, with `default_on = False` where those two
+  are `True` - the work order names the off default explicitly, so this one
+  does not follow their precedent on that one point.
+
+  Thumbnails decode on `CallableWorker`, one per photo
+  (`ThumbnailGrid._load_thumbnails`), never on the UI thread - taught to
+  `tests/unit/test_ui_never_blocks.py::test_a_long_operation_starts_a_worker`
+  explicitly (the one place that suite needs manual registration; every
+  other guard in it already walks `app/ui/` automatically and needed
+  nothing added). Orientation: `0508 §3b`'s `app.extract.exif.
+  read_orientation` existed and was called from nowhere anywhere in the
+  codebase before this session (`grep -rn "read_orientation" app/` returned
+  only its own definition) - built the rotate/flip integration directly in
+  a new `app/ui/thumbnail_loader.py` rather than waiting on it or on
+  another job's wiring, per this order's own instruction. A photo that
+  fails to decode keeps its placeholder icon rather than an empty cell or a
+  crash (H4) - `tests/unit/test_thumbnail_grid.py`.
+
+- [x] **3b** pop-out viewer gains next/previous (arrow keys) = the lightbox;
   lives here because grid+lightbox ship together as the photo browsing
   experience.
+
+  **2026-09-05, §3 build session.** `PreviewWindow` (`app/ui/widgets/
+  preview_window.py`) gains optional `siblings`/`index` constructor
+  arguments; Left/Right walk the sibling list, wrapping at either end, and
+  fall through to Qt's ordinary handling when there are none (every pop-out
+  before this order, unaffected). The title gains a "(N of M)" indicator
+  only when navigation is possible - an arrow key with no visible position
+  reads as a hidden shortcut, not a browsing surface. Rotation for a
+  sibling is re-read from the same per-file state `__init__` already uses
+  (`view_of_file.read_turn`), so navigating does not carry the previous
+  photo's rotation onto the next one. Opened directly from a thumbnail
+  (double-click/Enter) via `result_tools._wire_lightbox`, self-contained -
+  its own geometry persistence and its own "Open the real file"/"Show in
+  folder" wiring (`workers.open_async`), since the grid has no in-app
+  preview pane to pop out from the way the four existing panes do.
+  `tests/unit/test_preview_window.py`.
 
 ## 4. Tests
 
@@ -397,6 +475,16 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
   batched, on this machine's CPU. The grid-scroll half of this item is §3
   (thumbnail grid), untouched this session — `app/ui/*` was off limits and
   §3 is explicitly held back regardless.
+
+  **2026-09-05, §3 build session: the grid-scroll half is now honestly
+  tickable too.** `ThumbnailGrid._load_thumbnails` hands every photo to its
+  own `CallableWorker`, never decodes on the UI thread, and is registered
+  in `test_ui_never_blocks.py::test_a_long_operation_starts_a_worker`'s
+  explicit list — "worker-fed" is asserted, not assumed. What is *not*
+  measured here, and should not be read as claimed: real-corpus scroll
+  latency (frames per second scrolling a grid of hundreds of photos) — this
+  session proved the mechanism is worker-backed and H4-safe, not a
+  wall-clock number for a large result set.
 
 ## Done means
 
