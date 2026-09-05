@@ -1751,8 +1751,20 @@ class MainWindow(QMainWindow):
         not linger. `bump_generation()` is the entry point for exactly
         this: a cache-invalidating event with no natural write() to
         piggy-back on.
+
+        **Off the UI thread**, same reasoning and the same `CallableWorker`
+        shape as `_run_idle_optimize` just below: `bump_generation()` opens
+        a real `write()` transaction, and this method runs on a signal
+        straight from the settings page, so "cheap" here is still a stutter
+        the person clicking Save would feel. The status message is not
+        conditioned on the bump succeeding - it reports that the mapping
+        itself saved, which already happened by the time this signal fires;
+        a failed bump only means the *next* search, not this save, might
+        briefly serve a stale cache, and `bump_generation()` already logs
+        its own failures.
         """
-        self._store.bump_generation()
+        worker = CallableWorker(self._store.bump_generation, component="ui.file_types")
+        run(QThreadPool.globalInstance(), worker)
         self.statusBar().showMessage(
             f"File types saved - {len(changes)} differ from the defaults. "
             "They apply to the next index run.", 12_000)

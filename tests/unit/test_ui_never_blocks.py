@@ -71,15 +71,26 @@ def _store_api() -> frozenset[str]:
 # processEvents
 # ---------------------------------------------------------------------------
 
-#: The one place it is allowed, and why.
+#: The places it is allowed, and why.
 #:
 #: `closeEvent` waits for background threads to finish before the stores are
 #: torn out from under them. There is no event loop to return to - the window is
 #: closing - so the choice is between pumping events and freezing during the one
-#: operation nobody will wait out. Everywhere else it is a symptom of work on
+#: operation nobody will wait out. `_wait_out_minimum_hold`/`_fade_out`
+#: (`app/ui/splash.py`) are the same trade for the splash's minimum-hold and
+#: fade-out: both are short, deadline-capped waits (`_MAX_HOLD_WAIT_S`,
+#: `_FADE_DURATION_S`) that must keep the case-rotation timer and the widget's
+#: own repaint running, and there is no window to return control to until the
+#: wait is over - mirrors `main.py`'s `_acquire_gui_lock_responsively`, which
+#: uses the identical technique for §2c's handover wait (that function is
+#: outside `app/ui/`, so this guard never scans it, but the precedent is the
+#: same one being named here). Everywhere else it is a symptom of work on
 #: the wrong thread, and it reenters the event loop in ways that produce bugs
 #: nobody can reproduce.
-PROCESS_EVENTS_ALLOWED_IN = {"closeEvent", "_drain_workers", "_wait_for_workers"}
+PROCESS_EVENTS_ALLOWED_IN = {
+    "closeEvent", "_drain_workers", "_wait_for_workers",
+    "_wait_out_minimum_hold", "_fade_out",
+}
 
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
@@ -99,7 +110,8 @@ def test_process_events_is_only_used_while_closing(path):
 # ---------------------------------------------------------------------------
 
 #: Never on the UI thread. `subprocess.run` is how `doctor` used to freeze the
-#: window for two minutes; `sleep` has no legitimate use in a paint path.
+#: window for two minutes; `sleep` has no legitimate use in a paint path -
+#: with the one named exception in `BLOCKING_ATTRS_ALLOWED_IN` below.
 BLOCKING = {"sleep", "waitForFinished", "communicate"}
 
 #: `run` is `workers.run`, which *starts* a worker. `subprocess.run` is the
@@ -114,6 +126,17 @@ BLOCKING_ATTRS = {
     ("subprocess", "run"), ("subprocess", "Popen"), ("subprocess", "call"),
     ("subprocess", "check_output"),
     ("time", "sleep"), ("os", "system"), ("os", "startfile"),
+}
+
+#: `(function name) -> which of BLOCKING_ATTRS it may use`. Same shape and
+#: same reasoning as `PROCESS_EVENTS_ALLOWED_IN` just above, for the one
+#: attribute in `BLOCKING_ATTRS` that has a legitimate, deliberately-bounded
+#: use: `_wait_out_minimum_hold`/`_fade_out` (`app/ui/splash.py`) call
+#: `time.sleep` between `processEvents()` pumps in a short, deadline-capped
+#: loop - the same technique, for the same reason, as `PROCESS_EVENTS_
+#: ALLOWED_IN`'s entry for them.
+BLOCKING_ATTRS_ALLOWED_IN = {
+    ("time", "sleep"): {"_wait_out_minimum_hold", "_fade_out"},
 }
 
 
@@ -145,15 +168,19 @@ def test_nothing_blocks_the_ui_thread(path):
         func = node.func
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
             pair = (func.value.id, func.attr)
-            assert pair not in BLOCKING_ATTRS, (
-                f"{path.name}:{node.lineno} calls {pair[0]}.{pair[1]} on the UI "
-                "thread. Put it in a CallableWorker."
-            )
+            if pair in BLOCKING_ATTRS:
+                where = enclosing_function(path, node.lineno)
+                assert where in BLOCKING_ATTRS_ALLOWED_IN.get(pair, ()), (
+                    f"{path.name}:{node.lineno} calls {pair[0]}.{pair[1]} on the "
+                    f"UI thread inside {where!r}. Put it in a CallableWorker."
+                )
         if called_name(node) in BLOCKING and not isinstance(func, ast.Name):
             owner = getattr(getattr(func, "value", None), "id", "")
-            assert owner not in ("time", "subprocess"), (
-                f"{path.name}:{node.lineno} blocks the UI thread"
-            )
+            if owner in ("time", "subprocess"):
+                where = enclosing_function(path, node.lineno)
+                assert where in BLOCKING_ATTRS_ALLOWED_IN.get((owner, called_name(node)), ()), (
+                    f"{path.name}:{node.lineno} blocks the UI thread inside {where!r}"
+                )
 
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
