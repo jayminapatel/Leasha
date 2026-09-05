@@ -13,6 +13,7 @@ obvious from the feature description, and all three are cheap to get wrong.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1009,3 +1010,390 @@ def test_nothing_between_the_drag_and_the_store_may_change_the_number():
         assert isinstance(value, ast.Name), (
             f"the stored width is computed ({ast.dump(value)[:60]}...); it "
             "must be exactly what was measured on screen")
+
+
+# ---------------------------------------------------------------------------
+# Work order §5 - the fifth report of "column widths are not remembered"
+#
+# Every earlier fix in this file changed the *dragged* column's own restored
+# width and was right to. None of them checked what a restart does to a
+# column nobody touched - and that turned out to be where this one lives.
+#
+# `_apply_widths` decided whether the *last* column keeps
+# `setStretchLastSection` (its "fill the remaining space" behaviour) by
+# asking `not prefs.widths` - "has anything at all been dragged" - rather
+# than asking about the last column specifically. Dragging any *other*
+# column already makes `prefs.widths` non-empty, so on the very next
+# restore the last column's stretch was switched off regardless, and it
+# came back at its bare fitted width instead of the width it had been
+# filling out to. Measured on the fixture below: before the fix, dragging
+# the *middle* column of three from 900px down to 320px and reopening left
+# the last column at 67px instead of the ~495px it had been showing -
+# hundreds of pixels of dead table on the right, indistinguishable from
+# "the widths were not remembered" because the one column the report is
+# usually about (the last, often the widest and most-read one) is exactly
+# the one that moved.
+# ---------------------------------------------------------------------------
+
+def _settle_stretch(table) -> None:
+    """Force the header to actually compute its stretch-fill widths.
+
+    Offscreen, `setStretchLastSection`'s fill is applied by a real layout
+    pass, and neither `.show()` nor `apply_to_table` alone triggers one - the
+    column stays at its bare fitted size until something resizes the widget.
+    A toggling resize is the cheapest real event that does it, and it is
+    what every width comparison against the *filled* size needs first,
+    offscreen or not.
+    """
+    from PyQt6.QtWidgets import QApplication as _QApp
+
+    width, height = table.width(), table.height()
+    table.resize(width + 1, height)
+    _QApp.instance().processEvents()
+    table.resize(width, height)
+    _QApp.instance().processEvents()
+
+
+def test_dragging_one_column_does_not_shrink_the_last_column_on_restart(tmp_path):
+    r"""**The fifth report, reproduced.** `_last_column_is_chosen` is the fix:
+    stretch is given up only when the *last* column itself has a saved width,
+    not whenever the preference is merely non-empty.
+
+    Compared against the last column's width right *after* the drag settles,
+    live, not against its width before - dragging "path" wider necessarily
+    leaves less room for the stretched column to fill, and that is not the
+    bug. What must survive a restart is the number the table was actually
+    showing before it closed.
+    """
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.view_options import apply_to_table, button as view_button
+
+    app = _qt()
+    database = tmp_path / "index.db"
+
+    first = _table(app)
+    with SqliteStore(database) as store:
+        chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                              on_change=lambda _p: None, table=first)
+        apply_to_table(first, chooser.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
+        _settle_stretch(first)
+        assert first.horizontalHeader().stretchLastSection(), (
+            "the fixture must start stretched, or this proves nothing")
+
+        _drag(first, 1, 320)                     # the MIDDLE column, not the last
+        assert dict(chooser.prefs.widths).get("path") == 320
+        assert "size" not in dict(chooser.prefs.widths), (
+            "the last column was never dragged; nothing should be saved for it")
+        _settle_stretch(first)
+        last_width_live = first.columnWidth(2)
+
+    second = _table(app)
+    with SqliteStore(database) as store:
+        reopened = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                               on_change=lambda _p: None, table=second)
+        apply_to_table(second, reopened.prefs, columns=COLUMNS_3,
+                       available=AVAILABLE_3)
+        _settle_stretch(second)
+
+    assert second.columnWidth(1) == 320, "the column that was dragged"
+    assert second.horizontalHeader().stretchLastSection(), (
+        "the last column was never dragged, so it must still be stretch-owned "
+        "- switching this off is what shrank it")
+    assert second.columnWidth(2) == last_width_live, (
+        f"the untouched last column filled {last_width_live}px live, before "
+        f"closing, and came back as {second.columnWidth(2)}px after restart - "
+        "this is the fifth report of column widths not being remembered")
+
+
+def test_last_column_is_chosen_only_when_its_own_width_was_saved():
+    """The unit underneath the fixture test above, isolated from Qt."""
+    from app.ui.view_options import _last_column_is_chosen
+
+    order = ["name", "path", "size"]
+    shown = ["name", "path", "size"]
+
+    assert not _last_column_is_chosen(order, shown, {})
+    assert not _last_column_is_chosen(order, shown, {"path": 320}), (
+        "a width saved for a column that is not last must not count")
+    assert _last_column_is_chosen(order, shown, {"size": 400})
+
+    # A column can be "last" only among what is actually shown.
+    assert _last_column_is_chosen(order, ["name", "path"], {"path": 320})
+
+
+# ---------------------------------------------------------------------------
+# §5b - the REAL-INPUT regression test.
+#
+# Every drag above goes through `_drag`, which calls `resizeSection` directly
+# and ticks the watcher's timer by hand. That is deliberate and documented
+# where `_drag` is defined - but it means none of the tests above ever prove
+# that an actual OS-level mouse press-move-release, over a real wall-clock
+# 600ms watcher interval, on a real top-level window, produces the same
+# result. This project has shipped a working mechanism beside a broken
+# outcome before (§1's ranked-view note), so the header alignment tests
+# drive a real QTest click and this drags with a real, physically-held
+# mouse button through `pywinauto` - the tool named in the work order,
+# "runnable before 0m" rather than waiting on that order's own tooling.
+#
+# It runs in a subprocess rather than in-process for two reasons that are
+# both load-bearing, not tidiness:
+#
+# 1. It needs the *real* Qt platform plugin, not `offscreen` - every other
+#    test in this file (and the `conftest`/CI default) forces `offscreen` so
+#    the suite runs without a display. A subprocess gets its own, disjoint
+#    environment to flip that in.
+# 2. Windows' own per-monitor DPI scaling turned out to be the second half
+#    of making this test honest at all: Qt's high-DPI scaling maps a widget's
+#    *logical* coordinates onto larger *physical* screen pixels, while
+#    `pywinauto.mouse` presses at physical pixels - so a boundary computed
+#    from `table.mapToGlobal(...)` under the default scaling missed the
+#    header divider entirely and the "drag" silently resized nothing
+#    (verified here: widths were unchanged after a press-move-release that
+#    returned no error). Disabling high-DPI scaling for this one process is
+#    what makes the logical and physical coordinate spaces the same thing,
+#    and it has to be an environment variable Qt reads before the first
+#    `QApplication` exists - a second, independent reason this cannot share
+#    the test process with everything above it.
+#
+# Opt-in, not part of the everyday run: it moves the real mouse, so it is
+# gated behind `LEASHA_REAL_INPUT_TESTS=1` (see the leasha skill, §7.3 - a
+# small curated set, never the default suite) rather than a new pytest
+# marker, since `--strict-markers` in `pyproject.toml` is outside this
+# order's file list.
+# ---------------------------------------------------------------------------
+
+_REAL_INPUT_DRAG_SCRIPT = r"""
+import json
+import sys
+import time
+
+sys.path.insert(0, r"$REPO_ROOT")
+
+from PyQt6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from app.storage.sqlite_store import SqliteStore
+from app.ui.view_options import apply_to_table, button as view_button
+
+COLUMNS_3 = [("name", "Name"), ("path", "Folder"), ("size", "Size")]
+AVAILABLE_3 = ("name", "path", "size")
+TITLE = "LeashaRealInputDragProbe"
+
+
+def pump(app, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.03)
+
+
+def main():
+    app = QApplication.instance() or QApplication([])
+
+    table = QTableWidget(3, 3)
+    table.setWindowTitle(TITLE)
+    table.setHorizontalHeaderLabels([h for _k, h in COLUMNS_3])
+    for r in range(3):
+        for c in range(3):
+            table.setItem(r, c, QTableWidgetItem("a moderately long value"))
+    table.resize(900, 300)
+    table.move(80, 80)
+
+    with SqliteStore(r"$DB_PATH") as store:
+        chooser = view_button(
+            None, store, "ui:files", columns=COLUMNS_3, table=table,
+            on_change=lambda _p: None)
+        apply_to_table(table, chooser.prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+
+        table.show()
+        table.raise_()
+        table.activateWindow()
+        pump(app, 0.5)
+
+        last_before = table.columnWidth(2)
+
+        from pywinauto import Desktop
+        desktop = Desktop(backend="win32")
+        win = next(
+            (w for w in desktop.windows() if w.window_text() == TITLE), None)
+        if win is None:
+            print(json.dumps({"ok": False, "environment": True,
+                               "reason": "pywinauto could not find the window"}))
+            return
+
+        header = table.horizontalHeader()
+        top_left = table.mapToGlobal(header.pos())
+        # The boundary to drag is the *right* edge of the column being
+        # resized - the one between "path" (index 1) and "size" (index 2),
+        # so this resizes "path" and leaves "name" alone.
+        boundary_x = top_left.x() + header.sectionSize(0) + header.sectionSize(1)
+        boundary_y = top_left.y() + header.height() // 2
+
+        from pywinauto import mouse
+        mouse.press(coords=(boundary_x, boundary_y))
+        time.sleep(0.1)
+        mouse.move(coords=(boundary_x + 100, boundary_y))
+        time.sleep(0.1)
+        mouse.release(coords=(boundary_x + 100, boundary_y))
+
+        # The watcher polls every WATCH_MS (600ms) and a drag needs one tick
+        # to notice the move and a second to see it has stopped - real wall
+        # time, nothing fast-forwarded.
+        pump(app, 1.8)
+
+        result = {
+            "ok": True,
+            "path_width": table.columnWidth(1),
+            "last_width_after": table.columnWidth(2),
+            "last_width_before": last_before,
+            "stretch": header.stretchLastSection(),
+            "saved_path_width": dict(chooser.prefs.widths).get("path"),
+        }
+        print(json.dumps(result))
+        table.close()
+
+
+main()
+"""
+
+_REAL_INPUT_VERIFY_SCRIPT = r"""
+import json
+import sys
+import time
+
+sys.path.insert(0, r"$REPO_ROOT")
+
+from PyQt6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from app.storage.sqlite_store import SqliteStore
+from app.ui.view_options import apply_to_table, button as view_button
+
+COLUMNS_3 = [("name", "Name"), ("path", "Folder"), ("size", "Size")]
+AVAILABLE_3 = ("name", "path", "size")
+
+app = QApplication.instance() or QApplication([])
+
+table = QTableWidget(3, 3)
+table.setHorizontalHeaderLabels([h for _k, h in COLUMNS_3])
+for r in range(3):
+    for c in range(3):
+        table.setItem(r, c, QTableWidgetItem("a moderately long value"))
+table.resize(900, 300)
+# **Shown, not just constructed.** `setStretchLastSection`'s fill
+# computation is part of the header's real layout pass, and a widget that
+# has never been shown or given a chance to process events has not had one
+# - reading `columnWidth` beforehand caught the *pre-layout* size, which is
+# what first made this script's "restart" look like a second regression
+# that the fix above did not actually have.
+table.show()
+app.processEvents()
+
+with SqliteStore(r"$DB_PATH") as store:
+    reopened = view_button(
+        None, store, "ui:files", columns=COLUMNS_3, table=table,
+        on_change=lambda _p: None)
+    apply_to_table(table, reopened.prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+    for _ in range(10):
+        app.processEvents()
+        time.sleep(0.03)
+
+    print(json.dumps({
+        "path_width": table.columnWidth(1),
+        "last_width": table.columnWidth(2),
+        "stretch": table.horizontalHeader().stretchLastSection(),
+        "saved_path_width": dict(reopened.prefs.widths).get("path"),
+    }))
+    table.close()
+"""
+
+
+def _run_real_input_phase(script_template: str, tmp_path, db_path, *, timeout: int = 30):
+    import json
+    import subprocess
+    import sys as _sys
+    from string import Template
+
+    repo_root = Path(__file__).resolve().parents[2]
+    script = Template(script_template).substitute(
+        REPO_ROOT=str(repo_root), DB_PATH=str(db_path))
+    script_file = tmp_path / f"_phase_{abs(hash(script_template))}.py"
+    script_file.write_text(script, encoding="utf-8")
+
+    env = dict(**__import__("os").environ)
+    env.pop("QT_QPA_PLATFORM", None)          # the real platform, not offscreen
+    env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+    env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
+    env["QT_SCALE_FACTOR"] = "1"
+
+    completed = subprocess.run(
+        [_sys.executable, str(script_file)],
+        capture_output=True, text=True, timeout=timeout, env=env,
+    )
+    stdout = (completed.stdout or "").strip().splitlines()
+    payload = stdout[-1] if stdout else ""
+    try:
+        return json.loads(payload)
+    except (ValueError, IndexError):
+        raise AssertionError(
+            f"the real-input subprocess produced no result.\n"
+            f"exit code: {completed.returncode}\n"
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
+
+
+@pytest.mark.windows
+@pytest.mark.slow
+def test_a_real_mouse_drag_survives_a_restart(tmp_path):
+    r"""**The deliverable §5b asks for.** A held mouse button, over the real
+    watcher timer, on a real top-level window - not `_drag`'s stand-in.
+
+    Opt-in via `LEASHA_REAL_INPUT_TESTS=1`: it moves the real mouse and takes
+    the desktop, so it must never run as part of an ordinary `pytest` pass.
+    Skipped (not failed) when pywinauto cannot find or drive the window,
+    because that is an environment limitation - no interactive desktop, a
+    locked session - rather than a defect in `view_options.py`.
+    """
+    import os
+
+    if os.environ.get("LEASHA_REAL_INPUT_TESTS") != "1":
+        pytest.skip(
+            "opt-in only: set LEASHA_REAL_INPUT_TESTS=1 to run a real mouse "
+            "drag against a real window (see the note above this test)")
+    if sys.platform != "win32":
+        pytest.skip("pywinauto's win32 backend needs Windows")
+    pytest.importorskip("pywinauto")
+
+    db_path = tmp_path / "index.db"
+
+    drag_result = _run_real_input_phase(_REAL_INPUT_DRAG_SCRIPT, tmp_path, db_path)
+    if drag_result.get("environment"):
+        pytest.skip(drag_result.get("reason", "environment could not run the drag"))
+
+    assert drag_result["ok"], drag_result
+    assert drag_result["saved_path_width"] not in (None, 0), (
+        "the real drag was not recorded at all")
+    dragged_to = drag_result["path_width"]
+    assert dragged_to != 0
+
+    verify_result = _run_real_input_phase(_REAL_INPUT_VERIFY_SCRIPT, tmp_path, db_path)
+
+    assert verify_result["saved_path_width"] == dragged_to, (
+        "the width a real mouse drag produced was not the width restored "
+        f"after restart: dragged to {dragged_to}, restored as "
+        f"{verify_result['saved_path_width']}")
+    assert verify_result["path_width"] == dragged_to
+    # The regression this order fixed: a column nobody touched must not
+    # shrink just because a real drag happened to some other column.
+    #
+    # Not compared against `last_width_before` (the width the last column had
+    # *before* the drag): widening "path" by dragging its edge necessarily
+    # leaves less room for the stretched column to fill, by design, and that
+    # is not the bug. What must survive is the width the last column was
+    # actually showing right after the drag settled, live, in the same
+    # process - `last_width_after` - because that is exactly the number the
+    # regression silently replaced with the bare fitted size on restart.
+    assert verify_result["stretch"], (
+        "the last column was never dragged and must still be stretch-owned "
+        "after restart")
+    assert verify_result["last_width"] == drag_result["last_width_after"], (
+        f"the untouched last column filled {drag_result['last_width_after']}px "
+        f"right after the drag, live, and came back as "
+        f"{verify_result['last_width']}px after a restart - a column nobody "
+        "touched must not change just because a different one was dragged")
