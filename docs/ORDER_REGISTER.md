@@ -47,7 +47,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | # | Ref | Order | Status | Done/Open | Blocked by |
 |---|---|---|---|---|---|
 | 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | — |
-| 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | ACTIVE | **25 / 0** | Was queued behind review §2 (H5, H6, H11) |
+| 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
 | 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 31 / 9 | — |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | RELEASED | 23 / 3 | After 0b |
 | 0d | `202626270257` | Privacy defaults | RELEASED | **9 / 0** | Gap-schedulable |

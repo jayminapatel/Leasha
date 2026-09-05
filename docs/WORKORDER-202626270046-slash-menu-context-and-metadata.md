@@ -2,7 +2,9 @@
 
 **Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search catalogue + Storage accessors + UI popup + CLI)
-**Status:** ACTIVE — the owner has chosen the full option: GUI context + metadata
+**Status:** SHIPPED — all 25 items ticked; verified 2026-09-05 (`tests/
+unit/test_slash_context.py`, 55 tests, green). Kept here as record; the
+owner has chosen the full option: GUI context + metadata
 (sections 1–3), the `leasha shell` REPL with a live dropdown as the primary CLI
 deliverable (4g), and the PowerShell tab-completer for one-shot commands
 (4a–4d). Sequence within this order: **1 → 2 → 4g → 4a–4d → 3**, with 4b–4d
