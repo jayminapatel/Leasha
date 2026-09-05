@@ -78,6 +78,29 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   the new notice code had no plain-English form for the everyday search tab
   - both caught by the existing test suite before landing, not after.
 
+### Photo results can now show as thumbnails, and a pop-out photo has next/previous
+
+- A "Thumbnail grid" switch beside the results list (off by default, like
+  every switch here) swaps the list for a grid of thumbnails on results
+  that have photos in them. The list is still what opens first; asking for
+  thumbnails is a click away and stays remembered. Work order 0h §3a.
+- Every thumbnail is decoded in the background - scrolling never waits on a
+  photo, and a photo that cannot be read shows a placeholder rather than an
+  empty gap or an error. Orientation is corrected automatically, so a
+  portrait photo from a phone shows upright rather than sideways.
+- The pop-out photo viewer now has next and previous (the left/right arrow
+  keys), so browsing a set of photos - from the grid, or from a single
+  photo pinned out of the results list - no longer means closing the window
+  and opening the next one by hand. Work order 0h §3b.
+- "More like this" is a right-click action for the first time - on a
+  passage, and on a photo. For a passage it works today. **For a photo it
+  does not yet** - the underlying search does not know how to look among
+  photos specifically, and this is a known, named gap rather than a
+  silent one; a follow-up closes it. Work order 0h §2d (UI half only - the
+  right-click action and its wiring; the same-photo intelligence backend
+  it will eventually share a home with - pHash, folding duplicates, drop-a-
+  photo-to-search - is separate, ongoing work).
+
 ### CLIP image embedding now uses the graphics card when one is usable, the processor otherwise
 
 - `ClipImageEmbedder` (the image-vector lane, work order 0h §1) gained the

@@ -45,6 +45,7 @@ class FileActions:
         search_inside: Optional[Callable[[], None]] = None,
         reindex: Optional[Callable[[], None]] = None,
         pin: Optional[Callable[[], None]] = None,
+        similar: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.open_file = open_file
@@ -55,6 +56,12 @@ class FileActions:
         #: whatever the file's own state - even a missing one is worth
         #: keeping track of, which "Open" and "Show in folder" are not.
         self.pin = pin
+        #: Work order 0h §2d: "what else looks/reads like this" - built on
+        #: `SearchEngine.similar_to`, which already exists and needed no
+        #: change to be reachable from a text result. Offered whatever the
+        #: file's own state, same reasoning as `pin`: a vector neighbour
+        #: search does not care whether the file is still on disk.
+        self.similar = similar
         #: `(label, text)` pairs to offer alongside "Copy path". For mail:
         #: subject and sender are what people actually want on the clipboard,
         #: and a message's "file name" is a synthetic key nobody would
@@ -94,6 +101,15 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     if actions.pin is not None:
         action = QAction("Pin", parent)
         action.triggered.connect(lambda: actions.pin())
+        menu.addAction(action)
+
+    if actions.similar is not None:
+        action = QAction("More like this", parent)
+        action.setToolTip(
+            "Find other results with a similar meaning, using the vector "
+            "already stored for this one."
+        )
+        action.triggered.connect(lambda: actions.similar())
         menu.addAction(action)
 
     menu.addSeparator()
