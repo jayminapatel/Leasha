@@ -27,7 +27,10 @@ from app.core.errors import AppErrorException
 from app.core.logging import logger
 from app.search.query import ParsedQuery
 
-__all__ = ["search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS", "search_images", "hydrate_images"]
+__all__ = [
+    "search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS", "search_images", "hydrate_images",
+    "CLIP_TEXT_MODEL", "CLIP_TEXT_DIM", "clip_text_embedder_from_settings",
+]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 VECTOR_LIMIT = 100
@@ -289,6 +292,46 @@ def hydrate(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 # -- work order 0h §1c: the third lane, CLIP image search --------------------
+
+#: The CLIP text tower paired with `CLIP_IMAGE_MODEL`
+#: (`app.index.clip_embedder.CLIP_IMAGE_MODEL`) - same family, same 512
+#: dimensions, same MIT license, so a query vector from this model and an
+#: image vector from that one are comparable at all. `clip_embedder.py`'s
+#: `CLIP_IMAGE_DIM` docstring has pointed here since it was written; this is
+#: that promise made real rather than left as a forward reference nothing
+#: defined.
+CLIP_TEXT_MODEL = "Qdrant/clip-ViT-B-32-text"
+CLIP_TEXT_DIM = 512
+
+
+def clip_text_embedder_from_settings(settings: object) -> Any:
+    r"""The CLIP text-tower embedder every `SearchEngine` call site builds alike.
+
+    **Not `Embedder.from_settings`.** That classmethod reads
+    `settings.embed_model` for the model name and passes it *positionally* to
+    `Embedder.__init__` - so `Embedder.from_settings(settings, model_name=
+    CLIP_TEXT_MODEL)` would raise `TypeError: got multiple values for
+    argument 'model_name'` rather than overriding it, since `model_name`
+    lands in `**overrides` and collides with the positional one underneath.
+    This function plays the same "one constructor, every caller" role
+    `Embedder.from_settings` and `Reranker.from_settings` already play for
+    their own models (work order 0h §1c names that precedent explicitly),
+    just without going through a classmethod that cannot take this one
+    override.
+
+    Still reads `cache_dir` and `device` from `settings`, same as
+    `Embedder.from_settings` does, so the CLIP text tower shares the model
+    cache directory and the DirectML-with-CPU-fallback seam every other
+    embedding model in this application already has - there is no reason
+    for a 512-dim CLIP model to be the one exception.
+    """
+    from app.index.embedder import Embedder
+
+    return Embedder(
+        CLIP_TEXT_MODEL, dim=CLIP_TEXT_DIM,
+        cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
+        device=str(getattr(settings, "embed_device", "auto") or "auto"),
+    )
 
 
 def search_images(
