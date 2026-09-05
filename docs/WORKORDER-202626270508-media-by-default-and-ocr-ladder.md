@@ -26,14 +26,18 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
 
 ## 1. Defaults
 
-- [ ] **1a** image formats (jpg/jpeg/png/gif/bmp/webp/**tif/tiff**/**heic/heif**
+- [x] **1a** image formats (jpg/jpeg/png/gif/bmp/webp/**tif/tiff**/**heic/heif**
   /**svg**) enabled by default in the format registry; RAW formats
   (cr2/nef/dng/arw) enabled via embedded-preview extraction (1d). Existing
   installs: additive only — newly enabled formats join the next run; nothing
   is re-asked, nothing existing changes (grandfather rule).
-- [ ] **1b** `INDEX_OCR_MODE` default becomes the with-run mode (media on by
+  **Verified 2026-09-05:** all formats present in `config/extractors.toml`
+  (tiff/heic/heif/svg → ocr; cr2/nef/dng/arw → raw).
+- [x] **1b** `INDEX_OCR_MODE` default becomes the with-run mode (media on by
   default is hollow if OCR stays off); existing installs keep their stored
   choice.
+  **Verified 2026-09-05:** `app/core/settings_registry.py` sets
+  `default="with-run"` for `INDEX_OCR_MODE` exactly.
 
 ## 2. The ladder (one module, `app/extract/ocr.py` territory)
 
@@ -97,20 +101,49 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
 
 ## 3. Image hygiene (the corpus punishes skipping these)
 
-- [ ] **3a EXIF date**: images index EXIF `DateTimeOriginal` as their date;
+- [x] **3a EXIF date**: images index EXIF `DateTimeOriginal` as their date;
   fallback to file time only when absent. `after:`/`before:` and any date
   display use it. (Decision 3 above — load-bearing for the 20-year corpus.)
+  **Verified 2026-09-05:** `read_datetime()` from `app/extract/exif.py` is
+  called and its result assigned to `builder.date` in both
+  `app/extract/ocr.py` and `app/extract/raw.py`. No dedicated end-to-end
+  test exists yet for the "2006 DateTimeOriginal beats 2019 mtime,
+  `before:2010` finds it" scenario specifically - only
+  `test_read_datetime_never_raises` covers this function today. Ticked on
+  the wiring, not the missing end-to-end proof; see §4.
 - [ ] **3b EXIF orientation** honoured wherever images are decoded (previews,
   future thumbnails) — portrait photos must not render sideways.
+  **Checked 2026-09-05, genuinely not done:** `read_orientation()` exists in
+  `app/extract/exif.py` but nothing calls it anywhere in the tree - searched
+  `app/ui/preview_loader.py` and both image extractors specifically.
 - [ ] **3c HEIC/HEIF** via `pillow-heif` (installed by owner); **TIFF** and
   **SVG** join the preview image suffixes (indexer and preview suffix sets
   asserted consistent by test — the drift class found in review).
-- [ ] **3d RAW** (cr2/nef/dng/arw): extract the embedded JPEG preview via
+  **Checked 2026-09-05:** the formats themselves are enabled (see 1a), but
+  the specific "indexer and preview suffix sets asserted consistent by
+  test" this item calls for does not exist - searched for a suffix-
+  consistency test and found only an unrelated one (table-alignment, not
+  images).
+- [x] **3d RAW** (cr2/nef/dng/arw): extract the embedded JPEG preview via
   `rawpy` for both indexing (ladder input) and preview. Never decode full RAW.
+  **Verified 2026-09-05:** `app/extract/raw.py`'s `extract_preview()` does
+  exactly this via `rawpy.imread(...).extract_thumb()`.
 - [ ] **3e Markdown** preview renders via `QTextDocument.setMarkdown`
   (one-liner from the viewer-gaps list; lives here because it is hygiene).
+  **Checked 2026-09-05, not done:** no `setMarkdown` call anywhere in
+  `app/ui/`.
 
 ## 4. Tests
+
+> **Checked 2026-09-05, all correctly left open:** the receipt-photo half of
+> the ladder test exists (`test_receipt_filename_goes_straight_to_ocr` in
+> `tests/unit/test_ocr_ladder.py`), but the "wall photo settles as no text
+> found (checked)" half can't exist yet - it needs rung 2 (item 2c), which
+> isn't built. The per-page PDF probe test needs the same. `test_perf_floors.py`
+> exists but covers chunking/query/wildcard speed, not the ladder's own
+> perf floor. No dedicated end-to-end EXIF-date test or suffix-consistency
+> test exists either (see 3a/3c above). None ticked, since none is fully
+> satisfied.
 
 - [ ] ladder: a text scan fast-accepts at rung 1; a wall photo settles as "no
   text found (checked)" via rung 2 with no recognition run; a receipt *photo*
