@@ -39,6 +39,36 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   prompt wording next: a smaller model rejects more often than a larger one
   would, which is a real trade-off of running `qwen2.5:1.5b` over `mistral`.
 
+### Settings now has five shelves instead of one long scroll
+
+- Settings used to be twelve boxes stacked on one page, longest first,
+  shortest last, with nothing telling you which was which until you
+  scrolled past it. It now opens onto five named places — What's indexed,
+  Search, Models & AI, Appearance, Storage & maintenance — picked from a
+  list down the left, the same way a code editor lets you jump between
+  its own settings.
+- A box at the top finds any setting by typing part of its name, wherever
+  it lives — type "shortcut" and the mini-search hotkey turns up without
+  you needing to know which of the five places it was in.
+- Settings remembers which of the five you had open last time, so it
+  reopens there rather than back at the start every time.
+- Nothing on any of the five was reworded on the way — every label and
+  every explanation reads exactly as it did before.
+
+### Indexing splits into Status, Schedule and Tuning, and stops squeezing controls off the bottom of the page
+
+- The Indexing page used to run the run controls, the skipped-files list,
+  the schedule and the whole Index Tuning screen down one page with
+  nothing to scroll it once all of that no longer fit — so the bottom of
+  the page, including several tuning controls, was simply unreachable on
+  anything but a tall window.
+- It now opens onto three places, picked from the same kind of list
+  Settings uses: **Status** (what's running, what's in the index, what got
+  skipped), **Schedule** (when a run happens on its own) and **Tuning**
+  (everything that decides how fast a run goes). Schedule and Tuning now
+  scroll on their own when a smaller window needs them to, so nothing at
+  the bottom of either is ever cut off again.
+
 ### Fixed: a folder Leasha cannot find is no longer skipped in silence
 
 - **If one of your folders had moved, been renamed, or was on a drive that

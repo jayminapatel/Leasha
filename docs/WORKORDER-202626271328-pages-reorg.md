@@ -208,11 +208,34 @@ the owner's report that started this: "too long and cluttered".
   panel) and wrapping it again would reintroduce the two-scrollbars fault
   `widgets/scroll.py`'s own docstring warns against - confirmed structurally
   by `test_status_keeps_its_own_scrolling_schedule_and_tuning_gain_theirs`.
-  **Live-verified 2026-09-05** (see the closing note below) at the default
-  window size, maximised, and resized down to a minimum sensible size:
-  Schedule and Tuning each scroll internally when their content exceeds the
-  window, Status is unchanged from before this order, and nothing is
-  clipped or overlapping at any of the three sizes.
+  **Verification 2026-09-05, and one gap named honestly.** A second
+  `venv\Scripts\pythonw.exe -m app.main` was launched to click through the
+  real window as instructed, and it could not get past its own splash
+  screen: *"Waiting for the previous Leasha to finish closing..."* -
+  `run_lock`'s single-instance guard was held by another already-running
+  process on this shared machine (this repo's own working method: other
+  sessions may be active concurrently). Killing that process to force the
+  launch through was refused - it is not this thread's process to end, and
+  the instructions are explicit that only what this session itself started
+  may be torn down. Only the newly-spawned instance was killed
+  (`taskkill /F /PID 1080`, its own splash-holder child); the pre-existing
+  process was left exactly as found.
+  As the closest available substitute, the *real* `SettingsView` and
+  `IndexingView` production widgets (not a mock, not a fixture double) were
+  built offscreen (`QT_QPA_PLATFORM=offscreen`) with the real stylesheet
+  applied, resized through all three named sizes, walked through every
+  category, and grabbed to PNG per state - the leasha skill's own tier-2
+  method ("`widget.grab()` to PNG - renders a widget even offscreen").
+  Read back: at the minimum size (1024×600) Tuning shows a working vertical
+  scrollbar with every row at a readable height, Schedule fits without
+  needing one, and Status is visually unchanged from before this order, at
+  all three sizes, on the real widget tree. This is real-widget, real-size
+  evidence for the mechanism the automated zero-height and QScrollArea
+  tests already assert; it is not, and is not claimed to be, the
+  full interactive click-through the instructions asked for, which the
+  singleton lock made impossible to obtain safely. Whoever can confirm this
+  on a machine with no other instance running gets the last mile for free -
+  nothing about the fix depends on anything this session could not check.
 - [x] **2c** anything on today's Indexing page that is a *setting* rather
   than a control or readout keeps exactly one home (no duplication
   between Settings and Indexing — a value shown in both places reads
