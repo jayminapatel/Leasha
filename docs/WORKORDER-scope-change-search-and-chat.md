@@ -156,7 +156,11 @@ Use a fake client returning canned strings. **No test may require a running Olla
 - [x] The translated query is returned to the caller for display - assert it reaches the
       presenter, since the UI contract depends on it.
 - [x] Static: nothing in `app/search/` imports `app.llm` except the translation module.
-- [ ] **Recorded in the changelog:** median translation latency on the owner's hardware.
+- [x] **Recorded in the changelog:** median translation latency on the owner's hardware.
+  **Done 2026-09-05:** median 2.47s over 5 sentences against the actually-
+  configured model (`qwen2.5:1.5b`, not the `mistral` code default). See
+  CHANGELOG.md's `[Unreleased]` section for the full measurement and its
+  cold-start caveat.
 
 ## 5. L8b - prose answers. Secondary, and only if asked for
 

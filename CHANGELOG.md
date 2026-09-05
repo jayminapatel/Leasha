@@ -17,6 +17,28 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Measured: query-translation latency on the owner's hardware
+
+- **Median 2.47s** across 5 representative sentences ("the safety report Dave
+  sent about Leeds before the audit", "photos from the school trip last
+  summer", "invoices from acme corp last quarter", "that email from sarah
+  about the budget meeting", "pdf files mentioning the new contract terms"),
+  against the model actually configured on this machine (`qwen2.5:1.5b` via
+  the persisted `ui:ollama_model` setting — not the code-level `mistral`
+  default, which nobody here uses).
+- One of the five paid a cold-start model-load penalty (15.31s); the other
+  four, once the model was resident, ran 0.78s–2.48s. Real first-use-of-a-
+  session latency is closer to the 15s figure; every subsequent translation
+  in the same session sees the sub-3s numbers. Both are reported rather than
+  averaging them away, since a user's actual experience is "slow once, fast
+  after," not a single flat number.
+- Two of the five sentences were rejected outright by the model this run
+  ("photo"/"invoice" offered as file types that do not exist) - correctly
+  caught by the existing invented-operator rejection, falling back to raw-
+  text search rather than a broken filter. Worth noting for whoever tunes
+  prompt wording next: a smaller model rejects more often than a larger one
+  would, which is a real trade-off of running `qwen2.5:1.5b` over `mistral`.
+
 ### Fixed: a folder Leasha cannot find is no longer skipped in silence
 
 - **If one of your folders had moved, been renamed, or was on a drive that
