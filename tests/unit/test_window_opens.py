@@ -172,6 +172,46 @@ def test_every_tab_can_be_selected(window):
         app.processEvents()
 
 
+def test_idle_optimize_timer_actually_calls_the_store(window):
+    r"""§3c/§4: "idle-optimize runs" - the timer's wiring, not just the
+    method it calls.
+
+    `tests/unit/test_idle_optimize.py` already proves `optimize_query_
+    planner()` itself works and that `close()` no longer calls it; neither
+    touches `MainWindow` at all, so neither can say whether the hourly
+    `_optimize_timer` this item promises is actually connected to anything
+    real. This calls `_run_idle_optimize()` directly - exactly what
+    `_optimize_timer.timeout` does once an hour - and waits for the
+    background `QThreadPool` worker it starts to finish, then asserts the
+    store's `optimize_query_planner` was the thing that ran.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    app, built = window
+
+    calls: list[bool] = []
+    real = built._store.optimize_query_planner
+
+    def spy():
+        calls.append(True)
+        return real()
+
+    built._store.optimize_query_planner = spy
+    try:
+        built._run_idle_optimize()
+        QThreadPool.globalInstance().waitForDone(5_000)
+        for _ in range(3):
+            app.processEvents()
+
+        assert calls, (
+            "_run_idle_optimize must actually invoke "
+            "store.optimize_query_planner - the timer exists for nothing "
+            "otherwise"
+        )
+    finally:
+        built._store.optimize_query_planner = real
+
+
 # --- §4: Window state (save/restore geometry) ----------------------------------
 
 
@@ -293,6 +333,68 @@ def test_close_event_persists_geometry_without_raising(tmp_path):
             "AttributeError above it was unhandled"
         assert store.get_state("ui:window_geometry"), \
             "closeEvent must persist window geometry via self._store.set_states"
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_close_hides_before_the_staged_teardown_begins(tmp_path):
+    r"""§3b, and §4's own coverage gap: "hide-first" as an *ordering*, not
+    just an eventual end state.
+
+    `test_close_event_persists_geometry_without_raising` already proves the
+    window ends up hidden after `close()` returns - which would be true even
+    if `self.hide()` were the very last line of `closeEvent`, telling nobody
+    that the perceived-instant-close behaviour this item is actually about
+    (the user sees the app gone from the screen *before* the teardown runs,
+    not merely by the time it finishes) is real. This test hooks the first
+    teardown stage (`search_view.shutdown`, the first call inside
+    `closeEvent`'s `stage()` loop) and asserts the window is already
+    invisible at that exact moment - the ordering the work order's own
+    "close: hide-first verified (window invisible before drain begins)"
+    acceptance line names.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "window_hide_first"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        built.show()
+        for _ in range(3):
+            app.processEvents()
+
+        visible_at_first_stage: list[bool] = []
+        real_shutdown = built.search_view.shutdown
+
+        def spy_shutdown():
+            visible_at_first_stage.append(built.isVisible())
+            real_shutdown()
+
+        built.search_view.shutdown = spy_shutdown
+
+        built.close()
+        for _ in range(3):
+            app.processEvents()
+
+        assert visible_at_first_stage == [False], (
+            "the window must already be hidden by the time the first "
+            "teardown stage runs - hiding only at the very end of "
+            "closeEvent would satisfy the weaker 'ends up hidden' test "
+            "above without delivering perceived-instant close at all"
+        )
     finally:
         store.close()
         vectors.close()
