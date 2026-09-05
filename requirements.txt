@@ -123,6 +123,20 @@ requests==2.34.2      # only used for optional Ollama calls
 rapidocr-onnxruntime==1.4.4
 pillow==12.3.0
 
+# --- Perceptual image hashing (work order 0h §2a) ---------------------------
+# Work order 0h's own text claimed this was "already installed" - checked
+# with `pip show imagehash` before writing a line of §2a, and it was not: not
+# in this file, not in site-packages, `pip show` returning "not found". Pinned
+# here rather than left assumed. All three publish cp312 win_amd64 wheels (or
+# a py3-none-any wheel for imagehash itself) - no compiler needed, matching
+# this file's own wheel rule. PyWavelets and scipy arrive as imagehash's own
+# transitive dependencies (phash uses scipy's DCT; PyWavelets is only needed
+# for whash, which this project does not call, but pip installs it as a hard
+# requirement of the package regardless).
+imagehash==4.3.2
+scipy==1.18.1
+PyWavelets==1.9.0
+
 # --- Optional: HEIC/HEIF images via pillow-heif -----------------------------
 # Install to support HEIC/HEIF image format (Apple Photos). Without it, these
 # formats degrade to name-only indexing.
