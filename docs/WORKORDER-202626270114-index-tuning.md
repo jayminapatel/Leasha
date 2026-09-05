@@ -345,6 +345,51 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
 - [ ] **6h Quantised model option** (CPU): int8 variant behind
   `EMBED_QUANTISED`, accepted only if `evaluate --builtin` recall stays
   within the tolerance recorded in this file when it lands.
+  **Investigated 2026-09-05, left open - no int8 build exists to measure.**
+  Everything *around* the feature is already wired, checked by reading the
+  code rather than assumed: `Settings.embed_quantised` /
+  `EMBED_QUANTISED` in `app/core/config.py` and `app/core/settings_registry.py`,
+  `Embedder.__init__(quantised=...)` and `Embedder.from_settings()` in
+  `app/index/embedder.py`, the greyed-on-GPU checkbox and its plain-words
+  tooltip in `app/ui/widgets/tuning_groups.py`, and `quantised_note()` in
+  `app/ui/tuning.py`. What is missing is the one thing the item is actually
+  named for: `self.quantised` is read in `_ensure_encoder()` only to log a
+  notice when a GPU was also asked for - it is never passed to `TextEmbedding(...)`,
+  so setting `EMBED_QUANTISED=true` today changes nothing about which model
+  file loads or how it runs. The control is real, wired to a setting that is
+  read, and does not yet do anything - the exact defect this order's own §7
+  wiring tests exist to catch, and it has not been caught yet because no test
+  asserts the model actually changes.
+  The reason it is not built is that there is nothing to switch it to.
+  `fastembed.TextEmbedding.list_supported_models()` (fastembed 0.x, this
+  venv) registers exactly one entry for `BAAI/bge-small-en-v1.5`, sourced
+  from `qdrant/bge-small-en-v1.5-onnx-q` - the file already downloaded to
+  `D:\Leasha\Data\models\models--qdrant--bge-small-en-v1.5-onnx-q\...\model_optimized.onnx`,
+  66.5MB for a 33M-parameter model (~2 bytes/weight, i.e. **fp16**, matching
+  `embed_bench.py`'s own `precision_of()` inference). That is the *only* file
+  fastembed's built-in catalogue offers for this model name - there is no
+  second, genuinely-int8 entry to select via `model_name` or `model_file`.
+  Two ways one could exist, both looked at and both left for a decision
+  rather than done speculatively:
+  * **Runtime quantisation** via `onnxruntime.quantization.quantize_dynamic`,
+    converting the cached fp16 file to int8 once and caching the result.
+    Checked directly: it raises `ModuleNotFoundError: No module named 'onnx'`
+    in this venv - the quantisation tool depends on the separate `onnx`
+    package (protobuf-based graph surgery), which is not a project dependency
+    today. Adding it is a real install-footprint decision - a new wheel on
+    every machine for a feature most users will never touch - not something
+    to add to `requirements.txt` without the owner weighing in, in the same
+    spirit as `CONVERTER_JUSTIFIED` for external converters.
+  * **A different published int8 build** (e.g. via `add_custom_model` against
+    another HuggingFace repo). Not attempted: sourcing and trusting a model
+    file from an unfamiliar repo is exactly the "downloading files from an
+    untrusted source" this session must not do on its own judgement, and
+    picking the *right* one (quality, licence, actually int8, actually
+    compatible with the 384-dim column) is itself a decision, not a detail.
+  Either path is buildable, but neither is a same-session, no-decision change,
+  and the item's own acceptance gate - `evaluate --builtin` recall against a
+  recorded tolerance - has nothing to measure yet. Left unticked with the
+  wiring intact rather than ticked on a control that still does nothing.
 - [ ] **6i Converter session** (only if 6a shows conversion matters on the
   owner's corpus): persistent soffice listener instead of per-file cold
   starts. Same evidence rule as 6e — numbers or closed.
