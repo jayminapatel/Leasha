@@ -85,3 +85,83 @@ def test_nothing_happens_when_ocr_is_not_installed(monkeypatch):
 
     body = inspect.getsource(pdf._ocr_pages)
     assert body.index("available()") < body.index("get_pixmap")
+
+
+# ---------------------------------------------------------------------------
+# 2d: the ladder is the router for scanned-PDF pages too, per-page
+# ---------------------------------------------------------------------------
+
+def test_only_the_scanned_page_among_text_pages_pays_for_recognition(tmp_path, monkeypatch):
+    """§4 'per-page PDF probe:' - a fixture PDF with one scanned page among
+    text pages. Before 2d, a mostly-text PDF like this one indexed the text
+    pages and only ever *warned* about the rest - it never got the OCR budget
+    at all, because `result.is_empty` was False. Now the specific page with no
+    text layer gets its own shot at `ocr_image()`, and only that page pays."""
+    import pymupdf
+
+    from app.extract import ocr as ocr_module
+    from app.extract.pdf import PDF_OCR_PAGES_VAR, PdfExtractor
+
+    document = pymupdf.open()
+    page_one = document.new_page()
+    page_one.insert_text((72, 96), "Page one has real text.", fontsize=12)
+    page_two = document.new_page()  # the scanned page: an image, no text layer
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 160, 160))
+    pixmap.set_rect(pixmap.irect, (210, 210, 210))
+    page_two.insert_image(pymupdf.Rect(72, 72, 232, 232), pixmap=pixmap)
+    page_three = document.new_page()
+    page_three.insert_text((72, 96), "Page three has real text.", fontsize=12)
+    pdf_path = tmp_path / "mostly_text_one_scanned_page.pdf"
+    document.save(str(pdf_path))
+    document.close()
+
+    monkeypatch.setenv(PDF_OCR_PAGES_VAR, "10")
+    monkeypatch.setattr(ocr_module, "available", lambda: True)
+
+    calls: list[object] = []
+
+    def fake_ocr_image(source):
+        calls.append(source)
+        return ocr_module.OcrResult(text="Page two, read by OCR.", lines=1, elapsed_s=0.01)
+
+    monkeypatch.setattr(ocr_module, "ocr_image", fake_ocr_image)
+
+    documents = list(PdfExtractor().extract(pdf_path))
+
+    assert len(calls) == 1, "only the one page with no text layer should pay for recognition"
+    assert documents, "the document should still be indexed, not treated as unreadable"
+    text = documents[0].text
+    assert "Page one has real text." in text
+    assert "Page three has real text." in text
+    assert "Page two, read by OCR." in text
+    assert documents[0].meta["ocr_pages"] == 1
+    assert not documents[0].warnings, "the recovered page must not still be warned about"
+
+
+def test_a_scanned_page_the_budget_does_not_cover_still_warns(tmp_path, monkeypatch):
+    """The other half: when OCR is off (budget 0, the default), a mostly-text
+    PDF's scanned page behaves exactly as it always did - warned about, not
+    silently dropped. `PDF_OCR_PAGES` semantics are unchanged for this case."""
+    import pymupdf
+
+    from app.extract.pdf import PDF_OCR_PAGES_VAR, PdfExtractor
+
+    document = pymupdf.open()
+    page_one = document.new_page()
+    page_one.insert_text((72, 96), "Page one has real text.", fontsize=12)
+    page_two = document.new_page()
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 160, 160))
+    pixmap.set_rect(pixmap.irect, (210, 210, 210))
+    page_two.insert_image(pymupdf.Rect(72, 72, 232, 232), pixmap=pixmap)
+    pdf_path = tmp_path / "mostly_text_no_ocr_budget.pdf"
+    document.save(str(pdf_path))
+    document.close()
+
+    monkeypatch.delenv(PDF_OCR_PAGES_VAR, raising=False)
+
+    documents = list(PdfExtractor().extract(pdf_path))
+
+    assert documents
+    assert "Page one has real text." in documents[0].text
+    assert documents[0].warnings, "the unreadable page must still be reported, not silently dropped"
+    assert documents[0].warnings[-1].code == "ERR_NO_TEXT_LAYER"

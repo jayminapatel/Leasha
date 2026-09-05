@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.01 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.02 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Wall photos cost milliseconds now, and a scanned page inside an ordinary report is no longer skipped
+
+- The OCR ladder's detection-only rung is built: before reading a photo in
+  full, Leasha now checks - in a fraction of a second - whether it has any
+  text at all. A photo of a wall or a beach records "no text found (checked)"
+  in well under a second; a photo of a receipt or a whiteboard still reads
+  properly, because the check only ever decides whether to read something,
+  never that something should be skipped.
+- A scanned page tucked inside an otherwise ordinary, born-digital PDF - a
+  report with one scanned appendix, say - is no longer silently left out.
+  Leasha now gives that one page the same chance any other photo gets,
+  without paying to read the pages around it that already have real text.
+- **A known gap, found and not silently left**: a photo's EXIF date - the
+  date the camera actually took it - is read correctly but does not yet
+  reach search. `after:`/`before:` still go by the file's copy date, so a
+  twenty-year-old photo copied onto a new drive can still turn up under the
+  wrong year. Fixing it properly needs a bit more plumbing than this round of
+  work covered, so it is recorded rather than quietly worked around.
 
 ### Photos can now be found by describing them, not just by filename
 

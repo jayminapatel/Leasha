@@ -52,7 +52,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | RELEASED | 23 / 3 | After 0b |
 | 0d | `202626270257` | Privacy defaults | RELEASED | **9 / 0** | Gap-schedulable |
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | RELEASED | 29 / 1 | After 0c |
-| 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 0 / 17 | Foundation for 0h–0j |
+| 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 11 / 6 | Foundation for 0h–0j |
 | 0g | `202626270509` | mbox, Takeout, chats | RELEASED | 0 / 7 | Gap-schedulable |
 | 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 5 / 8 | 0f |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
