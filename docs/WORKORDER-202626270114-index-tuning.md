@@ -265,6 +265,43 @@ asked, not two).
   Defaults from detection alone are good enough to start immediately; the
   first bench runs at the first idle moment and upgrades Defaults to
   Auto-tune quietly. A kids'-machine install is: run installer, done.
+  **Investigated 2026-09-05, left open - not a decision this thread can make
+  safely.** Two of the three clauses already hold, checked against code and
+  tests rather than assumed: the installer asks nothing about tuning
+  (`install.ps1` has one tuning-relevant path, the §2c GPU question, and it is
+  the *installer's* extra question, not a new one this item adds); and
+  Defaults indexes a never-benched machine correctly with no bench run -
+  `test_defaults_index_that_laptop_with_nothing_measured` in
+  `tests/unit/test_index_tuning_acceptance.py` proves it against the
+  four-core/8GB laptop profile via `app/index/resolve.py::resolve_for_run`.
+  The third clause - "the first bench runs at the first idle moment and
+  upgrades Defaults to Auto-tune quietly" - is **not built**.
+  `app/index/autotune.py::should_bench()` answers "why should the bench run"
+  correctly (`test_the_bench_is_asked_for_when_there_is_nothing_to_trust` in
+  `tests/unit/test_autotune.py` covers it) but nothing calls it: it does not
+  appear anywhere in `app/ui/shell.py`, `app/cli.py`, or any scheduler. The
+  only bench trigger that is wired up today is the manual *Benchmark now*
+  button (`MainWindow._benchmark_models`, §4b). §5d's own text ("Each
+  schedules the §5a bench for the next idle moment") describes the same
+  missing mechanism, so this is not a new gap 5e introduces - it is the one
+  5d already implies and this order's own checklist ticked before the
+  scheduler existed.
+  Building the scheduler itself - watching for idle, checking battery state,
+  running the bench worker unattended, then switching
+  `INDEX_TUNING_MODE` from `defaults` to `auto` and posting the plain-words
+  notice - is UI/orchestration work that belongs in `app/ui/shell.py` (an
+  idle timer alongside the existing `_run_idle_optimize` one, §5d's own
+  wording points there) or an equivalent scheduler. That file is outside this
+  thread's file scope for Order 0b (owned by concurrent UI work per the
+  session's instructions), and no file this thread may touch
+  (`pipeline.py`, `embedder.py`, `compute_profile.py`, `config.py`,
+  `settings_registry.py`, the two install scripts) is the right home for it -
+  writing the scheduler into one of those would scatter UI-thread
+  orchestration into layers that must not own it (non-negotiable #5: the UI
+  thread never does I/O, but *something* on the UI side must decide when idle
+  is idle, and that decision is what is missing). Left unticked rather than
+  half-built: a fake "quiet upgrade" bolted onto the wrong layer would look
+  done and would not be.
 
 ## 6. The speed work itself (what tuning controls)
 
