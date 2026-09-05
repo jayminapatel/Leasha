@@ -17,6 +17,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Search results can now be dragged, pinned and read on a timeline
+
+- A result can be dragged straight out of the list into Explorer, an email
+  or anywhere else that takes a file - no more finding it a second time in a
+  folder. A result whose file has moved or been deleted since it was
+  indexed simply does not drag; a mail message drags nothing, never the
+  whole mailbox it lives in.
+- A new "Pin" option on a result's right-click menu gathers it into a
+  pinned panel beside the results, which keeps what you gather across
+  several searches until you clear it yourself - a new search never
+  empties it. From there: open everything at once, copy every path, or
+  drag the whole set out together.
+- A thin band above the results now shows when they cluster in time -
+  click a period to add it to the search, using the same after:/before:
+  wording you could already type by hand.
+- All three are individually switched off from a row of checkboxes above
+  the results, each with a tooltip saying what it does.
+
 ### Measured: query-translation latency on the owner's hardware
 
 - **Median 2.47s** across 5 representative sentences ("the safety report Dave

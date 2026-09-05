@@ -451,3 +451,81 @@ shared function if that refactor is ever done, but that is a decision for
 whoever owns both files at once, not this thread.
 
 **4e is next.** Not started as of this note.
+
+## Note on §3 (3b/3c/3d), added 2026-09-05
+
+**All three superseded drafts were directly reusable, not a rejected design.**
+`docs/_superseded/drag_out.py`, `pinned.py` and `timeline.py` matched §3b/3c/3d
+as written today almost line for line - checked against the *current*
+`app/ui/presenter.py`, not assumed. `pinned.py` and `timeline.py` needed no
+logic changes at all: `_as_pin` reads `.path`/`.name` off whatever it is
+handed, which `ResultRow`/`ResultGroup` both carry, and `bands()` reads only
+`row.mtime_ns`, which `ResultRow` carries field-for-field. Both moved into
+`app/ui/` unchanged, with one added paragraph each noting the move. A fourth
+draft, `docs/_superseded/working_set.py`, turned up alongside the three named
+in this thread's brief - the Qt half of `pinned.py`, built together with it
+and reusable the same way once one bug in it was fixed (below). All four are
+deleted from `docs/_superseded/` now that nothing there duplicates them.
+
+**`drag_out.py` needed a real adaptation, not a copy.** The draft assumed a
+row could carry `attachment_path`/`attachment_file` and its own `source_kind`
+- names that do not exist on `ResultRow` or `ResultGroup` today. Checked
+against `app/extract/email_pst.py` rather than guessed at: a PST attachment's
+bytes are read into a `tempfile.TemporaryDirectory` only long enough to
+extract its text, then deleted before indexing moves on - nothing on disk
+*is* the attachment once indexing has finished with it. `mail_view.py`
+already reaches the same conclusion for "Open" and "Show in folder": *"a
+message lives inside a .pst and has no file on disk to open."* Dragging
+follows the same rule now, checked on the same `pst://` prefix
+`presenter.missing_paths` already treats as "not a real file."
+
+**So 3b's "mail results drag their attachment where one exists" is true only
+in the sense that one never exists to drag, in the current architecture.** A
+mail-sourced row drags nothing - never the whole PST, which is the stronger
+half of the requirement, and consistent with what this codebase already
+decided about "Open" - but it does not offer up the attachment file itself.
+Closing that gap for real would mean re-extracting one attachment from the
+mailbox on demand, the way §4e caches a converted PDF, and that is new code
+in `app/extract/email_pst.py` (and the PST-session plumbing behind it), which
+sits outside this thread's file scope. Flagged here for the owner rather than
+built past the rule that put it out of scope: a session with that file in
+scope could add a `attachment_bytes_for(message_key, name)` cached the way
+§4e caches its PDFs, and `app/ui/drag_out.py` would only need one more branch
+to use it.
+
+**`working_set.py`'s own drag-out line did not do what its comment claimed.**
+*"§3b again: what is gathered can be dragged out as a group"* sat directly
+above `self.list.setDragEnabled(True)` on a `QListWidget` - which drags Qt's
+own internal item format, not a file, so "drag the lot into an email" would
+have silently not worked. Swapped for a `QListView` over
+`DraggableResultsModel`, the same model `results_view.py` now builds, so
+"drag the lot into an email" is one mechanism used twice rather than two
+mechanisms, one of which was never finished.
+
+**The three off switches §6 requires live in one row above the results**,
+not in Settings: `view_options.py` and `settings_view.py` are both outside
+this thread's file scope, and `ViewPreferences` is a frozen dataclass in the
+former - adding a field to it was not available. Each switch is its own
+`index_state` key (`ui:drag_out_enabled`, `ui:pinned_panel_enabled`,
+`ui:timeline_strip_enabled`), read once at construction the same defensive
+way `view_options.load_prefs` reads its own three, on by default.
+
+**The timeline's click composes a filter through the search box itself.**
+`TimelineStrip.filter_chosen` carries `after:…before:…`; `search_view.py`
+appends it to whatever is already typed and dispatches through `search_now`,
+the same path Enter uses - so nothing new parses it, per §3d's "no new query
+semantics", and undoing a click means editing the text like any other filter.
+
+**Both `*_view.py` files this order touches sit at the 250-line guard.**
+`results_view.py` was at 247 lines before this order and stayed under it
+(240, after `build_results_pane` moved out); `search_view.py` was at 248 and
+is now at 249 - one line under the guard, with essentially no headroom left
+for the next thing this file needs. Worth flagging for whoever picks up
+`search_view.py` next: the guard is one line from firing on an unrelated
+change.
+
+Not verified on Windows: a real `QDrag` gesture into Explorer or an email
+client is exactly the kind of thing the offscreen platform cannot exercise -
+`test_result_drag_model.py` and `test_pinned_panel.py` check `mimeData()`
+directly instead, which is as far as this environment can verify. Worth one
+real drag, in each direction, before this is called finished end to end.
