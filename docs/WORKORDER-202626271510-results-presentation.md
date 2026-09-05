@@ -73,6 +73,17 @@ job.
   don't know to click see one match where there are five — silent
   information loss on the page that exists to show findings.
 
+  > **2026-09-05 (session 4).** The 2026-09-04 verification note above this
+  > file's section 1 checked that the chevron glyph is *drawn*
+  > (`group_subtitle`/`_paint_group`) but not that it is a click target in
+  > its own right - and it was not one: only the whole row toggled, via
+  > double-click/Enter, which is what "the whole row still toggles as it
+  > does today" already promised as unchanged. A single click on the
+  > chevron's own line did nothing. Fixed, not just found:
+  > `ResultDelegate.subtitle_rect`/`chevron_hit` and a new
+  > `ResultsView.eventFilter` on the list's viewport - see the dated note
+  > under this section's own test bullet in §8 for the files and tests.
+
 ## 3. Kind-aware rows — the list understands what it found
 
 - [x] **3a** the `[PDF]`-style text tag gives way to a **real file icon**
@@ -215,27 +226,129 @@ job.
 
 ## 8. Tests
 
-- [ ] snippet: window always contains ≥1 highlight (property test over
+- [x] snippet: window always contains ≥1 highlight (property test over
   generated match positions — Qt-free); boundary snapping never cuts a
   word; two-line hint equals two-line paint at every density (the
   gap-regression shape).
-- [ ] chevron: multi-chunk groups paint it, single-chunk groups don't;
+
+  > **2026-09-05 (session 4).** The example tests already covered a handful
+  > of hand-picked positions; two `hypothesis` property tests now cover the
+  > space between them - `test_the_window_always_contains_the_match_wherever_it_lands`
+  > and `test_the_window_never_cuts_a_word_wherever_it_lands`
+  > (`test_presenter.py`), generating the match's position in the source
+  > text rather than fixing it. `hypothesis` was already a project
+  > dependency (per `HANDOFF.md`) with no prior test using it - this is the
+  > first. The two-line hint/paint agreement was tested at comfortable
+  > density only; `test_sizehint_stays_one_line_tall_at_compact_density`
+  > (`test_result_delegate.py`) closes the "at every density" half the
+  > existing test's own docstring already claimed but did not check.
+- [x] chevron: multi-chunk groups paint it, single-chunk groups don't;
   toggle works by chevron and by row; subtitle counts match chunks.
+
+  > **2026-09-05 (session 4).** Writing this test found the same shape of
+  > gap session 3 found under 5c and 7a: item 2a's own text says "the
+  > chevron is a real click target", but nothing in `results_view.py` or
+  > `result_delegate.py` gave the chevron a click handler of its own -
+  > only the whole row toggled, via double-click/Enter (`_on_activated`,
+  > pre-existing and unchanged). Fixed rather than merely noted:
+  > `ResultDelegate.subtitle_rect` (the chevron line's geometry, shared with
+  > `paint` so a click and a paint can never disagree) and
+  > `ResultDelegate.chevron_hit` (the hit test itself - kept out of
+  > `results_view.py` on purpose, since that file's own 250-code-line guard
+  > was already close to full) back a new `ResultsView.eventFilter` on the
+  > list's viewport. Tests: `test_the_chevron_has_its_own_click_target_on_multi_match_groups`,
+  > `test_chevron_hit_finds_the_file_id_under_a_click_on_the_subtitle_line`,
+  > `test_chevron_hit_ignores_an_invalid_index` (`test_result_delegate.py`);
+  > `test_a_click_on_the_chevron_expands_the_group`,
+  > `test_a_click_off_the_chevron_does_not_toggle`,
+  > `test_the_whole_row_still_toggles_by_activation` (`test_results_view.py`,
+  > pytest-qt). `results_view.py` is now at 249/250 code lines.
 - [ ] kind rows: mail fixture renders sender-first; code fixture renders
   monospace + line number; icon cache returns one pixmap per extension.
+
+  > **2026-09-05 (session 4).** Left unticked - the line-number half is the
+  > same infrastructure gap item 3c's own note above documents, and cannot
+  > be tested without being built. The other two-thirds are genuinely
+  > covered: mail-fixture sender-first in
+  > `test_a_message_group_leads_with_the_sender_not_a_folder`
+  > (`test_result_groups.py`), the code fixture's monospace half in
+  > `test_a_code_row_gets_a_monospace_font` (`test_result_delegate.py`), and
+  > the icon cache in `test_an_icon_is_cached_after_the_first_lookup` -
+  > keyed per `kind` by construction, so a second kind can never reuse the
+  > first's cache slot.
 - [ ] locations: left-elision keeps the tail at narrow widths; twins
   fixture (8 × invoice.pdf) shows distinguishing segments; unique names
   unchanged.
-- [ ] friendly dates: register-gated (plain on, technical off), tooltip
+
+  > **2026-09-05 (session 4).** Left unticked for the same reason as 4a
+  > above: `elide_path_left()` is not called from anywhere that draws a
+  > location line, so "keeps the tail at narrow widths" has no rendered
+  > location line to test it against - testing the bare function again
+  > would only restate the coverage `test_left_eliding_keeps_the_tail`
+  > already has. The twins and unique-names thirds are genuinely covered -
+  > `test_eight_invoices_are_all_told_apart` is the work order's own
+  > 8-invoice example, `test_two_invoices_in_different_clients_get_the_client_emphasised`,
+  > `test_twins_already_distinguished_by_the_ordinary_breadcrumb_are_untouched`
+  > and `test_unique_names_carry_no_emphasis` (all `test_result_groups.py`).
+- [x] friendly dates: register-gated (plain on, technical off), tooltip
   always exact; off-switch honoured.
-- [ ] stable update: interim→full swap with pointer over row N — N's
+
+  > **2026-09-05 (session 4).** Already fully covered, verified rather than
+  > assumed: `test_plain_register_reads_friendly`,
+  > `test_technical_register_keeps_an_exact_date`,
+  > `test_the_exact_date_is_always_present_whichever_register_is_showing`,
+  > `test_an_unrecognised_register_falls_back_to_plain` (`test_result_groups.py`);
+  > the global off-switch in `test_turning_off_plain_words_globally_reaches_the_search_tab_too`
+  > (`test_presenter.py`).
+- [x] stable update: interim→full swap with pointer over row N — N's
   payload id unchanged on screen (pytest-qt).
-- [ ] keyboard: pytest-qt — type, ↓↓, Enter opens the third result,
+
+  > **2026-09-05 (session 4).** Already fully covered, verified rather than
+  > assumed: `test_the_current_row_survives_a_rebuild_that_adds_rows`
+  > (`test_results_view.py`, pytest-qt) is exactly this scenario - interim
+  > tier, land on document 2's row, full tier re-ranks and appends, document
+  > 2 is still current by `file_id`.
+- [x] keyboard: pytest-qt — type, ↓↓, Enter opens the third result,
   focus never left the box; preview followed.
-- [ ] accessibility: accessible text assertions per changed row form;
+
+  > **2026-09-05 (session 4).** The individual pieces (arrow moves
+  > selection, Enter opens, Ctrl+Enter reveals, focus never called) were
+  > already covered separately; `test_the_whole_flow_types_then_arrows_down_then_opens_the_third_result`
+  > (`test_search_view.py`) is the first to chain them into one scenario and
+  > assert the preview's `selected` signal fired along the way. One
+  > correction to this bullet's own count, in a note rather than an edit to
+  > it: nothing is current straight after a search, so it takes three ↓
+  > presses to reach the third result, not two - `show_results` clears the
+  > anchor, and the first ↓ from nothing selected lands on the *first*
+  > result, exactly as `test_arrow_down_moves_the_selection_without_leaving_the_box`
+  > already showed before this session.
+- [x] accessibility: accessible text assertions per changed row form;
   suite runs at a forced 150% scaling fixture where feasible.
+
+  > **2026-09-05 (session 4).** Already fully covered, verified rather than
+  > assumed: `test_accessible_text_carries_the_kind_word`,
+  > `test_accessible_text_announces_a_multi_match_group_s_state`,
+  > `test_accessible_text_says_nothing_about_expansion_for_a_single_match`,
+  > `test_accessible_text_prefers_the_exact_date_over_the_friendly_one`
+  > (row-form assertions); `test_the_delegate_scales_with_the_system_font`
+  > is parametrised over 100/125/150/200%, so the 150% fixture this bullet
+  > asks for is one of its four cases (all `test_result_delegate.py`).
 - [ ] pytest-qt scenario per item (0m convention); all new strings pass
   plain-words/tooltip rules.
+
+  > **2026-09-05 (session 4).** Left unticked for the same reason order 0s
+  > recorded against its own copy of this exact bullet the same day: 0m
+  > (`docs/WORKORDER-202626270547-test-automation.md`) is explicitly HELD
+  > by the owner ("do not execute until he says when"), and the
+  > qtbot/real-`MainWindow` harness that convention names does not exist
+  > anywhere in the repo - building it here would mean executing 0m's own
+  > work past its hold, on the strength of one bullet in a different order.
+  > The other half is true and checked: every string this order added or
+  > changed (`kind_tag`, `group_subtitle`'s "N matches ▸/▾", the
+  > terminator's "That's all — N results.", the friendly-date words) reads
+  > in the same plain, jargon-free voice as this order's already-shipped
+  > strings, and `test_tooltips.py`'s AST guard already covers every module
+  > under `app/ui/`, this order's four files included.
 
 ## Done means
 
