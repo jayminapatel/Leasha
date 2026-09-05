@@ -99,7 +99,7 @@ allowed and expected — compare falls out for free.
   read from `openpyxl` (already a dependency) on the worker, row/column cap
   with a "large sheet — showing first N rows" line. The biggest preview
   upgrade in this order: a spreadsheet that looks like a spreadsheet.
-- [ ] **4c EPUB**: chapter list + the existing HTML renderer; it is a zip of
+- [x] **4c EPUB**: chapter list + the existing HTML renderer; it is a zip of
   HTML and both halves already exist. No new dependency.
 - [ ] **4d HEIC/HEIF**: decode via `pillow-heif` (permissive licence) so
   phone photos preview; extend the image pipeline, not a new kind.
