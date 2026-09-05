@@ -885,6 +885,13 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
     return preview
 
 
+#: Workspace §4d. Qt has no built-in decoder for these - `app/extract/ocr.py`
+#: already declares `pillow_heif` as the same optional, soft dependency for
+#: the same two extensions, and this extends that pipeline rather than
+#: building a second one.
+_HEIF_SUFFIXES = frozenset({".heic", ".heif"})
+
+
 def decode_image(path: str):
     """Read and decode an image file to a `QImage`. **Worker thread only.**
 
@@ -897,6 +904,12 @@ def decode_image(path: str):
     a truncated download, a `.png` that is really HTML - and the pane says so in
     the card. Nothing here is worth an error dialog.
     """
+    if Path(str(path)).suffix.lower() in _HEIF_SUFFIXES:
+        # Qt has no HEIC/HEIF image plugin at all - unlike SVG, where the
+        # plugin this build ships already covers it - so these go through
+        # PIL instead of the usual `QImage(path)` one-liner.
+        return _decode_heif(path)
+
     from PyQt6.QtGui import QImage
 
     try:
@@ -904,3 +917,45 @@ def decode_image(path: str):
     except Exception:                            # noqa: BLE001 - boundary
         return None
     return None if image.isNull() else image
+
+
+def _decode_heif(path: str):
+    """A HEIC/HEIF photo, via `pillow-heif` and PIL, to a `QImage`.
+
+    **The same optional dependency `extract/ocr.py` already declares**, with
+    the same soft-degrade posture: if it or PIL is not installed, this
+    returns None exactly as any other undecodable image does, and the pane's
+    existing "this image could not be read" card is the honest answer -
+    `format_health` already tells the Settings/doctor story for the index
+    side of this same gap.
+
+    `register_heif_opener` is called every time rather than once at import:
+    it is idempotent and cheap, and this module's own docstring is explicit
+    that nothing here runs until a worker calls it - there is no startup
+    path to hang it from instead.
+    """
+    try:
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+    except Exception:                             # noqa: BLE001 - not installed
+        return None
+
+    try:
+        from PIL import Image
+        from PyQt6.QtGui import QImage
+
+        with Image.open(str(path)) as opened:
+            frame = opened.convert("RGBA")
+            data = frame.tobytes("raw", "RGBA")
+            image = QImage(data, frame.width, frame.height,
+                           QImage.Format.Format_RGBA8888)
+            # `.copy()`: `data` is a local `bytes` object PIL is done with the
+            # moment this function returns, and `QImage` over a raw buffer
+            # does not take ownership of it - the same use-after-free
+            # `render_page._pdf_page` already guards against for the same
+            # reason.
+            return image.copy()
+    except Exception as exc:                       # noqa: BLE001 - see docstring
+        _log.debug("could not decode HEIC/HEIF {}: {}", path, exc)
+        return None
