@@ -275,10 +275,16 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   vectors to chunks. Measure the dedup ratio on the owner's corpus first —
   one GROUP BY — and record it here; if it is under 15% the feature is not
   built and this item is closed with the number.
-- [ ] **6f Bulk FTS mode**: for runs above the existing `optimize_fts`
+- [x] **6f Bulk FTS mode**: for runs above the existing `optimize_fts`
   threshold, drop the chunk FTS triggers, bulk insert, one `rebuild` at the
   end. An interrupted bulk run marks FTS dirty and rebuilds on resume — the
   flag is written **before** the triggers are dropped.
+  **Verified 2026-09-05:** `SqliteStore.drop_fts_triggers()` /
+  `restore_fts_triggers()` / `check_and_rebuild_fts_if_dirty()` (commit
+  `5559e74`), called from `Pipeline._maybe_drop_fts_triggers` and
+  `Pipeline.check_and_rebuild_fts_if_dirty()`; dirty-flag-before-drop
+  ordering confirmed on read. Test coverage for this path is still thin —
+  see ACTIVE_WORK.md.
 - [ ] **6g Dynamic workers**: the governor may raise extraction workers above
   the static default toward the envelope ceiling when measured idle allows
   and the embedder is not mid-batch on CPU; backs off exactly as it does
