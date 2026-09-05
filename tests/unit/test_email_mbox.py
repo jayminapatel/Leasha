@@ -9,10 +9,12 @@ Tests the mailbox.mbox-based extractor for `.mbox` files, including:
 - Proper handling of multipart messages
 - HTML body fallback
 - Attachment name extraction
+- Per-message resume (work order 202626270509, item 1b)
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Iterable
 
@@ -28,6 +30,25 @@ from app.extract.email_mbox import MboxExtractor
 def extractor() -> MboxExtractor:
     """The mbox extractor under test."""
     return MboxExtractor()
+
+
+def _write_generated_mbox(path: Path, count: int) -> None:
+    """`count` distinct, valid messages, in the same shape the M16-lesson
+    large-file test above uses - kept as its own helper so the resume tests
+    below can reuse the exact same fixture shape without repeating it."""
+    with open(path, "w", encoding="utf-8") as f:
+        for i in range(count):
+            f.write(
+                f"From sender{i}@example.com Thu Jan 01 12:00:00 2025\n"
+                f"Date: Thu, 1 Jan 2025 12:00:00 +0000\n"
+                f"From: sender{i}@example.com\n"
+                f"To: recipient@example.com\n"
+                f"Subject: Message {i}\n"
+                f"Message-ID: <msg{i}@example.com>\n"
+                f"\n"
+                f"This is message {i} with some content.\n"
+                f"\n"
+            )
 
 
 class TestMboxSupport:
@@ -214,3 +235,221 @@ class TestMboxLargeFile:
             assert "Message " in document.meta.get("subject", "")
 
         assert count == 100
+
+
+class TestMboxResumeFrom:
+    """Work order 202626270509, item 1b: the extractor's own `resume_from`.
+
+    `test_email_pipeline_resume.py`-style plumbing is covered separately,
+    below (`TestMboxKillAndResume`) - these are the narrower claims about
+    `MboxExtractor.extract` itself: skipping is exact, and skipped messages
+    are never parsed.
+    """
+
+    def test_resume_from_skips_exactly_the_messages_before_it(
+        self, tmp_path: Path, extractor: MboxExtractor,
+    ) -> None:
+        mbox_path = tmp_path / "resume.mbox"
+        _write_generated_mbox(mbox_path, 20)
+
+        documents = list(extractor.extract(mbox_path, resume_from=12))
+
+        assert len(documents) == 8  # messages 12..19
+        assert [d.meta["mbox_index"] for d in documents] == list(range(12, 20))
+        assert "Message 12" in documents[0].meta["subject"]
+
+    def test_resume_from_zero_matches_the_old_default_behaviour(
+        self, tmp_path: Path, extractor: MboxExtractor,
+    ) -> None:
+        mbox_path = tmp_path / "resume0.mbox"
+        _write_generated_mbox(mbox_path, 5)
+
+        assert list(extractor.extract(mbox_path)) == list(
+            extractor.extract(mbox_path, resume_from=0)
+        )
+        assert len(list(extractor.extract(mbox_path))) == 5
+
+    def test_resume_from_never_parses_the_skipped_messages(
+        self, tmp_path: Path, extractor: MboxExtractor, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The whole point of a message-index cursor over a full re-scan:
+
+        skipped messages cost a byte-level `From ` scan to find their
+        boundaries (unavoidable - see the module docstring), never a MIME
+        parse, a quote-strip or a `Document` build. `_get_body_text` runs
+        exactly once per message actually yielded, so counting its calls
+        proves the other 12 were genuinely skipped, not parsed and discarded.
+        """
+        mbox_path = tmp_path / "resume_cost.mbox"
+        _write_generated_mbox(mbox_path, 20)
+
+        calls: list[None] = []
+        original = MboxExtractor._get_body_text
+
+        def _counted(message):
+            calls.append(None)
+            return original(message)
+
+        monkeypatch.setattr(MboxExtractor, "_get_body_text", staticmethod(_counted))
+
+        documents = list(extractor.extract(mbox_path, resume_from=12))
+
+        assert len(documents) == 8
+        assert len(calls) == 8  # never touched for messages 0..11
+
+    def test_virtual_path_is_stable_regardless_of_where_a_run_starts(
+        self, tmp_path: Path, extractor: MboxExtractor,
+    ) -> None:
+        """A resumed run's own `enumerate()` restarts from zero; the message's
+        *identity* must not, or its row collides with one the previous run
+        already wrote under a different, lower number. See `_extract_stream`'s
+        duplicate-key guard in `app/index/pipeline.py`, and the module
+        docstring here.
+        """
+        mbox_path = tmp_path / "stable.mbox"
+        _write_generated_mbox(mbox_path, 10)
+
+        from_the_top = {d.meta["mbox_index"]: d.virtual_path for d in extractor.extract(mbox_path)}
+        resumed = {
+            d.meta["mbox_index"]: d.virtual_path
+            for d in extractor.extract(mbox_path, resume_from=6)
+        }
+
+        for index, virtual_path in resumed.items():
+            assert virtual_path == from_the_top[index], (
+                "the same message must key to the same row whether this run "
+                "started at message 0 or resumed partway through"
+            )
+
+
+# -- pipeline-level kill-and-resume --------------------------------------
+
+class _NullVectors:
+    """A vector store that writes nothing and answers everything.
+
+    Matches `tests/unit/test_archive_run.py`'s own `NullVectors` - kept as a
+    separate copy here rather than a shared import, following this suite's
+    existing convention of each test module carrying its own small pipeline
+    fixtures.
+    """
+
+    def delete_by_file_ids(self, file_ids):
+        pass
+
+    def add(self, **kwargs):
+        return len(kwargs.get("chunk_ids") or ())
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def _resume_test_embedder():
+    from app.index.embedder import Embedder, l2_normalise
+
+    def encode(texts):
+        return [
+            l2_normalise([math.sin(abs(hash(t)) % 100 + i) for i in range(8)])
+            for t in texts
+        ]
+
+    return Embedder(dim=8, encoder=encode)
+
+
+class TestMboxKillAndResume:
+    """Work order 202626270509, item 1b's own acceptance test.
+
+    The order's §1c already covers "kill-and-resume works" at *file*
+    granularity for a large fixture; this is the same claim at the finer
+    granularity 1b actually builds - a run stopped mid-mbox resumes past the
+    messages it already durably wrote, rather than reprocessing the file
+    from message 1.
+    """
+
+    def test_a_killed_run_resumes_mid_file_not_from_message_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from app.index.pipeline import Pipeline, PipelineConfig
+        from app.index.walker import WalkConfig
+        from app.storage.sqlite_store import FileStatus, SqliteStore
+
+        root = tmp_path / "mail"
+        root.mkdir()
+        mbox_path = root / "big.mbox"
+        total_messages = 40
+        _write_generated_mbox(mbox_path, total_messages)
+
+        # A spy, not a mock: real extraction still happens underneath, so
+        # this proves what `_extract_stream` actually asked for, on every
+        # call, without changing what came back.
+        resume_from_seen: list[int] = []
+        original_extract = MboxExtractor.extract
+
+        def _spy_extract(self, path, *, resume_from=0):
+            resume_from_seen.append(resume_from)
+            yield from original_extract(self, path, resume_from=resume_from)
+
+        monkeypatch.setattr(MboxExtractor, "extract", _spy_extract)
+
+        db = tmp_path / "index.db"
+        with SqliteStore(db) as store:
+            def _pipeline() -> Pipeline:
+                return Pipeline(
+                    store, _NullVectors(), _resume_test_embedder(),
+                    PipelineConfig(
+                        walk=WalkConfig(roots=[root]), workers=1,
+                        checkpoint_every=5, min_free_gb=0, required_free_gb=0,
+                    ),
+                )
+
+            # --- Run 1: killed partway through -------------------------
+            first = _pipeline()
+            stats1 = first.run(on_progress=lambda _stats: first.request_stop())
+
+            assert 0 < stats1.indexed < total_messages, (
+                "the run must have been interrupted genuinely partway "
+                "through the file, not at the very start or the very end"
+            )
+            assert resume_from_seen == [0], (
+                "the first-ever run must start from the top of the file"
+            )
+
+            resume_keys = [
+                key for key in store.all_state() if key.startswith("resume:")
+            ]
+            assert len(resume_keys) == 1, (
+                "an interrupted mid-file run must leave exactly one "
+                "persisted resume cursor behind"
+            )
+            cursor_value = int(store.get_state(resume_keys[0]))
+            assert 0 < cursor_value < total_messages, (
+                f"the persisted cursor ({cursor_value}) must point strictly "
+                f"inside the file, not at the start or past the end"
+            )
+
+            # --- Run 2: resumed -----------------------------------------
+            second = _pipeline()
+            stats2 = second.run()
+
+            assert resume_from_seen[-1] == cursor_value, (
+                "the resumed run must ask the extractor to start exactly "
+                "where the persisted cursor says the last run left off - "
+                "not from message 1"
+            )
+            assert resume_from_seen[-1] > 0
+
+            # No message lost, none duplicated: every message 0..N-1 has
+            # exactly one INDEXED row, keyed on its own stable identity.
+            for index in range(total_messages):
+                record = store.get_file(f"{mbox_path}/{index}")
+                assert record is not None, f"message {index} is missing after resume"
+                assert record.status == FileStatus.INDEXED, (
+                    f"message {index} did not end up indexed: {record.status}"
+                )
+
+            # The file itself is closed out...
+            marker = store.get_file(str(mbox_path))
+            assert marker is not None and marker.status == FileStatus.INDEXED
+
+            # ...and the resume cursor for it is gone, not left behind to
+            # misdirect a future re-index of the same unchanged bytes.
+            assert not [k for k in store.all_state() if k.startswith("resume:")]
