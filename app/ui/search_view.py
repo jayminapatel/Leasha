@@ -116,7 +116,7 @@ class SearchView(QWidget):
         self.results, self.preview, self.split = build_results_pane(
             on_opened=self._on_opened, on_reveal=self.reveal_requested,
             on_reindex=self.reindex_requested, on_error=self.error,
-            store=getattr(engine, "store", None), search_box=self.input, on_filter=self.search_now)
+            store=getattr(engine, "store", None), search_box=self.input, on_filter=self.search_now, engine=engine)
         self.input.installEventFilter(self)                    # item 6a
 
         self.notices = build_toolbar(

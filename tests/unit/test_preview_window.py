@@ -398,3 +398,75 @@ def test_nothing_in_the_window_opens_a_file_for_writing():
     for writing in ("write_text(", "write_bytes(", "shutil.", "os.remove",
                     "unlink(", '"w"', "'w'"):
         assert writing not in source, f"preview_window.py has {writing}"
+
+
+# ---------------------------------------------------------------------------
+# Work order 0h §3b — the lightbox: next/previous through a result set
+# ---------------------------------------------------------------------------
+
+def test_with_no_siblings_the_arrow_keys_do_nothing(qapp, files):
+    """Every pop-out before this order, and any pinned from somewhere that
+    does not know its own result set - the keys must fall through unchanged,
+    not raise and not silently "navigate" to nothing."""
+    from PyQt6.QtTest import QTest
+
+    png, _txt = files
+    window = PreviewWindow(Row(png), state={})
+    title_before = window.windowTitle()
+    QTest.keyClick(window, Qt.Key.Key_Right)
+    assert window.windowTitle() == title_before
+
+
+def test_the_right_arrow_moves_to_the_next_sibling(qapp, files):
+    from PyQt6.QtTest import QTest
+
+    png, txt = files
+    rows = [Row(png), Row(txt)]
+    window = PreviewWindow(rows[0], state={}, siblings=rows, index=0)
+    QTest.keyClick(window, Qt.Key.Key_Right)
+    assert window._row is rows[1]
+    assert window._path == str(txt)
+
+
+def test_the_left_arrow_moves_to_the_previous_sibling_and_wraps(qapp, files):
+    r"""Wrapping, not stopping - a lightbox that dead-ends at either photo
+    makes somebody reach for the mouse, which is what arrow keys exist to
+    save."""
+    from PyQt6.QtTest import QTest
+
+    png, txt = files
+    rows = [Row(png), Row(txt)]
+    window = PreviewWindow(rows[0], state={}, siblings=rows, index=0)
+    QTest.keyClick(window, Qt.Key.Key_Left)
+    assert window._row is rows[1]                 # wrapped to the last one
+
+
+def test_the_title_shows_position_only_when_it_can_navigate(qapp, files):
+    png, txt = files
+    alone = PreviewWindow(Row(png), state={})
+    assert "of" not in alone.windowTitle()
+
+    rows = [Row(png), Row(txt)]
+    together = PreviewWindow(rows[0], state={}, siblings=rows, index=0)
+    assert "(1 of 2)" in together.windowTitle()
+    from PyQt6.QtTest import QTest
+
+    QTest.keyClick(together, Qt.Key.Key_Right)
+    assert "(2 of 2)" in together.windowTitle()
+
+
+def test_navigating_re_reads_that_sibling_own_remembered_rotation(qapp, files):
+    r"""Rotation is per-file (`view_of_file.read_turn`, keyed by a hash of
+    the path) - moving to a different photo must not carry the first one's
+    rotation across, and must pick up whatever was remembered for the new
+    one."""
+    png, txt = files
+    state = {rotation_key(str(txt)): "90"}
+    rows = [Row(png), Row(txt)]
+    window = PreviewWindow(rows[0], state=state, siblings=rows, index=0)
+    assert window._view.turn == 0                 # nothing remembered for png
+
+    from PyQt6.QtTest import QTest
+
+    QTest.keyClick(window, Qt.Key.Key_Right)
+    assert window._view.turn == 90                 # picked up txt's own turn

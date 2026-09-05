@@ -398,6 +398,10 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     # path the row already carried. Both were fixed for search results long
     # before, in `shell._open_path`, and regressed here.
     ("files_view.py", "_open"),
+    # Work order 0h §3a: a result set can carry dozens of photos, and
+    # decoding even one on the UI thread is the freeze non-negotiable #5
+    # forbids - `_load_thumbnails` hands every one of them to its own worker.
+    ("widgets/thumbnail_grid.py", "_load_thumbnails"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
     r"""Asserted on the *worker*, not the result: the point is that the call

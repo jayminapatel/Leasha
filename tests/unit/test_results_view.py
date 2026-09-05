@@ -141,3 +141,70 @@ def test_rows_changed_fires_on_a_fresh_search(qtbot):
     view.show_results([result(1, 1), result(2, 2)], ["pump"])
     assert len(seen) == 1
     assert len(seen[0]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Work order 0h §2d: "more like this", for a passage and for a photo alike
+# ---------------------------------------------------------------------------
+
+def test_context_menu_offers_more_like_this_for_a_text_row(qtbot, monkeypatch):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1)], ["pump"])
+    from PyQt6.QtCore import QItemSelectionModel
+    index = view._model.index(0, 0)
+    view._list.setCurrentIndex(index)
+    view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
+
+    captured: dict = {}
+
+    def fake_show_for(_widget, _point, _path, actions):
+        captured["actions"] = actions
+
+    import app.ui.results_view as results_view_module
+    monkeypatch.setattr(results_view_module, "show_for", fake_show_for)
+
+    view._on_context_menu(view._list.visualRect(index).center())
+    assert captured["actions"].similar is not None
+
+    similar: list = []
+    view.similar_requested.connect(similar.append)
+    captured["actions"].similar()
+    assert len(similar) == 1
+    assert similar[0].file_id == 1
+
+
+def test_context_menu_offers_more_like_this_for_a_photo_row_too(qtbot, monkeypatch):
+    r"""The whole point of item 2d's UI half: a photo result is a
+    `SearchResult` exactly like a passage, distinguished only by `ext` - so
+    the same menu, the same signal, the same wiring, works for both without
+    a special case in this view."""
+    view = ResultsView()
+    qtbot.addWidget(view)
+    photo = result(1, 1, path=r"D:\Photos\2019\beach.jpg")
+    photo.ext = "jpg"
+    view.show_results([photo], [])
+    from PyQt6.QtCore import QItemSelectionModel
+    index = view._model.index(0, 0)
+    view._list.setCurrentIndex(index)
+    view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
+
+    captured: dict = {}
+
+    def fake_show_for(_widget, _point, _path, actions):
+        captured["actions"] = actions
+
+    import app.ui.results_view as results_view_module
+    monkeypatch.setattr(results_view_module, "show_for", fake_show_for)
+
+    view._on_context_menu(view._list.visualRect(index).center())
+    assert captured["actions"].similar is not None
+
+
+def test_image_rows_keeps_only_photos_in_order():
+    view = ResultsView()
+    text_row = result(1, 1, path=r"D:\Docs\report.pdf")
+    photo_a = result(2, 2, path=r"D:\Photos\a.jpg"); photo_a.ext = "jpg"
+    photo_b = result(3, 3, path=r"D:\Photos\b.png"); photo_b.ext = "png"
+    view.show_results([text_row, photo_a, photo_b], [])
+    assert [row.file_id for row in view.image_rows()] == [2, 3]
