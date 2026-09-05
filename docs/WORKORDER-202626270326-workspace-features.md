@@ -403,13 +403,25 @@ already share the same `format_health()` call; only the number is
 doctor-only until a session with UI in scope wires `file_types.py` to pass
 its own counts.
 
-**5c is blocked on the concurrent 4a work, not attempted.** `dwg2SVG` →
-cached SVG → "the QtSvg path from 4a" only exists once 4a exists.
-`app/ui/preview_loader.py` was checked before writing anything: as of this
-session it has no `KIND_SVG` (or equivalent), no `QtSvg` import, and no SVG
-branch at all — 4a has not landed here yet, and it is explicitly out of
-this order's scope to touch (`preview_loader.py` is on the
-do-not-touch list). Building a parallel SVG preview path here would be
-exactly the "duplicate mechanism" this order's own rules forbid. Left
-undone, checkbox unticked, until 4a ships and a session with
-`preview_loader.py` in scope can wire the cached-SVG route into it.
+**5c is not attempted, and re-checked after 4a landed mid-session.**
+`app/ui/preview_loader.py` was read again once `1caa388 Workspace §4a: SVG,
+.heic/.heif and .tif/.tiff as images, Markdown rendered` appeared on this
+branch, in case it had closed the gap. It has not: 4a's own commit message
+says plainly *"SVG needed no new code: this build's Qt already has the qsvg
+imageformat plugin, so `QImage(path)` decodes an `.svg` exactly like any
+raster image"* — `.svg` was simply added to `_IMAGE_SUFFIXES` and decoded
+through the existing `QImage`/`QPixmap` pipeline as `KIND_IMAGE`. There is no
+`KIND_SVG`, no `QtSvg`/`QSvgWidget` import, and nothing that treats an SVG as
+a cacheable render target rather than a file Qt happens to open — confirmed
+by `grep`, not inferred from the commit message alone. §5c's own text names
+"the QtSvg path from 4a"; what 4a actually built is a QImage path, which is
+a different (and narrower) thing to hang a cached render on. Regardless of
+which shape 4a took, the wiring — recognising a `.dwg`, finding or building
+its cached SVG, and handing it to whichever preview path exists — lives in
+`kind_for()`/`load_preview()` in `app/ui/preview_loader.py`, which stays on
+this order's do-not-touch list for this thread. Building a parallel preview
+mechanism here rather than touching that file would be exactly the
+"duplicate mechanism" this order's own rules forbid. Left undone, checkbox
+unticked; a session with `preview_loader.py` in scope should re-read this
+note rather than assume 4a's QImage route is a drop-in fit for a *cached*
+render the way a directly-openable image is.
