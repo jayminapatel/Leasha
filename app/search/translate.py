@@ -366,6 +366,40 @@ def _rejects(query: str, sentence: str = "") -> Optional[str]:
 
 
 
+def _filters_list(reading: Any) -> list[str]:
+    """The filters the rules found, as separate strings - for a caller that
+    still needs to tell them apart (to drop one already said by a model, say).
+
+    **Not `Reading.query()`** - that method glues the filters onto the
+    *residue or the sentence*, and composition needs the two apart: the
+    residue is what reaches the model as its prompt, and these are what get
+    appended to whatever the model says about it. Same ingredients
+    (`reading.chips`, and the `type:mail` hint when nothing already narrowed
+    by type), read out separately rather than duplicated.
+    """
+    parts = [chip.as_filter() for chip in reading.chips]
+    if reading.mail and not any(chip.field == "type" for chip in reading.chips):
+        parts.append("type:mail")
+    return parts
+
+
+def _merge_query(model_query: str, filters: list[str]) -> str:
+    """The model's answer about the residue, plus whichever rule filters it
+    did not already say itself.
+
+    **Without a store, this never runs** - `filters` is only ever non-empty
+    when a store made the rules trustworthy enough to compose with. But a
+    store that cannot resolve real senders or extensions still lets a kind
+    word fire (`translate_rules.read`'s own documented degradation), and a
+    model answering about the residue can independently produce the same
+    operator by coincidence. `"type:pdf leeds type:pdf"` is not wrong - the
+    filter just says the same thing twice - but it is a wart worth skipping
+    when skipping it costs nothing.
+    """
+    extra = [f for f in filters if f not in model_query]
+    return " ".join(part for part in (model_query, " ".join(extra)) if part)
+
+
 class QueryTranslator:
     """Sentence to query, with a cache and a hard fallback to the raw text."""
 
@@ -376,10 +410,22 @@ class QueryTranslator:
         timeout_s: float = TRANSLATE_TIMEOUT_S,
         today: Optional[date] = None,
         enabled: bool = False,
+        store: Any = None,
     ) -> None:
         self.client = client
         self.timeout_s = timeout_s
         self.today = today
+        #: **§3c — the index, so rules can run before the model does.**
+        #: `translate_rules.read` uses this to resolve real sender names and
+        #: real extensions; without it, only the corpus-free rules fire
+        #: (dates, mail-verb, attachment) - the same degradation
+        #: `translate_rules.read` already documents for its other callers.
+        #: `None` reproduces this class's behaviour exactly as it was before
+        #: §3c: the whole sentence goes to the model, unchanged. A caller may
+        #: also pass `store=` to `translate()` directly instead of setting it
+        #: here, which is what lets a store-free unit test still exercise the
+        #: composition on demand.
+        self.store = store
         #: **Off unless switched on.** Interpretation is the one part of this
         #: application that talks to another process, and most machines have no
         #: Ollama at all. Off by default means somebody who never wanted it is
@@ -460,12 +506,20 @@ class QueryTranslator:
         except Exception:                        # noqa: BLE001 - a probe never fails a search
             return False
 
-    def translate(self, sentence: str) -> Translation:
+    def translate(self, sentence: str, store: Any = None) -> Translation:
         """Translate, or return the raw text with a note saying why not.
 
         The return value is always usable. There is no error path for a caller
         to forget, because forgetting it would mean a search that does not run -
         and a search that does not run is a worse outcome than a blunt one.
+
+        **§3c composition.** `store` (or `self.store`, when this call does not
+        supply one) lets the rules translator run first. When it recognises
+        something, the model - if one runs at all - is handed only the
+        residue, never the whole sentence: a smaller prompt, and the part the
+        rules already resolved stays deterministic rather than being re-guessed
+        by a model. Passing neither reproduces this method exactly as it was
+        before §3c.
         """
         raw = (sentence or "").strip()
         if not raw:
@@ -477,25 +531,62 @@ class QueryTranslator:
             # button again is the most natural thing to do after editing.
             return _replace_cached(cached)
 
+        # **Rules run first, always - before the enabled/client checks below,
+        # because both of those paths also benefit from them.** A store that
+        # raises costs the composition, never the search: `reading` stays
+        # `None` and everything below falls through to exactly the behaviour
+        # this method had before §3c.
+        reading = None
+        effective_store = store if store is not None else self.store
+        if effective_store is not None:
+            try:
+                from app.search.translate_rules import read as _read_rules
+
+                reading = _read_rules(raw, effective_store, today=self.today)
+            except Exception as exc:                  # noqa: BLE001 - a helper
+                log.debug("rule composition skipped: {}", exc)
+                reading = None
+
+        rules_found_something = reading is not None and reading.found
+        # **The residue is what a model would be given** - `Reading.residue`
+        # exists for exactly this. Nothing recognised means nothing changes:
+        # the whole sentence goes forward, precisely as it always has.
+        to_translate = reading.residue if rules_found_something else raw
+        filters = _filters_list(reading) if rules_found_something else []
+        filters_text = " ".join(filters)
+
         # **Switched off means no network, not a quiet failure.** Checked
         # before the client, before the cache lookup that follows a miss, and
         # before anything that could open a socket - somebody who has turned
         # this off should be able to watch the process and see it talk to
-        # nothing.
+        # nothing. The rules already ran above, so **"powered by rules alone"**
+        # (§3c's second sentence) still applies here: `_rules_fallback` offers
+        # whatever they found instead of the untouched sentence.
         if not self.enabled:
-            return self._fallback(
-                raw,
+            return self._rules_fallback(
+                raw, reading,
                 "Interpreting is switched off. Turn it on in Settings to have a "
                 "sentence rewritten as a query.",
             )
 
         if self.client is None:
-            return self._fallback(raw, "Interpreting needs Ollama, which is not configured.")
+            return self._rules_fallback(
+                raw, reading, "Interpreting needs Ollama, which is not configured.")
+
+        # **Nothing left to hand the model.** The rules already claimed every
+        # word - a name, a type, a date - so there is no residue worth a
+        # network round trip. This is "smaller prompts, faster answers" taken
+        # to its limit: zero prompt when there is nothing left to translate.
+        if rules_found_something and not to_translate:
+            query = filters_text
+            result = Translation(raw=raw, query=query, changed=query.strip() != raw)
+            self._cache[raw] = result
+            return result
 
         started = time.monotonic()
         try:
             response = self.client.generate(
-                build_prompt(raw, today=self.today),
+                build_prompt(to_translate, today=self.today),
                 temperature=0.0,
                 timeout=self.timeout_s,
                 max_tokens=MAX_QUERY_TOKENS,
@@ -509,8 +600,8 @@ class QueryTranslator:
             # `exc.error` already holds the real message; substituting a guess
             # for it threw away the only useful information in the exception.
             code = getattr(exc.error, "code", "")
-            return self._fallback(
-                raw,
+            return self._rules_fallback(
+                raw, reading,
                 f"{exc.error.message} Your words were searched for as typed.",
                 error=exc.error,
                 elapsed_s=time.monotonic() - started,
@@ -521,21 +612,27 @@ class QueryTranslator:
             )
         except Exception as exc:                 # noqa: BLE001 - boundary; never fail a search
             log.debug("translation failed: {}: {}", type(exc).__name__, exc)
-            return self._fallback(
-                raw, "Interpreting failed, so the words you typed were searched for as-is.",
+            return self._rules_fallback(
+                raw, reading,
+                "Interpreting failed, so the words you typed were searched for as-is.",
                 elapsed_s=time.monotonic() - started,
             )
 
         elapsed = time.monotonic() - started
-        query = clean_output(text)
-        reason = _rejects(query, raw)
+        model_query = clean_output(text)
+        reason = _rejects(model_query, to_translate)
         if reason is not None:
-            log.info("translation rejected ({}): {!r}", reason, query[:120])
-            return self._fallback(
-                raw, f"Could not interpret that ({reason}), so it was searched for as typed.",
+            log.info("translation rejected ({}): {!r}", reason, model_query[:120])
+            return self._rules_fallback(
+                raw, reading,
+                f"Could not interpret that ({reason}), so it was searched for as typed.",
                 elapsed_s=elapsed,
             )
 
+        # **The model's answer about the residue, plus the filters the rules
+        # already found.** When nothing was found, `filters` is empty and
+        # this reproduces `model_query` exactly, unchanged.
+        query = _merge_query(model_query, filters)
         result = Translation(
             raw=raw, query=query, changed=query.strip() != raw, elapsed_s=elapsed,
         )
@@ -561,25 +658,35 @@ class QueryTranslator:
         log.info("translated in {:.2f}s: {!r} -> {!r}", elapsed, raw[:80], query[:80])
         return result
 
-    def _fallback(
+    def _rules_fallback(
         self,
         raw: str,
+        reading: Optional[Any],
         note: str,
         *,
         error: Optional[AppError] = None,
         elapsed_s: float = 0.0,
         cache: bool = True,
     ) -> Translation:
-        """Search the raw text. Logged once per translator, not per key.
+        """Search the raw text - or what the rules made of it. Logged once per
+        translator, not per key.
+
+        **§3c's second sentence: "powered by rules alone."** Whatever stopped
+        the model - switched off, not configured, unreachable, a timeout, a
+        rejected reply - the rules already ran before any of that was known,
+        and their chips are not thrown away with it. `reading` is `None` (no
+        store) or found nothing exactly as often as this reproduces the old
+        `_fallback` behaviour: the raw sentence, unchanged.
 
         Per-key logging would fill the log with the same line while somebody
         typed, which buries everything else at the moment it is needed.
         """
+        query = reading.query() if reading is not None and reading.found else raw
         if not self._warned:
             self._warned = True
             log.info("query translation unavailable: {}", note)
-        result = Translation(raw=raw, query=raw, changed=False, note=note,
-                             error=error, elapsed_s=elapsed_s)
+        result = Translation(raw=raw, query=query, changed=query.strip() != raw,
+                             note=note, error=error, elapsed_s=elapsed_s)
         if cache:
             # A machine with no Ollama should not re-probe on every press of
             # the button. **But only permanent failures are cached.** A timeout

@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.18 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.19 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -96,7 +96,7 @@ corrects. Ollama is one backend; this adds the second.
   behind Interpret elsewhere). The typed text is never altered — the chips
   sit beside it. High precision by construction (the name either is in the
   sender list or no chip fires); a wrong chip costs one click.
-- [ ] **3c Composition with Ollama.** When Ollama is present, rules run
+- [x] **3c Composition with Ollama.** When Ollama is present, rules run
   first and the model receives only the residue — smaller prompts, faster
   answers, and the deterministic part stays deterministic. When absent, the
   Interpret button remains, powered by rules alone; nothing on screen
@@ -379,6 +379,8 @@ and is tested for exactly that purpose, so the seam is ready — but the change
 belongs in `QueryTranslator`, and it is worth doing when the owner's deferred
 tuning pass (3d) happens, against a machine that has Ollama to measure with.
 
+*(Superseded 2026-09-05 — see the note on 3c below: built.)*
+
 ## Note on 5c, added 2026-08-27 (the measurement the item asked for)
 
 **Measured first, as instructed. The gap was total, so it was built.** Five
@@ -478,7 +480,63 @@ second.
 
 Nothing to build. The box was simply never ticked.
 
-## Note on 5b, added 2026-08-27 (half of it, and the measured reason)
+## Note on 3c, added 2026-09-05 (the composition, and the one wire left)
+
+**`QueryTranslator.translate()` now runs the rules first, always.** A new
+`store` parameter — on the constructor, so a caller with nowhere to pass it
+per-call can set it once, and on `translate()` itself, which wins when both
+are given — lets `translate_rules.read()` run before anything reaches
+Ollama. `Reading.found` (chips, or the mail flag) decides everything that
+follows:
+
+* **Nothing recognised** → the whole sentence goes to the model, exactly as
+  it always has. This is what every existing test exercises (none of them
+  pass a store), so the table of fifteen sentence→query pairs did not move
+  by one character.
+* **Something recognised, words left over** → the model is handed
+  `Reading.residue` only, never the raw sentence — measurably smaller, and
+  the sender/type/date the rules already pinned down cannot be re-guessed
+  differently by the model. Its answer and the rules' filters are joined
+  (`_merge_query`), and a filter the model happened to say itself too is not
+  repeated.
+* **Something recognised, nothing left over** → the model is not called at
+  all. Zero prompt, not just a smaller one — `client.calls == 0` is asserted
+  directly (`test_nothing_left_to_translate_means_no_model_call_at_all`).
+* **Ollama switched off, not configured, unreachable, or answering
+  nonsense** → this is the item's second sentence, and it was a real gap:
+  the old `_fallback` always returned the untouched sentence, discarding
+  anything the rules had already found. `_rules_fallback` now returns
+  `Reading.query()` (the existing rules-alone composition from §3a/3b)
+  whenever a store made that possible, so "the Interpret button remains,
+  powered by rules alone" holds with Ollama entirely absent —
+  `test_ollama_absent_still_offers_the_rules_alone` proves it with
+  `client=None`.
+
+**One thing this does not do, and cannot from inside this order's files.**
+No caller in the tree — `shell.py`, `cli.py`, `widgets/interpret.py` — passes
+a `store` to `QueryTranslator` today, so in the shipped window the seam is
+built and tested but dormant: pressing Interpret still runs exactly as
+before §3c until something supplies the index. Wiring it is one line —
+`QueryTranslator(self._ollama, store=self._engine.store, …)` in
+`shell.py`'s `_build_search_view` (or wherever the translator is
+constructed) — but `app/ui/shell.py` is outside this delivery's file scope
+by the owner's own instruction, so it is named here rather than guessed at.
+Whoever next has that file open can wire it in one line; nothing else
+changes.
+
+**Why composition is gated on a store rather than always-on.** Without one,
+`translate_rules._known` returns an empty set for both senders and
+extensions, and the *kind*-word rule reads that as "the index holds no file
+of this type" and lets every kind word through unfiltered — correct for
+`chips_for`'s existing use (a chip that turns out wrong costs a glance), but
+wrong for feeding a model a *smaller* sentence: "the safety report Dave sent
+about Leeds" would have "report" silently claimed as `type:pdf` before the
+model ever saw it, adding a filter the sentence never asked for. Measured
+directly against the table in `test_translate.py`: five of its fifteen
+sentences contain a kind word or a compound date phrase that the no-store
+rules would misread. Gating on `store is not None` means composition only
+engages where the rules can check a real index, which is exactly where
+`translate_rules.py` already says its own precision comes from.
 
 **`evaluate --builtin` scores its attachment question at 0%**, and the filter
 was never the problem. `has:attachment` is parsed, is consumed by

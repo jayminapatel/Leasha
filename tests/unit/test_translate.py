@@ -241,6 +241,136 @@ def test_available_is_false_and_never_raises_when_the_probe_explodes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# §3c - composition with Ollama: rules run first, the model gets the residue
+# ---------------------------------------------------------------------------
+
+class FakeStore:
+    """Just enough of `SqliteStore.distinct_values` for the rules to use."""
+
+    def __init__(self, senders=(), recipients=(), exts=()):
+        self._values = {"sender": senders, "recipient": recipients, "ext": exts}
+
+    def distinct_values(self, kind: str, limit: int = 400):
+        return self._values.get(kind, ())
+
+
+STORE = FakeStore(senders=["dave.smith@acme.com"], exts=["pdf"])
+
+
+def test_the_model_is_handed_the_residue_not_the_whole_sentence() -> None:
+    """The point of §3c: a smaller prompt, because the deterministic part
+    (here, the sender and the year) is already settled before the model is
+    asked anything."""
+    client = FakeClient("SHOULD NOT MATTER")
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    translator.translate("Dave emailed the invoice about pricing", store=STORE)
+
+    prompt = client.prompts[0]
+    assert "Dave" not in prompt
+    assert "invoice" not in prompt
+    assert "Sentence: the about pricing" in prompt
+
+
+def test_rules_and_the_models_answer_are_composed() -> None:
+    """The chips the rules found and what the model made of what was left,
+    joined into one query - neither half silently dropped."""
+    client = FakeClient("pricing")            # borrows the residue's own word
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    result = translator.translate(
+        "Dave emailed the invoice about pricing", store=STORE)
+
+    assert "from:dave.smith@acme.com" in result.query
+    assert "type:pdf" in result.query
+    assert "pricing" in result.query
+    assert result.changed
+
+
+def test_nothing_left_to_translate_means_no_model_call_at_all() -> None:
+    """The residue can be empty - the rules claimed every word - and that is
+    "smaller prompts" taken to its limit: no prompt, because there is nothing
+    left to ask about."""
+    client = FakeClient("SHOULD NOT BE CALLED")
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    result = translator.translate("Dave emailed invoice 2024", store=STORE)
+
+    assert client.calls == 0
+    assert "from:dave.smith@acme.com" in result.query
+    assert "type:pdf" in result.query
+    assert result.changed
+
+
+def test_ollama_absent_still_offers_the_rules_alone() -> None:
+    """§3c's second sentence: with no Ollama, Interpret still works - "powered
+    by rules alone" - it is only the depth of what gets extracted that
+    changes, never whether the button does anything at all."""
+    translator = QueryTranslator(None, enabled=True, today=TODAY)
+
+    result = translator.translate(
+        "the invoice Dave sent me last year", store=STORE)
+
+    assert "from:dave.smith@acme.com" in result.query
+    assert "type:pdf" in result.query
+    assert result.changed
+    assert "Ollama" in result.note
+
+
+def test_a_rejected_model_reply_still_keeps_the_rules_half() -> None:
+    """The model failing must not throw away what the rules already found -
+    only its own contribution is lost, exactly like any other fallback."""
+    client = FakeClient("I cannot help with that request.")
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    result = translator.translate(
+        "Dave emailed the invoice about pricing", store=STORE)
+
+    assert "from:dave.smith@acme.com" in result.query
+    assert "type:pdf" in result.query
+
+
+def test_with_no_store_composition_never_engages() -> None:
+    """No store means the rules cannot check real names or extensions, so
+    nothing changes: the whole sentence goes to the model exactly as it did
+    before §3c existed."""
+    client = FakeClient("type:pdf leeds")
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    result = translator.translate("pdfs about leeds")
+
+    assert client.prompts[0].strip().endswith("Sentence: pdfs about leeds\nQuery:")
+    assert result.query == "type:pdf leeds"
+
+
+def test_a_store_set_on_the_translator_itself_is_used_too() -> None:
+    """`store=` on `translate()` is the override; `QueryTranslator(store=...)`
+    is what a caller with nowhere to pass it per-call would set instead."""
+    client = FakeClient("SHOULD NOT BE CALLED")
+    translator = QueryTranslator(client, enabled=True, today=TODAY, store=STORE)
+
+    result = translator.translate("Dave emailed invoice 2024")
+
+    assert client.calls == 0
+    assert "from:dave.smith@acme.com" in result.query
+
+
+def test_a_store_that_raises_costs_the_composition_not_the_search() -> None:
+    """Never raises - a bad store degrades to today's whole-sentence
+    behaviour rather than failing the search."""
+    class Broken:
+        def distinct_values(self, *_a, **_kw):
+            raise RuntimeError("the index is locked")
+
+    client = FakeClient("type:pdf leeds")
+    translator = QueryTranslator(client, enabled=True, today=TODAY)
+
+    result = translator.translate("pdfs about leeds", store=Broken())
+
+    assert result.query == "type:pdf leeds"
+
+
+# ---------------------------------------------------------------------------
 # Caching
 # ---------------------------------------------------------------------------
 
