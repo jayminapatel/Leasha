@@ -130,24 +130,23 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
                   on_error: Any) -> None:
     r"""Work order 0h §2d: "more like this", for a passage or a photo alike.
 
-    **Wired against `SearchEngine.similar_to` exactly as it exists today.**
-    That method reads back the vector stored for a `chunk_id` from
-    `self.vectors` - the *text* store - and searches within it. For a real
-    passage that is correct and already works. For a photo, `row.chunk_id`
-    by this point is a bare int equal to `file_id` (see `_result_chunk_id`'s
-    docstring in `app/search/engine.py`) - not a string a caller could branch
-    on - and `similar_to` has no parameter to search the *image* store
-    instead. The practical effect: it either finds nothing (an empty, honest
-    "no similar results", the ordinary case) or, on an unlucky numeric
-    coincidence between the two independent id sequences, returns a real but
-    unrelated passage's neighbours. Never a crash - `similar_to` itself never
-    raises for a bad id - but not a working feature for a photo until the
-    engine gains an image-aware path. Left wired rather than hidden for
-    photos, per the work order's own instruction, so this gap is visible and
-    measurable rather than quietly avoided.
+    **Dispatches to whichever backend a row's kind actually has a vector
+    for.** `SearchEngine.similar_to` reads back the vector stored for a
+    `chunk_id` against `self.vectors` - the *text* store; `SearchEngine.
+    find_similar_images` is its image-table twin, added alongside it once
+    work order 0h §2d's backend half landed. For a photo, `row.chunk_id` by
+    this point is already a bare int equal to `file_id` (see
+    `_result_chunk_id`'s docstring in `app/search/engine.py` - the "img:"
+    namespacing that keeps a photo from colliding with a real chunk id
+    inside fusion has already done its job before a `SearchResult` ever
+    reaches here), so the same value works as either method's argument -
+    only which *method* to call differs, and that is decided by `ext`, the
+    same field `results_view.image_rows`/`thumbnail_grid` already use to
+    tell a photo row from a passage row.
     """
     from PyQt6.QtCore import QThreadPool
 
+    from app.ui.thumbnail_loader import is_image_result
     from app.ui.workers import CallableWorker, run
 
     def _finished(response: Any, row: Any) -> None:
@@ -158,7 +157,9 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
         if engine is None:
             return
         chunk_id = int(getattr(row, "chunk_id", 0) or 0)
-        worker = CallableWorker(engine.similar_to, chunk_id, component="ui.similar_to")
+        backend = (engine.find_similar_images if is_image_result(getattr(row, "ext", ""))
+                  else engine.similar_to)
+        worker = CallableWorker(backend, chunk_id, component="ui.similar_to")
         worker.signals.finished.connect(lambda response, r=row: _finished(response, r))
         if on_error is not None:
             worker.signals.failed.connect(on_error)

@@ -155,3 +155,186 @@ def test_the_pool_has_a_worker_for_all_three_lanes(store) -> None:
         assert engine._pool._max_workers >= 3
     finally:
         engine.close()
+
+
+# --------------------------------------------------------------------------
+# Work order 0h §2d: `find_similar_images` - "more like this" for photos
+# --------------------------------------------------------------------------
+
+
+def test_find_similar_images_returns_relatives_not_the_source(store) -> None:
+    file_id = _photo_file_id(store)
+    other_id = store.upsert_file(
+        path=r"D:\Photos\IMG_20260102.jpg", size_bytes=1, mtime_ns=2,
+        ext="jpg", source_kind="file",
+    )
+    image_vectors = FakeImageVectorStore([
+        {"chunk_id": file_id, "file_id": file_id, "distance": 0.0},
+        {"chunk_id": other_id, "file_id": other_id, "distance": 0.05},
+    ])
+    # `find_similar_images` needs `vector_for`, which `FakeImageVectorStore`
+    # (built for `search_images`) does not have - added here rather than to
+    # the shared fake, since only this lane's "more like this" needs it.
+    image_vectors.vector_for = lambda chunk_id: [0.1, 0.2, 0.3]
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(), image_vectors=image_vectors,
+    )
+    try:
+        response = engine.find_similar_images(file_id)
+    finally:
+        engine.close()
+
+    assert response.image_count == 1
+    assert response.results[0].file_id == other_id
+    assert response.results[0].path == r"D:\Photos\IMG_20260102.jpg"
+
+
+def test_find_similar_images_is_off_without_image_vectors(store) -> None:
+    engine = SearchEngine(store, _EmptyVectorStore(), _NoOpEmbedder())
+    try:
+        response = engine.find_similar_images(999)
+    finally:
+        engine.close()
+    assert response.results == []
+    assert response.image_count == 0
+
+
+def test_find_similar_images_of_an_unembedded_photo_is_empty(store) -> None:
+    """No stored vector for this file id - the ordinary state of a photo not
+    yet CLIP-embedded, not an error."""
+    image_vectors = FakeImageVectorStore([])
+    image_vectors.vector_for = lambda chunk_id: None
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(), image_vectors=image_vectors,
+    )
+    try:
+        response = engine.find_similar_images(12345)
+    finally:
+        engine.close()
+    assert response.results == []
+
+
+# --------------------------------------------------------------------------
+# Work order 0h §2c: `search_by_image` - reverse image search
+# --------------------------------------------------------------------------
+
+
+class FakeImageEmbedder:
+    """Stands in for `app.index.clip_embedder.ClipImageEmbedder` - embeds a
+    path, not a string, but the fakes in `test_search_images.py` already
+    accept either since they just record whatever they were given."""
+
+    def __init__(self, vector=(0.4, 0.5, 0.6)):
+        self.vector = list(vector)
+        self.calls: list[str] = []
+
+    def embed(self, paths):
+        self.calls.extend(str(p) for p in paths)
+        return [self.vector for _ in paths]
+
+
+class FakePhashComputer:
+    def __init__(self, values: dict):
+        self.values = values
+
+    def compute(self, path):
+        key = str(path)
+        if key not in self.values:
+            raise RuntimeError(f"no fake pHash configured for {key}")
+        return self.values[key]
+
+
+def test_search_by_image_finds_the_exact_photo_and_labels_it(store) -> None:
+    """The acceptance demo, at the engine level: a recompressed copy of a
+    photo already in the index comes back labelled `"exact"`, not merely
+    found."""
+    file_id = _photo_file_id(store)
+    store.set_phashes({file_id: "0000000000000000"})
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.01}])
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, image_embedder=FakeImageEmbedder(),
+        phash_computer=FakePhashComputer({"query.jpg": "0000000000000003"}),
+    )
+    try:
+        response = engine.search_by_image("query.jpg")
+    finally:
+        engine.close()
+
+    assert response.image_count == 1
+    assert response.results[0].photo_match == "exact"
+
+
+def test_search_by_image_labels_a_clip_only_match_as_similar(store) -> None:
+    file_id = _photo_file_id(store)
+    store.set_phashes({file_id: "0000000000000000"})
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.2}])
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, image_embedder=FakeImageEmbedder(),
+        # A totally different pHash - far past the threshold.
+        phash_computer=FakePhashComputer({"query.jpg": "ffffffffffffffff"}),
+    )
+    try:
+        response = engine.search_by_image("query.jpg")
+    finally:
+        engine.close()
+
+    assert response.results[0].photo_match == "similar"
+
+
+def test_search_by_image_without_a_phash_computer_still_finds_it(store) -> None:
+    """H4: `phash_computer` is optional. Absent means no exact/similar
+    distinction, never a broken search."""
+    file_id = _photo_file_id(store)
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.01}])
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, image_embedder=FakeImageEmbedder(),
+    )
+    try:
+        response = engine.search_by_image("query.jpg")
+    finally:
+        engine.close()
+
+    assert response.image_count == 1
+    assert response.results[0].photo_match == "similar"
+
+
+def test_search_by_image_is_off_without_both_arguments(store) -> None:
+    engine = SearchEngine(store, _EmptyVectorStore(), _NoOpEmbedder())
+    try:
+        response = engine.search_by_image("query.jpg")
+    finally:
+        engine.close()
+    assert response.results == []
+    assert response.image_count == 0
+
+
+def test_a_broken_reverse_image_search_degrades_with_notice_no_images(store) -> None:
+    """H4: mirrors `NOTICE_NO_IMAGES`, deliberately, per the work order's own
+    instruction - the same CLIP lane failing, not a genuinely different
+    failure mode."""
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": 1, "file_id": 1, "distance": 0.1}])
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, image_embedder=ExplodingEmbedder(),
+    )
+    try:
+        response = engine.search_by_image("query.jpg")
+    finally:
+        engine.close()
+
+    assert response.results == []
+    codes = [n.code for n in response.notices]
+    assert NOTICE_NO_IMAGES in codes
