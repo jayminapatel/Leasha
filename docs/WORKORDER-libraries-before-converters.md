@@ -1,6 +1,6 @@
 # Work order: libraries first, converters only where none exists
 
-**Doc version:** 1.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Layer:** Backend - `app/extract/`, `config/extractors.toml`, `requirements.txt`
 
 A new standing rule from the owner:
@@ -98,20 +98,48 @@ CONVERTER_JUSTIFIED: dict[str, str] = {
 
 **Tests:**
 
-- [ ] Every `[converters]` entry in the shipped config has an entry in `CONVERTER_JUSTIFIED`.
+- [x] Every `[converters]` entry in the shipped config has an entry in `CONVERTER_JUSTIFIED`.
       **A new converter cannot be added without stating why no library will do.**
-- [ ] Every justification is substantive - the same length check the settings exemptions use.
-- [ ] No format has both a converter entry and a registered library extractor. Two routes to
+      Enforced by `test_every_shipped_converter_states_why_no_library_will_do` in
+      `tests/unit/test_libraries_before_converters.py`, against the packaged
+      `config/extractors.toml` and `CONVERTER_JUSTIFIED` in `app/extract/converter.py`.
+- [x] Every justification is substantive - the same length check the settings exemptions use.
+      `test_a_justification_says_something` requires 30+ characters per entry, same threshold.
+- [x] No format has both a converter entry and a registered library extractor. Two routes to
       one format is how a file gets read differently depending on config.
-- [ ] `.xls`, `.rtf`, `.fb2` and `.epub` no longer appear in `[converters]`.
-- [ ] Each new extractor: a healthy fixture yields text; a corrupt one yields
+      `test_a_converted_format_has_no_library_extractor` checks every `CONVERTER_JUSTIFIED`
+      extension against `REGISTRY`.
+- [x] `.xls`, `.rtf`, `.fb2` and `.epub` no longer appear in `[converters]`.
+      `test_the_four_moved_formats_are_read_in_process` and
+      `test_libreoffice_is_needed_for_fewer_formats_than_before` assert this against the
+      shipped config directly.
+- [x] Each new extractor: a healthy fixture yields text; a corrupt one yields
       `ERR_FILE_CORRUPT` as `SKIP_CONTINUE` and the run continues.
-- [ ] `.xls` honours the sheet caps, and a 1998 workbook with 60,000 rows does not exhaust
+      Covered per format in `tests/unit/test_libraries_before_converters.py` (BIFF2/BIFF8
+      `.xls`, magic-number-checked `.rtf`, non-XML `.fb2`, non-zip and container-less `.epub`)
+      and, for `.rtf`/`.xls`, in `tests/unit/test_extract.py`.
+- [x] `.xls` honours the sheet caps, and a 1998 workbook with 60,000 rows does not exhaust
       memory.
-- [ ] `xlrd` is never handed an `.xlsx` - it will refuse, and the refusal must not reach the
+      `test_a_60000_row_workbook_is_capped_not_exhausted` builds a genuine BIFF8 (Excel
+      97/2000 - the "1998" in the sentence, not BIFF2/5 which cap at 16,384 rows in `xlrd`
+      itself) workbook, 60,000 rows in one column, and asserts the extracted text still
+      reflects `office.MAX_SHEET_ROWS` (5,000) plus the sheet-name label line, never the
+      full row count, with `ERR_FILE_TRUNCATED` raised as a warning.
+- [x] `xlrd` is never handed an `.xlsx` - it will refuse, and the refusal must not reach the
       user as a traceback.
-- [ ] `format_health.py` reports the four formats as ready **without LibreOffice installed** -
+      `test_an_xlsx_renamed_to_xls_is_told_to_rename_it_back` builds an OOXML-shaped zip
+      named `.xls` and asserts `xls.py` turns `xlrd`'s refusal into `ERR_FILE_CORRUPT` with a
+      suggestion naming the fix, not a raw `XLRDError`.
+- [x] `format_health.py` reports the four formats as ready **without LibreOffice installed** -
       run the check on a machine, or with the binary hidden from PATH.
+      `.fb2` and `.epub` declare no `requires` at all, so `format_health` can never mark them
+      anything but READY regardless of LibreOffice. `.xls` and `.rtf` declare `xlrd` and
+      `striprtf` as their only requirements - LibreOffice is not among them. Verified directly
+      by `test_the_four_moved_formats_are_ready_with_libreoffice_absent` in
+      `tests/unit/test_format_health.py`, which calls `format_health` against the live
+      registry with every converter binary (`soffice`, `libreoffice`, `pandoc`, `tesseract`,
+      `xstexporter`, `dwg2dxf`, `ODAFileConverter`) reported absent, and asserts all four stay
+      READY.
 
 ## 4a. Considered and rejected: Office automation via pywin32
 

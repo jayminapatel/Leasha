@@ -210,6 +210,32 @@ def test_health_never_raises_on_broken_rules():
     assert statuses[0].state == READY, "an unreadable rule falls back to enabled"
 
 
+def test_the_four_moved_formats_are_ready_with_libreoffice_absent():
+    """docs/WORKORDER-libraries-before-converters.md item 8.
+
+    `.xls`, `.rtf`, `.fb2` and `.epub` moved off LibreOffice onto `xlrd`,
+    `striprtf` and the standard library. Their health must not depend on
+    LibreOffice at all - simulating "not on this machine" for every converter
+    binary must not move any of the four off READY, or the whole point of the
+    work is unverified.
+    """
+    import app.extract  # noqa: F401 - registration side effects
+    from app.core.formats import load_rules
+
+    no_libreoffice = {name: None for name in
+                      ("soffice", "libreoffice", "pandoc", "tesseract",
+                       "xstexporter", "dwg2dxf", "ODAFileConverter")}
+    statuses = format_health(load_rules(None), binaries=no_libreoffice)
+    by_extension = {s.extension: s for s in statuses}
+
+    for extension in (".xls", ".rtf", ".fb2", ".epub"):
+        status = by_extension[extension]
+        assert status.state == READY, (
+            f"{extension} is {status.state!r} with no converter binaries present "
+            f"({status.detail}) - it must read via its own library alone"
+        )
+
+
 def test_the_real_registry_reports_every_extension():
     """Against the live registry, so a new extractor that forgets to declare
     itself sensibly shows up here rather than in somebody's index run."""

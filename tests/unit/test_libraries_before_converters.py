@@ -17,6 +17,7 @@ from __future__ import annotations
 import struct
 import zipfile
 from pathlib import Path
+from typing import Iterable
 
 import pytest
 
@@ -463,3 +464,87 @@ def test_a_file_that_is_not_a_workbook_at_all_is_corrupt(tmp_path: Path) -> None
     with pytest.raises(AppErrorException) as caught:
         list(extractor_for(path).extract(path))              # type: ignore[union-attr]
     assert caught.value.error.code == "ERR_FILE_CORRUPT"
+
+
+def _biff8_unicode_str(name: str) -> bytes:
+    """A BIFF8 string: 1-byte length, 1-byte options (0 = compressed/latin-1),
+    then the bytes themselves. Format from `xlrd.biffh.unpack_unicode`."""
+    encoded = name.encode("latin-1")
+    return struct.pack("<BB", len(encoded), 0) + encoded
+
+
+def biff8_workbook(values: Iterable[float]) -> bytes:
+    """A genuine BIFF8 (Excel 97-2003) workbook, one numeric column.
+
+    `biff2_workbook` above cannot hold 60,000 rows: BIFF2/3/4/5 cap a sheet at
+    `utter_max_rows = 16384` inside `xlrd` (`xlrd/sheet.py`), which matches the
+    real 16,384-row ceiling of the format those bytes describe. Only BIFF8 -
+    what Excel 97 onward actually writes - raises that to 65,536, which is
+    exactly why the work order's own example is *"a 1998 workbook"*: 1998 is
+    Excel 97/2000, not Excel 5.
+
+    BIFF8 also needs a workbook-globals stream ahead of the worksheet one -
+    unlike BIFF2, where the file *is* the worksheet - so this writes `BOF`,
+    one `BOUNDSHEET` record naming the sheet and pointing at the worksheet
+    BOF's absolute offset, then `EOF`, followed by the worksheet stream
+    itself: `BOF`, one `NUMBER` record (opcode 0x0203) per row, `EOF`. No OLE2
+    compound-file wrapper is needed - `xlrd` falls back to treating the file
+    as a bare BIFF stream whenever it does not start with the CFBF signature,
+    which is also how BIFF2-4 workbooks were actually written by Excel.
+    """
+    def record(opcode: int, payload: bytes) -> bytes:
+        return struct.pack("<HH", opcode, len(payload)) + payload
+
+    worksheet = [record(0x0809, struct.pack("<HH", 0x0600, 0x0010))]  # BOF, worksheet
+    for row, value in enumerate(values):
+        worksheet.append(record(0x0203, struct.pack("<HHHd", row, 0, 0, float(value))))
+    worksheet.append(record(0x000A, b""))                             # EOF
+    worksheet_bytes = b"".join(worksheet)
+
+    name = _biff8_unicode_str("Sheet1")
+    bof = record(0x0809, struct.pack("<HH", 0x0600, 0x0005))          # BOF, globals
+    eof = record(0x000A, b"")
+
+    def boundsheet(offset: int) -> bytes:
+        return record(0x0085, struct.pack("<iBB", offset, 0, 0) + name)
+
+    globals_len = len(bof) + len(boundsheet(0)) + len(eof)
+    globals_bytes = bof + boundsheet(globals_len) + eof
+
+    return globals_bytes + worksheet_bytes
+
+
+def test_a_60000_row_workbook_is_capped_not_exhausted(tmp_path: Path) -> None:
+    """docs/WORKORDER-libraries-before-converters.md item 6.
+
+    A 1998 workbook is not obliged to be small - a fifteen-year archive turns
+    up spreadsheets with tens of thousands of rows, and `xls.py` is supposed to
+    treat one the same way `office.py` treats a modern `.xlsx`: read up to
+    `MAX_SHEET_ROWS`, warn about the rest, and never hold the whole sheet's
+    text in the resulting document regardless of how large the file was.
+
+    60,000 rows is a real BIFF8 workbook (see `biff8_workbook`), not a mock -
+    `xlrd` gets bytes to genuinely parse, and the cap has to hold against the
+    row count `xlrd` itself reports, not against a small stand-in for it.
+    """
+    from app.extract.office import MAX_SHEET_ROWS
+
+    total_rows = 60_000
+    path = tmp_path / "big.xls"
+    path.write_bytes(biff8_workbook(range(1, total_rows + 1)))
+
+    document = list(extractor_for(path).extract(path))[0]    # type: ignore[union-attr]
+
+    # The cap held: the text in the document reflects MAX_SHEET_ROWS values,
+    # not 60,000 - the property that keeps one huge workbook from becoming an
+    # unbounded amount of text in memory. +1 line for the "Sheet: Sheet1"
+    # label `prefix_label=True` writes ahead of the sheet's own rows.
+    kept_lines = document.text.count("\n") + 1
+    assert kept_lines <= MAX_SHEET_ROWS + 1
+    assert str(MAX_SHEET_ROWS) in document.text
+    assert str(MAX_SHEET_ROWS + 1) not in document.text
+    assert str(total_rows) not in document.text
+
+    # And it said so, the same way office.py does for an oversized .xlsx sheet.
+    codes = [warning.code for warning in document.warnings]
+    assert "ERR_FILE_TRUNCATED" in codes
