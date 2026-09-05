@@ -34,10 +34,10 @@ from app.ui.presenter import (
     search_shape,
     tier_for,
 )
-from app.ui.results_view import build_results_pane
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.result_table import redraw_with_details
+from app.ui.widgets.result_tools import build_results_pane
 from app.ui.widgets.search_bar import (
     build_controls,
     build_input,
@@ -115,7 +115,8 @@ class SearchView(QWidget):
 
         self.results, self.preview, self.split = build_results_pane(
             on_opened=self._on_opened, on_reveal=self.reveal_requested,
-            on_reindex=self.reindex_requested, on_error=self.error)
+            on_reindex=self.reindex_requested, on_error=self.error,
+            store=getattr(engine, "store", None), search_box=self.input, on_filter=self.search_now)
         self.input.installEventFilter(self)                    # item 6a
 
         self.notices = build_toolbar(

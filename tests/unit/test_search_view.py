@@ -98,6 +98,42 @@ def test_ctrl_enter_reveals_instead_of_opening(view):
     assert not opened
 
 
+# ---------------------------------------------------------------------------
+# Workspace §3: the pinned panel and the timeline strip actually get built and
+# wired, not just the results/preview pair that was here before.
+# ---------------------------------------------------------------------------
+
+def test_the_split_carries_a_pinned_panel_and_a_timeline(view):
+    from app.ui.widgets.pinned_panel import PinnedPanel
+    from app.ui.widgets.timeline_strip import TimelineStrip
+
+    assert view.split.findChild(PinnedPanel) is not None
+    assert view.split.findChild(TimelineStrip) is not None
+
+
+def test_pinning_a_result_reaches_the_panel(view):
+    from app.ui.widgets.pinned_panel import PinnedPanel
+
+    panel = view.split.findChild(PinnedPanel)
+    view.results._list.setCurrentIndex(view.results._model.index(0, 0))
+    view.results.pin_requested.emit(view.results.current_row())
+    assert len(panel.pins) == 1
+
+
+def test_a_new_search_updates_the_timeline_without_being_asked(view):
+    from app.ui.widgets.timeline_strip import TimelineStrip
+
+    timeline = view.split.findChild(TimelineStrip)
+    # Two genuinely different dates, wide enough apart to yield real bars -
+    # `result()`'s shared constant timestamp would collapse to one bucket.
+    old = result(10, 10, rank=0)
+    old.mtime_ns = 1_500_000_000_000_000_000
+    new = result(20, 20, rank=1)
+    new.mtime_ns = 1_700_000_000_000_000_000
+    view.results.show_results([old, new], ["pump"])
+    assert timeline._layout.count() >= 1
+
+
 def test_enter_with_nothing_selected_is_left_to_the_box(view):
     """Today's behaviour when nothing is selected is unchanged - the item's
     own wording - so the filter must not consume the key at all, leaving the
