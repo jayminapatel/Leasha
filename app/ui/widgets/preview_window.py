@@ -73,7 +73,8 @@ class PreviewWindow(QWidget):
     reveal_requested = pyqtSignal(str)
 
     def __init__(self, row: Any, *, state: Any = None,
-                 body_provider: Any = None) -> None:
+                 body_provider: Any = None, siblings: Any = (),
+                 index: int = 0) -> None:
         # No parent: a parented widget with a window flag still minimises with
         # its owner, and a pinned document that vanishes with the main window
         # is not pinned. The same reasoning `log_window` records.
@@ -91,20 +92,41 @@ class PreviewWindow(QWidget):
         self._generation = 0
         self._kind = "none"
         self._image: Any = None
+        #: Work order 0h §3b: the lightbox. Empty/single-item means no
+        #: navigation at all - a document pinned from anywhere other than the
+        #: thumbnail grid or the results list carries no siblings, and the
+        #: arrow keys fall through to whatever they always did (scrolling).
+        self._siblings = list(siblings) if siblings else []
+        self._index = int(index) if self._siblings else 0
+        #: Kept so `_navigate` can re-read a sibling's own remembered
+        #: rotation the same way `__init__` reads this one's, below.
+        self._state = state
+
         self._view = View(turn=read_turn(state, self._path),
                           page=int(getattr(row, "page", 0) or 0))
 
-        name = str(getattr(row, "name", "") or self._path or "Preview")
-        self.setWindowTitle(name)
+        self.setWindowTitle(self._title_for(row))
         # §2a: the title bar is the filename, the tooltip is the full path.
         # A title bar cannot hold `C:\Users\...\2019\surveys\...`, and the one
         # question somebody has about a pinned window is *which* copy it is.
-        self.setToolTip(self._path or name)
+        self.setToolTip(self._path or self.windowTitle())
         self.setMinimumSize(MIN_WIDTH, MIN_HEIGHT)
 
         self._build()
         self._restore(state)
         self.reload()
+
+    def _title_for(self, row: Any) -> str:
+        """The filename, plus "(2 of 5)" when this window can navigate.
+
+        Work order 0h §3b's only UI surface for "you can press an arrow key
+        here" - a lightbox with no visible position indicator reads as a
+        single photo with an accidental keyboard shortcut, not as a browser.
+        """
+        name = str(getattr(row, "name", "") or self._path or "Preview")
+        if len(self._siblings) > 1:
+            name = f"{name}  ({self._index + 1} of {len(self._siblings)})"
+        return name
 
     # -- the furniture --------------------------------------------------------
 
@@ -481,6 +503,45 @@ class PreviewWindow(QWidget):
             event.accept()
             return
         super().wheelEvent(event)
+
+    def keyPressEvent(self, event: Any) -> None:             # noqa: N802 - Qt's name
+        """Left/right walks the sibling set - work order 0h §3b, the lightbox.
+
+        Only claimed when there is more than one sibling to move between;
+        with none (every pop-out before this order, and any pinned from
+        somewhere that does not know its own result set) the keys fall
+        through to Qt's ordinary handling, unchanged.
+        """
+        if len(self._siblings) > 1 and event.key() in (
+                Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self._navigate(-1 if event.key() == Qt.Key.Key_Left else 1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _navigate(self, delta: int) -> None:
+        """Move to the next/previous sibling, wrapping at either end.
+
+        Wraps rather than stopping: a lightbox that dead-ends at the last
+        photo makes somebody reach for the mouse to go back to the start,
+        which is the one motion arrow keys exist to remove.
+
+        Rebuilds exactly the state `__init__` built for the first photo -
+        title, tooltip, rotation - then calls `reload()`, which already owns
+        bumping the generation and dropping anything still in flight for the
+        photo being left. No new load path; the existing one, for a
+        different row.
+        """
+        self._index = (self._index + delta) % len(self._siblings)
+        row = self._siblings[self._index]
+        self._row = row
+        self._path = str(getattr(row, "path", "") or "")
+        self._display_path = self._path
+        self._view = View(turn=read_turn(self._state, self._path),
+                          page=int(getattr(row, "page", 0) or 0))
+        self.setWindowTitle(self._title_for(row))
+        self.setToolTip(self._path or self.windowTitle())
+        self.reload()
 
     def _restore(self, state: Any) -> None:
         """Size and pin, from the app's own state. Never raises."""
