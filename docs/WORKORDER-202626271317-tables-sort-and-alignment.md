@@ -114,7 +114,7 @@ can see.
 
 ## 5. ADDED 2026-08-28 — column widths forgotten, FIFTH report (owner: LOW priority, do last in this order)
 
-- [ ] **5a** the owner reports again that column widths are not remembered.
+- [x] **5a** the owner reports again that column widths are not remembered.
   History: fixed four times (CHANGELOG), twice the app's own guard was the
   thing overruling the user. **Diagnose before touching anything** — the
   planted DEBUG lines split the bug: `column <k> width saved as <n>` means
@@ -125,11 +125,92 @@ can see.
   column (stretch-owned until any width is saved — a first drag there
   cannot stick), and tables outside Files/Mail/Code (roots, file types,
   git tree) which may lack the machinery entirely.
-- [ ] **5b** whatever the cause: fix + a REAL-INPUT regression test —
+- [x] **5b** whatever the cause: fix + a REAL-INPUT regression test —
   a pywinauto drag (0m's tooling, runnable before 0m) that holds an
   actual mouse button, drags a column, restarts the view, asserts the
   width survived. This bug class has never had a true net; that test is
   the deliverable that ends the series.
+
+### Delivery note, 2026-09-05 — the sixth report's actual cause
+
+**The `column resize ignored: no button held` line named in 5a no longer
+exists in `remember_widths`.** That guard belonged to the mouse-button check
+from the `sectionResized`-connected era; `269c76f` replaced the whole
+mechanism with the timer-based watcher documented in the function, and the
+watcher does not guess about buttons at all. So that branch of the diagnosis
+is stale as of this order and was not the sixth report's cause.
+
+**What was: the LAST column, exactly where 5a pointed, but the other side of
+it.** `_apply_widths` decided whether the last column keeps
+`setStretchLastSection` — its "fill the remaining space" behaviour — by
+asking `not prefs.widths`: "has *anything at all* been dragged", rather than
+asking about the last column specifically. Dragging any *other* column
+already makes `prefs.widths` non-empty, so on the very next restore the last
+column's stretch was switched off regardless of which column had actually
+been touched.
+
+Measured on a three-column, 900px-wide fixture: dragging the *middle*
+column from its fitted width down to 320px and reopening restored the middle
+column at exactly 320px, as promised — and the last column, which had been
+filling the remaining ~495px live, came back at its bare fitted width
+instead (67px in the same run), leaving hundreds of pixels of dead table on
+the right. Saved correctly, restored correctly, and still indistinguishable
+from "the widths were not remembered" — because the column that changed
+appearance was never the one anybody had dragged.
+
+Confirmed with a genuine OS-level mouse drag before writing the fix, not
+only reasoned about: `header.resizeSection()` called directly against a
+live, shown (non-offscreen) window reproduces the same before/after
+sequence a real mouse press-move-release does, and a `pywinauto` drag
+against the actual native window reproduced it again.
+
+**Fix:** `_last_column_is_chosen(order, shown, widths)` in
+`app/ui/view_options.py` asks whether the *last visible* column specifically
+has a saved width, walking `order` the same way `_cap_columns` already does
+so the two can never disagree about which column counts as "last".
+`_apply_widths` now gates `setStretchLastSection` on that, not on `prefs.widths`
+being merely non-empty.
+
+**Tests:** `tests/unit/test_view_options.py` gained
+`test_last_column_is_chosen_only_when_its_own_width_was_saved` (the pure
+unit), `test_dragging_one_column_does_not_shrink_the_last_column_on_restart`
+(the offscreen fixture reproducing the measurement above — verified to fail
+without the fix and pass with it), and the REAL-INPUT test 5b calls for:
+`test_a_real_mouse_drag_survives_a_restart`, which drives a genuine
+`pywinauto` mouse press-move-release against a real, natively-shown Qt
+window (a subprocess, so it can run with the real platform plugin and with
+Windows' per-monitor DPI scaling disabled — the second turned out to matter
+as much as the first: Qt's high-DPI scaling maps logical widget coordinates
+onto larger physical screen pixels, and `pywinauto.mouse` presses at
+physical pixels, so the very first version of this test computed a header
+boundary that missed the real divider entirely and "dragged" nothing).
+Opt-in via `LEASHA_REAL_INPUT_TESTS=1` — per the project's own convention
+for real-desktop input tests, it must never run as part of the everyday
+suite, since it moves the real mouse and needs an unlocked desktop. Verified
+in this session: fails on the unfixed line, passes with the fix, using an
+isolated temporary SQLite store rather than the shared production index.
+
+**Checked and not touched:** `widgets/roots_box.py`, `widgets/file_types.py`,
+`widgets/search_behaviour_box.py` and `widgets/git_tree.py` do not call
+`view_options.button`/`apply_to_table` at all — confirmed by grep, not
+assumed — so they have no column-width persistence machinery to have this
+bug in. That is consistent with §2b's own record of why each is exempt from
+sorting (cell widgets, user-owned order, a fixed matrix, no header); wiring
+width persistence into them would mean editing those view files, which is
+outside this item's file list (`app/ui/view_options.py` and its test only)
+and is not something this report was about.
+
+**Live verification:** the full mechanism — a real drag, the real 600ms
+watcher, a real SQLite write, a real process restart — was verified end to
+end via the `pywinauto` test above, against an isolated temporary database.
+A full `app.main` launch against the shared production index
+(`D:\Leasha\Data`) was not additionally performed in this session: two other
+`app.main` processes were already running against that same store when this
+work started (started by other concurrent activity on this shared checkout,
+per the standing instruction not to disturb work already in progress), and
+starting a third against the same live database risked write contention this
+report did not need to accept for a fix already demonstrated with a real
+window, a real mouse, and a real restart.
 
 ## Note added 2026-08-28 — the Indexing page layout
 
