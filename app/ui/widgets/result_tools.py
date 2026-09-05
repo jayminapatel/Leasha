@@ -119,9 +119,110 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
     return holder
 
 
+def _similar_summary(row: Any) -> str:
+    from pathlib import Path
+
+    name = Path(str(getattr(row, "path", "") or "")).name or "this result"
+    return f"Similar to “{name}”"
+
+
+def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
+                  on_error: Any) -> None:
+    r"""Work order 0h §2d: "more like this", for a passage or a photo alike.
+
+    **Wired against `SearchEngine.similar_to` exactly as it exists today.**
+    That method reads back the vector stored for a `chunk_id` from
+    `self.vectors` - the *text* store - and searches within it. For a real
+    passage that is correct and already works. For a photo, `row.chunk_id`
+    by this point is a bare int equal to `file_id` (see `_result_chunk_id`'s
+    docstring in `app/search/engine.py`) - not a string a caller could branch
+    on - and `similar_to` has no parameter to search the *image* store
+    instead. The practical effect: it either finds nothing (an empty, honest
+    "no similar results", the ordinary case) or, on an unlucky numeric
+    coincidence between the two independent id sequences, returns a real but
+    unrelated passage's neighbours. Never a crash - `similar_to` itself never
+    raises for a bad id - but not a working feature for a photo until the
+    engine gains an image-aware path. Left wired rather than hidden for
+    photos, per the work order's own instruction, so this gap is visible and
+    measurable rather than quietly avoided.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.workers import CallableWorker, run
+
+    def _finished(response: Any, row: Any) -> None:
+        found = list(getattr(response, "results", None) or [])
+        results.show_results(found, [], summary=_similar_summary(row))
+
+    def _run(row: Any) -> None:
+        if engine is None:
+            return
+        chunk_id = int(getattr(row, "chunk_id", 0) or 0)
+        worker = CallableWorker(engine.similar_to, chunk_id, component="ui.similar_to")
+        worker.signals.finished.connect(lambda response, r=row: _finished(response, r))
+        if on_error is not None:
+            worker.signals.failed.connect(on_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    results.similar_requested.connect(_run)
+    grid.similar_requested.connect(_run)
+
+
+def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
+    """Work order 0h §3b: a thumbnail opens straight into the lightbox.
+
+    Self-contained rather than routed through `shell._pin_document` - that
+    path exists for the *in-app preview pane's* own pop-out button, and the
+    grid has no such pane to pop out from (it is deliberately just thumbnails
+    - see `thumbnail_grid.py`'s own docstring). `store` gives it the same
+    geometry/on-top persistence `_pin_document` gives every other pop-out;
+    `open_async`/`workers.py` gives "Open the real file" and "Show in
+    folder" the same worker-thread guarantee every other opener has, without
+    needing shell.py's `_open_path` specifically.
+    """
+    from app.ui.widgets.preview_window import PreviewWindow
+    from app.ui.workers import open_async
+
+    open_windows: list = []
+
+    def _state_now() -> dict:
+        if store is None:
+            return {}
+        try:
+            return store.all_state()
+        except Exception:                        # noqa: BLE001 - opens fresh
+            return {}
+
+    def _remember(values: dict) -> None:
+        if store is not None:
+            try:
+                store.set_states(values)
+            except Exception:                    # noqa: BLE001 - a preference
+                pass
+
+    def _open(row: Any, siblings: Any) -> None:
+        sibling_list = list(siblings or ())
+        try:
+            index = sibling_list.index(row)
+        except ValueError:
+            index = 0
+        window = PreviewWindow(row, state=_state_now(), siblings=sibling_list, index=index)
+        window.remember.connect(_remember)
+        window.open_requested.connect(lambda path: open_async(path, on_error=on_error))
+        window.reveal_requested.connect(
+            lambda path: open_async(path, reveal=True, on_error=on_error))
+        window.closed.connect(
+            lambda w: open_windows.remove(w) if w in open_windows else None)
+        open_windows.append(window)          # kept alive - see PreviewWindow's own note
+        window.show()
+        window.raise_()
+
+    grid.opened.connect(_open)
+
+
 def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_error: Any,
                        store: Any = None, search_box: Any = None, on_filter: Any = None,
-                       on_pop_out: Any = None, on_similar: Any = None) -> tuple:
+                       engine: Any = None) -> tuple:
     r"""A `ResultsView`, wired, with its preview pane, pinned set and timeline.
 
     Returns `(results, preview, split)` - the same three names as before;
@@ -142,12 +243,13 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     through the same path Enter already uses. Neither is required - without
     them the strip still shows, it just cannot be clicked into a filter.
 
-    `on_pop_out` is work order 0h §3b's hook: a thumbnail opened from the
-    grid (double-click or Enter) calls it with `(row, siblings)`, the same
-    shape `PreviewWindow` needs for next/previous - the caller (`search_view`)
-    forwards it to whatever opens a pop-out window. `on_similar` is §2d's:
-    "more like this" from either surface's right-click menu, one handler for
-    both so a photo and a passage go through the same code.
+    `engine` is work order 0h §2d's and §3a/§3b's shared dependency: "more
+    like this" (`_wire_similar`) needs `SearchEngine.similar_to`; opening a
+    thumbnail into the lightbox (`_wire_lightbox`) does not need it directly
+    but is wired alongside for the same reason both features live here -
+    `search_view.py` is at its own 250-line guard and has no room left for
+    either. `None` (a test's bare stand-in) disables "more like this"
+    quietly; the grid and the lightbox still work without it.
     """
     from app.ui.widgets.preview import attach_preview
 
@@ -179,8 +281,6 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     pinned.remember.connect(remember)
     results.pin_requested.connect(pinned.pin)
     pinned.open_all.connect(open_all)
-    if on_similar is not None:
-        results.similar_requested.connect(on_similar)
 
     timeline = TimelineStrip()
     results.rows_changed.connect(timeline.set_rows)
@@ -200,10 +300,8 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     results.rows_changed.connect(grid.show_rows)
     grid.reveal_requested.connect(on_reveal)
     grid.pin_requested.connect(pinned.pin)
-    if on_similar is not None:
-        grid.similar_requested.connect(on_similar)
-    if on_pop_out is not None:
-        grid.opened.connect(on_pop_out)
+    _wire_similar(results=results, grid=grid, engine=engine, on_error=on_error)
+    _wire_lightbox(grid=grid, store=store, on_error=on_error)
 
     stack = QStackedWidget()
     stack.addWidget(split)          # index 0: list + preview - the default
