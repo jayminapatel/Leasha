@@ -1,6 +1,6 @@
 # Work order: every tunable has a UI, or stops being tunable
 
-**Doc version:** 1.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 
 A new standing rule from the owner, applying **everywhere**, not to one screen:
 
@@ -136,19 +136,69 @@ class Setting:
 
 Then the tests that make the rule real:
 
-- [ ] **Every key read from `.env` appears in the registry.** Parse `config.py` for the keys it
+> **2026-09-05 - acceptance checklist verified.** All six items below were audited against
+> the current code rather than assumed: read `config.py`, `settings_registry.py`,
+> `env_writer.py`, and every existing test over them, then checked each property by hand
+> before trusting a test's own claim to cover it. Five held and now have a test proving so;
+> item 6 found one real, dated violation whose fix falls outside this order's file scope. See
+> the note under item 6.
+
+- [x] **Every key read from `.env` appears in the registry.** Parse `config.py` for the keys it
       reads and diff against the registry - a new key without a control fails the suite.
-- [ ] **Every registry entry is reachable from the UI.** Assert the panel named in `surface`
+      Held already: `test_every_setting_config_reads_has_a_control` in
+      `tests/unit/test_settings_registry.py` does exactly this, by `ast`-parsing `config.py`
+      rather than trusting an import. No missing key found.
+- [x] **Every registry entry is reachable from the UI.** Assert the panel named in `surface`
       builds a control for it. This is the test that catches a setting existing but being wired
       to nothing - which has already happened twice here (`rerank_toggled`, `cloud_toggled`).
-- [ ] **Every setting round-trips**: set through the presenter, saved, reloaded, and comes back
+      Held already: `test_every_plain_setting_has_a_control` and `test_a_flow_is_actually_invoked`
+      in `tests/unit/test_settings_reachable.py`. Both bugs named here are already fixed (see
+      `shell.py`'s wiring and `widgets/window_box.py`'s docstring for the tray pair).
+- [x] **Every setting round-trips**: set through the presenter, saved, reloaded, and comes back
       equal. The current View menu drops `group_by_document` and `show_scores` on an unrelated
       change; this test would have caught it.
-- [ ] **Settings that need a restart say so**, and settings that do not, apply live.
-- [ ] `.env` writes are atomic, and a malformed file produces `ERR_CONFIG_INVALID` naming the
+      Held already: `test_every_default_survives_a_round_trip` sets every registry default
+      through `apply_values` and reads it back; `test_config_can_read_what_the_writer_wrote` in
+      the same file proves the writer and `load_settings` agree end to end.
+- [x] **Settings that need a restart say so**, and settings that do not, apply live.
+      Held, and only partly tested before - `test_restart_settings_are_declared` checked two
+      hardcoded keys. Added `test_restart_settings_say_so_somewhere_the_user_can_see`
+      (parametrised over every `restart=True` entry) to `test_settings_reachable.py`: it
+      confirms the word "restart" is visible on the setting's own surface for `EMBED_DEVICE`,
+      `EMBED_QUANTISED` and `RERANK_MODEL`, and in `shell.py`'s flow-outcome message for
+      `DATA_PATH`, `EMBED_MODEL` and `EMBED_DIM` (`_change_index_location` /
+      `_change_meaning_model`). The "applies live" half is spread across many existing tests
+      (search behaviours, the mini-search hotkey, live rerank numbers) rather than one place;
+      not re-proven here, only confirmed by reading `shell.py::_settings_changed`.
+- [x] `.env` writes are atomic, and a malformed file produces `ERR_CONFIG_INVALID` naming the
       key rather than a silent default.
+      Held already. Atomicity: `write_env` writes a temp file in the target directory and
+      `os.replace`s it, proven by `test_write_leaves_no_temp_files`,
+      `test_unwritable_target_raises_an_app_error` and the BOM tests in
+      `tests/unit/test_settings_writes.py`. Malformed input: `load_settings` raises
+      `ERR_CONFIG_INVALID` naming the key for every bad value, parametrised in
+      `tests/unit/test_config.py::test_bad_value_names_the_offending_key` (outside this order's
+      file scope, so not duplicated here - it already exists and passes).
 - [ ] **No control is orphaned**: every signal declared by a settings panel has a receiver.
       Static assertion over `app/ui/`.
+      **Blocked on scope, one real violation found.** Added
+      `test_every_signal_a_settings_panel_declares_has_a_receiver` to
+      `test_settings_reachable.py`: for every `pyqtSignal` declared across the Settings and
+      Indexing pages and their widgets, something in `app/ui` must call `.connect()` on it.
+      Every previously-known case (`rerank_toggled`, `cloud_toggled`, `ui:tray_minimise`,
+      `ui:tray_close`) is already fixed. The test found one the review missed:
+      **`settings_view.py:95` declares `history_cleared = pyqtSignal(int)`, and
+      `settings_view.py:385` emits it (`self.history_cleared.emit(removed)`, right after the
+      usage log is cleared) - and nothing anywhere in the repository ever connects to it.** It is
+      a real orphaned signal, the same shape as `rerank_toggled`/`cloud_toggled`. Fixing it means
+      either adding a receiver in `shell.py` (most likely: refreshing whatever shows saved-search
+      history elsewhere once the log is cleared) or deleting the signal from `settings_view.py`
+      if nothing should react to it - and both files are outside this order's file scope, with
+      `settings_view.py` explicitly owned by the concurrent pages-reorg session. Recorded as a
+      dated exemption (`ORPHANED_PENDING_FIX`) in `test_settings_reachable.py` so the general
+      test stays green and provable rather than deleted or weakened; the exemption's own test
+      (`test_the_pending_orphan_fix_is_dated_and_still_needed`) fails the moment somebody wires
+      it up, which is the signal to delete the exemption and tick this box.
 
 The registry also gives `app.cli settings` for free - list, get, set - which keeps the
 "every layer ships a CLI entry point" rule intact without making the CLI the primary surface.
