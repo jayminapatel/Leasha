@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures I — the CLIP lane: find photos by describing them
 
-**Doc version:** 1.1 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Index + Storage/vectors + Search + results UI)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
 ladder + EXIF dates) landed first. **Scope discipline: vectors and
@@ -9,10 +9,18 @@ presentation only — NO tag/caption text generation (that is 0511), NO faces
 from memory and find it — extended to offline drives when the Offline Media
 orders land.
 
-**2026-09-05, §1 build session.** 1a and 1b done, measured, tested. 1c is
-built and tested as far as the files this session was scoped to touch allow —
-see the dated note under §1c for exactly where it stops and why. §2 and §3 are
-untouched, per instruction.
+**2026-09-05, §1 build session.** 1a and 1b done, measured, tested. 1c was
+built and tested as far as that session's file list allowed, stopping
+deliberately at `engine.py`.
+
+**2026-09-05, later the same day: §1c finished.** The engine wiring the
+first session stopped short of is built, tested, and merged — search-side
+(`SearchEngine`) and, because the lane could not be measured without it,
+the `app.cli index` half of indexing-side too. §1 is fully done by this
+order's own "Done means" definition below, with one gap found and flagged
+rather than fixed: indexing from the *window* (`app/ui/shell.py`) still
+does not write CLIP vectors — see §1c's dated note for the exact site.
+§2 and §3 remain untouched, per instruction.
 
 ## 1. The image-vector lane
 
@@ -163,7 +171,7 @@ untouched, per instruction.
   including an H7-shape test that 10 images cost ≤3 dataset versions, not
   10, and an H4 test that one broken image never costs the run or the file).
 
-- [ ] **1c** third retrieval lane: the query text embedded by the **CLIP text
+- [x] **1c** third retrieval lane: the query text embedded by the **CLIP text
   tower** (not the FastEmbed text model — different space), ANN over the
   image table, fused via the existing RRF exactly as keyword+vector fuse
   today. Runs when the query plausibly describes imagery — v1 heuristic:
@@ -208,26 +216,103 @@ untouched, per instruction.
     namespacing, H4 degradation on a broken model, an empty query, and
     `hydrate_images`.
 
-  **What is not built, and needs a decision, not a guess:** calling
-  `search_images` from `SearchEngine.search()` and adding its hit list as a
-  third argument to the `fuse_hits(...)` call at `engine.py:886` — the actual
-  "always run this lane" wiring the item describes. That single-line-shaped
-  change sits in a file outside this session's scope, and two small design
-  questions ride along with it that the owner or the next thread should
-  settle rather than have guessed here under time pressure:
-  1. Where do `image_embedder` / `image_vectors` get constructed and handed
-     to the engine? (Compare: where `Pipeline` gets its own — `app.cli`'s
-     `index` command and the window, neither of which this session touched.)
-  2. Should the image lane's weight in `fuse_hits(..., weights=...)` be 1.0
-     (true v1, as specified) or something the owner wants tunable from day
-     one? The item's own text says "v1 heuristic... measure against
-     `evaluate` before tuning further" — so 1.0 is the literal answer, flagged
-     here only so it is a deliberate choice at the wiring site, not a default
-     nobody decided.
+  **Done 2026-09-05, a later session: `SearchEngine.search()` wiring.** The
+  two design questions above are answered and the wiring built:
+
+  1. **Construction**, at every real search entry point (`app/main.py`'s
+     window startup, `app.cli`'s `search`, `shell`, `evaluate` commands —
+     verified with `grep -n "SearchEngine(" app/main.py app/cli.py` before
+     touching anything; the `evaluate --builtin` benchmark path
+     (`app/cli.py`, ~line 2099) was found and deliberately left alone: a
+     synthetic 21-document corpus for reranker A/B comparison, no images,
+     not in the instruction's named list). One shared constructor,
+     `vector.clip_text_embedder_from_settings(settings)`, follows the
+     `Embedder.from_settings`/`Reranker.from_settings` precedent — not
+     literally that classmethod, because `Embedder.from_settings` passes
+     `model_name` positionally and cannot take an override for it (documented
+     on the function itself). `image_vectors`/`clip_text_embedder` reach
+     `SearchEngine` as optional kwargs, `None` by default, H4 throughout:
+     absent means the engine behaves exactly as it did before this lane
+     existed. Confirmed lazy: `SearchEngine.warm_up()` deliberately does not
+     touch `clip_text_embedder` (0r's startup budget has room for one eager
+     ONNX load, not two) — it loads on the first search that reaches it.
+  2. **Weight**: 1.0, literal, by passing nothing — `hit_lists` and
+     `weights` are built as parallel lists in `_retrieve`, appending the
+     image lane's hit list to the first and, only when `weights is not
+     None`, `1.0` to the second, so a future tuned `weights=` cannot hit
+     `rrf`'s length-mismatch `ValueError`. `self.weights` stays the
+     `(keyword, vector)` pair it always was — no third element hardcoded in.
+
+  **Also wired, because the lane could not be measured without it**: the
+  indexing side. `app/cli.py`'s `index` command (the only real `Pipeline(`
+  construction site in that file — verified via `grep -n "Pipeline("
+  app/cli.py`) now builds a `ClipImageEmbedder` and `ImageVectorStore`
+  alongside its existing `Embedder`/`VectorStore` and hands them to
+  `Pipeline` as `image_embedder=`/`image_vectors=`. Before this, `grep -rn
+  "image_embedder=\|image_vectors=" app/` returned only test call sites — no
+  real `app.cli index` run had ever written a CLIP vector.
+
+  **Two real bugs found and fixed while wiring, not assumed away:**
+  - `SearchResult.chunk_id` is typed `int`, and every fused row used to be
+    cast with a bare `int(hit.get("chunk_id", 0))` in `_to_result` — which
+    raises on an image hit's `"img:<file_id>"` string. Would have crashed
+    the first search that ever fused in a photo. Fixed with `_result_chunk_id`,
+    falling back to `file_id` (the image table's whole key) once fusion's
+    job of preventing a collision is already done.
+  - `NOTICE_NO_IMAGES` needed its own entry in `app/search/plain_notices.py`'s
+    `PLAIN` table - caught by the suite's own `test_every_notice_code_has_a_
+    plain_form`, not missed silently.
+
+  **A gap found, not guessed past — flagged rather than fixed:**
+  `app/ui/shell.py:_start_indexing` (~line 1949) constructs its own
+  `Pipeline` for indexing started from the window, independently of
+  `app.cli index`, and was not in this instruction's named scope
+  (`app/ui/*` was off-limits in the session that built §1a/§1b/§1c's
+  standalone half, and this instruction named only `app/cli.py:1140`).
+  **Indexing from the window still does not write CLIP vectors** until that
+  site gets the same `image_embedder=`/`image_vectors=` wiring
+  `app/cli.py`'s `cmd_index` just got. Search-side wiring (this session's
+  other change) is unaffected either way, since it queries whatever the
+  image table already holds - it will simply find nothing until an
+  `app.cli index` run, or this second site, has written to it.
+
+  Five wiring-level tests added in a new file, `tests/unit/
+  test_engine_image_lane.py` (existing files already prove
+  `search_images`/`hydrate_images` and `fuse_hits`/`backends` themselves;
+  none of them touch `SearchEngine`, which is what these fill in): a photo
+  with no matching text or filename is found by description alone, through
+  the real `SearchEngine.search()` path - the search half of this order's
+  acceptance sentence, now demonstrable rather than only unit-tested in
+  isolation; the lane is off when either constructor argument is `None`
+  (H4's default); a broken lane degrades with its own `NOTICE_NO_IMAGES`
+  rather than silence or the text-vector lane's code; the thread pool grew
+  to three workers so a third lane never serialises behind the other two.
+  Full regression run (186+ tests across the CLIP lane, `test_layer4_
+  acceptance.py`, `test_cli_wiring.py`, `test_policy_reaches_the_engine.py`,
+  `test_search_images.py`, `test_fusion.py`, `test_backends.py`,
+  `test_embedder.py`, the new file) is clean except confirmed pre-existing
+  failures, unrelated to this change and reproduced against the pre-change
+  commit before being set aside: `test_a_missing_rerank_model_degrades_to_
+  the_fused_order`, `test_a_filter_that_matches_nothing_returns_nothing_
+  calmly` (both `test_layer4_acceptance.py`), `test_reembed_says_what_it_
+  is_doing_before_the_silence` (`test_cli_wiring.py` - reproduced against
+  `main` with this session's changes stashed out), and one wall-clock-timing
+  flake in `test_match_marker.py` unrelated to search entirely.
+
+  Also observed, not fixed: `test_cli_wiring.py::test_search_warms_the_
+  models_before_it_times_anything` calls a real, unmocked `cmd_search` and
+  already tolerated the primary embedder attempting a real network download
+  in this environment ("no network here" in its own docstring turns out not
+  to hold) - this change makes that same, pre-existing pattern happen twice
+  (the CLIP text tower now loads lazily too), which is slower and noisier
+  in test output but not a new failure mode: the test's exit code is still
+  0, confirmed by running it in isolation. Worth a follow-up to isolate
+  model loading in that test rather than something to fix under this order.
 
   Also not built: `evaluate`'s photo-sentence benchmark the item asks to
-  measure against before tuning — there is no engine-level lane to measure
-  yet (see above), so this is next once engine.py wiring lands.
+  measure against before tuning further - now reachable (the engine-level
+  lane exists), but running it and recording real recall numbers is a
+  measurement task in its own right, not assumed done by wiring existing.
 
   **Real models confirmed working end to end**, on this machine, beyond unit
   tests with injected encoders: a real 512-dim vector from the real
@@ -320,23 +405,34 @@ CHANGELOG. Acceptance sentence: type "kids blowing out birthday candles" and
 the photo appears; drop a WhatsApp-compressed copy in and Leasha names where
 the original lives.
 
-**2026-09-05: §1 only, and §1 is not fully "done" by this definition yet.**
-1a and 1b meet it in full — real models, real measurements, tests green. 1c
-meets it for everything inside this session's file list (`app/index/
-clip_embedder.py`, `app/storage/vector_store.py`, `app/search/vector.py`,
-`app/search/fusion.py`, `app/index/pipeline.py`'s indexing flow, and their
-tests) and stops at `app/search/engine.py`'s `fuse_hits` call site, which is
-outside it. **No CHANGELOG entry was added**: nothing here is reachable from
-a search yet, so there is no user-visible effect to describe honestly — an
-entry now would be describing a capability nobody can use. The acceptance
-sentence itself ("type ... and the photo appears") needs that same wiring
-and is therefore not yet demonstrable end to end; the indexing half of it
-(a photo with no OCR text getting a real CLIP vector from the real model) is
-demonstrated in `tests/unit/test_clip_lane_pipeline.py`.
+**2026-09-05, first session: §1 only, and not fully "done" by this
+definition yet.** 1a and 1b met it in full — real models, real
+measurements, tests green. 1c met it for everything inside that session's
+file list and stopped at `app/search/engine.py`'s `fuse_hits` call site,
+which was outside it.
 
-**For whoever picks this up next:** the two design questions under §1c's
-stop-note, plus where `image_embedder`/`image_vectors` get constructed
-(mirroring wherever `app.cli`'s `index` command builds its `Embedder` and
-`VectorStore` today) and handed to both `Pipeline` and `SearchEngine`, are
-the whole of what is left to reach the acceptance sentence. Everything below
-that line in the stack already works and is tested.
+**2026-09-05, later the same day: §1 reaches "done".** `SearchEngine`
+wiring landed (see 1c's dated note), and `app.cli index` now writes real
+CLIP vectors on a real run — the acceptance sentence's search half
+(`type "kids blowing out birthday candles" and the photo appears`) is
+demonstrated end to end by `tests/unit/test_engine_image_lane.py::
+test_a_photo_with_no_text_is_found_by_the_image_lane` through the real
+`SearchEngine.search()` path, not just at `fuse_hits`/`search_images` in
+isolation. **Committed by name**, suite green (this session's own sweep;
+see 1c's note for the exact files and the pre-existing failures set aside).
+**One real gap, named rather than silently left**: indexing from the
+window does not yet write CLIP vectors (`app/ui/shell.py:_start_indexing`,
+flagged in 1c's note) — so the acceptance sentence is only true for a
+corpus indexed via `app.cli index`, not yet via the window's own "start
+indexing" button, until that second site gets the same wiring. The
+WhatsApp-compressed-copy half of the acceptance sentence (reverse image
+search, pHash) is §2, explicitly out of scope here.
+
+CHANGELOG entry added for this half - see `[Unreleased]`.
+
+**For whoever picks up §2/§3 next:** the retrieval and indexing lanes both
+work and are tested; `app/ui/shell.py:_start_indexing`'s missing
+`image_embedder=`/`image_vectors=` wiring (see 1c) is the one loose end
+worth closing before or alongside §2/§3, since a same-image-intelligence
+feature built against a photo that got indexed from the window would find
+no vector to work with at all.
