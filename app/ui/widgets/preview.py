@@ -53,10 +53,12 @@ from app.ui.preview_loader import (
     KIND_MARKDOWN,
     KIND_NONE,
     KIND_PDF,
+    KIND_SPREADSHEET,
     KIND_TEXT,
     load_preview_for,
 )
 from app.ui.widgets.highlight import CodeHighlighter, language_for
+from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
@@ -157,6 +159,9 @@ class PreviewPane(QWidget):
         self.card.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.card.setAccessibleName("File details")
 
+        # Workspace §4b: a spreadsheet as a grid, sheet tabs and all.
+        self.spreadsheet = SpreadsheetView()
+
         # **Every word in the pane can be selected and copied.** Asked for:
         # *"in the preview pane you should be able to select and copy"*.
         #
@@ -176,7 +181,7 @@ class PreviewPane(QWidget):
             label.setCursor(Qt.CursorShape.IBeamCursor)
 
         self.stack = QStackedWidget()
-        for widget in (self.text, self.image, self.card):
+        for widget in (self.text, self.image, self.card, self.spreadsheet):
             self.stack.addWidget(widget)
         self._pdf = self._make_pdf_view()
         if self._pdf is not None:
@@ -378,6 +383,11 @@ class PreviewPane(QWidget):
             self.stack.setCurrentWidget(self.text)
         elif preview.kind == KIND_IMAGE:
             self._show_image(preview.path)
+        elif preview.kind == KIND_SPREADSHEET:
+            # No I/O here - `preview.meta["sheets"]` is a list of `SheetGrid`
+            # the worker already built; this is arithmetic over data in hand.
+            self.spreadsheet.show_sheets(preview.meta.get("sheets"))
+            self.stack.setCurrentWidget(self.spreadsheet)
         elif preview.kind == KIND_PDF and self._pdf is not None:
             self._show_pdf(preview.path, preview.page)
         else:

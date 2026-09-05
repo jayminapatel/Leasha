@@ -24,8 +24,9 @@ from app.core.errors import AppError, make_error
 from app.core.logging import logger
 
 __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
-           "KIND_MARKDOWN", "KIND_NONE", "kind_for", "load_preview",
-           "load_preview_for", "stored_text", "CAPS"]
+           "KIND_MARKDOWN", "KIND_SPREADSHEET", "KIND_NONE", "kind_for",
+           "load_preview", "load_preview_for", "stored_text", "CAPS",
+           "SheetGrid", "SHEET_PREVIEW_MAX_ROWS", "SHEET_PREVIEW_MAX_COLUMNS"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -40,6 +41,9 @@ KIND_IMAGE = "image"
 #: pane's dispatch is already a kind-by-kind `if`/`elif` and a boolean bolted
 #: onto one branch is the first place the next reader looks past.
 KIND_MARKDOWN = "markdown"
+#: Workspace §4b. `.xlsx` and `.xls` as a real grid rather than a wall of
+#: tab-separated text - the biggest preview upgrade in the order.
+KIND_SPREADSHEET = "spreadsheet"
 KIND_NONE = "none"          # nothing to render; show the card
 
 #: How much of each kind is worth reading, in bytes.
@@ -58,6 +62,18 @@ CAPS: dict[str, int] = {
 #: Markdown is prose, so it reads the same amount as plain text - a second
 #: number here would be two caps to keep in step for no reason.
 CAPS[KIND_MARKDOWN] = CAPS[KIND_TEXT]
+#: Paged by `_spreadsheet_preview` itself, in rows rather than bytes - see
+#: `SHEET_PREVIEW_MAX_ROWS`. Present so `CAPS` still names every kind, exactly
+#: as `KIND_PDF`'s `0` does for the same reason.
+CAPS[KIND_SPREADSHEET] = 0
+
+#: Rows and columns a preview grid builds, deliberately smaller than the
+#: index's own caps (`office.MAX_SHEET_ROWS`/`MAX_SHEET_COLUMNS`, 5,000 / 64).
+#: A screenful is what a preview is for; a `QTableView` model holding every
+#: row of a serious workbook is exactly the wrong thing to build behind a
+#: down-arrow, two hundred milliseconds after the selection moved on.
+SHEET_PREVIEW_MAX_ROWS = 200
+SHEET_PREVIEW_MAX_COLUMNS = 40
 
 #: Characters of an extracted document worth showing. Lower than the text cap
 #: because extraction has already cost a zip open and an XML parse, and a Word
@@ -109,6 +125,16 @@ _HTML_SUFFIXES = frozenset({".html", ".htm", ".eml", ".msg"})
 #: `test_viewer_suffixes.py` pins the two sets equal.
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
                              ".tif", ".tiff", ".svg", ".heic", ".heif"})
+#: Workspace §4b. **Kept equal to `XlsxExtractor.extensions`** in
+#: `app/extract/office.py` - `.xlsm` and `.xltx` open in Excel exactly like a
+#: `.xlsx` and deserve the same grid, not a text wall because this set forgot
+#: them.
+_XLSX_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xltx"})
+#: **Kept equal to `XlsExtractor.extensions`** in `app/extract/xls.py`. Read
+#: through the LibreOffice converter route rather than directly - see
+#: `_read_xls_via_converter`.
+_XLS_SUFFIXES = frozenset({".xls", ".xlt"})
+_SPREADSHEET_SUFFIXES = _XLSX_SUFFIXES | _XLS_SUFFIXES
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +175,8 @@ def kind_for(path: Path) -> str:
         return KIND_TEXT
     if suffix in _IMAGE_SUFFIXES:
         return KIND_IMAGE
+    if suffix in _SPREADSHEET_SUFFIXES:
+        return KIND_SPREADSHEET
     if suffix == ".pdf":
         return KIND_PDF
     return KIND_NONE
@@ -249,6 +277,155 @@ def _labelled(document: Any) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SheetGrid:
+    """One worksheet, already capped, for `SpreadsheetView` to draw.
+
+    **Plain data, no Qt.** Built here, on the worker, so the widget's model
+    construction is arithmetic over a list already in hand rather than a
+    second read of the file - the same split `render_page` draws between
+    decoding and drawing.
+    """
+
+    name: str
+    rows: tuple[tuple[str, ...], ...] = ()
+    #: Set when the sheet had more rows or columns than the preview cap kept.
+    #: Two flags rather than one: a sheet can be wide and short, or the other
+    #: way round, and "large sheet" alone would not say which limit was hit.
+    truncated_rows: bool = False
+    truncated_columns: bool = False
+
+    @property
+    def truncated(self) -> bool:
+        return self.truncated_rows or self.truncated_columns
+
+
+def _sheet_grid(name: str, rows: Any, *, max_rows: int = SHEET_PREVIEW_MAX_ROWS,
+                max_columns: int = SHEET_PREVIEW_MAX_COLUMNS) -> SheetGrid:
+    """`rows` is an iterable of cell tuples - openpyxl's `iter_rows(values_only=True)`
+    or the xlrd-reading equivalent. Every cell becomes a string: a preview
+    grid is something to look at, not something to calculate with.
+    """
+    kept: list[tuple[str, ...]] = []
+    truncated_rows = False
+    truncated_columns = False
+    for index, row in enumerate(rows):
+        if index >= max_rows:
+            truncated_rows = True
+            break
+        cells = list(row)
+        if len(cells) > max_columns:
+            truncated_columns = True
+            cells = cells[:max_columns]
+        kept.append(tuple("" if cell is None else str(cell) for cell in cells))
+    return SheetGrid(name=name, rows=tuple(kept), truncated_rows=truncated_rows,
+                     truncated_columns=truncated_columns)
+
+
+def _spreadsheet_notice(sheets: list[SheetGrid]) -> str:
+    """§4b's line: "large sheet - showing first N rows." Named, not general -
+    a workbook of six sheets where only one is huge should not read as if
+    every sheet were cut down."""
+    large = [sheet.name for sheet in sheets if sheet.truncated]
+    if not large:
+        return ""
+    names = ", ".join(f"'{name}'" for name in large)
+    return (
+        f"Large sheet - showing the first {SHEET_PREVIEW_MAX_ROWS} rows and "
+        f"{SHEET_PREVIEW_MAX_COLUMNS} columns of {names}. Open the file for "
+        f"the rest."
+    )
+
+
+def _read_xlsx_sheets(path: Path) -> list[SheetGrid]:
+    """Every sheet of a modern workbook, read with `openpyxl` - already a
+    dependency, per §4b. `read_only` and `data_only`: a formula's last
+    *result* is what belongs in a grid somebody is looking at, not
+    `=VLOOKUP(...)`, and the same choice `office.XlsxExtractor` already made."""
+    import warnings
+
+    import openpyxl
+
+    with warnings.catch_warnings():
+        # See `office.XlsxExtractor.extract` for why this is suppressed here
+        # and nowhere broader: real workbooks trigger it constantly and none
+        # of it is actionable from a preview pane.
+        warnings.simplefilter("ignore", UserWarning)
+        workbook = openpyxl.load_workbook(
+            str(path), read_only=True, data_only=True, keep_links=False)
+    try:
+        sheets = []
+        for name in workbook.sheetnames:
+            sheet = workbook[name]
+            values = sheet.iter_rows(max_row=SHEET_PREVIEW_MAX_ROWS + 1,
+                                     values_only=True)
+            sheets.append(_sheet_grid(name, values))
+        return sheets
+    finally:
+        workbook.close()
+
+
+def _read_xls_via_converter(path: Path) -> Optional[list[SheetGrid]]:
+    """A legacy workbook, read as a grid by converting it through the
+    **existing LibreOffice converter route** and then reading the result the
+    same way as a native `.xlsx` - one grid-building code path for both
+    kinds, per §4b, rather than a second reader for `xlrd`'s cell types.
+
+    `None` means no converter is on this machine. The caller falls back to
+    the flat text table `_extracted` already produced before this feature
+    existed - a spreadsheet that cannot become a grid still previews as
+    something, not as a hole where a preview used to be.
+    """
+    from app.core.formats import ConverterRule
+    from app.extract.converter import available_binaries, convert
+
+    binaries = available_binaries()
+    binary = "soffice" if binaries.get("soffice") else (
+        "libreoffice" if binaries.get("libreoffice") else "")
+    if not binary:
+        return None
+
+    rule = ConverterRule(
+        extension=path.suffix.lower(),
+        command=(binary, "--headless", "--convert-to", "xlsx",
+                "--outdir", "{outdir}", "{input}"),
+        produces="{stem}.xlsx",
+        then="xlsx",
+        enabled=True,
+    )
+    try:
+        with convert(path, rule) as result:
+            return _read_xlsx_sheets(result.path)
+    except Exception as exc:                      # noqa: BLE001 - see docstring
+        _log.debug("could not convert {} for a grid preview: {}", path, exc)
+        return None
+
+
+def _spreadsheet_preview(path: Path, *, title: str, subtitle: str) -> Preview:
+    """§4b: `.xlsx`/`.xls` as a real grid. Never raises - a workbook that
+    cannot be parsed falls back to the flat text `_extracted` already gives,
+    which worked before this feature existed and still does."""
+    suffix = path.suffix.lower()
+    try:
+        if suffix in _XLS_SUFFIXES:
+            sheets = _read_xls_via_converter(path)
+            if sheets is None:
+                return _extracted(path, title=title, subtitle=subtitle)
+        else:
+            sheets = _read_xlsx_sheets(path)
+    except Exception as exc:                      # noqa: BLE001 - never raise
+        _log.debug("grid preview failed for {}: {}", path, exc)
+        return _extracted(path, title=title, subtitle=subtitle)
+
+    if not sheets:
+        return _extracted(path, title=title, subtitle=subtitle)
+
+    return Preview(
+        kind=KIND_SPREADSHEET, path=str(path), title=title, subtitle=subtitle,
+        notice=_spreadsheet_notice(sheets), meta={"sheets": sheets},
+    )
+
+
 def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Preview:
     """Everything the pane needs for one result. **Never raises.**
 
@@ -286,6 +463,9 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     if kind == KIND_NONE and _extractable(path):
         return _extracted(path, title=title, subtitle=subtitle)
+
+    if kind == KIND_SPREADSHEET:
+        return _spreadsheet_preview(path, title=title, subtitle=subtitle)
 
     if kind in (KIND_PDF, KIND_IMAGE, KIND_NONE):
         # Drawn from the path by the widget that knows how - a PDF is paged by

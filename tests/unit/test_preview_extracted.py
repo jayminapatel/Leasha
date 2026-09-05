@@ -33,20 +33,6 @@ def docx_file(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.fixture()
-def xlsx_file(tmp_path: Path) -> Path:
-    openpyxl = pytest.importorskip("openpyxl")
-    book = openpyxl.Workbook()
-    book.active.title = "Costs"
-    book.active["A1"] = "Pump housing"
-    book.active["B1"] = 4200
-    second = book.create_sheet("Schedule")
-    second["A1"] = "Autumn shutdown"
-    path = tmp_path / "budget.xlsx"
-    book.save(path)
-    return path
-
-
 # -- which files get here ----------------------------------------------------
 
 def test_a_word_document_is_claimed_by_the_extractor(docx_file: Path) -> None:
@@ -107,18 +93,6 @@ def test_the_pane_says_this_is_the_text_not_the_document(docx_file: Path) -> Non
     assert "extracted" in notice.lower()
     assert "open" in notice.lower(), "say where the formatting is"
 
-
-def test_a_spreadsheet_keeps_its_sheet_names(xlsx_file: Path) -> None:
-    """A wall of cells with no sheet names answers the wrong question.
-
-    Which sheet a number came from is most of what somebody previewing a
-    spreadsheet wants to know, and `Segment.label` already carries it.
-    """
-    body = load_preview(str(xlsx_file)).body
-
-    assert "Costs" in body
-    assert "Schedule" in body
-    assert "Pump housing" in body
 
 
 def test_a_long_document_is_cut_and_says_so(tmp_path: Path, monkeypatch) -> None:

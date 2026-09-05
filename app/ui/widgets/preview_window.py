@@ -124,8 +124,13 @@ class PreviewWindow(QWidget):
         self.card.setWordWrap(True)
         self.card.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Workspace §4b: a spreadsheet as a grid, pinned like any other file.
+        from app.ui.widgets.spreadsheet_view import SpreadsheetView
+
+        self.spreadsheet = SpreadsheetView()
+
         self.stack = QStackedWidget()
-        for widget in (self.text, self.scroll, self.card):
+        for widget in (self.text, self.scroll, self.card, self.spreadsheet):
             self.stack.addWidget(widget)
 
         self.note = QLabel("")
@@ -215,7 +220,7 @@ class PreviewWindow(QWidget):
         if generation != self._generation:
             return                               # a later request won
         from app.ui.preview_loader import (
-            KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF,
+            KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF, KIND_SPREADSHEET,
         )
 
         self._kind = str(getattr(preview, "kind", "none"))
@@ -227,6 +232,12 @@ class PreviewWindow(QWidget):
 
         if self._kind in (KIND_IMAGE, KIND_PDF):
             self._render()
+            return
+        if self._kind == KIND_SPREADSHEET:
+            # No I/O here either - see the same comment in widgets/preview.py.
+            self.spreadsheet.show_sheets(getattr(preview, "meta", {}).get("sheets"))
+            self.stack.setCurrentWidget(self.spreadsheet)
+            self._enable_picture_controls(False)
             return
         body = str(getattr(preview, "body", "") or "")
         if self._kind == KIND_HTML:
