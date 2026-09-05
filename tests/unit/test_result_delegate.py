@@ -804,6 +804,8 @@ def test_sizehint_grows_with_a_scaled_font_rather_than_clipping():
 def test_the_highlight_is_signalled_by_weight_and_by_colour():
     """Colour is never the only signal, per this order's own standing rule -
     a bold run and a plain run must differ in *both* font and pen."""
+    from typing import Any
+
     from PyQt6.QtGui import QColor, QFont, QPen
 
     from app.ui.result_delegate import _draw_run

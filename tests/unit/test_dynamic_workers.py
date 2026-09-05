@@ -257,9 +257,19 @@ def test_a_real_extraction_bound_run_grows_and_still_indexes_correctly(
 
     real_extract = pipeline_module.extract
 
-    def slow_extract(path):
+    def slow_extract(path, **kwargs):
+        # `**kwargs` matters: work order 202626270509's resume_from cursor
+        # (`_extract_stream` in pipeline.py) always calls `extract(path,
+        # resume_from=...)` now, even for a fresh run where it is 0 - a
+        # narrower stand-in here raised `TypeError: unexpected keyword
+        # argument 'resume_from'` for every one of the 24 files, which
+        # `mark_skipped` recorded as `ERR_UNEXPECTED` and this test's own
+        # `stats.indexed == 24` assertion then reported, correctly, as "a
+        # file went missing" - not the dynamic-worker bug that message
+        # describes, but a stand-in that had fallen behind the real
+        # function's signature.
         time.sleep(0.05)
-        return real_extract(path)
+        return real_extract(path, **kwargs)
 
     monkeypatch.setattr(pipeline_module, "extract", slow_extract)
 
