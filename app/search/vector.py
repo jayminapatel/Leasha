@@ -27,7 +27,7 @@ from app.core.errors import AppErrorException
 from app.core.logging import logger
 from app.search.query import ParsedQuery
 
-__all__ = ["search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS"]
+__all__ = ["search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS", "search_images", "hydrate_images"]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 VECTOR_LIMIT = 100
@@ -284,5 +284,101 @@ def hydrate(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         merged = dict(detail)
         merged["distance"] = row.get("distance")
+        hydrated.append(merged)
+    return hydrated
+
+
+# -- work order 0h §1c: the third lane, CLIP image search --------------------
+
+
+def search_images(
+    image_vectors: Any,
+    text_embedder: Any,
+    parsed: ParsedQuery,
+    *,
+    limit: int = VECTOR_LIMIT,
+    allowed_file_ids: Optional[set[int]] = None,
+    problems: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    r"""CLIP hits for a parsed query, nearest first - the third retrieval lane.
+
+    **Reuses `search()` outright rather than reimplementing it.** Nothing in
+    that function is specific to the text tower or the 384-dim table - it
+    takes a vector store and an embedder and does the rest generically, H4
+    degradation included, so this *is* the image lane, called with an
+    `ImageVectorStore` and an embedder configured for the CLIP **text** tower
+    (`Qdrant/clip-ViT-B-32-text` - see `app/index/clip_embedder.py` for its
+    paired vision tower). `text_embedder` is deliberately not the FastEmbed
+    text model already used for keyword-adjacent semantic search: that model
+    and CLIP's text tower are trained into two different embedding spaces, and
+    a vector from one means nothing compared against vectors from the other.
+    `text_embedder` here must be built with `Qdrant/clip-ViT-B-32-text` (a
+    plain `app.index.embedder.Embedder` configured with that model name and
+    `dim=512` already satisfies the interface `search()` calls - one `.embed`
+    method, one vector per text - so no new embedder class was needed for
+    this side of the pair; only the vision tower in `clip_embedder.py` needed
+    one, because FastEmbed's `ImageEmbedding` has a different call shape).
+
+    **v1 heuristic, as the work order specifies: always run this lane** and
+    let RRF weight it in - no "does this query look like it wants a photo"
+    classifier. Measure against `evaluate`'s photo sentences before tuning
+    further; that is future work, not this item.
+
+    **The `chunk_id` rewrite is the reason this is not simply `search()`
+    called with different arguments.** `ImageVectorStore` writes `chunk_id`
+    equal to `file_id` on every row (see that class's docstring) - correct
+    for a table with no chunk concept, but `chunk_id` is also `fuse_hits`'s
+    default fusion key, and `chunks.id` and `files.id` are two independent
+    SQLite sequences that both start at 1. Fusing an image hit next to a
+    text hit under a bare integer `chunk_id` would silently collide the
+    moment a photo's file id equalled some unrelated passage's chunk id.
+    Renamed to `"img:<file_id>"` here, before this list ever reaches
+    `fuse_hits`, which cannot collide with an integer key and reads
+    unambiguously in a log or a debugger.
+    """
+    rows = search(
+        image_vectors, text_embedder, parsed,
+        limit=limit, allowed_file_ids=allowed_file_ids, problems=problems,
+    )
+    for row in rows:
+        row["chunk_id"] = f"img:{row['file_id']}"
+    return rows
+
+
+def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fill in path and ext for CLIP hits - the image lane's `hydrate`.
+
+    A photo is not a passage: there is no text, no page, no `chunks` row to
+    join. Only `files`, by `file_id` - the same "the vector store holds ids
+    only" reasoning `hydrate` documents, applied to a table with nothing but
+    ids and vectors in it either.
+    """
+    if not rows:
+        return []
+
+    ids = [int(row["file_id"]) for row in rows]
+    placeholders = ", ".join("?" for _ in ids)
+    found = {
+        int(record["file_id"]): dict(record)
+        for record in store.conn.execute(
+            f"""
+            SELECT id AS file_id, path, ext, mtime_ns, content_hash
+            FROM files
+            WHERE id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+    }
+
+    hydrated = []
+    for row in rows:
+        detail = found.get(int(row["file_id"]))
+        if detail is None:
+            # Same reasoning as `hydrate`: LanceDB is derived and can lag a
+            # deleted file for a moment. Dropping it is correct.
+            continue
+        merged = dict(detail)
+        merged["distance"] = row.get("distance")
+        merged["chunk_id"] = row.get("chunk_id")
         hydrated.append(merged)
     return hydrated

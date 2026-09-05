@@ -25,11 +25,24 @@ from app.core.logging import logger
 __all__ = [
     "VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS", "MAX_PARTITIONS",
     "COMPACT_EVERY_ROWS", "KEEP_VERSIONS_HOURS",
+    "ImageVectorStore", "IMAGE_TABLE_NAME", "IMAGE_VECTOR_DIM",
 ]
 
 _log = logger.bind(component="storage.vectors")
 
 TABLE_NAME = "chunks"
+
+#: Work order 0h §1b: the CLIP image-vector table's name, in the same LanceDB
+#: directory as `TABLE_NAME` - `lancedb.connect(uri)` opens one directory and
+#: serves any number of named tables out of it, so this is a second table, not
+#: a second store location.
+IMAGE_TABLE_NAME = "image_vectors"
+
+#: `Qdrant/clip-ViT-B-32-vision`'s output width - see `app/index/clip_embedder.py`.
+#: Different from the text table's 384, which is the entire reason this is a
+#: second table rather than a second row shape in the first one: LanceDB's
+#: vector column is a fixed-width Arrow list, so one table cannot hold both.
+IMAGE_VECTOR_DIM = 512
 
 #: Below this many rows a brute-force scan is faster than a trained index.
 INDEX_MIN_ROWS = 100_000
@@ -570,3 +583,72 @@ class VectorStore:
             "indexed_at_rows": self._indexed_at_rows,
             "index_threshold": INDEX_MIN_ROWS,
         }
+
+
+class ImageVectorStore(VectorStore):
+    """Work order 0h §1b: the second LanceDB table, one row per image *file*.
+
+    Same LanceDB directory as the text table (`VectorStore`), a different
+    table name and a different width - 512 for `Qdrant/clip-ViT-B-32-vision`
+    against 384 for the text tower. Subclassed rather than reimplemented
+    because every guarantee this table needs already lives on `VectorStore`
+    and depends on nothing about what a row represents:
+
+    - **M6 (crash ordering)**: text passages are written PENDING, embedded,
+      then marked INDEXED - never the reverse, so a crash mid-embed leaves a
+      file that looks unfinished rather than one marked done with a hole in
+      its vectors (`pipeline._embed_pending`, `pipeline._write_marker`'s
+      flush-before-marker comment). The image lane's own feeder in
+      `pipeline.py` follows the identical order against this table: the CLIP
+      vector is written before the file's row is allowed to read as complete.
+      Nothing about that ordering lives in `VectorStore` itself - it is a
+      pipeline discipline - which is exactly why inheriting the class changes
+      none of it: the same discipline applies unchanged to a second table.
+    - **M8 (no synchronous IVF_PQ retrain)**: `VectorStore.add` never calls
+      `maybe_create_index()` - only `maybe_compact()` runs inline, and index
+      training happens once, at the end of a run. Inherited unchanged: an
+      image batch cannot stall the pipeline the way a mid-run text retrain
+      used to (tens of minutes at 6.4M/12.8M rows).
+    - **H7 (batched delete, not one Lance version per file)**: `delete_by_file_ids`
+      already takes an iterable of ids and issues one `IN (...)` delete rather
+      than the one-version-per-file loop H7 removed. Deleting a folder of
+      10,000 photos costs one new dataset version here too, not 10,000.
+
+    **`chunk_id` is set equal to `file_id` on every write**, via `add_images`
+    below. The column stays in the inherited schema so every tested method
+    on `VectorStore` - `search`, `delete_by_file_ids`, `maybe_compact`,
+    `maybe_create_index`, `vector_for` - needs no schema-shaped branching
+    between the two tables. A second schema and a second copy of each of
+    those methods would be exactly the "just copying code silently" this
+    item warns against; there is no chunk-splitting concept for a photo the
+    way there is for a passage of text, so `file_id` is already the whole key
+    and reusing the column costs nothing.
+    """
+
+    def __init__(
+        self,
+        uri: Path,
+        *,
+        dim: int = IMAGE_VECTOR_DIM,
+        table_name: str = IMAGE_TABLE_NAME,
+    ) -> None:
+        super().__init__(uri, dim=dim, table_name=table_name)
+
+    def add_images(
+        self,
+        file_ids: Sequence[int],
+        vectors: Sequence[Sequence[float]],
+        exts: Optional[Sequence[str]] = None,
+        mtimes_ns: Optional[Sequence[int]] = None,
+    ) -> int:
+        """Append one CLIP vector per image file. `file_id` is the whole key.
+
+        A thin, file-id-only public surface over `VectorStore.add`, which
+        still wants a `chunk_id` per row - satisfied here by handing it the
+        same value as `file_id`, so callers of this table never have to know
+        or invent a chunk id that does not mean anything for a photo.
+        """
+        return self.add(
+            chunk_ids=file_ids, file_ids=file_ids, vectors=vectors,
+            exts=exts, mtimes_ns=mtimes_ns,
+        )
