@@ -24,9 +24,10 @@ from app.core.errors import AppError, make_error
 from app.core.logging import logger
 
 __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
-           "KIND_MARKDOWN", "KIND_SPREADSHEET", "KIND_NONE", "kind_for",
-           "load_preview", "load_preview_for", "stored_text", "CAPS",
-           "SheetGrid", "SHEET_PREVIEW_MAX_ROWS", "SHEET_PREVIEW_MAX_COLUMNS"]
+           "KIND_MARKDOWN", "KIND_SPREADSHEET", "KIND_EPUB", "KIND_NONE",
+           "kind_for", "load_preview", "load_preview_for", "stored_text",
+           "CAPS", "SheetGrid", "SHEET_PREVIEW_MAX_ROWS",
+           "SHEET_PREVIEW_MAX_COLUMNS", "EpubChapter"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -44,6 +45,10 @@ KIND_MARKDOWN = "markdown"
 #: Workspace §4b. `.xlsx` and `.xls` as a real grid rather than a wall of
 #: tab-separated text - the biggest preview upgrade in the order.
 KIND_SPREADSHEET = "spreadsheet"
+#: Workspace §4c. A chapter list beside the existing HTML renderer, rather
+#: than the index's flattened text - an EPUB is a zip of XHTML, and both
+#: halves of this already exist.
+KIND_EPUB = "epub"
 KIND_NONE = "none"          # nothing to render; show the card
 
 #: How much of each kind is worth reading, in bytes.
@@ -66,6 +71,8 @@ CAPS[KIND_MARKDOWN] = CAPS[KIND_TEXT]
 #: `SHEET_PREVIEW_MAX_ROWS`. Present so `CAPS` still names every kind, exactly
 #: as `KIND_PDF`'s `0` does for the same reason.
 CAPS[KIND_SPREADSHEET] = 0
+#: Capped by chapter count in `_epub_preview` (`EPUB_MAX_CHAPTERS`), not bytes.
+CAPS[KIND_EPUB] = 0
 
 #: Rows and columns a preview grid builds, deliberately smaller than the
 #: index's own caps (`office.MAX_SHEET_ROWS`/`MAX_SHEET_COLUMNS`, 5,000 / 64).
@@ -177,6 +184,8 @@ def kind_for(path: Path) -> str:
         return KIND_IMAGE
     if suffix in _SPREADSHEET_SUFFIXES:
         return KIND_SPREADSHEET
+    if suffix == ".epub":
+        return KIND_EPUB
     if suffix == ".pdf":
         return KIND_PDF
     return KIND_NONE
@@ -426,6 +435,172 @@ def _spreadsheet_preview(path: Path, *, title: str, subtitle: str) -> Preview:
     )
 
 
+#: Workspace §4c. Zip-bomb and runaway-book guards, matching the reasoning
+#: `extract/ebook.py` already gives for the same numbers: generous for a real
+#: book, ruinous for an archive built to expand or an index of ten thousand
+#: fragments.
+EPUB_MAX_MEMBER_BYTES = 16 * 1024 * 1024
+EPUB_MAX_CHAPTERS = 400
+
+#: Where an EPUB is required to say which file describes it - the only fixed
+#: path in the format, same as `extract/ebook.py`.
+_EPUB_CONTAINER_MEMBER = "META-INF/container.xml"
+
+
+@dataclass(frozen=True, slots=True)
+class EpubChapter:
+    """One chapter, in reading order, for `EpubView` to draw."""
+
+    title: str
+    html: str
+
+
+def _epub_local_tag(tag: str) -> str:
+    """`{namespace}name` -> `name` - EPUB's namespace URI varies by writer."""
+    return tag.rpartition("}")[2]
+
+
+def _epub_member(archive: Any, name: str) -> bytes:
+    """One archive member, size-checked from its header before reading."""
+    info = archive.getinfo(name)                      # KeyError if absent
+    if info.file_size > EPUB_MAX_MEMBER_BYTES:
+        raise ValueError(f"{name} expands to {info.file_size} bytes")
+    return archive.read(name)
+
+
+def _epub_opf_path(archive: Any) -> Optional[str]:
+    """The package document's path, from `META-INF/container.xml`."""
+    from xml.etree import ElementTree
+
+    container = ElementTree.fromstring(_epub_member(archive, _EPUB_CONTAINER_MEMBER))
+    for element in container.iter():
+        if _epub_local_tag(element.tag) == "rootfile":
+            full_path = element.get("full-path")
+            if full_path:
+                return full_path
+    return None
+
+
+def _epub_chapter_title(markup: str, *, fallback: str) -> str:
+    """The chapter's own `<title>`, or its first heading, or `fallback`.
+
+    A regex over the raw markup rather than a second parse: this is read
+    once per chapter purely to label a row in a list, and the pane already
+    parses the same markup properly (via Qt) to display it.
+    """
+    import html as html_module
+    import re
+
+    for pattern in (r"<title[^>]*>(.*?)</title>", r"<h[1-3][^>]*>(.*?)</h[1-3]>"):
+        match = re.search(pattern, markup, re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        text = html_module.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+        text = " ".join(text.split())
+        if text:
+            return text
+    return fallback
+
+
+def _epub_chapters(path: Path) -> list[EpubChapter]:
+    r"""Chapters in spine order, with their raw XHTML. Never raises - the
+    caller degrades to the file card.
+
+    **Deliberately independent of `extract.ebook.EpubExtractor`.** That reads
+    plain text, flattened, for the index; this keeps the markup, one chapter
+    at a time, for the pane's existing HTML renderer - a different enough
+    shape that sharing the method was not worth the coupling. The read
+    itself - container.xml, then the OPF, then the spine - mirrors it, since
+    it is the one correct way to walk an EPUB.
+    """
+    import posixpath
+    import zipfile
+    from xml.etree import ElementTree
+
+    with zipfile.ZipFile(path) as archive:
+        opf_name = _epub_opf_path(archive)
+        if not opf_name:
+            return []
+        opf_root = ElementTree.fromstring(_epub_member(archive, opf_name))
+        base = posixpath.dirname(opf_name)
+
+        hrefs: dict[str, str] = {}
+        for element in opf_root.iter():
+            if _epub_local_tag(element.tag) != "item":
+                continue
+            item_id = element.get("id")
+            href = element.get("href")
+            media = (element.get("media-type") or "").lower()
+            if item_id and href and ("html" in media or not media):
+                hrefs[item_id] = href
+
+        order: list[str] = []
+        for element in opf_root.iter():
+            if _epub_local_tag(element.tag) != "itemref":
+                continue
+            ref = element.get("idref")
+            if ref and ref in hrefs:
+                order.append(hrefs[ref])
+        if not order:
+            # A spine-less book is malformed, but its chapters are still
+            # there - manifest order is a poor second and much better than
+            # an empty preview.
+            order = list(hrefs.values())
+
+        chapters: list[EpubChapter] = []
+        for index, href in enumerate(order[:EPUB_MAX_CHAPTERS], start=1):
+            member = posixpath.normpath(posixpath.join(base, href)) if base else href
+            try:
+                raw = _epub_member(archive, member)
+            except (KeyError, ValueError):
+                # A manifest entry pointing at a missing file, or one too
+                # large to be worth it. Skip the chapter, keep the book.
+                continue
+            markup = raw.decode("utf-8", errors="replace")
+            chapters.append(EpubChapter(
+                title=_epub_chapter_title(markup, fallback=f"Chapter {index}"),
+                html=markup,
+            ))
+        return chapters
+
+
+def _epub_preview(path: Path, *, title: str, subtitle: str) -> Preview:
+    """§4c: a chapter list beside the existing HTML renderer.
+
+    Every chapter is sanitised through the same cleaner `KIND_HTML` already
+    uses - remote references and script have no more business in a novel
+    than in an email.
+    """
+    from app.ui.sanitise import sanitise_email_html
+
+    try:
+        raw_chapters = _epub_chapters(path)
+    except Exception as exc:                      # noqa: BLE001 - never raise
+        return Preview(
+            kind=KIND_NONE, path=str(path), title=title, subtitle=subtitle,
+            error=make_error(
+                "ERR_FILE_CORRUPT", "ui.preview", path=str(path),
+                details=f"{type(exc).__name__}: {exc}",
+            ),
+        )
+
+    if not raw_chapters:
+        return Preview(
+            kind=KIND_NONE, path=str(path), title=title, subtitle=subtitle,
+            error=make_error(
+                "ERR_FILE_CORRUPT", "ui.preview", path=str(path),
+                details="not a readable EPUB archive, or it names no chapters",
+            ),
+        )
+
+    chapters = [
+        EpubChapter(title=chapter.title, html=sanitise_email_html(chapter.html).html)
+        for chapter in raw_chapters
+    ]
+    return Preview(kind=KIND_EPUB, path=str(path), title=title, subtitle=subtitle,
+                   meta={"chapters": chapters})
+
+
 def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Preview:
     """Everything the pane needs for one result. **Never raises.**
 
@@ -466,6 +641,9 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     if kind == KIND_SPREADSHEET:
         return _spreadsheet_preview(path, title=title, subtitle=subtitle)
+
+    if kind == KIND_EPUB:
+        return _epub_preview(path, title=title, subtitle=subtitle)
 
     if kind in (KIND_PDF, KIND_IMAGE, KIND_NONE):
         # Drawn from the path by the widget that knows how - a PDF is paged by

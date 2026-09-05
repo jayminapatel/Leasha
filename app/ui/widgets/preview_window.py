@@ -129,8 +129,14 @@ class PreviewWindow(QWidget):
 
         self.spreadsheet = SpreadsheetView()
 
+        # Workspace §4c: an EPUB as chapters, pinned like any other file.
+        from app.ui.widgets.epub_view import EpubView
+
+        self.epub = EpubView()
+
         self.stack = QStackedWidget()
-        for widget in (self.text, self.scroll, self.card, self.spreadsheet):
+        for widget in (self.text, self.scroll, self.card, self.spreadsheet,
+                       self.epub):
             self.stack.addWidget(widget)
 
         self.note = QLabel("")
@@ -220,7 +226,8 @@ class PreviewWindow(QWidget):
         if generation != self._generation:
             return                               # a later request won
         from app.ui.preview_loader import (
-            KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF, KIND_SPREADSHEET,
+            KIND_EPUB, KIND_HTML, KIND_IMAGE, KIND_MARKDOWN, KIND_PDF,
+            KIND_SPREADSHEET,
         )
 
         self._kind = str(getattr(preview, "kind", "none"))
@@ -237,6 +244,11 @@ class PreviewWindow(QWidget):
             # No I/O here either - see the same comment in widgets/preview.py.
             self.spreadsheet.show_sheets(getattr(preview, "meta", {}).get("sheets"))
             self.stack.setCurrentWidget(self.spreadsheet)
+            self._enable_picture_controls(False)
+            return
+        if self._kind == KIND_EPUB:
+            self.epub.show_chapters(getattr(preview, "meta", {}).get("chapters"))
+            self.stack.setCurrentWidget(self.epub)
             self._enable_picture_controls(False)
             return
         body = str(getattr(preview, "body", "") or "")

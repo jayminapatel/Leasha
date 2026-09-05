@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.preview_loader import (
     decode_image,
+    KIND_EPUB,
     KIND_HTML,
     KIND_IMAGE,
     KIND_MARKDOWN,
@@ -57,6 +58,7 @@ from app.ui.preview_loader import (
     KIND_TEXT,
     load_preview_for,
 )
+from app.ui.widgets.epub_view import EpubView
 from app.ui.widgets.highlight import CodeHighlighter, language_for
 from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
@@ -161,6 +163,8 @@ class PreviewPane(QWidget):
 
         # Workspace §4b: a spreadsheet as a grid, sheet tabs and all.
         self.spreadsheet = SpreadsheetView()
+        # Workspace §4c: an EPUB as chapters, not a flattened wall of text.
+        self.epub = EpubView()
 
         # **Every word in the pane can be selected and copied.** Asked for:
         # *"in the preview pane you should be able to select and copy"*.
@@ -181,7 +185,8 @@ class PreviewPane(QWidget):
             label.setCursor(Qt.CursorShape.IBeamCursor)
 
         self.stack = QStackedWidget()
-        for widget in (self.text, self.image, self.card, self.spreadsheet):
+        for widget in (self.text, self.image, self.card, self.spreadsheet,
+                       self.epub):
             self.stack.addWidget(widget)
         self._pdf = self._make_pdf_view()
         if self._pdf is not None:
@@ -388,6 +393,11 @@ class PreviewPane(QWidget):
             # the worker already built; this is arithmetic over data in hand.
             self.spreadsheet.show_sheets(preview.meta.get("sheets"))
             self.stack.setCurrentWidget(self.spreadsheet)
+        elif preview.kind == KIND_EPUB:
+            # Same as above - every chapter's HTML was already sanitised on
+            # the worker.
+            self.epub.show_chapters(preview.meta.get("chapters"))
+            self.stack.setCurrentWidget(self.epub)
         elif preview.kind == KIND_PDF and self._pdf is not None:
             self._show_pdf(preview.path, preview.page)
         else:
