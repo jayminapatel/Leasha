@@ -84,17 +84,53 @@ untouched, per instruction.
   `test_backends.py`, `test_image_vector_store.py`, `test_search_images.py`,
   `test_clip_lane_pipeline.py` and `test_embedder.py` pass.
 
-  **Honestly, not re-measured on GPU hardware**: this machine's venv reports
-  `onnxruntime.get_available_providers() == ['AzureExecutionProvider',
-  'CPUExecutionProvider']` — no `DmlExecutionProvider`, because
-  `onnxruntime-directml` is not installed here, matching what the text
-  embedder's own run log already said earlier in this project
-  ("this installation has no DirectML provider - pip install
-  onnxruntime-directml"). So the fallback path is what actually runs on this
-  machine today, and that is exactly what was measured as correct above —
-  the GPU-accelerated number itself still needs the owner's GPU-capable
-  machine (with `onnxruntime-directml` installed) to be real, per HANDOFF
-  §0's baseline block. Reported as an open gap rather than assumed away.
+  **Re-measured 2026-09-05, same day, after `onnxruntime-directml` was
+  installed into this venv** (`pip uninstall onnxruntime && pip install
+  onnxruntime-directml==1.24.4` — mirrors exactly what `install.ps1` already
+  does for an accepted GPU install per 0114 §2c; `pip check` afterwards
+  complains `onnxruntime` "is not installed", which is the expected,
+  already-documented cosmetic side effect of that swap, not a real gap —
+  `import onnxruntime` and `get_available_providers()` both work).
+  `onnxruntime.get_available_providers()` now reports
+  `['DmlExecutionProvider', 'CPUExecutionProvider']`. Full regression run
+  (186 tests: the CLIP lane, `test_backends.py`, `test_embedder.py`, every
+  OCR test file, `test_rerank_window.py`) passes clean with the swapped
+  package.
+
+  | | CPU | GPU (DirectML, Iris Xe) |
+  |---|---|---|
+  | Model load | 2.7s | 1.4s |
+  | First embed call (JIT/shader compile not yet paid) | 58.7ms | 176.0ms |
+  | Per-image embed, steady state, 10 single-image calls | **69.1ms** avg (53.3–103.3ms) | **37.5ms** avg (35.7–43.5ms) |
+  | Per-image embed, batch of 8 in one call | 75.7ms/image | 97.1ms/image |
+
+  **Both are now well inside the original ~50–150ms budget** — a real
+  change from the 7–11x-over-budget finding above, worth being honest about
+  in both directions rather than only when the news is good: the CPU number
+  alone (69.1ms) is **~24x faster than the 1,675.6ms first measured**, on
+  the same machine, same fixture, same methodology. The two things that
+  changed between the two CPU measurements are (a) no concurrent background
+  test sweep this time — the first measurement explicitly flagged one as a
+  likely confound — and (b) the `onnxruntime` build itself changed version,
+  1.29.0 → 1.24.4, as a side effect of installing the DirectML wheel, which
+  also changes the plain CPU provider's binary. Neither is isolated from
+  the other here, so **the magnitude of the original number should not be
+  trusted going forward** — this table is the current, clean baseline, but
+  which of the two causes did most of the work is genuinely not known and
+  not claimed.
+
+  **The GPU result itself is a real, single-image speedup** (37.5ms vs
+  69.1ms, ~1.8x) but **loses on the batch-of-8 call** (97.1ms/image vs
+  75.7ms/image on the CPU) — DirectML's per-dispatch overhead does not
+  amortise the same way this ONNX Runtime build's CPU threading does over a
+  small batch on this GPU. `auto` in `backends.choose` cannot see this
+  nuance (it decides once, per session, not per call shape), so the
+  practical effect on an index run — which always calls in batches of
+  `CLIP_IMAGE_BATCH` (16) — is genuinely unclear from this fixture alone,
+  and worth a real-corpus re-measurement before concluding `auto` should
+  prefer the GPU here at all. Recorded rather than smoothed over, per this
+  project's own rule: measure, don't assume — including when the model
+  being measured is "GPUs are faster."
 
 - [x] **1b** second LanceDB table (dimensions differ from text vectors),
   keyed by file_id; same delete/compaction/crash-ordering contracts as the
