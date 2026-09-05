@@ -103,7 +103,7 @@ allowed and expected — compare falls out for free.
   HTML and both halves already exist. No new dependency.
 - [x] **4d HEIC/HEIF**: decode via `pillow-heif` (permissive licence) so
   phone photos preview; extend the image pipeline, not a new kind.
-- [ ] **4e Office full layout, on demand**: a "Show full layout" button on
+- [x] **4e Office full layout, on demand**: a "Show full layout" button on
   text-rendered Office/ODF previews converts the document to PDF through
   the **existing LibreOffice converter route**, caches the PDF beside the
   index keyed by content hash, and displays it in the PDF path — rotate,
@@ -155,7 +155,7 @@ allowed and expected — compare falls out for free.
   touch a pinned window — the regression test for 2a's whole point);
   rotation remembered per file and absent from the file itself (bytes
   unchanged, asserted); print honours rotation.
-- [ ] viewers: each new kind routed correctly; spreadsheet cap line; full-
+- [x] viewers: each new kind routed correctly; spreadsheet cap line; full-
   layout cache hit on second open; suffix sets consistent between indexer
   and preview (the `.tiff` class of drift, as a test).
 - [x] mini-search: hotkey conflict fallback; opens/dispatches/closes without
@@ -529,3 +529,55 @@ client is exactly the kind of thing the offscreen platform cannot exercise -
 `test_result_drag_model.py` and `test_pinned_panel.py` check `mimeData()`
 directly instead, which is as far as this environment can verify. Worth one
 real drag, in each direction, before this is called finished end to end.
+
+## Note on §4e, added 2026-09-05
+
+**Closes out §4.** The button lives on `PreviewWindow` only, not the in-app
+pane: 2d/2e's rotate/zoom/print never existed anywhere else, and the item's
+own wording - "displays it in the PDF path — rotate, zoom, print included" -
+names exactly that path.
+
+**One button, one path, reused rather than duplicated.** Converting is
+`ensure_office_pdf` in `preview_loader.py`: it builds its own `ConverterRule`
+(`soffice`/`libreoffice`, `--convert-to pdf`) and hands it to the same
+`converter.convert()` the index's own Tier 2 route already calls - not a
+second implementation of running an external program, just a second rule for
+the one already-audited function to run. The produced PDF is copied into
+`settings.cache_path/office_preview/<content-hash>.pdf` and the window is
+simply told to show a `KIND_PDF` at that path - `_render()` already knows how
+to draw a PDF, rotate it and print it, because that machinery is §2e's.
+
+**A second path variable, not a second `self._path`.** `_render()` was
+reading `self._path` directly; after this it reads a new `_display_path`,
+which starts equal to `_path` and only ever moves to the cached PDF. `_path`
+itself is untouched, because "Open the real file" and "Show in folder" read
+it too, and a full-layout preview that quietly redirected those to the
+converted copy would be showing somebody a document that is not the one on
+disk.
+
+**Detection happens on the worker that already reads the file, not in the
+button's own click handler.** `office_converter_available()` walks `PATH`
+and Program Files - real filesystem work - so asking it fresh every time a
+preview arrived would have been exactly the kind of I/O this codebase's
+standing rule puts on a worker. Instead `_extracted()` asks it once, on the
+worker `load_preview` already runs on, and folds the answer into
+`meta["office_converter_available"]`; `PreviewWindow._loaded()` only ever
+reads that flag. The probe itself is cached with `lru_cache(maxsize=1)` for
+the same reason `format_health.module_present` caches its own - the answer
+cannot change while this process is running an older install, so the
+Program Files walk is worth doing once per process rather than once per
+preview.
+
+**The cache key is content, not path.** `office_pdf_cache_path` hashes the
+file's bytes with `app.index.walker.content_hash` - the indexer's own
+"are these the same bytes?" function - so a renamed or copied file shares a
+cache entry, and a file edited and reverted converts again rather than
+trusting a modification time. Never bytes beside the *user's* file: the
+cache lives entirely under the app's own `cache_path`, per §6's opening rule.
+
+Not verified on Windows: this machine has neither `soffice` nor
+`libreoffice` on it, so the actual conversion (the "fresh conversion" and
+"converter failure" paths) is tested with `converter.convert` faked in,
+never run for real. Worth one real `.docx` and one real `.doc`, pressing the
+button twice each - once to see it convert, once to see the cache hit not
+even try.
