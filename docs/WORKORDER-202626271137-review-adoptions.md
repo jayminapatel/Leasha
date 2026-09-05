@@ -106,6 +106,53 @@ these seven.
   results; uninstall removes the key.
 - [ ] pytest-qt scenario per item (0m convention); all new strings pass the
   plain-words/tooltip rules.
+  > **2026-09-05: partially true, not ticked - and the "0m convention" half
+  > is genuinely blocked, not merely unbuilt.** Investigated in full rather
+  > than assumed:
+  >
+  > **The plain-words/tooltip half**: two separate, real guards exist -
+  > `test_policy_reaches_the_engine.py` (every `NOTICE_*` code has a plain
+  > sentence, checked against `app/search/engine.py`'s constants only) and
+  > `test_tooltips.py` (an AST scan over `app/ui/` requiring every
+  > actionable control to carry a tooltip or placeholder). Running the
+  > second found a real, live violation this order introduced: §5a's
+  > mini-search chip button (`app/ui/widgets/mini_search.py`) had no
+  > tooltip. **Fixed** - `button.setToolTip("Show only these results")` -
+  > and `test_tooltips.py::test_every_control_explains_itself[mini_search.py]`
+  > now passes.
+  >
+  > **The "0m convention" half cannot be built right now.** `docs/
+  > WORKORDER-202626270547-test-automation.md` ("0m") is what this item's
+  > parenthetical refers to, and 0m's own header says: **"Status: HELD by
+  > the owner 2026-08-28 - do not execute until he says when."** 0m defines
+  > the real-`MainWindow`, `qtbot`-driven, keystrokes-not-signals scenario
+  > harness this item asks every one of this order's 9 areas to use - and
+  > that harness does not exist anywhere in the repo (confirmed:
+  > `tools/grab_ui.py` does not exist; only three files anywhere reference
+  > `qtbot` at all, and two of this order's own items - 3a/3b saved
+  > searches, 4a/5a mini-search - have real-widget tests today, but driven
+  > through a local `qapp` fixture and direct `.emit()`/`.click()` calls,
+  > not `qtbot.addWidget`/`keyClicks`). Building that harness now to
+  > satisfy this checklist item would mean executing 0m without the
+  > owner's go-ahead, which its own status line explicitly forbids.
+  >
+  > **Per-item coverage, for the record** (logic-only means real behaviour
+  > is tested but no live Qt widget is ever constructed; partial means a
+  > real widget is driven, just not via `qtbot`):
+  > 1a/1b why-result - logic-only (the row affordance itself was never
+  > built, per that item's own note). 2a match-type - logic-only. 3a/3b
+  > saved searches - partial (the save/rename/delete dialog has no test
+  > because it doesn't exist yet, per that item's own note). 4a selection
+  > prefill - partial (real `MiniSearch` widget, real clipboard, real event
+  > loop). 5a chip counts - partial (real `QPushButton.click()`), and this
+  > is where the tooltip bug above was found. 6a cell locators -
+  > logic-only. 7a deep links - logic-only (no live-window poll test of
+  > `_read_external_run`).
+  >
+  > **Left unticked, honestly**: the tooltip bug is real and fixed; the
+  > qtbot-scenario half is not something to guess past a held order for.
+  > Whoever has the owner's go-ahead on 0m should return here once it
+  > lands.
 
 ## Done means
 
