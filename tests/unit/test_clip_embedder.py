@@ -245,3 +245,137 @@ def test_from_settings_reads_the_shared_model_cache() -> None:
     embedder = ClipImageEmbedder.from_settings(FakeSettings())
     assert embedder.cache_dir == r"D:\Leasha\Data\models"
     assert embedder.model_name == "Qdrant/clip-ViT-B-32-vision"
+
+
+def test_from_settings_reads_the_shared_embed_device() -> None:
+    """One `embed_device` setting reaches the text embedder, the reranker
+    and this class alike - a second, separate control here would be exactly
+    the kind of place §2b warned a new argument gets forgotten."""
+
+    class FakeSettings:
+        model_cache = None
+        embed_device = "cpu"
+
+    embedder = ClipImageEmbedder.from_settings(FakeSettings())
+    assert embedder.device == "cpu"
+
+
+# --- §1d: DirectML when it earns it, the processor when it does not -----
+#
+# `backends.choose`/`with_fallback` are exercised for correctness in
+# test_backends.py; these tests only prove the wiring - that this class
+# asks the shared seam the right question and hands the answer's providers
+# to `ImageEmbedding`, exactly as `Embedder._ensure_encoder` does for the
+# text tower.
+
+
+class _GpuProfile:
+    """A profile that looks like a machine with a usable DirectML GPU."""
+
+    gpus = ("Iris Xe",)
+    directml_available = True
+
+
+class _NoGpuProfile:
+    """A profile that looks like a machine with no display adapter."""
+
+    gpus = ()
+    directml_available = False
+
+
+def test_cpu_device_asks_for_the_cpu_provider_only(monkeypatch) -> None:
+    seen: dict = {}
+
+    class FakeImageEmbedding:
+        def __init__(self, model_name, cache_dir=None, **kwargs):
+            seen["kwargs"] = kwargs
+
+        def embed(self, images):
+            return [unit(float(i)) for i in range(len(images))]
+
+    monkeypatch.setattr("fastembed.ImageEmbedding", FakeImageEmbedding)
+
+    embedder = ClipImageEmbedder(dim=8, device="cpu")
+    embedder.warm_up()
+
+    assert "providers" not in seen["kwargs"], (
+        "the CPU path must be byte-for-byte what it was before this seam "
+        "existed - no providers kwarg at all"
+    )
+    assert embedder.choice is not None
+    assert embedder.choice.device == "cpu"
+
+
+def test_auto_device_uses_directml_when_the_profile_has_one(monkeypatch) -> None:
+    seen: dict = {}
+
+    class FakeImageEmbedding:
+        def __init__(self, model_name, cache_dir=None, **kwargs):
+            seen["kwargs"] = kwargs
+
+        def embed(self, images):
+            return [unit(float(i)) for i in range(len(images))]
+
+    monkeypatch.setattr("fastembed.ImageEmbedding", FakeImageEmbedding)
+
+    embedder = ClipImageEmbedder(dim=8, device="auto", profile=_GpuProfile())
+    embedder.warm_up()
+
+    assert seen["kwargs"].get("providers") == ["DmlExecutionProvider", "CPUExecutionProvider"]
+    assert embedder.choice.device == "gpu"
+
+
+def test_a_gpu_that_fails_on_first_use_falls_back_to_the_cpu(monkeypatch) -> None:
+    """H4's discipline: a GPU present, advertised, and then refusing the
+    graph on first use degrades to the processor rather than failing the
+    whole embed - the same guarantee `with_fallback` already gives the
+    text embedder."""
+    calls: list[tuple] = []
+
+    class FlakyImageEmbedding:
+        def __init__(self, model_name, cache_dir=None, **kwargs):
+            calls.append(tuple(kwargs.get("providers", ())))
+            if kwargs.get("providers"):
+                raise RuntimeError("the graphics card would not run this graph")
+
+        def embed(self, images):
+            return [unit(float(i)) for i in range(len(images))]
+
+    monkeypatch.setattr("fastembed.ImageEmbedding", FlakyImageEmbedding)
+
+    problems: list[str] = []
+    embedder = ClipImageEmbedder(
+        dim=8, device="auto", profile=_GpuProfile(), problems=problems)
+    embedder.warm_up()
+
+    assert embedder.choice.device == "cpu"
+    assert embedder.choice.fell_back_from == "gpu"
+    assert problems, "the fallback must be visible, not silent - H4"
+    assert len(calls) == 2, "the GPU attempt, then the CPU retry"
+
+
+def test_no_gpu_on_the_machine_goes_straight_to_the_cpu_with_no_notice(monkeypatch) -> None:
+    """A machine with no display adapter (or no DirectML provider installed)
+    is the common case this session measured directly - CPU-only, no
+    onnxruntime-directml package. This is not a fallback (nothing was tried
+    and failed); it is the ordinary choice, so `problems` stays empty."""
+    seen: dict = {}
+
+    class FakeImageEmbedding:
+        def __init__(self, model_name, cache_dir=None, **kwargs):
+            seen["kwargs"] = kwargs
+
+        def embed(self, images):
+            return [unit(float(i)) for i in range(len(images))]
+
+    monkeypatch.setattr("fastembed.ImageEmbedding", FakeImageEmbedding)
+
+    problems: list[str] = []
+    embedder = ClipImageEmbedder(
+        dim=8, device="auto", profile=_NoGpuProfile(), problems=problems)
+    embedder.warm_up()
+
+    assert "providers" not in seen["kwargs"]
+    assert embedder.choice.device == "cpu"
+    assert embedder.choice.fell_back_from == ""
+    assert not problems

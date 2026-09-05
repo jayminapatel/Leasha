@@ -46,6 +46,7 @@ from typing import Callable, Iterable, Iterator, Optional, Sequence, Union
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
+from app.index import backends
 
 _log = logger.bind(component="index.clip_embedder")
 
@@ -95,6 +96,9 @@ class ClipImageEmbedder:
         cache_dir: Optional[str] = None,
         batch_size: int = CLIP_IMAGE_BATCH,
         encoder: Optional[Encoder] = None,
+        device: str = backends.AUTO,
+        profile: Optional[object] = None,
+        problems: Optional[list] = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
@@ -105,6 +109,16 @@ class ClipImageEmbedder:
         self._encoder = encoder
         self._lock = threading.Lock()
         self._checked_dim = False
+        #: What was asked for. Same seam as `Embedder.device` — the measured
+        #: 1,675.6ms/image (single-call) CPU-only cost recorded in the work
+        #: order is exactly the number a graphics card exists to cut down,
+        #: and this class had no way to reach one until now.
+        self.device = str(device or backends.AUTO)
+        self._profile = profile
+        self._problems = problems
+        #: Set once the model loads. `None` until then, so nothing reports a
+        #: provider that has not yet been proven to work.
+        self.choice: Optional[backends.Choice] = None
 
     @classmethod
     def from_settings(cls, settings: object, **overrides: object) -> "ClipImageEmbedder":
@@ -112,10 +126,14 @@ class ClipImageEmbedder:
 
         Mirrors `Embedder.from_settings` — one constructor so a new argument
         reaches every caller by existing, rather than by being copied into
-        each place that builds one of these by hand.
+        each place that builds one of these by hand. Shares `embed_device`
+        with the text embedder and the reranker: one setting, one meaning,
+        rather than a second control nobody would think to change together.
         """
         fields: dict = dict(
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
+            device=str(getattr(settings, "embed_device", backends.AUTO)
+                       or backends.AUTO),
         )
         fields.update(overrides)
         return cls(**fields)
@@ -143,15 +161,57 @@ class ClipImageEmbedder:
                     suggestion="Re-run the installer, or: "
                                "venv\\Scripts\\python.exe -m pip install fastembed",
                 )) from exc
+
+            wanted = backends.choose(self._resolved_profile(), self.device)
+
+            def build(providers: tuple) -> object:
+                if providers == (backends.CPU_PROVIDER,):
+                    # **The CPU path is byte-for-byte what it was.** Passing a
+                    # providers list that means "the default" would still be
+                    # a new argument to somebody else's constructor on every
+                    # machine that has no GPU at all.
+                    return ImageEmbedding(model_name=self.model_name,
+                                          cache_dir=self.cache_dir)
+                return ImageEmbedding(model_name=self.model_name,
+                                       cache_dir=self.cache_dir,
+                                       providers=list(providers))
+
             try:
-                model = ImageEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+                model, self.choice = backends.with_fallback(
+                    build, wanted, problems=self._problems)
             except Exception as exc:           # noqa: BLE001 - download, disk, or ONNX
                 raise AppErrorException(make_error(
                     "ERR_MODEL_LOAD", "index.clip_embedder",
                     details=f"{self.model_name}: {type(exc).__name__}: {exc}",
                 )) from exc
+
+            if wanted.fell_back_from and self._problems is not None:
+                self._problems.append(wanted.why)
+
+            backends.record_provider("image model", self.choice)
             self._encoder = lambda paths: model.embed([str(p) for p in paths])
             return self._encoder
+
+    def _resolved_profile(self) -> object:
+        """The profile to decide against - the given one, or this machine's.
+
+        Same lazy-detect-and-cache shape as `Embedder._resolved_profile`:
+        detected on first use rather than in `__init__`, because a
+        `ClipImageEmbedder` is constructed in places (tests, dimension
+        checks with an injected encoder) that never load a model, and
+        probing the hardware to then not use it is work nobody asked for.
+        """
+        if self._profile is not None:
+            return self._profile
+        try:
+            from app.core.compute_profile import detect
+
+            self._profile = detect()
+        except Exception:                          # noqa: BLE001 - detection
+            # A profile that cannot be read is not a reason to fail to embed:
+            # an empty one means "no GPU known", which lands on the CPU.
+            self._profile = object()
+        return self._profile
 
     # -- embedding ------------------------------------------------------------
 
