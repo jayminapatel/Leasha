@@ -15,8 +15,23 @@ removal and mail scope.
 
 **Large file handling.** A 10GB Takeout Gmail mbox must be indexed without
 materialising the entire file. `mailbox.mbox` is lazy by default — it iterates
-messages without loading the whole file at once. Checkpointing follows the
-PST per-message pattern: resume from the last indexed message.
+messages without loading the whole file at once.
+
+**Per-message checkpointing (work order 202626270509, item 1b).** A resumed
+run passes `resume_from`, an mbox message index, and every message before it
+is skipped without being parsed - no MIME decode, no quote-stripping, no
+`Document` built - which is the expensive part on a multi-gigabyte archive.
+`mailbox.mbox`'s own integer keys (`0..N-1`, assigned by a single linear
+`From `-line scan - see `mailbox._generate_toc`) are stable across separate
+opens of an unchanged file, so a persisted index is safe to reuse: this is
+exactly the "message-index cursor" the order's own note names as the real
+fix, as opposed to the file-level-only resume that was there before. The one
+unavoidable cost is that scan itself, paid once per resumed run to rebuild
+the table of contents - a byte/line scan, not a parse, and cheap next to what
+it saves. `virtual_path` is set to `{path}/{key}` so each message gets a
+stable identity independent of *this run's* position in the iteration -
+without it, a resumed run's own `enumerate()` would start renumbering from
+zero and collide with rows the previous run already wrote.
 
 **mbox format detection.** Both `.mbox` extensions and extension-less files
 with the `From ` line signature (RFC 4155) are handled.
@@ -74,6 +89,11 @@ class MboxExtractor:
     name = "mbox"
     extensions = frozenset({".mbox", ".mbox.bak"})
 
+    #: See `app/extract/base.py`'s `Extractor` Protocol docstring. Lets the
+    #: generic `extract()` dispatcher pass a `resume_from` message index into
+    #: `extract()` below.
+    supports_resume = True
+
     def supports(self, path: Path) -> bool:
         """Check if this path is an mbox file.
 
@@ -96,11 +116,15 @@ class MboxExtractor:
             return _is_mbox_by_signature(path)
         return False
 
-    def extract(self, path: Path) -> Iterable[Document]:
+    def extract(self, path: Path, *, resume_from: int = 0) -> Iterable[Document]:
         """Iterate messages from the mbox file, yielding one Document per message.
 
         Lazily opens the file with mailbox.mbox and yields documents without
         materializing the entire archive. Handles encoding issues gracefully.
+
+        `resume_from` skips every message whose mbox key is below it, without
+        parsing it - see the module docstring. `0` (the default) reads the
+        file from the top, exactly as before this parameter existed.
         """
         try:
             # mailbox.mbox opens the file in text mode by default and handles
@@ -129,9 +153,22 @@ class MboxExtractor:
             return
 
         try:
-            # Iterate through messages in the mbox. mailbox.mbox returns
-            # email.Message objects (via mailbox.Message, which wraps them).
-            for message in mbox:
+            # Iterated by key, not `for message in mbox:` (equivalent to
+            # `itervalues()`, which fetches every key from 0). Getting the
+            # keys first and skipping everything below `resume_from` means a
+            # resumed run never pays to parse a message it already committed
+            # in an earlier run - see the module docstring. Building the key
+            # table (`mbox.iterkeys()` -> `_generate_toc()` the first time
+            # it's needed) is still a full scan of the file, but it is a
+            # `From `-line scan, not a MIME parse.
+            for key in mbox.iterkeys():
+                if key < resume_from:
+                    continue
+                try:
+                    message = mbox.get_message(key)
+                except (KeyError, OSError) as exc:  # noqa: BLE001 - one bad slot
+                    _log.debug("Failed to read message {} in {}: {}", key, path.name, exc)
+                    continue
                 # Convert mailbox.Message to email.message.EmailMessage
                 # for consistent handling with the EML extractor
                 try:
@@ -168,6 +205,17 @@ class MboxExtractor:
                         attachments=self._get_attachment_names(parsed),
                         source_kind=SourceKind.EML,
                     )
+                    # A stable identity independent of this run's own
+                    # position in the loop - see the module docstring. Every
+                    # message in a file otherwise shares `str(path)`, which
+                    # made every message after the first collide in
+                    # `_extract_stream`'s duplicate-key guard and get a key
+                    # built from the *current run's* enumerate() index - fine
+                    # until a resumed run started renumbering from zero and
+                    # collided with rows the previous run had already
+                    # written under the same numbers.
+                    document.virtual_path = f"{path}/{key}"
+                    document.meta["mbox_index"] = key
                     if not document.is_empty:
                         yield document
                 except Exception as exc:  # noqa: BLE001
