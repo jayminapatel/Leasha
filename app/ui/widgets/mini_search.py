@@ -426,6 +426,12 @@ class MiniSearch(QFrame):
         for bucket in present:
             button = QPushButton(chip_label(bucket, counts[bucket]))
             button.setObjectName(f"miniChip_{bucket}")
+            # Found by 0s's own plain-words/tooltip guard
+            # (test_tooltips.py::test_every_control_explains_itself): the
+            # chip's label already says the count and the kind, but not
+            # what clicking it *does* - narrow the list to only that kind,
+            # which is the one fact the label alone doesn't carry.
+            button.setToolTip("Show only these results")
             button.setCheckable(True)
             button.setFlat(True)
             button.setChecked(bucket == self._active_chip)
