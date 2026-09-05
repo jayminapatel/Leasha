@@ -83,28 +83,83 @@ column, and a ranked list can always find its way back to Relevance.
 
 ## 4. ADDED by owner 2026-08-28 — remember the window state
 
-- [ ] **4a** the main window remembers its last state across launches:
+- [x] **4a** the main window remembers its last state across launches:
   maximised reopens maximised; normal reopens normal at its last size and
   position (`saveGeometry`/`restoreGeometry` — Qt's own blob carries
   state + geometry + screen). Stored in the app's own local state,
   per-account like everything; nothing new leaves the machine.
-- [ ] **4b** the honest edge cases, handled not ignored: a remembered
+- [x] **4b** the honest edge cases, handled not ignored: a remembered
   position on a monitor that is no longer attached clamps back onto a
   visible screen (never opens off-screen); a window closed while
   *minimised* reopens normal, never minimised (an app that starts
   invisible looks broken); first run with no saved state keeps today's
   default.
-- [ ] **4c** the save/restore lives in one small helper so the pop-out
+- [x] **4c** the save/restore lives in one small helper so the pop-out
   windows (workspace-features order 0326) can adopt the same behaviour
   per-window when they land — noted there as an appended dated line, not
   built here.
 
 ### 4. Tests
 
-- [ ] pytest-qt: close maximised → reopen maximised; close normal at a
+- [x] pytest-qt: close maximised → reopen maximised; close normal at a
   size/position → reopen identical; saved geometry pointing off-screen →
   reopened window is fully on a visible screen; close minimised → reopen
   normal; no saved state → default behaviour unchanged.
+
+### Delivery note, 2026-09-05 — verified, and two test bugs fixed (not a save/restore bug)
+
+**4a/4b/4c were already implemented** (`app/ui/window_state.py`,
+`save_window_state`/`restore_window_state`/`_clamp_to_visible_screen`) and
+already had the coverage the §4 Tests item asks for
+(`tests/unit/test_window_state.py`, plus
+`test_window_opens.py::test_window_can_restore_from_saved_state`,
+`::test_maximised_window_state_restored`,
+`::test_minimised_window_opens_normal`). Five of those tests failed on this
+machine. Checked each one's actual-vs-expected before touching anything, per
+usual — none of them were the save/restore logic misbehaving:
+
+**Three were resolution-dependent magic pixel numbers, not a real bug.**
+`test_restore_applies_saved_geometry`, `test_save_and_restore_round_trip`
+and `test_window_opens.py::test_window_can_restore_from_saved_state` all
+hardcoded a saved window size (800x600 / 1024x768 / 900x700) and then
+asserted the *exact* restored size. Confirmed directly: the offscreen QPA
+platform this suite runs under provides only an 800x800 virtual screen, and
+Qt's own `restoreGeometry()` — before this project's code ever runs —
+clamps a too-wide restored window down to fit that screen (1024 came back
+as 798, measured with a standalone repro outside pytest). The assertions
+were comparing against a screen size the test merely assumed, not one it
+checked. Fixed by sizing each saved window relative to
+`QGuiApplication.primaryScreen().availableGeometry()` at test time (comfortably
+smaller than the real screen, so Qt's own fit-to-screen clamp never
+triggers) and skipping cleanly if the screen is under 300x300 — asserting
+the same exact-match invariant, just no longer against a number that only
+held on one screen.
+
+**Two were broken test mocks, not a real bug either.**
+`test_restore_clamps_off_screen_window` and
+`test_very_large_window_is_clamped_to_screen` both tried
+`patch("app.ui.window_state.QGuiApplication")`, but the import that name
+resolves to was a local `from PyQt6.QtGui import QGuiApplication` inside
+`_clamp_to_visible_screen`, never a module attribute — so the patch raised
+`AttributeError` before the test body ran, on every machine, always (not
+resolution-dependent). Confirmed that fixing only the import still wasn't
+enough: both tests' `Mock(x=.., width=.., intersects=Mock(...))` set
+`width`/`height` as plain attributes, but `_clamp_to_visible_screen` calls
+`geom.width()` as a method (real `QRect`'s shape) — the next run after
+patching correctly hit `TypeError: 'int' object is not callable` the moment
+the mocked path actually executed, meaning this edge case had never
+actually been exercised by either test. Fixed by hoisting the
+`QGuiApplication` import to module scope in `app/ui/window_state.py` (its
+only caller, `app/ui/shell.py`, already requires PyQt6 unconditionally, so
+this changes no behaviour) and replacing the bare `Mock(...)` geometry
+stand-ins with real `QRect` instances, which have real `.width()`/`.height()`/
+`.intersects()` methods and need no faking.
+
+All 22 tests across `tests/unit/test_window_state.py` (12) and
+`tests/unit/test_window_opens.py` (10) pass, run with a unique
+`--basetemp` outside the repo. Touched only `app/ui/window_state.py` and
+the named tests in the two test files — no other test in `test_window_opens.py`
+was changed.
 
 ### Done means (§4)
 
