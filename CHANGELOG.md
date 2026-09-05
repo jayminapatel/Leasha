@@ -102,13 +102,45 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   photo pinned out of the results list - no longer means closing the window
   and opening the next one by hand. Work order 0h §3b.
 - "More like this" is a right-click action for the first time - on a
-  passage, and on a photo. For a passage it works today. **For a photo it
-  does not yet** - the underlying search does not know how to look among
-  photos specifically, and this is a known, named gap rather than a
-  silent one; a follow-up closes it. Work order 0h §2d (UI half only - the
-  right-click action and its wiring; the same-photo intelligence backend
-  it will eventually share a home with - pHash, folding duplicates, drop-a-
-  photo-to-search - is separate, ongoing work).
+  passage, and on a photo, **and both now work**: the UI half (this entry)
+  and the backend half (the entry below) were built by two independent,
+  concurrent pieces of work that each named the other's missing half as a
+  known gap - closed by wiring the right-click action to whichever of
+  `SearchEngine.similar_to`/`find_similar_images` a row's kind actually has
+  a vector for, once both halves had landed. Work order 0h §2d.
+
+### Leasha can now tell when two photos are the same picture, even when the bytes differ
+
+- Every photo now gets a perceptual fingerprint alongside its CLIP vector,
+  computed during the same images pass - free of charge for anything that
+  already went through the OCR ladder. Unlike an exact byte match, this
+  survives a recompression, a resize, or a re-save: a WhatsApp-compressed
+  copy of a photo and its full-resolution original still read as the same
+  picture, which a byte-for-byte comparison could never say. Work order 0h
+  §2a.
+- **Near-identical photos now fold into one row**, the same way older
+  versions of a document already do - newest shown, "N similar photos" one
+  click away. A burst of near-duplicate shots, or the same photo indexed
+  twice from two different drives, no longer clutters a results page with
+  several rows that are really one photo. Work order 0h §2b.
+- **Drop or paste a photo into the search box and find it** - and its
+  relatives - in the index. A result says plainly whether it is *this exact
+  photo* or merely *similar*, so a degraded copy someone was sent can be
+  traced straight back to wherever the full-resolution original actually
+  lives. Work order 0h §2c.
+- **"More like this" now has a working backend for photo results too** -
+  the same right-click action for a passage now has something real to call
+  for a photo row as well, not only a passage, and, once merged alongside
+  the UI half that names the same feature above, is actually wired to it.
+- **One gap remains, named rather than left to be rediscovered**: reverse
+  image search (§2c) needs a CLIP vision-tower model at the point a real
+  search is built, and that wiring has not landed in `app/main.py` or
+  `app/cli.py` yet - the backend works, proven against real recompressed
+  photos, but nobody typing into a real window or running a real command
+  can reach it today.
+- `imagehash`, this feature's one new dependency, was checked before use
+  and turned out not to already be installed, despite an earlier note
+  saying otherwise - installed and pinned rather than assumed.
 
 ### CLIP image embedding now uses the graphics card when one is usable, the processor otherwise
 

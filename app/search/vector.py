@@ -30,6 +30,7 @@ from app.search.query import ParsedQuery
 __all__ = [
     "search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS", "search_images", "hydrate_images",
     "CLIP_TEXT_MODEL", "CLIP_TEXT_DIM", "clip_text_embedder_from_settings",
+    "search_by_image",
 ]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
@@ -405,7 +406,7 @@ def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str,
         int(record["file_id"]): dict(record)
         for record in store.conn.execute(
             f"""
-            SELECT id AS file_id, path, ext, mtime_ns, content_hash
+            SELECT id AS file_id, path, ext, mtime_ns, content_hash, phash
             FROM files
             WHERE id IN ({placeholders})
             """,
@@ -425,3 +426,92 @@ def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str,
         merged["chunk_id"] = row.get("chunk_id")
         hydrated.append(merged)
     return hydrated
+
+
+# -- work order 0h §2c: reverse image search ----------------------------------
+
+
+def search_by_image(
+    image_vectors: Any,
+    image_embedder: Any,
+    image_path: Any,
+    *,
+    limit: int = VECTOR_LIMIT,
+    allowed_file_ids: Optional[set[int]] = None,
+    problems: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    r"""CLIP hits for a **photo** query, nearest first - reverse image search.
+
+    Work order 0h §2c. Drop or paste an image into the search box and find
+    it, and its relatives, in the index. Everything the text lanes need is a
+    string to embed; this lane's query is a picture, so it is embedded with
+    the CLIP **vision** tower (`image_embedder`, an
+    `app.index.clip_embedder.ClipImageEmbedder` - the same class `Pipeline`
+    uses at index time) rather than the text tower `search_images` uses for
+    a typed description. The two towers share one embedding space by
+    construction (`Qdrant/clip-ViT-B-32-vision` and `-text` are trained as a
+    pair - see `clip_embedder.py`), which is what makes an image-to-image
+    comparison and a text-to-image comparison both meaningful ANN searches
+    over the same table.
+
+    **Not built on `search()`, unlike `search_images`.** That function's
+    entire contract is built around a `ParsedQuery` and an embedder whose
+    `.embed` takes strings - neither fits a bare image path, and forcing one
+    in would cost more in translation than it saves in reuse. The H4 shape
+    is kept identical by hand instead: any failure to embed or to search
+    degrades to `[]` plus a note in `problems`, never a raised exception,
+    exactly as `search()` promises for its own two failure points.
+
+    **The `chunk_id` rewrite is repeated here, not shared as code**, for the
+    same reason `search_images` needs it at all: `ImageVectorStore` writes
+    `chunk_id == file_id`, and a bare integer would collide with an
+    unrelated passage's real `chunks.id` inside `fuse_hits`. Duplicating four
+    lines is cheaper here than adding a dependency between the two functions
+    for a rewrite this small.
+
+    `allowed_file_ids` is accepted for symmetry with every other retrieval
+    function in this module, even though no caller in this order builds a
+    filtered reverse-image search yet - a caller that wants `type:` or a
+    folder scope on a reverse-image search gets it for free rather than
+    needing a second function later.
+    """
+    if image_vectors is None or image_embedder is None:
+        return []
+
+    try:
+        query_vector = image_embedder.embed([str(image_path)])[0]
+    except AppErrorException as exc:
+        _log.error("reverse-image query could not be embedded: {}",
+                   exc.error.message)
+        _note(problems, exc.error.suggestion or exc.error.message)
+        return []
+    except Exception as exc:           # noqa: BLE001 - boundary, mirrors `search()`
+        _log.error("reverse-image query could not be embedded: {}", exc)
+        _note(problems, f"The query photo could not be embedded ({exc}).")
+        return []
+
+    eligible = _as_eligibility(allowed_file_ids)
+    if eligible is not None and eligible.excludes_everything:
+        return []
+
+    try:
+        pushdown = eligible.ids if eligible is not None else None
+        if pushdown is not None and len(pushdown) <= MAX_PREFILTER_IDS:
+            rows = image_vectors.search(query_vector, k=limit, where=_id_clause(pushdown))
+        elif eligible is None:
+            rows = image_vectors.search(query_vector, k=limit, where=None)
+        else:
+            rows = _search_large_filter(image_vectors, query_vector, limit, eligible)
+    except AppErrorException as exc:
+        _log.error("reverse-image ANN search failed: {}", exc.error.message)
+        _note(problems, exc.error.suggestion or exc.error.message)
+        return []
+    except Exception as exc:           # noqa: BLE001 - a vector-store hiccup must not
+        _log.error("reverse-image ANN search failed: {}", exc)
+        _note(problems, f"The vector store could not be searched ({exc}).")
+        return []
+
+    hits = [_normalise(row) for row in rows]
+    for hit in hits:
+        hit["chunk_id"] = f"img:{hit['file_id']}"
+    return hits

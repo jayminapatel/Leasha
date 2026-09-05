@@ -203,6 +203,28 @@ class SearchResult:
     #: row that was being fetched anyway. Empty for anything not yet hashed,
     #: and an empty hash never folds - a shared blank is not a match.
     content_hash: str = ""
+    #: Work order 0h §2a/§2b. A perceptual hash, for a photo whose file has
+    #: been touched by the images pass - `""` for everything else, and for a
+    #: photo not yet hashed. **A shared blank is not a match** - the same
+    #: rule `content_hash` already carries, and `app/search/folding.py`'s
+    #: `_burst_groups` relies on it exactly the same way.
+    phash: str = ""
+    #: The raw ANN distance to the query, when this hit came from a vector
+    #: lane - `None` for a keyword-only hit. **Not the fused `score`**, which
+    #: RRF deliberately discards in favour of rank; this is the number
+    #: `folding._burst_groups` uses as an approximate CLIP-space tiebreak
+    #: when a photo's pHash alone cannot say which near-duplicate cluster it
+    #: belongs to (see that function's docstring for the honest limits of
+    #: that approximation).
+    distance: Optional[float] = None
+    #: Work order 0h §2c. Set only on a `search_by_image` result: `"exact"`
+    #: when the hit's `phash` is within `folding.PHASH_NEAR_THRESHOLD` of the
+    #: query photo's own hash, `"similar"` when it is an image hit found by
+    #: CLIP alone. `""` for every other kind of result - this is the
+    #: distinction the work order asks reverse-image search to make ("this
+    #: exact photo" vs "similar"); showing it is a UI decision and not this
+    #: order's job, but the fact has to exist on the row for that UI to read.
+    photo_match: str = ""
     #: How fresh this is, 1.0 for today decaying towards 0. Written by
     #: `recency.blend`, and **carried so the row can say why it is here**:
     #: an order somebody cannot interrogate is an order they have to take on
@@ -441,6 +463,8 @@ class SearchEngine:
         log_usage: bool = True,
         image_vectors: Any = None,
         clip_text_embedder: Any = None,
+        image_embedder: Any = None,
+        phash_computer: Any = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
@@ -469,6 +493,22 @@ class SearchEngine:
         #: loads on the first search that actually reaches it instead.
         self.image_vectors = image_vectors
         self.clip_text_embedder = clip_text_embedder
+        # Work order 0h §2c. `image_embedder` is the CLIP **vision** tower
+        # (`app.index.clip_embedder.ClipImageEmbedder`, the same class
+        # `Pipeline` uses at index time) - deliberately not
+        # `clip_text_embedder` above, which embeds a typed *description* and
+        # is useless for embedding a *photo* someone drops into the search
+        # box. `phash_computer` (`app.index.phash.PhashComputer`) is what
+        # lets `search_by_image` tell "this exact photo" from "similar" in
+        # its results. Both `None` by default, H4 throughout: absent means
+        # `search_by_image` returns an empty response rather than raising -
+        # see that method. Neither is constructed by any real call site this
+        # order touches (`app/main.py`, `app/cli.py` are out of this
+        # session's scope, the same way `app/ui/shell.py` was out of 0h
+        # §1c's) - flagged here and in the work order's own dated note
+        # rather than silently left to be discovered.
+        self.image_embedder = image_embedder
+        self.phash_computer = phash_computer
         # **A cache by default, at last.** `cache=` is passed at none of the
         # four constructions, so for a year every review has recorded "no warm
         # search" against machinery that was complete, correct and unreachable:
@@ -939,6 +979,151 @@ class SearchEngine:
         ]
         return SearchResponse(
             results=results, parsed=parse_query(""), vector_count=len(results),
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    def find_similar_images(self, file_id: int, *, limit: int = 20) -> SearchResponse:
+        r"""Photos that look like this one. Work order 0h §2d.
+
+        **`similar_to`'s image-table twin, not a modification of it.**
+        `similar_to` is built around `chunks.id` and `self.store.get_chunk` -
+        neither exists for a photo, which has no chunk-splitting concept at
+        all (`ImageVectorStore`'s own docstring). Rather than growing
+        `similar_to` a branch for a shape it was not written for, this is a
+        parallel entry point, the same choice work order 0h has made at
+        every layer of the image lane so far: `ClipImageEmbedder` beside
+        `Embedder`, `ImageVectorStore` beside `VectorStore`, `search_images`
+        beside `search`. `chunk_id == file_id` in the image table (see that
+        class's docstring), so there is no separate "find the source chunk's
+        file" step `similar_to` needs either - the id handed in already is
+        the file.
+
+        This is the **backend** half of "the existing right-click action
+        extended to photo results via the image table" - the right-click
+        menu item itself is UI and is explicitly not this order's job. A UI
+        action on an image result (`SearchResult.chunk_id` shaped
+        `"img:<file_id>"` per work order 0h §1c's own namespacing - see
+        `_result_chunk_id`) calls this with the bare integer `file_id`, the
+        same way it would call `similar_to` with a bare integer `chunk_id`
+        for a text result.
+
+        H4 throughout, same shape as `similar_to`: no `image_vectors`
+        configured, no stored vector for this file, or a lookup that raises
+        all return an empty `SearchResponse` rather than propagating a
+        failure - "more like this" finding nothing is not an error state for
+        either lane.
+        """
+        if self._closed:
+            raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
+
+        started = time.perf_counter()
+        empty = SearchResponse(parsed=parse_query(""))
+        if self.image_vectors is None:
+            return empty
+
+        try:
+            point = self.image_vectors.vector_for(int(file_id))
+        except Exception as exc:                   # noqa: BLE001 - a lookup
+            _log.debug("no image vector to look near: {}", exc)
+            return empty
+        if not point:
+            # Not an error - a photo not yet CLIP-embedded, or one indexed
+            # before the image lane existed. The honest answer is an empty
+            # list, exactly as `similar_to` treats the equivalent state.
+            return empty
+
+        raw = self.image_vectors.search(point, k=max(limit * 4, limit + 8))
+        kept = [hit for hit in raw
+                if int(hit.get("file_id") or 0) != int(file_id)]
+        for hit in kept:
+            hit["chunk_id"] = f"img:{hit['file_id']}"
+        hydrated = vector.hydrate_images(self.store, kept[:limit])
+        results = [
+            self._to_result(hit, rank, ("image",), 1.0 / (1.0 + rank))
+            for rank, hit in enumerate(hydrated, start=1)
+        ]
+        return SearchResponse(
+            results=results, parsed=parse_query(""), image_count=len(results),
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    def search_by_image(self, image_path: Any, *, limit: int = 20) -> SearchResponse:
+        r"""Reverse image search. Work order 0h §2c.
+
+        Drop or paste a photo into the search box and find it - and its
+        relatives - in the index. The **backend** half only: the drag-and-
+        drop or paste trigger on the search box is UI and is explicitly not
+        this order's job. `image_path` is a path to the query photo,
+        wherever the UI trigger saved or received it from.
+
+        **Distinguishes "this exact photo" from "similar", per the work
+        order's own acceptance sentence** ("a degraded-WhatsApp-copy ->
+        'full-res original is on <source>' case is the acceptance demo").
+        `SearchResult.photo_match` is `"exact"` when a hit's stored pHash is
+        within `folding.PHASH_NEAR_THRESHOLD` of the query photo's own hash
+        - the recompressed-copy case - and `"similar"` for every other
+        image hit, found by CLIP alone. Left `""` (falls back to
+        `"similar"`) when `phash_computer` is not configured, since there is
+        then nothing to compare against; H4 degrades the *distinction*, not
+        the search itself.
+
+        **H4 for the search itself mirrors `NOTICE_NO_IMAGES`, deliberately
+        reused rather than a new code.** This is the same CLIP vision-tower
+        lane failing, not a genuinely different failure mode - the work
+        order's own instruction is to reuse the existing notice unless the
+        failure is genuinely different, and a broken model or a broken
+        vector store means the same thing whether the query was typed or
+        dropped in as a photo.
+        """
+        if self._closed:
+            raise AppErrorException(make_error("ERR_SHUTTING_DOWN", "search.engine"))
+
+        started = time.perf_counter()
+        empty_parsed = parse_query("")
+        if self.image_vectors is None or self.image_embedder is None:
+            return SearchResponse(parsed=empty_parsed)
+
+        problems: list[str] = []
+        raw = vector.search_by_image(
+            self.image_vectors, self.image_embedder, image_path,
+            limit=max(limit * 2, limit + 8), problems=problems,
+        )
+        if problems:
+            _log.warning("reverse-image search is degraded: {}",
+                         "; ".join(problems))
+            notices = (Notice(
+                NOTICE_NO_IMAGES,
+                "Photo search is not working right now, so this photo could "
+                "not be searched for. " + " ".join(problems),
+            ),)
+            return SearchResponse(
+                parsed=empty_parsed, notices=notices,
+                elapsed_ms=(time.perf_counter() - started) * 1000,
+            )
+
+        hydrated = vector.hydrate_images(self.store, raw)
+
+        query_phash: Optional[str] = None
+        if self.phash_computer is not None:
+            try:
+                query_phash = self.phash_computer.compute(image_path)
+            except Exception as exc:                # noqa: BLE001 - the label is a bonus
+                _log.debug("no pHash for the reverse-image query itself: {}", exc)
+
+        for hit in hydrated:
+            hit_phash = str(hit.get("phash") or "")
+            if query_phash and hit_phash and folding.phash_distance(
+                query_phash, hit_phash) <= folding.PHASH_NEAR_THRESHOLD:
+                hit["photo_match"] = "exact"
+            else:
+                hit["photo_match"] = "similar"
+
+        results = [
+            self._to_result(hit, rank, ("image",), 1.0 / (1.0 + rank))
+            for rank, hit in enumerate(hydrated[:limit], start=1)
+        ]
+        return SearchResponse(
+            results=results, parsed=empty_parsed, image_count=len(results),
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
 
@@ -1414,6 +1599,9 @@ class SearchEngine:
             ext=str(hit.get("ext", "") or "").lower().lstrip("."),
             mtime_ns=int(hit.get("mtime_ns") or 0),
             content_hash=str(hit.get("content_hash", "") or ""),
+            phash=str(hit.get("phash", "") or ""),
+            distance=hit.get("distance"),
+            photo_match=str(hit.get("photo_match", "") or ""),
             recency=float(hit.get("recency") or 0.0),
             declares=bool(hit.get("declares") or False),
             score=float(hit.get("rerank_score", score) if "rerank_score" in hit else score),

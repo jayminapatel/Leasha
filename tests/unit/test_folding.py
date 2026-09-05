@@ -14,7 +14,16 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.search.folding import COPIES, VERSIONS, Fold, family, fold
+from app.search.folding import (
+    BURST,
+    COPIES,
+    PHASH_NEAR_THRESHOLD,
+    VERSIONS,
+    Fold,
+    family,
+    fold,
+    phash_distance,
+)
 
 _DAY = 86_400 * 1_000_000_000
 _NOW = 1_700_000_000 * 1_000_000_000
@@ -27,11 +36,27 @@ class _Row:
     path: str
     mtime_ns: int = _NOW
     content_hash: str = ""
+    #: Work order 0h §2b.
+    phash: str = ""
+    distance: float = None
 
 
 def _row(path: str, *, days_old: float = 0, digest: str = "") -> _Row:
     return _Row(path=path, mtime_ns=int(_NOW - days_old * _DAY),
                 content_hash=digest)
+
+
+def _photo(path: str, *, days_old: float = 0, digest: str = "",
+          phash_bits: frozenset = frozenset(), distance: float = None) -> _Row:
+    """A photo row - `digest` for `content_hash`, `phash_bits` the set bit
+    positions of its 64-bit pHash, so tests can build controlled Hamming
+    distances by hand rather than guessing at hex strings."""
+    value = 0
+    for bit in phash_bits:
+        value |= (1 << bit)
+    return _Row(path=path, mtime_ns=int(_NOW - days_old * _DAY),
+                content_hash=digest, phash=format(value, "016x"),
+                distance=distance)
 
 
 def _paths(folded):
@@ -296,3 +321,157 @@ def test_the_hash_reaches_the_result_row(engine):
     response = engine.search("chapter", policy=for_surface(SEARCH),
                              use_cache=False)
     assert all(result.content_hash for result in response.results)
+
+
+# --------------------------------------------------------------------------
+# §2b: burst folding - near-duplicate photos, pHash first
+# --------------------------------------------------------------------------
+
+
+def test_phash_distance_is_a_hamming_distance():
+    assert phash_distance("0" * 16, "0" * 16) == 0
+    assert phash_distance("0" * 16, "f" * 16) == 64
+    assert phash_distance("0000000000000000", "0000000000000001") == 1
+
+
+def test_phash_distance_never_raises_on_a_malformed_hash():
+    """A missing or malformed hash must degrade to 'not the same picture',
+    not crash a result list."""
+    assert phash_distance("", "0" * 16) > PHASH_NEAR_THRESHOLD
+    assert phash_distance("not-hex", "0" * 16) > PHASH_NEAR_THRESHOLD
+    assert phash_distance(None, "0" * 16) > PHASH_NEAR_THRESHOLD
+
+
+def test_near_duplicate_photos_fold_even_with_different_bytes():
+    """The whole point of §2b: a recompressed copy has a *different*
+    `content_hash` - the bytes changed - but a pHash a handful of bits away,
+    so the copies pass alone (which is what existed before §2b) cannot fold
+    it. This is the case only the burst pass can catch."""
+    rows = [
+        _photo(r"D:\Photos\rootA\bday.jpg", days_old=5, digest="aaa",
+              phash_bits=frozenset(range(0))),
+        _photo(r"D:\Photos\rootB\bday_whatsapp.jpg", days_old=1, digest="bbb",
+              phash_bits=frozenset(range(3))),   # 3 bits different
+    ]
+    folded = fold(rows)
+    assert len(folded) == 1
+    assert folded[0].reason == BURST
+    assert folded[0].head.path == r"D:\Photos\rootB\bday_whatsapp.jpg"
+    assert folded[0].label() == "1 similar photo"
+
+
+def test_photos_past_the_threshold_do_not_fold():
+    rows = [
+        _photo(r"D:\Photos\a.jpg", digest="aaa", phash_bits=frozenset(range(0))),
+        _photo(r"D:\Photos\b.jpg", digest="bbb",
+              phash_bits=frozenset(range(PHASH_NEAR_THRESHOLD + 1))),
+    ]
+    folded = fold(rows)
+    assert len(folded) == 2
+    assert all(not f.folded for f in folded)
+
+
+def test_photos_with_no_phash_never_fold_into_each_other():
+    """**A shared blank is not a match** - the same rule `content_hash`
+    already carries, extended to `phash`."""
+    rows = [_row(r"D:\Photos\one.jpg", digest="a"),
+            _row(r"D:\Photos\two.jpg", digest="b"),
+            _row(r"D:\Photos\three.jpg", digest="c")]
+    assert all(row.phash == "" for row in rows)      # the dataclass default
+    folded = fold(rows)
+    assert len(folded) == 3 and all(not f.folded for f in folded)
+
+
+def test_a_burst_of_three_photos_folds_into_one_row_newest_first():
+    """"Newest/best first, N similar photos expandable" - the work order's
+    own wording for this item, literally."""
+    rows = [
+        _photo(r"D:\Photos\shot1.jpg", days_old=3, digest="a",
+              phash_bits=frozenset(range(0))),
+        _photo(r"D:\Photos\shot2.jpg", days_old=2, digest="b",
+              phash_bits=frozenset(range(2))),
+        _photo(r"D:\Photos\shot3.jpg", days_old=1, digest="c",
+              phash_bits=frozenset(range(4))),
+    ]
+    folded = fold(rows)
+    assert len(folded) == 1
+    assert folded[0].reason == BURST
+    assert folded[0].head.path == r"D:\Photos\shot3.jpg"          # newest
+    assert folded[0].label() == "2 similar photos"
+    assert [row.path for row in folded[0].older] == [
+        r"D:\Photos\shot2.jpg", r"D:\Photos\shot1.jpg",           # newest first
+    ]
+
+
+def test_burst_folding_runs_before_the_version_pass():
+    """A burst of near-duplicate photos rarely carries a filename version
+    marker - if it did, both passes would agree on the same group, but the
+    burst pass must not need one to fire at all."""
+    rows = [
+        _photo(r"D:\Photos\IMG_001.jpg", days_old=2, digest="a",
+              phash_bits=frozenset(range(0))),
+        _photo(r"D:\Photos\IMG_002.jpg", days_old=1, digest="b",
+              phash_bits=frozenset(range(3))),
+    ]
+    folded = fold(rows)
+    assert len(folded) == 1
+    assert folded[0].reason == BURST                # not VERSIONS
+
+
+def test_exact_byte_copies_still_fold_as_copies_not_burst():
+    """The copies pass runs first and still wins on a byte-identical pair -
+    burst folding adds a new grounds, it does not demote the existing one."""
+    rows = [
+        _photo(r"D:\Work\photo.jpg", days_old=5, digest="same",
+              phash_bits=frozenset(range(0))),
+        _photo(r"D:\Backup\photo.jpg", days_old=900, digest="same",
+              phash_bits=frozenset(range(0))),
+    ]
+    folded = fold(rows)
+    assert len(folded) == 1
+    assert folded[0].reason == COPIES
+
+
+def test_ambiguous_phash_membership_breaks_the_tie_on_clip_distance():
+    r"""§2b's literal wording: "pHash first ... CLIP distance as tiebreak
+    when pHash alone doesn't distinguish." Two existing clusters far enough
+    apart from each other (Hamming distance 16, past the threshold) but both
+    within threshold of a third candidate - pHash alone cannot say which the
+    candidate belongs to, so the tiebreak is which cluster's `distance` (the
+    ANN distance to the search query) the candidate's own `distance` is
+    closer to."""
+    cluster_a = _photo(r"D:\Photos\a.jpg", days_old=10, digest="a",
+                       phash_bits=frozenset(range(0)), distance=0.10)
+    cluster_b = _photo(r"D:\Photos\b.jpg", days_old=20, digest="b",
+                       phash_bits=frozenset(range(17)), distance=0.90)
+    candidate = _photo(r"D:\Photos\c.jpg", days_old=1, digest="c",
+                       phash_bits=frozenset(range(8)), distance=0.15)
+
+    assert phash_distance(cluster_a.phash, cluster_b.phash) > PHASH_NEAR_THRESHOLD
+    assert phash_distance(candidate.phash, cluster_a.phash) <= PHASH_NEAR_THRESHOLD
+    assert phash_distance(candidate.phash, cluster_b.phash) <= PHASH_NEAR_THRESHOLD
+
+    folded = fold([cluster_a, cluster_b, candidate])
+    assert len(folded) == 2
+    joined = next(f for f in folded if f.folded)
+    assert joined.head.path == r"D:\Photos\c.jpg"      # newest of its group
+    assert cluster_a.path in {row.path for row in joined.older}
+    assert cluster_b.path not in {row.path for row in joined.older}
+
+
+def test_nothing_is_ever_dropped_with_bursts_in_the_mix():
+    """The same invariant `test_nothing_is_ever_dropped` proves for copies
+    and versions, now with a burst group in the result list too."""
+    rows = [
+        _photo(r"D:\Photos\shot1.jpg", days_old=3, digest="a",
+              phash_bits=frozenset(range(0))),
+        _photo(r"D:\Photos\shot2.jpg", days_old=1, digest="b",
+              phash_bits=frozenset(range(2))),
+        _row(r"C:\W\report.docx", days_old=900, digest="x"),
+        _row(r"C:\W\report v2.docx", days_old=1, digest="y"),
+        _row(r"C:\W\unrelated.pdf", digest="z"),
+    ]
+    folded = fold(rows)
+    seen = [f.head for f in folded] + [row for f in folded for row in f.older]
+    assert len(seen) == len(rows)
+    assert {id(row) for row in seen} == {id(row) for row in rows}

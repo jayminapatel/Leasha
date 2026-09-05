@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures I — the CLIP lane: find photos by describing them
 
-**Doc version:** 1.2 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Index + Storage/vectors + Search + results UI)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
 ladder + EXIF dates) landed first. **Scope discipline: vectors and
@@ -323,18 +323,173 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
 
 ## 2. Same-image intelligence
 
-- [ ] **2a pHash** (`imagehash`, installed) computed in the images pass,
+- [x] **2a pHash** (`imagehash`, installed) computed in the images pass,
   stored per file: exact/near duplicates cheap across all sources — feeds
   "also on <source>" display and, later, backup awareness.
-- [ ] **2b burst folding**: near-identical results (pHash first, CLIP
+
+  **2026-09-05, §2 build session.** `imagehash` was **not**, in fact,
+  already installed — checked with `venv\Scripts\python.exe -m pip show
+  imagehash` before writing a line of this item, per this order's own
+  "verify, never guess" discipline, and it returned "Package(s) not found".
+  Not in `requirements.txt` either (`grep -ri imagehash requirements.txt`
+  returned nothing). Installed and pinned: `imagehash==4.3.2`, plus its own
+  transitive dependencies `scipy==1.18.1` and `PyWavelets==1.9.0` — all
+  three publish cp312 win_amd64 wheels, no compiler needed, matching this
+  file's own wheel rule; `pip check` shows no new conflicts (the pre-
+  existing `onnxruntime` cosmetic complaint from §1a's DirectML swap is
+  untouched and unrelated). See `requirements.txt`'s own comment for the
+  full discrepancy note.
+
+  Built as `app.index.phash.PhashComputer` — a **parallel** class to
+  `ClipImageEmbedder`, same reasoning as that class's own relationship to
+  `Embedder`: a different library (`imagehash.phash` over a real
+  `PIL.Image.open`, no model, no ONNX, no network), computed and gated
+  independently of the CLIP vector. Wired into `Pipeline` as a third
+  optional constructor argument, `phash_computer`, `None` by default (H4:
+  absent means off, exactly as `image_embedder`/`image_vectors` already
+  behave) — gated on `reads_by_ocr(path)`, the same test `_maybe_embed_
+  image` uses, at both of that method's call sites (`_write_one` and
+  `_record_skip`'s `ERR_NO_TEXT_LAYER` path), so a photo OCR found no text
+  in still gets hashed.
+
+  **Storage: a genuine design decision the order left open, made and
+  documented rather than guessed at.** `files.phash` — a new nullable TEXT
+  column (migration v17, `app/storage/migrations.py::_v17_image_phash`),
+  alongside `content_hash`, not a column on the `image_vectors` LanceDB
+  table. Reasoning, in full, in that migration's own docstring: `files` is
+  where every other per-file scalar already lives (`content_hash`, `ext`,
+  `mtime_ns`), `app/search/folding.py`'s existing copy-fold already reads
+  `content_hash` off a hydrated `SearchResult` for exactly the purpose this
+  column extends, and a pHash has nothing to do with the CLIP embedding
+  space the vector table exists for — `vector_store.py`'s own opening
+  comment calls that table "DERIVED... regenerated from SQLite", which a
+  pHash is not. A partial index, `idx_files_phash` (`WHERE phash IS NOT
+  NULL`), mirrors `idx_files_skip`'s shape.
+
+  Writes are batched through a new `SqliteStore.set_phashes` (H7 shape, one
+  transaction per flush) and `Pipeline._flush_pending_phashes`, called from
+  the top of `_flush_pending_images` so it inherits that method's existing
+  M6 ordering (written before a file can read as INDEXED) at all three of
+  its existing call sites, with no new ones to keep in step by hand.
+
+  **Measured, not assumed, and the first guess was wrong.** `PHASH_NEAR_
+  THRESHOLD` (`app/search/folding.py`) started at 8 — the literature's
+  "handful of bits" rule of thumb — and was replaced after measuring real
+  JPEG re-encodes (several quality levels, plus a resize, simulating a
+  WhatsApp-style recompression) on synthetic broadband photo-like fixtures:
+  same-photo distances reached **16**, not 8, while genuinely unrelated
+  fixtures never landed below **26**. Set at 16 — the measured ceiling of
+  "same photo, recompressed", with a ten-bit margin below "different
+  photo". Still not measured against real camera photographs, and said so
+  in the constant's own docstring rather than presented as settled.
+
+  Tests: `tests/unit/test_phash.py` (16 — the injectable seam, H4 on a
+  missing/corrupt file, the real library on real synthetic images, and the
+  measurement itself); `tests/unit/test_phash_column_migration.py` (10 —
+  the migration, a database carried forward from v16, `set_phashes`'
+  batching and its nullable-not-empty rule); `tests/unit/test_phash_
+  pipeline.py` (10 — wiring, H4, H7-shaped batching, M6 ordering, and the
+  same bytes from two roots producing the same hash).
+
+- [x] **2b burst folding**: near-identical results (pHash first, CLIP
   distance as tiebreak) fold into one row — newest/best first, "N similar
   photos" expandable. Same folding UI contract as the search-experience
   order's version folding; coordinate, don't duplicate.
-- [ ] **2c reverse image search**: drop/paste an image into the search box →
+
+  **2026-09-05, §2 build session.** Built as a third grounds inside the
+  *existing* `app.search.folding.fold()` — not a parallel function — so
+  `SearchEngine.search()`'s call site (`folds=tuple(folding.fold(results,
+  enabled=policy.version_folding))`, `app/search/engine.py`) needed **zero**
+  changes: every fold this order's UI half consumes, photo bursts included,
+  already flows through the one `SearchResponse.folds` tuple the search-
+  experience order built. That is the literal "coordinate, don't duplicate"
+  this item asks for — not a second mechanism the UI would need new
+  plumbing to reach, the same mechanism, extended.
+
+  Three passes now, in order: copies (exact `content_hash`, unchanged) →
+  **bursts** (new: `_burst_groups`, greedy single-linkage clustering by
+  `phash_distance` against `PHASH_NEAR_THRESHOLD`) → versions (filename
+  markers, unchanged, now running over burst survivors). Runs between
+  copies and versions deliberately — a recompressed photo already folded by
+  exact bytes needs no second look, and a burst of near-duplicate photos
+  rarely carries a filename version marker at all, so leaving this to the
+  version pass would simply never fire for photos.
+
+  **The CLIP-distance tiebreak, honestly scoped.** "pHash alone doesn't
+  distinguish" is read literally as: a candidate lands within the threshold
+  of *more than one* existing cluster. `SearchResult` gained a `distance`
+  field (the raw ANN distance to the search query, already computed by
+  every vector lane and previously dropped by `_to_result`) and the
+  tiebreak compares each side's `distance` — **not** a true pairwise CLIP
+  distance between the two photos, which `folding.py` cannot have without
+  taking a store dependency it deliberately does not carry (Layer 4, pure).
+  Documented as an approximation in `_burst_groups`' own docstring, along
+  with why: two photos both landing close to the same query in CLIP's
+  space is the best signal available at this layer, and it is reached only
+  in the rare ambiguous case `PHASH_NEAR_THRESHOLD`'s width mostly avoids.
+
+  `Fold.label()` gained the literal wording this item asks for: "1 similar
+  photo" / "N similar photos".
+
+  Tests: 22 new cases in `tests/unit/test_folding.py` — near-duplicate
+  photos with different bytes folding (the case exact-copy folding cannot
+  catch), photos past the threshold not folding, a shared blank never
+  matching (same rule `content_hash` already has), a three-photo burst
+  folding newest-first, burst folding firing with no filename marker
+  present, exact-byte copies still winning the COPIES grounds over BURST,
+  the ambiguous multi-cluster tiebreak resolving on `distance`, and nothing
+  ever dropped with a burst group in the mix.
+
+- [x] **2c reverse image search**: drop/paste an image into the search box →
   embed it, find it and relatives; result headline distinguishes "this exact
   photo (pHash) " from "similar". The degraded-WhatsApp-copy → "full-res
   original is on <source>" case is the acceptance demo.
-- [ ] **2d more-like-this for images**: the existing right-click action
+
+  **2026-09-05, §2 build session — the backend half only, and a real gap
+  named rather than hidden, in the same spirit as this order's own §1c
+  dated note above.** Built: `app.search.vector.search_by_image` (embeds a
+  query **photo** via the CLIP **vision** tower and ANN-searches the image
+  table — not built on `search()`, which is shaped around a `ParsedQuery`
+  and a text-embedding call that a bare image path does not fit; the H4
+  degrade-to-`[]`-plus-`problems` shape is kept identical by hand instead)
+  and `SearchEngine.search_by_image` (embeds, searches, hydrates, and
+  labels each hit's `SearchResult.photo_match` as `"exact"` when its
+  stored pHash is within `PHASH_NEAR_THRESHOLD` of the query photo's own
+  pHash, `"similar"` otherwise — the literal "this exact photo" / "similar"
+  distinction this item asks for).
+
+  H4 mirrors `NOTICE_NO_IMAGES`, reused rather than a new code, per this
+  item's own instruction: a broken CLIP vision-tower model or a broken
+  image-vector store is the same lane failing whether the query was typed
+  or dropped in as a photo, not a genuinely different failure mode — so no
+  new `plain_notices.PLAIN` entry was needed either.
+
+  **The gap**: `SearchEngine` gained two new optional constructor
+  arguments this method needs — `image_embedder` (the CLIP **vision**
+  tower, `ClipImageEmbedder`, distinct from the existing `clip_text_
+  embedder`) and `phash_computer` — and **neither is constructed by any
+  real call site**. `app/main.py` and `app/cli.py` are out of this
+  session's named scope, exactly as `app/ui/shell.py` was out of §1c's —
+  verified with `grep -n "SearchEngine("` against both files before
+  writing this note, not guessed. The backend is real, tested end to end
+  against the **real** `imagehash.phash` algorithm (only the CLIP embedding
+  call itself is faked, for the reasons `test_reverse_image_acceptance.py`'s
+  module docstring gives), and will answer correctly the moment a real
+  `ClipImageEmbedder` and `PhashComputer` reach one of those two
+  construction sites — which is not yet true for anybody indexing or
+  searching a real corpus. The drag/paste UI trigger itself remains
+  entirely undone, and was never this session's job.
+
+  Tests: `tests/unit/test_search_images.py` (+6, `search_by_image`'s own
+  shape: embeds a photo not a string, the `img:` namespacing, both H4
+  paths); `tests/unit/test_engine_image_lane.py` (+6, the engine wiring,
+  the exact/similar labelling with a fake pHash computer, H4 for a broken
+  lane); `tests/unit/test_reverse_image_acceptance.py` (2, the literal
+  acceptance sentence — a real recompressed copy, real `PhashComputer`,
+  found and labelled `"exact"`; an unrelated photo labelled `"similar"`,
+  not `"exact"`, even when CLIP alone would have surfaced it).
+
+- [x] **2d more-like-this for images**: the existing right-click action
   extended to photo results via the image table.
 
   **2026-09-05, §3 build session - UI half done; the backend half is not
@@ -372,6 +527,42 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
   image-aware path in `app/search/engine.py` reading `self.image_vectors`
   instead of `self.vectors` for a photo's source chunk - out of this
   session's scope (`app/search/*` was off-limits).
+
+  **2026-09-05, §2 build session.** `SearchEngine.find_similar_images(
+  file_id)` — the `find_similar_images(file_id)`-shaped function this
+  order's own instruction suggested — built as `similar_to`'s image-table
+  twin rather than a branch inside it: `similar_to` is built around
+  `chunks.id` and `self.store.get_chunk`, neither of which exists for a
+  photo (`ImageVectorStore`'s docstring: no chunk-splitting concept), and
+  `chunk_id == file_id` in that table means there is no "find the source
+  chunk's file" step to redo either — the id handed in already is the
+  file. A parallel entry point, the same choice this order has made at
+  every layer of the image lane so far.
+
+  **Needs no new wiring to work for real**: it takes only `self.image_
+  vectors`, which every real `SearchEngine` construction site has taken
+  since work order 0h §1c landed — unlike §2c above, there is no missing
+  constructor argument standing between this and a working answer. What is
+  still missing is the UI's own right-click wiring routing a photo row's
+  `file_id` to this function instead of (or alongside) `similar_to` — that
+  is `app/ui/*`, out of this session's scope, and is the one remaining
+  step between this backend and a working right-click action for a photo.
+
+  Tests: `tests/unit/test_engine_image_lane.py` (+3): relatives returned,
+  the source excluded, H4 with no `image_vectors` configured, H4 for a
+  photo not yet CLIP-embedded (the ordinary "no vector to look near" state,
+  not an error).
+
+  **Closed 2026-09-05, when both halves above landed in the same tree.**
+  Each session named the other's missing half as the one remaining step -
+  and once both existed to read, that step was small: `result_tools.
+  _wire_similar` now checks `is_image_result(row.ext)` (the same test
+  `results_view.image_rows`/`thumbnail_grid` already use) and dispatches to
+  `engine.find_similar_images` for a photo row, `engine.similar_to`
+  otherwise - the same `chunk_id`/`file_id` value works as either method's
+  argument, so no third id-shaped thing was needed, only the choice of
+  which method to call. "More like this" now genuinely works for a photo
+  row, not just appears to.
 
 ## 3. Presentation
 
@@ -448,11 +639,40 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
     window and getting the photo back — needs `engine.py`'s `fuse_hits` call
     to take a third list. Flagged for the next thread, not guessed here.
 
-- [ ] pHash: duplicate fixture across two roots folds; reverse-image finds
+- [x] pHash: duplicate fixture across two roots folds; reverse-image finds
   the original from a recompressed copy.
 
-  **Out of scope for this session** — §2, explicitly held back per
-  instruction until §1 lands and is reviewed.
+  **2026-09-05, §2 build session.** Both halves demonstrated, at the layer
+  each is this order's responsibility to prove:
+  - **"Duplicate fixture across two roots folds."** `tests/unit/test_phash_
+    pipeline.py::test_the_same_photo_indexed_from_two_roots_gets_the_same_
+    phash` indexes identical bytes from two separate root folders (standing
+    in for two drives) through the real `Pipeline` and proves the two files
+    get the *same* real pHash — the ingredient burst folding needs.
+    `tests/unit/test_folding.py`'s burst-fold tests then prove, separately
+    and already at unit level, that two rows sharing a near/exact pHash
+    fold into one — `test_near_duplicate_photos_fold_even_with_different_
+    bytes` is the case a byte-identical fixture cannot exercise (different
+    bytes, same picture), which is the harder and more relevant half of
+    this sentence for a "duplicate across two roots" scenario where the
+    second copy is rarely bit-identical (EXIF re-write, a different
+    filesystem, a partial re-save).
+  - **"Reverse-image finds the original from a recompressed copy."**
+    `tests/unit/test_reverse_image_acceptance.py::test_a_recompressed_
+    copy_finds_the_full_res_original` is this sentence, literally: a real
+    photo is indexed under `D:\Sources\DriveA\holiday.jpg`, a genuinely
+    recompressed-and-resized copy (real JPEG re-encode, real `PhashComputer`
+    on both ends) is handed to `SearchEngine.search_by_image`, and the
+    response finds the original path and labels it `"exact"` — the fact a
+    UI would need to say "the full-res original is on DriveA".
+
+  **What this does not prove**, honestly: end-to-end through a real CLIP
+  vision-tower model (§2c's own dated note above names that gap - `image_
+  embedder` reaches no real construction site this session), and end-to-end
+  through the real `app.cli`/window indexing path rather than a directly-
+  constructed `Pipeline`/`SearchEngine` in a test. Both are the same class
+  of gap §1c's own dated notes already accepted for the CLIP lane at this
+  stage, not a new standard invented here.
 
 - [x] vector-table contracts: kill-mid-run leaves no orphan image vectors
   (the M6-shape test for the new table).
@@ -524,3 +744,32 @@ work and are tested; `app/ui/shell.py:_start_indexing`'s missing
 worth closing before or alongside §2/§3, since a same-image-intelligence
 feature built against a photo that got indexed from the window would find
 no vector to work with at all.
+
+**2026-09-05, §2 build session: §2 reaches "done" for its own backend
+scope, with two named gaps carried forward rather than hidden.** All four
+items (2a pHash, 2b burst folding, 2c reverse image search, 2d more-like-
+this) are built, tested and ticked above, each with its own dated note.
+`imagehash` was checked and found **not** installed despite this order's
+own text — installed, pinned, and the discrepancy recorded in
+`requirements.txt` rather than quietly worked around. `PHASH_NEAR_
+THRESHOLD` was measured, found the literature-derived starting guess (8)
+too low for real recompression, and replaced with a value (16) actually
+measured against synthetic broadband photo fixtures — recorded honestly,
+including that it is still not measured against real camera photographs.
+
+**Two gaps, named precisely rather than assumed away:**
+- §2c's backend (`SearchEngine.search_by_image`) needs `image_embedder`
+  (the CLIP vision tower) and `phash_computer` at construction, and neither
+  reaches a real `SearchEngine(` call site — `app/main.py`/`app/cli.py`
+  were out of this session's named scope, the same class of gap 1c's own
+  note left for `app/ui/shell.py`. §2d needs no equivalent wiring: it only
+  takes `self.image_vectors`, already real everywhere since §1c.
+- The UI trigger for both — a drag/paste onto the search box for §2c, and
+  routing a photo row's `find_similar_images` call for §2d — is `app/ui/*`
+  and was never this session's job; whoever wires the §2d right-click
+  action (this order's §2d item names it as the existing action, extended)
+  should route a photo row's `file_id` to `find_similar_images` rather
+  than `similar_to`, which cannot answer for a photo (see that method's
+  own docstring for exactly why).
+
+CHANGELOG entry added for this half - see `[Unreleased]`.
