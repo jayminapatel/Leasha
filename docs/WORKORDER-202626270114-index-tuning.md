@@ -398,6 +398,49 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
 - [ ] **6c numpy/pyarrow end-to-end** (carries P9/F12): embedder returns
   float32 arrays; `vector_store.add` builds one arrow table per batch; no
   per-float Python boxing on the hot path.
+  **Investigated 2026-09-05, left open - the half that matters is out of
+  this thread's file scope.** `app/index/embedder.py` already does the
+  arithmetic in one numpy block (`Embedder.embed`'s own comment: "10.05ms
+  before, 0.88ms after, 11.4x" for the normalisation) and converts to
+  `list[float]` only in the last line, `.tolist()`, which its own comment
+  already quantifies: "keeping the array would save a further 0.4ms per
+  batch". That is the *entire* saving available on the embedder side alone -
+  small next to the 11.4x already banked, and this item bundles it with the
+  half that would actually matter.
+  **The half that matters is `vector_store.add`**, and `app/storage/vector_store.py`
+  is not a file this thread may touch (see the session's file scope; it is
+  a different order's storage-layer work). Read anyway, to judge whether the
+  item is worth half-doing: `add()` builds `rows = [{"vector": [float(x) for
+  x in vectors[i]], ...} for i in range(len(chunk_ids))]` - a Python dict and
+  a fresh Python list of boxed floats per chunk, i.e. exactly the per-float
+  boxing this item names - then hands that list of dicts to `self._table.add(rows)`,
+  which converts it to Arrow *again*, internally, to match the schema
+  (`ensure_table` already declares `vector: list_(float32(), dim)`). That
+  second, hidden conversion is where the real cost and the real fix both
+  are, and it is entirely inside the file this thread cannot edit.
+  **Changing only the embedder's return type was rejected rather than done
+  half-way.** `Embedder.embed()` returning a numpy array instead of
+  `list[float]` would still work as a drop-in almost everywhere - iteration,
+  indexing and `zip()` all still work - except `assert embedder.embed(...)[0]
+  == expected_list` in `tests/unit/test_embedder.py` (lines 181, 331), which
+  would start raising `ValueError: truth value of an array... is ambiguous`
+  rather than comparing, and except `app/search/vector.py`'s
+  `query_vector = embedder.embed([text])[0]`, a file this thread also may
+  not touch, whose behaviour with a numpy row instead of a list this thread
+  cannot then verify or fix if it turned out to matter. Changing the return
+  type without also building the Arrow table directly from it in
+  `vector_store.add` would additionally bank none of the actual saving - the
+  per-float boxing loop would still run, just fed from a numpy array instead
+  of a list, which is churn with no measured benefit and exactly the kind of
+  unmeasured change this project's own working method exists to refuse.
+  Left unticked. Whoever owns `app/storage/vector_store.py` next should read
+  this note before starting: the schema is already `float32`, so the fix is
+  building one `pyarrow.Table` per batch from `chunk_ids`/`file_ids`/a
+  stacked `float32` array directly (`pa.Table.from_arrays(...)` against the
+  existing schema, or `pa.FixedSizeListArray.from_arrays` for the vector
+  column), passed to `self._table.add(table)` in place of the list-of-dicts,
+  with the embedder change above landing in the same change so the numpy
+  array only gets built once.
 - [ ] **6d Two-phase indexing**: phase 1 extract+SQLite only (keyword
   searchable at parse speed), phase 2 drains `embedded=0` (machinery exists
   since the M6 repair). Index stats show semantic coverage %; the existing
