@@ -17,6 +17,42 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### CLIP image embedding now uses the graphics card when one is usable, the processor otherwise
+
+- `ClipImageEmbedder` (the image-vector lane, work order 0h §1) gained the
+  same DirectML-with-CPU-fallback seam `Embedder` (the text model) and the
+  reranker already share: `device=`/`profile=`/`problems=`, `backends.choose`
+  and `backends.with_fallback`. `from_settings` reads the same `embed_device`
+  setting as the other two, so one control governs all three rather than a
+  second one nobody would think to change alongside it.
+- **Why:** the same measurement recorded in the 0h work order found CLIP
+  image embedding running 7-11x over its ~50-150ms/image budget
+  (1,675.6ms/image single-call, 1,003.9ms/image batched) on this machine,
+  CPU-only, with no GPU path exercised at all - flagged there as a
+  recommended follow-up rather than done at the time.
+- A GPU that is present, advertised, and then refuses the graph on first use
+  falls back to the processor with a visible notice rather than failing the
+  embed - H4's discipline, exactly as it already worked for the text model.
+  A machine with no display adapter, or with one but no `onnxruntime-directml`
+  installed, goes straight to the processor with no notice at all, since
+  nothing was tried and failed.
+- **Measured honestly, not assumed:** this machine's own venv reports
+  `onnxruntime.get_available_providers() == ['AzureExecutionProvider',
+  'CPUExecutionProvider']` - no DirectML provider installed here, matching
+  what the text embedder's run log already said earlier in this project. So
+  the fallback path is what this machine actually runs today; a real
+  GPU-accelerated number still needs a machine with `onnxruntime-directml`
+  installed to measure, and is not claimed here.
+- Five new tests in `tests/unit/test_clip_embedder.py` prove the wiring
+  itself (not `backends.choose`/`with_fallback`'s own correctness, already
+  covered in `test_backends.py`): the CPU path passes no `providers` kwarg
+  at all and stays byte-for-byte what it was; `auto` on a GPU-capable
+  profile asks for `["DmlExecutionProvider", "CPUExecutionProvider"]`; a
+  GPU that raises on first use falls back and the fallback is recorded in
+  `problems`; a profile with no adapter reaches the processor with `problems`
+  left empty. All 98 tests across the CLIP lane, `test_backends.py` and
+  `test_embedder.py` pass.
+
 ### Search results can now be dragged, pinned and read on a timeline
 
 - A result can be dragged straight out of the list into Explorer, an email
