@@ -35,12 +35,19 @@ class TestSplashScreen:
 
     @pytest.mark.qt
     def test_splash_shows(self) -> None:
-        """Splash can be shown."""
+        """Splash can be shown, and hide_and_close makes it invisible."""
+        import time
+
         from app.ui.splash import SplashScreen
 
         splash = SplashScreen()
         splash.show()
         assert splash.widget.isVisible() is True
+        # §1b: hide_and_close now genuinely waits out the minimum hold before
+        # fading and closing (see test_minimum_hold_timing for that). This
+        # test is about visibility, not timing, so satisfy the hold up front
+        # rather than let it run.
+        splash._minimum_hold_time = time.time()
         splash.hide_and_close()
         assert splash.widget.isVisible() is False
 
@@ -130,17 +137,66 @@ class TestSplashScreen:
 
     @pytest.mark.qt
     def test_minimum_hold_timing(self) -> None:
-        """Splash holds for at least 1.2s."""
+        """hide_and_close() actually waits out the remaining minimum hold (§1b).
+
+        Before §1b, `_minimum_hold_time` was set and never read anywhere -
+        this test would have passed even if the field did nothing at all,
+        because it never called `hide_and_close()` at the boundary. It now
+        does, and a real elapsed-time floor is what would have caught that.
+        """
         import time
         from app.ui.splash import SplashScreen
 
         splash = SplashScreen()
         splash.show()
+        splash._minimum_hold_time = time.time() + 0.3  # short, so the test is fast
 
         start = time.time()
-        splash._minimum_hold_time = start + 0.1  # Very short hold
+        splash.hide_and_close()
         elapsed = time.time() - start
-        assert elapsed < 1.0  # This should be fast
+
+        # A little under 0.3s to absorb scheduling jitter - if the hold did
+        # nothing, elapsed would be near-zero (just the fade) and this fails.
+        assert elapsed >= 0.25
+        assert splash.widget.isVisible() is False
+
+    @pytest.mark.qt
+    def test_hide_and_close_fades_opacity_to_zero(self) -> None:
+        """§1b/§0.7: hide_and_close ramps window opacity down before closing.
+
+        There was no fade at all before §1b - `hide_and_close` was a bare
+        `self.widget.close()`.
+        """
+        import time
+        from app.ui.splash import SplashScreen
+
+        splash = SplashScreen()
+        splash.show()
+        splash._minimum_hold_time = time.time()  # hold already satisfied
+        assert splash.widget.windowOpacity() == pytest.approx(1.0)
+
+        splash.hide_and_close()
+
+        assert splash.widget.windowOpacity() == pytest.approx(0.0)
+        assert splash.widget.isVisible() is False
+
+    @pytest.mark.qt
+    def test_hide_and_close_still_closes_if_fade_raises(self) -> None:
+        """H4: a failure in the wait/fade must never leave the splash stuck open."""
+        import time
+        from app.ui.splash import SplashScreen
+
+        splash = SplashScreen()
+        splash.show()
+        splash._minimum_hold_time = time.time()
+
+        def _boom() -> None:
+            raise RuntimeError("simulated failure mid-fade")
+
+        splash._fade_out = _boom  # type: ignore[method-assign]
+        splash.hide_and_close()
+
+        assert splash.widget.isVisible() is False
 
 
 class TestWhiteWordmarkDerivation:
