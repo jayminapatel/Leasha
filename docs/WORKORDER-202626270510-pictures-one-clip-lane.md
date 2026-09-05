@@ -63,13 +63,38 @@ untouched, per instruction.
   for photo and video drives ("slow scans... are accepted, expected, small
   price to pay" — HANDOFF §5a) and with the images pass already being the
   schedule-dominant one, but it is a real number the owner should see before
-  it is treated as background noise. **Recommended, not done in this
-  session** (device selection is outside §1's file list — `app/index/
-  resources.py` and `app/core/compute_profile.py` are 0114's, not 0h's):
-  wiring the same DirectML/CPU backend selection `Embedder` already has
-  (`app/index/backends.py`) into `ClipImageEmbedder` before this ships to
-  the owner's actual photo corpus, and re-measuring on his GPU-capable
-  machine per HANDOFF §0's baseline block.
+  it is treated as background noise.
+
+  **Done 2026-09-05, later the same day:** `ClipImageEmbedder` now takes
+  `device=`/`profile=`/`problems=` and calls `backends.choose`/
+  `with_fallback` exactly as `Embedder` does — same seam, same `auto`
+  measure-don't-assume behaviour, same H4 discipline (a GPU that fails on
+  first use falls back to the CPU with a visible notice, never a crash).
+  `from_settings` reads the same `embed_device` setting the text embedder
+  and reranker already share, so one control governs all three rather than
+  a second one nobody would think to change together. `record_provider`
+  logs it as `"image model"` in the run log, alongside `"meaning model"`.
+  Wiring verified with five new tests in `tests/unit/test_clip_embedder.py`
+  (CPU-only asks for no `providers` kwarg at all — the CPU path stays
+  byte-for-byte unchanged; `auto` on a GPU-capable profile passes
+  `["DmlExecutionProvider", "CPUExecutionProvider"]`; a GPU that raises on
+  first use falls back to the CPU and appends to `problems`; a profile with
+  no adapter goes straight to the CPU with no notice at all, since nothing
+  was tried and failed). All 98 tests across `test_clip_embedder.py`,
+  `test_backends.py`, `test_image_vector_store.py`, `test_search_images.py`,
+  `test_clip_lane_pipeline.py` and `test_embedder.py` pass.
+
+  **Honestly, not re-measured on GPU hardware**: this machine's venv reports
+  `onnxruntime.get_available_providers() == ['AzureExecutionProvider',
+  'CPUExecutionProvider']` — no `DmlExecutionProvider`, because
+  `onnxruntime-directml` is not installed here, matching what the text
+  embedder's own run log already said earlier in this project
+  ("this installation has no DirectML provider - pip install
+  onnxruntime-directml"). So the fallback path is what actually runs on this
+  machine today, and that is exactly what was measured as correct above —
+  the GPU-accelerated number itself still needs the owner's GPU-capable
+  machine (with `onnxruntime-directml` installed) to be real, per HANDOFF
+  §0's baseline block. Reported as an open gap rather than assumed away.
 
 - [x] **1b** second LanceDB table (dimensions differ from text vectors),
   keyed by file_id; same delete/compaction/crash-ordering contracts as the
