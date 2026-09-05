@@ -17,6 +17,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### A result that matched several times can now be opened up with one click on its arrow
+
+- When a document matched in several places, its row already showed a small
+  arrow and said "matched in 5 places" - but clicking the arrow itself did
+  nothing; only double-clicking the whole row opened it up. The arrow now
+  works on its own, a single click, exactly where it looks like it should.
+  The whole row still opens it too, the way it always has. Work order 0q
+  item 2a.
+
 ### Photos can now be found by describing them, not just by filename
 
 - Work order 0h's CLIP image lane reaches an actual search box for the first

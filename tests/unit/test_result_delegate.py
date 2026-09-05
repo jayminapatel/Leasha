@@ -181,6 +181,95 @@ def test_an_expanded_group_shows_an_open_arrow():
     assert "▾" in group_subtitle(group(matches=3), expanded=True)
 
 
+def test_the_chevron_has_its_own_click_target_on_multi_match_groups():
+    """Item 2a: "the chevron is a real click target" - `subtitle_rect` is
+    what a click handler hit-tests against, and it must exist only where the
+    chevron is actually painted."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import ResultDelegate
+
+    class Option:
+        def __init__(self):
+            self.rect = QRect(0, 0, 300, 60)
+            self.font = QFont()
+
+    delegate = ResultDelegate()
+    assert delegate.subtitle_rect(Option(), group(matches=1)) is None, \
+        "a single match has no chevron to click"
+    rect = delegate.subtitle_rect(Option(), group(matches=3))
+    assert rect is not None
+    assert rect.width() > 0 and rect.height() > 0
+    assert rect.top() > 0, "the chevron line sits below the name line, not on it"
+
+
+def test_chevron_hit_finds_the_file_id_under_a_click_on_the_subtitle_line():
+    """Item 2a end to end: `chevron_hit` is what `ResultsView.eventFilter`
+    calls on every click - a hit on the subtitle line returns the group's
+    `file_id`; a miss (or a single-match group, with no chevron at all)
+    returns `None` so the click falls through to ordinary handling."""
+    from PyQt6.QtCore import QPoint, QRect
+    from PyQt6.QtGui import QFont
+
+    from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
+
+    payload = group(matches=3)
+
+    class Index:
+        def isValid(self):
+            return True
+
+        def data(self, role):
+            return payload if role == ROLE_PAYLOAD else None
+
+    class View:
+        def __init__(self, index):
+            self._index = index
+
+        def indexAt(self, pos):
+            return self._index
+
+        def initViewItemOption(self, option):
+            option.font = QFont()
+
+        def visualRect(self, index):
+            return QRect(0, 0, 300, 60)
+
+    class Option:
+        rect = QRect(0, 0, 300, 60)
+        font = QFont()
+
+    delegate = ResultDelegate()
+    rect = delegate.subtitle_rect(Option(), payload)
+    inside = rect.center()
+    assert delegate.chevron_hit(View(Index()), inside) == payload.file_id
+    outside = QPoint(rect.left(), max(0, rect.top() - 5))
+    assert delegate.chevron_hit(View(Index()), outside) is None
+
+    class SingleMatchIndex(Index):
+        def data(self, role):
+            return group(matches=1) if role == ROLE_PAYLOAD else None
+
+    assert delegate.chevron_hit(View(SingleMatchIndex()), inside) is None
+
+
+def test_chevron_hit_ignores_an_invalid_index():
+    from PyQt6.QtCore import QPoint
+
+    from app.ui.result_delegate import ResultDelegate
+
+    class InvalidIndex:
+        def isValid(self):
+            return False
+
+    class View:
+        def indexAt(self, pos):
+            return InvalidIndex()
+
+    assert ResultDelegate().chevron_hit(View(), QPoint(5, 5)) is None
+
+
 def test_expansion_is_a_fact_about_the_view_not_the_data():
     """A `ResultGroup` is frozen and describes the results. Whether its chunks
     are on screen belongs to one view at one moment - putting it on the
@@ -389,6 +478,41 @@ def test_sizehint_and_paint_still_agree_at_two_lines():
     short_payload = ResultRow(**{**payload.__dict__, "snippet": Snippet("short")})
     short_hint = delegate.sizeHint(Option(160), Index(short_payload))
     assert hint.height() > short_hint.height()
+
+
+def test_sizehint_stays_one_line_tall_at_compact_density():
+    """§8: "at every density" - the test above only exercised comfortable.
+    Compact reserves exactly one snippet line (`_max_snippet_lines`), so a
+    long snippet must not make the row any taller than a short one once one
+    line is enough to overflow both - the same gap-under-the-row regression,
+    checked at the density where the answer is "no extra line", not "two"."""
+    from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD
+    from app.ui.view_options import ViewPreferences, Density
+
+    class Option:
+        def __init__(self, width):
+            from PyQt6.QtCore import QRect
+            from PyQt6.QtGui import QFont
+            self.rect = QRect(0, 0, width, 999)
+            self.font = QFont()
+
+    class Index:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def data(self, role):
+            return self._payload if role == ROLE_PAYLOAD else None
+
+    delegate = ResultDelegate()
+    delegate.prefs = ViewPreferences(density=Density.COMPACT)
+    long_text = "The quick brown fox jumps over the lazy dog near the old mill by the river, twice over"
+    payload = row(explain="")
+    long_payload = ResultRow(**{**payload.__dict__, "snippet": Snippet(long_text)})
+    short_payload = ResultRow(**{**payload.__dict__, "snippet": Snippet("short")})
+    long_hint = delegate.sizeHint(Option(160), Index(long_payload))
+    short_hint = delegate.sizeHint(Option(160), Index(short_payload))
+    assert long_hint.height() == short_hint.height(), \
+        "compact reserves exactly one snippet line, however long the text"
 
 
 # ---------------------------------------------------------------------------

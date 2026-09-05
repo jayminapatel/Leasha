@@ -213,6 +213,64 @@ def test_marking_is_case_preserving() -> None:
     assert "Valve" in snippet.marked()
 
 
+# ---------------------------------------------------------------------------
+# §8: a property test over generated match positions, Qt-free - the example
+# tests above cover a handful of hand-picked cases; this covers the space
+# between them, since the whole point of "the window always contains the
+# match" is that it must hold wherever the match happens to land, not only
+# at the positions somebody thought to write down.
+# ---------------------------------------------------------------------------
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+#: Deliberately disjoint from the filler below, so the term can never appear
+#: by accident - a false match would make the property trivially true.
+_TERMS = ("valve", "pump", "isolation", "shutdown")
+_FILLER = "the report covers the annual maintenance schedule for this site "
+
+
+@given(
+    prefix_words=st.integers(min_value=0, max_value=60),
+    suffix_words=st.integers(min_value=0, max_value=60),
+    term=st.sampled_from(_TERMS),
+)
+@settings(max_examples=60, deadline=None)
+def test_the_window_always_contains_the_match_wherever_it_lands(
+    prefix_words: int, suffix_words: int, term: str
+) -> None:
+    """Item 1b's acceptance sentence - "the visible text always contains at
+    least one highlighted term" - generated over every position a match can
+    take in a chunk, not just a handful of examples."""
+    text = _FILLER * prefix_words + term + " " + _FILLER * suffix_words
+    snippet = build_snippet(text, [term], width=120)
+    assert snippet.highlights, f"no highlight with the match {prefix_words} words in"
+    for start, end in snippet.highlights:
+        assert snippet.text[start:end].lower() == term
+
+
+_VOCABULARY = set(_FILLER.split()) | set(_TERMS)
+
+
+@given(
+    prefix_words=st.integers(min_value=0, max_value=60),
+    suffix_words=st.integers(min_value=0, max_value=60),
+    term=st.sampled_from(_TERMS),
+)
+@settings(max_examples=60, deadline=None)
+def test_the_window_never_cuts_a_word_wherever_it_lands(
+    prefix_words: int, suffix_words: int, term: str
+) -> None:
+    """Item 1c: boundary snapping must hold at every window position, not
+    only the one example above - every word in the cut window must be a
+    whole word from the source text, never a fragment."""
+    text = _FILLER * prefix_words + term + " " + _FILLER * suffix_words
+    snippet = build_snippet(text, [term], width=120)
+    assert snippet.text == snippet.text.strip()
+    for word in snippet.text.split():
+        assert word in _VOCABULARY, f"{word!r} is not a whole word from the source"
+
+
 # --- paths ------------------------------------------------------------------
 
 def test_a_short_path_is_untouched() -> None:
