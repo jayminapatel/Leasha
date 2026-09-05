@@ -75,15 +75,15 @@ allowed and expected — compare falls out for free.
   document, box vanishes. It runs the Search-tab policy (the kid-safe
   surface from the search-experience order). This is the feature that makes
   the product demonstrable in ten seconds; treat its polish accordingly.
-- [ ] **3b Drag out**: result rows drag as real files (`QDrag` with file
+- [x] **3b Drag out**: result rows drag as real files (`QDrag` with file
   URLs) into Explorer, email clients, anything. Mail results drag their
   attachment where one exists. Search becomes the source of files, not just
   the finder.
-- [ ] **3c Pinned working set**: a small panel results can be pinned to
+- [x] **3c Pinned working set**: a small panel results can be pinned to
   *across* searches — gather from five queries, then act together: open
   all, copy all paths, drag all out. Cleared explicitly, never by a new
   search; survives the session via app state.
-- [ ] **3d Timeline strip**: a thin band over results showing when hits
+- [x] **3d Timeline strip**: a thin band over results showing when hits
   cluster in time; click a cluster to filter to that period (it composes
   with the existing after:/before: machinery — no new query semantics).
   Off-able like every behaviour, per the owner's configurability rule.
@@ -101,7 +101,7 @@ allowed and expected — compare falls out for free.
   upgrade in this order: a spreadsheet that looks like a spreadsheet.
 - [x] **4c EPUB**: chapter list + the existing HTML renderer; it is a zip of
   HTML and both halves already exist. No new dependency.
-- [ ] **4d HEIC/HEIF**: decode via `pillow-heif` (permissive licence) so
+- [x] **4d HEIC/HEIF**: decode via `pillow-heif` (permissive licence) so
   phone photos preview; extend the image pipeline, not a new kind.
 - [ ] **4e Office full layout, on demand**: a "Show full layout" button on
   text-rendered Office/ODF previews converts the document to PDF through
@@ -160,7 +160,7 @@ allowed and expected — compare falls out for free.
   and preview (the `.tiff` class of drift, as a test).
 - [x] mini-search: hotkey conflict fallback; opens/dispatches/closes without
   the main window shown; runs the Search-tab policy.
-- [ ] drag-out: a dropped file lands as a real path; pinned set survives a
+- [x] drag-out: a dropped file lands as a real path; pinned set survives a
   restart.
 - [x] DWG: allow-list entries; either converter feeds `ezdxf`; bindings
   import is *forbidden by test* (a guard asserting no `libredwg` import
@@ -425,3 +425,29 @@ mechanism here rather than touching that file would be exactly the
 unticked; a session with `preview_loader.py` in scope should re-read this
 note rather than assume 4a's QImage route is a drop-in fit for a *cached*
 render the way a directly-openable image is.
+
+## Note on §4, added 2026-09-05
+
+**4a/4b/4c landed clean; 4d has one deliberate, documented gap.**
+`decode_image` in `app/ui/preview_loader.py` now routes `.heic`/`.heif`
+through `pillow-heif` and PIL rather than `QImage(path)` — Qt has no HEIC
+plugin at all, unlike the SVG case, where this build's Qt already carries
+one. This covers the in-app pane and the "Pin in a window" pop-out's
+*initial* load, both of which call `load_preview_for` -> `decode_image`.
+
+**What it does not cover: the pop-out's own rotate/zoom render path.**
+`PreviewWindow._render()` calls `app/ui/render_page.py`'s `render()`, whose
+`_image()` is a second, independent `QImage(str(path))` — not this one — and
+`render_page.py` is not on this thread's touchable-files list. A HEIC/HEIF
+pinned in its own window loads once (the still frame `_loaded()` draws
+before the first `_render()` call reads it again) then re-reads through
+`_image()` for the actual paint, so in practice it shows "this page could
+not be drawn" in the pop-out even though the same file previews correctly
+in-app. Confirmed by reading `render_page.py`, not inferred: `_image()` is
+eleven lines with no branch for these two extensions. A session with
+`render_page.py` in scope should extend `_image()` the same way rather than
+duplicate `_decode_heif` a second time - the two should end up calling one
+shared function if that refactor is ever done, but that is a decision for
+whoever owns both files at once, not this thread.
+
+**4e is next.** Not started as of this note.
