@@ -30,7 +30,7 @@ from __future__ import annotations
 import importlib.util
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 __all__ = [
     "Requirement",
@@ -174,7 +174,9 @@ def _extractor_status(
 
 
 def _converter_status(
-    extension: str, rule: Any, *, binaries: dict[str, Optional[str]]
+    extension: str, rule: Any, *,
+    binaries: dict[str, Optional[str]],
+    counts: Optional[Mapping[str, int]] = None,
 ) -> FormatStatus:
     reader = f"converter -> {getattr(rule, 'then', '?')}"
     binary = getattr(rule, "binary", "")
@@ -191,6 +193,17 @@ def _converter_status(
         )
 
     if not binaries.get(binary):
+        waiting = (counts or {}).get(extension)
+        if extension == ".dwg":
+            # §5b: plain words naming *both* allowed converters, because
+            # either satisfies the reader - a message naming only whichever
+            # one happens to be configured in extractors.toml reads as if the
+            # other were not an option, when it is equally allow-listed.
+            return FormatStatus(
+                extension, reader, BLOCKED,
+                detail=_dwg_blocked_detail(extension, waiting),
+                fix=_DWG_FIX,
+            )
         return FormatStatus(
             extension, reader, BLOCKED,
             # **Say where it looked.** "Not found on this machine" is wrong from
@@ -212,6 +225,36 @@ def _converter_status(
 
     return FormatStatus(extension, reader, READY,
                         detail=f"Converted by {binary}.")
+
+
+#: §5b's literal wording ("DWG drawings: install LibreDWG or the ODA File
+#: Converter to read these") plus the count of files that would benefit,
+#: when the caller knows it. Kept apart from `_converter_status` only for
+#: readability - it is not reused anywhere else.
+def _dwg_blocked_detail(extension: str, waiting: Optional[int]) -> str:
+    detail = (
+        "DWG drawings: install LibreDWG or the ODA File Converter to read "
+        f"these. Neither was found on this machine, so every {extension} "
+        "file is indexed by name only. If you have just installed one, "
+        "close this application and any terminal and start again - a new "
+        "PATH does not reach programs that are already running."
+    )
+    if waiting:
+        plural = "" if waiting == 1 else "s"
+        detail += f" {waiting:,} {extension} file{plural} waiting right now."
+    return detail
+
+
+#: Both allowed routes to a working `.dwg` route, named together - `_BINARY_FIXES`
+#: only ever knows the one binary a converter rule actually names, and
+#: `extractors.toml` currently wires `dwg2dxf` alone (see its own comment on why
+#: the ODA File Converter needs a wrapper it does not have yet). The person
+#: reading this has not read that file, and should still hear both options.
+_DWG_FIX = (
+    "Install LibreDWG and put dwg2dxf on PATH: "
+    "https://www.gnu.org/software/libredwg/  -  or the ODA File Converter: "
+    "https://www.opendesign.com/guestfiles/oda_file_converter"
+)
 
 
 #: How to obtain each allowed converter. In code beside the allow-list, because
@@ -238,12 +281,20 @@ def format_health(
     registry: Optional[dict[str, Any]] = None,
     *,
     binaries: Optional[dict[str, Optional[str]]] = None,
+    counts: Optional[Mapping[str, int]] = None,
 ) -> list[FormatStatus]:
     """Every known extension's real state, sorted by extension.
 
     Never raises and never imports an extractor's library: this is called while
     Settings is opening and while `doctor` is diagnosing a broken install, and
     both are places where an exception is the least useful possible answer.
+
+    `counts` is optional and unrelated to the probing above: `{".dwg": 40}`
+    says how many files of that extension are already known to be waiting
+    (indexed by name only), for a caller that can afford to ask the index -
+    `doctor` does, Settings does not yet. Absent, the row still reads true,
+    just without a number in it - which is the point of it being optional
+    rather than a second required argument every caller must now supply.
     """
     if registry is None:
         from app.extract.base import REGISTRY
@@ -273,7 +324,8 @@ def format_health(
             # An extractor claims it in code, so the converter never runs -
             # `extract()` only reaches Tier 2 when the registry has no answer.
             continue
-        statuses.append(_converter_status(extension, rule, binaries=binaries))
+        statuses.append(_converter_status(
+            extension, rule, binaries=binaries, counts=counts))
 
     return sorted(statuses, key=lambda s: s.extension)
 

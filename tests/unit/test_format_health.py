@@ -174,6 +174,44 @@ def test_a_disabled_converter_says_whether_turning_it_on_would_work():
     assert without.state == OFF and "not installed" in without.detail
 
 
+def test_dwg_names_both_allowed_converters_when_neither_is_installed():
+    """§5b: the plain-words row. `.doc` names one binary because it has only
+    one route; `.dwg` has two allow-listed routes and the message must not
+    read as though only the configured one (`dwg2dxf`) were an option."""
+    rules = FakeRules(converters={".dwg": FakeConverter(binary="dwg2dxf", then="cad")})
+    status = format_health(rules, {}, binaries={"dwg2dxf": None})[0]
+
+    assert status.state == BLOCKED
+    assert "DWG drawings" in status.detail
+    assert "LibreDWG" in status.detail and "ODA File Converter" in status.detail
+    assert "LibreDWG" in status.fix and "ODA File Converter" in status.fix
+
+
+def test_dwg_ready_is_unaffected_by_the_special_wording():
+    """The special-cased message only fires when blocked - a working `.dwg`
+    route must read exactly like any other ready converter."""
+    rules = FakeRules(converters={".dwg": FakeConverter(binary="dwg2dxf", then="cad")})
+    status = format_health(rules, {}, binaries={"dwg2dxf": "C:/dwg2dxf.exe"})[0]
+
+    assert status.state == READY
+    assert "dwg2dxf" in status.detail
+
+
+def test_dwg_backlog_count_is_named_when_the_caller_knows_it():
+    """`counts` is optional and comes from the index, not from probing - a
+    caller that can say how many files are waiting should see that number in
+    the row it is already being handed."""
+    rules = FakeRules(converters={".dwg": FakeConverter(binary="dwg2dxf", then="cad")})
+
+    without_count = format_health(rules, {}, binaries={"dwg2dxf": None})[0]
+    with_count = format_health(
+        rules, {}, binaries={"dwg2dxf": None}, counts={".dwg": 42},
+    )[0]
+
+    assert "42" not in without_count.detail
+    assert "42" in with_count.detail
+
+
 def test_an_extractor_beats_a_converter_for_the_same_extension():
     """`extract()` only reaches Tier 2 when the registry has no answer, so a
     converter for a claimed extension is dead config and must not be reported

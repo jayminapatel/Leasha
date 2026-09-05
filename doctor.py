@@ -517,6 +517,48 @@ def check_resources() -> Check:
     )
 
 
+def _pending_counts_by_ext() -> dict[str, int]:
+    """How many files of each extension are indexed by name only, right now.
+
+    §5b: the count that goes in the `.dwg` row - "N files waiting" beats a bare
+    "install this" the moment somebody is deciding whether the fix is worth
+    doing today. Read from the index itself (the `files` table, the existing
+    authority per non-negotiable 6), never guessed and never a separate
+    counting pass - one `GROUP BY` over a table that already exists.
+
+    Returns `{}` on anything short of success: no `.env`, no index built yet,
+    a store that will not open. `check_file_formats` must not lose the rows it
+    already had over a number it could not get - this is a nicety, not a
+    requirement, and the format-health row still reads correctly without it.
+    """
+    try:
+        from app.core.config import load_settings
+        from app.storage.sqlite_store import FileStatus, SqliteStore
+
+        # `create_dirs` stays at its default: `Settings` validates that
+        # `vectors`, `fts`, `cache`, `models` and `state` exist, and
+        # `check_data_paths` a few checks below makes exactly these same
+        # empty folders for exactly this reason - see its own comment. Making
+        # them here changes nothing `check_data_paths` would not already have
+        # made. `check_writable` is skipped: this only ever reads, per
+        # non-negotiable 10, and has no reason to prove a folder is writable.
+        settings = load_settings(check_writable=False)
+        if not settings.fts_db.is_file():
+            # No index has ever been built here - not opening `SqliteStore`
+            # is what keeps it that way; opening it would create an empty
+            # database and migrate it, which is one more thing than a doctor
+            # run should leave behind.
+            return {}
+        with SqliteStore(settings.fts_db) as store:
+            rows = store.conn.execute(
+                "SELECT ext, COUNT(*) AS n FROM files WHERE status = ? "
+                "GROUP BY ext", (FileStatus.NAME_ONLY,),
+            ).fetchall()
+        return {f".{row['ext']}": int(row["n"]) for row in rows if row["ext"]}
+    except Exception:                                          # noqa: BLE001
+        return {}
+
+
 def check_file_formats() -> list[Check]:
     """One check per file type that cannot currently read its files.
 
@@ -535,7 +577,7 @@ def check_file_formats() -> list[Check]:
 
         data_path = env_path("DATA_PATH")
         rules = load_rules(Path(data_path) if data_path else None)
-        statuses = format_health(rules)
+        statuses = format_health(rules, counts=_pending_counts_by_ext())
     except Exception as exc:                                  # noqa: BLE001
         return [Check(
             "File type health", False, f"{type(exc).__name__}: {exc}",

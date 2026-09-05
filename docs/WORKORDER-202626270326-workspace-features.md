@@ -114,7 +114,7 @@ allowed and expected — compare falls out for free.
 
 ## 5. DWG drawings (owner decided 2026-08-27: the user-installs-it path)
 
-- [ ] **5a Indexing**: wire `.dwg` through the Tier-2 converter route that
+- [x] **5a Indexing**: wire `.dwg` through the Tier-2 converter route that
   `cad.py`'s own docstring designed — `dwg2dxf` (LibreDWG) **or** the ODA
   File Converter, both in the converter allow-list, detected via
   `resolve_binary`, whichever the user installed feeds the existing `ezdxf`
@@ -123,7 +123,7 @@ allowed and expected — compare falls out for free.
   application, which the owner has expressly kept open. Nothing is bundled:
   the user installs the tool, so Leasha carries zero licence obligations.
   Convert-failed falls back to the existing `dwg_release` header line.
-- [ ] **5b 'What to install' surfacing**: Settings/doctor say, in plain
+- [x] **5b 'What to install' surfacing**: Settings/doctor say, in plain
   words, "DWG drawings: install LibreDWG or the ODA File Converter to read
   these" with the count of `.dwg` files waiting — the existing
   format-health machinery, one new row.
@@ -162,7 +162,7 @@ allowed and expected — compare falls out for free.
   the main window shown; runs the Search-tab policy.
 - [ ] drag-out: a dropped file lands as a real path; pinned set survives a
   restart.
-- [ ] DWG: allow-list entries; either converter feeds `ezdxf`; bindings
+- [x] DWG: allow-list entries; either converter feeds `ezdxf`; bindings
   import is *forbidden by test* (a guard asserting no `libredwg` import
   anywhere — the licence rule as code).
 
@@ -361,3 +361,55 @@ Not verified on Windows, and this is the item where that matters most: the
 registration, the conflict path and the `WM_HOTKEY` filter are all Windows,
 and Linux cannot say anything about them. Worth pressing the combination once
 with Leasha minimised to the tray.
+
+## Note on §5, added 2026-09-05
+
+**5a was already built.** `cad.py`, `converter.py`'s allow-list and
+`config/extractors.toml`'s `[converters.".dwg"]` route were all written on
+2026-08-25 by `9623c58 feat(extract): read AutoCAD drawings` — two days
+before this order even existed. `test_cad.py` already asserted the route
+exists, targets `cad`, and stays off the extractor registry so it cannot
+shadow the converter. What was missing was the one thing §7 asks for by
+name and no earlier commit had reason to write: a guard that the licence
+rule is enforced as code, not just as a comment. Added —
+`test_no_module_imports_libredwgs_python_bindings` in `test_cad.py`, an
+AST walk over every module under `app/` refusing any `import` whose module
+name contains `libredwg`. It passes today because nothing does; its job is
+to keep that true.
+
+**5b: the message already existed, generically, and undersold the drawing's
+own case.** `.dwg`'s row was already produced by `format_health.py`'s
+ordinary converter path — but that path is written for a converter with
+exactly one route, and says so: *"'dwg2dxf' was not found..."*. `.dwg` has
+two allow-listed routes, and a message naming only the one that happens to
+be configured in `extractors.toml` reads as though the other were not an
+option, when the owner's own instruction is "install LibreDWG **or** the
+ODA File Converter". `_converter_status` in `format_health.py` now
+special-cases `.dwg` to say exactly that, in those words, before falling
+back to the generic single-binary message for everything else.
+
+**The count needed a source, and the one honest source is the index
+itself.** `format_health()` gained an optional `counts` parameter —
+`{".dwg": 40}` — folded into the row's detail when a caller has it, absent
+without complaint when a caller does not. `doctor.py` is the caller that
+does: `_pending_counts_by_ext()` is one `GROUP BY ext` over the `files`
+table already the authority per non-negotiable 6, guarded to read
+`.env`/`load_settings` failing, no index built yet, or a corrupt db file as
+"nothing to report" rather than a crashed check. **Settings does not get
+the count** — `app/ui/widgets/file_types.py` is the file that would wire it
+through, and it is outside this order's touchable-files list. Settings
+does still get the corrected plain-words message, because both consumers
+already share the same `format_health()` call; only the number is
+doctor-only until a session with UI in scope wires `file_types.py` to pass
+its own counts.
+
+**5c is blocked on the concurrent 4a work, not attempted.** `dwg2SVG` →
+cached SVG → "the QtSvg path from 4a" only exists once 4a exists.
+`app/ui/preview_loader.py` was checked before writing anything: as of this
+session it has no `KIND_SVG` (or equivalent), no `QtSvg` import, and no SVG
+branch at all — 4a has not landed here yet, and it is explicitly out of
+this order's scope to touch (`preview_loader.py` is on the
+do-not-touch list). Building a parallel SVG preview path here would be
+exactly the "duplicate mechanism" this order's own rules forbid. Left
+undone, checkbox unticked, until 4a ships and a session with
+`preview_loader.py` in scope can wire the cached-SVG route into it.

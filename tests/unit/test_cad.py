@@ -54,6 +54,45 @@ def test_the_converter_binary_is_on_the_allow_list():
     assert rule.binary in ALLOWED_BINARIES
 
 
+def test_no_module_imports_libredwgs_python_bindings():
+    r"""The licence rule, as code.
+
+    Owner's decision (docs/WORKORDER-...-workspace-features.md §5's header,
+    non-negotiable): `dwg2dxf` runs as an external process - mere aggregation
+    - and that is the only way LibreDWG (GPL) may touch this codebase. Linking
+    its own Python bindings would GPL the whole application, which the owner
+    has expressly kept open under a different licence. There is no code path
+    that should ever need to import them - conversion is `subprocess.run`,
+    always, via `app.extract.converter`.
+
+    Scans every module actually imported, not the string `"libredwg"` - a
+    string could sit in a comment (as it does in `converter.py`'s own
+    justification for why the binary is *not* linked) without saying anything
+    false about what runs. Only `import libredwg` / `from libredwg import ...`
+    shapes count as the violation this guards against.
+    """
+    import ast
+    from pathlib import Path
+
+    app_dir = Path(__file__).resolve().parents[2] / "app"
+    offenders: list[str] = []
+    for path in sorted(app_dir.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names.append(node.module)
+            elif isinstance(node, ast.Import):
+                names.extend(alias.name for alias in node.names)
+            if any("libredwg" in name.lower() for name in names):
+                offenders.append(str(path.relative_to(app_dir.parent)))
+
+    assert not offenders, (
+        f"LibreDWG's Python bindings must never be imported (subprocess "
+        f"only, per the licence decision): {offenders}"
+    )
+
+
 # --- the DWG header --------------------------------------------------------
 
 @pytest.mark.parametrize("marker,expected", [
