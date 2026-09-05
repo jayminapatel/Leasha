@@ -17,6 +17,34 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Photos can now be found by describing them, not just by filename
+
+- Work order 0h's CLIP image lane reaches an actual search box for the first
+  time: type a plain description - "kids blowing out birthday candles" - and
+  a matching photo can now appear even when nothing about its filename or
+  (non-existent) text says so. Previously built and tested in isolation only;
+  this wires it into `SearchEngine.search()` itself, as a third retrieval
+  lane fused in alongside keyword and meaning-based search via the same RRF
+  fusion those two already use, weighted equally (1.0, as the order
+  specifies for v1).
+- Runs everywhere a real search already runs - the window, `app.cli search`,
+  `app.cli shell`, `app.cli evaluate` - and stays off, exactly as before,
+  wherever the lane's two pieces are not supplied. A broken picture lane
+  degrades with its own notice rather than silence or being confused with
+  meaning-based search breaking (they fail independently).
+- **Also wired: indexing.** `app.cli index` now actually writes the CLIP
+  vectors this lane searches - previously nothing in the application did;
+  only tests ever constructed the pieces that write them.
+- **A known gap, not silently left**: indexing started from the window
+  itself does not yet write CLIP vectors - only `app.cli index` does, for
+  now. A photo indexed from the window will not be found by description
+  until that second site gets the same wiring. See work order 0h §1c.
+- Two real bugs were caught and fixed while wiring this in, not assumed
+  away: a photo result's id could have crashed the very first search that
+  found one (a namespaced id that a plain `int()` cast could not parse), and
+  the new notice code had no plain-English form for the everyday search tab
+  - both caught by the existing test suite before landing, not after.
+
 ### CLIP image embedding now uses the graphics card when one is usable, the processor otherwise
 
 - `ClipImageEmbedder` (the image-vector lane, work order 0h §1) gained the

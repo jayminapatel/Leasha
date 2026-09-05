@@ -951,11 +951,12 @@ def cmd_index(args: argparse.Namespace) -> int:
     Two copies indexing into one SQLite file is exactly the corruption the
     mutex exists to prevent.
     """
+    from app.index.clip_embedder import ClipImageEmbedder
     from app.index.embedder import Embedder
     from app.index.pipeline import Pipeline, PipelineConfig
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
+    from app.storage.vector_store import ImageVectorStore, VectorStore
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -1073,6 +1074,16 @@ def cmd_index(args: argparse.Namespace) -> int:
     )
 
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
+    # Work order 0h §1c item 3. **The same construction, at the same site
+    # that already builds `embedder`**, so indexing from the command line
+    # writes the CLIP vectors the search side (`cmd_search`, `cmd_shell`,
+    # `cmd_evaluate`, the window) can now query - verified with `grep -rn
+    # "image_embedder=\|image_vectors=" app/` before this change, which
+    # returned only test call sites: no real run had ever written one.
+    # `ClipImageEmbedder.from_settings` is already lazy (nothing loads until
+    # the first image is embedded), so building it unconditionally here
+    # costs nothing on a run that never reaches an image file.
+    image_embedder = ClipImageEmbedder.from_settings(settings)
 
     progress = ProgressLine(enabled=not args.quiet and not args.json)
 
@@ -1137,8 +1148,12 @@ def cmd_index(args: argparse.Namespace) -> int:
     # that hazard lasts exactly as long as this block. See `core/run_lock.py`.
     with SqliteStore(settings.fts_db) as store, \
             IndexRunLock(store, owner=COMMAND_LINE), \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-        pipeline = Pipeline(store, vectors, embedder, config)
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+            ImageVectorStore(settings.vector_path) as image_vectors:
+        pipeline = Pipeline(
+            store, vectors, embedder, config,
+            image_embedder=image_embedder, image_vectors=image_vectors,
+        )
         stats = pipeline.run(on_progress=None if args.quiet else show)
 
     payload = stats.as_dict()
@@ -1920,13 +1935,15 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     from app.index.embedder import Embedder
+    from app.search import vector
     from app.search.engine import SearchEngine
     from app.search.rerank import Reranker
     from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
+    from app.storage.vector_store import ImageVectorStore, VectorStore
 
     with SqliteStore(settings.fts_db) as store, \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+            ImageVectorStore(settings.vector_path) as image_vectors:
         engine = SearchEngine(
             store, vectors,
             Embedder.from_settings(settings),
@@ -1936,6 +1953,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             # Settings applied in the window and not on the command line. One
             # constructor means one answer.
             reranker=Reranker.from_settings(settings),
+            # Work order 0h §1c: the third retrieval lane, same as every
+            # other real search entry point in this file.
+            image_vectors=image_vectors,
+            clip_text_embedder=vector.clip_text_embedder_from_settings(settings),
         )
 
         def search(query: str) -> list[str]:
@@ -2509,11 +2530,12 @@ def cmd_shell(args: argparse.Namespace) -> int:
     and the scoping from §1 works, because the parser is right here.
     """
     from app.index.embedder import Embedder
+    from app.search import vector
     from app.search.engine import SearchEngine
     from app.search.rerank import Reranker
     from app.shell.repl import run_shell
     from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
+    from app.storage.vector_store import ImageVectorStore, VectorStore
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -2528,10 +2550,17 @@ def cmd_shell(args: argparse.Namespace) -> int:
 
     embedder = Embedder.from_settings(settings)
     reranker = Reranker.from_settings(settings)
+    # Work order 0h §1c: the third retrieval lane, same as every other real
+    # search entry point in this file.
+    clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
 
     with SqliteStore(settings.fts_db) as store, \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-        engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+            ImageVectorStore(settings.vector_path) as image_vectors:
+        engine = SearchEngine(
+            store, vectors, embedder, reranker=reranker,
+            image_vectors=image_vectors, clip_text_embedder=clip_text_embedder,
+        )
         # Warmed before the first prompt, for the reason `search` warms before
         # its clock starts: the first query would otherwise pay for two model
         # loads and look like the session is slow.
@@ -3022,10 +3051,11 @@ def cmd_search(args: argparse.Namespace) -> int:
     normal thing to want, and WAL makes it safe.
     """
     from app.index.embedder import Embedder
+    from app.search import vector
     from app.search.engine import SearchEngine
     from app.search.rerank import Reranker
     from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
+    from app.storage.vector_store import ImageVectorStore, VectorStore
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -3049,10 +3079,17 @@ def cmd_search(args: argparse.Namespace) -> int:
     embedder = Embedder.from_settings(settings)
     reranker = Reranker.from_settings(
         settings, enabled=settings.rerank_enabled and not args.no_rerank)
+    # Work order 0h §1c: the third retrieval lane, same as every other real
+    # search entry point in this file.
+    clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
 
     with SqliteStore(settings.fts_db) as store, \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-        engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+            ImageVectorStore(settings.vector_path) as image_vectors:
+        engine = SearchEngine(
+            store, vectors, embedder, reranker=reranker,
+            image_vectors=image_vectors, clip_text_embedder=clip_text_embedder,
+        )
         try:
             # **Load the models before the clock starts.**
             #

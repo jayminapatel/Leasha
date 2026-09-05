@@ -432,10 +432,11 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         from PyQt6.QtWidgets import QApplication
 
         from app.index.embedder import Embedder
+        from app.search import vector
         from app.search.engine import SearchEngine
         from app.search.rerank import Reranker
         from app.storage.sqlite_store import SqliteStore
-        from app.storage.vector_store import VectorStore
+        from app.storage.vector_store import ImageVectorStore, VectorStore
         from app.ui.shell import MainWindow
     except ImportError as exc:
         from app.core.errors import make_error
@@ -516,7 +517,8 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         application.processEvents()
         with gui_lock, \
                 SqliteStore(settings.fts_db) as store, \
-                VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+                VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+                ImageVectorStore(settings.vector_path) as image_vectors:
             log.info("startup: stores open, loading the embedding model",
                      model=settings.embed_model, cache=str(settings.model_cache))
             status_reporter("Loading the search engine…")
@@ -539,8 +541,22 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                      model=settings.rerank_model, enabled=settings.rerank_enabled)
             reranker = Reranker.from_settings(settings)
 
+            # Work order 0h §1c. **Not loaded here, not warmed here.**
+            # `clip_text_embedder_from_settings` builds a plain `Embedder`
+            # around the CLIP text tower exactly the way `Embedder.
+            # from_settings` builds one for the meaning model above it - but
+            # neither the model download nor the ONNX session happens at
+            # construction (see `Embedder`'s own docstring); it loads lazily
+            # on the first search that reaches `vector.search_images`. The
+            # startup budget (work order 0r) has room for one eager load
+            # (the meaning model above), not two.
+            clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
+
             log.info("startup: building the search engine")
-            engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+            engine = SearchEngine(
+                store, vectors, embedder, reranker=reranker,
+                image_vectors=image_vectors, clip_text_embedder=clip_text_embedder,
+            )
 
             log.info("startup: constructing the window")
             window = MainWindow(settings, store, vectors, engine, debug=debug)
