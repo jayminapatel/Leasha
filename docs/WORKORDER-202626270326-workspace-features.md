@@ -90,7 +90,7 @@ allowed and expected — compare falls out for free.
 
 ## 4. Viewers — closing the preview gaps with free pieces
 
-- [ ] **4a Qt one-liners**: SVG via QtSvg; `.tif/.tiff` added to the image
+- [x] **4a Qt one-liners**: SVG via QtSvg; `.tif/.tiff` added to the image
   suffixes (scanner output — verify against what the indexer already
   accepts); Markdown rendered via `QTextDocument.setMarkdown` instead of raw
   text.
