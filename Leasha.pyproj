@@ -124,6 +124,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\index_bench.py" />
+    <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
@@ -203,6 +204,7 @@
     <Compile Include="app\ui\splash.py" />
     <Compile Include="app\ui\startup_timing.py" />
     <Compile Include="app\ui\theme.py" />
+    <Compile Include="app\ui\thumbnail_loader.py" />
     <Compile Include="app\ui\timeline.py" />
     <Compile Include="app\ui\tray.py" />
     <Compile Include="app\ui\tuning.py" />
@@ -258,6 +260,7 @@
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\table_filter.py" />
+    <Compile Include="app\ui\widgets\thumbnail_grid.py" />
     <Compile Include="app\ui\widgets\timeline_strip.py" />
     <Compile Include="app\ui\widgets\tuning_box.py" />
     <Compile Include="app\ui\widgets\tuning_groups.py" />
@@ -330,6 +333,7 @@
     <Compile Include="tests\unit\test_embedder.py" />
     <Compile Include="tests\unit\test_embedding_gap.py" />
     <Compile Include="tests\unit\test_empty_run_says_why.py" />
+    <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
     <Compile Include="tests\unit\test_epub_preview.py" />
@@ -362,6 +366,7 @@
     <Compile Include="tests\unit\test_heif_preview.py" />
     <Compile Include="tests\unit\test_identifiers.py" />
     <Compile Include="tests\unit\test_idle_optimize.py" />
+    <Compile Include="tests\unit\test_image_orientation.py" />
     <Compile Include="tests\unit\test_image_vector_store.py" />
     <Compile Include="tests\unit\test_index_flows.py" />
     <Compile Include="tests\unit\test_index_force.py" />
@@ -399,6 +404,9 @@
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
+    <Compile Include="tests\unit\test_phash.py" />
+    <Compile Include="tests\unit\test_phash_column_migration.py" />
+    <Compile Include="tests\unit\test_phash_pipeline.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
@@ -429,8 +437,10 @@
     <Compile Include="tests\unit\test_result_fields.py" />
     <Compile Include="tests\unit\test_result_groups.py" />
     <Compile Include="tests\unit\test_result_table.py" />
+    <Compile Include="tests\unit\test_result_tools_similar_dispatch.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_results_view.py" />
+    <Compile Include="tests\unit\test_reverse_image_acceptance.py" />
     <Compile Include="tests\unit\test_review_2026_08_26.py" />
     <Compile Include="tests\unit\test_review_section_five.py" />
     <Compile Include="tests\unit\test_review_section_four.py" />
@@ -470,6 +480,7 @@
     <Compile Include="tests\unit\test_table_sorting.py" />
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
+    <Compile Include="tests\unit\test_thumbnail_grid.py" />
     <Compile Include="tests\unit\test_timeline.py" />
     <Compile Include="tests\unit\test_timeline_strip.py" />
     <Compile Include="tests\unit\test_tooltips.py" />
