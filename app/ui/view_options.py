@@ -643,6 +643,20 @@ def _available_width(widget: Any) -> int:
         return 0
 
 
+def _last_column_is_chosen(
+    order: Sequence[str], shown: Sequence[str], widths: Mapping[str, int]
+) -> bool:
+    """Has somebody dragged a width for the *last visible* column specifically?
+
+    Added 2026-09-05, alongside the bug it answers - see the dated note in
+    `_apply_widths` where this is called. Walks `order` the same way
+    `_cap_columns` does, so the two functions can never disagree about which
+    column counts as "last".
+    """
+    visible = [key for key in order if key in shown]
+    return bool(visible) and visible[-1] in widths
+
+
 def _cap_columns(widget: Any, order: Sequence[str], shown: Sequence[str],
                  chosen: Sequence[str] = ()) -> None:
     """Stop an *automatically fitted* column from taking the whole row.
@@ -960,7 +974,26 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
     # somebody takes control and stops the moment they do. `_cap_columns` makes
     # the same exemption for the same reason, and now the two agree about when
     # it applies.
-    header.setStretchLastSection(not prefs.widths)
+    #
+    # **Dated note, 2026-09-05 - "somebody takes control" was read as "the
+    # preference is non-empty", and that is a different, wider condition than
+    # the one that matters here.** Dragging *any other* column already makes
+    # `prefs.widths` non-empty, so this line turned stretch off for the last
+    # column too, even though nobody had chosen a width for *it*. Measured: on
+    # a three-column, 900px-wide table, dragging the middle column to 320px and
+    # reopening restores the middle column at 320 exactly as promised - and the
+    # last column, which had been filling the remaining ~500px, comes back at
+    # its bare fitted width instead (67px in the same run), leaving hundreds of
+    # pixels of dead table on the right. That is what the fifth report of
+    # "column widths are not remembered" turned out to be on inspection: not a
+    # width lost, but a *different* column's implicit fill width silently given
+    # up, because this line could not tell "somebody chose a width" from
+    # "somebody chose a width, for some other column".
+    #
+    # So this now asks about the last visible column specifically, through
+    # `_last_column_is_chosen`, rather than about the preference as a whole.
+    header.setStretchLastSection(
+        not _last_column_is_chosen(order, shown, dict(prefs.widths)))
 
     # **The flag is not tidiness; without it this segfaults.**
     #
