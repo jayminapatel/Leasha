@@ -12,6 +12,25 @@ Progress is reported by **file count, never by bytes.** Measured on a real
 corpus, a 40MB slide deck yields fewer chunks than a 30KB Word document — file
 size is off as a predictor of work by three orders of magnitude, so a byte-based
 bar sits frozen on one deck and then races through a thousand documents.
+
+**Pages-reorg order, §2: three shelves behind the same sidebar Settings
+uses**, not one page with a schedule box and the whole Index Tuning screen
+glued on beneath a skips panel that was never meant to share a page with
+either. **§2b, the layout fix.** The owner reported the page as broken; the
+cause, read rather than guessed: `shell.py` wraps Settings in a scroll area
+(`wrap_if_needed(view, scroll=True)`) because it is "six group boxes
+stacked vertically", but wraps this page with `scroll=False`, on the
+assumption — true when it was written — that a page "built around a table,
+list or splitter... already scrolls its own contents". That stopped being
+true the moment the tuning order folded the whole Index Tuning screen
+(a mode switch, a machine card, and four more group boxes) in underneath
+the skips panel with nothing to scroll it: the page's required height
+outgrew the window with no scrollbar anywhere to reach the rest of it.
+`shell.py` is outside this thread's file scope, so the fix has to hold
+without changing that line: each of the three shelves below carries its
+*own* `widgets/scroll.scrollable` wrap internally, the same mechanism
+Settings gets externally, so Schedule and Tuning scroll on their own
+regardless of what `shell.py` decides for the page as a whole.
 """
 
 from __future__ import annotations
@@ -39,9 +58,11 @@ from app.ui.presenter import (
 )
 from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.archived_roots import ArchivedRoots
+from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.index_stats import IndexStats
+from app.ui.widgets.scroll import scrollable
 from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.widgets.tuning_box import TuningBox
 from app.ui.workers import CallableWorker, IndexWorker, run
@@ -49,6 +70,11 @@ from app.ui.workers import CallableWorker, IndexWorker, run
 __all__ = ["IndexingView"]
 
 _log = logger.bind(component="ui.indexing")
+
+#: The three shelves, in display order.
+CATEGORY_STATUS = "Status"
+CATEGORY_SCHEDULE = "Schedule"
+CATEGORY_TUNING = "Tuning"
 
 
 
@@ -159,29 +185,61 @@ class IndexingView(QWidget):
         self.archives = ArchivedRoots()
         self.archives.rescan_requested.connect(self.rescan_archives_requested)
 
-        # **On this page rather than in Settings, and next to the schedule.**
-        # Tuning is watched, not configured once: somebody changes a ceiling
-        # because of what the bar in front of them is doing, and a screen that
-        # makes them go and find another tab to do it is a screen they use
-        # once. The controls themselves are widgets, because this file is at
+        # **Its own shelf now, not glued beneath the skips panel.** Tuning is
+        # watched, not configured once: somebody changes a ceiling because of
+        # what the bar in front of them is doing, and a screen that makes
+        # them go and find another tab to do it is a screen they use once.
+        # The controls themselves are widgets, because this file is at
         # the 250-line guard - see `widgets/tuning_box.py`.
         self.schedule_box = IndexingSettings()
         self.tuning = TuningBox()
 
+        # --- §2a: three shelves, one sidebar (see the module docstring for
+        # §2b, the layout fix this split is).
+        #
+        # **Status keeps its old, unwrapped shape.** `self.skips` already
+        # scrolls its own contents (`stretch=1`, exactly as before) and was
+        # never the reported fault - wrapping it in a second scroll area
+        # would only reintroduce the two-scrollbars problem `widgets/scroll.py`
+        # warns about. Schedule and Tuning are the two shelves that pushed the
+        # old single page past its height with nothing to scroll it, so they
+        # are the two that get `scrollable()` - the same mechanism `shell.py`
+        # already gives Settings, applied here internally because `shell.py`
+        # itself is outside this thread's file scope.
+        status_page = QWidget()
+        status_layout = QVBoxLayout(status_page)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(8)
+        status_layout.addWidget(self.headline)
+        status_layout.addWidget(self.totals)
+        status_layout.addWidget(self.stats_box)
+        status_layout.addWidget(self.bar)
+        status_layout.addWidget(self.detail)
+        status_layout.addWidget(self.notices)
+        status_layout.addLayout(controls)
+        status_layout.addWidget(self.archives)
+        status_layout.addWidget(self.skips, stretch=1)
+
+        schedule_page = QWidget()
+        schedule_layout = QVBoxLayout(schedule_page)
+        schedule_layout.setContentsMargins(0, 0, 0, 0)
+        schedule_layout.addWidget(self.schedule_box)
+        schedule_layout.addStretch(1)
+
+        tuning_page = QWidget()
+        tuning_layout = QVBoxLayout(tuning_page)
+        tuning_layout.setContentsMargins(0, 0, 0, 0)
+        tuning_layout.addWidget(self.tuning)
+        tuning_layout.addStretch(1)
+
+        self._nav = CategoryNav()
+        self._nav.add_category(CATEGORY_STATUS, status_page)
+        self._nav.add_category(CATEGORY_SCHEDULE, scrollable(schedule_page))
+        self._nav.add_category(CATEGORY_TUNING, scrollable(tuning_page))
+
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.addWidget(self.headline)
-        layout.addWidget(self.totals)
-        layout.addWidget(self.stats_box)
-        layout.addWidget(self.bar)
-        layout.addWidget(self.detail)
-        layout.addWidget(self.notices)
-        layout.addLayout(controls)
-        layout.addWidget(self.archives)
-        layout.addWidget(self.skips, stretch=1)
-        layout.addWidget(self.schedule_box)
-        layout.addWidget(self.tuning)
-        layout.addStretch(1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._nav)
 
     # -- running ------------------------------------------------------------
 
