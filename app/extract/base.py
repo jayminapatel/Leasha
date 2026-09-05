@@ -321,6 +321,18 @@ class Extractor(Protocol):
 
     def extract(self, path: Path) -> Iterable[Document]: ...
 
+    #: Optional. Left unset (or `False`), an extractor is exactly as this
+    #: Protocol describes it - `extract(path)` and nothing else - and the
+    #: module-level `extract()` below never touches it. Set `True` and add a
+    #: keyword-only `resume_from: int = 0` to `extract`, and a caller that
+    #: knows the last durable position within this file's own stable
+    #: ordering can pass it back in to skip straight past what a prior run
+    #: already finished. Not part of the formal `Protocol` shape above,
+    #: because adding a required attribute here would mean every other
+    #: extractor - none of which have any use for it - would have to declare
+    #: it too. `email_mbox.MboxExtractor` is the one implementation.
+    #: supports_resume: bool
+
 
 #: extension (lowercase, with dot) -> extractor
 REGISTRY: dict[str, Extractor] = {}
@@ -469,13 +481,21 @@ def _try_converter(path: Path) -> Optional[Iterator[Document]]:
     return iter(extract_via_converter(path, rule))
 
 
-def extract(path: Path) -> Iterator[Document]:
+def extract(path: Path, *, resume_from: int = 0) -> Iterator[Document]:
     """Extract one path through the registry.
 
     Raises `AppErrorException` with a precise code - `ERR_UNSUPPORTED_TYPE`,
     `ERR_FILE_CORRUPT`, `ERR_FILE_LOCKED`, `ERR_NO_TEXT_LAYER` - so the caller
     records why, marks the file, and carries on. It never returns an empty
     document: nothing to index is a skip reason, not a success.
+
+    `resume_from` is forwarded only to an extractor that opts in by setting
+    `supports_resume = True` - every other extractor's `extract(path)` is
+    called exactly as before, so this is silently ignored for the files it
+    does not apply to rather than a signature every extractor must accept.
+    See `email_mbox.MboxExtractor` for the one that uses it: a resumed run
+    skips straight to the message index a prior run last confirmed durable,
+    instead of re-parsing everything before it.
     """
     extractor = extractor_for(path)
     if extractor is None:
@@ -496,8 +516,12 @@ def extract(path: Path) -> Iterator[Document]:
         )
         return
 
+    extract_kwargs: dict[str, Any] = {}
+    if resume_from and getattr(extractor, "supports_resume", False):
+        extract_kwargs["resume_from"] = resume_from
+
     produced = False
-    for document in extractor.extract(path):
+    for document in extractor.extract(path, **extract_kwargs):
         if document.is_empty:
             continue
         produced = True

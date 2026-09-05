@@ -259,10 +259,18 @@ class FileRecord:
     skip_detail: Optional[str]
     indexed_at: Optional[int]
     source_kind: str
+    #: Work order 0h §2a. A perceptual hash, `NULL` until the images pass has
+    #: touched this file - see `app/storage/migrations.py`'s `_v17_image_phash`
+    #: for why it lives here rather than on the image-vector table. Defaulted
+    #: so `from_row`'s generic construction below keeps working against a
+    #: database that has not been migrated yet in a test double that builds
+    #: rows by hand without this key.
+    phash: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
-        return cls(**{key: row[key] for key in cls.__dataclass_fields__})
+        return cls(**{key: row[key] for key in cls.__dataclass_fields__
+                      if key in row.keys()})
 
 
 @dataclass(frozen=True)
@@ -713,6 +721,32 @@ class SqliteStore:
                 "skip_detail = NULL WHERE id = ?",
                 [(FileStatus.INDEXED, now, file_id) for (file_id,) in ids],
             )
+
+    def set_phashes(self, phashes: dict[int, str]) -> None:
+        r"""Write perceptual hashes for photos, one transaction for the batch.
+
+        Work order 0h §2a. Same batching reasoning as `mark_indexed_many`
+        just above: `Pipeline._flush_pending_phashes` gathers one pHash per
+        photo, computed synchronously and independently of the CLIP vector
+        (see `_maybe_compute_phash`'s docstring), and flushes them together
+        at the same checkpoints the CLIP vectors are flushed at - so this is
+        called once per flush, not once per photo. A run over a folder of
+        ten thousand photos costs one commit here per flush, not ten
+        thousand.
+
+        Rows whose hash is empty or `None` are dropped rather than written
+        as an empty string - `files.phash` is nullable precisely so "not
+        computed yet" stays distinguishable from "computed and empty", and
+        the latter can never legitimately happen (`PhashComputer.compute`
+        raises rather than returning one).
+        """
+        items = [(str(value), int(file_id))
+                 for file_id, value in phashes.items() if value]
+        if not items:
+            return
+        with self.write() as conn:
+            conn.executemany(
+                "UPDATE files SET phash = ? WHERE id = ?", items)
 
     def mark_skipped(self, file_id: int, error: AppError) -> None:
         """Record why a file was skipped, so the UI can group and retry.
@@ -2033,8 +2067,15 @@ class SqliteStore:
             # Cursors point at chunk ids that no longer exist. Left behind, the
             # next run would resume past the beginning of an empty index and
             # quietly index nothing.
+            #
+            # `resume:%` is item 1b's per-file mbox message-index cursor,
+            # keyed on content hash - the same failure mode applies: a reset
+            # followed by re-indexing the exact same (unchanged) mbox bytes
+            # would otherwise resume from a mid-file position into an index
+            # that no longer has anything before it.
             conn.execute(
-                "DELETE FROM index_state WHERE key LIKE 'graph:%' OR key LIKE 'index:%'"
+                "DELETE FROM index_state WHERE key LIKE 'graph:%' "
+                "OR key LIKE 'index:%' OR key LIKE 'resume:%'"
             )
             # **In the same transaction as the delete.** The search cache is
             # keyed on this, so without it a cache built from the index that was
@@ -2562,6 +2603,19 @@ class SqliteStore:
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM index_state WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
+
+    def delete_state(self, key: str) -> None:
+        """Forget one cursor. Used once what it pointed at is fully done.
+
+        A per-file resume cursor (`resume:{content_hash}`) has nothing left
+        to resume once the file's own closing marker is written - left
+        behind, it would just be a harmless orphan keyed on a digest nothing
+        will ever look up again, *unless* the exact same bytes are re-indexed
+        after a reset, which would then wrongly skip messages a fresh run
+        needs to re-see. Clearing it here is cheap and removes the question.
+        """
+        with self.write() as conn:
+            conn.execute("DELETE FROM index_state WHERE key = ?", (key,))
 
     def all_state(self) -> dict[str, str]:
         return {r["key"]: r["value"] for r in self.conn.execute("SELECT key, value FROM index_state")}

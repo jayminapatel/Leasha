@@ -60,13 +60,14 @@ from typing import Any, Callable, Iterator, Optional
 from app.core.errors import AppError, AppErrorException, make_error, to_app_error
 from app.core.logging import logger
 from app.extract import chunk_document, extract
-from app.extract.base import reads_externally
+from app.extract.base import extractor_for, reads_externally
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
 from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
+from app.index.phash import PhashComputer
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
 from app.index.stages import WAITING, StageClock
 from app.index.walker import (
@@ -118,6 +119,18 @@ CHECKPOINT_SECONDS = 2.0
 #: Rows per LanceDB append. From the spec; large enough to amortise the write,
 #: small enough that a crash loses little.
 VECTOR_BATCH = 1000
+
+#: Work order 202626270509, item 1b. The `Document.meta` key an extractor
+#: that opts into `supports_resume` (see `app/extract/base.py`) uses to
+#: report its own furthest-processed position within one file, so `_consume`
+#: can persist it as a resume cursor once that position is confirmed durable
+#: - see `_note_resume_progress` and `_persist_resume_progress`.
+RESUME_POSITION_META_KEY = "mbox_index"
+
+#: `index_state` key prefix for a per-file resume cursor, keyed on that
+#: file's own content hash so a changed file never resumes into stale bytes.
+#: Also matched by `SqliteStore.clear_index()`'s reset delete.
+RESUME_STATE_PREFIX = "resume:"
 
 #: Chunks per embedding call. The single biggest throughput lever in the whole
 #: pipeline: ONNX is efficient on large batches and spends its time on call
@@ -622,6 +635,7 @@ class Pipeline:
         *,
         image_embedder: Optional[ClipImageEmbedder] = None,
         image_vectors: Optional[ImageVectorStore] = None,
+        phash_computer: Optional[PhashComputer] = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
@@ -634,9 +648,24 @@ class Pipeline:
         # `_maybe_embed_image` and `_flush_pending_images`.
         self.image_embedder = image_embedder
         self.image_vectors = image_vectors
+        # Work order 0h §2a. `None` by default, same reasoning, and
+        # deliberately independent of the two above: a pHash is not derived
+        # from the CLIP model at all (see `app/index/phash.py`), so a run
+        # with a working `image_embedder` and no `phash_computer` still
+        # writes CLIP vectors and simply gets no perceptual hashes, and a run
+        # with the reverse still gets hashes with no vectors. Neither implies
+        # the other; see `_maybe_compute_phash`.
+        self.phash_computer = phash_computer
         #: CLIP vectors computed but not yet written - see `_flush_pending_images`.
         #: Reset per run in `run()`, same as `_seen_paths` and the feeder queue.
         self._pending_images: list[tuple[int, list[float], str, int]] = []
+        #: Work order 0h §2a. `file_id -> pHash hex string`, computed but not
+        #: yet written - a dict, not a list like `_pending_images`, because a
+        #: pHash is one value per file and a later write for the same file id
+        #: within a batch should simply replace the earlier one rather than
+        #: queuing a second `UPDATE` for it. Reset per run in `run()`, same as
+        #: `_pending_images`. See `_maybe_compute_phash`/`_flush_pending_phashes`.
+        self._pending_phashes: dict[int, str] = {}
         # **The batch the config asks for is the batch the model gets.**
         #
         # `_embed_pending` gathers `config.embed_batch` chunks and hands them to
@@ -673,6 +702,15 @@ class Pipeline:
         #: Written by the producer thread only, in `_classify`, and read once
         #: at the end of the run.
         self._settled_skips: dict[str, int] = {}
+        #: Work order 202626270509, item 1b. `str(candidate.path) ->
+        #: (content_hash, furthest confirmed-durable resume position)` for a
+        #: file currently being extracted by a `supports_resume` extractor.
+        #: Written by the consumer thread only, in `_note_resume_progress`;
+        #: flushed to `index_state` in `_persist_resume_progress` and
+        #: cleared in `_write_marker` once the file itself is done and the
+        #: cursor is no longer needed. See the two for why this only ever
+        #: holds *confirmed-embedded* positions, never merely-chunked ones.
+        self._resume_progress: dict[str, tuple[str, int]] = {}
         #: Every path this run has covered, lowercased. **One set, shared**
         #: between the walker, `_candidates` and `_produce` - see M17 in
         #: `_candidates`. Replaced at the start of each run.
@@ -791,6 +829,11 @@ class Pipeline:
         self._dynamic_workers = []
         self._embedding_now.clear()
         self._last_growth = 0.0
+        # Work order 202626270509, item 1b: same reason - a fresh run rebuilds
+        # its view of in-progress resume positions from `index_state` (via
+        # `_extract_stream`'s lookup) rather than trusting a prior run's
+        # object state.
+        self._resume_progress = {}
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
         self._run_started_wall = time.time()
@@ -800,6 +843,8 @@ class Pipeline:
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
+        # Work order 0h §2a: same reasoning, for pending pHashes.
+        self._pending_phashes = {}
 
         # Below-normal CPU and background I/O priority, before a single file is
         # read. The cheapest courtesy available and the most effective: the
@@ -2005,10 +2050,33 @@ class Pipeline:
             yield _Extracted(candidate, digest, error=held)
             return
 
+        # Work order 202626270509, item 1b. Only asked of extractors that
+        # opt in (`extractor_for(...).supports_resume`); the lookup and the
+        # `int()` parse are both guarded, because a resume cursor is an
+        # optimisation, not a correctness requirement - `extract()` reads the
+        # whole file from message 0 exactly as it always did if this fails
+        # or finds nothing, which is always still correct, only slower.
+        resume_from = 0
+        if digest is not None:
+            extractor = extractor_for(candidate.path)
+            if extractor is not None and getattr(extractor, "supports_resume", False):
+                try:
+                    stored = self.store.get_state(f"{RESUME_STATE_PREFIX}{digest}")
+                    if stored:
+                        resume_from = int(stored)
+                except Exception as exc:                 # noqa: BLE001 - H4
+                    self._log.debug(
+                        "resume cursor unreadable for {}, starting from the top: {}",
+                        candidate.path.name, exc,
+                    )
+                    resume_from = 0
+
         produced = 0
         seen_keys: set[str] = set()
         try:
-            for index, document in enumerate(extract(candidate.path)):
+            for index, document in enumerate(
+                extract(candidate.path, resume_from=resume_from)
+            ):
                 chunks: list[dict[str, Any]] = []
                 for ordinal, chunk in enumerate(chunk_document(document)):
                     chunks.append({
@@ -2207,6 +2275,7 @@ class Pipeline:
                 # 30GB archive with one new email is the entire difference
                 # between seconds and hours.
                 stats.unchanged_documents += 1
+                self._note_resume_progress(item)
                 continue
 
             if item.error is not None:
@@ -2221,6 +2290,12 @@ class Pipeline:
                 stats.indexed += 1
                 stats.chunks += len(item.chunks)
 
+            # Work order 202626270509, item 1b. A skip or a write both settle
+            # this message's fate for the run - recorded as a skip, or handed
+            # to the feeder - so both are candidates to advance the resume
+            # cursor once the feeder actually confirms them; see
+            # `_note_resume_progress` and `_persist_resume_progress`.
+            self._note_resume_progress(item)
 
             if len(pending_vectors) >= self.config.embed_batch:
                 # §6b: handed off, not embedded here - the consumer moves
@@ -2285,6 +2360,17 @@ class Pipeline:
         # `_feed_sync` waits for the feeder and re-raises whatever it caught.
         self._flush_pending_images()
         self._feed_sync(pending_vectors)
+        # Work order 202626270509, item 1b. Only reached once `_feed_sync`
+        # above has returned *without raising* - so everything this run has
+        # handed to the feeder, including whatever an interrupted run's last
+        # batch was still carrying, is confirmed embedded and written before
+        # any resume position derived from it is persisted. See
+        # `_note_resume_progress` for why nothing is persisted any earlier
+        # than this single point.
+        try:
+            self._persist_resume_progress()
+        except Exception as exc:            # noqa: BLE001 - H4: never the run
+            self._log.warning("could not persist mbox resume progress: {}", exc)
         if on_progress is not None:
             try:
                 on_progress(stats)
@@ -2568,6 +2654,60 @@ class Pipeline:
                 source_kind=item.source_kind,
             )
             self.store.mark_indexed(file_id)
+        # Work order 202626270509, item 1b. The file is done - a resume
+        # cursor for it is not merely unneeded, it is a hazard: kept around
+        # it would wrongly make a fresh re-index of the same unchanged bytes
+        # (after a reset, say) skip messages a new index has never actually
+        # seen. H4: never lets a cleanup failure cost the file being marked.
+        self._resume_progress.pop(str(candidate.path), None)
+        if item.content_hash:
+            try:
+                self.store.delete_state(f"{RESUME_STATE_PREFIX}{item.content_hash}")
+            except Exception as exc:        # noqa: BLE001 - H4
+                self._log.debug("could not clear resume cursor: {}", exc)
+
+    def _note_resume_progress(self, item: _Extracted) -> None:
+        """Remember the furthest position an extractor's `meta` has reported.
+
+        In-memory only, and cheap: a dict update on the consumer's own
+        thread, once per settled document. Nothing is written to SQLite here
+        - see `_persist_resume_progress` for why that has to wait until a
+        flush actually confirms the vectors exist, not merely that the
+        chunks were handed to `_write_one`.
+        """
+        position = item.meta.get(RESUME_POSITION_META_KEY)
+        if position is None or item.content_hash is None:
+            return
+        try:
+            position = int(position)
+        except (TypeError, ValueError):
+            return
+        path_key = str(item.candidate.path)
+        current = self._resume_progress.get(path_key)
+        if current is None or current[0] != item.content_hash:
+            self._resume_progress[path_key] = (item.content_hash, position)
+        elif position > current[1]:
+            self._resume_progress[path_key] = (item.content_hash, position)
+
+    def _persist_resume_progress(self) -> None:
+        """Flush every tracked resume position to `index_state`, at once.
+
+        **Only ever called right after a `_feed_sync` has returned without
+        raising** - both call sites in `_consume` (the one this method is
+        actually called from today) rely on that ordering. `_note_resume_progress`
+        only ever records a position *before* embedding for it is confirmed;
+        this is the one place that turns "seen, and handed to the feeder"
+        into "durable enough to trust on the next run" - persisting any
+        earlier would let a resumed run skip re-parsing a message whose
+        vector never actually made it to LanceDB, which is silent data loss,
+        not a slower resume.
+        """
+        if not self._resume_progress:
+            return
+        self.store.set_states({
+            f"{RESUME_STATE_PREFIX}{content_hash}": str(position + 1)
+            for content_hash, position in self._resume_progress.values()
+        })
 
     def _already_current(self, item: _Extracted) -> bool:
         """Has this exact document already been indexed, unchanged?
@@ -2651,6 +2791,10 @@ class Pipeline:
         # same argument `_embed_pending`'s comment makes for the LanceDB
         # delete below.
         self._maybe_embed_image(candidate, file_id)
+        # Work order 0h §2a. Independent of the CLIP call just above - see
+        # `_maybe_compute_phash`'s docstring for why a pHash is computed and
+        # gated on its own rather than folded into `_maybe_embed_image`.
+        self._maybe_compute_phash(candidate, file_id)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
@@ -2798,8 +2942,94 @@ class Pipeline:
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
 
+    def _maybe_compute_phash(self, candidate: Candidate, file_id: int) -> None:
+        r"""One perceptual hash for a ladder-passed image, queued for a batched flush.
+
+        Work order 0h §2a. **A parallel gate to `_maybe_embed_image`, not a
+        step inside it.** Both are gated on `self.<thing> is None` and on
+        `reads_by_ocr(path)` - the same two questions, asked independently -
+        because the two capabilities genuinely are independent: a pHash is a
+        DCT over the pixels (`app/index/phash.py`), nothing to do with CLIP's
+        embedding model, so a CLIP failure must not cost the pHash and a
+        pHash failure must not cost the CLIP vector. Folding this into
+        `_maybe_embed_image` would make one `try/except` respond to two
+        unrelated kinds of failure, which is exactly the shape that hides
+        which one actually happened when the log is read a year later.
+
+        **Computed synchronously, right here**, same reasoning as the CLIP
+        call beside it: `imagehash.phash` is a few milliseconds of pure CPU
+        with nothing to batch across images - only the SQLite write is
+        gathered, by `_flush_pending_phashes`.
+
+        **H4 discipline**, identical in shape to `_maybe_embed_image`: a
+        missing Pillow, a corrupt image, an unreadable path is logged,
+        counted, and returns quietly. The file stays fully indexed and fully
+        CLIP-searchable regardless - only this one photo's duplicate and
+        near-duplicate detection is missing until a later run re-touches it.
+        """
+        if self.phash_computer is None:
+            return
+
+        from app.extract.base import reads_by_ocr
+
+        path = candidate.path
+        if not reads_by_ocr(path):
+            return
+
+        try:
+            with self._clock.stage("phash"):
+                value = self.phash_computer.compute(path)
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
+            self._log.warning(
+                "no perceptual hash for {}: {}. It stays searchable and "
+                "CLIP-findable as usual - only duplicate/near-duplicate "
+                "detection misses this photo.", path, exc)
+            code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_PHASH")
+            self._stats_ref.warned_by_code[code] = (
+                self._stats_ref.warned_by_code.get(code, 0) + 1)
+            return
+
+        self._pending_phashes[file_id] = value
+
+    def _flush_pending_phashes(self) -> None:
+        r"""Write accumulated pHashes in one batch - the H7 shape, over SQLite.
+
+        Work order 0h §2a. Called from the top of `_flush_pending_images`, so
+        it runs at exactly the same checkpoints - before every point that can
+        mark a file INDEXED - without a second set of call sites to keep in
+        step by hand. A no-op whenever nothing is pending, which is every
+        run where `phash_computer` is not configured, so this costs nothing
+        for a caller that has not opted in.
+
+        **H4 discipline**, same shape as `_flush_pending_images`'s own store-
+        level guard: a SQLite failure here (disk, a locked file) is logged
+        and counted, never raised - those photos stay searchable and CLIP-
+        findable exactly as before, only duplicate detection is missing.
+        """
+        if not self._pending_phashes:
+            return
+        batch = self._pending_phashes
+        self._pending_phashes = {}
+        try:
+            self.store.set_phashes(batch)
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the run
+            self._log.warning(
+                "{} perceptual hash(es) could not be written: {}. Those "
+                "photos stay searchable as usual; only duplicate detection "
+                "is missing for them.", len(batch), exc)
+            self._stats_ref.warned_by_code["ERR_PHASH_STORE"] = (
+                self._stats_ref.warned_by_code.get("ERR_PHASH_STORE", 0) + 1)
+
     def _flush_pending_images(self) -> None:
         r"""Write accumulated CLIP vectors in one batch - the H7 shape.
+
+        **Also flushes pending pHashes, first.** Work order 0h §2a's pHashes
+        are computed independently of the CLIP vectors (see
+        `_maybe_compute_phash`) but need the identical M6 ordering - written
+        before a file can read as INDEXED - and reuse this method's existing
+        call sites rather than adding a second set that could drift out of
+        step with the first. See `_flush_pending_phashes` for that half;
+        everything below is the CLIP-vector half, unchanged.
 
         **Never one delete-and-add per file.** `_maybe_embed_image` computes
         each vector immediately, but the LanceDB write is gathered here and
@@ -2823,6 +3053,8 @@ class Pipeline:
         raised - those photos stay searchable by every route except CLIP
         similarity, and nothing here can fail the run those images belong to.
         """
+        self._flush_pending_phashes()
+
         if self.image_vectors is None or not self._pending_images:
             return
 
@@ -3035,6 +3267,9 @@ class Pipeline:
         # confidently more able to open a file OCR could not.
         if item.error is not None and item.error.code == "ERR_NO_TEXT_LAYER":
             self._maybe_embed_image(candidate, file_id)
+            # Work order 0h §2a: same reasoning as the CLIP call just above -
+            # a photo OCR found no text in is still a photo worth hashing.
+            self._maybe_compute_phash(candidate, file_id)
 
     # -- guards and bookkeeping ---------------------------------------------
 
