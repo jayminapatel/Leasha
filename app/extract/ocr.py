@@ -231,6 +231,28 @@ def _load_engine() -> Any:
     return _engine
 
 
+def _detect_only(run: Callable[..., Any]) -> Callable[[Any], list]:
+    """Rung 2's detection-only probe (2c), closed over the already-loaded engine.
+
+    Calls `run` with `use_det=True, use_cls=False, use_rec=False` - RapidOCR's
+    own detection stage alone, no recognition - so a genuinely textless photo
+    costs one ~50-150ms detection pass rather than the ~3.6s full recognition
+    pass it would otherwise pay to learn the exact same thing. Reuses whatever
+    engine `ocr_image` already loaded rather than a second model instance.
+
+    Returns the boxes RapidOCR's detection stage found (possibly empty).
+    Raises through to `ocr_ladder.route`'s own try/except on any failure - a
+    fake `engine` from the unit tests below that does not accept these kwargs
+    included - which treats "the probe could not run" as "not yet decided",
+    never as "no text".
+    """
+    def _detect(source: Any) -> list:
+        raw = run(source, use_det=True, use_cls=False, use_rec=False)
+        boxes = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
+        return list(boxes) if boxes else []
+    return _detect
+
+
 def ocr_image(
     source: Any,
     *,
@@ -256,7 +278,7 @@ def ocr_image(
 
     if isinstance(source, (Path, bytes)):
         try:
-            routed = ocr_ladder.route(source)
+            routed = ocr_ladder.route(source, detect=_detect_only(run))
         except Exception as exc:                 # noqa: BLE001 - the ladder must never take an image down
             log.debug("ocr ladder routing failed: {}: {}", type(exc).__name__, exc)
             routed = None
