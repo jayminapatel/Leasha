@@ -158,6 +158,87 @@ def test_a_flow_is_actually_invoked(setting):
     )
 
 
+# ---------------------------------------------------------------------------
+# Item 4: a setting that needs a restart says so, somewhere the person can
+# actually see it.
+# ---------------------------------------------------------------------------
+
+#: For a destructive setting the restart notice is not on the control - the
+#: control is a read-only display, by design (§4 of the work order) - it is in
+#: the flow's *outcome* message, built in `shell.py` once the flow has been
+#: confirmed. There is no registry field naming "which function finishes this
+#: flow", so it is named here; a wrong name fails this test loudly rather than
+#: silently passing.
+FLOW_HANDLERS_IN_SHELL = {
+    "move-index": "_change_index_location",
+    "rebuild-vectors": "_change_meaning_model",
+}
+
+
+def _function_source(path: Path, name: str) -> str:
+    """The raw text of one `def name(...)`, prose included, for presence checks.
+
+    Text to the next method at the same indent, which is good enough here: the
+    question is only "does the word 'restart' appear", not anything about
+    structure.
+    """
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8")
+    marker = f"def {name}("
+    if marker not in text:
+        return ""
+    return text.split(marker, 1)[1].split("\n    def ")[0]
+
+
+@pytest.mark.parametrize(
+    "setting", [s for s in reg.SETTINGS if s.restart], ids=lambda s: s.key,
+)
+def test_restart_settings_say_so_somewhere_the_user_can_see(setting):
+    """A setting flagged `restart=True` that says nothing about it anywhere is
+    the exact failure item 4 exists to catch: a change that appears to work
+    and silently does not, until the application is next opened.
+
+    Weak by design, like every text-presence check in this file: it proves the
+    word is there, not that the sentence is good. That is still the level of
+    rigour that would catch a control losing its restart notice in a refactor,
+    or a newly restart-flagged setting shipping with none.
+    """
+    surface_text = "".join(
+        (UI / relative).read_text(encoding="utf-8").lower()
+        for relative in SURFACE_MODULES.get(setting.surface, ())
+        if (UI / relative).is_file()
+    )
+    seen = "restart" in surface_text
+    handler = FLOW_HANDLERS_IN_SHELL.get(setting.flow) if setting.flow else None
+
+    if not seen and handler:
+        seen = "restart" in _function_source(UI / "shell.py", handler).lower()
+
+    where = f"{setting.surface}" + (f" or shell.py's {handler!r}" if handler else "")
+    assert seen, (
+        f"{setting.key} is flagged restart=True but the word 'restart' "
+        f"appears nowhere on {where} - a change needing a restart would look "
+        f"like it took effect"
+    )
+
+
+def test_the_restart_notice_check_can_actually_fail(tmp_path: Path):
+    """Otherwise it passes on a broken detector forever."""
+    bait = tmp_path / "bait_shell.py"
+    bait.write_text(
+        "class Bait:\n"
+        "    def _has_the_word(self) -> None:\n"
+        "        self.statusBar().showMessage('Saved. Restart to apply.')\n"
+        "    def _does_not(self) -> None:\n"
+        "        self.statusBar().showMessage('Saved.')\n",
+        encoding="utf-8",
+    )
+    assert "restart" in _function_source(bait, "_has_the_word").lower()
+    assert "restart" not in _function_source(bait, "_does_not").lower()
+    assert _function_source(bait, "_not_declared_at_all") == ""
+
+
 #: Settings that reach `.env` by a route other than a panel emitting their key.
 #:
 #: Each is written by a flow that names it explicitly - see `shell.py`. Listed
@@ -258,3 +339,161 @@ def test_no_control_claims_a_key_the_registry_does_not_declare():
                         f"{relative} builds a control named {name!r}, which is "
                         f"not in the registry - it changes nothing"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Item 6: no control is orphaned - every signal a settings panel declares has
+# a receiver.
+#
+# `rerank_toggled` and `cloud_toggled` were both declared with `pyqtSignal`,
+# emitted, and connected to nothing - the exact shape checked here, generically,
+# rather than the two names the review happened to find. `ui:tray_minimise` and
+# `ui:tray_close` were the same failure one layer down: read at startup, written
+# by nothing. All four are fixed (see `shell.py` and `widgets/window_box.py`),
+# and this is what keeps the fix from quietly regressing.
+# ---------------------------------------------------------------------------
+
+#: Every module that can declare a signal on behalf of a page in Settings or
+#: Indexing. Built from `SURFACE_MODULES` plus the pages and sub-widgets that
+#: are wired to those pages but do not themselves carry a registry key -
+#: `roots_box.py`, `window_box.py`, `environment_box.py` and the rest of
+#: `indexing_view.py`'s own widgets are settings controls even though nothing
+#: in them is an `.env` value.
+SETTINGS_PANEL_MODULES: tuple[str, ...] = tuple(sorted({
+    relative
+    for modules in SURFACE_MODULES.values()
+    for relative in modules
+} | {
+    "settings_view.py", "indexing_view.py", "indexing_settings.py",
+    "widgets/debug_pane.py", "widgets/roots_box.py", "widgets/window_box.py",
+    "widgets/environment_box.py", "widgets/archived_roots.py",
+    "widgets/machine_card.py",
+}))
+
+
+def _signals_declared_in(path: Path) -> set[str]:
+    """Every `name = pyqtSignal(...)` class attribute in one module.
+
+    Not a grep for `pyqtSignal`: that would count the import line, a comment
+    explaining one, or a docstring quoting one. This looks for the assignment
+    shape a declaration actually has.
+    """
+    if not path.is_file():
+        return set()
+    found: set[str] = set()
+    tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                and value.func.id == "pyqtSignal"):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                found.add(target.id)
+    return found
+
+
+def _connect_targets_in(root: Path) -> set[str]:
+    """Every signal name that is the target of a `<something>.<name>.connect(`
+    call, anywhere under `root`.
+
+    Same technique `test_header_signal_safety.py` uses to prove nothing
+    connects to `sectionResized`: it looks for what the code would *do*, which
+    a comment or a docstring cannot fake into passing.
+    """
+    found: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "connect"):
+                continue
+            inner = func.value
+            if isinstance(inner, ast.Attribute):
+                found.add(inner.attr)
+    return found
+
+
+#: Signals found declared and emitted with no receiver anywhere, each dated
+#: and naming what blocks the fix. Not a general escape hatch - an entry here
+#: is a promise with a name on it, the same shape as `NOT_YET_BUILT` in
+#: `test_settings_are_used.py` and `WRITTEN_BY_A_FLOW` above.
+#:
+#: **`history_cleared` is real**, found while proving this test rather than
+#: invented to make it pass: `settings_view.py` emits it (`self.history_cleared
+#: .emit(removed)`, after clearing the usage log) and nothing in the whole
+#: repository ever calls `.connect()` on it. The fix needs a receiver in
+#: `shell.py`, or the signal deleted from `settings_view.py` if nothing should
+#: react - either way it touches a file a concurrent session owns (see
+#: `docs/WORKORDER-everything-tunable-has-a-ui.md`, item 6), so it is recorded
+#: here rather than fixed by this change.
+ORPHANED_PENDING_FIX: dict[str, str] = {
+    "settings_view.py: history_cleared": (
+        "found 2026-09-05 verifying item 6 of "
+        "WORKORDER-everything-tunable-has-a-ui.md. Emitted at "
+        "settings_view.py:385 after the usage log is cleared; nothing "
+        "connects to it. Fixing it means adding a receiver in shell.py (or "
+        "removing the signal from settings_view.py), and both files are "
+        "outside this order's scope while the pages-reorg order is restructuring "
+        "settings_view.py - see the work order's note on item 6 for the owner "
+        "to pick up."
+    ),
+}
+
+
+def test_every_signal_a_settings_panel_declares_has_a_receiver():
+    """The generic form of the `rerank_toggled` / `cloud_toggled` bug.
+
+    Weak by design, like `test_every_control_writes_its_setting_somewhere`
+    above: it proves *something* connects to the signal somewhere in `app/ui`,
+    not that the right thing does. That is exactly the level of rigour that
+    would have caught both known cases - each was connected to nothing at all.
+    """
+    connected = _connect_targets_in(UI)
+    missing: list[str] = []
+    for relative in SETTINGS_PANEL_MODULES:
+        for name in sorted(_signals_declared_in(UI / relative)):
+            entry = f"{relative}: {name}"
+            if name not in connected and entry not in ORPHANED_PENDING_FIX:
+                missing.append(entry)
+    assert not missing, (
+        "these settings-panel signals are declared and emitted, but nothing "
+        "anywhere in app/ui calls .connect() on them - the exact shape of the "
+        "rerank_toggled/cloud_toggled bug:\n  " + "\n  ".join(missing)
+    )
+
+
+def test_the_pending_orphan_fix_is_dated_and_still_needed():
+    """An exemption nobody checks becomes permanent.
+
+    Two failure modes, both checked: a reason with no substance, and an entry
+    that was quietly fixed and should have been deleted rather than kept -
+    which would let a *real* new regression on the same signal hide behind an
+    old, satisfied promise.
+    """
+    connected = _connect_targets_in(UI)
+    for entry, reason in ORPHANED_PENDING_FIX.items():
+        assert len(reason) > 40, f"{entry} is exempt without a real reason"
+        _relative, _, name = entry.partition(": ")
+        assert name not in connected, (
+            f"{entry} is listed as pending a fix, but something now connects "
+            f"to {name} - delete the exemption, the promise has been kept"
+        )
+
+
+def test_the_orphaned_signal_detector_can_actually_fail(tmp_path: Path):
+    """Otherwise it passes on a broken detector forever."""
+    bait = tmp_path / "bait_panel.py"
+    bait.write_text(
+        "from PyQt6.QtCore import pyqtSignal\n"
+        "class Bait:\n"
+        "    orphaned_signal = pyqtSignal(bool)\n",
+        encoding="utf-8",
+    )
+    assert "orphaned_signal" in _signals_declared_in(bait)
+    assert "orphaned_signal" not in _connect_targets_in(tmp_path), (
+        "a fresh directory with no .connect() call must not report one")
