@@ -30,6 +30,20 @@ by cause, and so the next incremental pass can retry the ones worth retrying.
 is marked `INDEXED`. A crash between the two leaves a file that looks unfinished
 and gets redone - which is correct. The reverse would leave a file marked done
 with no chunks, invisible to search and never retried.
+
+**§6b: a feeder thread carries the embedding and the vector write.** The
+consumer still does everything up to the batch threshold itself - extraction
+results, the SQLite write - but past it hands the batch to a dedicated thread
+and moves straight on to gathering the next one, rather than blocking on the
+model and the Lance write itself. Batch N+1's chunks are written while batch
+N embeds: on a graphics card this is what keeps it fed, on a processor it
+overlaps the model with disk I/O instead of paying for the two in sequence.
+Two points still block on it deliberately, because §6b must not undo the M6
+fix: an archive's completion marker (vectors before marker) and the very end
+of a run (nothing may return claiming success before the last batch is
+actually written). One feeder thread, one batch at a time - nothing here has
+had to be safe against two concurrent writes into the vector store, and
+still does not.
 """
 
 from __future__ import annotations
@@ -559,6 +573,15 @@ class _Extracted:
 
 _STOP = object()
 
+#: How far the consumer may run ahead of the feeder thread, in whole batches
+#: waiting in the handoff queue. One: the feeder is always working on a batch
+#: the moment it has one, so this is not a throughput knob - a bigger number
+#: would only let more embedded-but-not-yet-confirmed batches queue up in
+#: memory for no more overlap than one slot already gives, since the consumer
+#: has nothing else to do until the next `embed_batch` chunks accumulate
+#: anyway.
+_FEEDER_QUEUE_SIZE = 1
+
 
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
@@ -655,6 +678,21 @@ class Pipeline:
         #: §6f: FTS trigger SQL for restoration after bulk insert. Stored here
         #: so _optimise_keyword_index can restore them at the end of the run.
         self._suspended_fts_triggers: list[str] = []
+        #: §6b. The handoff to the feeder thread, and what it has to say if a
+        #: batch fails. Built here, like `_clock`, so a `Pipeline` constructed
+        #: and never run still has both; `run()` replaces them with fresh ones
+        #: so a second run on the same instance never sees the first run's
+        #: leftover queue or error.
+        self._feeder_queue: "queue.Queue[Any]" = queue.Queue(maxsize=_FEEDER_QUEUE_SIZE)
+        #: Exceptions the feeder thread caught rather than let vanish. A list
+        #: rather than one slot: `_raise_if_feeder_failed` always re-raises the
+        #: *first* one, which is the one that actually explains what went
+        #: wrong - everything after it is the feeder thread already unwinding.
+        self._feeder_errors: list[BaseException] = []
+        #: Set in `run()` once the thread exists, so `_put_on_feeder` and
+        #: `_wait_for_feeder` can tell "still working" from "gone" - the
+        #: difference between waiting and giving up.
+        self._feeder_thread: Optional[threading.Thread] = None
 
     def _on_throttle(self, found: Verdict) -> None:
         """Remember the last throttle so progress can say why it went quiet.
@@ -687,6 +725,10 @@ class Pipeline:
         # otherwise report the first one's stages added to the second's, and
         # the number nobody can act on is a total over two different corpora.
         self._clock = StageClock()
+        # §6b: likewise a fresh handoff per run, for the same reason - a
+        # second run must not inherit a queue or an error from the first.
+        self._feeder_queue = queue.Queue(maxsize=_FEEDER_QUEUE_SIZE)
+        self._feeder_errors = []
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
         self._run_started_wall = time.time()
@@ -755,10 +797,17 @@ class Pipeline:
                              name=f"extract-{i}", daemon=True)
             for i in range(self.config.worker_count())
         ]
+        # §6b: started alongside extraction, not inside `_consume`, for the
+        # same reason the extraction workers are started here rather than in
+        # `_produce` - thread lifecycle belongs at the one place that tears
+        # every thread down again, in `finally` below.
+        feeder = threading.Thread(target=self._feed_worker, name="feeder", daemon=True)
+        self._feeder_thread = feeder
 
         producer.start()
         for worker in workers:
             worker.start()
+        feeder.start()
 
         try:
             self._consume(results, workers, stats, on_progress)
@@ -769,6 +818,13 @@ class Pipeline:
             producer.join(timeout=5)
             for worker in workers:
                 worker.join(timeout=5)
+            # **After** the extraction threads, never before: `_consume`'s own
+            # final flush (`_feed_sync`) already waited for every batch it
+            # handed off, whether it returned normally, was stopped, or
+            # raised - so by the time we get here the feeder is idle or has
+            # already ended itself having recorded the error. This only has
+            # to ask it to stop.
+            self._stop_feeder(feeder)
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -1947,9 +2003,14 @@ class Pipeline:
                 #
                 # Flushing first costs one early batch per archive and closes
                 # the window: the marker is written after the vectors exist.
-                if pending_vectors:
-                    self._embed_pending(pending_vectors)
-                    pending_vectors = []
+                #
+                # §6b: a **blocking** flush, always - even when `pending_vectors`
+                # is empty here. The batch that would close this archive's
+                # window may already have been handed to the feeder thread
+                # asynchronously, a `_write_one` or two ago, and not yet be
+                # written; only `_feed_sync`'s queue join knows that, not the
+                # emptiness of this local list.
+                self._feed_sync(pending_vectors)
                 self._write_marker(item)
                 continue
 
@@ -1975,7 +2036,10 @@ class Pipeline:
 
 
             if len(pending_vectors) >= self.config.embed_batch:
-                self._embed_pending(pending_vectors)
+                # §6b: handed off, not embedded here - the consumer moves
+                # straight on to the next batch while the feeder thread does
+                # this one. See `_feed_async`, and the module docstring.
+                self._feed_async(pending_vectors)
 
             since_checkpoint += 1
             now = time.monotonic()
@@ -1991,7 +2055,8 @@ class Pipeline:
                 # SQLite, and `on_progress` is the caller's - the CLI's version
                 # prints a *filename* to a Windows console, so one path outside
                 # cp1252 was a `UnicodeEncodeError` that escaped `_consume`
-                # before the final `_embed_pending`. The whole pending batch was
+                # before the final `_embed_pending` (now `_feed_sync`, §6b -
+                # the guarantee is unchanged). The whole pending batch was
                 # then lost, chunks committed and vectors never written, over a
                 # character in a filename.
                 #
@@ -2013,7 +2078,12 @@ class Pipeline:
         # above may have left up to `embed_batch` passages committed to SQLite
         # with no vector; this is the only thing that resolves them, so it runs
         # before the last progress call rather than after it.
-        self._embed_pending(pending_vectors)
+        #
+        # §6b: **blocking**, deliberately - `run()` must not report success
+        # while the feeder thread is still writing the last batch, and an
+        # embed failure here must still end the run the way it always has.
+        # `_feed_sync` waits for the feeder and re-raises whatever it caught.
+        self._feed_sync(pending_vectors)
         if on_progress is not None:
             try:
                 on_progress(stats)
@@ -2030,6 +2100,149 @@ class Pipeline:
         warm = getattr(self.embedder, "warm_up", None)
         if callable(warm):
             warm()
+
+    # -- §6b: the feeder thread ----------------------------------------------
+
+    def _feed_worker(self) -> None:
+        r"""Embed and write, off the consumer's own thread.
+
+        One batch at a time, in the order the consumer handed them over:
+        `_embed_pending` is unchanged by this split and is not safe against
+        two concurrent calls - it would mean two concurrent vector-store
+        writes and two concurrent `mark_indexed_many` batches - so this loop
+        is the thing that keeps it to one at a time, not `_embed_pending`
+        itself.
+
+        Never lets an exception past itself. It is remembered instead, and
+        `_raise_if_feeder_failed` re-raises it on the thread a caller is
+        actually watching (`_feed_sync`, or the next `_feed_async`) - which
+        is the only way a batch that fails to embed still ends the run
+        loudly, exactly as it did before this thread existed. The loop then
+        stops rather than silently discarding every batch still behind the
+        one that failed.
+        """
+        while True:
+            batch = self._feeder_queue.get()
+            if batch is _STOP:
+                self._feeder_queue.task_done()
+                return
+            try:
+                self._embed_pending(batch)
+            except BaseException as exc:              # noqa: BLE001 - reraised, not lost
+                self._feeder_errors.append(exc)
+                self._feeder_queue.task_done()
+                return
+            self._feeder_queue.task_done()
+
+    def _raise_if_feeder_failed(self) -> None:
+        """The feeder's exception, on the caller's own thread - or nothing.
+
+        Always the *first* recorded exception: everything the feeder thread
+        catches after it is the same thread already unwinding, not a second,
+        independent fault worth reporting instead.
+        """
+        if self._feeder_errors:
+            raise self._feeder_errors[0]
+
+    def _put_on_feeder(self, batch: list[tuple[int, int, str]]) -> None:
+        """Hand one batch to the feeder queue, without blocking for ever.
+
+        A plain `put()` would hang if the feeder thread had already ended
+        after an earlier error - nobody is left to call `get()`. Polling with
+        a short timeout instead means a failed feeder is noticed and raised
+        within a fraction of a second rather than freezing the run.
+
+        **Also gives up if the thread has simply ended**, error or not. The
+        only way that happens mid-run is the error path - `_STOP` is never
+        sent until `run()`'s teardown, after the last `_feed_sync` - so this
+        is belt and braces against exactly the deadlock a plain `put()` would
+        risk: a batch sitting in the queue for ever with nobody left to call
+        `get()` on it.
+        """
+        while True:
+            self._raise_if_feeder_failed()
+            if self._feeder_thread is not None and not self._feeder_thread.is_alive():
+                return
+            try:
+                self._feeder_queue.put(batch, timeout=0.5)
+                return
+            except queue.Full:
+                continue
+
+    def _feed_async(self, pending: list[tuple[int, int, str]]) -> None:
+        r"""Hand a full batch to the feeder thread and move straight on.
+
+        **The overlap §6b exists for.** `pending` is emptied here, in place,
+        so the caller keeps the same list object and starts gathering the
+        next batch immediately - while this one embeds and writes on the
+        feeder thread instead of blocking the consumer.
+        """
+        self._raise_if_feeder_failed()
+        if not pending:
+            return
+        batch = list(pending)
+        pending.clear()
+        self._put_on_feeder(batch)
+
+    def _feed_sync(self, pending: list[tuple[int, int, str]]) -> None:
+        r"""Hand off whatever remains, then wait until it is actually written.
+
+        **The two points that must not race the feeder thread.** Before an
+        archive's completion marker - the M6 ordering, vectors before marker,
+        does not survive an embed that is still in flight when the marker is
+        written - and at the very end of a run, where nothing may report
+        success before the last batch's vectors exist. Both call this whether
+        or not `pending` itself is empty: a marker can follow a batch that was
+        already handed off asynchronously and has not finished yet, and only
+        the queue join - not the local list - knows that.
+        """
+        self._raise_if_feeder_failed()
+        if pending:
+            batch = list(pending)
+            pending.clear()
+            self._put_on_feeder(batch)
+        self._wait_for_feeder()
+        self._raise_if_feeder_failed()
+
+    def _wait_for_feeder(self) -> None:
+        r"""Block until every batch handed to the feeder has actually finished.
+
+        **Not a plain `Queue.join()`.** If the feeder thread has already died
+        after recording an error, nothing will ever call `task_done()` for
+        whatever else was still queued behind the batch that failed - a
+        `Queue` has no way to know its only reader is gone - and a plain
+        `join()` would then wait for ever for a thread that is not coming
+        back. Polling instead means a dead feeder is noticed directly, rather
+        than inferred from a hang.
+
+        `unfinished_tasks` is read without the queue's own lock, which is
+        exactly right for a poll: a value one increment stale for a moment
+        only delays noticing "finished" by one more iteration of this loop,
+        never produces a wrong answer.
+        """
+        while self._feeder_queue.unfinished_tasks > 0:
+            if self._feeder_errors:
+                return
+            if self._feeder_thread is not None and not self._feeder_thread.is_alive():
+                return
+            time.sleep(0.01)
+
+    def _stop_feeder(self, feeder: threading.Thread) -> None:
+        r"""Let the feeder thread end.
+
+        Called from `run()`'s `finally`, after `_consume` has already waited
+        (via `_feed_sync`) for every batch it handed off - so by the time
+        this runs the feeder is idle on an empty queue, or has already ended
+        itself having recorded an error. Either way this only has to ask it
+        to stop, and not wait for ever if something has gone wrong enough
+        that it does not.
+        """
+        if feeder.is_alive():
+            try:
+                self._feeder_queue.put(_STOP, timeout=5)
+            except queue.Full:
+                pass
+        feeder.join(timeout=30)
 
     def _maybe_summarise(self, stats: IndexStats, *, now: float) -> None:
         r"""One line a day in the run log, on a run measured in days.

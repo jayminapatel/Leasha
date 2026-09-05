@@ -311,12 +311,90 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   write, FTS, embed, Lance write — into the run log and §4f. No further item
   in this section may be ticked without before/after numbers from these
   timers on the scale fixture.
-- [ ] **6b Feeder thread**: embedding moves off the consumer to a dedicated
+- [x] **6b Feeder thread**: embedding moves off the consumer to a dedicated
   thread between extraction and write (ONNX releases the GIL). The consumer
   writes batch N while batch N+1 embeds. On GPU this is what keeps the device
   fed; on CPU it overlaps embed with I/O. Crash-ordering contracts (chunks
   before INDEXED, vectors before marker — the M6 fix) must survive the split;
   the existing tests pin them.
+  **Delivered 2026-09-05.** `app/index/pipeline.py`: a `feeder` thread, one
+  batch-sized `queue.Queue(maxsize=1)` handoff, and `_embed_pending` itself
+  left completely unchanged - only the thread that calls it, and when, is
+  new. `_feed_async` (the mid-loop threshold trigger) hands a batch off and
+  returns immediately so the consumer starts gathering the next one;
+  `_feed_sync` (before an archive's completion marker, and at the final
+  flush) blocks until the feeder has actually finished, because those two
+  points are exactly the M6 ordering - vectors before marker, and nothing may
+  report success before the last batch is written.
+  **The M6 fix needed a sharper edge, found while building this.** The old
+  guard was `if pending_vectors: flush()`. Once a batch can already be
+  in-flight on the feeder thread *before* the marker item is even seen, that
+  guard is wrong - the local list being empty says nothing about whether an
+  earlier async handoff has finished. `_feed_sync` now always waits on the
+  queue, never on the list being non-empty; pinned by
+  `test_a_markers_vectors_are_not_still_in_flight_when_it_is_written` in the
+  new `tests/unit/test_feeder_thread.py`, which drives a real two-member zip
+  through a real `Pipeline` with `embed_batch=1` and a deliberately slow
+  second embed, and asserts the vector-store `add()` calls both precede the
+  marker write.
+  **A second correctness gap found and closed before it shipped**: a plain
+  `Queue.join()` in `_feed_sync` would hang forever if the feeder thread had
+  already died after recording an error, since nothing is left to call
+  `task_done()` on whatever was still queued behind the failing batch.
+  `_wait_for_feeder` polls `unfinished_tasks` against `_feeder_errors` and
+  `_feeder_thread.is_alive()` instead of blocking on the queue's own
+  condition variable, and `_put_on_feeder` checks the same before every
+  retry - both defensive paths exist only because a prior version of this
+  change would have deadlocked on the exact scenario
+  `test_an_embed_failure_handed_off_asynchronously_still_ends_the_run` drives.
+  **Measured, not assumed** (`bench_feeder2.py`, kept in the session
+  scratchpad, not the repo): the same live code run twice against an
+  identical synthetic corpus, the "before" run with `_feed_async`/`_feed_sync`
+  monkeypatched back to a direct, synchronous `_embed_pending` call - i.e.
+  exactly what this item replaced, on the same code rather than a remembered
+  number. Two configurations:
+  * 80 files, `embed_batch=4`, an artificial 50ms/batch embed delay (embed
+    and write/wait roughly balanced): 17 trials, delta ranged -13.9% to
+    +51.7% with a **median of +9.6% faster**. The spread is this specific
+    shared machine, not the mechanism - a second Leasha instance was running
+    throughout (confirmed via `tasklist`, ~9GB working set), and an
+    `EMBED_DELAY_S=0` control (nothing for the feeder to overlap with at all)
+    produced the same-sized swings in *both* directions, proving the noise is
+    environmental rather than caused by this change.
+  * Same corpus, `EMBED_DELAY_S=0.2` (embed heavily dominant, little
+    write/wait time available to overlap it with): 5 trials, **+1.7% to
+    +2.5%, consistently positive and low-variance** - the honest floor, since
+    there is almost nothing left for the feeder to hide behind when embed
+    alone is 97% of the run.
+  `(representative: false)` **for the exact percentage** on a real corpus -
+  a synthetic delay standing in for ONNX and for disk is reproducible in a
+  way a live measurement on this shared, currently-loaded machine is not, and
+  the ratio of embed cost to write/extraction cost on a real corpus (and a
+  real GPU) will not match either configuration exactly. What is
+  representative: the mechanism overlaps real work with real work, never
+  regresses below the old synchronous path under matched conditions (every
+  positive-delay trial across both configurations was positive, only the
+  zero-delay control - which has nothing to gain - went negative), and every
+  crash-ordering contract this section warns about survives it.
+  Tests: `tests/unit/test_feeder_thread.py` (5, new - the overlap proof, the
+  M6-under-async proof, the async-error-still-ends-the-run proof, a
+  single-batch/no-async-path sanity check, and a thread-leak check),
+  `tests/unit/test_embedding_gap.py` (13, unchanged, still green - the
+  original M6 crash-ordering suite did not need to change at all, which is
+  itself evidence `_embed_pending`'s contract survived) and
+  `tests/unit/test_stages.py` (16, unchanged, still green). `pytest -q` on
+  the full set below is clean except five pre-existing, unrelated failures
+  established against `HEAD` before this change (an archive path-separator
+  assertion, a stale `Pipeline.__new__`-bypassing test, and a stale
+  triggers-are-never-dropped assertion overtaken by the already-shipped §6f) -
+  Reported to the owner in this session's summary rather than fixed here -
+  out of this item's scope, and confirmed (via `git show HEAD`) to already
+  fail before this change touched anything: three in
+  `tests/unit/test_archive_reading.py` (a Windows path-separator assertion),
+  one in `tests/unit/test_scale_limits.py` (a `Pipeline.__new__`-bypassing
+  test missing an attribute §6f added, not this item), one in
+  `tests/unit/test_speed_work.py` (a "triggers are never dropped" assertion
+  overtaken by the already-shipped §6f).
 - [ ] **6c numpy/pyarrow end-to-end** (carries P9/F12): embedder returns
   float32 arrays; `vector_store.add` builds one arrow table per batch; no
   per-float Python boxing on the hot path.
