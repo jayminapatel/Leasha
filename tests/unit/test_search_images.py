@@ -182,3 +182,85 @@ def test_hydrate_images_drops_a_hit_whose_file_is_gone() -> None:
 
 def test_hydrate_images_of_an_empty_list_is_empty() -> None:
     assert vector_search.hydrate_images(object(), []) == []
+
+
+def test_hydrate_images_carries_the_phash_through() -> None:
+    """Work order 0h §2a/§2b: `phash` has to survive `hydrate_images` the
+    same way `content_hash` already does, so folding and reverse-image
+    search can read it off a hydrated hit."""
+    class FakeConn:
+        def execute(self, sql, ids):
+            rows = [
+                {"file_id": 7, "path": r"D:\Photos\bday.jpg", "ext": "jpg",
+                 "mtime_ns": 0, "content_hash": None, "phash": "abc123abc123abc1"},
+            ]
+            return _Cursor([r for r in rows if r["file_id"] in ids])
+
+    class _Cursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+    class FakeStore:
+        conn = FakeConn()
+
+    hits = [{"chunk_id": "img:7", "file_id": 7, "distance": 0.02}]
+    hydrated = vector_search.hydrate_images(FakeStore(), hits)
+
+    assert hydrated[0]["phash"] == "abc123abc123abc1"
+
+
+# --- work order 0h §2c: reverse image search ---------------------------------
+
+
+def test_search_by_image_embeds_the_photo_not_a_string() -> None:
+    embedder = FakeClipTextEmbedder()
+    store = FakeImageVectorStore([{"chunk_id": 5, "file_id": 5, "distance": 0.01}])
+
+    vector_search.search_by_image(store, embedder, r"D:\Photos\query.jpg")
+
+    assert embedder.calls == [r"D:\Photos\query.jpg"]
+
+
+def test_search_by_image_namespaces_the_chunk_id() -> None:
+    """Same collision-avoidance reasoning as `search_images` - the query
+    changed shape, the fusion hazard did not."""
+    embedder = FakeClipTextEmbedder()
+    store = FakeImageVectorStore([{"chunk_id": 9, "file_id": 9, "distance": 0.03}])
+
+    hits = vector_search.search_by_image(store, embedder, "query.jpg")
+
+    assert hits[0]["chunk_id"] == "img:9"
+    assert hits[0]["file_id"] == 9
+
+
+def test_search_by_image_returns_nothing_when_either_argument_is_none() -> None:
+    store = FakeImageVectorStore([{"chunk_id": 1, "file_id": 1, "distance": 0.1}])
+    assert vector_search.search_by_image(None, FakeClipTextEmbedder(), "q.jpg") == []
+    assert vector_search.search_by_image(store, None, "q.jpg") == []
+
+
+def test_search_by_image_degrades_with_a_notice_on_a_broken_embedder() -> None:
+    store = FakeImageVectorStore([{"chunk_id": 1, "file_id": 1, "distance": 0.1}])
+    problems: list[str] = []
+
+    hits = vector_search.search_by_image(
+        store, ExplodingEmbedder(), "q.jpg", problems=problems)
+
+    assert hits == []
+    assert problems, "a broken lane must leave a notice, not fail silently"
+
+
+def test_search_by_image_degrades_with_a_notice_on_a_broken_store() -> None:
+    class ExplodingStore:
+        def search(self, vector, *, k=100, where=None):
+            raise RuntimeError("LanceDB is unavailable")
+
+    problems: list[str] = []
+    hits = vector_search.search_by_image(
+        ExplodingStore(), FakeClipTextEmbedder(), "q.jpg", problems=problems)
+
+    assert hits == []
+    assert problems

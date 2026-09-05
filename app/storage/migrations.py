@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 16
+CURRENT_VERSION = 17
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -865,6 +865,51 @@ def _v16_chunk_label(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN label TEXT")
 
 
+def _v17_image_phash(conn: sqlite3.Connection) -> None:
+    r"""`files.phash` — a perceptual hash for photos. Work order 0h §2a.
+
+    **Lives beside `content_hash`, not in the image-vector LanceDB table -
+    a genuine design decision, made here rather than guessed at.** The work
+    order left the storage location open ("a new SQLite column ... or a new
+    LanceDB column"). `files` already carries every other per-file scalar a
+    photo has - `content_hash`, `ext`, `mtime_ns` - and `app/search/
+    folding.py`'s existing copy-fold already reads `content_hash` straight
+    off a hydrated `SearchResult` for exactly the same purpose this column
+    exists for: telling two rows apart as "the same picture". A perceptual
+    hash is a natural extension of that same fact, not a new one - it
+    belongs where the fact it is closest to already lives.
+
+    It is also **not** derived from a CLIP forward pass and has nothing to
+    do with the embedding model - `imagehash.phash` is a DCT over the
+    pixels, independent of `ClipImageEmbedder` entirely (see
+    `app/index/phash.py`) - so there is no argument from "it is written in
+    the same pass as the vector" that it belongs in that vector's own table.
+    `vector_store.py`'s own opening comment calls that table "DERIVED...
+    regenerated from SQLite" - conceptually the wrong shelf for a fact that
+    is not derived from anything else stored here, SQLite included.
+
+    Additive and nullable, so an index built before this migration keeps
+    every row and simply has no pHash until the next images pass touches
+    each file - the same degradation `_v16_chunk_label` already accepts for
+    `label`. Written by `Pipeline._maybe_compute_phash`
+    (`app/index/pipeline.py`), batched through `SqliteStore.set_phashes` the
+    same way the CLIP vector flush already batches - see that method's
+    docstring for the H7-shaped reasoning.
+
+    The partial index mirrors `idx_files_skip`'s shape (`WHERE skip_code IS
+    NOT NULL`): most rows will have no pHash for a long time after this
+    migration runs on an existing index, and an index entry for a NULL that
+    can never be searched for is pure write cost with no reader.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "phash" not in existing:
+        conn.execute("ALTER TABLE files ADD COLUMN phash TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_phash ON files(phash) "
+        "WHERE phash IS NOT NULL"
+    )
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -892,6 +937,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     14: _v14_folded_mail_columns,
     15: _v15_saved_searches,
     16: _v16_chunk_label,
+    17: _v17_image_phash,
 }
 
 

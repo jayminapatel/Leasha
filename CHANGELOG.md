@@ -45,6 +45,42 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   the new notice code had no plain-English form for the everyday search tab
   - both caught by the existing test suite before landing, not after.
 
+### Leasha can now tell when two photos are the same picture, even when the bytes differ
+
+- Every photo now gets a perceptual fingerprint alongside its CLIP vector,
+  computed during the same images pass - free of charge for anything that
+  already went through the OCR ladder. Unlike an exact byte match, this
+  survives a recompression, a resize, or a re-save: a WhatsApp-compressed
+  copy of a photo and its full-resolution original still read as the same
+  picture, which a byte-for-byte comparison could never say. Work order 0h
+  §2a.
+- **Near-identical photos now fold into one row**, the same way older
+  versions of a document already do - newest shown, "N similar photos" one
+  click away. A burst of near-duplicate shots, or the same photo indexed
+  twice from two different drives, no longer clutters a results page with
+  several rows that are really one photo. Work order 0h §2b.
+- **Drop or paste a photo into the search box and find it** - and its
+  relatives - in the index. A result says plainly whether it is *this exact
+  photo* or merely *similar*, so a degraded copy someone was sent can be
+  traced straight back to wherever the full-resolution original actually
+  lives. Work order 0h §2c.
+- **"More like this" now has a working backend for photo results too** -
+  the same right-click action for a passage now has something real to call
+  for a photo row as well, not only a passage. The menu item and its
+  wiring are separate UI work; this is what makes it answer correctly once
+  wired to it.
+- **Two gaps, named rather than left to be rediscovered**: reverse image
+  search (§2c) needs a CLIP vision-tower model at the point a real search
+  is built, and that wiring has not landed in `app/main.py` or `app/cli.py`
+  yet - the backend works, proven against real recompressed photos, but
+  nobody typing into a real window or running a real command can reach it
+  today. And the right-click "more like this" menu action does not yet
+  route a photo row to its new backend - a small, separate UI change, not
+  yet made.
+- `imagehash`, this feature's one new dependency, was checked before use
+  and turned out not to already be installed, despite an earlier note
+  saying otherwise - installed and pinned rather than assumed.
+
 ### CLIP image embedding now uses the graphics card when one is usable, the processor otherwise
 
 - `ClipImageEmbedder` (the image-vector lane, work order 0h §1) gained the
