@@ -47,6 +47,21 @@ BRAND_STRIPE_BLUE = "#0778D9"
 BRAND_STRIPE_ORANGE = "#FF9933"
 BRAND_TEXT_FAINT = "#9b95c4"
 
+#: §1b: how long the closing fade takes. Not a number from §0 (which only
+#: says "a quick fade") - chosen short enough that a fast, cache-warm start
+#: still hands over to the window promptly.
+_FADE_DURATION_S = 0.25
+
+#: Tick length for the event-pumped waits below (minimum hold and fade).
+#: Short enough that the fade still looks like a ramp, not steps.
+_WAIT_TICK_S = 0.02
+
+#: Defensive ceiling on top of whatever `_minimum_hold_time` computes to -
+#: a clock anomaly must never turn "wait out the hold" into a hang. By the
+#: time `main.py` calls `hide_and_close()` the real window is already
+#: showing underneath (H4: splash is cosmetic), but tests call it directly.
+_MAX_HOLD_WAIT_S = 5.0
+
 # Status lines, translated to plain words
 STATUS_MESSAGES = {
     "startup": "Starting Leasha…",
@@ -193,25 +208,74 @@ class SplashScreen:
         self._minimum_hold_time = time.time() + 1.2
 
     def hide_and_close(self) -> None:
-        """Fade and close the splash (called when the main window shows).
+        """Wait out the minimum hold, fade, then close (§1b).
 
-        **Nothing called this.** `main.py` showed the splash, reported
-        progress through it, and then simply moved on to `application.exec()`
-        without ever telling the splash to go away - so it sat on screen,
-        rotating cases forever, for the entire life of the process. That is
-        the bug this method's caller (in `main.py`) now fixes.
+        Called once, when the main window is ready to take over.
 
-        Closes immediately, synchronously - `test_splash_shows` asserts
-        `isVisible()` is `False` right after this call returns, and deferring
-        the close (to honour the documented minimum hold) would make that
-        assertion race a timer instead. In practice the minimum hold is never
-        at risk: `main.py` only calls this after the embedding model, the
-        reranker and the window itself have all loaded, which alone takes
-        several seconds - far past the 1.2s a fast, cache-warm startup would
-        need protecting against.
+        **Minimum hold, now actually enforced.** `_minimum_hold_time` used to
+        be set in `__init__`/`show()` and never read again - `close()` ran
+        immediately regardless, so nothing in the code actually delayed
+        anything on it, despite the class docstring's claim. This waits out
+        whatever is left of that deadline first, by *pumping* the event loop
+        (`QCoreApplication.processEvents()` between short sleeps) rather than
+        blocking it - the same responsive-wait technique
+        `_acquire_gui_lock_responsively` in `main.py` uses for §2c, so the
+        case-rotation timer and any repaint keep running for the whole wait
+        instead of freezing on whatever was painted last.
+
+        **This delays only the hand-off, never the work.** `main.py` only
+        reaches this call after warm-up has finished and `window.show()` has
+        already run - the window is already showing underneath the splash by
+        the time this method does anything, so waiting here holds the splash
+        on screen a little longer, not startup itself.
+
+        **Then a real fade** (§0.7's "a quick fade"): `windowOpacity` ramps
+        from 1.0 to 0.0 over `_FADE_DURATION_S`, pumped the same way - there
+        was no fade at all before this ("A fade animation can be added
+        later," read the old comment here).
+
+        **H4: guarded.** Both the hold-wait and the fade run inside their own
+        `try/except` so a failure in either (an exception mid-loop, a widget
+        already torn down under a test) still reaches `self.widget.close()`
+        at the end - splash behaviour must never be the reason startup
+        doesn't finish.
         """
-        # For now, just close it. A fade animation can be added later.
+        try:
+            self._wait_out_minimum_hold()
+        except Exception:                      # noqa: BLE001 - see H4 above
+            pass
+        try:
+            self._fade_out()
+        except Exception:                      # noqa: BLE001 - see H4 above
+            pass
         self.widget.close()
+
+    def _wait_out_minimum_hold(self) -> None:
+        """Pump events until `_minimum_hold_time`, capped defensively."""
+        from PyQt6.QtCore import QCoreApplication
+
+        application = QCoreApplication.instance()
+        deadline = min(self._minimum_hold_time, time.time() + _MAX_HOLD_WAIT_S)
+        while time.time() < deadline:
+            if application is not None:
+                application.processEvents()
+            time.sleep(_WAIT_TICK_S)
+
+    def _fade_out(self) -> None:
+        """Ramp `windowOpacity` from 1.0 to 0.0, pumping events as it goes."""
+        from PyQt6.QtCore import QCoreApplication
+
+        application = QCoreApplication.instance()
+        start = time.time()
+        while True:
+            elapsed = time.time() - start
+            if elapsed >= _FADE_DURATION_S:
+                break
+            self.widget.setWindowOpacity(max(0.0, 1.0 - elapsed / _FADE_DURATION_S))
+            if application is not None:
+                application.processEvents()
+            time.sleep(_WAIT_TICK_S)
+        self.widget.setWindowOpacity(0.0)
 
     def report_progress(
         self,

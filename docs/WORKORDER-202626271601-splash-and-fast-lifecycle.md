@@ -95,7 +95,7 @@ The owner chose this on a live mock; implement it faithfully.
   > `tests/unit/test_splash.py` and `tests/unit/test_exit_placement.py`
   > (17/17 green) and confirming the new call appears in a live run's status
   > sequence.
-- [ ] **1b** rotation/fade timers live on the splash and run through every
+- [x] **1b** rotation/fade timers live on the splash and run through every
   moment (normal, first-run download, handover wait) per §0.4; the
   minimum-hold logic delays the handover to the main window, never the
   work itself (startup continues underneath; only the fade waits).
@@ -117,6 +117,33 @@ The owner chose this on a live mock; implement it faithfully.
   > so it's left here rather than guessed at. §0's "do not redesign" also
   > argues for leaving the previous session's considered synchronous-close
   > decision alone rather than overriding it unilaterally.
+  >
+  > **Ticked 2026-09-05, a later session (Order 0r, items 1b/1c).** Both
+  > gaps closed in `app/ui/splash.py`. `hide_and_close()` now calls
+  > `_wait_out_minimum_hold()` (pumps `QCoreApplication.processEvents()`
+  > between short sleeps until `_minimum_hold_time`, capped defensively at
+  > `_MAX_HOLD_WAIT_S` against a clock anomaly) before `_fade_out()` (ramps
+  > `windowOpacity` 1.0→0.0 over `_FADE_DURATION_S`, pumped the same way).
+  > Pumping rather than blocking means the case-rotation `QTimer` and any
+  > repaint keep running for the whole wait, the same technique
+  > `_acquire_gui_lock_responsively` in `app/main.py` already uses for §2c.
+  > This delays only the hand-off, not the work: `main.py`'s only call site
+  > reaches `hide_and_close()` after warm-up has finished and `window.show()`
+  > has already run, so the window is already showing underneath the splash
+  > before either wait begins. Both waits are wrapped in their own
+  > `try/except` so a failure in either still reaches `self.widget.close()`
+  > — H4: splash behaviour must never be the reason startup doesn't finish.
+  > `test_minimum_hold_timing` (previously vacuous — it set the field and
+  > asserted elapsed time was small, without ever calling `hide_and_close()`
+  > at the boundary, per the 2026-09-04 note in §4) now actually calls
+  > `hide_and_close()` and asserts real elapsed time against the remaining
+  > hold; two new tests (`test_hide_and_close_fades_opacity_to_zero`,
+  > `test_hide_and_close_still_closes_if_fade_raises`) cover the fade and
+  > the H4 guard respectively. `test_splash_shows` now satisfies the hold up
+  > front (`splash._minimum_hold_time = time.time()`) so it stays a fast
+  > visibility check rather than racing the real wait. All 16 tests in
+  > `tests/unit/test_splash.py` pass (`2.72s` total — the two timing tests
+  > that deliberately wait cost `0.65s`/`0.32s` of that).
 - [ ] **1c** first-run: when the model cache is missing, warm-up's
   download progress (fastembed reports bytes) streams to the splash bar;
   if the window is already up when a download starts (cache emptied
@@ -129,6 +156,48 @@ The owner chose this on a live mock; implement it faithfully.
   > numeric value — only plain status strings. `app/index/embedder.py` was
   > outside this session's file-touch scope, so it's flagged for follow-up
   > (`task_80d1a1e8`) rather than fixed here.
+  >
+  > **2026-09-05, a later session (Order 0r, items 1b/1c). Still NOT
+  > ticked — first clause done, second clause genuinely missing and out of
+  > this session's file scope.** Checked live against this branch (off
+  > `main`), not assumed: `git log --oneline -- app/index/embedder.py`
+  > shows `f9a5982` ("Order 0r item 1c: wire fastembed's download progress
+  > through to the splash") already merged. Reading it confirms the first
+  > clause — `Embedder` gained an `on_progress` parameter, threaded through
+  > `from_settings` via its existing `**overrides`; `_DownloadProgressWatcher`
+  > polls the model cache directory's growth on a daemon thread (fastembed's
+  > own `TextEmbedding.__init__` drops any progress kwarg before it would
+  > reach `huggingface_hub`'s `tqdm_class`, confirmed by reading fastembed's
+  > source, so this measures from the outside instead); `app/main.py`
+  > passes `on_progress=lambda pct: status_reporter(get_splash_status_text
+  > ("model_download"), pct)` into `Embedder.from_settings(...)` at the
+  > warm-up call site. Every `on_progress` call is guarded
+  > (`except Exception: pass`), matching H4. This is the splash-bar half of
+  > 1c, and it is done.
+  >
+  > **The second clause is not.** Grepped `app/search/vector.py`'s
+  > `clip_text_embedder_from_settings` (the CLIP text-tower embedder every
+  > `SearchEngine` image-search call site builds): it constructs a plain
+  > `Embedder` with no `on_progress` at all. Per `app/search/engine.py`'s own
+  > comments (work order 0h §1c, ~line 465), this embedder is deliberately
+  > lazy — it does not load or download until the first image search reaches
+  > `vector.search_images`, which runs long after the splash has closed and
+  > the window is showing. If the model cache is emptied mid-life (moved
+  > index, re-staged data directory) and an image search is the thing that
+  > next tries to load it, fastembed redownloads with zero progress feedback
+  > anywhere: no splash (correctly — there should be no second splash), but
+  > nothing routes to the window's status bar either (`self.statusBar()` in
+  > `app/ui/shell.py` — the "notices bar" this item's text means; confirmed
+  > by grep, ~20 existing `self.statusBar().showMessage(...)` call sites,
+  > none reachable from a progress callback). Closing this needs
+  > `app/search/vector.py` (thread `on_progress` through
+  > `clip_text_embedder_from_settings` and `search_images`),
+  > `app/search/engine.py` (a seam for `SearchEngine` to reach a status
+  > callback), and `app/ui/shell.py` (wire it to `statusBar().showMessage`)
+  > — three files this session's scope names as out of bounds
+  > (`app/ui/shell.py` explicitly; `app/index/embedder.py`'s core logic only
+  > for a small, obviously-safe addition, and this is neither small nor in
+  > that file). Flagged as `task_f2f225f6` rather than guessed at here.
 - [x] **1d** the white-wordmark derivation of §0.2, cached beside the
   asset; a test asserts the derived image differs from the source only in
   the navy-family pixels.
