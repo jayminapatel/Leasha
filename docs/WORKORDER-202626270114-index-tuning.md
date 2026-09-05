@@ -121,9 +121,25 @@ profile snippet on it (or `doctor` once 1b exists).
   with a notice on any failure** — the H4 discipline exactly: degrade loudly,
   never crash, never silently. `gpu` on a machine without one is refused at
   the control (greyed, with the reason shown), not at runtime.
-- [ ] **2c** (Install) `onnxruntime-directml` is an optional extra:
+- [x] **2c** (Install) `onnxruntime-directml` is an optional extra:
   `run-install.cmd` asks its one additional question only when a DX12 adapter
   is detected. It ships the CPU provider too, so one wheel serves both modes.
+  **Verified 2026-09-05:** already shipped in commit `1b2ce2f` ("Installer:
+  optional DirectML GPU detection"). `install.ps1` asks "Install the GPU
+  support? [y/N]" only when a video controller is present (the same
+  `Win32_VideoController` proxy `compute_profile.py` uses for "DX12 adapter" -
+  neither checks an actual feature-level number) **and** DirectML is not
+  already available in the current `onnxruntime`; skipped entirely on a
+  machine with no adapter or where it already works. `run-install.cmd` is a
+  thin wrapper (parse-check, then `install.ps1 %*`) - the question lives in
+  the script it calls, which is where every other installer question in this
+  file already lives, so nothing needed to move. `onnxruntime-directml` is one
+  wheel carrying both the CPU and DML execution providers, so CPU keeps
+  working whether or not the optional install is accepted; the base install
+  already pulls plain `onnxruntime` in via `rapidocr-onnxruntime` regardless.
+  `scripts\parse-check.ps1` re-run clean against `install.ps1` (3174 tokens,
+  UTF-8 BOM, 0 non-ASCII besides the file's existing em-dashes) - no code
+  change made, none needed.
 - [x] **2d** vectors from different providers may coexist in one index; a
   fingerprint change does not invalidate embeddings. Assert dimension equality
   and record the provider per run in the run log — nothing else.
