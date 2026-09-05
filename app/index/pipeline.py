@@ -64,6 +64,7 @@ from app.extract.base import reads_externally
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
+from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
@@ -78,7 +79,7 @@ from app.index.walker import (
     walk,
 )
 from app.storage.sqlite_store import FileStatus, SqliteStore
-from app.storage.vector_store import VectorStore
+from app.storage.vector_store import ImageVectorStore, VectorStore
 
 class _Unchanged:
     """The "skip this file" answer from `_classify`.
@@ -618,11 +619,24 @@ class Pipeline:
         embedder: Embedder,
         config: PipelineConfig,
         governor: Optional[ResourceGovernor] = None,
+        *,
+        image_embedder: Optional[ClipImageEmbedder] = None,
+        image_vectors: Optional[ImageVectorStore] = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
         self.embedder = embedder
         self.config = config
+        # Work order 0h §1a/§1b/§1c. Both `None` by default, and every existing
+        # caller stays exactly as it was: nothing above constructs one of
+        # these yet, and H4 says a lane that is not configured must behave
+        # like a lane that does not exist, not like a broken one. See
+        # `_maybe_embed_image` and `_flush_pending_images`.
+        self.image_embedder = image_embedder
+        self.image_vectors = image_vectors
+        #: CLIP vectors computed but not yet written - see `_flush_pending_images`.
+        #: Reset per run in `run()`, same as `_seen_paths` and the feeder queue.
+        self._pending_images: list[tuple[int, list[float], str, int]] = []
         # **The batch the config asks for is the batch the model gets.**
         #
         # `_embed_pending` gathers `config.embed_batch` chunks and hands them to
@@ -783,6 +797,9 @@ class Pipeline:
         self._stop.clear()
         self._interrupted = False
         self._suspended_fts_triggers = []
+        # Work order 0h: a second run must not inherit the first run's
+        # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
+        self._pending_images = []
 
         # Below-normal CPU and background I/O priority, before a single file is
         # read. The cheapest courtesy available and the most effective: the
@@ -791,6 +808,8 @@ class Pipeline:
             self._log.debug("running at below-normal priority")
 
         self.vectors.ensure_table()
+        if self.image_vectors is not None:
+            self.image_vectors.ensure_table()
         # **The model loads here, before a single file is read.**
         #
         # It used to load lazily, on the first `embed()` call - which happens
@@ -965,6 +984,12 @@ class Pipeline:
         # nightly incremental index is exactly that shape - a small run, every
         # day, each one leaving fragments behind forever.
         self.vectors.maybe_compact(force=True)
+        # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
+        # applied to the image table. Nothing above this line ever calls
+        # `maybe_create_index` on it either - see `_flush_pending_images`.
+        if self.image_vectors is not None:
+            self.image_vectors.maybe_create_index()
+            self.image_vectors.maybe_compact(force=True)
         self._optimise_keyword_index(stats)
         self._write_completions()
         self._log.info("index run: {}", stats.as_dict())
@@ -2168,6 +2193,10 @@ class Pipeline:
                 # asynchronously, a `_write_one` or two ago, and not yet be
                 # written; only `_feed_sync`'s queue join knows that, not the
                 # emptiness of this local list.
+                # Work order 0h, M6 ordering: any CLIP vectors gathered for
+                # this archive's own images flush before the marker too, for
+                # exactly the reason the text vectors do just above.
+                self._flush_pending_images()
                 self._feed_sync(pending_vectors)
                 self._write_marker(item)
                 continue
@@ -2198,6 +2227,14 @@ class Pipeline:
                 # straight on to the next batch while the feeder thread does
                 # this one. See `_feed_async`, and the module docstring.
                 self._feed_async(pending_vectors)
+
+            if len(self._pending_images) >= self.config.embed_batch:
+                # Work order 0h, H7 pattern: flushed in a batch on its own
+                # threshold - reusing `embed_batch` rather than a new config
+                # knob - never one Lance write per photo. Independent of the
+                # text threshold above: a run over mostly-photo folders can
+                # accumulate many images per text chunk, or none at all.
+                self._flush_pending_images()
 
             since_checkpoint += 1
             now = time.monotonic()
@@ -2246,6 +2283,7 @@ class Pipeline:
         # while the feeder thread is still writing the last batch, and an
         # embed failure here must still end the run the way it always has.
         # `_feed_sync` waits for the feeder and re-raises whatever it caught.
+        self._flush_pending_images()
         self._feed_sync(pending_vectors)
         if on_progress is not None:
             try:
@@ -2604,6 +2642,16 @@ class Pipeline:
             if item.meta:
                 self._store_message_meta(file_id, item.meta)
 
+        # Work order 0h §1a/§1c: independent of whether OCR found any text in
+        # this file - most photographs have none, and CLIP is exactly the
+        # reason finding one by what it depicts must not depend on a caption.
+        # Deliberately outside the `store.batch()` above: it is real CPU work
+        # (measured, see the work order), and holding a SQLite transaction
+        # open across it would block every other writer for no reason - the
+        # same argument `_embed_pending`'s comment makes for the LanceDB
+        # delete below.
+        self._maybe_embed_image(candidate, file_id)
+
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
         # passages with a vector on the owner's index.
@@ -2695,6 +2743,124 @@ class Pipeline:
             self.store.set_message(file_id, **fields)
         except Exception as exc:                # noqa: BLE001 - metadata is not worth a failed file
             self._log.warning("message metadata for file {} not stored: {}", file_id, exc)
+
+    # -- work order 0h: the CLIP image-vector lane ---------------------------
+
+    def _maybe_embed_image(self, candidate: Candidate, file_id: int) -> None:
+        r"""One CLIP vector for a ladder-passed image, queued for a batched flush.
+
+        **Independent of OCR text.** Most photographs carry none at all, and
+        the whole point of this lane is finding one by what it depicts rather
+        than by a caption it happens to have. Gated on `reads_by_ocr` - the
+        same test `_ocr_gate` uses - so this only ever runs for the image
+        types the OCR ladder itself handles, and only when `_write_one` was
+        reached at all: an `ocr_mode="text"` run holds images as
+        `ERR_OCR_HELD` and never gets here for them, which is exactly the
+        pass discipline `_narrow_to_images` already relies on.
+
+        **Computed synchronously, right here** - not gathered across many
+        documents the way text chunks are. Text batches because a single
+        short passage would waste the ONNX call on overhead; an image forward
+        pass is already ~50-150ms of real work with nothing to amortise (see
+        the work order's measurement), so deferring the *inference* would buy
+        nothing. Only the LanceDB write is batched - see
+        `_flush_pending_images` - which is where the H7 pattern actually
+        applies.
+
+        **H4 discipline.** A missing model, a corrupt image, an unreadable
+        path: logged, counted, and returns quietly. The file stays fully
+        indexed by name, folder, type and any OCR text it produced - the lane
+        failing costs only this one photo's image-similarity coverage, never
+        the file, never the run.
+        """
+        if self.image_embedder is None or self.image_vectors is None:
+            return
+
+        from app.extract.base import reads_by_ocr
+
+        path = candidate.path
+        if not reads_by_ocr(path):
+            return
+
+        try:
+            with self._clock.stage("clip"):
+                vector = self.image_embedder.embed([str(path)])[0]
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
+            self._log.warning(
+                "no CLIP vector for {}: {}. It stays searchable by name, "
+                "folder, type and any OCR text - only image-similarity "
+                "search misses it.", path, exc)
+            code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
+            self._stats_ref.warned_by_code[code] = (
+                self._stats_ref.warned_by_code.get(code, 0) + 1)
+            return
+
+        self._pending_images.append(
+            (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+
+    def _flush_pending_images(self) -> None:
+        r"""Write accumulated CLIP vectors in one batch - the H7 shape.
+
+        **Never one delete-and-add per file.** `_maybe_embed_image` computes
+        each vector immediately, but the LanceDB write is gathered here and
+        flushed at the same checkpoints `pending_vectors` is (see `_consume`
+        and `_write_marker`'s call sites) - one `delete_by_file_ids` and one
+        `add_images` for the whole accumulated batch, never per photo. A
+        10,000-image folder deleting and re-adding one row at a time is
+        exactly the pathology H7 removed from the text table; nothing here
+        reintroduces it for the image table.
+
+        **M6 ordering.** Called immediately *before* every point that can
+        mark a file INDEXED (`_write_marker`, and both `_feed_sync` /
+        `_feed_async` call sites in `_consume`) - and, unlike the text
+        vectors, never deferred to the feeder thread. So there is no async
+        window at all for a crash to land in: by the time a batch's files can
+        read as complete, their image vectors are already written or the
+        failure below has already been counted.
+
+        **H4 discipline**, same as `_maybe_embed_image`: a store-level failure
+        (disk, a locked file, LanceDB itself) is logged and counted, never
+        raised - those photos stay searchable by every route except CLIP
+        similarity, and nothing here can fail the run those images belong to.
+        """
+        if self.image_vectors is None or not self._pending_images:
+            return
+
+        batch = self._pending_images
+        self._pending_images = []
+        file_ids = [row[0] for row in batch]
+        try:
+            # Delete-before-add, same reasoning as `_embed_pending`: a
+            # re-index must not leave a stale vector behind, and must not
+            # remove the old one until the new one is ready. `delete_by_
+            # file_ids` is free when the table holds nothing yet, which is
+            # every first index - see `VectorStore.delete_by_file_ids`.
+            self.image_vectors.delete_by_file_ids(list(dict.fromkeys(file_ids)))
+            written = self.image_vectors.add_images(
+                file_ids,
+                [row[1] for row in batch],
+                exts=[row[2] for row in batch],
+                mtimes_ns=[row[3] for row in batch],
+            )
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the run
+            self._log.warning(
+                "{} image vector(s) could not be written: {}. Those photos "
+                "stay searchable by name, folder, type and any OCR text.",
+                len(batch), exc)
+            self._stats_ref.warned_by_code["ERR_CLIP_STORE"] = (
+                self._stats_ref.warned_by_code.get("ERR_CLIP_STORE", 0) + 1)
+            return
+
+        if written is not None and written < len(batch):
+            # Same reasoning as `_embed_pending`'s identical check: a partial
+            # write reported as a full success is how coverage quietly falls
+            # over many runs. Counted rather than silently accepted.
+            self._log.warning(
+                "wrote {} image vector(s) for {} photo(s) - the rest are "
+                "missing from image-similarity search until the next run.",
+                written, len(batch))
+            self._stats_ref.warned_by_code["ERR_CLIP_STORE"] = (
+                self._stats_ref.warned_by_code.get("ERR_CLIP_STORE", 0) + 1)
 
     def _embed_texts(self, texts: list[str]) -> list:
         r"""Embed a batch, sending each **distinct** passage once. §6e.
@@ -2855,6 +3021,20 @@ class Pipeline:
                 ext=indexed_ext(candidate.path),
             )
             self.store.mark_skipped(file_id, item.error)
+
+        # Work order 0h: **"OCR found nothing" is not the same as "OCR
+        # failed".** A blank scan and an ordinary, uncaptioned photograph both
+        # read as `ERR_NO_TEXT_LAYER` - and the second is the majority of any
+        # real photo corpus. Without this, "every ladder-passed image gets a
+        # vector" would be true only for the minority of photos that also
+        # happen to contain text, which defeats the item: CLIP does not need
+        # OCR to have found anything, and a photograph found by what it
+        # depicts rather than by a caption is the acceptance sentence at the
+        # top of this order. Every other skip code here (a locked, corrupt or
+        # unreadable file) does not get this treatment - CLIP is not
+        # confidently more able to open a file OCR could not.
+        if item.error is not None and item.error.code == "ERR_NO_TEXT_LAYER":
+            self._maybe_embed_image(candidate, file_id)
 
     # -- guards and bookkeeping ---------------------------------------------
 
