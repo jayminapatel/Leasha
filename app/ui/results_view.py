@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -101,6 +101,7 @@ class ResultsView(QWidget):
         self._list.activated.connect(self._on_activated)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
+        self._list.viewport().installEventFilter(self)  # item 2a: chevron click
         self._list.selectionModel().currentChanged.connect(
             lambda current, _prev: self.selected.emit(self._row_for(
                 current.data(ROLE_PAYLOAD) if current.isValid() else None)))
@@ -307,6 +308,15 @@ class ResultsView(QWidget):
     def _toggle(self, file_id: int) -> None:
         self._expanded.symmetric_difference_update({file_id})
         self._rebuild()
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:      # noqa: N802 - Qt's naming
+        """Item 2a: a click on the chevron toggles too, via `ResultDelegate.chevron_hit`."""
+        click = obj is self._list.viewport() and event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton
+        file_id = self._delegate.chevron_hit(self._list, event.pos()) if click else None
+        if file_id is None:
+            return super().eventFilter(obj, event)
+        self._toggle(file_id)
+        return True
 
     def _on_context_menu(self, point: Any) -> None:
         """One menu, shared with the filename browser - see widgets/file_menu.py."""

@@ -151,3 +151,32 @@ def test_keys_on_other_widgets_are_not_intercepted(view):
 def test_a_plain_letter_is_never_intercepted(view):
     """Typing continues the query - only navigation keys are claimed."""
     assert view.eventFilter(view.input, key_event(Qt.Key.Key_A)) is False
+
+
+def test_the_whole_flow_types_then_arrows_down_then_opens_the_third_result(view):
+    """§8's own scenario, end to end: type, arrow down, Enter opens the
+    result the arrows landed on - focus never left the box (§6a's own source
+    guard, `test_the_filter_never_moves_focus_itself`, is what proves that;
+    this proves the visible effect), and the preview followed each step.
+
+    Nothing is current straight after a search - `ResultsView.show_results`
+    clears the anchor - so the first ↓ lands on the first result, exactly
+    like `test_arrow_down_moves_the_selection_without_leaving_the_box`
+    already shows; three presses in total is what reaches the third."""
+    followed: list = []
+    view.results.selected.connect(followed.append)
+
+    assert view.eventFilter(view.input, key_event(Qt.Key.Key_P)) is False  # typing continues
+    for _ in range(3):
+        assert view.eventFilter(view.input, key_event(Qt.Key.Key_Down)) is True
+
+    opened = []
+    view.result_opened.connect(opened.append)
+    assert view.eventFilter(view.input, key_event(Qt.Key.Key_Return)) is True
+
+    assert len(opened) == 1 and opened[0].file_id == 3
+    # Every ↓ moved the selection - the preview's own signal must have fired
+    # for each, which is what "the preview follows" means from outside the
+    # widget that owns the preview pane.
+    assert len(followed) >= 3
+    assert followed[-1] is not None and followed[-1].file_id == 3
