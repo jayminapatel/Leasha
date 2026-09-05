@@ -38,6 +38,13 @@ UI = PROJECT_ROOT / "app" / "ui"
 #: Which module builds each surface. Declared here rather than in the registry
 #: so that `settings_registry.py` stays importable without Qt and free of any
 #: knowledge of the UI - it is a declaration of intent, not a wiring diagram.
+#:
+#: **`indexing.schedule` and `indexing.tuning` renamed 2026-09-05**, pages-reorg
+#: order §1d - the surfaces formerly `settings.indexing`/`settings.tuning`.
+#: The files did not move: both were always the Indexing page's own controls,
+#: never the Settings page's, and the rename only makes that true in the name
+#: as well as in the file list, now that the Indexing page has named
+#: categories of its own (`app/ui/widgets/category_nav.py`) to say it against.
 SURFACE_MODULES = {
     # `search_behaviour_box` too: the six behaviours from the search-experience
     # order's §1 are their own group, because each one needs the effect grid
@@ -50,14 +57,16 @@ SURFACE_MODULES = {
     "settings.search": ("settings_view.py", "widgets/search_box.py",
                         "widgets/search_behaviour_box.py",
                         "widgets/editor_box.py"),
-    # Only *when* a run happens. Everything about how fast it goes moved to
-    # `settings.tuning` - see §4 of the index-tuning order.
-    "settings.indexing": ("indexing_settings.py",),
-    # The Index Tuning screen. Four group boxes and a mode switch, all under
-    # `widgets/` because the page they sit on is at the 250-line guard.
-    # `long_run_box` is the Coverage group: it was already the panel for what
-    # gets read, so it moved screen rather than being rebuilt.
-    "settings.tuning": ("widgets/tuning_box.py", "widgets/tuning_groups.py",
+    # Only *when* a run happens - the Indexing page's Schedule shelf.
+    # Everything about how fast it goes moved to `indexing.tuning` - see §4 of
+    # the index-tuning order.
+    "indexing.schedule": ("indexing_settings.py",),
+    # The Index Tuning screen - the Indexing page's Tuning shelf. Four group
+    # boxes and a mode switch, all under `widgets/` because the page they sit
+    # on is at the 250-line guard. `long_run_box` is the Coverage group: it
+    # was already the panel for what gets read, so it moved screen rather
+    # than being rebuilt.
+    "indexing.tuning": ("widgets/tuning_box.py", "widgets/tuning_groups.py",
                         "widgets/long_run_box.py"),
     "settings.reading": ("settings_view.py", "widgets/file_types.py"),
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
