@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures I — the CLIP lane: find photos by describing them
 
-**Doc version:** 1.3 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Index + Storage/vectors + Search + results UI)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
 ladder + EXIF dates) landed first. **Scope discipline: vectors and
@@ -639,6 +639,95 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
     window and getting the photo back — needs `engine.py`'s `fuse_hits` call
     to take a third list. Flagged for the next thread, not guessed here.
 
+  **2026-09-07, §4 lane-wiring session. The test the note above could not
+  build is now built against real wiring — and the item is deliberately
+  left open, because its proof is gated on a model this session could not
+  load.** Both blockers are gone: `engine.py`'s `fuse_hits` call does take a
+  third list, and `app.cli index` writes CLIP vectors (§1c's later note).
+  Built as `tests/unit/test_clip_lane_wiring.py`, three tests, and the
+  module docstring says in as many words which one closes the item:
+
+  - `test_a_photo_is_found_by_typing_a_description_of_it` — **this item's
+    first clause, and the only test that proves it.** Real `Pipeline` over
+    real image files, real `Qdrant/clip-ViT-B-32-vision`, real 512-wide
+    LanceDB `ImageVectorStore`, real `SearchEngine.search()`, real
+    `Qdrant/clip-ViT-B-32-text`. Nothing about CLIP is faked; the other two
+    retrieval lanes are empty by construction, so any result provably came
+    from the picture lane. Two fixtures — one red, one blue, named
+    `IMG_0001`/`IMG_0002` so the filename says nothing, and zero OCR text so
+    the corpus contains no words at all. The described photo must come back,
+    must come back **first**, and the order must **flip** when the other
+    colour is described: on a two-row table a single query is a coin toss,
+    not a demonstration that the ranking follows what was typed.
+  - `test_the_lane_carries_a_photo_from_index_to_result_with_stand_in_vectors`
+    — the identical path with a pixel-derived stand-in for the two towers.
+    It proves the plumbing between the model and the answer on real
+    components (`_record_skip` → `_maybe_embed_image` →
+    `_flush_pending_images` → a real LanceDB table → `search_images` →
+    `fuse_hits` → `hydrate_images` → a `SearchResult`), where
+    `test_engine_image_lane.py` proves only the engine's half against a
+    `FakeImageVectorStore` and no pipeline. **It does not close this item**
+    and is named and documented so it cannot be mistaken for doing so.
+  - `test_a_broken_picture_lane_still_returns_keyword_and_text_vector_results`
+    — this item's **second** clause, which needs no model and is proved
+    outright. The existing broken-lane test runs against an empty
+    text-vector store, so the most it can assert is `results == []`; here a
+    real `SqliteStore` behind FTS5 and a real populated `VectorStore` both
+    have work to do, so "keyword+text-vector results survive" is an
+    assertion about results rather than about the absence of a crash, and
+    `NOTICE_NO_IMAGES` firing while `NOTICE_NO_VECTORS` stays silent is
+    asserted alongside it.
+
+  **Why the first clause is unticked.** The sandbox this session ran in
+  cannot reach `huggingface.co` — a real load attempt returns
+  `ERR_MODEL_LOAD: Qdrant/clip-ViT-B-32-vision: ProxyError: 403 Forbidden`,
+  and no CLIP weights are cached locally. Disk was **not** the constraint
+  (2.9GB free against roughly 600MB of weights); the network was. So the
+  test skips here, with that failure quoted verbatim in the skip line rather
+  than a generic "model unavailable". The assertions were still shown to be
+  reachable and load-bearing: run against stand-in towers they pass, and
+  with the engine's `hit_lists.append(image_hits)` removed they go red on
+  "the described photo was not found by describing it" — a permanently-dead
+  test body would prove nothing either. What has **never been executed** is
+  the pairing itself: whether the real vision tower plus the real text tower
+  actually rank a flat red field above a flat blue one for these two
+  sentences. That is a claim about the model, and this session is in no
+  position to make it.
+
+  **To close this item for real**, on the Windows machine:
+  `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.py -q`
+  and confirm the first test **runs** rather than skips. First run pays the
+  ~38.6s model load recorded under 1a plus two vision embeds and two text
+  embeds — call it a minute. If it runs and fails on the ranking assertion
+  rather than on the wiring ones, the fixture/description pairing is what
+  needs changing, not the lane; the two assertions are kept separate for
+  exactly that reason.
+
+  **Two corrections to the 2026-09-05 note above, recorded here rather than
+  edited into it** — both found by reading the code, not inferred:
+  - That note says `test_clip_lane_pipeline.py` confirms "a real photo with
+    **zero** OCR text still gets a real CLIP vector from the real model".
+    The mechanism is right and the test is real, but no part of it is: it
+    uses `FakeClipImageEmbedder` (its own docstring: "no model and no
+    download") over ~900 bytes of non-decodable PNG filler. The real-model
+    version of that sentence is the first test above, and it is gated.
+  - An uncaptioned photo is **not** counted as `indexed`. `ocr.extract`
+    returns empty, `base.extract` turns that into `ERR_NO_TEXT_LAYER`, and
+    the file lands in the *skip* ledger — `Pipeline._record_skip` then calls
+    `_maybe_embed_image` precisely for that code. So a real photo corpus
+    reports `indexed=0, skipped=N` while every photo still gets its vector.
+    Correct and deliberate, but the opposite of what a reader would assume,
+    and it is asserted explicitly in the new file rather than left as a
+    surprise for the next person.
+
+  **Failing-first evidence**, this session, each break reverted immediately:
+  removing `hit_lists.append(image_hits)` (`engine.py`) → the stand-in test
+  and the gated test's body both red; removing `_record_skip`'s
+  `_maybe_embed_image` call (`pipeline.py`) → red on `images.count() == 2`;
+  turning `vector.search`'s `AppErrorException` degrade into a `raise` → the
+  H4 test red with the exception escaping the search, which is the exact
+  failure H4 forbids.
+
 - [x] pHash: duplicate fixture across two roots folds; reverse-image finds
   the original from a recompressed copy.
 
@@ -773,3 +862,16 @@ including that it is still not measured against real camera photographs.
   own docstring for exactly why).
 
 CHANGELOG entry added for this half - see `[Unreleased]`.
+
+**2026-09-07, §4 lane-wiring session: the order does not ship yet, and the
+one thing holding it is a model this session could not load.** §4's first
+item is the last one open, and its end-to-end test is now written against
+the real wiring rather than around it — real pipeline, real vision tower,
+real LanceDB table, real `SearchEngine.search()`, real text tower. It skips
+in a sandbox with no route to `huggingface.co` and no cached weights, so the
+acceptance sentence's search half remains **demonstrated on stand-ins and
+unproved on the real model**. The item is left unticked for that reason
+rather than tidied to green; see its own note above for the exact command to
+run on the Windows machine, and for what a failure there would and would not
+mean. No CHANGELOG entry for this half: it adds tests, and changes nothing a
+user of the application can see.
