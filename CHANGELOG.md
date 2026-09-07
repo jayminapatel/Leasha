@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.02 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 4.03 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### You can look at a drawing without opening AutoCAD
+
+- A `.dwg` used to preview as "No preview for this type" - a filename and
+  nothing else, which is no help at all when three revisions of the same
+  drawing are sitting in the results together. Now every drawing shows the
+  AutoCAD version that wrote it, and if you have LibreDWG installed, pinning
+  one in its own window offers **Show simplified view**: the lines and the
+  text, drawn here, enough to tell which drawing it is. Rotate, zoom and
+  print all work on it, like any other pinned page.
+- Drawn once and kept, so opening the same drawing again is instant. Nothing
+  is written to the drawing itself, ever.
+- Leasha does not ship the converter and never installs one. If LibreDWG is
+  not on the machine, the preview says so and where to get it, rather than
+  quietly showing nothing. **Drawing previews** in the row of switches above
+  the results turns the whole thing off.
+  Work order 0e §5c, which closes that order.
 
 ### A result that matched several times can now be opened up with one click on its arrow
 

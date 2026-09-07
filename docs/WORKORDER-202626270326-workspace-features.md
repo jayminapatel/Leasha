@@ -1,6 +1,6 @@
 # Work order (One thread): workspace features — pop-outs, viewers, and the tools around search
 
-**Doc version:** 1.3 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + preview loader + extract/converter + install docs)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626270157-search-experience.md`.
@@ -127,10 +127,117 @@ allowed and expected — compare falls out for free.
   words, "DWG drawings: install LibreDWG or the ODA File Converter to read
   these" with the count of `.dwg` files waiting — the existing
   format-health machinery, one new row.
-- [ ] **5c Preview** (lower priority — do last in this order): `dwg2SVG` →
+- [x] **5c Preview** (lower priority — do last in this order): `dwg2SVG` →
   cached SVG → the QtSvg path from 4a, labelled "simplified view".
   Line-work and text, not plot fidelity; for "is this the right drawing?"
   that is enough.
+
+  **2026-09-07, §5c build session (lane A), closing this order.** Built as
+  §4e's twin, one function below it in `app/ui/preview_loader.py` and
+  deliberately in its shape: `ensure_dwg_svg()` produces an SVG through
+  `dwg2SVG`, caches it under `settings.cache_path/dwg_preview/<content
+  hash>.svg`, and hands the pop-out a `KIND_IMAGE` at that path.
+  `_render()` already knows how to draw, rotate, zoom and print an image,
+  because that machinery is §2e's — so nothing new draws anything.
+
+  **`dwg2SVG` writes to standard output, and that decided the one change to
+  a shared module.** `dwg2SVG DRAWING.dwg >DRAWING.svg` — there is no `-o`
+  option; checked against LibreDWG's own manual page rather than assumed
+  from `dwg2dxf`'s interface, which does take one. `converter.convert()`
+  finds its output by looking in the temporary directory, so run as it
+  stood it would have reported `ERR_CONVERTER_FAILED` for every drawing.
+  `convert()` gained one keyword-only parameter, `stdout_to`, which writes
+  what the child printed into that same temporary directory before
+  `_find_output` runs. **A parameter there rather than a second subprocess
+  call site here**: that module is the only place in the application that
+  starts a program, and the allow-list, `shell=False`, the timeout ceiling
+  and the directory removed in a `finally` all apply to a stdout converter
+  identically. A caller capturing stdout itself would have been a second,
+  unaudited way to run something. The filename is reduced to its bare
+  `.name`, so a template can never write outside the directory `convert()`
+  owns — asserted.
+
+  **The licence rule, as code and as an argument.** `dwg2SVG` is on
+  `ALLOWED_BINARIES` **under its own name**, beside `dwg2dxf` rather than
+  covered by it: the allow-list names programs, and having one program from
+  an install must not silently permit everything else in the same folder.
+  Reached only by `subprocess`, never by LibreDWG's Python bindings —
+  running a GPL program is mere aggregation, linking it would put this MIT
+  application under the GPL. `test_cad.test_no_module_imports_libredwgs_
+  python_bindings` (added for §5a) already walks every module under `app/`;
+  `test_the_preview_reaches_libredwg_only_by_running_it` pins the other
+  half, grepping for what the code would do — `import libredwg`, `cdll.` —
+  and never for the name this module's own justification contains, which is
+  the mistake this repo has now made three times.
+
+  **§5c's own note said 4a's route could not be assumed to fit, so it was
+  measured rather than argued.** That note was right that 4a built a
+  `QImage` path and not a `QtSvg` one — but the question that actually
+  mattered was whether that path renders a *cached* SVG, and it does: this
+  Qt build reports `svg` among `QImageReader.supportedImageFormats()`, and
+  the end-to-end test drives `.dwg` → `dwg2SVG` → cache →
+  `render_page.render()` and gets a `QImage` of the SVG's real dimensions
+  (120x60), plus `decode_image()` for the in-app pane's own route. Not
+  inferred from a commit message; run.
+
+  **Convert-failed falls back to the `dwg_release` header line**, which is
+  §5a's own fallback and the same function (`cad.dwg_release`), so the
+  preview and the index say the same thing about the same file rather than
+  two things. A `.dwg` used to reach the "No preview for this type" card —
+  it has no registered extractor, deliberately, per `cad.py`'s docstring —
+  and now previews as "AutoCAD drawing, AutoCAD 2018" whatever happens
+  next. The failure itself is the `AppError`'s own rendered text in the
+  notice line above it: what happened and how to fix it, never a traceback,
+  never a silent pass. Where the error is `ERR_CONVERTER_MISSING` its
+  registry payload is suppressed, because that payload is LibreOffice's
+  `winget` command — right for `.doc`, wrong here.
+
+  **The install sentence names LibreDWG alone, and that is not a
+  contradiction of §5b.** §5b names the ODA File Converter too because
+  either one produces the DXF the *index* reads. Only LibreDWG produces an
+  SVG, so offering the other here would send somebody to install software
+  that would not help. Asserted, so the two messages cannot drift into
+  saying the same thing.
+
+  **The button is on the pop-out only, exactly as §4e's is, and for §4e's
+  reason** — rotate, zoom and print live in `PreviewWindow` and nowhere
+  else. What the in-app pane gets instead is one sentence quoting that
+  window's existing button by its exact label, "Pin in a window", with a
+  test that a control of that name still exists; a sentence naming a
+  control somebody cannot then find is worse than no sentence. The pop-out
+  suppresses that sentence when it is showing the button, since it would be
+  an instruction to do what has already been done.
+
+  **§6's off switch is the fifth in the row above the results**
+  (`ui:dwg_preview_enabled`, on by default), beside the four §3 added and
+  read the same defensive way. It is read when a pop-out opens, so turning
+  it off stops Leasha offering to run another program on the next drawing
+  anybody pins; a drawing already pinned keeps what it was opened with,
+  which is the promise every other pop-out already makes.
+
+  **One guard of size, chosen rather than inherited.** A produced SVG over
+  8MB falls back with a plain sentence instead of being drawn: an SVG is
+  parsed and rasterised whole, so a dense site plan costs far more than the
+  25MB image cap would suggest for a file that size, and past a point this
+  stops being the glance the item asks for.
+
+  Tests: `tests/unit/test_dwg_preview.py`, 29, green — and checked by
+  breaking the code rather than only by passing: with the `stdout_to` branch
+  and the `.dwg` route disabled, five of them fail, naming exactly what was
+  removed. The success path is a **real subprocess**, not a stub: the
+  allow-listed name is pointed at `cat`, which prints its input to standard
+  output exactly as `dwg2SVG` prints its SVG, so the capture, the cache and
+  the render are all genuinely exercised on a machine with no LibreDWG on
+  it. The absent path is real too, for the same reason.
+
+  Not verified on Windows, and two things sit squarely there: whether
+  `dwg2SVG.exe` lands in one of the three folder arrangements
+  `_WINDOWS_SUBDIRS` covers (it is assumed to install beside `dwg2dxf.exe`,
+  which is what `_WINDOWS_LOCATIONS` already claims for that install), and
+  what a *real* drawing's SVG actually looks like — every SVG in these
+  tests was written by hand. Worth one real `.dwg` with LibreDWG installed:
+  pin it, press the button once to see it convert, close and reopen to see
+  the cache hit not even try.
 
 ## 6. Rules that bound all of it
 

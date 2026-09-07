@@ -37,7 +37,8 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.view_of_file import View, read_turn
 
-__all__ = ["PreviewWindow", "GEOMETRY_KEY", "ON_TOP_KEY", "TEXT_ONLY_NOTE"]
+__all__ = ["PreviewWindow", "GEOMETRY_KEY", "ON_TOP_KEY", "TEXT_ONLY_NOTE",
+           "DWG_PREVIEW_ENABLED_KEY", "enabled_checkbox"]
 
 _log = logger.bind(component="ui.preview.window")
 
@@ -45,6 +46,13 @@ _log = logger.bind(component="ui.preview.window")
 #: because two of them open on top of each other otherwise.
 GEOMETRY_KEY = "ui:preview_window_geometry"
 ON_TOP_KEY = "ui:preview_window_on_top"
+
+#: Workspace §5c's off switch. §6: every new behaviour ships on and
+#: individually off-able. Same `index_state` shape as the three switches §3
+#: added (`ui:drag_out_enabled` and friends), read the same defensive way, on
+#: by default. Read when a window opens, so turning it off stops Leasha
+#: offering to run LibreDWG on the next drawing anybody pins.
+DWG_PREVIEW_ENABLED_KEY = "ui:dwg_preview_enabled"
 
 MIN_WIDTH, MIN_HEIGHT = 520, 400
 
@@ -101,6 +109,10 @@ class PreviewWindow(QWidget):
         #: Kept so `_navigate` can re-read a sibling's own remembered
         #: rotation the same way `__init__` reads this one's, below.
         self._state = state
+        #: §5c's off switch, read once from the state this window was opened
+        #: with - the same snapshot `_restore` reads geometry and the pin from.
+        self._drawings_enabled = _flag(state, DWG_PREVIEW_ENABLED_KEY,
+                                       default=True)
 
         self._view = View(turn=read_turn(state, self._path),
                           page=int(getattr(row, "page", 0) or 0))
@@ -182,6 +194,17 @@ class PreviewWindow(QWidget):
             self._show_full_layout)
         self.full_layout_button.setVisible(False)
 
+        # Workspace §5c. Hidden until a drawing arrives *and* LibreDWG is on
+        # this machine *and* the switch is on - see `_loaded`.
+        self.simplified_button = self._button(
+            "Show simplified view",
+            "Draws this drawing here so you can see which one it is - the "
+            "lines and the text, without hatching or dimensions. Drawn once "
+            "and kept; opening it again is instant, and the drawing itself is "
+            "never changed.",
+            self._show_simplified)
+        self.simplified_button.setVisible(False)
+
         self.on_top = QCheckBox("Keep on top")
         self.on_top.setToolTip(
             "Keeps this window in front of everything else, so it stays "
@@ -225,6 +248,9 @@ class PreviewWindow(QWidget):
         note_row = QHBoxLayout()
         note_row.addWidget(self.note, 1)
         note_row.addWidget(self.full_layout_button)
+        # Beside §4e's, never with it: one is offered for a document shown as
+        # text, the other for a drawing, and no file is both.
+        note_row.addWidget(self.simplified_button)
 
         layout = QVBoxLayout(self)
         layout.addLayout(bar)
@@ -294,6 +320,27 @@ class PreviewWindow(QWidget):
         if extracted and not can_convert:
             self.note.setText(f"{TEXT_ONLY_NOTE} {OFFICE_CONVERTER_MISSING_NOTE}")
 
+        # §5c: a drawing. Its own sentence rather than §2g's - a `.dwg` is not
+        # a document shown as text with its layout missing, it is a drawing
+        # that has not been drawn yet, and the loader already wrote the line
+        # that says which of the two reasons applies.
+        drawing = bool(meta.get("drawing"))
+        # Offered only where it could work: a drawing, LibreDWG present (asked
+        # on the worker that built this preview, never here), and the switch
+        # this window opened with turned on.
+        can_draw = (drawing and self._drawings_enabled
+                    and bool(meta.get("dwg_preview_available")))
+        self.simplified_button.setVisible(can_draw)
+        self.simplified_button.setEnabled(True)
+        if drawing:
+            # The loader's sentence points the *pane* at "Pin in a window",
+            # which is the window somebody is already looking at - so where
+            # the button is offered, the button is the answer and the sentence
+            # would be one instruction to do what has already been done.
+            notice = "" if can_draw else str(getattr(preview, "notice", "") or "")
+            self.note.setText(notice)
+            self.note.setVisible(bool(notice))
+
         if self._kind in (KIND_IMAGE, KIND_PDF):
             self._render()
             return
@@ -359,6 +406,57 @@ class PreviewWindow(QWidget):
         self._display_path = str(getattr(preview, "path", "") or self._display_path)
         self.full_layout_button.setVisible(False)
         self.note.setVisible(False)
+        self._render()
+
+    def _show_simplified(self) -> None:
+        """§5c: draw this drawing, once, through LibreDWG's `dwg2SVG`.
+
+        Worker, always - it starts a program, and this is a button press on
+        the interface thread. Exactly §4e's shape one function above, for the
+        same reason and with the same generation discipline.
+        """
+        from app.ui.preview_loader import ensure_dwg_svg
+        from app.ui.workers import CallableWorker, run
+
+        # Disabled rather than hidden: hiding it mid-conversion reads as the
+        # button having done nothing, when it is working.
+        self.simplified_button.setEnabled(False)
+        self._generation += 1
+        generation = self._generation
+        worker = CallableWorker(
+            ensure_dwg_svg, self._path, component="ui.preview.window")
+        worker.signals.finished.connect(
+            lambda preview, g=generation: self._simplified_ready(preview, g))
+        worker.signals.failed.connect(
+            lambda _error, g=generation: self._show_card(
+                "This drawing could not be drawn.", g))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _simplified_ready(self, preview: Any, generation: int) -> None:
+        """UI thread. A cached SVG, or the drawing's own release line back
+        again with a sentence saying why there is no picture - §5c's fallback,
+        never a traceback and never a silent nothing."""
+        if generation != self._generation:
+            return                               # a later request won
+        self.simplified_button.setEnabled(True)
+
+        from app.ui.preview_loader import KIND_IMAGE
+
+        notice = str(getattr(preview, "notice", "") or "")
+        self.note.setText(notice)
+        self.note.setVisible(bool(notice))
+
+        if str(getattr(preview, "kind", "")) != KIND_IMAGE:
+            # The fallback: the release line, in the text view it was already
+            # showing, with the notice above saying what happened.
+            self.text.setPlainText(str(getattr(preview, "body", "") or ""))
+            self.stack.setCurrentWidget(self.text)
+            self._enable_picture_controls(False)
+            return
+
+        self._kind = KIND_IMAGE
+        self._display_path = str(getattr(preview, "path", "") or self._display_path)
+        self.simplified_button.setVisible(False)
         self._render()
 
     def _render(self) -> None:
@@ -592,3 +690,41 @@ def _offset(rect: QRect) -> QRect:
     """The remembered box, nudged so a second window is not hidden."""
     return QRect(rect.x() + CASCADE, rect.y() + CASCADE,
                  rect.width(), rect.height())
+
+
+def _flag(state: Any, key: str, *, default: bool) -> bool:
+    """One boolean out of an `index_state` snapshot. Never raises.
+
+    The same spellings `result_tools._read_flag` accepts, because a preference
+    written by one and read by the other must mean the same thing in both.
+    """
+    if not state:
+        return default
+    raw = state.get(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in ("off", "0", "false", "no")
+
+
+def enabled_checkbox(store: Any, *, on_toggle: Any) -> QCheckBox:
+    """§5c's off switch, in the shape the other four already use.
+
+    On by default, read once from `index_state`, never raising against a
+    locked or missing database - `timeline_strip.enabled_checkbox` and
+    `pinned_panel.enabled_checkbox` word-for-word, one key along.
+    """
+    box = QCheckBox("Drawing previews")
+    box.setToolTip(
+        "Offer to draw a DWG drawing in its own window so you can see which "
+        "one it is. Turn it off and drawings show their file name and "
+        "AutoCAD version only."
+    )
+    try:
+        raw = (store.get_state(DWG_PREVIEW_ENABLED_KEY, None)
+               if store is not None else None)
+    except Exception:                            # noqa: BLE001 - a preference
+        raw = None
+    box.setChecked(_flag({DWG_PREVIEW_ENABLED_KEY: raw},
+                         DWG_PREVIEW_ENABLED_KEY, default=True))
+    box.toggled.connect(on_toggle)
+    return box

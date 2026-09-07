@@ -25,9 +25,11 @@ from PyQt6.QtWidgets import (
 from app.ui import drag_out
 from app.ui.results_view import ResultsView
 from app.ui.widgets import pinned_panel as _pinned_mod
+from app.ui.widgets import preview_window as _preview_window_mod
 from app.ui.widgets import thumbnail_grid as _grid_mod
 from app.ui.widgets import timeline_strip as _timeline_mod
 from app.ui.widgets.pinned_panel import PANEL_ENABLED_KEY, PinnedPanel
+from app.ui.widgets.preview_window import DWG_PREVIEW_ENABLED_KEY
 from app.ui.widgets.thumbnail_grid import GRID_ENABLED_KEY, ThumbnailGrid
 from app.ui.widgets.timeline_strip import STRIP_ENABLED_KEY, TimelineStrip
 
@@ -110,8 +112,16 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
     grid_box = _grid_mod.enabled_checkbox(store, on_toggle=toggle_grid)
     toggle_grid(grid_box.isChecked())
 
+    # Workspace §5c. Nothing to toggle on a widget that is already built -
+    # every pop-out reads this key for itself when it opens, so the switch is
+    # only ever the write. A drawing already pinned keeps what it was opened
+    # with, which is the same promise every other pop-out already makes.
+    drawings_box = _preview_window_mod.enabled_checkbox(
+        store, on_toggle=lambda checked: _write_flag(
+            store, DWG_PREVIEW_ENABLED_KEY, checked))
+
     row = QHBoxLayout()
-    for box in (timeline_box, pinned_box, drag_box, grid_box):
+    for box in (timeline_box, pinned_box, drag_box, grid_box, drawings_box):
         row.addWidget(box)
     row.addStretch(1)
     holder = QWidget()

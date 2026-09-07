@@ -80,6 +80,18 @@ ALLOWED_BINARIES = frozenset({
     # turn it into DXF, which `app/extract/cad.py` then reads properly.
     "dwg2dxf",          # LibreDWG, free and file-at-a-time
     "ODAFileConverter", # Open Design Alliance's, free to download, batch-oriented
+    # Workspace §5c. LibreDWG's other program: the same drawing as line-work
+    # and text, for looking at rather than for reading. **A separate name
+    # because it is a separate program**, and the allow-list names programs -
+    # having `dwg2dxf` on it does not silently permit everything else that
+    # ships in the same folder.
+    #
+    # **Subprocess only, never LibreDWG's Python bindings.** LibreDWG is GPL:
+    # running it is mere aggregation, linking it would put this application
+    # under the GPL, and the owner has expressly kept it MIT.
+    # `test_cad.test_no_module_imports_libredwgs_python_bindings` is that rule
+    # as code.
+    "dwg2SVG",
 })
 
 #: **Why each remaining format still needs an external converter.**
@@ -190,6 +202,9 @@ _WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
     # and `test_only_allowed_names_have_locations` is what caught it here.
     "dwg2dxf": (("libredwg", "LibreDWG"), "dwg2dxf.exe"),
     "ODAFileConverter": (("ODA",), "ODAFileConverter.exe"),
+    # Same install, second program - so the same folders, and the same three
+    # arrangements `_WINDOWS_SUBDIRS` already covers.
+    "dwg2SVG": (("libredwg", "LibreDWG"), "dwg2SVG.exe"),
 }
 
 #: Where an executable sits inside its install folder. `""` is the folder
@@ -304,6 +319,7 @@ def convert(
     rule: Any,
     *,
     timeout_s: Optional[int] = None,
+    stdout_to: Optional[str] = None,
 ) -> ConversionResult:
     """Run one converter and return the file it produced.
 
@@ -314,6 +330,21 @@ def convert(
 
     The caller **must** close the result, or use it as a context manager, or the
     temporary directory survives the process.
+
+    **`stdout_to` is for a converter that writes its output to standard output
+    rather than to a file**, which is how LibreDWG's `dwg2SVG` works -
+    `dwg2SVG DRAWING.dwg >DRAWING.svg`, no `-o` option at all (workspace §5c).
+    Give it a filename (`{stem}` is substituted) and whatever the child printed
+    is written into the temporary directory under that name, after which
+    `_find_output` and every error path below behave exactly as they do for a
+    converter that wrote the file itself.
+
+    **A parameter here rather than a second subprocess call site.** This module
+    is the one place in the application that runs a program, and every rule it
+    holds - the allow-list, `shell=False`, the timeout ceiling, the temporary
+    directory removed in a `finally`, the absolute path logged - applies to a
+    stdout converter identically. A caller that ran `dwg2SVG` itself to capture
+    stdout would be a second, unaudited way to start a process.
     """
     binary_name = rule.command[0] if rule.command else ""
 
@@ -384,6 +415,21 @@ def convert(
     # otherwise unanswerable.
     log.debug("ran {} in {:.1f}s (exit {}) for {}",
               binary_path, elapsed, finished.returncode, source.name)
+
+    if stdout_to:
+        # Inside `outdir` by construction - `.name` strips any directory the
+        # caller put in the template, so a stdout filename can never write
+        # outside the temporary directory this function owns.
+        target = outdir / Path(stdout_to.replace("{stem}", source.stem)).name
+        try:
+            target.write_bytes(finished.stdout or b"")
+        except OSError as exc:
+            holder.cleanup()
+            raise AppErrorException(make_error(
+                "ERR_CONVERTER_FAILED", "extract.converter",
+                binary=binary_name, path=str(source),
+                details=f"could not keep what {binary_name} printed: {exc}",
+            )) from exc
 
     produced = _find_output(outdir, rule, source)
     if produced is None:

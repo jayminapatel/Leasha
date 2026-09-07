@@ -30,7 +30,10 @@ __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
            "CAPS", "SheetGrid", "SHEET_PREVIEW_MAX_ROWS",
            "SHEET_PREVIEW_MAX_COLUMNS", "EpubChapter",
            "office_converter_available", "office_pdf_cache_path",
-           "ensure_office_pdf", "OFFICE_CONVERTER_MISSING_NOTE"]
+           "ensure_office_pdf", "OFFICE_CONVERTER_MISSING_NOTE",
+           "DWG_BINARY", "DWG_PREVIEW_NOTE", "DWG_CONVERTER_MISSING_NOTE",
+           "DWG_PIN_TO_SEE_NOTE", "dwg_preview_available",
+           "dwg_svg_cache_path", "ensure_dwg_svg"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -145,6 +148,14 @@ _XLSX_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xltx"})
 #: `_read_xls_via_converter`.
 _XLS_SUFFIXES = frozenset({".xls", ".xlt"})
 _SPREADSHEET_SUFFIXES = _XLSX_SUFFIXES | _XLS_SUFFIXES
+#: Workspace §5c. **Not in `kind_for`'s table**, and that is deliberate: every
+#: other kind there is decided by the extension alone, and a `.dwg` is not -
+#: whether it can be shown at all depends on a converter being installed on
+#: this machine. `load_preview` asks that question separately, in
+#: `_drawing_preview`, and the answer travels in `meta` rather than in `kind`.
+#: `.dxf` is absent for the opposite reason: `dwg2SVG` reads DWG, and a `.dxf`
+#: already previews as extracted text through the registered `cad` extractor.
+_DRAWING_SUFFIXES = frozenset({".dwg"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -644,6 +655,13 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     title = path.name
     subtitle = _describe(path)
+
+    # §5c, before `_extractable`: a `.dwg` has no registered extractor (see
+    # `cad.py`'s docstring - claiming the extension there would disable the
+    # only route that can read it), so it would otherwise fall all the way
+    # through to the "no preview for this type" card.
+    if path.suffix.lower() in _DRAWING_SUFFIXES:
+        return _drawing_preview(path, title=title, subtitle=subtitle)
 
     if kind == KIND_NONE and _extractable(path):
         return _extracted(path, title=title, subtitle=subtitle)
@@ -1169,3 +1187,242 @@ def ensure_office_pdf(path_text: str) -> Preview:
 
     return Preview(kind=KIND_PDF, path=str(cache_file), title=title,
                   subtitle=_describe(cache_file))
+
+
+# ---------------------------------------------------------------------------
+# Workspace §5c: a DWG drawing as a simplified view, on demand
+# ---------------------------------------------------------------------------
+#
+# The same shape as §4e directly above, for the same reasons, against a
+# different program: `dwg2SVG` turns the drawing into SVG, the SVG is cached
+# under the app's own cache directory keyed by a hash of the drawing's bytes,
+# and the pop-out is told to show an image at that path - which is the route
+# §4a left behind for `.svg` (Qt's own `qsvg` image-format plugin decodes one
+# through `QImage` exactly like a raster file), so nothing new draws it.
+#
+# **Line-work and text, not a plot.** `dwg2SVG` renders LINE, CIRCLE, ARC,
+# TEXT, POINT, ELLIPSE, SOLID, 3DFACE, POLYLINE_2D, LWPOLYLINE, INSERT, RAY
+# and XLINE, and nothing else - no hatching, no dimensions, no 3D. That is
+# what the item asks for and says why: this answers "is this the right
+# drawing?", and for that it is enough. The notice on the preview says so in
+# the person's own words rather than letting a thin-looking drawing read as a
+# damaged one.
+#
+# **Subprocess only, never LibreDWG's Python bindings.** Running a GPL program
+# is mere aggregation; importing its bindings would put this MIT application
+# under the GPL. Nothing is bundled - the user installs LibreDWG - so Leasha
+# carries no licence obligation at all.
+# `test_cad.test_no_module_imports_libredwgs_python_bindings` enforces it over
+# every module under `app/`.
+
+#: LibreDWG's SVG program. Its own name on the allow-list, beside `dwg2dxf`.
+DWG_BINARY = "dwg2SVG"
+
+#: Where the cache lives, under the app's own cache directory - never beside
+#: the drawing, which is never opened for writing at all.
+DWG_SVG_CACHE_DIRNAME = "dwg_preview"
+
+#: §5c's label, in the notice line the pane and the pop-out already have.
+DWG_PREVIEW_NOTE = (
+    "Simplified view - line-work and text only, drawn from the file to show "
+    "which drawing this is. Open it for the real thing."
+)
+
+#: What to say when the drawing cannot be shown because nothing here can draw
+#: it. **Names LibreDWG alone, and that is not an oversight**: §5b's message
+#: names the ODA File Converter too because either one produces the DXF the
+#: *index* reads, but only LibreDWG produces an SVG, so offering the other
+#: here would send somebody to install software that would not help.
+DWG_CONVERTER_MISSING_NOTE = (
+    "Install LibreDWG to see a simplified view of this drawing: "
+    "https://www.gnu.org/software/libredwg/"
+)
+
+#: Where the picture is, for the in-app pane - which has no button of its own,
+#: for the reason §4e's note gives for its own: rotate, zoom and print live in
+#: the pop-out and nowhere else, so that is where a rendered drawing belongs.
+#: **It quotes the pane's existing button by its exact label**, "Pin in a
+#: window", rather than describing it - a sentence naming a control somebody
+#: cannot then find is worse than no sentence.
+DWG_PIN_TO_SEE_NOTE = (
+    "Pin in a window to see a simplified view of this drawing."
+)
+
+#: How large a produced SVG is worth drawing. An SVG is parsed and rasterised
+#: whole, so a dense site plan can cost far more than the image cap suggests
+#: for a file of that size - and past a point this stops being the glance the
+#: item asks for. Smaller than `CAPS[KIND_IMAGE]` deliberately.
+DWG_SVG_MAX_BYTES = 8 * 1024 * 1024
+
+
+def dwg_preview_available() -> bool:
+    """Is `dwg2SVG` on this machine? **Worker thread** - it walks Program Files.
+
+    Cached for the process, exactly as `_office_converter_default` is and for
+    the identical reason: the answer cannot change while this process is
+    running, and the walk is real filesystem work that would otherwise be
+    repeated on every arrow key that landed on a drawing.
+    """
+    return _dwg_converter_default()
+
+
+@lru_cache(maxsize=1)
+def _dwg_converter_default() -> bool:
+    try:
+        from app.extract.converter import resolve_binary
+
+        return bool(resolve_binary(DWG_BINARY))
+    except Exception:                              # noqa: BLE001 - absence is an answer
+        return False
+
+
+def dwg_svg_cache_path(path: Path, *, cache_root: Optional[Path] = None) -> Path:
+    """Where the converted SVG for `path` would live, keyed by content hash.
+
+    `content_hash` is `app.index.walker`'s own, reused rather than reinvented -
+    the same argument `office_pdf_cache_path` makes just above.
+    """
+    from app.index.walker import content_hash
+
+    if cache_root is None:
+        from app.core.config import load_settings
+
+        cache_root = load_settings().cache_path / DWG_SVG_CACHE_DIRNAME
+    digest = content_hash(Path(path))
+    return Path(cache_root) / f"{digest}.svg"
+
+
+def _drawing_body(path: Path) -> str:
+    """The drawing's own header line: which AutoCAD release wrote it.
+
+    **`cad.dwg_release`, the function the indexer already uses** - §5a's
+    fallback for a drawing that could not be converted, reused here so the
+    preview and the index say the same thing about the same file rather than
+    two things. Never raises: it reads six bytes and answers None for
+    anything it does not recognise.
+    """
+    try:
+        from app.extract.cad import dwg_release
+
+        release = dwg_release(path)
+    except Exception as exc:                       # noqa: BLE001 - a header read
+        _log.debug("could not read the DWG header of {}: {}", path, exc)
+        release = None
+    return f"AutoCAD drawing, {release}" if release else "AutoCAD drawing."
+
+
+def _drawing_preview(path: Path, *, title: str, subtitle: str,
+                     notice: str = "") -> Preview:
+    """A `.dwg` before anybody has asked to see it drawn. §5c's fallback.
+
+    Text, not a card: the release line is a real answer to "what is this
+    file", and it is the same answer the index holds. The simplified view is
+    a button away, and `meta` carries whether pressing it could work -
+    asked here, on the worker, exactly as §4e asks its own question, never in
+    a Qt slot.
+    """
+    available = dwg_preview_available()
+    return Preview(
+        kind=KIND_TEXT,
+        body=_drawing_body(path),
+        path=str(path),
+        title=title,
+        subtitle=subtitle,
+        notice=notice or (DWG_PIN_TO_SEE_NOTE if available
+                          else DWG_CONVERTER_MISSING_NOTE),
+        meta={"drawing": True, "dwg_preview_available": available},
+    )
+
+
+def ensure_dwg_svg(path_text: str) -> Preview:
+    """§5c: the drawing as a cached SVG. **Worker thread. Never raises.**
+
+    A cache hit skips the conversion entirely. Anything that goes wrong -
+    LibreDWG absent, a drawing it refuses, an SVG too large to be worth
+    drawing - comes back as the drawing's own release line with a sentence
+    saying what happened and what to do, never as a traceback and never as a
+    silent nothing.
+    """
+    path = Path(path_text)
+    title = path.name
+    subtitle = _describe(path)
+
+    try:
+        cache_file = dwg_svg_cache_path(path)
+    except Exception as exc:                       # noqa: BLE001 - never raise
+        return _drawing_preview(
+            path, title=title, subtitle=subtitle,
+            notice=make_error("ERR_UNEXPECTED", "ui.preview",
+                              details=f"{type(exc).__name__}: {exc}").render(),
+        )
+
+    if not cache_file.is_file():
+        failed = _convert_dwg_to_svg(path, cache_file)
+        if failed:
+            return _drawing_preview(path, title=title, subtitle=subtitle,
+                                    notice=failed)
+
+    try:
+        oversized = cache_file.stat().st_size > DWG_SVG_MAX_BYTES
+    except OSError:
+        oversized = False
+    if oversized:
+        return _drawing_preview(
+            path, title=title, subtitle=subtitle,
+            notice=(
+                f"This drawing is too detailed to show as a simplified view - "
+                f"it comes out larger than "
+                f"{DWG_SVG_MAX_BYTES // (1 << 20)}MB. Open it to look at it."
+            ),
+        )
+
+    return Preview(
+        kind=KIND_IMAGE, path=str(cache_file), title=title, subtitle=subtitle,
+        notice=DWG_PREVIEW_NOTE, meta={"drawing": True, "simplified": True},
+    )
+
+
+def _convert_dwg_to_svg(path: Path, cache_file: Path) -> str:
+    """Run `dwg2SVG` once and keep what it printed. `""` means it worked.
+
+    **`dwg2SVG` writes the SVG to standard output** - `dwg2SVG DRAWING.dwg
+    >DRAWING.svg`, no `-o` option exists - which is why `convert()` is called
+    with `stdout_to`. That parameter lives in `converter.py` rather than here
+    so this stays one call into the one audited place that starts a process:
+    the allow-list, `shell=False`, the timeout ceiling and the temporary
+    directory removed in a `finally` all apply unchanged.
+    """
+    from app.core.errors import AppErrorException
+    from app.core.formats import ConverterRule
+    from app.extract.converter import convert, resolve_binary
+
+    if not resolve_binary(DWG_BINARY):
+        return make_error(
+            "ERR_CONVERTER_MISSING", "ui.preview",
+            binary=DWG_BINARY, ext=path.suffix, path=str(path),
+            suggestion=DWG_CONVERTER_MISSING_NOTE,
+            # The registry's own payload is LibreOffice's winget command,
+            # which is the right answer for `.doc` and the wrong one here.
+            action_payload="",
+        ).render()
+
+    rule = ConverterRule(
+        extension=path.suffix.lower(),
+        command=(DWG_BINARY, "{input}"),
+        produces="{stem}.svg",
+        # Nothing extracts text from this: it is drawn, not read, so
+        # `convert()` is called directly and `extract_via_converter` - the
+        # function `then` exists for - never sees it.
+        then="",
+        enabled=True,
+    )
+    try:
+        with convert(path, rule, stdout_to="{stem}.svg") as result:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_bytes(Path(result.path).read_bytes())
+    except AppErrorException as exc:
+        return exc.error.render()
+    except OSError as exc:
+        return make_error("ERR_UNEXPECTED", "ui.preview",
+                          details=f"{type(exc).__name__}: {exc}").render()
+    return ""
