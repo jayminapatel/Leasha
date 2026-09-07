@@ -32,7 +32,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field, replace
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
@@ -465,6 +465,7 @@ class SearchEngine:
         clip_text_embedder: Any = None,
         image_embedder: Any = None,
         phash_computer: Any = None,
+        status_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.store = store
         self.vectors = vectors
@@ -509,6 +510,21 @@ class SearchEngine:
         # rather than silently left to be discovered.
         self.image_embedder = image_embedder
         self.phash_computer = phash_computer
+        #: Work order 0r item 1c, second clause. `None` unless a caller with
+        #: somewhere to show a message hands one in (`app/ui/shell.py`'s
+        #: `MainWindow` wires its own status bar in after construction, since
+        #: at the time this engine is built - `app/main.py`, before the
+        #: window exists - there is nothing yet to wire). Takes one plain
+        #: string; the percent-to-words translation happens in
+        #: `_clip_download_progress` below, not here, so this stays a plain
+        #: "somewhere to put a message" seam that any caller (a future CLI
+        #: progress line, a test double) can satisfy without knowing
+        #: anything about CLIP or downloads.
+        #:
+        #: **H4 throughout**: `None` means exactly what it meant before this
+        #: existed - no callback, no attempt, image search unaffected either
+        #: way.
+        self.status_callback = status_callback
         # **A cache by default, at last.** `cache=` is passed at none of the
         # four constructions, so for a year every review has recorded "no warm
         # search" against machinery that was complete, correct and unreachable:
@@ -604,6 +620,41 @@ class SearchEngine:
             _log.warning("embedding model not ready: {}", exc.error.message)
         if self.reranker is not None:
             self.reranker.warm_up()
+
+    def _clip_download_progress(self, percent: float) -> None:
+        """Turn a raw 0-100 into the notices-bar line for `status_callback`.
+
+        Work order 0r item 1c, second clause. Handed to `vector.search_images`
+        as `on_progress` only when `self.status_callback` is set (see
+        `_retrieve`) - the same "only when someone is listening" gate
+        `Embedder._start_progress_watcher_if_downloading` already applies to
+        its own watcher thread, so a search with nobody wired up starts no
+        extra thread for this at all.
+
+        **Called from whatever thread the download-progress watcher happens
+        to be running on** - a plain `threading.Thread`, per
+        `app/index/embedder.py::_DownloadProgressWatcher`, never the pool
+        worker and never the GUI thread. `self.status_callback` is what
+        actually reaches the window (a `pyqtSignal.emit`, in
+        `app/ui/shell.py`, chosen specifically because it is safe to call
+        cross-thread); this method's own job is only the number-to-words
+        step, kept out of `app/ui/shell.py` so that module does not need to
+        know this is a percentage from a model download at all.
+
+        **Guarded, H4.** A raised exception here would unwind into
+        `_DownloadProgressWatcher._run` or `Embedder._ensure_encoder`'s
+        `finally`, both of which already guard their own call to this - but
+        guarding here too means a broken `status_callback` (a window
+        mid-teardown, a test double that raises) can never be the reason an
+        image search fails, not just the reason it fails silently.
+        """
+        if self.status_callback is None:
+            return
+        try:
+            self.status_callback(
+                f"Downloading the picture-search model - {percent:.0f}%")
+        except Exception as exc:               # noqa: BLE001 - H4: never break image search
+            _log.debug("status callback failed for CLIP download progress: {}", exc)
 
     # -- the two tiers ------------------------------------------------------
 
@@ -1183,6 +1234,12 @@ class SearchEngine:
             image_future = self._pool.submit(
                 vector.search_images, self.image_vectors, self.clip_text_embedder,
                 parsed, allowed_file_ids=allowed, problems=image_problems,
+                # Work order 0r item 1c, second clause: only when there is
+                # somewhere to report to - see `_clip_download_progress` and
+                # `Embedder._start_progress_watcher_if_downloading`, both of
+                # which gate the same way for the same reason.
+                on_progress=(self._clip_download_progress
+                             if self.status_callback is not None else None),
             )
         # **Bounded, because the pool has one worker per retriever and no
         # queue deep enough to hide a wedge.** A hung LanceDB scan or a

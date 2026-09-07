@@ -23,7 +23,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, QTimer
+from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
@@ -98,6 +98,18 @@ def _stats(stats: Any) -> dict:
 class MainWindow(QMainWindow):
     """Search, indexing and settings in one window."""
 
+    #: Work order 0r item 1c, second clause. The CLIP text-tower embedder's
+    #: download-progress reporting reaches `SearchEngine.status_callback`
+    #: from a plain `threading.Thread` (`_DownloadProgressWatcher`) or from
+    #: `SearchEngine`'s own retrieval-pool worker thread - never the GUI
+    #: thread. A `pyqtSignal` is what this codebase already uses to marshal
+    #: exactly that safely (`app/ui/workers.py`'s `WorkerSignals`, the same
+    #: mechanism `IndexWorker`'s `progress` signal relies on): emitting from
+    #: any thread onto a receiver that lives on the GUI thread is queued
+    #: automatically, where a direct `self.statusBar().showMessage(...)` call
+    #: from that background thread would be an unguarded cross-thread Qt call.
+    _clip_download_progress = pyqtSignal(str)
+
     def __init__(
         self,
         settings: Any,
@@ -130,6 +142,24 @@ class MainWindow(QMainWindow):
         #: behaviour (no image lane) rather than raising, exactly like
         #: `SearchEngine`'s own `image_vectors=`/`clip_text_embedder=`.
         self._image_vectors = image_vectors
+
+        # Work order 0r item 1c, second clause: if the CLIP text-tower
+        # embedder's model cache is emptied mid-life (a moved index, a
+        # re-staged data directory) and the first image search is what next
+        # tries to load it, the download has nowhere to report to on its
+        # own - the splash that reports the *startup* download (§1c's first
+        # clause, already done) is long closed by then, correctly, and there
+        # should be no second splash. This window's own notices bar carries
+        # the message instead. Wired here, not in `app/main.py`, because the
+        # window - and therefore anywhere to show a message - does not exist
+        # yet when `engine` is constructed there.
+        self._clip_download_progress.connect(
+            lambda message: self.statusBar().showMessage(message, 8_000))
+        try:
+            engine.status_callback = self._clip_download_progress.emit
+        except Exception as exc:               # noqa: BLE001 - H4: the window must still open
+            _log.debug("could not wire CLIP download progress to the status "
+                       "bar: {}", exc)
 
         self.setWindowTitle(window_title())
         self.resize(1100, 760)

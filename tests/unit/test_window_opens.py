@@ -538,3 +538,66 @@ def test_an_ordinary_poll_does_not_steal_focus(window):
     show.assert_not_called()
     raise_.assert_not_called()
     activate.assert_not_called()
+
+
+def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_path):
+    r"""Work order 0r item 1c, second clause.
+
+    If the CLIP text-tower embedder's model cache is emptied mid-life (a
+    moved index, a re-staged data directory) and the first image search is
+    what next tries to load it, the splash is long closed by then -
+    correctly, there must be no second one - so this window's own notices
+    bar has to carry the message instead.
+
+    Exercises the wiring from the shell's own point of view:
+    `MainWindow.__init__` connects a signal to `self.statusBar().
+    showMessage(...)` and hands the signal's `emit` to `engine.
+    status_callback` - see `app/search/engine.py::SearchEngine.
+    _clip_download_progress` for what actually calls it during a real
+    search. Calling that same seam directly here, exactly the way the engine
+    would, must make the message show up on the status bar.
+
+    **No `SplashScreen` is constructed anywhere in this test** - `app/ui/
+    splash.py` is never imported. The whole point of this item is that this
+    path does not need one.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "clip_download_status"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        engine = _Engine(store)
+        window = MainWindow(settings, store, vectors, engine)
+        app.processEvents()
+
+        assert callable(engine.status_callback), (
+            "MainWindow must wire a status_callback onto the engine it is "
+            "given, so a download that starts long after the splash has "
+            "closed still has somewhere to report to")
+
+        # Not followed by `app.processEvents()`: `_clip_download_progress` is
+        # a signal whose only connection lives on this same thread, so
+        # `.emit()` runs the connected slot synchronously (a direct
+        # connection) - pumping the loop afterwards would let unrelated
+        # startup work (e.g. the background file-count query) land its own
+        # message on top of the one this test is checking.
+        message = "Downloading the picture-search model - 42%"
+        engine.status_callback(message)
+
+        assert window.statusBar().currentMessage() == message
+    finally:
+        store.close()
+        vectors.close()
+

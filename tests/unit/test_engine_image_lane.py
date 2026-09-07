@@ -319,6 +319,107 @@ def test_search_by_image_is_off_without_both_arguments(store) -> None:
     assert response.image_count == 0
 
 
+# --------------------------------------------------------------------------
+# Work order 0r item 1c, second clause: mid-life cache-empty progress reaches
+# `status_callback`, not just the splash's own (already-done) first clause.
+# --------------------------------------------------------------------------
+
+
+class _MidLifeDownloadEmbedder:
+    """Stands in for the real CLIP text-tower `Embedder` mid-download: its
+    `embed` call reports progress through whatever `_on_progress` was set
+    onto it - exactly the seam `vector.search_images` writes to - before
+    returning a vector, the same way the real `Embedder._ensure_encoder`
+    reports through its `_DownloadProgressWatcher` before the constructor
+    call it is watching returns."""
+
+    def __init__(self, vector=(0.1, 0.2, 0.3)):
+        self.vector = list(vector)
+
+    def embed(self, texts):
+        on_progress = getattr(self, "_on_progress", None)
+        if on_progress is not None:
+            on_progress(42.0)
+        return [self.vector for _ in texts]
+
+
+def test_a_mid_life_cache_empty_download_reaches_the_status_callback(store) -> None:
+    """The gap this item closes: a search reaching the image lane after the
+    model cache has been emptied mid-life must not report progress nowhere -
+    `SearchEngine.status_callback`, wired by `app/ui/shell.py` to the
+    window's notices bar, is where it has to land."""
+    file_id = _photo_file_id(store)
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.02}])
+
+    messages: list[str] = []
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, clip_text_embedder=_MidLifeDownloadEmbedder(),
+        status_callback=messages.append,
+    )
+    try:
+        response = engine.search("kids on the beach")
+    finally:
+        engine.close()
+
+    assert response.image_count == 1, "the download report must not have cost the search"
+    assert messages, "a mid-life download must reach the status callback"
+    assert "42" in messages[0]
+    assert "Downloading" in messages[0]
+    # §0.8's plain-words discipline is for splash strings specifically, but a
+    # notices-bar line naming a real download fact is exactly what that rule
+    # already allows for the 130MB figure - a fabricated number would not be.
+    assert "%" in messages[0]
+
+
+def test_without_a_status_callback_nothing_is_wired_or_attempted(store) -> None:
+    """H4, restated for this wiring: `status_callback` absent is exactly the
+    state before this item existed - no `on_progress` reaches the embedder at
+    all, matching `Embedder`'s own "only when someone is listening" gate for
+    its download watcher thread."""
+    file_id = _photo_file_id(store)
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.02}])
+    embedder = _MidLifeDownloadEmbedder()
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, clip_text_embedder=embedder,
+    )
+    try:
+        response = engine.search("kids on the beach")
+    finally:
+        engine.close()
+
+    assert response.image_count == 1
+    assert not hasattr(embedder, "_on_progress")
+
+
+def test_a_broken_status_callback_never_breaks_the_image_search(store) -> None:
+    """H4: a status callback that raises (a window mid-teardown, a broken
+    test double) must not be the reason an image search fails."""
+    file_id = _photo_file_id(store)
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": file_id, "file_id": file_id, "distance": 0.02}])
+
+    def exploding_callback(message):
+        raise RuntimeError("the window is already gone")
+
+    engine = SearchEngine(
+        store, _EmptyVectorStore(), _NoOpEmbedder(),
+        image_vectors=image_vectors, clip_text_embedder=_MidLifeDownloadEmbedder(),
+        status_callback=exploding_callback,
+    )
+    try:
+        response = engine.search("kids on the beach")
+    finally:
+        engine.close()
+
+    assert response.image_count == 1
+    assert not any(n.code == NOTICE_NO_IMAGES for n in response.notices)
+
+
 def test_a_broken_reverse_image_search_degrades_with_notice_no_images(store) -> None:
     """H4: mirrors `NOTICE_NO_IMAGES`, deliberately, per the work order's own
     instruction - the same CLIP lane failing, not a genuinely different

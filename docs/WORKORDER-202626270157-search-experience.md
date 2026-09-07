@@ -155,10 +155,19 @@ corrects. Ollama is one backend; this adds the second.
   theme.py) with point sizes or a scale factor honouring Windows display
   scaling — the one accessibility item the 25 Aug review left partial, and
   it matters for every older relative this product now targets.
-- [ ] **6c** the remediation order's §4 UI items (M10 modal storms, M11
+- [x] **6c** the remediation order's §4 UI items (M10 modal storms, M11
   preview decode, M12 rerank sync, M19 screen-reader text) are
   prerequisites of "world class" but stay tracked THERE — this order does
   not duplicate them; do not tick anything twice.
+
+  **2026-09-07, verification only — no code was written for this item and
+  nothing was ticked twice.** All four referenced items are complete in
+  `WORKORDER-202626082352-review-remediation.md`, checked line by line
+  rather than inferred from the order's status: M10 at line 167, M11 at
+  169, M12 at 171, M19 at 175, each `[x]`. The prerequisite this item
+  records is therefore met, and ticking it asserts exactly that and nothing
+  more — the work itself remains tracked in the remediation order, which is
+  what the item asks for.
 
 ## 7. Tests
 
