@@ -429,6 +429,11 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     # decoding even one on the UI thread is the freeze non-negotiable #5
     # forbids - `_load_thumbnails` hands every one of them to its own worker.
     ("widgets/thumbnail_grid.py", "_load_thumbnails"),
+    # 2026-09-07 UI freeze: `resolve_for_run` falls through to `compute_
+    # profile.detect()` on a cold hardware-profile cache, which shells out
+    # to PowerShell twice with 10s/15s timeouts - all of it used to run
+    # inline, on the UI thread, at the exact moment somebody clicked Start.
+    ("shell.py", "_start_indexing"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
     r"""Asserted on the *worker*, not the result: the point is that the call
