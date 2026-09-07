@@ -79,6 +79,7 @@
     <Compile Include="app\core\errors.py" />
     <Compile Include="app\core\format_health.py" />
     <Compile Include="app\core\formats.py" />
+    <Compile Include="app\core\gpu_serialize.py" />
     <Compile Include="app\core\identifiers.py" />
     <Compile Include="app\core\index_move.py" />
     <Compile Include="app\core\logging.py" />
@@ -364,6 +365,8 @@
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
+    <Compile Include="tests\unit\test_gpu_lock_wiring.py" />
+    <Compile Include="tests\unit\test_gpu_serialize.py" />
     <Compile Include="tests\unit\test_grammars.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
@@ -384,6 +387,7 @@
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
+    <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
@@ -480,6 +484,7 @@
     <Compile Include="tests\unit\test_spreadsheet_preview.py" />
     <Compile Include="tests\unit\test_stages.py" />
     <Compile Include="tests\unit\test_staging.py" />
+    <Compile Include="tests\unit\test_start_indexing_resolves_off_thread.py" />
     <Compile Include="tests\unit\test_startup_import_order.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
