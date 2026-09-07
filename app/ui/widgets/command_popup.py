@@ -536,8 +536,22 @@ def attach_to(line_edit: QLineEdit,
         if mode != "value" or popup.value_of != name:
             return
         wanted = now.strip().lower()
+        # **The filter has to read a `ValueCount` as well as a string.**
+        # `suggest` returns whichever the source supplied - counts where the
+        # index had one, bare strings for what the grammar contributed - and
+        # `.lower()` on the first shape raised `AttributeError` inside a
+        # worker's `finished` slot, which PyQt turns into a fatal exit. It
+        # took typing any part of a value after a colon (`type:pd`,
+        # `saved:inv`) against an index that had a count for it. Told apart
+        # by what they are, the same way `set_values` above already does it -
+        # a plain string answers to `.count` too, so `isinstance` comes first.
+        def _text_of(value: Any) -> str:
+            return (value if isinstance(value, str)
+                    else str(getattr(value, "value", value)))
+
         popup.set_values(name, [
-            value for value in values if not wanted or wanted in value.lower()
+            value for value in values
+            if not wanted or wanted in _text_of(value).lower()
         ] or suggest(name, now, use_store=False))
         _show_or_hide()
 

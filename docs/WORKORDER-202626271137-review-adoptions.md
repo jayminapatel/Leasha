@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.6 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -104,7 +104,7 @@ these seven.
   delta recorded.
 - [x] deep link: `leasha://search?q=x` fronts the single instance with
   results; uninstall removes the key.
-- [ ] pytest-qt scenario per item (0m convention); all new strings pass the
+- [x] pytest-qt scenario per item (0m convention); all new strings pass the
   plain-words/tooltip rules.
   > **2026-09-05: partially true, not ticked - and the "0m convention" half
   > is genuinely blocked, not merely unbuilt.** Investigated in full rather
@@ -153,6 +153,100 @@ these seven.
   > qtbot-scenario half is not something to guess past a held order for.
   > Whoever has the owner's go-ahead on 0m should return here once it
   > lands.
+
+  **2026-09-07, closing this item — and 0m turned out not to be the blocker
+  the note above took it for.** Re-read 0m first, as that note asks. Its own
+  status line says the opposite of what was concluded: *"The per-order
+  scenario convention (each order writes pytest-qt scenarios for its own
+  acceptance sentences) CONTINUES while this is held — that convention lives
+  in the other orders, not here."* What is forbidden while 0m is held is
+  building **0m's own items** — `tools/grab_ui.py`, the shared `MainWindow`
+  harness fixture and its `gui` marker, the hypothesis and pywinauto layers,
+  the visual goldens, the nightly loop. None of those is needed to press a
+  key in a widget this order shipped: `qtbot` is a fixture pytest-qt provides
+  the moment it is installed, and it is installed. So the scenarios are
+  written here, in this order, which is exactly where 0m says they belong.
+  Nothing of 0m's was started.
+
+  **Eighteen new tests, all of them run.** `tests/unit/test_adoption_
+  scenarios.py` (15) and three appended to `tests/unit/test_window_opens.py`,
+  which owns the one live `MainWindow` this process may build. Per item:
+  **1a/1b** a real right-click on a real row, through
+  `customContextMenuRequested`, the menu `file_menu.build_menu` really
+  builds, the action triggered, and the system clipboard read back — only
+  `QMenu.exec` is stood in for, because it blocks on a modal popup. **2a**
+  two results differing in nothing but which lane found them, rendered with
+  `widget.grab()`: if the marker stops reaching the painted row the two
+  images become identical, which is the assertion. **3a/3b** a search saved
+  into a real store, re-read by the worker, typed as `saved:invoices`,
+  Enter — and the document the stored *query* finds comes back, with the
+  saved scope applied to the control. **4a** the prefill arrives, and then
+  one real key press replaces it, which is the half "selected" exists for.
+  **5a** `qtbot.keyClick(box, Tab)` into the `QLineEdit` itself — where Qt
+  actually delivers it, not into the event filter by hand — cycling every
+  chip and back with the engine's `search` counted across the whole cycle.
+  **6a** the sheet-and-cell sentence read off the live model's
+  `ToolTipRole`, which is what a hover actually produces. **7a** a real
+  `deeplink.Request` handed to `_show_external_run` on the live window: the
+  Search tab comes forward, the words are in the box, the search is asked
+  for and the window activates — the live-window poll test the note above
+  correctly listed as missing.
+
+  **Every one of them was made to fail first**, and the note is only worth
+  what that sentence is: the menu stopped offering the explanation; the
+  marker was dropped from the subtitle (both §2 tests red, the image one
+  included); `to_row` fell back to the sheet index; `saved:` stopped
+  expanding; the prefill arrived unselected; Tab was left to Qt's focus
+  handling, and separately a chip filter was made to re-search; `MEANING_
+  MARKER` was made to say "embedding vector match"; a chip lost its tooltip
+  (red here *and* in `test_tooltips.py`); `_show_external_run` ignored the
+  link. Nine breaks, nine reds, each restored.
+
+  **A live crash, found by typing.** `saved:inv` — a colon and then part of
+  a value, which is what anybody does — killed the window.
+  `command_popup._deliver` filtered the fetched values with `value.lower()`,
+  and `suggest` returns a `ValueCount` wherever the index had a count, so it
+  raised `AttributeError` inside a worker's `finished` slot. PyQt answers an
+  unhandled exception in a slot with `qFatal()`. It was not specific to
+  saved searches — `type:pd` against an indexed extension is the same
+  crash — and no test had ever typed a partial value into a real box.
+  **Fixed** in `app/ui/widgets/command_popup.py`, told apart by `isinstance`
+  exactly as `set_values` twenty lines above already does it, with
+  `test_typing_part_of_a_saved_name_offers_it_instead_of_killing_the_window`
+  as the regression.
+
+  **The plain-words half reuses both existing guards rather than adding a
+  third.** `test_search_policy.py`'s inline deny-list was hoisted to
+  `SURFACE_JARGON` — the same words, in the same order, now importable — and
+  is imported here alongside `test_index_tuning_acceptance.JARGON`. The
+  sweep builds this order's strings from the code (the marker, the locator
+  sentence, every line a maximally-decorated `why_result` produces in the
+  plain register, every chip label, `/saved`'s summary and hint, the saved
+  noun, and the switch's own label and sentence), so a reworded string is
+  swept on the next run without anybody maintaining a list. It has its own
+  would-it-notice test, the house shape from `test_tooltips.py`, and a
+  live-widget half that reads the built chip buttons the way the tuning
+  screen's guard reads its controls.
+
+  **One thing found and deliberately not fixed here.** §2a and §1b both say
+  *off-able*, and `presenter.match_marker`/`explain_for` do honour the
+  policy — but **no view ever passes one**: `result_delegate.py` calls
+  `group_subtitle(group, show_scores=…, expanded=…)` with the `policy`
+  argument left at `None`, so switching `explain_results` off does not
+  remove the marker from a painted row. That is view plumbing (a policy would
+  have to reach the delegate the way `register` already reaches
+  `ResultsView`), not a test sweep, and inventing it here would be building
+  something nobody ordered. Recorded rather than quietly fixed or quietly
+  ignored.
+
+  **Not reached from this sandbox**: `test_deeplink.py::test_the_cli_leaves_
+  the_link_for_the_window` fails here and did before this work — it shells
+  out to `app.cli`, which wants a `.env` the worktree has not got. It is
+  environmental, not a regression. Nor could the whole suite be run in one
+  go: the tool call caps at roughly 170 seconds and the suite is longer than
+  that. What was run: the seven areas' own files plus this order's new ones
+  (464 passed, 1 environmental fail), and a popup-adjacent sweep of ten more
+  files (731 passed, 8 skipped).
 
 ## Done means
 

@@ -601,3 +601,68 @@ def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_p
         store.close()
         vectors.close()
 
+
+def test_a_leasha_link_arriving_while_the_window_is_open_runs_it(window):
+    r"""Adoptions §7a, in a live window - the half that had no test.
+
+    **The link process never becomes a window.** It writes one `index_state`
+    row and exits, and this window's own four-second poll is what picks the
+    request up: `_show_external_run` hands it to `_run_link`, which goes to
+    Search, puts the words in the box, runs them, and comes forward.
+
+    Driven through the same seam the poll's worker delivers to, with a real
+    `deeplink.Request` - so what is under test is the window's half of the
+    hand-off rather than the parsing, which `test_deeplink.py` owns.
+
+    `search_now` is watched rather than let run: this stub engine has no
+    `search`, and what §7a promises about the window is *this query, in the
+    box, on the Search tab, in front* - the searching itself is the same
+    `_dispatch` every keystroke already uses.
+    """
+    from unittest.mock import patch
+
+    from app.core.deeplink import Request
+
+    _app, built = window
+    built.search_view.input.clear()
+    built.tabs.setCurrentIndex(built.tabs.count() - 1)
+
+    with patch.object(built.search_view, "search_now") as ran, \
+            patch.object(built, "showNormal"), patch.object(built, "raise_"), \
+            patch.object(built, "activateWindow") as activate:
+        built._show_external_run(
+            {"locked": False, "record": None, "front_requested": False,
+             "link": Request("search", "pump station")})
+
+    assert built.search_view.input.text() == "pump station"
+    assert built.tabs.currentIndex() == built._tab_index[built.search_view], (
+        "a link has to bring the Search tab forward - somebody clicking one "
+        "is asking a question, not opening whichever tab was last used")
+    ran.assert_called_once()
+    # A search that ran behind whatever they clicked the link in is a search
+    # nobody saw. `raise_` is advisory on Windows; this is the half that takes
+    # focus, so it is the one asserted.
+    activate.assert_called_once()
+
+
+def test_a_malformed_link_costs_the_link_and_not_the_window(window):
+    """`_run_link` never raises: a `leasha://` URL is an input from outside
+    the application, and anything on this machine can invoke it."""
+    _app, built = window
+    built.search_view.input.clear()
+
+    built._show_external_run({"locked": False, "record": None, "link": object()})
+
+    assert built.search_view.input.text() == ""
+
+
+def test_an_ordinary_poll_leaves_the_search_box_alone(window):
+    """No link means no query typed into somebody's box. The poll runs every
+    four seconds for the life of the window; this is the far commoner case."""
+    _app, built = window
+    built.search_view.input.setText("half a question")
+
+    built._show_external_run({"locked": False, "record": None, "link": None})
+
+    assert built.search_view.input.text() == "half a question"
+    built.search_view.input.clear()

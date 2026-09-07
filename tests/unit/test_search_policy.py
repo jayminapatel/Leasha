@@ -24,6 +24,15 @@ from app.search import policy
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: Words a search surface may not say. **Hoisted out of the test below, not
+#: rewritten**: the same tuple, in the same order, now importable - the
+#: adoptions order's own string sweep
+#: (`test_adoption_scenarios.py`) runs this list over the sentences it added,
+#: and a second copy of these words is a second guard that can disagree with
+#: this one.
+SURFACE_JARGON = ("fts", "bm25", "vector", "embedding", "policy",
+                  "register", "edit distance", "rrf")
+
 
 class Settings:
     """Only the six fields the policy reads."""
@@ -182,8 +191,7 @@ def test_the_behaviour_help_speaks_english() -> None:
     This surface is the one an eight-year-old uses."""
     for name, label, help_text in policy.BEHAVIOURS:
         text = f"{label} {help_text}".lower()
-        for jargon in ("fts", "bm25", "vector", "embedding", "policy",
-                       "register", "edit distance", "rrf"):
+        for jargon in SURFACE_JARGON:
             assert jargon not in text, (name, jargon)
 
 
