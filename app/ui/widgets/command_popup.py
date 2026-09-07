@@ -399,8 +399,23 @@ class _TabAccepts(QObject):
         return False
 
 
+#: Focus reasons that mean "the window just became visible or active", not
+#: "somebody reached for this box". `ActiveWindowFocusReason` is what Qt
+#: hands the first focusable widget in tab order when a window is shown -
+#: which this box usually is, since Search is the default tab (§2e).
+#: `OtherFocusReason` is the same programmatic case with no more specific
+#: reason recorded. Reported live: the box offered recent searches the
+#: instant the window opened, before anybody had touched it - "a dropdown
+#: by default" - because this filter answered every `FocusIn` alike and
+#: could not tell the window opening from a person clicking in.
+_PASSIVE_FOCUS_REASONS = (
+    Qt.FocusReason.ActiveWindowFocusReason, Qt.FocusReason.OtherFocusReason,
+)
+
+
 class _OffersOnFocus(QObject):
-    """Shows what the box has to offer when it is empty and focused. §2e.
+    """Shows what the box has to offer when it is empty and **deliberately**
+    focused. §2e.
 
     An event filter on the line edit rather than a `focusInEvent` override,
     because the search box is a plain `QLineEdit` on purpose - everything
@@ -415,6 +430,7 @@ class _OffersOnFocus(QObject):
 
     def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's naming
         if (event.type() == QEvent.Type.FocusIn
+                and event.reason() not in _PASSIVE_FOCUS_REASONS
                 and not self._line_edit.text().strip()):
             self._show()
         return False

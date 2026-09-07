@@ -29,7 +29,8 @@ pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent                                  # noqa: E402
+from PyQt6.QtCore import QEvent, Qt                               # noqa: E402
+from PyQt6.QtGui import QFocusEvent                               # noqa: E402
 from PyQt6.QtWidgets import QApplication                         # noqa: E402
 
 from app.search.saved import SavedSearch, ordered                # noqa: E402
@@ -68,10 +69,18 @@ def box(qapp):
     store.close()
 
 
-def _focus_empty(qapp, line_edit, popup):
-    """Click into an empty box, the way a person does. Returns the rows."""
+def _focus_empty(qapp, line_edit, popup,
+                 reason=Qt.FocusReason.MouseFocusReason):
+    """Click into an empty box, the way a person does. Returns the rows.
+
+    **A real `QFocusEvent` with a real reason**, not a bare `QEvent`, because
+    the box now reads `event.reason()` to tell a click apart from the window
+    simply opening (see `_OffersOnFocus`) - a bare `QEvent(FocusIn)` has no
+    `.reason()` at all and would raise, which a real Qt-dispatched focus
+    event never does.
+    """
     line_edit.setText("")
-    qapp.sendEvent(line_edit, QEvent(QEvent.Type.FocusIn))
+    qapp.sendEvent(line_edit, QFocusEvent(QEvent.Type.FocusIn, reason))
     return [popup._model.item(row).text()
             for row in range(popup._model.rowCount())]
 
@@ -110,8 +119,31 @@ def test_a_box_with_something_in_it_offers_nothing(qapp, box):
     line_edit, popup, _saved, _submitted, _store = box
 
     line_edit.setText("half a quest")
-    qapp.sendEvent(line_edit, QEvent(QEvent.Type.FocusIn))
+    qapp.sendEvent(line_edit, QFocusEvent(
+        QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason))
     assert not popup.offering
+
+
+def test_the_window_opening_does_not_offer_anything(qapp, box):
+    r"""**The bug, reported live: "a dropdown by default" on launch.**
+
+    Qt hands the first focusable widget in tab order a `FocusIn` with
+    `ActiveWindowFocusReason` when a window is shown - and the search box
+    usually is that widget, since Search is the default tab (§2e). Before
+    this test existed, `_OffersOnFocus` answered every `FocusIn` alike, so
+    an empty box with real history popped its dropdown open the instant the
+    window appeared, before anybody had touched it. Same for
+    `OtherFocusReason`, the programmatic catch-all a plain `.setFocus()`
+    with no reason produces.
+    """
+    line_edit, popup, _saved, _submitted, _store = box
+
+    for reason in (Qt.FocusReason.ActiveWindowFocusReason,
+                  Qt.FocusReason.OtherFocusReason):
+        line_edit.setText("")
+        popup.show_all()                      # back to command mode first
+        qapp.sendEvent(line_edit, QFocusEvent(QEvent.Type.FocusIn, reason))
+        assert not popup.offering, f"{reason} must not open the offers dropdown"
 
 
 def test_a_box_with_nothing_to_offer_opens_nothing(qapp):
