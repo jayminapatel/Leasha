@@ -60,6 +60,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Existing indexes gain the new date column automatically on next open (schema
   v18); photos already indexed pick up their dates as later runs re-touch them.
 
+### Typing part of a filter's value no longer closes the window
+
+- Typing a colon and then the beginning of a value - `type:pd`, `saved:inv` -
+  could shut Leasha down without a word, as soon as the index had a count to
+  show for what was being typed. The `/` menu filters the values it fetched
+  against what you have typed so far, and it could not read the ones that
+  arrived carrying their count; the failure happened deep enough inside Qt
+  that the whole window went with it. Found by the first test that ever typed
+  a partial value into a real search box. Work order 0s, the scenario sweep.
+
 
 ### A result that matched several times can now be opened up with one click on its arrow
 
