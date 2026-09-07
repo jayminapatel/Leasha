@@ -266,6 +266,16 @@ class FileRecord:
     #: database that has not been migrated yet in a test double that builds
     #: rows by hand without this key.
     phash: Optional[str] = None
+    #: Work order 0f §3a. A photograph's EXIF shot date, in nanoseconds since
+    #: the epoch so it is directly comparable with `mtime_ns`. `NULL` for
+    #: every file that is not a photograph, and for a photograph whose EXIF is
+    #: absent or unreadable - in which case `mtime_ns` is the date, which is
+    #: what `file_filter_sql` falls back to. **Never confuse the two:**
+    #: `mtime_ns` is the file's real mtime and answers "did this change" for
+    #: H1; this answers "when is this from". See `_v18_photo_taken_at`.
+    #: Defaulted for the same reason `phash` is - `from_row` builds from
+    #: whatever columns a SELECT actually asked for.
+    taken_at_ns: Optional[int] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
@@ -592,6 +602,7 @@ class SqliteStore:
         source_kind: str = "file",
         repo_id: Optional[int] = None,
         clear_hash: bool = False,
+        taken_at_ns: Optional[int] = None,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
 
@@ -608,6 +619,15 @@ class SqliteStore:
 
         `repo_id` is additive and optional: every existing caller keeps working
         and writes NULL, which is what a file outside any repository is.
+
+        **`taken_at_ns` is a photograph's EXIF shot date, and it is COALESCEd
+        on conflict for exactly the reason `repo_id` is.** Work order 0f §3a.
+        `_record_skip`, the PST path and most tests call this without it, and
+        none of them should be able to erase a shot date the images pass
+        established - a photo that failed to re-OCR on a later run would
+        otherwise silently revert to filtering by its copy date. It is written
+        beside `mtime_ns`, never into it: `mtime_ns` remains the file's real
+        mtime because H1's change detection compares against it.
 
         **`NO_REPO` is how a caller says "no repository" and means it.** NULL
         cannot: the `ON CONFLICT` below COALESCEs it so that callers which know
@@ -642,8 +662,8 @@ class SqliteStore:
                 """
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
-                     status, source_kind, repo_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, source_kind, repo_id, taken_at_ns)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -671,10 +691,16 @@ class SqliteStore:
                     repo_id      = CASE
                         WHEN ? = 1 THEN NULL
                         ELSE COALESCE(excluded.repo_id, files.repo_id)
-                    END
+                    END,
+                    -- COALESCEd for the same reason `repo_id` above is: the
+                    -- callers that write a row for a photo without knowing
+                    -- its shot date must not erase one. See the docstring.
+                    taken_at_ns  = COALESCE(excluded.taken_at_ns,
+                                            files.taken_at_ns)
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
                  content_hash, status, source_kind, stored_repo,
+                 None if taken_at_ns is None else int(taken_at_ns),
                  forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()

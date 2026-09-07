@@ -105,6 +105,19 @@ class Document:
     #: §6a: a spreadsheet's rows, as `Q3!A14`. Empty for everything else, which
     #: is nearly every document - a tuple of nothing costs nothing.
     anchors: tuple[tuple[int, str], ...] = ()
+    #: **The date this document is *from*, when the file itself knows better
+    #: than its mtime does.** Work order 0f §3a: a photograph's EXIF
+    #: `DateTimeOriginal`, set by `OcrExtractor` and `RawExtractor`. None for
+    #: every other extractor, meaning "no opinion - use the file's mtime".
+    #:
+    #: This field is why the item was reopened. Both image extractors already
+    #: did `builder.date = exif_date`, but `DocumentBuilder` declared no such
+    #: attribute and `build()` never read one, so the assignment was a plain
+    #: attribute set on an object nobody asked - a dead write that made the
+    #: wiring look finished for months while every photo still filtered by its
+    #: copy date (commit `c58dca9` diagnosed it). Declaring it here is what
+    #: makes that assignment mean something.
+    date: Optional[Any] = None
 
     @property
     def key(self) -> str:
@@ -214,6 +227,10 @@ class DocumentBuilder:
         self.source_kind = source_kind
         self.meta: dict[str, Any] = {}
         self.warnings: list[AppError] = []
+        #: See `Document.date`. Declared here so that setting it is a real
+        #: assignment to a known attribute rather than an invented one that
+        #: `build()` silently drops - which is exactly what it used to be.
+        self.date: Optional[Any] = None
         self._parts: list[str] = []
         self._segments: list[Segment] = []
         #: `(absolute offset, locator)`, in the order added. See `add`.
@@ -297,6 +314,7 @@ class DocumentBuilder:
             meta=dict(self.meta),
             warnings=tuple(self.warnings),
             anchors=tuple(self._anchors),
+            date=self.date,
         )
 
 

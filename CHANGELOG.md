@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.02 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 4.03 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,32 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A photo taken in 2006 is found by `before:2010`, however many times it has been copied since
+
+- `before:` and `after:` now use a photograph's own date - the one the camera
+  recorded when the shutter fired - instead of the date the file happened to
+  land on the current drive. A picture taken in 2006 and copied between
+  machines three times since had been filed under the date of the last copy,
+  so searching the year it was actually taken did not find it. Work order 0f
+  §3a.
+- A photo with no date inside it, or one whose date cannot be read, still uses
+  its file date exactly as before, and so does every document, spreadsheet and
+  email in the index - nothing else changes. A corrupt photo costs only its own
+  date and never interrupts a run.
+- **A bug found while fixing this, worth naming because it looks identical
+  from the outside:** where a photo carried more than one date, the wrong one
+  was being preferred - the "last modified" stamp that photo software rewrites
+  whenever it saves, rather than the original shutter date. A 2006 photograph
+  opened and re-saved in 2019 therefore read as 2019 even once its dates were
+  being read at all. The shutter date now wins.
+- **A known gap, flagged rather than silently left:** this is the filter half.
+  Result rows still *show*, and `/newest` still *sorts by*, the file's copy
+  date - so a photo can be found by `before:2010` and still display 2019.
+  Display and sort change result ordering everywhere at once and are being
+  done as their own measured piece of work; the storage they need is in place.
+- Existing indexes gain the new date column automatically on next open (schema
+  v18); photos already indexed pick up their dates as later runs re-touch them.
 
 ### A result that matched several times can now be opened up with one click on its arrow
 

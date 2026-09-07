@@ -25,42 +25,62 @@ from app.core.logging import logger
 log = logger.bind(component="extract.exif")
 
 
-def read_datetime(path: Path) -> Optional[datetime.datetime]:
-    """EXIF DateTimeOriginal from an image, or None.
+#: The date tags this reads, **in the order they are preferred**. Work order
+#: 0f §3a names `DateTimeOriginal` specifically, and the order is the item:
+#:
+#:   * `36867 DateTimeOriginal` - when the shutter fired. Cameras write it once
+#:     and nothing rewrites it, which is the entire reason EXIF is trusted here
+#:     over the file's own mtime.
+#:   * `36868 DateTimeDigitized` - when a scan or an import was made. The right
+#:     answer for a scanned print, whose shutter date nothing recorded.
+#:   * `306 DateTime` - "last modified", and **the trap**. Photo software
+#:     rewrites it whenever it saves the file, so a 2006 photograph opened and
+#:     re-saved in 2019 carries a 2019 `DateTime` beside its untouched 2006
+#:     `DateTimeOriginal`. Preferring it would reintroduce, inside EXIF, the
+#:     very copy-date bug that reading EXIF exists to escape - so it is last,
+#:     and used only when it is the only date the file has.
+_DATE_TAGS: tuple[int, ...] = (36867, 36868, 306)
 
-    Tried in order: DateTimeOriginal (camera time), DateTimeDigitized (scan time),
-    then fallback to file mtime. Never raises.
+
+def read_datetime(path: Path) -> Optional[datetime.datetime]:
+    r"""EXIF DateTimeOriginal from an image, or None. Never raises.
+
+    Tried in `_DATE_TAGS` order: DateTimeOriginal (camera time), then
+    DateTimeDigitized (scan time), then DateTime (last modified).
+
+    **This used to walk `TAGS` instead, and got the order backwards.** The
+    loop iterated `PIL.ExifTags.TAGS` - a dict keyed by tag *number* - and
+    returned the first of the three it met, so tag 306 (`DateTime`) was
+    always reached before 36867 (`DateTimeOriginal`). A photo carrying both
+    resolved to its last-saved date while the docstring above it promised
+    the shot date. Measured before the fix: a fixture with
+    `DateTimeOriginal=2006:06:15` and `DateTime=2019:03:01` returned
+    2019-03-01. The preference is now stated as data and iterated directly,
+    so the order is the tuple above rather than an artefact of how Pillow
+    happens to number its tags.
     """
     try:
         from PIL import Image
-        from PIL.ExifTags import TAGS
 
         with Image.open(path) as img:
             exif = img._getexif()
             if exif is None:
                 return None
 
-            # Try the tags in order of preference
-            # 306 = DateTime, 36867 = DateTimeOriginal, 36868 = DateTimeDigitized
-            for tag_id, tag_name in TAGS.items():
-                if tag_name == "DateTime":
-                    dt_str = exif.get(tag_id)
-                elif tag_name == "DateTimeOriginal":
-                    dt_str = exif.get(tag_id)
-                elif tag_name == "DateTimeDigitized":
-                    dt_str = exif.get(tag_id)
-                else:
-                    continue
-
+            for tag_id in _DATE_TAGS:
+                dt_str = exif.get(tag_id)
                 if not dt_str:
                     continue
-
                 try:
                     # EXIF format: "YYYY:MM:DD HH:MM:SS"
                     return datetime.datetime.strptime(
                         str(dt_str).strip(), "%Y:%m:%d %H:%M:%S"
                     )
                 except (ValueError, TypeError):
+                    # A malformed value in the preferred tag must not hide a
+                    # good one in the next: a camera that wrote "0000:00:00
+                    # 00:00:00" into DateTimeOriginal is common enough that
+                    # falling through matters.
                     continue
 
     except Exception as exc:  # noqa: BLE001

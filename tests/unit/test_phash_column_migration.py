@@ -30,14 +30,31 @@ def _indexes(conn: sqlite3.Connection, table: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_current_version_is_17():
-    assert CURRENT_VERSION == 17
+def test_the_migration_is_registered_and_current():
+    r"""**2026-09-07 (work order 0f §3a):** this asserted
+    `CURRENT_VERSION == 17` and broke the moment v18 (`taken_at_ns`) was
+    added - the same trap `test_query_plans.py` records against itself in its
+    own comment: *"`CURRENT_VERSION`, not the literal 5. This asserted `== 5`
+    and broke the moment v6 was added - the claim is 'a database from before
+    this migration gets it and keeps its rows', which has nothing to do with
+    the number."*
+
+    Retargeted onto what this file is actually about, in the shape
+    `test_identifiers.py::test_the_migration_is_registered_and_current`
+    already uses for exactly this: the pHash migration is registered, and no
+    later migration has dropped it. The literal 17 stays as a floor because
+    that genuinely is the version this column arrived at.
+    """
+    from app.storage.migrations import MIGRATIONS
+
+    assert 17 in MIGRATIONS
+    assert CURRENT_VERSION >= 17
 
 
 def test_a_fresh_database_has_the_column(tmp_path):
     with SqliteStore(tmp_path / "index.db") as store:
         assert "phash" in _columns(store.conn, "files")
-        assert store.schema_version == 17
+        assert store.schema_version >= 17
 
 
 def test_a_database_carried_forward_from_v16_gains_the_column(tmp_path):

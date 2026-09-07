@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 17
+CURRENT_VERSION = 18
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -910,6 +910,52 @@ def _v17_image_phash(conn: sqlite3.Connection) -> None:
     )
 
 
+def _v18_photo_taken_at(conn: sqlite3.Connection) -> None:
+    r"""`files.taken_at_ns` — a photograph's EXIF shot date. Work order 0f §3a.
+
+    **A column of its own, because `mtime_ns` cannot be both things.** The
+    obvious fix for "a 2006 photo copied in 2019 sorts as 2019" is to write the
+    EXIF date into `mtime_ns` and change nothing else. That breaks incremental
+    indexing outright: `app/index/walker.py` compares the stored `mtime_ns`
+    against the file's live mtime to decide whether a file changed, so every
+    photo would differ from its own row on every pass and be re-read, re-OCRed
+    and re-embedded forever. `mtime_ns` stays the file's real mtime and answers
+    only "did this change"; `taken_at_ns` answers "when is this from". Two
+    questions, two columns - commit `c58dca9` diagnosed exactly this and
+    stopped rather than guess, which is why the column exists.
+
+    Nanoseconds since the epoch, matching `mtime_ns` so the two are directly
+    comparable and `file_filter_sql` can substitute one for the other without
+    converting units at query time.
+
+    Additive and nullable, the same degradation `_v16_chunk_label` and
+    `_v17_image_phash` already accept: an index built before this keeps every
+    row and simply has no shot date until a later run re-touches each photo.
+    NULL is also the permanent, correct value for every file that is not a
+    photograph - which is nearly all of them - and the filter reads it as
+    "fall back to `mtime_ns`".
+
+    **The partial index earns its place at query time, not just on write.**
+    `after:`/`before:` cannot use `idx_files_mtime` alone once the shot date
+    can override it, and the obvious spelling of that comparison -
+    `COALESCE(taken_at_ns, mtime_ns) <= ?` - is not sargable and scans.
+    Measured on a 200,000-row table with a selective cutoff: the COALESCE form
+    scanned in 5.79ms, while the two-branch OR `file_filter_sql` now emits ran
+    in 0.86ms against these two indexes (the old single-column comparison was
+    0.37ms). `files` is aimed at twenty million rows, so that difference is the
+    reason this index is here and the reason the clause is shaped as it is.
+    `WHERE taken_at_ns IS NOT NULL` mirrors `idx_files_phash`: most rows will
+    never have one.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "taken_at_ns" not in existing:
+        conn.execute("ALTER TABLE files ADD COLUMN taken_at_ns INTEGER")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_taken_at ON files(taken_at_ns) "
+        "WHERE taken_at_ns IS NOT NULL"
+    )
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -938,6 +984,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     15: _v15_saved_searches,
     16: _v16_chunk_label,
     17: _v17_image_phash,
+    18: _v18_photo_taken_at,
 }
 
 
