@@ -144,7 +144,7 @@ The owner chose this on a live mock; implement it faithfully.
   > visibility check rather than racing the real wait. All 16 tests in
   > `tests/unit/test_splash.py` pass (`2.72s` total — the two timing tests
   > that deliberately wait cost `0.65s`/`0.32s` of that).
-- [ ] **1c** first-run: when the model cache is missing, warm-up's
+- [x] **1c** first-run: when the model cache is missing, warm-up's
   download progress (fastembed reports bytes) streams to the splash bar;
   if the window is already up when a download starts (cache emptied
   mid-life), the existing notices bar carries the message instead — H4
@@ -198,6 +198,91 @@ The owner chose this on a live mock; implement it faithfully.
   > (`app/ui/shell.py` explicitly; `app/index/embedder.py`'s core logic only
   > for a small, obviously-safe addition, and this is neither small nor in
   > that file). Flagged as `task_f2f225f6` rather than guessed at here.
+  >
+  > **Ticked 2026-09-07, a later session (Order 0r, item 1c's second
+  > clause).** `task_f2f225f6` is done - built exactly the three files the
+  > 2026-09-05 note named, no others.
+  >
+  > `app/search/vector.py`: `clip_text_embedder_from_settings` takes an
+  > `on_progress` and passes it straight into `Embedder(...)` - for symmetry
+  > and for a caller that already has somewhere to report to at construction
+  > time. `search_images` takes its own `on_progress` too, and this is the
+  > one that actually closes the gap: `clip_text_embedder` is built once in
+  > `app/main.py`, before the window - and therefore before there is
+  > anywhere to report to - exists, so its `on_progress` is `None` at
+  > construction. `search_images` sets `text_embedder._on_progress` right
+  > before the call that might need it, once a caller (`SearchEngine`) has a
+  > live target. Guarded like every other H4 hook in this codebase - an
+  > embedder that refuses the attribute (confirmed with a `__slots__` object
+  > in the test) still searches.
+  >
+  > `app/search/engine.py`: `SearchEngine` gained `status_callback` (`None`
+  > by default - H4, off means exactly what it meant before) and
+  > `_clip_download_progress(percent)`, which turns a raw 0-100 into "
+  > Downloading the picture-search model - N%" and calls `status_callback`,
+  > itself guarded so a broken callback cannot take an image search down.
+  > `_retrieve` hands `_clip_download_progress` to `search_images` as
+  > `on_progress` only when `status_callback is not None` - the same
+  > "only when someone is listening" gate
+  > `Embedder._start_progress_watcher_if_downloading` already uses for its
+  > own watcher thread, so a search with nobody wired up starts no extra
+  > thread for this at all.
+  >
+  > `app/ui/shell.py`: `MainWindow` connects a new `pyqtSignal`
+  > (`_clip_download_progress`) to `self.statusBar().showMessage(message,
+  > 8_000)` and hands the signal's `emit` to `engine.status_callback`, right
+  > after `self._image_vectors = image_vectors` in `__init__`. **Not a
+  > direct `self.statusBar().showMessage(...)` call from
+  > `status_callback`** - the download-progress watcher that would call this
+  > runs on a plain `threading.Thread`
+  > (`app/index/embedder.py::_DownloadProgressWatcher`), and `search_images`
+  > itself runs on `SearchEngine`'s own retrieval thread pool, so either
+  > path reaches this callback from a thread that is never the GUI one. A
+  > `pyqtSignal` is what this codebase already uses to marshal that safely
+  > (`app/ui/workers.py`'s `WorkerSignals`, the same mechanism
+  > `IndexWorker`'s `progress` signal relies on) - emitting from a
+  > background thread onto a receiver living on the GUI thread queues
+  > automatically, where a direct cross-thread widget call would not be
+  > safe. The wiring itself is wrapped in `try/except` too, so a future
+  > engine that cannot take the attribute still opens a window.
+  >
+  > **Tests, not assumed.** `tests/unit/test_search_images.py`: `on_progress`
+  > is set onto the embedder before the call and left untouched when nobody
+  > asked (H4 default), a `__slots__` embedder that refuses the attribute
+  > still searches, and - the scenario this item exists for -
+  > `test_search_images_reports_a_mid_life_cache_empty_download` builds a
+  > real `Embedder` the way `clip_text_embedder_from_settings` builds it in
+  > production (no `on_progress` at construction) against a fake
+  > `fastembed.TextEmbedding` that grows a cache directory over three real
+  > pauses, reusing `test_embedder.py`'s existing slow-download technique,
+  > and asserts real progress reaches `search_images`'s own `on_progress`.
+  > `tests/unit/test_engine_image_lane.py`: a fake CLIP embedder that
+  > reports progress mid-`embed()` (mirroring the real watcher reporting
+  > mid-constructor-call) proves `status_callback` receives the plain-words,
+  > percentage-bearing message, that its absence wires nothing, and that a
+  > callback which raises cannot break the search. `tests/unit/
+  > test_window_opens.py::
+  > test_clip_download_progress_reaches_the_status_bar_not_a_second_splash`
+  > builds a real `MainWindow` (no `SplashScreen` anywhere in the test - the
+  > whole point of this item), calls `engine.status_callback(message)`
+  > directly and asserts `window.statusBar().currentMessage() == message`.
+  >
+  > All three new/changed files' directly relevant suites, plus
+  > `test_embedder.py`, `test_splash.py`, `test_clip_lane_pipeline.py`,
+  > `test_reverse_image_acceptance.py` and `test_search_notices.py`, are
+  > green (108 tests). Two failures elsewhere -
+  > `test_layer4_acceptance.py::test_a_missing_rerank_model_degrades_to_the_
+  > fused_order` and `::test_a_filter_that_matches_nothing_returns_nothing_
+  > calmly` - were checked against an unmodified worktree (a tagged `git
+  > stash`, per this shared tree's own safety rule, not a bare one) and
+  > reproduce there identically; they predate this session and touch neither
+  > the image lane nor this wiring. `test_presenter.py::test_every_qt_view_
+  > keeps_its_logic_in_the_presenter` (an unrelated `indexing_view.py` line
+  > count, a file this session never opened) and three `test_docs_
+  > versioned.py` header failures (on `ACTIVE_WORK.md`, `docs/WORKORDER-0q-
+  > SESSION-2-HANDOFF.md`, `SESSION_CLOSE_2026-09-04.md` - none touched here
+  > either) are the same: pre-existing, out of this item's scope, and not
+  > this session's to fix.
 - [x] **1d** the white-wordmark derivation of §0.2, cached beside the
   asset; a test asserts the derived image differs from the source only in
   the navy-family pixels.

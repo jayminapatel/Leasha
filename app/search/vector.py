@@ -21,7 +21,7 @@ the model is warmed at startup rather than on first search.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from app.core.errors import AppErrorException
 from app.core.logging import logger
@@ -305,7 +305,11 @@ CLIP_TEXT_MODEL = "Qdrant/clip-ViT-B-32-text"
 CLIP_TEXT_DIM = 512
 
 
-def clip_text_embedder_from_settings(settings: object) -> Any:
+def clip_text_embedder_from_settings(
+    settings: object,
+    *,
+    on_progress: Optional[Callable[[float], None]] = None,
+) -> Any:
     r"""The CLIP text-tower embedder every `SearchEngine` call site builds alike.
 
     **Not `Embedder.from_settings`.** That classmethod reads
@@ -325,6 +329,20 @@ def clip_text_embedder_from_settings(settings: object) -> Any:
     cache directory and the DirectML-with-CPU-fallback seam every other
     embedding model in this application already has - there is no reason
     for a 512-dim CLIP model to be the one exception.
+
+    **`on_progress`, work order 0r item 1c's second clause.** This embedder is
+    built once, at startup, before the window exists (see `app/main.py`) - but
+    it does not load or download until the first image search reaches
+    `search_images`, well after the window is showing and the splash is long
+    closed. A caller built at startup therefore cannot yet hand in a callback
+    that reaches the window. `search_images` below accepts its own
+    `on_progress` for exactly that reason: it is set on this embedder at
+    *call* time, once a caller (`SearchEngine`) actually has somewhere to
+    route it. Passing one here too is for symmetry and for callers (tests,
+    a future CLI path) that build and use the embedder in one place and have
+    a real target from the start. `None` is the default and costs nothing -
+    see `Embedder._start_progress_watcher_if_downloading`, which only starts
+    its watcher thread when someone is listening.
     """
     from app.index.embedder import Embedder
 
@@ -332,6 +350,7 @@ def clip_text_embedder_from_settings(settings: object) -> Any:
         CLIP_TEXT_MODEL, dim=CLIP_TEXT_DIM,
         cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
         device=str(getattr(settings, "embed_device", "auto") or "auto"),
+        on_progress=on_progress,
     )
 
 
@@ -343,6 +362,7 @@ def search_images(
     limit: int = VECTOR_LIMIT,
     allowed_file_ids: Optional[set[int]] = None,
     problems: Optional[list[str]] = None,
+    on_progress: Optional[Callable[[float], None]] = None,
 ) -> list[dict[str, Any]]:
     r"""CLIP hits for a parsed query, nearest first - the third retrieval lane.
 
@@ -379,7 +399,31 @@ def search_images(
     Renamed to `"img:<file_id>"` here, before this list ever reaches
     `fuse_hits`, which cannot collide with an integer key and reads
     unambiguously in a log or a debugger.
+
+    **`on_progress`, work order 0r item 1c's second clause.** `text_embedder`
+    is built once at startup and reused for every call, so its own
+    `on_progress` (set at construction - see `clip_text_embedder_from_settings`)
+    is usually `None`: nobody has a live target that early. A caller that
+    does have one now (`SearchEngine`, once the window it belongs to exists)
+    hands it in here instead, and it is set onto `text_embedder` immediately
+    before the call it might apply to - the one that actually reaches
+    `Embedder._ensure_encoder()` and, if the model cache has been emptied
+    mid-life (a moved index, a re-staged data directory), starts a real
+    download with nowhere else to report it: the splash is long closed by
+    then, correctly, and this is the seam that lets the window's own notices
+    bar carry the message instead. **Never lets a broken callback break the
+    search itself** - H4, matching every guard already in
+    `app/index/embedder.py` around this same hook - `text_embedder` is a
+    plain object here, not guaranteed to have this attribute, so setting it
+    is wrapped rather than assumed to succeed.
     """
+    if on_progress is not None:
+        try:
+            text_embedder._on_progress = on_progress          # noqa: SLF001 - see docstring
+        except Exception:                  # noqa: BLE001 - H4: must never break image search
+            _log.debug("could not attach download-progress reporting to the "
+                       "CLIP text embedder; the search itself is unaffected")
+
     rows = search(
         image_vectors, text_embedder, parsed,
         limit=limit, allowed_file_ids=allowed_file_ids, problems=problems,

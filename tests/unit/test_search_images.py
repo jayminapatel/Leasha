@@ -264,3 +264,121 @@ def test_search_by_image_degrades_with_a_notice_on_a_broken_store() -> None:
 
     assert hits == []
     assert problems
+
+
+# --- work order 0r item 1c, second clause: mid-life cache-empty progress ----
+
+
+def test_search_images_sets_on_progress_onto_the_embedder_before_calling_it() -> None:
+    """`search_images`'s `on_progress` is not consumed here - it is handed to
+    `text_embedder` (whatever object it is) immediately before the call that
+    might need it, so that whatever `Embedder._ensure_encoder` does with its
+    own `_on_progress` attribute sees the caller's callback, not `None`."""
+    embedder = FakeClipTextEmbedder()
+    store = FakeImageVectorStore([{"chunk_id": 7, "file_id": 7, "distance": 0.1}])
+    seen: list[float] = []
+
+    vector_search.search_images(
+        store, embedder, parsed("a photo"), on_progress=seen.append)
+
+    assert embedder._on_progress == seen.append
+
+
+def test_search_images_on_progress_defaults_to_untouched() -> None:
+    """No caller asked for progress reporting - the embedder must not gain
+    an `_on_progress` attribute it never had, matching every other H4
+    default in this module: absent means exactly what it meant before this
+    existed."""
+    embedder = FakeClipTextEmbedder()
+    store = FakeImageVectorStore([{"chunk_id": 7, "file_id": 7, "distance": 0.1}])
+
+    vector_search.search_images(store, embedder, parsed("a photo"))
+
+    assert not hasattr(embedder, "_on_progress")
+
+
+def test_search_images_on_progress_never_breaks_the_search() -> None:
+    """H4: an embedder that refuses the attribute (a `__slots__` object, a
+    frozen dataclass, anything unexpected) must still search - the whole
+    point of guarding this the way `app/index/embedder.py` guards every call
+    to its own `_on_progress`."""
+    class SlottedEmbedder:
+        __slots__ = ("calls",)
+
+        def __init__(self):
+            self.calls: list[str] = []
+
+        def embed(self, texts):
+            self.calls.extend(texts)
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    embedder = SlottedEmbedder()
+    store = FakeImageVectorStore([{"chunk_id": 7, "file_id": 7, "distance": 0.1}])
+
+    hits = vector_search.search_images(
+        store, embedder, parsed("a photo"), on_progress=lambda pct: None)
+
+    assert hits[0]["chunk_id"] == "img:7"
+    assert embedder.calls == ["a photo"]
+
+
+def test_search_images_reports_a_mid_life_cache_empty_download(
+    tmp_path, monkeypatch,
+) -> None:
+    r"""The scenario this item exists for: the model cache has been emptied
+    mid-life (a moved index, a re-staged data directory) and the first image
+    search after that is what next tries to load the CLIP text tower. There
+    is no splash by then - the window has been open for a while - so
+    `search_images`'s own `on_progress` is what has to carry a real download
+    signal at all.
+
+    Uses the same fake-slow-download technique `test_embedder.py`'s
+    `test_on_progress_reports_a_simulated_download` already proves the
+    watcher itself with. What is new here is going through `search_images`,
+    not `Embedder` directly, and building the `Embedder` the way
+    `clip_text_embedder_from_settings` actually does in production: with no
+    `on_progress` at construction, because `app/main.py` builds this embedder
+    before the window - and therefore before there is anywhere to report to
+    - exists. The callback only shows up later, at `search_images` call
+    time, which is the whole point of this seam.
+    """
+    import time
+    from pathlib import Path
+
+    import app.index.embedder as embedder_module
+    from app.index.embedder import Embedder
+
+    class FakeTextEmbedding:
+        """Simulates a slow download by growing the cache dir over time."""
+
+        def __init__(self, model_name, cache_dir=None, **_kwargs):
+            target = Path(cache_dir)
+            target.mkdir(parents=True, exist_ok=True)
+            for chunk in range(3):
+                (target / f"part{chunk}.bin").write_bytes(b"x" * 4_000_000)
+                time.sleep(0.35)
+
+        def embed(self, texts):
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    monkeypatch.setattr("fastembed.TextEmbedding", FakeTextEmbedding)
+    monkeypatch.setitem(
+        embedder_module._APPROX_MODEL_BYTES, "Qdrant/clip-ViT-B-32-text", 12_000_000)
+
+    # No `on_progress` yet - exactly as `clip_text_embedder_from_settings`
+    # builds this embedder in the real app, before the window exists.
+    text_embedder = Embedder(
+        "Qdrant/clip-ViT-B-32-text", dim=3, cache_dir=str(tmp_path))
+    image_vectors = FakeImageVectorStore(
+        [{"chunk_id": 7, "file_id": 7, "distance": 0.1}])
+
+    progress: list[float] = []
+    hits = vector_search.search_images(
+        image_vectors, text_embedder, parsed("kids on the beach"),
+        on_progress=progress.append,
+    )
+
+    assert hits and hits[0]["chunk_id"] == "img:7"
+    assert progress, ("a mid-life cache-empty download must report progress "
+                      "somewhere reachable - exactly the gap this item closes")
+    assert progress[-1] == 100.0, "the final call must report completion"
