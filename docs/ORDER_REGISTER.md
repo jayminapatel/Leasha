@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -52,7 +52,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
 | 0d | `202626270257` | Privacy defaults | **SHIPPED** | **9 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |
-| 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 15 / 2 | Foundation for 0h–0j |
+| 0f | `202626270508` | Media by default, and the OCR ladder | **SHIPPED** | **17 / 0** | Closed 2026-09-07 by §3a's display/sort wiring and §2e's tunable |
 | 0g | `202626270509` | mbox, Takeout, chats | **SHIPPED** | **7 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 12 / 1 | Its last item's proof is **gated on the real CLIP model** — see the order's 2026-09-07 note for the one command that closes it |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
@@ -62,7 +62,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
-| 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 15 / 3 | Design settled |
+| 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
@@ -83,6 +83,41 @@ the real CLIP model cannot be fetched in the build sandbox — `huggingface.co` 
 403 through the proxy, and disk was *not* the constraint. Ticking it would assert
 something nobody has run, so the order carries the exact command that closes it on a
 machine which can reach the model.
+
+**2026-09-07, second pass — 0f closed, 0r nearly.** Four more parallel lanes, run the
+same way as the first pass. **0f** (media by default, and the OCR ladder) went from
+15/2 to 17/0 and is now `SHIPPED`: lane-a closed §3a's remaining "and any date display
+use it" clause — the shot date now reaches both the SELECT projections
+(`keyword.py`, `vector.py`'s image-search hydrate site too, which the item's own
+wording had missed, `sqlite_store.py`) and the `/newest`/`/oldest` sort order
+(`recency.py`, `folding.py`), with the SQL shaped by measurement rather than the
+obvious `COALESCE` form, which a 200k-row `EXPLAIN QUERY PLAN` showed cost 39.5ms
+against 0.10ms for the form actually shipped. Lane-b closed §2e's remaining tunables
+half: `OCR_WHITE_PAGE_PERCENT` is now a real setting with a plain-words label, wired
+into `ocr_ladder.py` and surfaced on the Index Tuning screen's Coverage group,
+default-identical to the old hardcoded `0.7` cutoff.
+
+**0r** (the splash, and a fast lifecycle) went from 15/3 to 17/1. Lane-c found the
+pytest-qt splash checklist item had gone stale the same way 0c/0e/0d/0g/0p did on the
+first pass — 1b's fade and minimum-hold fix landed 2026-09-05 but the §4 test item's
+own note was never revisited after — and, checking honestly rather than assuming
+either way, found three of six clauses genuinely still unproven; wrote one composed
+scenario covering all six and ticked it. Lane-c also wrote the missing "stub-slowed
+stage" test and found a real bug doing it: `app/main.py` was importing the search and
+storage stack — `app.search.vector`, `app.ui.shell`, `app.extract.ocr` among them —
+before `splash.show()`, contradicting both `main.py`'s own comment and `splash.py`'s
+module docstring. Fixed. Lane-d closed §2b partially: Mail and Code tab construction
+now defers to after `window.show()` via `QTimer.singleShot(0, ...)`; Files, Indexing
+and Settings still build up front, flagged as a follow-up rather than attempted in
+one pass given the file's size and risk. Measured in the build sandbox only —
+662ms→180-410ms constructor time — with the owner's own <1.5s wall-clock target still
+needing verification on the real machine; the order carries the exact reproduction
+command. §2b stays unticked, honestly, and is 0r's one remaining open item.
+
+Both orders' full diffs were verified against the pre-lane commit (`d042f09`) before
+merging — additive only, no reversions — and the two pipeline.py/doctor.py test
+failures surfaced during the post-merge sweep were independently reproduced against
+that same unmodified commit, confirming they predate this session's work.
 
 ---
 

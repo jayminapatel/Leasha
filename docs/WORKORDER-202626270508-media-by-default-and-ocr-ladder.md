@@ -1,12 +1,14 @@
 # Work order (One thread): media files by default, and the OCR ladder that makes it affordable
 
-**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + Index pipeline + formats)
-**Status:** RELEASED by the owner 2026-08-28. Queue position: first of the new
-batch, after `WORKORDER-202626270326-workspace-features.md`. This order is the
-foundation the picture orders (0510, 0511, 0512) build on — do them in file
-order. **Scope discipline: this order is pipeline-only. No new UI beyond
-settings entries; no CLIP, no tags, no faces — those are later orders.**
+**Status:** SHIPPED — all 17 items ticked, closed 2026-09-07 (lane-a closed
+§3a's display/sort wiring; lane-b closed §2e's rung-threshold tunable). Kept
+here as record. Originally RELEASED by the owner 2026-08-28, queue position
+first of the new batch, after `WORKORDER-202626270326-workspace-features.md`
+— this order was the foundation the picture orders (0510, 0511, 0512) build
+on. **Scope discipline honoured throughout: pipeline-only, plus the one small
+Index Tuning control §2e itself called for.**
 
 ## Owner decisions this order implements (settled — do not relitigate)
 

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.9 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 5.0 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -257,6 +257,21 @@ gets lost by accident.
 > `202626270510` (0h) stands at 12/1 **deliberately** — its last item's proof needs
 > the real CLIP model, which the build sandbox cannot download; the order carries
 > the command that closes it on a machine which can.
+>
+> **Corrected a third time, same day — `202626270508` (0f) is now SHIPPED too, at
+> 17/0**, closed by a second batch of four parallel lanes: the shot date now reaches
+> result display and sort order (not just storage and the `after:`/`before:`
+> filter), and the OCR ladder's rung-1 white-fraction cutoff is a real, labelled
+> setting on the Index Tuning screen rather than a hardcoded literal.
+> `202626271601` (0r, the splash) moved from 15/3 to **17/1** in the same batch — a
+> stale pytest-qt checklist item (the same "note never revisited after the
+> underlying fix landed" pattern as 0c/0e/0d/0g/0p) is now honestly ticked, a real
+> startup-import-order bug was found and fixed (the search/storage stack was
+> importing before the splash ever showed), and Mail/Code tab construction now
+> defers past `window.show()` — but Files/Indexing/Settings still don't, so §2b
+> stays open and 0r stays `RELEASED`. Full account, including the measured numbers
+> and the two pre-existing test failures ruled out as regressions, is in
+> `docs/ORDER_REGISTER.md`'s own 2026-09-07 second-pass note.
 
 In order, and grouped by what is actually blocking.
 
