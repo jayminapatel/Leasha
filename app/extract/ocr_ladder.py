@@ -39,6 +39,16 @@ whiteboards, text photos) still reach the full engine.
   plain-words labels explaining what they do.
 - Each image pays the ladder once. A per-image PDF probe applies the same
   ladder to each scanned page.
+
+**Rung 1's threshold is a setting, read by the caller.** This module stays
+importable and testable with nothing but Pillow - its own rule, above - so it
+never imports `app.core.config` itself. `OCR_WHITE_PAGE_PERCENT` (Index
+Tuning, Coverage group) is read and converted to a fraction in
+`app/extract/ocr.py::_white_fraction_threshold`, and passed into `route()` as
+`white_fraction_threshold`. `WHITE_FRACTION_THRESHOLD_DEFAULT` below is the
+literal this module used before the setting existed, kept as the parameter's
+own default so a caller that never touches settings - every existing test
+included - gets bit-for-bit the old behaviour.
 """
 
 from __future__ import annotations
@@ -52,6 +62,13 @@ from typing import Callable, Optional
 from app.core.logging import logger
 
 log = logger.bind(component="extract.ocr_ladder")
+
+#: Rung 1's own threshold before it became a setting, and the value
+#: `route()`/`_thumbnail_stats()` fall back to when no caller supplies one.
+#: See `OCR_WHITE_PAGE_PERCENT` in `app/core/settings_registry.py` - stored
+#: there as a whole-number percentage (0.7 here is that setting's default,
+#: 70, divided by 100), because `Setting.kind` has no float kind.
+WHITE_FRACTION_THRESHOLD_DEFAULT = 0.7
 
 
 class RouteDecision(Enum):
@@ -100,10 +117,18 @@ def _metadata_decision(path: Path) -> Optional[RouteDecision]:
     return None
 
 
-def _thumbnail_stats(source: Path | bytes) -> Optional[LadderResult]:
+def _thumbnail_stats(
+    source: Path | bytes,
+    *,
+    white_fraction_threshold: float = WHITE_FRACTION_THRESHOLD_DEFAULT,
+) -> Optional[LadderResult]:
     """Rung 1: thumbnail histogram analysis (~5ms).
 
     Returns a decision if confident (document), or None to continue.
+
+    `white_fraction_threshold` is `OCR_WHITE_PAGE_PERCENT` (Index Tuning),
+    already converted to a fraction by the caller - see the module docstring.
+    Defaults to the literal this module used before that setting existed.
     """
     try:
         from PIL import Image
@@ -131,7 +156,7 @@ def _thumbnail_stats(source: Path | bytes) -> Optional[LadderResult]:
         # High saturation (color heavy) likely not a document
         # Flat (B&W) likely a document
         # For now, simple heuristic: mostly white = document
-        if white_fraction > 0.7:
+        if white_fraction > white_fraction_threshold:
             return LadderResult(
                 decision=RouteDecision.FULL_OCR,
                 elapsed_ms=elapsed_ms,
@@ -151,6 +176,7 @@ def route(
     *,
     check_metadata: bool = True,
     detect: Optional[Callable[[Path | bytes], object]] = None,
+    white_fraction_threshold: float = WHITE_FRACTION_THRESHOLD_DEFAULT,
 ) -> LadderResult:
     """Route an image through the OCR ladder.
 
@@ -159,6 +185,14 @@ def route(
     Args:
         source: Path or bytes of the image
         check_metadata: Whether to check filename metadata (Rung 0)
+        white_fraction_threshold: Rung 1's confidence threshold - above this
+            fraction of plain-white pixels in the downscaled thumbnail, the
+            image goes straight to full OCR. This is `OCR_WHITE_PAGE_PERCENT`
+            (Index Tuning, Coverage group) divided by 100; the caller
+            (`app/extract/ocr.py::ocr_image`) reads the setting, this module
+            never does - see the module docstring for why. Defaults to the
+            literal value this module used before the setting existed, so a
+            caller that passes nothing gets exactly the old behaviour.
         detect: **Rung 2's detection-only probe** (~50-150ms), supplied by the
             caller rather than imported here. `ocr_ladder.py` has no OCR engine
             of its own on purpose - rungs 0-1 (filename, thumbnail histogram)
@@ -195,7 +229,8 @@ def route(
             )
 
     # Rung 1: thumbnail stats (~5ms)
-    result = _thumbnail_stats(source)
+    result = _thumbnail_stats(
+        source, white_fraction_threshold=white_fraction_threshold)
     if result is not None:
         if result.decision != RouteDecision.METADATA_ROUTE:
             result.elapsed_ms = (time.monotonic() - started) * 1000

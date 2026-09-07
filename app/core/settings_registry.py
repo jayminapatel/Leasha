@@ -410,6 +410,18 @@ SETTINGS: tuple[Setting, ...] = (
              "at a time and each one costs what that file would cost on disk.",
     ),
     Setting(
+        key="OCR_WHITE_PAGE_PERCENT",
+        label="How plain white a photo must be to count as a scanned page",
+        kind="int", default=70, group="Tuning", surface="indexing.tuning",
+        minimum=1, maximum=100, unit="%",
+        help="Above this percentage of plain white, Leasha treats the image "
+             "as a document and reads it in full, skipping the quicker check "
+             "it would otherwise run first. Lower it to catch scanned pages "
+             "with shading or colour; raise it if ordinary photos of pale "
+             "backgrounds - snow, whiteboards, plain walls - are being read "
+             "as documents unnecessarily.",
+    ),
+    Setting(
         key="PDF_OCR_PAGES", label="Pages to read from a scanned PDF",
         kind="int", default=0, group="Tuning", surface="indexing.tuning",
         minimum=0, maximum=500, unit="pages",

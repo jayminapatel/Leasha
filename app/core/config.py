@@ -304,6 +304,15 @@ class Settings(BaseModel):
     #: The largest archive whose members are read, in MB. A 40GB backup zip is
     #: recorded by name with a message saying why, rather than read.
     archive_max_mb: int = 100
+    #: Rung 1 of the OCR ladder (`app/extract/ocr_ladder.py`): above this
+    #: percentage of plain-white pixels in a downscaled thumbnail, an image
+    #: goes straight to full OCR rather than the cheaper detection probe.
+    #: Stored as a whole-number percentage - `Setting.kind` has no float kind
+    #: - and divided by 100 where it is used (`app/extract/ocr.py::
+    #: _white_fraction_threshold`). 70 is the literal this module used before
+    #: it became a setting; changing nothing keeps behaviour bit-for-bit the
+    #: same.
+    ocr_white_page_percent: int = 70
     #: Pages of one scanned PDF to read with OCR. 0 is off.
     #:
     #: **A budget rather than a switch**, and the arithmetic is the argument:
@@ -395,6 +404,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "ARCHIVE_READ_INSIDE",
     "ARCHIVE_MAX_MB",
     "PDF_OCR_PAGES",
+    "OCR_WHITE_PAGE_PERCENT",
     "MIN_FREE_GB",
     "REQUIRED_FREE_GB",
 )
@@ -549,6 +559,9 @@ def load_settings(
                 "ARCHIVE_MAX_MB", values.get("ARCHIVE_MAX_MB", "100")),
             pdf_ocr_pages=_as_int(
                 "PDF_OCR_PAGES", values.get("PDF_OCR_PAGES", "0")),
+            ocr_white_page_percent=_as_int(
+                "OCR_WHITE_PAGE_PERCENT",
+                values.get("OCR_WHITE_PAGE_PERCENT", "70")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,

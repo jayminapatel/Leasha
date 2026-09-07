@@ -118,6 +118,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   twenty-year-old photo copied onto a new drive can still turn up under the
   wrong year. Fixing it properly needs a bit more plumbing than this round of
   work covered, so it is recorded rather than quietly worked around.
+- How blank a photo must look before it is treated as a scanned page was a
+  number fixed in the code. It is now a setting - Index Tuning, Coverage
+  group - in plain words, so a whiteboard or a snowy photo that keeps getting
+  read as a document can be told apart from one. Left alone, nothing changes:
+  the setting's own default is exactly what Leasha always did. Work order 0f
+  §2e.
 
 ### Photos can now be found by describing them, not just by filename
 
