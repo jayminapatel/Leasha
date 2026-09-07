@@ -131,6 +131,17 @@ class MainWindow(QMainWindow):
         #: search behaviours use it today, because they are the only ones that
         #: must take effect before the next launch.
         self._settings_overrides: dict = {}
+        #: True while `resolve_for_run` is out on a worker thread, between one
+        #: click on Start and the Pipeline actually being built.
+        #:
+        #: **Guards against a second dispatch, not just a second click.**
+        #: `_start_indexing` is also reached from `F5` and from the scheduler's
+        #: `due` signal (line ~756, ~775) - neither goes through the disabled
+        #: button, so the button alone cannot stop a second resolve worker
+        #: starting while the first is still out. `IndexingView.is_running()`
+        #: does not help either: it only becomes true once a `Pipeline` exists,
+        #: which is the very thing still being resolved.
+        self._resolving_index = False
         self._store = store
         self._vectors = vectors
         self._engine = engine
@@ -1077,11 +1088,18 @@ class MainWindow(QMainWindow):
         # is the same name upper-cased - which is not a coincidence, it is how
         # `config.load_settings` reads them. Asserted by `test_settings_registry`.
         self._settings_changed({key.upper(): value for key, value in values.items()})
-        for key, value in values.items():
-            try:
-                setattr(self._settings, key, value)
-            except Exception as exc:                 # noqa: BLE001 - never fatal
-                _log.debug("could not apply {} to the live settings: {}", key, exc)
+        # **`Settings` is frozen** (see ~line 128 and the module docstring), so
+        # `setattr(self._settings, key, value)` always raised - every time,
+        # for every key - and the `except` above caught it at DEBUG, where
+        # nobody would ever see it. `.env` was written correctly; the live
+        # object never changed, so the "next run in this session" this
+        # function's own docstring promises never arrived without a restart.
+        # `model_copy(update=...)` is this codebase's actual answer for a
+        # frozen `Settings` (see `app.cli`'s `cmd_index`, which does the same
+        # for `--rerank-model`): it produces a new instance with these fields
+        # changed, and one replacement of the whole batch is what a frozen
+        # model allows - there is no field-by-field mutation to fall back to.
+        self._settings = self._settings.model_copy(update=values)
         self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
 
     def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
@@ -2080,11 +2098,17 @@ class MainWindow(QMainWindow):
 
     def _start_indexing(self, *, roots: Optional[list[str]] = None,
                         recheck_archives: bool = False) -> None:
-        from app.index.clip_embedder import ClipImageEmbedder
-        from app.index.embedder import Embedder
-        from app.index.pipeline import Pipeline, PipelineConfig
-        from app.index.walker import WalkConfig
+        r"""Resolve the tuning numbers off-thread, then hand off to `IndexingView`.
 
+        **`resolve_for_run` used to run right here, inline.** On a warm compute-
+        profile cache that is imperceptible - but `_profile` falls through to
+        `compute_profile.detect()` on a cold or invalidated cache (a first run on
+        this machine, a driver or hardware change, a cache write that failed
+        last time), and `detect()` shells out to PowerShell for the disk kind and
+        the display adapters with 10s and 15s timeouts. Both calls sat on the UI
+        thread, at the exact moment somebody clicked Start - non-negotiable #5,
+        broken by the one button people click to begin.
+        """
         # Checked *before* anything is built. `IndexingView.start` already
         # refuses a second run, but it refused silently and only after this
         # method had constructed a Pipeline and an Embedder - which loads the
@@ -2104,12 +2128,58 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # A second click, or `F5`, or the scheduler firing while the first
+        # resolve is still out on its worker - none of them go through the
+        # disabled button (the scheduler and F5 do not touch it at all), and
+        # `is_running()` above stays false until the Pipeline this resolve
+        # will build actually exists. Without this flag, a burst of clicks
+        # during a slow cold-cache detection would queue several resolves and
+        # could hand `IndexingView.start` more than one Pipeline.
+        if self._resolving_index:
+            return
+        self._resolving_index = True
+        self.indexing_view.start_button.setEnabled(False)
+        self.statusBar().showMessage("Checking your hardware…", 30_000)
+
         # **The same resolution the tuning screen shows.** One function, so a
         # run started from the window and one started from the command line
-        # cannot disagree about what `Auto (4)` means.
+        # cannot disagree about what `Auto (4)` means. Dispatched to a worker -
+        # see the docstring above - with the result handed back to
+        # `_index_resolved` by signal, on the GUI thread, exactly as if this
+        # had returned in place.
         from app.index.resolve import resolve_for_run
 
-        tuned = resolve_for_run(self._settings, self._store)
+        worker = CallableWorker(resolve_for_run, self._settings, self._store,
+                                component="ui.index.resolve")
+        worker.signals.finished.connect(
+            lambda tuned: self._index_resolved(tuned, chosen, roots, recheck_archives))
+        worker.signals.failed.connect(self._index_resolve_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _index_resolved(self, tuned: Any, chosen: list[str],
+                        roots: Optional[list[str]], recheck_archives: bool) -> None:
+        """Build the Pipeline and hand it to `IndexingView`. Back on the GUI thread.
+
+        Everything `_start_indexing` did after calling `resolve_for_run`, moved
+        here unchanged - only *when* it runs changed, not what it does.
+        """
+        from app.index.clip_embedder import ClipImageEmbedder
+        from app.index.embedder import Embedder
+        from app.index.pipeline import Pipeline, PipelineConfig
+        from app.index.walker import WalkConfig
+
+        self._resolving_index = False
+        self.statusBar().clearMessage()
+        # A second Start click cannot get in *ahead* of this while the resolve
+        # was in flight (the flag above stops it), but a run started from
+        # elsewhere - the CLI, taking the run lock this window will also wait
+        # on - could have begun in the meantime. IndexWorker still surfaces
+        # that as a failure if it happens, but there is no reason to build a
+        # second Pipeline and throw it away.
+        if self.indexing_view.is_running():
+            self.indexing_view.start_button.setEnabled(True)
+            return
+
         limits = replace(limits_from_settings(self._settings),
                          workers=tuned.workers)
 
@@ -2164,6 +2234,15 @@ class MainWindow(QMainWindow):
         # whole life of the window again, which is the bug being fixed.
         pipeline.run_owner = GUI
         self.indexing_view.start(pipeline, total_estimate=self._scan_total(chosen))
+
+    def _index_resolve_failed(self, error: Any) -> None:
+        """`resolve_for_run` does not raise by contract - see its own docstring -
+        so this is defence in depth, not the expected path. Restores the button
+        and surfaces the error exactly as a synchronous failure would have."""
+        self._resolving_index = False
+        self.statusBar().clearMessage()
+        self.indexing_view.start_button.setEnabled(True)
+        self._show_error(error)
 
     def _scan_total(self, roots: list[str]) -> int:
         """How many files `app.cli scan` counted, if it counted these folders.

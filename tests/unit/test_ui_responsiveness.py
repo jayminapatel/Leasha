@@ -268,31 +268,69 @@ def test_the_theme_hook_is_connected_once() -> None:
 
 
 def test_a_second_index_run_is_refused_before_anything_is_built() -> None:
-    """Six index runs appeared in seven seconds of ordinary clicking. Each one
+    r"""Six index runs appeared in seven seconds of ordinary clicking. Each one
     built a Pipeline and an Embedder - loading the ONNX model - only for
-    `IndexingView.start` to discard them silently."""
+    `IndexingView.start` to discard them silently.
+
+    **2026-09-07 UI freeze fix moved the build itself out of `_start_indexing`.**
+    `resolve_for_run` (the tuning numbers a Pipeline needs) now runs on a
+    worker thread - it was the thing freezing the window on a cold hardware
+    cache - so `_start_indexing` only dispatches the resolve and returns; the
+    actual `Pipeline`/`Embedder` construction happens a beat later, in
+    `_index_resolved`, once the result is back on the GUI thread. The guard
+    this test protects still has to hold in *both* places: `_start_indexing`
+    must check before it will even dispatch a resolve, and `_index_resolved`
+    must check again before it builds anything, since a run could have begun
+    elsewhere while the resolve was in flight.
+    """
     module = tree("shell.py")
     start = next(
         node for node in ast.walk(module)
         if isinstance(node, ast.FunctionDef) and node.name == "_start_indexing"
     )
+    resolved = next(
+        node for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef) and node.name == "_index_resolved"
+    )
+
+    def is_running_line(fn):
+        return min(
+            (node.lineno for node in ast.walk(fn)
+             if isinstance(node, ast.Call) and "is_running" in ast.dump(node.func)),
+            default=None,
+        )
+
     # By line number, and against the *call* rather than the import - the local
     # `from app.index.pipeline import Pipeline` sits at the top of the method
     # and costs nothing; constructing one is what loads the model.
-    guard = min(
-        (node.lineno for node in ast.walk(start)
-         if isinstance(node, ast.Call) and "is_running" in ast.dump(node.func)),
-        default=None,
+    def built_line(fn):
+        return min(
+            (node.lineno for node in ast.walk(fn)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id in {"Pipeline", "Embedder"}),
+            default=None,
+        )
+
+    start_guard = is_running_line(start)
+    resolved_guard = is_running_line(resolved)
+    built = built_line(resolved)
+
+    assert start_guard is not None, (
+        "_start_indexing must check whether a run is in flight before it "
+        "will even dispatch a resolve worker"
     )
-    built = min(
-        (node.lineno for node in ast.walk(start)
-         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-         and node.func.id in {"Pipeline", "Embedder"}),
-        default=None,
+    assert built is None or built_line(start) is None, (
+        "Pipeline/Embedder must not be constructed inside _start_indexing "
+        "any more - that work is off-thread now, in _index_resolved"
     )
-    assert guard is not None, "_start_indexing must check whether a run is in flight"
+    assert resolved_guard is not None, (
+        "_index_resolved must check again whether a run is in flight - a run "
+        "could have started elsewhere while the resolve was out on its worker"
+    )
     assert built is not None, "this test is watching the wrong names"
-    assert guard < built, "and must check before building anything expensive"
+    assert resolved_guard < built, (
+        "and must check before building anything expensive"
+    )
 
 
 def test_ctrl_c_is_wired_up() -> None:

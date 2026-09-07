@@ -1063,6 +1063,40 @@ processor path. This serialises GPU work across all three where before it could 
 card) could not measure against real hardware - only the lock's own near-zero overhead was
 measured directly.
 
+**2026-09-07: `cached_profile` calls `detect()` unconditionally, every time - not only on a
+cache miss.** `detect()` runs first, always, so its fingerprint can be compared against the
+stored one; only *which value gets returned* depends on whether they match. On a healthy
+machine the disk-kind and DXGI subprocess calls inside `detect()` return in well under a
+second, so this is imperceptible - but on a cold cache, after a driver or hardware change, or
+when those subprocesses simply hang, they run out to their full 10s/15s timeouts. `_start_
+indexing` called `resolve_for_run` (and so `detect()`) inline, on the UI thread, so the window
+froze for however long that took, at the exact moment somebody clicked Start. Fixed by
+dispatching the resolve through a `CallableWorker`, with `_index_resolved` doing the rest
+(building the Pipeline, handing it to `IndexingView.start`) once the result is back on the GUI
+thread. Anything else that calls `resolve_for_run` or `compute_profile.cached_profile`/`detect`
+directly from the UI thread has the same exposure and needs the same treatment.
+
+**2026-09-07: a frozen pydantic model's `setattr` fails silently if the exception is only
+logged at DEBUG.** `_limits_changed` tried `setattr(self._settings, key, value)` per key -
+`Settings` is `frozen=True` (`app/core/config.py`), so every call raised, was caught by a bare
+`except Exception`, and logged at DEBUG, where nobody would ever see it. The docstring's
+promise - "applies to the next run in this session, no restart needed" - was false for every
+key this function touches (worker count, memory ceiling, CPU cap, free-space floor, tuning
+mode), for as long as the function has existed; `.env` persistence was the only half that ever
+worked. Fixed with `self._settings = self._settings.model_copy(update=values)`, one
+replacement for the whole batch - the established pattern for a live change to this model, also
+used in `app.cli.cmd_index` for `--rerank-model`. **Known, checked, and not yet a live bug:**
+`SettingsView.__init__` stores its own `self._settings = settings` reference, independent of
+`MainWindow._settings` - replacing the window's copy cannot reach it. Today `SettingsView`
+reads that reference in exactly two places, both `ollama_url`/`ollama_model`, neither a field
+`_limits_changed` or anything like it currently touches - so this is a latent trap, not a
+regression, but the day something routes an `ollama_*` key (or any field `SettingsView` reads)
+through a `self._settings = self._settings.model_copy(...)` replacement on the window, check
+whether `SettingsView` needs the same live reference rather than assuming it already has it.
+More generally: **a caught exception logged below INFO is a bug wearing a disguise** - grep this
+codebase for `except Exception` next to a bare `_log.debug` before trusting that a "successful"
+save actually did anything live.
+
 ## 7. Open questions
 
 Not blockers, but decide them deliberately rather than by accident.

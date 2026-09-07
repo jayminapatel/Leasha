@@ -41,6 +41,27 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   (no graphics card at all) could measure honestly - see `HANDOFF.md`'s known
   issues for what was and was not measured.
 
+### Clicking Start Indexing no longer freezes the window
+
+- On some machines - the first run, after a driver or hardware change, or if
+  the last check of your hardware did not save properly - Leasha needs a
+  moment to look at your machine again before it can start. That check used
+  to happen before the window could respond to anything else, so the whole
+  application looked frozen at the exact moment you clicked Start. It now
+  happens in the background: the Start button disables itself and the status
+  bar says "Checking your hardware…" while it works, and the window stays
+  responsive throughout. On most machines, most of the time, this check is
+  fast enough that you will not notice it either way.
+
+### Changing a limit on the Indexing screen now actually applies straight away
+
+- Worker count, the memory ceiling, the CPU cap, the free-space floor and the
+  tuning mode are meant to take effect for the next run in the same session,
+  without restarting Leasha - the screen has said as much for a while. It
+  never actually worked: the change was saved correctly, but nothing made it
+  reach the run itself until you closed and reopened the application. It now
+  reaches the very next run, exactly as the screen already promised.
+
 ### The loading screen now genuinely comes up before anything heavier starts
 
 - What you see has not changed - the loading screen already appeared
