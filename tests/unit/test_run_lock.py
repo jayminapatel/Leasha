@@ -43,8 +43,10 @@ from app.core.run_lock import (
     describe_holder,
     is_indexing,
     publish,
+    request_front,
     request_stop,
     stop_requested,
+    take_front_request,
 )
 from app.core.single_instance import SingleInstance
 from app.storage.sqlite_store import SqliteStore
@@ -254,6 +256,44 @@ def test_a_read_failure_is_not_read_as_a_stop(store):
             raise RuntimeError("the database is locked")
 
     assert not stop_requested(Hostile())
+
+
+# ---------------------------------------------------------------------------
+# A second launch, asking the first to come to the front
+# ---------------------------------------------------------------------------
+
+def test_a_front_request_can_be_asked_for_and_taken(store):
+    r"""**The bug, reported live: "the box is hard to get to."**
+
+    A second launch that found the window already open writes this; the
+    window's own poll takes it. `take_front_request` must both report it
+    happened and clear it - a "take", the same shape as `deeplink.
+    take_pending`, so the window does not front itself again next poll.
+    """
+    assert not take_front_request(store), "nothing was asked for yet"
+
+    request_front(store)
+    assert take_front_request(store), "the request was written but not seen"
+    assert not take_front_request(store), (
+        "a request must be cleared once taken, or the window keeps "
+        "stealing focus back on every later poll")
+
+
+def test_a_front_request_never_raises_on_a_store_that_will_not_write():
+    """Same discipline as `publish`/`request_stop`: this runs in a process
+    that is exiting either way, or on a timer beside a live window - neither
+    is a place to raise over a flag that failed to write."""
+    class Hostile:
+        def set_state(self, *_args, **_kwargs):
+            raise RuntimeError("the database is locked")
+
+        def get_state(self, *_args, **_kwargs):
+            raise RuntimeError("the database is locked")
+
+    request_front(Hostile())
+    request_front(None)
+    assert not take_front_request(Hostile())
+    assert not take_front_request(None)
 
 
 def test_the_pipeline_polls_the_stop_flag_at_its_checkpoint():

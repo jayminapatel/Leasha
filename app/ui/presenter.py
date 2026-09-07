@@ -1791,9 +1791,9 @@ def _read_external_run(store: Any) -> dict:
     and both halves touch something outside this process.
     """
     from app.core.deeplink import take_pending
-    from app.core.run_lock import active_run, is_indexing
+    from app.core.run_lock import active_run, is_indexing, take_front_request
 
-    found: dict = {"locked": False, "record": None, "link": None}
+    found: dict = {"locked": False, "record": None, "link": None, "front_requested": False}
     try:
         found["locked"] = is_indexing(store)
         found["record"] = active_run(store)
@@ -1812,6 +1812,15 @@ def _read_external_run(store: Any) -> dict:
         found["link"] = take_pending(store)
     except Exception as exc:                     # noqa: BLE001 - a link, not a run
         _log.debug("could not read the pending link: {}", exc)
+
+    # A second launch that found the window already open writes the same
+    # flag `request_stop` uses, then exits. This watcher is the only thing
+    # polling `index_state` for as long as the window is open, so fronting
+    # rides it rather than adding a timer of its own - see the note above.
+    try:
+        found["front_requested"] = take_front_request(store)
+    except Exception as exc:                     # noqa: BLE001 - a front request, not a run
+        _log.debug("could not read the front request: {}", exc)
     return found
 
 

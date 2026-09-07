@@ -390,7 +390,7 @@ def _apply_pending_move(settings: Any) -> Any:
 
 def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     from app.core.config import load_settings
-    from app.core.run_lock import GUI_MUTEX_NAME
+    from app.core.run_lock import GUI_MUTEX_NAME, request_front
     from app.core.single_instance import HANDOVER_WAIT_S, SingleInstance
 
     try:
@@ -509,7 +509,32 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         # the splash's handover status genuinely repaints (and its case
         # rotation genuinely runs) for the whole wait instead of freezing on
         # whatever was painted last. See `_acquire_gui_lock_responsively`.
-        _acquire_gui_lock_responsively(gui_lock, HANDOVER_WAIT_S, application)
+        try:
+            _acquire_gui_lock_responsively(gui_lock, HANDOVER_WAIT_S, application)
+        except AppErrorException:
+            # **Not a handover anymore - somebody is already here.**
+            # `HANDOVER_WAIT_S` covers a closing copy releasing the lock, which
+            # takes seconds; past the whole wait, the far more likely story is
+            # a second double-click on a copy that was never closing. Reported
+            # live: this used to sit behind a splash for the whole wait and
+            # then fail with a fatal-error dialog, and the window that was
+            # already open never came forward - "the box is hard to get to."
+            # There is no error here from where the person is standing, just
+            # one window they now have to find - so ask it to come forward,
+            # via the same `index_state` flag `request_stop` uses, and leave
+            # quietly instead of raising past this into `_fatal`.
+            log.info("startup: the lock is already held - asking that "
+                      "copy to come to the front instead of waiting further")
+            status_reporter("Leasha is already open…")
+            application.processEvents()
+            try:
+                with SqliteStore(settings.fts_db) as front_store:
+                    request_front(front_store)
+            except Exception as exc:             # noqa: BLE001 - see comment above
+                log.warning("startup: could not ask the running copy to "
+                            "come to the front: {}", exc)
+            splash.hide_and_close()
+            return 0
 
         status_reporter("Opening your index…")
         application.processEvents()

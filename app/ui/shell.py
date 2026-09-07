@@ -1773,6 +1773,20 @@ class MainWindow(QMainWindow):
         self.indexing_view.show_external(
             payload.get("record"), locked=bool(payload.get("locked")))
         self._run_link(payload.get("link"))
+        if payload.get("front_requested"):
+            self._front_self()
+
+    def _front_self(self) -> None:
+        r"""Bring this window forward. A second launch asked for it
+        (`run_lock.FRONT_STATE_KEY`) after finding the GUI mutex already
+        held by this one - reported live as "the box is hard to get to"
+        when that used to do nothing at all. Same three calls `_run_link`
+        ends on, pulled out because a plain "somebody double-clicked the
+        icon again" carries no query to run first.
+        """
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     def _run_idle_optimize(self) -> None:
         r"""§3c: refresh the query planner's statistics, off the UI thread.
@@ -1821,9 +1835,7 @@ class MainWindow(QMainWindow):
             # advisory on Windows; `activateWindow` is the half that actually
             # takes focus, and a search that ran behind another application is
             # a search nobody saw.
-            self.showNormal()
-            self.raise_()
-            self.activateWindow()
+            self._front_self()
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.warning("could not run a leasha:// link: {}", exc)
 

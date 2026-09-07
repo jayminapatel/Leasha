@@ -304,7 +304,7 @@ def test_the_watcher_still_answers_when_there_is_no_link(store):
 
     payload = _read_external_run(store)
     assert payload["link"] is None
-    assert set(payload) == {"locked", "record", "link"}
+    assert set(payload) == {"locked", "record", "link", "front_requested"}
 
 
 def test_a_broken_store_costs_the_watcher_nothing(store):
@@ -316,4 +316,19 @@ def test_a_broken_store_costs_the_watcher_nothing(store):
             raise RuntimeError("this database is having a day")
 
     payload = _read_external_run(_Awkward())
-    assert payload == {"locked": False, "record": None, "link": None}
+    assert payload == {
+        "locked": False, "record": None, "link": None, "front_requested": False}
+
+
+def test_the_watcher_also_picks_up_a_front_request(store):
+    r"""Same watcher, same channel (`run_lock.FRONT_STATE_KEY`), for §ii's
+    "the box is hard to get to": a second launch that found the window
+    already open, rather than a link."""
+    from app.core.run_lock import request_front
+    from app.ui.presenter import _read_external_run
+
+    request_front(store)
+    payload = _read_external_run(store)
+    assert payload["front_requested"] is True
+    assert _read_external_run(store)["front_requested"] is False, (
+        "taken, not read - or the window fronts itself again next poll")

@@ -49,8 +49,9 @@ from app.core.single_instance import SingleInstance
 
 __all__ = [
     "IndexRunLock", "GUI_MUTEX_NAME", "INDEX_MUTEX_NAME",
-    "RUN_STATE_KEY", "STOP_STATE_KEY",
+    "RUN_STATE_KEY", "STOP_STATE_KEY", "FRONT_STATE_KEY",
     "publish", "active_run", "request_stop", "stop_requested", "clear_stop",
+    "request_front", "take_front_request",
     "describe_holder", "GUI", "COMMAND_LINE",
 ]
 
@@ -71,6 +72,15 @@ RUN_STATE_KEY = "run:active"
 #: it. A flag rather than a signal because the two processes share nothing else,
 #: and because "please stop" must survive the runner being mid-file.
 STOP_STATE_KEY = "run:stop_requested"
+
+#: Set by a second launch that found `GUI_MUTEX_NAME` already held by a copy
+#: that is not closing - the ordinary "the app is already open" case, not the
+#: brief handover `HANDOVER_WAIT_S` exists for. The running window's own poll
+#: picks this up and fronts itself. Same shape as `STOP_STATE_KEY` and
+#: `deeplink.PENDING_KEY`: a flag rather than a signal, because a starting
+#: process that could not get the lock shares nothing else with the one that
+#: did.
+FRONT_STATE_KEY = "gui:front_requested"
 
 #: What kind of process is holding the lock. Only for the sentence a person
 #: reads, so these are words rather than an enum.
@@ -315,3 +325,54 @@ def clear_stop(store: Any) -> None:
         store.set_state(STOP_STATE_KEY, "")
     except Exception:                    # noqa: BLE001
         return
+
+
+# ---------------------------------------------------------------------------
+# A second launch, asking the first to come to the front
+# ---------------------------------------------------------------------------
+
+def request_front(store: Any) -> None:
+    """Ask the running window to come to the front.
+
+    Written by a second launch of the app that found `GUI_MUTEX_NAME`
+    already held after waiting out `HANDOVER_WAIT_S` - by then, the
+    overwhelmingly likely explanation has stopped being "the copy that was
+    just closed has not finished" (that finishes in seconds, well inside
+    the wait) and started being "the app is already open, and somebody
+    just double-clicked its icon again." Reported live: that used to show
+    a splash for the whole wait and then a fatal error, with the already-
+    running window never brought forward - exactly the "second copy is
+    hard to get to" complaint this exists to fix.
+
+    Never raises: this runs in a process that is exiting either way, and a
+    request that failed to write is not a reason to show an error for what
+    is, from the person's point of view, an ordinary double-click.
+    """
+    if store is None:
+        return
+    try:
+        store.set_state(FRONT_STATE_KEY, str(_now()))
+    except Exception:                    # noqa: BLE001
+        return
+
+
+def take_front_request(store: Any) -> bool:
+    """Was fronting asked for? **And clear it.**
+
+    Taken rather than read, the same shape as `deeplink.take_pending` and
+    for the same reason: left in place, the window would front itself again
+    on every later poll, stealing focus back from whatever the person moved
+    on to after the first time it worked.
+
+    Never raises: this runs on a timer beside a live window.
+    """
+    if store is None:
+        return False
+    try:
+        raw = store.get_state(FRONT_STATE_KEY, "")
+        if not raw:
+            return False
+        store.set_state(FRONT_STATE_KEY, "")
+        return True
+    except Exception:                    # noqa: BLE001
+        return False

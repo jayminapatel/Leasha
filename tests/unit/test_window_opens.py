@@ -494,3 +494,47 @@ def test_minimised_window_opens_normal(tmp_path):
     finally:
         store.close()
         vectors.close()
+
+
+def test_a_second_launch_brings_the_window_forward(window):
+    r"""**The bug, reported live: "the box is hard to get to."**
+
+    A second launch that found the GUI mutex already held writes
+    `run_lock.FRONT_STATE_KEY` and exits; this window's own watcher
+    (`_show_external_run`) is what has to notice and come forward - the same
+    three calls `_run_link` already ends on for a `leasha://` link, pulled
+    into `_front_self` so both paths use one.
+    """
+    from unittest.mock import patch
+
+    _app, built = window
+
+    with patch.object(built, "showNormal") as show, \
+            patch.object(built, "raise_") as raise_, \
+            patch.object(built, "activateWindow") as activate:
+        built._show_external_run(
+            {"locked": False, "record": None, "link": None,
+             "front_requested": True})
+
+    show.assert_called_once()
+    raise_.assert_called_once()
+    activate.assert_called_once()
+
+
+def test_an_ordinary_poll_does_not_steal_focus(window):
+    """No front request means no `_front_self` - or every four-second poll
+    would yank focus back to a window nobody asked to see."""
+    from unittest.mock import patch
+
+    _app, built = window
+
+    with patch.object(built, "showNormal") as show, \
+            patch.object(built, "raise_") as raise_, \
+            patch.object(built, "activateWindow") as activate:
+        built._show_external_run(
+            {"locked": False, "record": None, "link": None,
+             "front_requested": False})
+
+    show.assert_not_called()
+    raise_.assert_not_called()
+    activate.assert_not_called()
