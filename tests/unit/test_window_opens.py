@@ -666,3 +666,260 @@ def test_an_ordinary_poll_leaves_the_search_box_alone(window):
 
     assert built.search_view.input.text() == "half a question"
     built.search_view.input.clear()
+
+
+# --- Order 0r item 2b: Mail and Code built a beat after show() -------------
+
+
+def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
+    r"""The deferral itself: `mail_view`/`code_view` do not exist the instant
+    `MainWindow()` returns, and do exist once the event loop has had a turn.
+
+    This is the regression test for the whole point of item 2b - if
+    `_construct_secondary_views` were ever folded back into `__init__` by
+    accident, this would be the first thing to go red, because the "not yet
+    built" half would stop being true.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "deferred_views"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+
+        # Not built yet: the constructor only scheduled it, via the same
+        # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
+        # used before this item existed.
+        assert not hasattr(built, "mail_view"), (
+            "mail_view must not exist the instant MainWindow() returns - "
+            "if it does, the deferral has regressed back into __init__")
+        assert not hasattr(built, "code_view"), (
+            "code_view must not exist the instant MainWindow() returns - "
+            "same reason as mail_view above")
+        # Search is what first paint shows, so it must be built already.
+        assert built.search_view is not None
+        assert built.tabs.count() == 4, (
+            "only Search, Files, Indexing and Settings exist before the "
+            "event loop turns - Mail and Code are inserted a beat later")
+
+        # Let the singleShot(0, ...) callback run.
+        for _ in range(5):
+            app.processEvents()
+
+        assert hasattr(built, "mail_view") and built.mail_view is not None
+        assert hasattr(built, "code_view") and built.code_view is not None
+        assert built.tabs.count() == 6, "Mail and Code must both be inserted"
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
+    r"""The tab order nobody has to relearn: Search, Files, Mail, Code,
+    Indexing, Settings - the same order the single `addTab` loop produced
+    before this item split it in two.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "tab_order"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        for _ in range(5):
+            app.processEvents()
+
+        assert [built.tabs.tabText(i) for i in range(built.tabs.count())] == [
+            "Search", "Files", "Mail", "Code", "Indexing", "Settings",
+        ]
+        # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
+        # use to navigate) must agree with the tab bar itself, not just with
+        # whatever order the widgets happened to be built in.
+        for view, title in (
+            (built.search_view, "Search"), (built.files_view, "Files"),
+            (built.mail_view, "Mail"), (built.code_view, "Code"),
+            (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
+        ):
+            index = built._tab_index[view]
+            assert built.tabs.tabText(index) == title, (
+                f"_tab_index says {title} is at {index}, but the tab bar "
+                f"disagrees - insertTab must have shifted something the "
+                f"index refresh in _construct_secondary_views missed")
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_path):
+    r"""The rapid-interaction risk item 2b's own task names: Ctrl+M / Ctrl+E
+    pressed in the gap between `show()` and `_construct_secondary_views`
+    firing must do nothing, not raise `AttributeError` on an attribute that
+    does not exist yet.
+
+    No `app.processEvents()` at all before calling these - this is exactly
+    the "immediately, before the deferred callback has fired" window.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "rapid_shortcut"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        assert not hasattr(built, "mail_view"), (
+            "test only proves what it claims to if this fires before the "
+            "deferred callback has run")
+
+        # The real methods F5/Ctrl+M/Ctrl+E are bound to - not a simulated
+        # keypress, which would need a real window manager offscreen.
+        built._focus_mail()
+        built._focus_code()
+
+        # And the same gap for a Settings control that reaches for
+        # `code_view` (`_save_code_types`, wired to
+        # `settings_view.code_types_changed`).
+        built._save_code_types("all", [])
+
+        for _ in range(5):
+            app.processEvents()
+
+        assert hasattr(built, "mail_view") and hasattr(built, "code_view"), (
+            "the callback must still fire normally after being raced like "
+            "this - nothing above should have broken its own scheduling")
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
+    r"""`_tab_changed` reaches for `code_view`/`mail_view` on every switch;
+    proves it tolerates the gap before either is built, not just that
+    nothing happens to switch to in that gap.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "rapid_tab_switch"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        assert not hasattr(built, "code_view")
+
+        # Only Search, Files, Indexing and Settings exist yet - switch
+        # through all of them, which is the only switching a user could
+        # actually perform in this gap (there is nothing to click for Mail
+        # or Code, since their tabs do not exist either).
+        for index in range(built.tabs.count()):
+            built.tabs.setCurrentIndex(index)
+            built._tab_changed(index)
+
+        for _ in range(5):
+            app.processEvents()
+        assert hasattr(built, "mail_view") and hasattr(built, "code_view")
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
+    r"""`closeEvent`'s teardown loop reaches for `mail_view`/`code_view`
+    directly; proves an immediate close (no event-loop turn at all) is
+    guarded rather than raising `AttributeError` mid-`closeEvent`, which
+    would defeat hide-first and the whole staged teardown after it - the
+    exact failure mode `task_6c99824d` already found once for a different
+    attribute on this same method.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / "rapid_close"
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance()
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+
+    try:
+        built = MainWindow(settings, store, vectors, _Engine(store))
+        assert not hasattr(built, "mail_view")
+
+        built.close()   # no processEvents() first - the immediate-close case
+
+        assert not built.isVisible(), \
+            "hide-first must still happen even in this gap"
+    finally:
+        store.close()
+        vectors.close()
+
+
+def test_files_and_search_are_not_deferred(window):
+    r"""Regression guard the other way: item 2b defers Mail and Code only.
+    Search (first paint) and Files (named safe to keep synchronous - see
+    the dated note under §2b) must still be built by the time `MainWindow()`
+    returns, with no event-loop turn needed at all.
+
+    Uses the shared `window` fixture, which has already had several
+    `processEvents()` calls by the time this test runs - so this only
+    proves the *presence* of both views, not their timing. The timing claim
+    (built before any event-loop turn) is covered by the fresh-window tests
+    above; this one guards against a future change silently pulling Files
+    into the deferred set too.
+    """
+    _app, built = window
+
+    assert built.search_view is not None
+    assert built.files_view is not None
+    assert built._tab_index[built.search_view] == 0, \
+        "Search must be tab 0 - the tab shown at first paint"
+    assert built._tab_index[built.files_view] == 1

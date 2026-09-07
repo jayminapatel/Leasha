@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.1 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -352,6 +352,127 @@ The owner chose this on a live mock; implement it faithfully.
   > reordering `main.py`. Flagged for follow-up as `task_c87cefe4` with the
   > measured numbers above; not attempted here because it requires editing
   > a file this session was told not to touch.
+  >
+  > **2026-09-07, lane-d. Still NOT ticked - a real, measured, partial
+  > improvement, not the target.** This session was explicitly told to
+  > touch `app/ui/shell.py` (the opposite constraint from 2026-09-04
+  > above) and to audit `MainWindow.__init__` line by line, which it did.
+  > `SearchEngine`'s construction protocol was left alone exactly as
+  > instructed - this is about the constructor's *own* work, not when or
+  > how the engine is built.
+  >
+  > **What moved.** `MailView` and `CodeView` - two of the five
+  > non-Search tabs - are now built by a new `_construct_secondary_views`,
+  > scheduled with `QTimer.singleShot(0, ...)` from `__init__` exactly the
+  > way `_start_background_work` already was (the established idiom in
+  > this file - not a new pattern). Files, Indexing and Settings were
+  > **not** deferred: reading `_wire_recorder()`, `_start_background_work`
+  > and `_apply_theme()` line by line first showed all three already
+  > reach directly into `self.indexing_view`, `self.files_view` and
+  > `self.settings_view` (`_wire_recorder` connects their signals,
+  > `_start_background_work` calls `indexing_view.refresh_totals` /
+  > `settings_view.refresh_slow_labels` / `indexing_view.tuning.
+  > start_detection`, `_apply_theme` reaches `settings_view.debug_pane`)
+  > - all three already run synchronously inside `__init__` today, so
+  > deferring any of those three views would also mean re-guarding all
+  > three of those methods, not just the view itself. Mail and Code touch
+  > none of them (grepped every `self.mail_view` / `self.code_view` site
+  > in the file before moving anything), which is what made them the safe
+  > subset for a first, conservative pass on the highest-risk lane - see
+  > "not attempted" below for what a fuller pass would still need.
+  >
+  > **Verified safe, not assumed.** Every place in this file that could
+  > reach `self.mail_view` / `self.code_view` before the deferred callback
+  > fires is now guarded (`_focus_mail`, `_focus_code`, `_tab_changed`,
+  > `_save_code_types`, `closeEvent`'s teardown loop) - each returns or
+  > skips rather than raising `AttributeError`. The tab bar itself is
+  > unchanged: Mail and Code are inserted at the exact position they held
+  > in the old single `addTab` loop (right after Files), via
+  > `QTabWidget.insertTab` plus a `_tab_index` refresh keyed on the
+  > wrapped widget's own `indexOf`, so the order nobody has to relearn
+  > does not move even transiently.
+  >
+  > **A pre-existing, unrelated bug found live, and fixed as trivial.**
+  > Writing the immediate-close test for this item surfaced that
+  > `closeEvent` already crashed on `self.scheduler.stop` if the window
+  > closes before any event-loop turn - `self.scheduler` is only assigned
+  > inside `_start_scheduler`, itself only ever called from
+  > `_start_background_work`, deferred via the *same* pre-existing
+  > `singleShot(0, ...)` this item did not introduce. Not this item's bug
+  > to own, but it made the new closeEvent test permanently red for a
+  > reason outside item 2b's scope, and the fix is the identical one-line
+  > `getattr(self, "scheduler", None)` guard already being added to this
+  > exact method for Mail/Code - so it was fixed rather than left broken
+  > next to three lines that fix the same shape of problem.
+  >
+  > **Measured, offscreen, in the build sandbox - not the owner's machine.**
+  > This sandbox has no display and no PyQt6 system libraries by default
+  > (`libegl1`/`libgl1`/`libglx0`/`libglvnd0`/`libopengl0` installed from
+  > `.deb`s for this session only); `QT_QPA_PLATFORM=offscreen` is not
+  > comparable to a real Windows desktop's paint cost, and the fixture
+  > engine/stores used here are the same synthetic ones
+  > `tests/unit/test_window_opens.py` already uses (empty SQLite/LanceDB,
+  > a stub `SearchEngine` with no real ONNX models) - not the owner's
+  > ~100GB index. This measures **"did the constructor get lighter",
+  > not "is the <1.5s window-visible target met"** - that second
+  > question is 2a's, and it needs the owner's real machine, a real
+  > profile and a real `SearchEngine`.
+  >
+  > With that caveat stated plainly: ten fresh `MainWindow` constructions
+  > in one process (module-scoped, matching this repo's own
+  > `test_window_opens.py` fixture pattern - building and tearing down
+  > many in a loop is known to be fragile, see that file's docstring, so
+  > single-process-per-construction was also tried and produced far
+  > noisier numbers dominated by interpreter/Qt cold-start cost rather
+  > than the constructor itself) gave, before → after:
+  >
+  > | | median | mean | min | max |
+  > |---|---|---|---|---|
+  > | before (unpatched) | 662.3 ms | 760.8 ms | 584.8 ms | 1459.3 ms |
+  > | after (Mail+Code deferred) | 179.3-407.9 ms across two separate runs | 225.2-462.7 ms | 151.2 ms | 596.5-885.9 ms |
+  >
+  > The range on the "after" row is the honest finding, not a typo: this
+  > shared sandbox showed enough run-to-run variance for the *identical*
+  > patched code (179ms median one run, 408ms median a few minutes later)
+  > that no single number here should be read as precise - only the
+  > direction (consistently, substantially lower than the 662ms baseline,
+  > across every paired comparison run) is trustworthy from this sandbox.
+  >
+  > **Verify on the owner's Windows machine** - the number 2a's own table
+  > already measures (`log.info("startup: timings - splash {}ms, window
+  > {}ms, ready {}ms", ...)` in `logs\runs\run-*-window.log`) is the one
+  > that actually answers this item's target:
+  >
+  > ```powershell
+  > venv\Scripts\pythonw.exe -m app.main
+  > ```
+  >
+  > then read the run log's "window {}ms" figure and compare against
+  > 2a's pre-change table (2,820-6,590ms). A constructor-only re-measure
+  > without a real display, matching this session's own script, is also
+  > left at `tests/unit/test_window_opens.py`'s fixture pattern for
+  > anyone who wants the sandbox-relative number again without the noise
+  > of a fresh process per sample.
+  >
+  > **Not attempted, and why**: deferring Indexing, Settings and Files -
+  > the larger remaining share of the constructor's cost per this order's
+  > own audit above - needs `_wire_recorder`, `_start_background_work`
+  > and `_apply_theme` re-guarded first, which is a materially bigger,
+  > more invasive change to a file explicitly flagged as this repo's
+  > highest-risk lane. Left for a follow-up rather than attempted in the
+  > same pass as a first, conservative deferral - "working version first"
+  > and "correctness over cleverness" both argue for landing the smaller,
+  > fully-verified subset rather than a larger, partially-verified one.
+  >
+  > Tests: `tests/unit/test_window_opens.py` gained seven - the deferral
+  > itself (`mail_view`/`code_view` absent immediately after construction,
+  > present after the event loop turns), tab order preserved, three
+  > rapid-interaction guards (shortcut, tab-switch, immediate close, each
+  > exercised with **zero** `processEvents()` calls first - the exact gap
+  > this item's own risk is about), and a regression guard proving Search
+  > and Files were *not* pulled into the deferred set. All 22 tests in the
+  > file pass, offscreen, `--basetemp=/tmp/pytest_tmp_laned` (this
+  > sandbox's SQLite-under-FUSE trap, per a sibling lane's finding).
 - [x] **2c** the handover wait paints honestly: during
   `acquire(wait_s=HANDOVER_WAIT_S)` the splash shows the §0.5 handover
   line — the 12s worst case becomes an explained wait instead of a dead

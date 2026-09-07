@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.03 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 4.04 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The window appears sooner - Mail and Code fill in a beat later
+
+- Opening Leasha used to build every tab - Search, Files, Mail, Code,
+  Indexing, Settings - before the window could appear at all. Mail and Code
+  now finish building just after the window is already on screen, so there
+  is less to build before you can see and use it. Nothing about either tab
+  changes once it appears - same order, same contents, same shortcuts.
+- Measured in the build sandbox (not a real machine, so not the final word):
+  constructing the window dropped from a median of 662ms to roughly
+  180-410ms across repeated measurements. The owner's own <1.5s
+  window-visible target from Work order 0r §2b still needs verifying on the
+  real machine - that number is recorded, with the exact command to
+  re-measure it, in the work order itself.
+  Work order 202626271601 §2b (partial - Files, Indexing and Settings
+  remain built up front; a fuller pass is flagged there for later).
 
 ### You can look at a drawing without opening AutoCAD
 
