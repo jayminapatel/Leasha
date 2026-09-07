@@ -35,6 +35,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.core.errors import raise_error
 from app.core.format_health import Requirement
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.extract import ocr_ladder
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
@@ -96,6 +97,14 @@ def _white_fraction_threshold() -> float:
 _engine: Any = None
 _engine_lock = threading.Lock()
 _engine_failed = False
+
+#: Whether the loaded `_engine` is running on the graphics card. Recorded
+#: alongside `_engine`, not recomputed per image: `ocr_image()`'s recognition
+#: call needs this to gate `gpu_exclusive` and has no `Choice` of its own to
+#: ask - it is a bare `path -> OcrResult` seam called from extraction workers.
+#: `False` until an engine has actually loaded on the graphics card, which is
+#: also the safe default: no engine yet means no GPU session exists to guard.
+_engine_is_gpu = False
 
 
 class OcrResult:
@@ -203,7 +212,7 @@ def _load_engine() -> Any:
     stops a machine without the package paying the import cost on every image in
     the corpus.
     """
-    global _engine, _engine_failed
+    global _engine, _engine_failed, _engine_is_gpu
 
     if _engine is not None or _engine_failed:
         return _engine
@@ -227,8 +236,14 @@ def _load_engine() -> Any:
             # for the graphics card and lets the library refuse it. That is one
             # more fallback than `with_fallback` would give, not one fewer.
             choice = backends.choose(_profile(), _device)
-            _engine = RapidOCR(**({"det_use_dml": True, "cls_use_dml": True,
-                                   "rec_use_dml": True} if choice.is_gpu else {}))
+            # **Only the three sessions' construction, gated on what was
+            # asked for.** A second subsystem building its own ONNX/DirectML
+            # session at the same moment is the access-violation in
+            # `logs/crash/crash.log` (2026-09-07); see `gpu_serialize`.
+            with gpu_exclusive(choice.is_gpu):
+                _engine = RapidOCR(**({"det_use_dml": True, "cls_use_dml": True,
+                                       "rec_use_dml": True} if choice.is_gpu else {}))
+            _engine_is_gpu = choice.is_gpu
             log.info("OCR engine loaded in {:.1f}s on the {}",
                      time.monotonic() - started,
                      "graphics card" if choice.is_gpu else "processor")
@@ -324,7 +339,11 @@ def ocr_image(
 
     started = time.monotonic()
     try:
-        raw = run(source if isinstance(source, (str, bytes)) else str(source))
+        # Gated on the engine actually loaded, not on `_device` - a fallen-
+        # back-to-processor engine must not keep paying the cross-subsystem
+        # lock it no longer needs; see `gpu_serialize`.
+        with gpu_exclusive(_engine_is_gpu):
+            raw = run(source if isinstance(source, (str, bytes)) else str(source))
     except Exception as exc:                     # noqa: BLE001 - one image, not the run
         log.debug("OCR failed on an image: {}: {}", type(exc).__name__, exc)
         return OcrResult(elapsed_s=time.monotonic() - started)

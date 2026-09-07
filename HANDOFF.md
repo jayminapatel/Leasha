@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.0 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 5.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1048,6 +1048,20 @@ after. `age()` in the Layer 3 and 4 acceptance files backdates them by an hour.
 **Porter stemming is narrower than you expect.** It relates `approve`/`approved`, but *not*
 `reconcile`/`reconciliation`. A test assertion about stemming cost an hour once - the test was
 wrong, not the tokenizer.
+
+**2026-09-07: the embedder, OCR and the reranker each pick a processor for themselves, and
+nothing coordinated them.** `crash.log`'s last entry is a real access violation: the embedder
+mid-`Run()` on the graphics card while OCR was independently constructing its `text_cls`
+session on the same card, at the same moment. `compute_profile.py` is detection-only by design
+and `backends.choose()` decides per subsystem in isolation - each of the three already carries
+its own private lock, but every one of those only guards callers *within* that one subsystem.
+Fixed with one process-wide gate, `app/core/gpu_serialize.py::gpu_exclusive()`, held only
+around each subsystem's actual session-construction and inference calls, only when that
+subsystem resolved to the graphics card - never around a whole pipeline stage, and never on the
+processor path. This serialises GPU work across all three where before it could overlap; see
+`CHANGELOG.md` `[Unreleased]` for the throughput trade-off, which this sandbox (no graphics
+card) could not measure against real hardware - only the lock's own near-zero overhead was
+measured directly.
 
 ## 7. Open questions
 

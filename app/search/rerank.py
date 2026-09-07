@@ -26,6 +26,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Sequence
 
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.search.window import RERANK_WINDOW_CHARS, windows_for
 
@@ -146,8 +147,13 @@ class Reranker:
                                             cache_dir=self.cache_dir,
                                             providers=list(providers))
 
-                model, self.choice = backends.with_fallback(
-                    build, backends.choose(self._backend_profile(), self.device))
+                wanted = backends.choose(self._backend_profile(), self.device)
+                # **Only the construction call itself, gated on what was
+                # asked for.** A second subsystem building its own ONNX/
+                # DirectML session at the same moment is the access-violation
+                # in `logs/crash/crash.log` (2026-09-07); see `gpu_serialize`.
+                with gpu_exclusive(wanted.is_gpu):
+                    model, self.choice = backends.with_fallback(build, wanted)
                 backends.record_provider("reranker", self.choice)
                 self._scorer = lambda query, passages: list(
                     model.rerank(query, list(passages))
@@ -247,7 +253,11 @@ class Reranker:
         )
 
         try:
-            scores = list(scorer(query, passages))
+            # **Gated on what actually ran, not on what was asked for.** A
+            # fallen-back-to-CPU choice must not keep paying the cross-
+            # subsystem lock it no longer needs; see `gpu_serialize`.
+            with gpu_exclusive(bool(self.choice and self.choice.is_gpu)):
+                scores = list(scorer(query, passages))
         except Exception as exc:        # noqa: BLE001 - a scoring failure is not a search failure
             # **A budget, not a latch.** One failure used to disable reranking
             # for the rest of the session: a single transient - a model file

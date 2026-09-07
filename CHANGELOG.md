@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.04 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 4.05 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Fixed: indexing could crash when the graphics card was doing two things at once
+
+- **A real crash, reproduced from `logs\crash\crash.log`.** On 2026-09-07, an
+  index run crashed while the meaning model was mid-calculation on the graphics
+  card at the exact moment the picture-reading (OCR) model was independently
+  building its own session on the same card. Nothing was wrong with either
+  model on its own - three parts of Leasha (the meaning model, OCR, and search
+  reranking) each decide for themselves whether to use the graphics card, and
+  nothing before this stopped two of them from touching it at the same instant.
+  That is now stopped: whichever one of the three is using the graphics card
+  has it to itself for as long as it needs it, and the other two simply wait
+  their turn rather than colliding.
+- **This can make indexing slower on a machine using the graphics card for more
+  than one of these at once** - the picture-reading model and the meaning model
+  can no longer calculate on it at the same time, where before they sometimes
+  could. A crash outranks that: a slower run that finishes beats a fast one
+  that corrupts partway through. Nothing changes on a machine using the
+  processor instead, or using the graphics card for only one of the three -
+  there was nothing to collide with there and nothing is now waited on either.
+  The exact slowdown depends on how much the three previously overlapped on
+  your machine's graphics card, which was not something this build sandbox
+  (no graphics card at all) could measure honestly - see `HANDOFF.md`'s known
+  issues for what was and was not measured.
 
 ### The loading screen now genuinely comes up before anything heavier starts
 

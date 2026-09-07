@@ -40,6 +40,7 @@ import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from app.core.errors import AppErrorException, make_error
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.index import backends
 
@@ -304,8 +305,13 @@ class Embedder:
 
             watcher = self._start_progress_watcher_if_downloading()
             try:
-                model, self.choice = backends.with_fallback(
-                    build, wanted, problems=self._problems)
+                # **Only the construction call itself, gated on what was
+                # asked for.** A second subsystem building its own ONNX/
+                # DirectML session at the same moment is the access-violation
+                # in `logs/crash/crash.log` (2026-09-07); see `gpu_serialize`.
+                with gpu_exclusive(wanted.is_gpu):
+                    model, self.choice = backends.with_fallback(
+                        build, wanted, problems=self._problems)
             except Exception as exc:               # noqa: BLE001 - download, disk, or ONNX
                 raise AppErrorException(make_error(
                     "ERR_MODEL_LOAD", "index.embedder",
@@ -378,7 +384,11 @@ class Embedder:
 
         encoder = self._ensure_encoder()
         try:
-            raw = list(encoder(texts))
+            # **Gated on what actually ran, not on what was asked for.** A
+            # fallen-back-to-CPU choice must not keep paying the cross-
+            # subsystem lock it no longer needs; see `gpu_serialize`.
+            with gpu_exclusive(bool(self.choice and self.choice.is_gpu)):
+                raw = list(encoder(texts))
         except AppErrorException:
             raise
         except Exception as exc:                   # noqa: BLE001 - boundary
