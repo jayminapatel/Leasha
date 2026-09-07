@@ -87,10 +87,20 @@ def page_count(path: Any) -> int:
 # ---------------------------------------------------------------------------
 
 def _image(path: Any) -> Optional[Any]:
-    from PyQt6.QtGui import QImage
+    r"""An image, decoded exactly as `preview_loader.decode_image` decodes it.
 
-    image = QImage(str(path))
-    return None if image.isNull() else image
+    **Reused, not re-derived.** A bare `QImage(str(path))` is what this was
+    before the pop-out had its own decode path: no EXIF orientation
+    correction (a portrait photo rendered sideways) and no HEIC/HEIF route
+    at all (Qt has no plugin for either, so `QImage` alone returns a null
+    image). `decode_image` already carries both fixes - see its docstring
+    and `_apply_orientation`/`_decode_heif` in `preview_loader.py` - and this
+    is the pop-out's own image path, so the fix belongs here once rather
+    than twice.
+    """
+    from app.ui.preview_loader import decode_image
+
+    return decode_image(str(path))
 
 
 def _pdf_page(path: Any, view: Any) -> Optional[Any]:
