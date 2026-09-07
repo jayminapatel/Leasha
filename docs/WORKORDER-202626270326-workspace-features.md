@@ -2,7 +2,7 @@
 
 **Doc version:** 1.4 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + preview loader + extract/converter + install docs)
-**Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
+**Status:** SHIPPED — all 30 items ticked; closed 2026-09-07 by section 5c, the DWG simplified view. Kept here as record. Originally RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626270157-search-experience.md`.
 This is the full stack, owner's instruction: every item below is in scope.
 

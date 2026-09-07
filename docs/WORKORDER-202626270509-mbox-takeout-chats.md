@@ -2,7 +2,7 @@
 
 **Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + docs)
-**Status:** RELEASED by the owner 2026-08-28. Small and self-contained
+**Status:** SHIPPED — all 7 items ticked; found already complete on 2026-09-07; only the status was ever outstanding. Kept here as record. Originally RELEASED by the owner 2026-08-28. Small and self-contained
 (extractors + one doc paragraph); schedulable into any gap, like the
 privacy-defaults order was. **Scope discipline: extractors only — no
 connectors, no OAuth, no network code, ever (owner doctrine).**

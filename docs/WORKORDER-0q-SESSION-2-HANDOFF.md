@@ -1,5 +1,7 @@
 # Order 0q: Results Presentation — Session 2 Handoff
 
+**Doc version:** 1.0 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+
 **Date:** 2026-09-04  
 **Session:** 2 (Closing)  
 **Items Complete:** 6/25 (24%)  

@@ -2,7 +2,7 @@
 
 **Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI widgets — `result_table.py` centred, views follow)
-**Status:** RELEASED by the owner 2026-08-28. Small and **gap-schedulable**
+**Status:** SHIPPED — all 17 items ticked; found already complete on 2026-09-07; only the status was ever outstanding. Kept here as record. Originally RELEASED by the owner 2026-08-28. Small and **gap-schedulable**
 (privacy-defaults pattern). Owner's report, verbatim intent: *Mail sorts on
 header click; this should be global on all lists no matter where — and
 headers are centre-aligned while their columns are not; headers must align

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 4.8 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.9 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -243,6 +243,20 @@ gets lost by accident.
 >
 > Also corrected: the L1 row above said schema v13; `migrations.CURRENT_VERSION` is
 > **16**.
+>
+> **Corrected again on 2026-09-07 — six orders are now SHIPPED, and the numbered
+> text below is stale for every one of them.** Read the register, not this list.
+> `202626270157` (0c) closed at 26/0, `202626270326` (0e) at 30/0 and
+> `202626271137` (0s) at 17/0; `202626270257` (0d), `202626270509` (0g) and
+> `202626271317` (0p) turned out to have been finished for some time and needed
+> only their status corrected — the "finished or lying" case the register's §4
+> warns about, found by recounting rather than by reading the table.
+>
+> Two further corrections of the same kind: `migrations.CURRENT_VERSION` is now
+> **18** (v17 pHash, v18 `files.taken_at_ns`), not 16 as the line above says. And
+> `202626270510` (0h) stands at 12/1 **deliberately** — its last item's proof needs
+> the real CLIP model, which the build sandbox cannot download; the order carries
+> the command that closes it on a machine which can.
 
 In order, and grouped by what is actually blocking.
 

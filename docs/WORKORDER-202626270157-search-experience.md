@@ -2,7 +2,7 @@
 
 **Doc version:** 1.20 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
-**Status:** RELEASED by the owner 2026-08-27 — sequenced after
+**Status:** SHIPPED — all 26 items ticked; closed 2026-09-07 by section 6c, whose four referenced items were verified complete in the remediation order rather than duplicated. Kept here as record. Originally RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
 this order and **fine-tuned later**: the owner has scheduled tuning it for
 after indexing is resolved, so §3 lands mechanically complete with its tests

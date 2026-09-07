@@ -1,5 +1,7 @@
 # Active Work Tracker
 
+**Doc version:** 1.0 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+
 **Last updated:** 2026-09-04 · **Current session:** Cowork + Claude Code coordination
 
 ---

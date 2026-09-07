@@ -2,7 +2,7 @@
 
 **Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Install + Core config + docs)
-**Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
+**Status:** SHIPPED — all 9 items ticked; found already complete on 2026-09-07; only the status was ever outstanding. Kept here as record. Originally RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next"). Small and self-contained — it touches the installer, first-run
 defaults and docs, not the pipeline or search, so it may be scheduled into
 any gap between the larger orders at the thread's discretion.

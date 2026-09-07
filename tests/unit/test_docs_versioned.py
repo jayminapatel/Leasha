@@ -36,6 +36,18 @@ HEADER = re.compile(
 EXCLUDED = {
     "venv", ".venv", ".git", "node_modules", ".pytest_cache", "__pycache__",
     "logs", "build", "dist", ".mypy_cache", ".ruff_cache",
+    # **Worktrees are this same repository checked out again**, so every
+    # document inside one is a second copy of a file already checked at its
+    # real path. Walking them does not widen the contract - it reports the
+    # same fault several times over, against paths like
+    # `.worktrees/lane-c/ACTIVE_WORK.md` that nobody can fix, because fixing
+    # the real file leaves an old checkout still holding the old text.
+    #
+    # This is scope, not leniency: no document stops being checked. Parallel
+    # agents each need their own worktree (they collide otherwise), so the
+    # count of these varies run to run - which on its own made the suite's
+    # failure count unreproducible.
+    ".worktrees", ".claude",
 }
 
 

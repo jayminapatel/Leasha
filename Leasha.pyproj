@@ -285,6 +285,7 @@
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />
     <Compile Include="tests\unit\test_archive_run.py" />
     <Compile Include="tests\unit\test_archive_scan.py" />
@@ -300,6 +301,7 @@
     <Compile Include="tests\unit\test_cli_wiring.py" />
     <Compile Include="tests\unit\test_clip_embedder.py" />
     <Compile Include="tests\unit\test_clip_lane_pipeline.py" />
+    <Compile Include="tests\unit\test_clip_lane_wiring.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
     <Compile Include="tests\unit\test_code_route.py" />
     <Compile Include="tests\unit\test_code_types.py" />
@@ -324,6 +326,7 @@
     <Compile Include="tests\unit\test_docs_versioned.py" />
     <Compile Include="tests\unit\test_doctor.py" />
     <Compile Include="tests\unit\test_drag_out.py" />
+    <Compile Include="tests\unit\test_dwg_preview.py" />
     <Compile Include="tests\unit\test_dynamic_workers.py" />
     <Compile Include="tests\unit\test_editors.py" />
     <Compile Include="tests\unit\test_eight_year_old.py" />
@@ -339,6 +342,7 @@
     <Compile Include="tests\unit\test_epub_preview.py" />
     <Compile Include="tests\unit\test_errors.py" />
     <Compile Include="tests\unit\test_exif.py" />
+    <Compile Include="tests\unit\test_exif_date_wiring.py" />
     <Compile Include="tests\unit\test_exit_placement.py" />
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
@@ -426,6 +430,7 @@
     <Compile Include="tests\unit\test_raw_extractor.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
+    <Compile Include="tests\unit\test_render_page_image_orientation.py" />
     <Compile Include="tests\unit\test_repo_attribution.py" />
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />

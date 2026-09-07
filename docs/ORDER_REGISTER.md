@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.0 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -46,30 +46,43 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 
 | # | Ref | Order | Status | Done/Open | Blocked by |
 |---|---|---|---|---|---|
-| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | — |
+| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | Three of the six are structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
-| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 31 / 9 | — |
-| 0c | `202626270157` | The search experience — one box for an 8-year-old | RELEASED | 23 / 3 | After 0b |
-| 0d | `202626270257` | Privacy defaults | RELEASED | **9 / 0** | Gap-schedulable |
-| 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | RELEASED | 29 / 1 | After 0c |
-| 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 11 / 6 | Foundation for 0h–0j |
-| 0g | `202626270509` | mbox, Takeout, chats | RELEASED | 0 / 7 | Gap-schedulable |
-| 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 5 / 8 | 0f |
+| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 35 / 5 | — |
+| 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
+| 0d | `202626270257` | Privacy defaults | **SHIPPED** | **9 / 0** | Was already complete; status corrected 2026-09-07 |
+| 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |
+| 0f | `202626270508` | Media by default, and the OCR ladder | RELEASED | 15 / 2 | Foundation for 0h–0j |
+| 0g | `202626270509` | mbox, Takeout, chats | **SHIPPED** | **7 / 0** | Was already complete; status corrected 2026-09-07 |
+| 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 12 / 1 | Its last item's proof is **gated on the real CLIP model** — see the order's 2026-09-07 note for the one command that closes it |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 0 / 17 | Deepest storage change — no interleaving |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
-| 0p | `202626271317` | Every table sorts, every header sits over its column | RELEASED | 17 / 0 | Gap-schedulable. §5 = column widths, do last |
+| 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 15 / 3 | Design settled |
-| 0s | `202626271137` | The seven adoptions — five-AI review | RELEASED | 12 / 5 | Gap-schedulable |
+| 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 
-**Three rows that contradict the old HANDOFF text, and are worth reading twice.**
-`202626270046` is marked ACTIVE and is **fully ticked** — it is finished, not running.
-`202626270257` is likewise complete at 9/0. And `202626270326` §1, §2 and §3a shipped
-in commits `aa9fb28`, `ec40c40` and `b1fdd7c`, while HANDOFF still described the whole
-order as future work.
+**2026-09-07 — recounted, and six orders are now finished.** The previous set of
+numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
+0q had all moved, and three orders standing at zero open were still listed as
+waiting. That is precisely the drift this register was created to end, so these
+counts come from §4's command rather than from editing the table by hand.
+
+Finished in that session: **0c** (§6c — a cross-reference, closed by verifying its
+four referenced items line by line in the remediation order rather than duplicating
+them), **0e** (§5c, the DWG simplified view) and **0s** (the pytest-qt sweep across
+all seven adoptions). **0d, 0g and 0p** were already at zero open and needed only
+their status corrected — exactly the "finished or lying" case §4 warns about.
+
+**0h is deliberately left at 12 / 1.** Its last item asks that a photo be found by
+typing a description of it. The test is written against the real wiring and runs, but
+the real CLIP model cannot be fetched in the build sandbox — `huggingface.co` answers
+403 through the proxy, and disk was *not* the constraint. Ticking it would assert
+something nobody has run, so the order carries the exact command that closes it on a
+machine which can reach the model.
 
 ---
 

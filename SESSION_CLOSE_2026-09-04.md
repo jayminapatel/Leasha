@@ -1,5 +1,7 @@
 # Session Close — 2026-09-04
 
+**Doc version:** 1.0 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+
 **Dates:** Sept 4, 2026 · **Mode:** Cowork + 4× Claude Code agents parallel
 
 ---
