@@ -1,6 +1,6 @@
 # Work order (One thread): media files by default, and the OCR ladder that makes it affordable
 
-**Doc version:** 1.0 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + Index pipeline + formats)
 **Status:** RELEASED by the owner 2026-08-28. Queue position: first of the new
 batch, after `WORKORDER-202626270326-workspace-features.md`. This order is the
@@ -215,6 +215,102 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > scope, touching files two other concurrent sessions were also editing
   > around the same run this session found this in — flagged here rather than
   > guessed at, for its own work order.
+  > **2026-09-07, lane-b (the follow-up the note above asked for).** Built, on
+  > the diagnosis above rather than re-deriving it. `files.taken_at_ns`
+  > (migration `_v18_photo_taken_at`, schema v17 -> v18): additive, nullable,
+  > nanoseconds since the epoch so it is directly comparable with `mtime_ns`,
+  > with a partial index `WHERE taken_at_ns IS NOT NULL` in the shape
+  > `idx_files_phash` already uses. `mtime_ns` is left exactly as it was and
+  > still holds the file's real mtime, which is what the note above identified
+  > as the reason a new column was needed at all - H1's change detection
+  > compares against it, so a photo carrying its shot date there would look
+  > changed on every rescan forever. `test_rescanning_an_unchanged_photo_does_
+  > not_look_changed` asserts the property that rejected fix would have
+  > destroyed.
+  >
+  > **Written from the pipeline, not from the `Document`, and that is the one
+  > design decision here worth stating.** The note above lists the write path
+  > as "every `pipeline.py` call site that currently passes
+  > `mtime_ns=candidate.mtime_ns` (at least four)". Checked each of the four:
+  > only two ever hold an image. `_write_one` takes a photo whose OCR found
+  > text; **`_record_skip` takes the majority of any real photo library** - an
+  > ordinary photograph contains no text, so `extract()` raises
+  > `ERR_NO_TEXT_LAYER` and no `Document` is ever produced for it. A shot date
+  > threaded through `Document.date` alone would therefore have worked on a
+  > captioned fixture and on almost none of the owner's twenty years of
+  > photos. So `Pipeline._photo_taken_at_ns` reads the EXIF date at both write
+  > sites, gated on `reads_by_ocr` exactly as `_maybe_compute_phash` and
+  > `_maybe_embed_image` already are. `_write_name_only` and `_write_marker`
+  > (the other two of the four) are `.mp4`-class files and archive markers -
+  > neither is ever an image, so neither was touched.
+  >
+  > `Document.date` and `DocumentBuilder.date` are declared all the same, so
+  > that `builder.date = exif_date` in `ocr.py`/`raw.py` - the dead write this
+  > item was reopened over - now means something. It is no longer the
+  > mechanism the index depends on, which is the point.
+  >
+  > **`after:`/`before:` (`app/storage/filters.py::_date_clause`), and the
+  > shape is measured rather than chosen.** The obvious spelling,
+  > `COALESCE(f.taken_at_ns, f.mtime_ns) <= ?`, wraps the columns in a
+  > function and so cannot use any index: on a 200,000-row table with a
+  > selective cutoff it scanned in **5.79ms** where the plain single-column
+  > comparison took **0.37ms**. The two-branch OR now emitted keeps both
+  > indexes in play and runs in **0.86ms** (`MULTI-INDEX OR`). `files` is
+  > aimed at twenty million rows and this fragment is built on every keystroke
+  > of a filtered search, so the COALESCE form was rejected on the number, not
+  > on taste. `test_the_date_filter_still_uses_an_index` pins the plan.
+  >
+  > **A second, real bug found while doing this, inside §3a's own words.**
+  > `read_datetime()` promised "DateTimeOriginal (camera time)" in its
+  > docstring and returned something else: it iterated `PIL.ExifTags.TAGS` (a
+  > dict keyed by tag *number*) and took the first date tag it met, so tag 306
+  > `DateTime` - "last modified", which any photo software rewrites when it
+  > saves - was always reached before 36867 `DateTimeOriginal`. Measured on a
+  > fixture carrying both: it returned **2019-03-01**, the last-saved date,
+  > not the 2006 shot date. That is the copy-date bug this item exists to fix,
+  > reappearing one layer down and surviving the fix. The preference is now
+  > stated as data (`_DATE_TAGS`, original -> digitized -> modified) and
+  > iterated directly.
+  >
+  > Errors: nothing here is fatal and nothing is a skip. A photo with corrupt
+  > or absent EXIF falls back to `mtime_ns` quietly and the run carries on -
+  > `test_a_corrupt_photo_never_halts_the_run` proves the good photograph
+  > beside a corrupt one still indexes, still carries its 2006 date and is
+  > still found by `before:2010`.
+  >
+  > Tests: `tests/unit/test_exif_date_wiring.py` (new, 20 tests) - the tag
+  > preference, the migration on a fresh database and on one carried forward
+  > from v17, `upsert_file` storing it and *not* blanking it for the callers
+  > that know nothing about it, the filter in both directions plus the
+  > mtime fallback for every non-photograph, the query plan, and five
+  > end-to-end cases through a **real `Pipeline` run** covering both photo
+  > write paths. Watched fail first against the unfixed code (19 failed), then
+  > pass (28 passed with `test_exif.py`).
+  >
+  > **Left unticked, and this is the reason - the same discipline the
+  > 2026-09-05 note above applied to this item.** §3a is three clauses:
+  > storage, `after:`/`before:`, "and any date display use it". The first two
+  > are done and proved. The third is not, and it is not a line of polish that
+  > can be tacked on: `keyword.py` (5 sites), `vector.py` (1) and
+  > `sqlite_store.py::_filter_only` all `SELECT f.mtime_ns` into every hit, so
+  > `SearchResult.mtime_ns` - whose own docstring says it exists "for the
+  > result row to show" - is what a date column renders.
+  >
+  > Projecting the shot date there is six lines. **Doing only that would be
+  > worse than doing nothing**, because the ORDER BYs beside those SELECTs
+  > (`keyword.py:240`, `_filter_only`'s `/newest`//`oldest`) still sort on
+  > `mtime_ns`: a list labelled newest-first would render 2006 above 2019 and
+  > look broken. Display and sort are one coherent change, and sorting is
+  > ranking - it also pulls in `recency.py::freshness` and `folding.py` - so
+  > it changes result order everywhere at once and wants its own measured
+  > pass, not a fold-in behind a filter fix. It is also the half that shows on
+  > screen, and this order's own header sets "scope discipline: this order is
+  > pipeline-only. No new UI".
+  >
+  > So: storage and `after:`/`before:` shipped and tested here; the display
+  > and sort clause named precisely, with its file list and its trap, for
+  > whoever picks it up. The §4 acceptance test below is ticked, because the
+  > sentence it encodes is now true.
 - [x] **3b EXIF orientation** honoured wherever images are decoded (previews,
   future thumbnails) — portrait photos must not render sideways.
   **Checked 2026-09-05, genuinely not done:** `read_orientation()` exists in
@@ -335,7 +431,7 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > `test_a_scanned_page_the_budget_does_not_cover_still_warns` proving
   > `PDF_OCR_PAGES=0` (the default) behaves exactly as before - the "unchanged
   > otherwise" half of 2d's own wording.
-- [ ] EXIF date: fixture photo with 2006 DateTimeOriginal + 2019 mtime indexes
+- [x] EXIF date: fixture photo with 2006 DateTimeOriginal + 2019 mtime indexes
   as 2006; `before:2010` finds it.
   > **2026-09-05 note (OCR-ladder-items session):** written -
   > `tests/unit/test_exif.py::test_exif_date_beats_mtime_in_a_before_filter_end_to_end`
@@ -347,6 +443,27 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > fixed the test flips to an unexpected pass (`XPASS`) - the signal to
   > remove the marker rather than to re-derive whether it works. Left
   > unchecked: the acceptance sentence this proves is not yet true.
+  > **2026-09-07, lane-b.** True now, and ticked. The `xfail(strict=True)`
+  > marker is gone from
+  > `tests/unit/test_exif.py::test_exif_date_beats_mtime_in_a_before_filter_end_to_end`
+  > - which is what the note above said the signal to remove it would be -
+  > and the test passes on its own terms rather than by being relaxed: the
+  > `taken_at_ns` it writes is derived from what `read_datetime()` actually
+  > returned, not from a literal, so it still proves the chain end to end.
+  > Two corrections to it while removing the marker, both mechanical: the row
+  > now carries the shot date in its own column (see §3a above), and the
+  > `WHERE` was `WHERE {where}` where `file_filter_sql` returns a fragment
+  > with a leading ` AND ` - so the assertion had been failing on a SQL syntax
+  > error, one layer before the behaviour it was written to test. It also now
+  > asserts the row keeps its real 2019 mtime, so "indexes as 2006" cannot be
+  > satisfied by having overwritten the file's own date.
+  >
+  > The wider proof this item asked for lives beside it in
+  > `tests/unit/test_exif_date_wiring.py` (new, 20 tests), including the same
+  > sentence driven through a **real `Pipeline` run** for both photo write
+  > paths - the captioned one and the far more common one with no text in it
+  > at all. Watched fail first: 19 failed against the unfixed code, 28 passed
+  > after.
 - [x] suffix-set consistency test (indexer vs preview) as a standing guard.
   > **2026-09-05 note (OCR-ladder-items session):** exists already -
   > `tests/unit/test_viewer_suffixes.py`, added the same day by a different

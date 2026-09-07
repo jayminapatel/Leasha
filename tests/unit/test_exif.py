@@ -78,33 +78,6 @@ class TestExifOrientation:
 
 
 @pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "WORKORDER-...-media-by-default-and-ocr-ladder.md decision 3: 'EXIF date "
-        "is THE date for photos'. `OcrExtractor.extract()` (app/extract/ocr.py) "
-        "and `RawExtractor.extract()` (app/extract/raw.py) both do "
-        "`builder.date = exif_date`, but `DocumentBuilder` (app/extract/base.py) "
-        "never declares a `date` attribute and `DocumentBuilder.build()` never "
-        "reads one - the assignment is a dead write, verified by reading both "
-        "files. `Document` itself has no `date` field either. The only "
-        "date-bearing column in `files` is `mtime_ns` (real OS mtime), which "
-        "`app/storage/filters.py::file_filter_sql` uses for every `after:`/"
-        "`before:` comparison, photos included - its own comment says so: "
-        "'mtime_ns, because that is what the files table stores.' So a photo's "
-        "EXIF date is read and then discarded before it reaches storage, and "
-        "`before:`/`after:` search the file's copy-date, not the shot date, for "
-        "every image in the corpus. Fixing this needs a schema change (mtime_ns "
-        "cannot double as both the H1 change-detection key and a display/filter "
-        "date - overwriting it with EXIF would make every photo look changed on "
-        "every rescan), which is out of the OCR-ladder items this session was "
-        "scoped to (2c/2d/2e) - flagged for a separate work order rather than "
-        "guessed at here. This test encodes the acceptance sentence itself: '2006 "
-        "photo copied five times still says 2006, before:2010 finds it' - it "
-        "will start passing (XPASS) the day that wiring exists, which is the "
-        "signal to remove this marker."
-    ),
-)
 def test_exif_date_beats_mtime_in_a_before_filter_end_to_end(tmp_path):
     """§4 'EXIF date:' - fixture photo with 2006 DateTimeOriginal and a 2019
     file mtime. Decision 3 says the photo indexes as 2006 and `before:2010`
@@ -161,12 +134,21 @@ def test_exif_date_beats_mtime_in_a_before_filter_end_to_end(tmp_path):
         store.upsert_file(
             str(photo), size_bytes=photo.stat().st_size, mtime_ns=real_mtime_ns,
             ext="jpg", status=FileStatus.INDEXED,
+            # Work order 0f §3a: the shot date travels in its own column,
+            # beside the real mtime rather than over it - `mtime_ns` is still
+            # H1's change-detection key and still the file's true copy date.
+            # Taken from what the extractor actually read, not from a literal,
+            # so this still proves the chain rather than asserting the answer.
+            taken_at_ns=int(exif_date.timestamp() * 1_000_000_000),
         )
+        # The row keeps the 2019 copy date it really has on disk.
+        assert store.get_file(str(photo)).mtime_ns == real_mtime_ns
 
         parsed = parse_query("before:2010")
         where, params = file_filter_sql(parsed)
+        # The fragment carries a leading ` AND `, for `WHERE 1=1{where}`.
         rows = store.conn.execute(
-            f"SELECT path FROM files f WHERE {where}", params,
+            f"SELECT path FROM files f WHERE 1=1{where}", params,
         ).fetchall()
 
         assert [r["path"] for r in rows] == [str(photo)], (

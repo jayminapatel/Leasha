@@ -2775,6 +2775,12 @@ class Pipeline:
                     self._repo_id_for(candidate.path)
                     if item.source_kind == "file" else None
                 ),
+                # Work order 0f §3a. A photograph's own date beats the file's
+                # mtime, which after twenty years of drive-to-drive copies is
+                # the date of the last copy and nothing else. None for
+                # everything that is not an image, and for an image with no
+                # readable EXIF - both of which mean "use mtime_ns".
+                taken_at_ns=self._photo_taken_at_ns(candidate),
             )
 
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)
@@ -2941,6 +2947,58 @@ class Pipeline:
 
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+
+    def _photo_taken_at_ns(self, candidate: Candidate) -> Optional[int]:
+        r"""A photograph's EXIF shot date in epoch nanoseconds, or None.
+
+        Work order 0f §3a. Written straight into the `files` row by the two
+        call sites that create one for an image, rather than carried on the
+        `Document` - **and that is the whole design decision here.**
+
+        A `Document` is produced only when an extractor found text. Most
+        photographs contain none: `extract()` raises `ERR_NO_TEXT_LAYER` and
+        the row is written by `_record_skip`, which never sees a document at
+        all. A shot date threaded through `Document.date` alone would
+        therefore work for the minority of photos carrying a caption and for
+        essentially none of a real twenty-year photo library - the exact
+        corpus §3a exists to serve. Reading it here covers both write paths
+        with one gate.
+
+        `Document.date` is still declared and still set by the image
+        extractors (it was a dead write before this order; see
+        `app/extract/base.py`), because an extractor knowing the date of what
+        it read is worth stating - it is simply not the mechanism the index
+        depends on.
+
+        Gated on `reads_by_ocr`, the same question `_maybe_compute_phash` and
+        `_maybe_embed_image` ask, so it costs one dictionary lookup for every
+        file that is not an image and opens nothing.
+
+        **H4: one bad file never halts a 100GB run.** `read_datetime` never
+        raises by contract, but this is defensive anyway - a photo with
+        corrupt or absent EXIF falls back to `mtime_ns` quietly and the run
+        carries on. Nothing here is fatal and nothing here is a skip: a
+        missing shot date costs this one photo the difference between its
+        shot date and its copy date, and costs the run nothing.
+        """
+        from app.extract.base import reads_by_ocr
+
+        path = candidate.path
+        if not reads_by_ocr(path):
+            return None
+
+        try:
+            from app.extract.exif import read_datetime
+
+            taken = read_datetime(path)
+            if taken is None:
+                return None
+            return int(taken.timestamp() * 1_000_000_000)
+        except Exception as exc:                # noqa: BLE001 - H4
+            self._log.debug(
+                "no EXIF date for {}: {}: {}. It is indexed as usual and dated "
+                "by its file time.", path, type(exc).__name__, exc)
+            return None
 
     def _maybe_compute_phash(self, candidate: Candidate, file_id: int) -> None:
         r"""One perceptual hash for a ladder-passed image, queued for a batched flush.
@@ -3251,6 +3309,14 @@ class Pipeline:
                 status=FileStatus.PENDING,
                 parent_dir=str(candidate.path.parent),
                 ext=indexed_ext(candidate.path),
+                # Work order 0f §3a. **The path most photographs actually
+                # take**, and the reason the shot date is read here rather
+                # than carried on a `Document`: an ordinary photograph has no
+                # text in it, so it never produces one and arrives here as
+                # `ERR_NO_TEXT_LAYER`. It is still a photograph, it is still
+                # findable by name and by CLIP, and it is still from the year
+                # it was taken - see `_photo_taken_at_ns`.
+                taken_at_ns=self._photo_taken_at_ns(candidate),
             )
             self.store.mark_skipped(file_id, item.error)
 
