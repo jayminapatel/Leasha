@@ -397,34 +397,35 @@ class MainWindow(QMainWindow):
         self.files_view.error.connect(self._show_error)
         self.files_view.search_inside_requested.connect(self._search_inside)
 
-        # Mail gets its own tab for the reason `mail_view.py` opens with: a
-        # mailbox is scanned in columns and read newest first, and relevance
-        # ranking answers a question nobody asked of it.
-        self.mail_view = MailView(store)
-        self.mail_view.error.connect(self._show_error)
-        self.mail_view.search_inside_requested.connect(self._search_inside)
-
-        # Repositories are a browser, not a second search - see code_view.py.
-        self.code_view = CodeView(store)
-        self.code_view.error.connect(self._show_error)
-        self.code_view.search_repo_requested.connect(self._search_repo)
-        self.code_view.open_requested.connect(self._open_path)
-        self.code_view.reveal_requested.connect(
-            lambda path: self._open_path(path, reveal=True))
-        self.code_view.indexing_requested.connect(
-            lambda: self._show(self.indexing_view))
-
-        # **§2, and it goes here rather than beside Settings for a reason.**
-        # Every tab that has a preview can pin one, and each pane carries its
-        # own `body_provider` - §2h's "no special casing" for mail, whose
-        # message has no file on disk to open. This loop names all four
-        # views, so it has to come after the last of them is built; the first
-        # version sat beside the log wiring, three views too early.
-        for pane in (self.search_view.preview, self.files_view.preview,
-                     self.mail_view.preview, self.code_view.results.preview):
+        # **Order 0r item 2b.** Mail and Code are not what first paint shows
+        # (Search is), and building both here was real, measured constructor
+        # cost - two more `ResultTable`s, two more preview panes, two more
+        # sets of signal wiring - for two tabs nobody sees until they click
+        # them. `_construct_secondary_views`, scheduled below with the same
+        # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
+        # uses, builds them a beat later instead: on the next turn of the
+        # event loop, after `show()` has already painted. Every place in this
+        # file that could reach `self.mail_view` / `self.code_view` before
+        # that callback fires - `_focus_mail`, `_focus_code`, `_tab_changed`,
+        # `_save_code_types`, `closeEvent` - is guarded to do nothing rather
+        # than raise, for exactly that gap.
+        #
+        # This loop only pins what already exists; Mail's and Code's preview
+        # panes are pinned inside `_construct_secondary_views` itself,
+        # alongside the views, not left here to fail on an attribute that
+        # does not exist yet.
+        for pane in (self.search_view.preview, self.files_view.preview):
             pane.pop_out_requested.connect(self._pin_document)
 
         self.tabs = QTabWidget()
+        #: view -> the widget actually sitting in its tab (itself, or a
+        #: `QScrollArea` wrapping it). Kept so Mail and Code can be inserted
+        #: at the right position once they exist without losing track of
+        #: where Indexing and Settings landed - `QTabWidget.indexOf` on the
+        #: exact wrapped widget always answers correctly even after an
+        #: insertion has shifted everything after it. See
+        #: `_construct_secondary_views`.
+        self._tab_wrapped: dict[QWidget, QWidget] = {}
         # (view, title, wrap in a scroll area?)
         #
         # Only stacked forms are wrapped. Search, Files and Indexing are
@@ -436,22 +437,27 @@ class MainWindow(QMainWindow):
         # Settings is the opposite: six group boxes stacked vertically, growing
         # every time an option is added. It had no scrollbar at all, so the
         # bottom of it was simply unreachable on a short window.
+        #
+        # **Mail and Code are not in this loop.** Order 0r item 2b: they are
+        # built a beat later by `_construct_secondary_views` and inserted at
+        # the positions they would have had here - right after Files - once
+        # they exist, so the tab order nobody has to relearn never changes.
         for view, title, scroll in (
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
-            (self.mail_view, "Mail", False),
-            # After Mail and before Indexing: the four "find something" tabs
-            # stay together and the two "manage the app" tabs stay at the end.
-            (self.code_view, "Code", False),
             (self.indexing_view, "Indexing", False),
             (self.settings_view, "Settings", True),
         ):
-            self._tab_index[view] = self.tabs.addTab(
-                wrap_if_needed(view, scroll=scroll), title
-            )
+            wrapped = wrap_if_needed(view, scroll=scroll)
+            self._tab_wrapped[view] = wrapped
+            self._tab_index[view] = self.tabs.addTab(wrapped, title)
         # Refresh a panel when it comes forward rather than on a timer: an
         # index run between visits changes what it should show, and polling a
-        # table nobody is looking at is work for nothing.
+        # table nobody is looking at is work for nothing. Safe to connect
+        # before Mail/Code exist: `_tab_changed` only fires on an actual
+        # switch, and there is nothing to switch to yet for either of them -
+        # it also guards both references regardless, for the same reason
+        # `_focus_mail`/`_focus_code` do.
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
 
@@ -532,7 +538,79 @@ class MainWindow(QMainWindow):
         # name local for the *entire* function, so a use earlier in `__init__`
         # raised `UnboundLocalError` and the window would not open at all.
         # Python binds by function, not by line.
+        #
+        # Order 0r item 2b: Mail and Code are built here too, on the same
+        # next-turn-of-the-loop timing, by `_construct_secondary_views`.
+        # Scheduled first so it has run by the time `_start_background_work`
+        # does, though nothing in either method actually depends on that
+        # order today.
+        QTimer.singleShot(0, lambda: self._construct_secondary_views(store))
         QTimer.singleShot(0, lambda: self._start_background_work(store, settings))
+
+    def _construct_secondary_views(self, store: Any) -> None:
+        """Build Mail and Code, and insert them where they belong.
+
+        Order 0r item 2b's audit of `MainWindow.__init__` found the
+        constructor doing real, synchronous work for tabs nobody sees the
+        instant the window appears - Search is the only one shown at first
+        paint. Mail and Code move here: built on the next turn of the event
+        loop instead of inside the constructor, via the same
+        `QTimer.singleShot(0, ...)` idiom `__init__` already uses for
+        `_start_background_work`, a few lines above.
+
+        **Everything that could reach `self.mail_view` / `self.code_view`
+        before this callback fires is guarded**, for the gap between
+        `show()` returning and this method actually running:
+        `_focus_mail`, `_focus_code` (Ctrl+M / Ctrl+E), `_tab_changed`
+        (switching tabs), `_save_code_types` and `closeEvent`. A rapid
+        keypress or an immediate close in that gap does nothing, rather than
+        raising `AttributeError` on an attribute that does not exist yet.
+        """
+        # Mail gets its own tab for the reason `mail_view.py` opens with: a
+        # mailbox is scanned in columns and read newest first, and relevance
+        # ranking answers a question nobody asked of it.
+        self.mail_view = MailView(store)
+        self.mail_view.error.connect(self._show_error)
+        self.mail_view.search_inside_requested.connect(self._search_inside)
+
+        # Repositories are a browser, not a second search - see code_view.py.
+        self.code_view = CodeView(store)
+        self.code_view.error.connect(self._show_error)
+        self.code_view.search_repo_requested.connect(self._search_repo)
+        self.code_view.open_requested.connect(self._open_path)
+        self.code_view.reveal_requested.connect(
+            lambda path: self._open_path(path, reveal=True))
+        self.code_view.indexing_requested.connect(
+            lambda: self._show(self.indexing_view))
+
+        # **§2, and it goes here rather than beside Settings for a reason.**
+        # Every tab that has a preview can pin one, and each pane carries its
+        # own `body_provider` - §2h's "no special casing" for mail, whose
+        # message has no file on disk to open.
+        for pane in (self.mail_view.preview, self.code_view.results.preview):
+            pane.pop_out_requested.connect(self._pin_document)
+
+        # Inserted right after Files - the position this pair held in the
+        # original single loop - so the tab order nobody has to relearn
+        # never changes. `indexOf` on the exact wrapped widget, not a
+        # remembered number, is what keeps the refresh below correct
+        # regardless of how many tabs an insertion has shifted.
+        after_files = self._tab_index[self.files_view]
+        mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
+        self.tabs.insertTab(after_files + 1, mail_wrapped, "Mail")
+        self._tab_wrapped[self.mail_view] = mail_wrapped
+        code_wrapped = wrap_if_needed(self.code_view, scroll=False)
+        self.tabs.insertTab(after_files + 2, code_wrapped, "Code")
+        self._tab_wrapped[self.code_view] = code_wrapped
+        for view, wrapped in self._tab_wrapped.items():
+            self._tab_index[view] = self.tabs.indexOf(wrapped)
+
+        # `protect_all` already ran once in `__init__` for every control that
+        # existed by then; Mail's and Code's controls did not, so it runs
+        # again for exactly what it missed. Safe to call twice - a widget
+        # guarded a second time is guarded harmlessly, see `protect`.
+        guarded = protect_all(self)
+        _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.
@@ -1424,13 +1502,24 @@ class MainWindow(QMainWindow):
 
     def _focus_mail(self) -> None:
         """Ctrl+M. Mail is a browser, so this lands in its filter box."""
-        self._show(self.mail_view)
-        self.mail_view.focus()
+        mail_view = getattr(self, "mail_view", None)
+        if mail_view is None:
+            # Order 0r item 2b: Mail is built a beat after the window
+            # appears - see `_construct_secondary_views`. Pressed inside
+            # that gap, which needs unlucky timing; doing nothing is
+            # correct here, not a bug to chase.
+            return
+        self._show(mail_view)
+        mail_view.focus()
 
     def _focus_code(self) -> None:
         """Ctrl+E. The Code tab, and its search box selected."""
-        self._show(self.code_view)
-        self.code_view.focus()
+        code_view = getattr(self, "code_view", None)
+        if code_view is None:
+            # See `_focus_mail` - same gap, same reason.
+            return
+        self._show(code_view)
+        code_view.focus()
 
     def _theme_changed(self, preference: str) -> None:
         self._theme_preference = preference
@@ -1597,11 +1686,16 @@ class MainWindow(QMainWindow):
         Asked for by capability rather than by name: a view that has nowhere to
         type has no `focus`, and Settings deliberately does not steal it.
         """
+        # `getattr(self, "code_view"/"mail_view", None)` rather than a bare
+        # attribute: Order 0r item 2b builds both a beat after the window
+        # appears (`_construct_secondary_views`), and `_tab_index.get(None)`
+        # is simply `None` - never equal to a real tab index - so this stays
+        # correct in the gap before either exists, with no exception raised.
         if index == self._tab_index.get(self.indexing_view):
             self.indexing_view.refresh_totals(self._store, self._settings)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
-        elif index == self._tab_index.get(self.code_view):
+        elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
             # looking at this tab.
@@ -1609,9 +1703,10 @@ class MainWindow(QMainWindow):
 
         # By index rather than by widget: a view inside a scroll area is not the
         # tab's widget, which is the same trap `_show` exists to avoid.
-        for view in (self.search_view, self.files_view, self.mail_view,
-                     self.code_view):
-            if self._tab_index.get(view) == index:
+        for view in (self.search_view, self.files_view,
+                     getattr(self, "mail_view", None),
+                     getattr(self, "code_view", None)):
+            if view is not None and self._tab_index.get(view) == index:
                 view.focus()
                 break
 
@@ -1716,7 +1811,15 @@ class MainWindow(QMainWindow):
             return
         # The Code tab reads this per search, so it takes effect on the next
         # keystroke - but it is already on screen, so redraw it now.
-        self.code_view.refresh()
+        #
+        # Guarded: Order 0r item 2b builds Code a beat after the window
+        # appears, and changing this Settings control in that gap would
+        # otherwise raise on an attribute that does not exist yet. Nothing
+        # is lost - Code reads this from the store on its own next search
+        # regardless of whether it is redrawn immediately here.
+        code_view = getattr(self, "code_view", None)
+        if code_view is not None:
+            code_view.refresh()
 
     def _load_root_modes(self) -> dict:
         """Which folders the owner has declared static. See `index/archives.py`."""
@@ -2347,8 +2450,18 @@ class MainWindow(QMainWindow):
         # engine and a store that were being shut. Cancelling first turns a race
         # into an ordinary stop - the same reasoning as asking the index run to
         # stop rather than closing over it.
-        for view in (self.search_view, self.files_view, self.mail_view,
-                     self.code_view):
+        # `getattr(..., None)` for Mail/Code: Order 0r item 2b builds both a
+        # beat after the window appears, and a close arriving before that
+        # callback has run (an automated close sent immediately after
+        # `show()`, with no event-loop turn in between) must not raise here -
+        # skipping a `shutdown()` that has nothing to shut down yet is
+        # correct, not a gap, since neither view has started any timer or
+        # worker by then.
+        for view in (self.search_view, self.files_view,
+                     getattr(self, "mail_view", None),
+                     getattr(self, "code_view", None)):
+            if view is None:
+                continue
             stage(type(view).__name__, view.shutdown)
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
@@ -2356,7 +2469,22 @@ class MainWindow(QMainWindow):
         stage("schedule", self.indexing_view.schedule_box.flush_pending)
         stage("tuning", self.indexing_view.tuning.flush_pending)
         stage("indexing", self.indexing_view.stop)
-        stage("scheduler", self.scheduler.stop)
+        # **Pre-existing gap, found live by this session's own rapid-close
+        # test for item 2b, not introduced by it.** `self.scheduler` is only
+        # ever assigned inside `_start_scheduler`, which only ever runs from
+        # `_start_background_work` - already deferred via `QTimer.
+        # singleShot(0, ...)` in `__init__` long before this item existed.
+        # An immediate close (no event-loop turn at all) raises
+        # `AttributeError` building this line's own argument, *before*
+        # `stage()`'s try/except ever runs - the same "evaluated eagerly,
+        # outside the guard" shape as the `mail_view`/`code_view` gaps this
+        # item's own changes guard elsewhere in this method. Fixed here,
+        # trivially and in the same style, rather than left to make this
+        # session's new closeEvent test permanently red for a reason outside
+        # item 2b's own scope.
+        scheduler = getattr(self, "scheduler", None)
+        if scheduler is not None:
+            stage("scheduler", scheduler.stop)
         stage("workers", self._drain_workers)
         stage("recorder", self.recorder.close)
         stage("engine", self._engine.close)

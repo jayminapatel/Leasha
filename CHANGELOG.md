@@ -33,6 +33,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   nothing heavier than the loading screen itself is ever loaded before it
   is shown.
 
+### The window appears sooner - Mail and Code fill in a beat later
+
+- Opening Leasha used to build every tab - Search, Files, Mail, Code,
+  Indexing, Settings - before the window could appear at all. Mail and Code
+  now finish building just after the window is already on screen, so there
+  is less to build before you can see and use it. Nothing about either tab
+  changes once it appears - same order, same contents, same shortcuts.
+- Measured in the build sandbox (not a real machine, so not the final word):
+  constructing the window dropped from a median of 662ms to roughly
+  180-410ms across repeated measurements. The owner's own <1.5s
+  window-visible target from Work order 0r §2b still needs verifying on the
+  real machine - that number is recorded, with the exact command to
+  re-measure it, in the work order itself.
+  Work order 202626271601 §2b (partial - Files, Indexing and Settings
+  remain built up front; a fuller pass is flagged there for later).
+
 ### You can look at a drawing without opening AutoCAD
 
 - A `.dwg` used to preview as "No preview for this type" - a filename and
