@@ -17,6 +17,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The loading screen now genuinely comes up before anything heavier starts
+
+- What you see has not changed - the loading screen already appeared
+  quickly on every launch measured on the owner's machine. What stood
+  behind that was wrong: several of the heavier parts of the search engine,
+  and the whole main window, were being loaded before the loading screen
+  itself was shown, contradicting a promise written into the loading
+  screen's own code. They now load after it is on screen, where a moment's
+  delay has something on screen to explain it. Work order 0r §4.
+- Added the test coverage that was missing for this: one check drives the
+  loading screen through every one of its rotating messages and its
+  fade-and-close sequence in a single pass, rather than checking each piece
+  on its own; another checks, whenever the startup file changes, that
+  nothing heavier than the loading screen itself is ever loaded before it
+  is shown.
+
 ### You can look at a drawing without opening AutoCAD
 
 - A `.dwg` used to preview as "No preview for this type" - a filename and
