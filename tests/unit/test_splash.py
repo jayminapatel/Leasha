@@ -198,6 +198,76 @@ class TestSplashScreen:
 
         assert splash.widget.isVisible() is False
 
+    @pytest.mark.qt
+    def test_offscreen_scenario_rotates_reports_and_holds_then_fades(self) -> None:
+        """§4's pytest-qt item, composed: one splash, all five clauses together.
+
+        **2026-09-07, lane-c.** Before this test, each clause of "splash
+        constructs offscreen, cycles all five cases with fades, shows each
+        moment's status line, respects minimum hold" existed only as
+        separate, narrower pieces: `test_splash_case_rotation` advanced the
+        rotation timer by exactly *one* step, not through all five cases;
+        `test_hide_and_close_fades_opacity_to_zero` and
+        `test_minimum_hold_timing` each proved the fade and the hold
+        enforcement in isolation, with no rotation or status activity around
+        them; and no test told the splash every one of §0.5's status strings
+        and checked `_status_message` reflected each. The item's own sentence
+        reads as one scenario, not five independent checks - this is that
+        scenario, in the same offscreen-construction style as the rest of
+        this file (no new fixture).
+        """
+        import time
+
+        from app.ui.splash import CASE_LINES, SplashScreen, get_splash_status_text
+
+        # (a) constructs offscreen - QT_QPA_PLATFORM=offscreen comes from the
+        # session-scoped, autouse `_qt_application` fixture in conftest.py;
+        # every `@pytest.mark.qt` test in this file already runs under it.
+        splash = SplashScreen()
+        assert splash.widget.isVisible() is False
+        splash.show()
+        assert splash.widget.isVisible() is True
+
+        # (d) shows each moment's status line - every §0.5 string this splash
+        # is actually told during a real startup (normal breadcrumbs, the
+        # handover wait, and the first-run download line), verbatim.
+        stages = (
+            "startup", "acquiring_lock", "stores_opening",
+            "embedding_model", "model_download", "ready",
+        )
+        for stage in stages:
+            message = get_splash_status_text(stage)
+            splash.report_progress(message)
+            assert splash._status_message == message
+
+        # (b) cycles all five cases - all the way round, back to the start,
+        # not just the one step `test_splash_case_rotation` covers.
+        start_index = splash._current_case_index
+        seen = [start_index]
+        for _ in range(len(CASE_LINES)):
+            splash._on_rotate_case()
+            seen.append(splash._current_case_index)
+        assert seen == [(start_index + i) % len(CASE_LINES) for i in range(len(CASE_LINES) + 1)]
+        assert seen[-1] == start_index, "should wrap back to the first case"
+        assert len(set(seen[:-1])) == len(CASE_LINES), "all five cases should be distinct"
+
+        # (e) respects minimum hold, and (c) with fades - one `hide_and_close()`
+        # call on the SAME splash that just rotated and reported status above,
+        # not a fresh instance built only to test the fade.
+        splash._minimum_hold_time = time.time() + 0.3
+        assert splash.widget.windowOpacity() == pytest.approx(1.0)
+        start = time.time()
+
+        splash.hide_and_close()
+
+        elapsed = time.time() - start
+        # A little under 0.3s to absorb scheduling jitter, matching
+        # `test_minimum_hold_timing`'s own tolerance - if the hold did
+        # nothing, elapsed would be near-zero (just the fade).
+        assert elapsed >= 0.25
+        assert splash.widget.windowOpacity() == pytest.approx(0.0)
+        assert splash.widget.isVisible() is False
+
 
 class TestWhiteWordmarkDerivation:
     """The white-wordmark variant is derived correctly."""

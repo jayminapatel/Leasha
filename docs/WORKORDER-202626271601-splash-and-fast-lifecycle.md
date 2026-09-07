@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.1 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -553,7 +553,7 @@ The owner chose this on a live mock; implement it faithfully.
   applies to it from release).
   > **2026-09-04:** `tests/unit/test_splash.py::test_status_messages_plain_words`,
   > `::test_tagline_byte_exact` and `::test_case_lines_byte_exact` all pass.
-- [ ] pytest-qt: splash constructs offscreen, cycles all five cases with
+- [x] pytest-qt: splash constructs offscreen, cycles all five cases with
   fades, shows each moment's status line, respects minimum hold; the
   white-wordmark derivation test (1d).
   > **2026-09-04: partially true, not ticked.** Construction-offscreen,
@@ -566,7 +566,50 @@ The owner chose this on a live mock; implement it faithfully.
   > field did nothing at all (which, per 1b, it currently does). Left
   > un-ticked rather than let a passing-but-vacuous test claim more than 1b
   > actually verified.
-- [ ] startup: a stub-slowed stage still shows the splash within its
+  >
+  > **2026-09-07, lane-c.** Re-checked honestly against 1b's 2026-09-05 fix
+  > rather than assumed still-open, per this order's own instruction to
+  > revisit a note after the fix it depended on lands (the 0c/0e/0d/0g/0p
+  > pattern in `HANDOFF.md`). Read `test_minimum_hold_timing` line by line as
+  > it stands today: it now calls `hide_and_close()` at the boundary and
+  > asserts real elapsed time (`elapsed >= 0.25` against a 0.3s remaining
+  > hold) - the vacuous version this note complained about is gone, and
+  > `test_hide_and_close_fades_opacity_to_zero` / `test_hide_and_close_
+  > still_closes_if_fade_raises` confirm a real fade exists and is H4-safe.
+  > So (e) minimum-hold and (c) fades are each genuinely true in isolation
+  > now. But re-reading the item's own sentence as ONE scenario (which its
+  > wording is - "splash constructs offscreen, cycles all five cases with
+  > fades, shows each moment's status line, respects minimum hold", not five
+  > separate bullet points) surfaced two things still short of that, even
+  > post-1b: `test_splash_case_rotation` advances the rotation timer by
+  > exactly *one* step, not through all five cases with the wrap back to the
+  > first; and no test tells the splash every one of §0.5's status strings
+  > and checks `_status_message` reflects each - `test_splash_reports_
+  > progress` checks two ad hoc messages, and `TestGetSplashStatusText`
+  > checks three of the six via the `get_splash_status_text()` helper
+  > function rather than the live splash object. Fades, too, were only ever
+  > exercised through `hide_and_close()` on a splash that had done nothing
+  > else (no rotation, no status reports) in the same test.
+  >
+  > Added one new composed test rather than patch each piece separately,
+  > matching the item's own framing: `tests/unit/test_splash.py::
+  > TestSplashScreen::test_offscreen_scenario_rotates_reports_and_holds_
+  > then_fades`. One `SplashScreen`, offscreen (the same session-scoped
+  > `QT_QPA_PLATFORM=offscreen` fixture every other `@pytest.mark.qt` test in
+  > this file already relies on - no new fixture): shown, told all six of
+  > §0.5's status strings in turn with `_status_message` asserted after each;
+  > rotated through all five `CASE_LINES` with the index asserted to wrap
+  > back to its start and all five pre-wrap indices distinct; then one
+  > `hide_and_close()` call on that same instance, with elapsed time proving
+  > the hold was genuinely waited out and `windowOpacity()` proving the fade
+  > ran, ending invisible. (f) the white-wordmark derivation test (1d,
+  > `TestWhiteWordmarkDerivation::test_white_wordmark_differs_only_in_navy_
+  > pixels`) needed nothing further - already existed, already passed.
+  >
+  > `tests/unit/test_splash.py` was 16 tests before this (per 1b's own
+  > count); now 17, all green (`17 passed in 4.21s` under
+  > `QT_QPA_PLATFORM=offscreen`, `--basetemp=/tmp/pytest_tmp_lanec`).
+- [x] startup: a stub-slowed stage still shows the splash within its
   budget (the <300ms import discipline as a test on what `main` imports
   before splash-show).
   > **2026-09-04: NOT ticked — not written.** No such test exists anywhere
@@ -575,6 +618,73 @@ The owner chose this on a live mock; implement it faithfully.
   > (only stdlib+Qt precede splash-show in `main.py`) held up in every live
   > run measured for 2a (splash visible in 152–304ms), so there was no
   > regression to chase — but the test itself is still missing.
+  >
+  > **2026-09-07, lane-c. Written - and it found a real bug the 2026-09-04
+  > note's inference missed.** Chose the static/import-order approach the
+  > item's own wording asks for literally ("the <300ms import discipline as
+  > a test on what `main` imports before splash-show") over a timing-based
+  > one, which would be flaky in exactly the sandbox this is being verified
+  > in. New file `tests/unit/test_startup_import_order.py::
+  > TestStartupImportOrder::test_no_heavy_app_import_precedes_splash_
+  > construction` parses `app/main.py` with `ast` and collects every import
+  > that runs, in actual execution order for the normal startup path
+  > (module-level statements, then `main()`'s own imports, then
+  > `_run_window()`'s imports up to - not including - the line that
+  > constructs `SplashScreen()`), asserting each is stdlib, Qt, or one of the
+  > small `app.core`/`app.ui.splash`-family modules the splash itself needs.
+  >
+  > **Run against the code as it stood, this failed - honestly, not
+  > vacuously**: `app.index.embedder`, `app.search.vector`, `app.search.
+  > engine`, `app.search.rerank`, `app.storage.sqlite_store`, `app.storage.
+  > vector_store` and the whole of `app.ui.shell` were all imported in
+  > `_run_window` *before* `QApplication` was even constructed - let alone
+  > before `SplashScreen().show()` - and `app.extract.ocr` (the OCR
+  > device-configuration import) was imported earlier still. This directly
+  > contradicts `app/main.py`'s own comment above `splash.show()` and
+  > `app/ui/splash.py`'s module docstring ("Only stdlib and Qt are imported
+  > before it is shown"), and is exactly the gap the 2026-09-04 note's
+  > inference missed: "held up in every live run measured for 2a" was true
+  > of the *total* splash-visible time on the owner's machine, but nobody had
+  > actually read the import statements themselves to check what was
+  > producing that number - the "verify, never guess" mistake this project
+  > keeps a standing rule about, this time from a previous session rather
+  > than this one.
+  >
+  > **Fixed minimally, per this work order's own instruction to fix a bug
+  > surfaced while verifying.** In `app/main.py::_run_window`: the
+  > `PyQt6.QtWidgets.QApplication` import stays where it was (needed to
+  > construct `application` before the splash can exist), but the heavier
+  > block (`Embedder`, `vector`, `SearchEngine`, `Reranker`, `SqliteStore`,
+  > `ImageVectorStore`/`VectorStore`, `MainWindow`) and the OCR device-
+  > configuration import+call now run *after* `splash.show()` and
+  > `application.processEvents()`, in their own `try/except ImportError`
+  > that calls `splash.widget.close()` before falling through to the same
+  > `_fatal(...)` dialog on a genuinely missing dependency (H4: no dialog is
+  > worth a splash stuck on screen). No behaviour changes for a normal start
+  > or for the missing-dependency error path beyond the splash closing first;
+  > `app/ui/splash.py` itself was not touched (§0: do not redesign).
+  >
+  > **Verified, not assumed.** `tests/unit/test_startup_import_order.py` (2
+  > tests, including a guard against the line-lookup itself silently finding
+  > nothing and passing vacuously) is green after the fix, and was confirmed
+  > red before it (the failure listed all eight violating imports by line
+  > number). Re-ran `tests/unit/test_splash.py` (17/17), `tests/unit/
+  > test_exit_placement.py` (3/3 - the AST-based `_exit_fast` placement check
+  > is unaffected by this reordering) and `tests/unit/test_window_opens.py`
+  > (16/16, since it constructs a real `MainWindow`) to confirm nothing else
+  > broke. No test anywhere asserted the old import order, so nothing needed
+  > updating for the move itself.
+  >
+  > One caveat, stated plainly rather than left implicit: this sandbox's
+  > per-module import timings (measured separately, not part of the test)
+  > were dominated by a cold-disk-cache effect specific to this FUSE-mounted
+  > checkout - `app.ui.shell` measured over 20s on a first-ever import and
+  > well under a second once the filesystem cache was warm - so no timing
+  > number from this sandbox is offered as evidence of the real cost on the
+  > owner's Windows machine. What is offered as evidence is the structural
+  > fact, read directly from the source and now held by a test: those
+  > imports no longer precede splash-show, which is what §0.7 and this
+  > file's own docstring both already claimed was true.
 - [x] close: hide-first verified (window invisible before drain begins);
   `os._exit` placement — a test proves the exit call is unreachable while
   a store is open; idle-optimize runs and close no longer calls it.
@@ -621,6 +731,16 @@ The owner chose this on a live mock; implement it faithfully.
 > unilaterally, per §0's "do not redesign". The four §4 test lines that
 > depend on 1b/1c/3b/3c are correspondingly unwritten rather than written
 > to pass vacuously.
+
+> **2026-09-07 status, lane-c.** 17 of 18 checkboxes now ticked - only 2b's
+> own item is still open (a different lane's work, in progress; not touched
+> here). Since the 2026-09-04 status note above: 1b, 1c's second clause, 3b
+> and 3c were each fixed and ticked by later sessions on 2026-09-05/2026-
+> 09-07 (see their own dated notes), and this session closed both remaining
+> §4 test lines - the composed pytest-qt scenario and the startup import-
+> order test, the latter finding and fixing a real pre-existing bug (heavy
+> first-party imports running before splash-show). See those two items'
+> own 2026-09-07 notes for the detail.
 
 ## Done means
 

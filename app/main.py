@@ -401,13 +401,6 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     run.settings(settings)
     setup_logging(settings.log_path)
 
-    # OCR is a registered extractor with no settings object in reach, so the
-    # device choice is pushed to it here - the same call `cli._load` makes, so
-    # the window and the command line run the models on the same processor.
-    from app.extract import ocr as _ocr
-
-    _ocr.configure_device(settings.embed_device)
-
     # **A pending index move runs here and nowhere else**: after logging is up,
     # before a single store is opened. That is the only moment nothing holds the
     # files. Settings records the decision; this keeps it, moving the folders and
@@ -428,14 +421,6 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     try:
         from PyQt6.QtWidgets import QApplication
-
-        from app.index.embedder import Embedder
-        from app.search import vector
-        from app.search.engine import SearchEngine
-        from app.search.rerank import Reranker
-        from app.storage.sqlite_store import SqliteStore
-        from app.storage.vector_store import ImageVectorStore, VectorStore
-        from app.ui.shell import MainWindow
     except ImportError as exc:
         from app.core.errors import make_error
 
@@ -459,6 +444,16 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # **The splash is shown immediately** (<300ms), hiding the wait for
     # single-instance handover and model loading. It reports progress through
     # startup breadcrumbs and optionally a download progress bar.
+    #
+    # **Only stdlib, Qt and the small app.core/app.ui.splash-family modules
+    # precede this point** - see the 2026-09-07 note under work order §4's
+    # pytest-qt item (`tests/unit/test_startup_import_order.py`). Before that
+    # fix, the heavier `app.index`, `app.search`, `app.storage` and the whole
+    # of `app.ui.shell` (plus `app.extract.ocr`'s device configuration) were
+    # all imported above this line - contradicting this exact comment and
+    # this module's own docstring ("Only stdlib and Qt are imported before it
+    # is shown"). They are imported below instead, now that the splash is
+    # already on screen.
     from app.ui.splash import SplashScreen, StatusReporter, get_splash_status_text
     from app.ui.startup_timing import CloseTimer, StartupTimer
 
@@ -470,6 +465,37 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     # Status reporter forwards startup log messages to the splash
     status_reporter = StatusReporter(splash)
+
+    # **Everything past this point may cost real import time - and that is
+    # fine, because the splash is already visible.** This used to run before
+    # `QApplication` was even constructed; see the comment above `splash.show()`.
+    try:
+        from app.index.embedder import Embedder
+        from app.search import vector
+        from app.search.engine import SearchEngine
+        from app.search.rerank import Reranker
+        from app.storage.sqlite_store import SqliteStore
+        from app.storage.vector_store import ImageVectorStore, VectorStore
+        from app.ui.shell import MainWindow
+    except ImportError as exc:
+        from app.core.errors import make_error
+
+        splash.widget.close()  # H4: no dialog is worth a splash stuck on screen
+        return _fatal(make_error(
+            "ERR_CONFIG_INVALID", "main", key="dependencies",
+            reason=f"a required package is missing: {exc}",
+            suggestion="Re-run the installer: run-install.cmd",
+        ))
+
+    # OCR is a registered extractor with no settings object in reach, so the
+    # device choice is pushed to it here - the same call `cli._load` makes, so
+    # the window and the command line run the models on the same processor.
+    # Moved here (was before splash-show) for the same reason as the import
+    # block just above: it does not need to happen before the splash exists,
+    # only before extraction/indexing does.
+    from app.extract import ocr as _ocr
+
+    _ocr.configure_device(settings.embed_device)
 
     # **A breadcrumb before each stage that can block.**
     #
