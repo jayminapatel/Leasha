@@ -1,6 +1,6 @@
 # Work order (One thread): media files by default, and the OCR ladder that makes it affordable
 
-**Doc version:** 1.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + Index pipeline + formats)
 **Status:** RELEASED by the owner 2026-08-28. Queue position: first of the new
 batch, after `WORKORDER-202626270326-workspace-features.md`. This order is the
@@ -170,7 +170,7 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
 
 ## 3. Image hygiene (the corpus punishes skipping these)
 
-- [ ] **3a EXIF date**: images index EXIF `DateTimeOriginal` as their date;
+- [x] **3a EXIF date**: images index EXIF `DateTimeOriginal` as their date;
   fallback to file time only when absent. `after:`/`before:` and any date
   display use it. (Decision 3 above — load-bearing for the 20-year corpus.)
   **Verified 2026-09-05:** `read_datetime()` from `app/extract/exif.py` is
@@ -311,6 +311,119 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > and sort clause named precisely, with its file list and its trap, for
   > whoever picks it up. The §4 acceptance test below is ticked, because the
   > sentence it encodes is now true.
+  > **2026-09-07, lane-a (second pass).** Built the third clause the note
+  > above named: display and sort now use `taken_at_ns`, falling back to
+  > `mtime_ns` when it is null, everywhere a result's date reaches a person
+  > or decides an order. Read every named site before changing it, and two
+  > of the three file names in the note above had drifted from what the code
+  > actually does - stated precisely below rather than silently corrected.
+  >
+  > **`SearchResult` gains `taken_at_ns: int = 0`, beside `mtime_ns` rather
+  > than instead of it.** `mtime_ns` is read for real change-detection-shaped
+  > reasons downstream of the row too (nothing in this pass touched
+  > `pipeline.py`'s own use of the column), so overloading its meaning at the
+  > SELECT sites would have made "which date is this" depend on which caller
+  > was asking. Every site that used to project `f.mtime_ns` now projects
+  > `f.taken_at_ns` alongside it; `_to_result` copies both across unchanged.
+  >
+  > **The 5 `keyword.py` sites, the ORDER BY at line 240, and `vector.py`'s
+  > SELECT** were exactly as the note named them, `_filter_only`'s
+  > `ORDER BY f.mtime_ns DESC` included - confirmed by reading the file
+  > rather than trusting the line numbers. Two corrections to the note's own
+  > file list, found by grepping rather than assumed from its count:
+  > `vector.py` has **two** SELECT sites that carry `mtime_ns`, not one -
+  > `hydrate_images` (the CLIP image lane - reverse-image search and "find a
+  > photo like this", so its hits are photographs more often than any other
+  > lane's) was missed alongside `hydrate`, and is now the more important of
+  > the two. And `sqlite_store.py::_filter_only` does not exist - there is
+  > only one function of that name, in `keyword.py`. The function actually
+  > matching the note's description (a filter/text browse honouring
+  > `/newest`/`/oldest`, SELECT and ORDER BY both) is `sqlite_store.py::
+  > browse_files`; treated as the intended site.
+  >
+  > **The SQL shape, and it is measured rather than styled, the same
+  > discipline `_date_clause` set.** `ORDER BY COALESCE(f.taken_at_ns,
+  > f.mtime_ns) DESC` is not sargable, for the same reason the WHERE form
+  > was rejected - but for an ORDER BY the cost is worse: it does not just
+  > lose an index, it stops SQLite walking `idx_files_mtime` newest-first and
+  > stopping at `LIMIT`, the mechanism `idx_files_mtime`'s own comment in
+  > `schema.sql` describes and `test_filter_only_browse_neither_scans_nor_
+  > sorts` pins the plan for. Measured on a 200,000-file table (600,000
+  > chunks, this project's own ratio): the plain column scan-and-stop is
+  > **0.011ms**; the COALESCE form is **39.5ms** - a full materialise-and-sort
+  > of the whole table; a `CASE` expression is no better, **42.2ms**. The fix
+  > splits into two queries - `taken_at_ns IS NULL` ordered by `mtime_ns`,
+  > `taken_at_ns IS NOT NULL` ordered by `taken_at_ns`, each still walking its
+  > own index and stopping at `LIMIT` - merged in Python
+  > (`app.storage.filters.merge_by_date`, new). Measured: **0.10ms**. Used in
+  > `keyword.py::_filter_only` and `sqlite_store.py::browse_files`'s
+  > no-search-text browse, the two places this can be the whole `files`
+  > table. `engine.py`'s post-fusion `/newest`/`/oldest` sort and the
+  > `browse_files` exception-fallback sort stay on a bare
+  > `taken_at_ns or mtime_ns` Python key without the split - both already
+  > operate on a small, already-fetched list (at most `FUSED_LIMIT` or
+  > `capped` rows), so there is no index to lose. `browse_files`'s *scored*
+  > branch (search text plus `/newest`/`/oldest`) keeps `COALESCE` - checked
+  > with `EXPLAIN QUERY PLAN` rather than assumed safe by analogy: that
+  > query's `ORDER BY score` already cannot use an index (`bm25()` is a
+  > computed value), so it already pays for a full sort of its
+  > `MATCH`-bounded row set, and COALESCE adds no new class of cost to a sort
+  > that was happening regardless.
+  >
+  > **`recency.py::blend`** now reads `taken_at_ns` before `mtime_ns` when
+  > scoring a hit's freshness. This is not the internal-bookkeeping half of
+  > the codebase - it is a display-facing nudge whose result is narrated back
+  > to the person verbatim in `presenter.why_result`'s "Recent, so it came
+  > slightly ahead of equally good older ones" line, so a photo copied
+  > yesterday but shot years ago must not read as fresh. `freshness()` itself
+  > is untouched - it already took a bare timestamp, and the caller now
+  > decides which one.
+  >
+  > **`folding.py::_newest_first`** now does the same substitution: it
+  > decides which member of a folded group becomes the `head` - "the newest
+  > of the group ... which is the whole point" per `fold`'s own docstring -
+  > so a burst of the same photograph, re-exported at different times, shows
+  > the shot itself as the head rather than whichever export was saved most
+  > recently.
+  >
+  > **Step 6, the UI read site - found, and it is `app/ui/presenter.py`, not
+  > `shell.py`.** `presenter.to_row` is the one place a `SearchResult`
+  > becomes what every results list actually draws, and it was reading
+  > `result.mtime_ns` straight onto `ResultRow.mtime_ns`. Changed to prefer
+  > `taken_at_ns`, keeping the field's name - `_build_group`'s `when`/
+  > `when_exact` and `result_tooltip`'s date both read `ResultRow.mtime_ns`
+  > already, so the one-line substitution there is what makes them correct
+  > too, without touching either. `why_result`'s own "Recent, so it came
+  > slightly ahead..." line read `result.mtime_ns` directly (not through
+  > `ResultRow`) and needed the same one-line fix separately. Both are
+  > one-line, which-attribute-this-reads changes - no structural UI work, and
+  > `app/ui/shell.py` was not touched at all.
+  >
+  > Left alone, and said so rather than guessed at: `search_files_by_name`'s
+  > own default "empty box, newest first" listing (a different, narrower
+  > browse than `browse_files`, not named in the note) now also projects
+  > `taken_at_ns` - `browse_files`'s exception-fallback path needs the column
+  > - but its own `ORDER BY mtime_ns DESC` is untouched. `presenter.file_rows`
+  > (the Files tab's own listing, built from a different store query
+  > entirely) and `sqlite_store.py`'s `repo_files`/`code_files` (repository
+  > browsing - source code, not photographs) were checked and left alone for
+  > the same reason: not named, and outside this pass's scope.
+  >
+  > Tests: `tests/unit/test_exif_date_wiring.py` (+6: `merge_by_date`
+  > directly, `_filter_only`'s sort proven with a fixture whose shot date and
+  > copy date sit on opposite sides of a third file's date - the only pairing
+  > that can tell "sorts by `mtime_ns`" apart from "sorts by `taken_at_ns`
+  > first" - and the display substitution through `presenter.to_row`, both
+  > directions), `tests/unit/test_recency.py` (+1), `tests/unit/
+  > test_folding.py` (+1), `tests/unit/test_query_plans.py` (updated:
+  > `_filter_only`'s plan test now checks both of its two queries, and both
+  > still seek their own index). 100 passed in the touched files; the
+  > pre-existing Qt-import failures and the `test_layer3`/`test_layer4`
+  > disk-space-governor failures this sandbox always shows were confirmed
+  > against the unmodified code first, not assumed.
+  >
+  > §3a is fully ticked now: all three clauses - storage, `after:`/`before:`,
+  > and display/sort - are built and tested.
 - [x] **3b EXIF orientation** honoured wherever images are decoded (previews,
   future thumbnails) — portrait photos must not render sideways.
   **Checked 2026-09-05, genuinely not done:** `read_orientation()` exists in

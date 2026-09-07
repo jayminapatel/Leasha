@@ -80,30 +80,40 @@ def _plan_for(store, query: str) -> str:
 
     Goes through `_filter_sql` so that changing the builder changes the plan
     under test. Writing the SQL out by hand here would test the test.
+
+    **Two statements since work order 0f §3a's third clause, not one.**
+    `_filter_only` now runs a `taken_at_ns IS NULL` query against
+    `idx_files_mtime` and a `taken_at_ns IS NOT NULL` query against
+    `idx_files_taken_at`, merging the two in Python rather than sorting a
+    `COALESCE` expression SQLite cannot index - see `_filter_only`'s own
+    docstring and `app.storage.filters.merge_by_date`. Both plans are
+    returned, concatenated, so a single `in plan` assertion still reads
+    naturally and a regression in either query still fails this test.
     """
     from app.search.keyword import _filter_only, _filter_sql
 
     parsed = parse_query(query)
     where, params = _filter_sql(parsed)
-    captured: dict = {}
+    captured: list = []
 
     class Recorder:
         def __init__(self, conn):
             self.conn = _Capture(conn, captured)
 
     _filter_only(Recorder(store.conn), where, params, 20)
-    return _plan(store, captured["sql"], captured["params"])
+    return "\n".join(_plan(store, sql, sql_params) for sql, sql_params in captured)
 
 
 class _Capture:
-    """Passes SQL through, keeping a copy so the test can explain it."""
+    """Passes SQL through, keeping a copy of every statement run so the test
+    can explain each one - `_filter_only` runs two now, not one."""
 
     def __init__(self, conn, sink):
         self._conn = conn
         self._sink = sink
 
     def execute(self, sql, params=()):
-        self._sink["sql"], self._sink["params"] = sql, list(params)
+        self._sink.append((sql, list(params)))
         return self._conn.execute(sql, params)
 
     def __getattr__(self, name):
@@ -182,10 +192,20 @@ def test_filter_only_browse_neither_scans_nor_sorts(populated):
     Measured at 20,000 files / 120,000 chunks: 6.30ms before, 0.04ms after.
     The temp B-tree is the tell - it means every matching row was materialised
     and sorted before `LIMIT 20` threw all but twenty away.
+
+    **Now two queries, work order 0f §3a's third clause** - `_filter_only`
+    splits on `taken_at_ns IS [NOT] NULL` rather than sort a `COALESCE`
+    expression no index can serve (see its own docstring and
+    `app.storage.filters.merge_by_date` for the 0.011ms-vs-39.5ms
+    measurement). `populated` carries no photographs, so the second query
+    matches nothing - but it must still *plan* as an index seek, not a scan,
+    which is exactly what would silently regress if the split were ever
+    collapsed back into one `ORDER BY COALESCE(...)` statement.
     """
     plan = _plan_for(populated, "type:pdf")
 
     assert "idx_files_mtime" in plan, plan
+    assert "idx_files_taken_at" in plan, plan
     assert "USE TEMP B-TREE FOR ORDER BY" not in plan, plan
     assert "SCAN files" not in plan, plan
 

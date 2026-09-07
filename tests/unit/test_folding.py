@@ -35,14 +35,19 @@ class _Row:
 
     path: str
     mtime_ns: int = _NOW
+    #: Work order 0f §3a's third clause - `0` reads as "no shot date",
+    #: `SearchResult.taken_at_ns`'s own convention.
+    taken_at_ns: int = 0
     content_hash: str = ""
     #: Work order 0h §2b.
     phash: str = ""
     distance: float = None
 
 
-def _row(path: str, *, days_old: float = 0, digest: str = "") -> _Row:
+def _row(path: str, *, days_old: float = 0, digest: str = "",
+        shot_days_old: float = None) -> _Row:
     return _Row(path=path, mtime_ns=int(_NOW - days_old * _DAY),
+                taken_at_ns=int(_NOW - shot_days_old * _DAY) if shot_days_old is not None else 0,
                 content_hash=digest)
 
 
@@ -192,6 +197,29 @@ def test_the_older_ones_are_newest_first():
             _row(r"C:\W\r final.docx", days_old=10, digest="c")]
     older = [row.path for row in fold(rows)[0].older]
     assert older == [r"C:\W\r v2.docx", r"C:\W\r.docx"]
+
+
+def test_the_fold_head_is_chosen_by_shot_date_not_copy_date():
+    r"""Work order 0f §3a's third clause. "The head is the *newest* of the
+    group ... which is the whole point" per `fold`'s own docstring - and for
+    a photograph, newest means when it was taken, not when this particular
+    export was last written to disk.
+
+    A scan of an old print, re-exported last week, must not become the head
+    of a burst just because its file is the most recently touched - the
+    older, unedited original with the genuine recent shot date is what
+    belongs on screen.
+    """
+    rows = [
+        _row(r"C:\Photos\scan v2.jpg", days_old=1, digest="a",
+             shot_days_old=3000),                       # old shot, fresh export
+        _row(r"C:\Photos\scan FINAL.jpg", days_old=900, digest="b",
+             shot_days_old=2),                           # genuinely recent shot
+    ]
+    folded = fold(rows)
+    assert len(folded) == 1
+    assert folded[0].head.path == r"C:\Photos\scan FINAL.jpg"
+    assert folded[0].reason == VERSIONS
 
 
 def test_copies_fold_first_then_versions():

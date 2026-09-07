@@ -1125,9 +1125,18 @@ class SqliteStore:
                 clause += " AND path LIKE ? ESCAPE '\\'"
                 params.append(f"%{_like_escape(cleaned)}%")
             params.append(max(1, int(limit)))
+            # **`taken_at_ns` projected but the `ORDER BY` left on `mtime_ns`,
+            # deliberately.** Work order 0f §3a's third clause targets
+            # `browse_files`'s `/newest`/`/oldest` handling below, which
+            # falls back to this function on a `files_fts`/`chunks_fts`
+            # `OperationalError` and needs the column to sort by there; this
+            # branch's own default "empty box means everything, newest
+            # first" ordering is a separate, narrower browse (no filters, no
+            # sort switch) that this item does not name, so it is left as it
+            # was rather than guessed at.
             return [dict(row) for row in self.conn.execute(
-                f"""SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
-                           source_kind, 0.0 AS score
+                f"""SELECT id, path, ext, size_bytes, mtime_ns, taken_at_ns,
+                           status, skip_code, source_kind, 0.0 AS score
                     FROM files
                     WHERE source_kind = 'file' {clause}
                     ORDER BY mtime_ns DESC
@@ -1143,8 +1152,8 @@ class SqliteStore:
         expression = '"' + cleaned.replace('"', '""') + '"'
 
         sql = """
-            SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns, f.status,
-                   f.skip_code, f.source_kind,
+            SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns, f.taken_at_ns,
+                   f.status, f.skip_code, f.source_kind,
                    bm25(files_fts, 10.0, 1.0) AS score
             FROM files_fts
             JOIN files f ON f.id = files_fts.rowid
@@ -1325,17 +1334,30 @@ class SqliteStore:
         is the kind of quiet lie that makes somebody stop trusting the rest of
         the switches too.
         """
-        from app.storage.filters import file_filter_sql
+        from app.storage.filters import file_filter_sql, merge_by_date
 
         where, params = file_filter_sql(parsed)
         # Only ever `newest` or `oldest` out of the parser, so this is a choice
         # between two constants rather than anything interpolated.
         wants_sort = str(getattr(parsed, "sort", "") or "").lower()
+        newest_first = wants_sort != "oldest"
         # Two spellings of one order: the listing below reads `files` directly,
         # while the scored query orders the *outer* select, where the column has
         # already been projected and `f.` no longer resolves.
         _dir = "ASC" if wants_sort == "oldest" else "DESC"
-        by_date, by_date_outer = f"f.mtime_ns {_dir}", f"mtime_ns {_dir}"
+        # **Not sargable, and left that way here on purpose - see the
+        # no-search-text branch below for the case where that matters.** This
+        # `by_date_outer` orders the scored, FTS-matched UNION a few lines
+        # down, whose rows are already bounded by `files_fts`/`chunks_fts
+        # MATCH` before either `ORDER BY` runs - the same rows `ORDER BY
+        # score` already sorts with a temp B-tree, because `bm25()` is a
+        # computed value no index can order by either. Wrapping the date in
+        # `COALESCE` here adds no new class of cost to a query that already
+        # pays for a full sort of its (FTS-bounded, not table-sized) match
+        # set - confirmed with `EXPLAIN QUERY PLAN` against the real
+        # `browse_files` statement in `test_query_plans.py`, not assumed
+        # from this reasoning alone.
+        by_date_outer = f"COALESCE(taken_at_ns, mtime_ns) {_dir}"
         wanted = [e.lower().lstrip(".") for e in (extra_ext or ())]
         if wanted and not getattr(parsed, "ext", ()):
             where += f" AND f.ext IN ({','.join('?' * len(wanted))})"
@@ -1355,15 +1377,37 @@ class SqliteStore:
             # nothing rather than a hundred arbitrary rows.
             if cleaned:
                 return []
-            return [dict(row) for row in self.conn.execute(
-                f"""SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
-                           f.status, f.skip_code, f.source_kind, 0.0 AS score
+            # **Two queries and a merge, not `ORDER BY COALESCE(f.taken_at_ns,
+            # f.mtime_ns) {_dir}`.** Unlike the scored branch below, this one
+            # can be the *whole* `files` table (no filter, no search text is
+            # exactly "browse everything") - the case `app.storage.filters.
+            # merge_by_date` measured directly: COALESCE here is not
+            # sargable and turns an indexed walk that stops at `LIMIT` into a
+            # full sort of every row, 0.011ms vs 39.5ms at 200,000 files.
+            columns = """f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
+                           f.taken_at_ns, f.status, f.skip_code,
+                           f.source_kind, 0.0 AS score"""
+            no_shot_date = self.conn.execute(
+                f"""SELECT {columns}
                     FROM files f
-                    WHERE f.source_kind = 'file' {where}
-                    ORDER BY {by_date}
+                    WHERE f.source_kind = 'file' AND f.taken_at_ns IS NULL{where}
+                    ORDER BY f.mtime_ns {_dir}
                     LIMIT ?""",
                 [*params, capped],
-            )]
+            ).fetchall()
+            shot_date = self.conn.execute(
+                f"""SELECT {columns}
+                    FROM files f
+                    WHERE f.source_kind = 'file' AND f.taken_at_ns IS NOT NULL{where}
+                    ORDER BY f.taken_at_ns {_dir}
+                    LIMIT ?""",
+                [*params, capped],
+            ).fetchall()
+            return merge_by_date(
+                [dict(row) for row in no_shot_date],
+                [dict(row) for row in shot_date],
+                limit=capped, newest_first=newest_first,
+            )
 
         # Quoted whole, exactly as `search_files_by_name` does: a trigram index
         # takes its query as a literal, so nothing a person types ever reaches
@@ -1380,11 +1424,12 @@ class SqliteStore:
         # on returning name-only matches while looking entirely healthy. The
         # fallback is now narrow enough that it cannot hide this again.
         sql = f"""
-            SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code,
-                   source_kind, MIN(score) AS score
+            SELECT id, path, ext, size_bytes, mtime_ns, taken_at_ns, status,
+                   skip_code, source_kind, MIN(score) AS score
             FROM (
                 SELECT f.id AS id, f.path AS path, f.ext AS ext,
                        f.size_bytes AS size_bytes, f.mtime_ns AS mtime_ns,
+                       f.taken_at_ns AS taken_at_ns,
                        f.status AS status, f.skip_code AS skip_code,
                        f.source_kind AS source_kind,
                        bm25(files_fts, 10.0, 1.0) AS score
@@ -1395,6 +1440,7 @@ class SqliteStore:
                 UNION ALL
 
                 SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
+                       f.taken_at_ns,
                        f.status, f.skip_code, f.source_kind,
                        bm25(chunks_fts) AS score
                 FROM chunks_fts
@@ -1424,8 +1470,14 @@ class SqliteStore:
                 ext=list(getattr(parsed, "ext", ()) or wanted) or None,
             )
             if wants_sort:
-                named.sort(key=lambda row: int(row.get("mtime_ns") or 0),
-                           reverse=wants_sort != "oldest")
+                # A small, already-fetched Python list (`capped` rows at
+                # most) - the same "no index to lose" reasoning `engine.py`'s
+                # own post-fusion `/newest`/`/oldest` sort documents, so the
+                # plain fallback is fine here and the two-query split above
+                # would be pointless ceremony.
+                named.sort(
+                    key=lambda row: int(row.get("taken_at_ns") or row.get("mtime_ns") or 0),
+                    reverse=wants_sort != "oldest")
             return named
         # `UNION` can return one row per branch for a file that matched both.
         # The better score wins, and the first is the better one after ORDER BY.

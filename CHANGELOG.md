@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.03 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 4.04 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -57,6 +57,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   date - so a photo can be found by `before:2010` and still display 2019.
   Display and sort change result ordering everywhere at once and are being
   done as their own measured piece of work; the storage they need is in place.
+- **That gap is now closed.** A result's date, where it sits in a `/newest` or
+  `/oldest` list, and which copy of a repeated photo is shown up front, all
+  use the same shutter date the filter already did. A photograph shot in 2006
+  and copied several times since now shows 2006 and sits where 2006 belongs in
+  a newest-first list, instead of wherever its most recent copy happened to
+  land.
 - Existing indexes gain the new date column automatically on next open (schema
   v18); photos already indexed pick up their dates as later runs re-touch them.
 

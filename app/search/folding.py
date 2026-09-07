@@ -188,8 +188,20 @@ class Fold:
 
 
 def _newest_first(results: Sequence) -> list:
-    return sorted(results, key=lambda r: int(getattr(r, "mtime_ns", 0) or 0),
-                  reverse=True)
+    r"""The group's members, shot-date-or-mtime newest first.
+
+    **`taken_at_ns` before `mtime_ns` - work order 0f §3a's third clause.**
+    This decides which member becomes the fold's `head`, which is the row
+    actually shown - "the head is the *newest* of the group ... which is the
+    whole point" per `fold`'s own docstring. A burst of the same photograph,
+    scanned once and exported several times at different dates, must show
+    the shot itself as the head rather than whichever export happened to be
+    saved most recently.
+    """
+    return sorted(
+        results,
+        key=lambda r: int(getattr(r, "taken_at_ns", 0) or getattr(r, "mtime_ns", 0) or 0),
+        reverse=True)
 
 
 def phash_distance(a: str, b: str) -> int:

@@ -26,7 +26,7 @@ from typing import Any, Optional, Sequence
 
 from app.core.logging import logger
 from app.search.query import ParsedQuery, _fts_quote
-from app.storage.filters import epoch_ns, file_filter_sql
+from app.storage.filters import epoch_ns, file_filter_sql, merge_by_date
 
 __all__ = ["search", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP"]
 
@@ -131,7 +131,7 @@ def search(
         sql = f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.content_hash,
+                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -145,7 +145,7 @@ def search(
         sql = """
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.content_hash,
+                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -180,7 +180,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
         sql = f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.content_hash,
+                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -194,7 +194,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
         sql = """
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.content_hash,
+                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -223,25 +223,56 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
     return [dict(row) for row in rows]
 
 
+#: The columns every `_filter_only` branch below projects - identical in
+#: both, so `merge_by_date` is comparing rows of the same shape either way.
+_FILTER_ONLY_COLUMNS = """c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
+               c.char_start, c.char_end,
+               f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+               0.0 AS score"""
+
+
 def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[dict[str, Any]]:
     """`type:pdf after:2024` with no search terms - list what matches.
 
     Ordered newest first, because a query that is purely a filter is a browse,
-    and recency is the only ranking signal available without a search term.
+    and recency is the only ranking signal available without a search term -
+    work order 0f §3a's third clause, "any date display use it", applies
+    here too: this ordering decides *which* files survive `LIMIT` before
+    fusion ever sees them, not only how the survivors get labelled.
+
+    **Two queries and a merge, not `ORDER BY COALESCE(f.taken_at_ns,
+    f.mtime_ns) DESC`.** See `app.storage.filters.merge_by_date` for the
+    measurement: the COALESCE form is not sargable, so it stops SQLite
+    walking `idx_files_mtime` newest-first and looking up each file's first
+    chunk through `idx_chunks_file_ord` - the mechanism `idx_files_mtime`'s
+    own comment in `schema.sql` describes and `test_filter_only_browse_
+    neither_scans_nor_sorts` pins the plan for. Splitting on `taken_at_ns
+    IS [NOT] NULL` keeps each half on its own indexed column, so both still
+    walk their index in order and stop at `LIMIT`.
     """
-    sql = f"""
-        SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
-               c.char_start, c.char_end,
-               f.path, f.ext, f.mtime_ns, f.content_hash,
-               0.0 AS score
+    sql_no_shot_date = f"""
+        SELECT {_FILTER_ONLY_COLUMNS}
         FROM chunks c
         JOIN files f ON f.id = c.file_id
-        WHERE c.ordinal = 0{where}
+        WHERE c.ordinal = 0 AND f.taken_at_ns IS NULL{where}
         ORDER BY f.mtime_ns DESC
         LIMIT ?
     """
-    rows = store.conn.execute(sql, [*params, limit]).fetchall()
-    return [dict(row) for row in rows]
+    sql_shot_date = f"""
+        SELECT {_FILTER_ONLY_COLUMNS}
+        FROM chunks c
+        JOIN files f ON f.id = c.file_id
+        WHERE c.ordinal = 0 AND f.taken_at_ns IS NOT NULL{where}
+        ORDER BY f.taken_at_ns DESC
+        LIMIT ?
+    """
+    no_shot_date = store.conn.execute(sql_no_shot_date, [*params, limit]).fetchall()
+    shot_date = store.conn.execute(sql_shot_date, [*params, limit]).fetchall()
+    return merge_by_date(
+        [dict(row) for row in no_shot_date],
+        [dict(row) for row in shot_date],
+        limit=limit, newest_first=True,
+    )
 
 
 def unmatched_terms(store: Any, terms: Sequence[str], *, limit: int = 6) -> tuple[str, ...]:

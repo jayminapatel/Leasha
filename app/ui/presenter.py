@@ -629,7 +629,15 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
         location=location,
         score=float(getattr(result, "score", 0.0) or 0.0),
         ext=str(getattr(result, "ext", "") or ""),
-        mtime_ns=int(getattr(result, "mtime_ns", 0) or 0),
+        # **The shot date before the copy date - work order 0f §3a's third
+        # clause.** `ResultRow.mtime_ns` is what every date this row shows
+        # (`_build_group`'s `when`/`when_exact`, the tooltip in
+        # `result_tooltip`) is formatted from, so it has to already be the
+        # right date rather than something a later step corrects - the field
+        # keeps its name because renaming it would ripple through every one
+        # of those, and it already means "the date to show" nowhere else.
+        mtime_ns=int(getattr(result, "taken_at_ns", 0) or 0)
+                 or int(getattr(result, "mtime_ns", 0) or 0),
         sources=tuple(getattr(result, "sources", ()) or ()),
         label=str(getattr(result, "label", "") or ""),
     )
@@ -5002,7 +5010,9 @@ def why_result(result: Any, parsed: Any = None, *, fold: Any = None,
 
         freshness = float(getattr(result, "recency", 0.0) or 0.0)
         if freshness >= RECENT_ENOUGH:
-            when = _when(getattr(result, "mtime_ns", 0))
+            # Shot date before copy date - the same substitution `to_row`
+            # makes, so the date named here agrees with the one on the row.
+            when = _when(getattr(result, "taken_at_ns", 0) or getattr(result, "mtime_ns", 0))
             lines.append(
                 f"Recent, so it came slightly ahead of equally good older "
                 f"ones{f' - {when}' if when else ''}.")

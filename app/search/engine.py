@@ -196,6 +196,23 @@ class SearchResult:
     #: cost one line and no new query to show it.
     ext: str = ""
     mtime_ns: int = 0
+    #: A photograph's EXIF shot date, in the same nanoseconds-since-epoch
+    #: units as `mtime_ns` - `0` for every file that is not a photograph, or
+    #: a photograph the images pass has not yet read. Work order 0f §3a's
+    #: third clause, "any date display use it": `mtime_ns` alone is the
+    #: file's *copy* date, and a photograph taken in 2006 and copied to a new
+    #: drive in 2019 is a 2006 document however recently the bytes moved.
+    #:
+    #: **A second field, not a rename or a silent substitution of `mtime_ns`
+    #: at the SELECT sites**, for the same reason `files.taken_at_ns` is a
+    #: column of its own rather than a rewrite of `mtime_ns`: whatever reads
+    #: `mtime_ns` today - and it is read in several places, `folding.py`'s
+    #: version-marker fold and `app/index/pipeline.py`'s change detection
+    #: among them - still means "the file's real modification time" when it
+    #: reads it, and must keep meaning that. Anything that wants "the date to
+    #: show or sort by" reads `taken_at_ns or mtime_ns` explicitly, the same
+    #: fallback `_date_clause` already applies in SQL.
+    taken_at_ns: int = 0
     #: blake2b of the file's bytes, when the index has read them.
     #:
     #: **Carried so §2d can fold identical copies without a second query.**
@@ -1322,9 +1339,17 @@ class SearchEngine:
         # After the reranker rather than instead of it: reranking still decides
         # *which* fifty results these are, and a date sort over the best fifty
         # is a far better answer than a date sort over an arbitrary fifty.
+        #
+        # **`taken_at_ns` first, work order 0f §3a's third clause.** This is
+        # a plain Python sort over the already-fused, already-limited hit
+        # list - at most `FUSED_LIMIT` items - so there is no index to lose
+        # and no reason to keep the two-branch SQL discipline `keyword.py`'s
+        # `_filter_only` needs; a photo's shot date simply wins over its copy
+        # date here the same way `SearchResult.taken_at_ns` documents.
         if parsed.sort:
-            fused.sort(key=lambda hit: int(hit.get("mtime_ns") or 0),
-                       reverse=parsed.sort != "oldest")
+            fused.sort(
+                key=lambda hit: int(hit.get("taken_at_ns") or hit.get("mtime_ns") or 0),
+                reverse=parsed.sort != "oldest")
         elif policy is not None and policy.recency_blend:
             # §2d. **Only when relevance is still in charge.** `/newest` is a
             # date sort that abandons relevance and says so; nudging within an
@@ -1655,6 +1680,7 @@ class SearchEngine:
             # result row's own label disagree about the same file.
             ext=str(hit.get("ext", "") or "").lower().lstrip("."),
             mtime_ns=int(hit.get("mtime_ns") or 0),
+            taken_at_ns=int(hit.get("taken_at_ns") or 0),
             content_hash=str(hit.get("content_hash", "") or ""),
             phash=str(hit.get("phash", "") or ""),
             distance=hit.get("distance"),

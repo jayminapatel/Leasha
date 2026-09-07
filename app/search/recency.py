@@ -102,6 +102,15 @@ def blend(hits: Sequence[dict], *, weight: Optional[float] = None,
     **Stable for equal blended scores**, so a corpus with no dates at all
     comes back in exactly the order it went in. That is the case a switched-on
     behaviour must not disturb.
+
+    **Reads `taken_at_ns` before `mtime_ns` - work order 0f §3a's third
+    clause.** This is a display-facing nudge, not the change-detection
+    `mtime_ns` also serves elsewhere: the "recency" this produces is shown
+    back to the person, verbatim, in `app.ui.presenter.why_result`'s "Recent,
+    so it came slightly ahead of equally good older ones" line, so a photo
+    copied in 2019 but shot in 2006 must not be nudged up as if it were a
+    2019 document, and must not be narrated to the person as recent when it
+    is not.
     """
     # **Read at call time, not bound as a default.** A default argument is
     # evaluated once when the function is defined, so `weight=WEIGHT` would
@@ -119,7 +128,7 @@ def blend(hits: Sequence[dict], *, weight: Optional[float] = None,
             score = float(hit.get(score_key) or 0.0)
         except (TypeError, ValueError):
             score = 0.0
-        new = freshness(hit.get("mtime_ns"), now_ns=stamp)
+        new = freshness(hit.get("taken_at_ns") or hit.get("mtime_ns"), now_ns=stamp)
         hit["recency"] = new
         # **Multiplicative, so the bonus scales with how good the match was.**
         # An additive bonus is worth the same to the best hit and to the

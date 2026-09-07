@@ -134,6 +134,29 @@ def test_the_reason_for_the_order_is_left_on_the_hit():
     assert blend(hits, now_ns=_NOW)[0]["recency"] == pytest.approx(1.0)
 
 
+def test_a_photos_shot_date_drives_the_nudge_not_its_copy_date():
+    r"""Work order 0f §3a's third clause. A photo copied onto a new drive
+    yesterday but shot years ago must not read as fresh, and the freshness
+    this produces is narrated back to the person verbatim in
+    `app.ui.presenter.why_result`'s "Recent, so it came slightly ahead..."
+    line - so getting the wrong column here is not an internal-only mistake.
+    """
+    old_shot_recent_copy = {
+        "chunk_id": 1, "rrf_score": 0.0164,
+        "mtime_ns": _NOW,                    # copied moments ago
+        "taken_at_ns": _aged(4000),          # but actually years old
+    }
+    genuinely_new = _hit(2, 0.0163, 1)       # no taken_at_ns at all
+
+    order = [h["chunk_id"] for h in blend(
+        [old_shot_recent_copy, genuinely_new], now_ns=_NOW)]
+
+    # If `mtime_ns` alone drove it, the photo's fresh copy date would nudge
+    # it ahead of the near-tied, genuinely new document. It must not.
+    assert order == [2, 1]
+    assert old_shot_recent_copy["recency"] < genuinely_new["recency"]
+
+
 # --------------------------------------------------------------------------
 # The measurement, kept honest
 # --------------------------------------------------------------------------

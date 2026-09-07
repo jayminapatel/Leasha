@@ -45,7 +45,8 @@ from app.index.embedder import Embedder, l2_normalise
 from app.index.pipeline import Pipeline, PipelineConfig
 from app.index.walker import WalkConfig
 from app.search.query import parse_query
-from app.storage.filters import file_filter_sql
+from app.search.keyword import _filter_only
+from app.storage.filters import file_filter_sql, merge_by_date
 from app.storage.migrations import CURRENT_VERSION, apply_migrations
 from app.storage.sqlite_store import SqliteStore
 
@@ -443,3 +444,100 @@ def test_rescanning_an_unchanged_photo_does_not_look_changed(
         assert second.mtime_ns == photo.stat().st_mtime_ns
         assert second.taken_at_ns == _ns(SHOT)
         assert second.id == first.id
+
+
+# ---------------------------------------------------------------------------
+# Sort and display - §3a's third clause, "any date display use it"
+#
+# The lane-b note above named this the remaining gap: storage and `after:`/
+# `before:` were fixed and tested here, but the SELECT sites that project
+# `mtime_ns` onto a result row, and the ORDER BYs beside them, still ran on
+# copy date. This is that second pass - `keyword.py`'s `_filter_only`
+# (its SELECT and its ORDER BY), `SearchResult.taken_at_ns`, and
+# `presenter.to_row`, which is the one place every UI surface reads a
+# result's displayed date from.
+# ---------------------------------------------------------------------------
+
+
+def test_merge_by_date_prefers_the_shot_date_over_mtime(store):
+    r"""`app.storage.filters.merge_by_date` in isolation, before trusting it
+    inside a real query. Two already-`LIMIT`-bounded branches, exactly the
+    shape `_filter_only` and `browse_files` hand it.
+    """
+    no_shot_date = [{"id": 1, "mtime_ns": 500, "taken_at_ns": None}]
+    shot_date = [{"id": 2, "mtime_ns": 100, "taken_at_ns": 900}]
+
+    merged = merge_by_date(no_shot_date, shot_date, limit=10, newest_first=True)
+
+    assert [row["id"] for row in merged] == [2, 1]  # 900 beats 500
+
+
+def test_filter_only_ranks_a_photo_by_its_shot_date_not_its_copy_date(store):
+    r"""The acceptance sentence's sort half, not just its filter half.
+
+    **Why these dates, and not a plain re-use of `SHOT`/`COPIED`.** A photo
+    shot in 2006 and copied in 2019 already sorts *below* a document whose
+    own `mtime_ns` is 2020, whichever column drives the sort - 2019 and 2006
+    are both less than 2020 - so that pairing would pass whether or not this
+    fix exists, and would prove nothing about which column the sort actually
+    uses. To tell "sorts by `mtime_ns`" apart from "sorts by `taken_at_ns`
+    first", the photo's shot date and its copy date have to sit on
+    *opposite* sides of the other file's date: shot after it, copied before
+    it.
+    """
+    newer_photo = store.upsert_file(
+        r"C:\Photos\newer.jpg", size_bytes=1, ext="jpg", status="INDEXED",
+        mtime_ns=_ns(datetime.datetime(2006, 1, 1)),        # an old copy time
+        taken_at_ns=_ns(datetime.datetime(2023, 1, 1)))     # a recent shot
+    store.replace_chunks(newer_photo, [{"text": "a photograph"}])
+
+    older_document = store.upsert_file(
+        r"C:\Docs\older.txt", size_bytes=1, ext="txt", status="INDEXED",
+        mtime_ns=_ns(datetime.datetime(2020, 1, 1)))        # no shot date at all
+    store.replace_chunks(older_document, [{"text": "a document"}])
+
+    where, params = file_filter_sql(parse_query(""))
+    rows = _filter_only(store, where, params, 10)
+
+    paths = [row["path"] for row in rows]
+    assert paths == [r"C:\Photos\newer.jpg", r"C:\Docs\older.txt"], paths
+    # The bug this proves fixed: ordering on the raw `mtime_ns` column alone
+    # would have put these the other way round - 2020 above 2006.
+    assert rows[0]["mtime_ns"] < rows[1]["mtime_ns"]
+
+
+def test_the_display_date_on_a_result_row_is_the_shot_date_when_present():
+    r"""The acceptance sentence's display half - `SearchResult` through
+    `presenter.to_row`, the one path every UI surface reads a result's date
+    from (`to_row`'s own docstring: "turn a `SearchResult` into something a
+    list widget can draw").
+    """
+    from app.search.engine import SearchResult
+    from app.ui.presenter import to_row
+
+    result = SearchResult(
+        chunk_id=1, file_id=1, path=r"C:\Photos\2006.jpg", text="",
+        score=1.0, rank=1,
+        mtime_ns=_ns(datetime.datetime(2019, 3, 1)), taken_at_ns=_ns(SHOT),
+    )
+
+    row = to_row(result, terms=())
+
+    assert row.mtime_ns == _ns(SHOT)
+
+
+def test_a_result_with_no_shot_date_still_shows_its_mtime():
+    """The fallback half of the same substitution - every non-photo result in
+    the corpus must keep showing exactly what it always has."""
+    from app.search.engine import SearchResult
+    from app.ui.presenter import to_row
+
+    copied = _ns(datetime.datetime(2020, 1, 1))
+    result = SearchResult(
+        chunk_id=1, file_id=1, path=r"C:\Docs\report.pdf", text="",
+        score=1.0, rank=1, mtime_ns=copied,
+    )
+
+    row = to_row(result, terms=())
+
+    assert row.mtime_ns == copied

@@ -270,7 +270,8 @@ def hydrate(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         for record in store.conn.execute(
             f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
-                   c.char_start, c.char_end, f.path, f.ext, f.mtime_ns, f.content_hash
+                   c.char_start, c.char_end, f.path, f.ext, f.mtime_ns,
+                   f.taken_at_ns, f.content_hash
             FROM chunks c JOIN files f ON f.id = c.file_id
             WHERE c.id IN ({placeholders})
             """,
@@ -440,6 +441,16 @@ def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str,
     join. Only `files`, by `file_id` - the same "the vector store holds ids
     only" reasoning `hydrate` documents, applied to a table with nothing but
     ids and vectors in it either.
+
+    **Carries `taken_at_ns` too, work order 0f §3a's third clause.** This is
+    the CLIP image lane - reverse-image search and "find a photo like this" -
+    so its hits are photographs more often than any other lane's, which
+    makes this the SELECT where the shot date matters most, not least. The
+    §3a lane-b note counted one SELECT site in this module; this second one
+    exists (`hydrate` above is the other) and is exactly the site the
+    fix is for, so it is included here even though the note did not name it
+    by line - verified by grepping this file for `mtime_ns` rather than
+    trusting the note's count.
     """
     if not rows:
         return []
@@ -450,7 +461,7 @@ def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str,
         int(record["file_id"]): dict(record)
         for record in store.conn.execute(
             f"""
-            SELECT id AS file_id, path, ext, mtime_ns, content_hash, phash
+            SELECT id AS file_id, path, ext, mtime_ns, taken_at_ns, content_hash, phash
             FROM files
             WHERE id IN ({placeholders})
             """,
