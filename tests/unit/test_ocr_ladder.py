@@ -171,6 +171,76 @@ class TestDetectionProbe:
         assert result.decision == RouteDecision.DETECTION_ROUTE
 
 
+@pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")
+class TestWhiteFractionThreshold:
+    """`OCR_WHITE_PAGE_PERCENT` (Index Tuning, Coverage group) - rung 1's own
+    tunable. `route()`/`_thumbnail_stats()` take it as a fraction via
+    `white_fraction_threshold`; `app/extract/ocr.py` is what actually reads
+    the setting and converts it (see `tests/unit/test_ocr.py`) - this file
+    stays true to the ladder's own rule of testing with nothing but Pillow.
+    """
+
+    @staticmethod
+    def _mostly_white(path, white_rows_fraction: float):
+        """A 256x256 greyscale image with an exact, chosen white fraction.
+
+        Built from raw pixels rather than PIL's own drawing so the resulting
+        `white_fraction` (pixels > 200) is an exact, known number rather than
+        an estimate - the threshold tests below depend on it sitting on a
+        known side of 0.7.
+        """
+        from PIL import Image
+        import numpy as np
+
+        size = 256
+        white_rows = int(size * white_rows_fraction)
+        arr = np.zeros((size, size), dtype=np.uint8)
+        arr[:white_rows, :] = 255
+        # PNG, not JPEG: lossy compression would blur the sharp edge between
+        # the black and white rows and make the resulting white_fraction an
+        # estimate rather than the exact number these tests depend on.
+        Image.fromarray(arr, mode="L").convert("RGB").save(path)
+
+    def test_default_reproduces_the_old_fixed_behaviour(self, tmp_path):
+        """No threshold passed - callers that have not been updated, and
+        every test above this one - must still fast-accept at exactly the
+        0.7 this module used before the setting existed."""
+        path = tmp_path / "mostly_white.png"
+        self._mostly_white(path, 0.75)
+
+        result = route(path)
+
+        assert result.decision == RouteDecision.FULL_OCR
+        assert result.reason == "white_fraction=0.75"
+
+    def test_a_stricter_threshold_sends_the_same_image_to_detection_instead(
+        self, tmp_path,
+    ):
+        """Raising the setting past this image's own white fraction (75%)
+        stops the same image fast-accepting at rung 1 - proof the tunable
+        changes routing, not merely that it is accepted as a parameter."""
+        path = tmp_path / "mostly_white.png"
+        self._mostly_white(path, 0.75)
+
+        result = route(path, white_fraction_threshold=0.9)
+
+        assert result.decision == RouteDecision.DETECTION_ROUTE
+
+    def test_a_looser_threshold_fast_accepts_an_image_the_default_would_not(
+        self, tmp_path,
+    ):
+        """The reverse: an image just under the 0.7 default reaches full OCR
+        immediately once the setting is lowered past it."""
+        path = tmp_path / "just_under_default.png"
+        self._mostly_white(path, 0.60)
+
+        default_result = route(path)
+        assert default_result.decision != RouteDecision.FULL_OCR
+
+        loosened_result = route(path, white_fraction_threshold=0.5)
+        assert loosened_result.decision == RouteDecision.FULL_OCR
+
+
 class TestLadderCost:
     """The ladder must complete in reasonable time."""
 

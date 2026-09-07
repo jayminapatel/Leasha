@@ -309,6 +309,94 @@ def test_bytes_source_is_also_routed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# OCR_WHITE_PAGE_PERCENT: rung 1's threshold, promoted to a setting
+# ---------------------------------------------------------------------------
+
+def test_ocr_image_passes_the_settings_threshold_to_the_ladder(tmp_path, monkeypatch):
+    """The wiring half of non-negotiable 11: a setting that is declared and
+    never read is the same bug as no setting at all. `ocr_image` must hand
+    whatever `_white_fraction_threshold` returns straight to `route()`."""
+    captured: dict = {}
+
+    def fake_route(source, **kwargs):
+        captured.update(kwargs)
+        return ocr_ladder.LadderResult(
+            decision=ocr_ladder.RouteDecision.FULL_OCR,
+            elapsed_ms=0.1,
+            reason="test",
+        )
+
+    monkeypatch.setattr(ocr_ladder, "route", fake_route)
+    monkeypatch.setattr(module, "_white_fraction_threshold", lambda: 0.42)
+
+    image = tmp_path / "IMG_1234.jpg"
+    image.write_bytes(b"x")
+    ocr_image(image, engine=lambda _s: None)
+
+    assert captured.get("white_fraction_threshold") == 0.42
+
+
+def test_white_fraction_threshold_reads_the_percent_setting_as_a_fraction(
+    monkeypatch,
+):
+    """`OCR_WHITE_PAGE_PERCENT` is stored as a whole-number percentage (the
+    registry has no float kind); this is where it becomes the fraction
+    `ocr_ladder.route` compares against."""
+    import app.core.config as config_module
+
+    class _Stub:
+        ocr_white_page_percent = 55
+
+    monkeypatch.setattr(module, "_SETTINGS_WHITE_FRACTION", None)
+    monkeypatch.setattr(config_module, "load_settings", lambda *a, **k: _Stub())
+
+    assert module._white_fraction_threshold() == pytest.approx(0.55)
+
+
+def test_white_fraction_threshold_falls_back_when_settings_cannot_load(
+    monkeypatch,
+):
+    """A missing or broken `.env` must not take OCR down - it degrades to
+    exactly the literal this module used before the setting existed."""
+    import app.core.config as config_module
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("no .env")
+
+    monkeypatch.setattr(module, "_SETTINGS_WHITE_FRACTION", None)
+    monkeypatch.setattr(config_module, "load_settings", _raise)
+
+    assert (module._white_fraction_threshold()
+            == ocr_ladder.WHITE_FRACTION_THRESHOLD_DEFAULT)
+
+
+def test_white_fraction_threshold_is_cached(monkeypatch):
+    """Read once, not once per image - the same shape as `app/extract/pdf.py`
+    `_pages_from_settings`, and for the same reason: this is asked for on
+    every routed image, and re-reading `.env` per file is the shape of cost
+    that turns a run into an afternoon."""
+    import app.core.config as config_module
+
+    calls = []
+
+    class _Stub:
+        ocr_white_page_percent = 40
+
+    def _load_settings(*_a, **_k):
+        calls.append(1)
+        return _Stub()
+
+    monkeypatch.setattr(module, "_SETTINGS_WHITE_FRACTION", None)
+    monkeypatch.setattr(config_module, "load_settings", _load_settings)
+
+    first = module._white_fraction_threshold()
+    second = module._white_fraction_threshold()
+
+    assert first == second == pytest.approx(0.40)
+    assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
 # Rung 2 (2c): the detection-only probe, wired end to end through `_detect_only`
 # ---------------------------------------------------------------------------
 

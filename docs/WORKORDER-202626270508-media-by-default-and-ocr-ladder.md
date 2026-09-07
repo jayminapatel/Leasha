@@ -1,6 +1,6 @@
 # Work order (One thread): media files by default, and the OCR ladder that makes it affordable
 
-**Doc version:** 1.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract + Index pipeline + formats)
 **Status:** RELEASED by the owner 2026-08-28. Queue position: first of the new
 batch, after `WORKORDER-202626270326-workspace-features.md`. This order is the
@@ -145,7 +145,7 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > builds a real 3-page PDF via `pymupdf` (page 1 and 3 real text, page 2 an
   > inserted image with none) and proves exactly one page pays for
   > recognition and all three end up searchable.
-- [ ] **2e** each image pays the ladder once (H1 settle); rung thresholds are
+- [x] **2e** each image pays the ladder once (H1 settle); rung thresholds are
   envelope tunables (auto-defaulted, Index Tuning screen, plain-words labels
   per the standing rules).
   > **2026-09-05:** the "pays once" half is true (one `route()` call per
@@ -167,6 +167,64 @@ settings entries; no CLIP, no tags, no faces — those are later orders.**
   > unchecked, same as before: the tunables/Index Tuning screen half is
   > `app/ui/*`, out of this session's scope too. Did not touch `pipeline.py`
   > for this item — verification only.
+  > **2026-09-07, lane-b (tunables).** The remaining half — the tunables/
+  > Index Tuning screen half — is built, closing this item. Read
+  > `app/extract/ocr_ladder.py` end to end first, per the standing rule,
+  > rather than trusting this item's own "rung thresholds" paraphrase: rung
+  > 0 (metadata) has no numeric threshold, only filename patterns; rung 2
+  > (the detection probe) decides on box count alone (`if not boxes:`), no
+  > confidence number anywhere; the module's own comments mention
+  > "saturation" and "row-projection periodicity" but neither is
+  > implemented — `# For now, simple heuristic: mostly white = document`.
+  > The one real hardcoded threshold is rung 1's `if white_fraction > 0.7:`
+  > (`_thumbnail_stats`, was line 134).
+  > Promoted to `OCR_WHITE_PAGE_PERCENT` (`app/core/settings_registry.py`),
+  > a whole-number percentage — `Setting.kind` has no float kind — default
+  > `70`, minimum `1`, maximum `100`, group `Tuning`, surface
+  > `indexing.tuning`. Label: "How plain white a photo must be to count as
+  > a scanned page." Wired into `app/core/config.py` (`Settings.
+  > ocr_white_page_percent`, `SETTING_KEYS`, the `_as_int` parse line) the
+  > same way as every other Coverage-group setting.
+  > `ocr_ladder.py` itself stays settings-free, per its own stated rule of
+  > staying importable and testable with nothing but Pillow: `route()` and
+  > `_thumbnail_stats()` gained a `white_fraction_threshold` keyword
+  > (default `WHITE_FRACTION_THRESHOLD_DEFAULT = 0.7`, the exact old
+  > literal), and the caller — `app/extract/ocr.py::ocr_image` — is what
+  > reads `OCR_WHITE_PAGE_PERCENT` (via the new, cached
+  > `_white_fraction_threshold()`, the same shape as `app/extract/pdf.py`'s
+  > `_pages_from_settings`) and divides by 100 before passing it in. A
+  > settings read failure falls back to the same literal, so default
+  > behaviour is bit-for-bit unchanged unless the setting is touched.
+  > Surfaced on the Index Tuning screen's Coverage group
+  > (`app/ui/widgets/long_run_box.py::LongRunBox`), the same widget the
+  > order 0b delivery notes already name for `PDF_OCR_PAGES` and the rest of
+  > "what gets read" — a `QSpinBox` named `OCR_WHITE_PAGE_PERCENT`, wired
+  > through `LongRunBox.load()`/`.values()` exactly like its neighbours.
+  > `docs/WORKORDER-202626270114-index-tuning.md` was read in full for a
+  > cross-reference: its own §4c-3 is already ticked and names four specific
+  > settings, none of which is this one, and the order's status there is
+  > delivered — left untouched rather than reworded, per the standing rule.
+  > Tests: `tests/unit/test_ocr_strategy.py::
+  > test_the_white_page_threshold_has_a_control_and_a_sensible_default`
+  > (registry entry, default, bounds, surface); `tests/unit/test_ocr_ladder.py::
+  > TestWhiteFractionThreshold` (three cases: default reproduces the old
+  > fixed behaviour on a synthetic thumbnail; a stricter threshold sends the
+  > same image to the detection rung instead; a looser one fast-accepts an
+  > image the default would not — the actual behaviour-change proof);
+  > `tests/unit/test_ocr.py::test_ocr_image_passes_the_settings_threshold_to_the_ladder`
+  > plus three more there covering `_white_fraction_threshold()` itself
+  > (reads the percent as a fraction, falls back on a broken settings read,
+  > and is cached rather than re-read per image). `pytest -q` on
+  > `test_settings_registry.py`, `test_settings_reachable.py`, `test_ocr.py`,
+  > `test_ocr_ladder.py`, `test_ocr_strategy.py`, `test_ocr_passes.py`,
+  > `test_config.py`, `test_setting_defaults.py` and `test_settings_are_used.py`
+  > together: 470 passed, 0 failed. The Qt-dependent acceptance test for the
+  > Coverage group (`tests/unit/test_index_tuning_acceptance.py`, the
+  > plain-words deny-list guard) could not be run in this sandbox — no
+  > `libEGL` here — but the new label and tooltip were checked by hand
+  > against its deny-list (onnx, directml, intra-op, quantised model, batch
+  > size, ivf, fts5, lance, embedding vector) and contain none of them; a
+  > Windows-venv pass should still run it for real.
 
 ## 3. Image hygiene (the corpus punishes skipping these)
 

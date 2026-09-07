@@ -158,12 +158,35 @@ class LongRunBox(QGroupBox):
         )
         self.pdf_ocr_pages.valueChanged.connect(lambda _v: self.changed.emit())
 
+        # **Rung 1's own threshold, promoted from a hardcoded literal.**
+        # `app/extract/ocr_ladder.py` decides an image is a document worth
+        # reading in full once this much of its thumbnail is plain white -
+        # this is what lets that number be found and changed rather than
+        # edited in a file (non-negotiable 11).
+        self.ocr_white_page_percent = QSpinBox()
+        self.ocr_white_page_percent.setObjectName("OCR_WHITE_PAGE_PERCENT")
+        self.ocr_white_page_percent.setRange(1, 100)
+        self.ocr_white_page_percent.setSuffix(" %")
+        self.ocr_white_page_percent.setKeyboardTracking(False)
+        self.ocr_white_page_percent.setToolTip(
+            "Above this percentage of plain white, Leasha treats the image as\n"
+            "a document and reads it in full, skipping the quicker check it\n"
+            "would otherwise run first.\n\n"
+            "Lower it to catch scanned pages with shading or colour; raise it\n"
+            "if ordinary photos of pale backgrounds - snow, whiteboards, plain\n"
+            "walls - are being read as documents unnecessarily."
+        )
+        self.ocr_white_page_percent.valueChanged.connect(
+            lambda _v: self.changed.emit())
+
         form = QFormLayout(self)
         form.addRow(self.name_only)
         form.addRow(_cost("INDEX_NAME_ONLY"))
         form.addRow("Images and scans", self.ocr_mode)
         form.addRow(_cost("INDEX_OCR_MODE"))
         form.addRow("Pages of a scanned PDF", self.pdf_ocr_pages)
+        form.addRow("How white a photo must be to read as a page",
+                    self.ocr_white_page_percent)
         form.addRow("Re-check archives every", self.archive_recheck_days)
         form.addRow(self.archive_read_inside)
         form.addRow(_cost("ARCHIVE_READ_INSIDE"))
@@ -173,7 +196,7 @@ class LongRunBox(QGroupBox):
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""
         widgets = (self.ocr_mode, self.archive_recheck_days, self.name_only,
                    self.archive_read_inside, self.archive_max_mb,
-                   self.pdf_ocr_pages)
+                   self.pdf_ocr_pages, self.ocr_white_page_percent)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -190,6 +213,8 @@ class LongRunBox(QGroupBox):
                 int(getattr(settings, "archive_max_mb", 100)))
             self.pdf_ocr_pages.setValue(
                 int(getattr(settings, "pdf_ocr_pages", 0)))
+            self.ocr_white_page_percent.setValue(
+                int(getattr(settings, "ocr_white_page_percent", 70)))
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -203,4 +228,5 @@ class LongRunBox(QGroupBox):
             "archive_read_inside": bool(self.archive_read_inside.isChecked()),
             "archive_max_mb": int(self.archive_max_mb.value()),
             "pdf_ocr_pages": int(self.pdf_ocr_pages.value()),
+            "ocr_white_page_percent": int(self.ocr_white_page_percent.value()),
         }

@@ -249,3 +249,28 @@ def test_a_budget_is_a_budget_rather_than_a_switch():
 
     assert setting.kind == "int" and setting.unit == "pages"
     assert setting.minimum == 0 and setting.maximum >= 20
+
+
+def test_the_white_page_threshold_has_a_control_and_a_sensible_default():
+    r"""§2e of `WORKORDER-202626270508-media-by-default-and-ocr-ladder.md`:
+    the OCR ladder's rung 1 threshold was a bare `if white_fraction > 0.7:`
+    literal in `app/extract/ocr_ladder.py`, which is exactly the shape
+    non-negotiable 11 forbids - a tunable with no control. This is that
+    literal, promoted."""
+    from app.core.settings_registry import SURFACES, by_key
+    from app.extract.ocr_ladder import WHITE_FRACTION_THRESHOLD_DEFAULT
+
+    setting = by_key("OCR_WHITE_PAGE_PERCENT")
+
+    assert setting is not None
+    # Stored as a whole-number percentage - the registry has no float kind -
+    # and it must equal the literal the ladder used before this setting
+    # existed, or a fresh install would not reproduce old behaviour.
+    assert setting.default == round(WHITE_FRACTION_THRESHOLD_DEFAULT * 100)
+    assert setting.kind == "int" and setting.unit == "%"
+    assert setting.minimum is not None and setting.maximum == 100
+    assert setting.surface in SURFACES
+    # It lives with the rest of "what gets read" - index-tuning's Coverage
+    # group - the same surface PDF_OCR_PAGES and INDEX_OCR_MODE moved to.
+    assert setting.surface == by_key("PDF_OCR_PAGES").surface
+    assert setting.group == by_key("PDF_OCR_PAGES").group

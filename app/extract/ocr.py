@@ -65,6 +65,34 @@ MAX_PAGES = 50
 #: corpus is full of them.
 MIN_PIXELS = 64 * 64
 
+_SETTINGS_WHITE_FRACTION: object = None
+
+
+def _white_fraction_threshold() -> float:
+    """Rung 1's confidence threshold (`OCR_WHITE_PAGE_PERCENT`), as a fraction.
+
+    Cached, and never raises - a settings failure must not take OCR down.
+    Same shape as `app/extract/pdf.py::_pages_from_settings`: read once, kept
+    for the life of the process, so a value asked for on every routed image
+    does not re-read `.env` per file.
+
+    Stored as a whole-number percentage because `settings_registry.Setting`
+    has no float kind; divided by 100 here, once, so `ocr_ladder.route` keeps
+    working in fractions exactly as it always has.
+    """
+    global _SETTINGS_WHITE_FRACTION
+    if _SETTINGS_WHITE_FRACTION is None:
+        try:
+            from app.core.config import load_settings
+
+            settings = load_settings(create_dirs=False, check_writable=False)
+            percent = int(getattr(settings, "ocr_white_page_percent", 70) or 70)
+            _SETTINGS_WHITE_FRACTION = percent / 100.0
+        except Exception:                        # noqa: BLE001 - never blocks OCR
+            _SETTINGS_WHITE_FRACTION = ocr_ladder.WHITE_FRACTION_THRESHOLD_DEFAULT
+    return float(_SETTINGS_WHITE_FRACTION)
+
+
 _engine: Any = None
 _engine_lock = threading.Lock()
 _engine_failed = False
@@ -278,7 +306,10 @@ def ocr_image(
 
     if isinstance(source, (Path, bytes)):
         try:
-            routed = ocr_ladder.route(source, detect=_detect_only(run))
+            routed = ocr_ladder.route(
+                source, detect=_detect_only(run),
+                white_fraction_threshold=_white_fraction_threshold(),
+            )
         except Exception as exc:                 # noqa: BLE001 - the ladder must never take an image down
             log.debug("ocr ladder routing failed: {}: {}", type(exc).__name__, exc)
             routed = None
