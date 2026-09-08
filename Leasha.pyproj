@@ -438,6 +438,7 @@
     <Compile Include="tests\unit\test_repo_attribution.py" />
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
+    <Compile Include="tests\unit\test_rerank.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
     <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
     <Compile Include="tests\unit\test_resources.py" />
