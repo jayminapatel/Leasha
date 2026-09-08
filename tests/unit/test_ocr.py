@@ -458,3 +458,133 @@ def test_a_receipt_photo_reaches_full_ocr_end_to_end(tmp_path):
 
     assert result.checked_no_text is False
     assert result.text == "TOTAL 12.99"
+
+
+# ---------------------------------------------------------------------------
+# Transient GPU device-removed recovery (2026-09-08)
+#
+# `logs/runs/run-20260908-050751-window.log` (line 121-123): the same DXGI
+# device-removed event that broke the embedder also reaches OCR's inference
+# call - and before this, it was logged at DEBUG (invisible) and the module-
+# global `_engine`/`_engine_is_gpu` were never invalidated, so every image
+# after the first for the rest of the run silently got no OCR text.
+# ---------------------------------------------------------------------------
+
+_TRANSIENT_MESSAGE = (
+    "Fail: [ONNXRuntimeError] : 1 : FAIL : ...DmlExecutionProvider... "
+    "887A0005 The GPU device instance has been suspended. Use "
+    "GetDeviceRemovedReason to determine the appropriate action."
+)
+
+
+class _FakeLog:
+    """Records warning/debug calls without touching the real loguru sink."""
+
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+        self.debugs: list[str] = []
+
+    def warning(self, template, *args) -> None:
+        self.warnings.append(template.format(*args) if args else template)
+
+    def debug(self, template, *args) -> None:
+        self.debugs.append(template.format(*args) if args else template)
+
+    def info(self, *_args, **_kwargs) -> None:
+        pass
+
+
+def test_transient_gpu_inference_failure_invalidates_the_engine(monkeypatch) -> None:
+    def device_removed(_source):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    fake_log = _FakeLog()
+    monkeypatch.setattr(module, "log", fake_log)
+    monkeypatch.setattr(module, "_engine", "a live but now-dead session")
+    monkeypatch.setattr(module, "_engine_is_gpu", True)
+    monkeypatch.setattr(module, "_warned_transient_gpu", False)
+
+    result = ocr_image("x", engine=device_removed)
+
+    assert result.empty, "one image's trouble must not raise out of ocr_image"
+    assert module._engine is None, "the dead session must be cleared"
+    assert module._engine_is_gpu is False
+    assert fake_log.warnings, "a real hardware event must be visible, not silent"
+    assert fake_log.debugs == [], "this must not also log at debug"
+
+
+def test_transient_gpu_inference_failure_warns_once_not_per_image(monkeypatch) -> None:
+    def device_removed(_source):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    fake_log = _FakeLog()
+    monkeypatch.setattr(module, "log", fake_log)
+    monkeypatch.setattr(module, "_engine", "session-1")
+    monkeypatch.setattr(module, "_warned_transient_gpu", False)
+
+    ocr_image("x", engine=device_removed)
+    # A second image hitting the same trouble again (engine still None from
+    # the first failure, but the *injected* engine bypasses `_load_engine`,
+    # so this simulates "still broken" rather than "reloaded").
+    monkeypatch.setattr(module, "_engine", "session-1")   # pretend it reloaded
+    ocr_image("x", engine=device_removed)
+
+    assert len(fake_log.warnings) == 1, "must warn once, not on every image"
+
+
+def test_a_non_transient_ocr_failure_still_logs_at_debug_only(monkeypatch) -> None:
+    """Only the classified failure class gets the visible warning and the
+    engine invalidation - an ordinary one-off OCR failure keeps behaving
+    exactly as before: quiet, and the engine untouched."""
+    def explode(_source):
+        raise RuntimeError("some unrelated OCR failure")
+
+    fake_log = _FakeLog()
+    monkeypatch.setattr(module, "log", fake_log)
+    monkeypatch.setattr(module, "_engine", "a perfectly healthy session")
+    monkeypatch.setattr(module, "_engine_is_gpu", True)
+
+    result = ocr_image("x", engine=explode)
+
+    assert result.empty
+    assert fake_log.warnings == []
+    assert fake_log.debugs, "an ordinary failure must still be noted at debug"
+    assert module._engine == "a perfectly healthy session", \
+        "a non-transient failure must not invalidate the engine"
+    assert module._engine_is_gpu is True
+
+
+def test_engine_reloads_and_succeeds_after_a_transient_gpu_failure(monkeypatch) -> None:
+    """The invalidation actually matters: the *next* image must reach a
+    freshly loaded engine (via `_load_engine`) and get real text back,
+    proving recovery rather than a reset nobody reads again."""
+    calls = {"loads": 0}
+
+    class _FlakyEngine:
+        def __init__(self) -> None:
+            self.broken = calls["loads"] == 0
+            calls["loads"] += 1
+
+        def __call__(self, _source):
+            if self.broken:
+                raise RuntimeError(_TRANSIENT_MESSAGE)
+            box = [[0, 0], [10, 0], [10, 10], [0, 10]]
+            return ([(box, "recovered text", 0.95)], 0.01)
+
+    def fake_load_engine():
+        if module._engine is None:
+            module._engine = _FlakyEngine()
+            module._engine_is_gpu = False
+        return module._engine
+
+    monkeypatch.setattr(module, "log", _FakeLog())
+    monkeypatch.setattr(module, "_engine", None)
+    monkeypatch.setattr(module, "_load_engine", fake_load_engine)
+
+    first = ocr_image("x")
+    assert first.empty
+    assert module._engine is None, "the broken engine must be cleared"
+
+    second = ocr_image("x")
+    assert second.text == "recovered text"
+    assert calls["loads"] == 2, "recovery must reload, not reuse the broken engine"

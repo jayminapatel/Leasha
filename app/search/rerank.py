@@ -26,7 +26,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Sequence
 
-from app.core.gpu_serialize import gpu_exclusive
+from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
 from app.core.logging import logger
 from app.search.window import RERANK_WINDOW_CHARS, windows_for
 
@@ -175,10 +175,25 @@ class Reranker:
                 self._profile = object()
         return self._profile
 
-    def _warn_once(self, exc: BaseException) -> None:
+    def _warn_once(self, exc: BaseException, *, transient: bool = False) -> None:
         if self._warned:
             return
         self._warned = True
+        if transient:
+            # **The accurate reason, not the generic one.** A DXGI device-
+            # removed event is a driver reset or the GPU briefly dropping out
+            # of the system, not a missing or broken reranker model - and
+            # unlike the message below, a fresh scorer will be attempted
+            # again on the next search, within the same failure budget.
+            _log.warning(
+                "Reranking's graphics-card session was reported unavailable (a "
+                "driver reset, heavy system load, or the machine waking from "
+                "sleep can cause this) - not a problem with the reranker model. "
+                "This search keeps its fused order; Leasha will reload the "
+                "model and try again on the next search. Cause: {}: {}.",
+                type(exc).__name__, exc,
+            )
+            return
         _log.warning(
             "Reranking is unavailable, so results keep their fused order. Search is unaffected "
             "apart from slightly weaker ordering. Cause: {}: {}. "
@@ -265,9 +280,21 @@ class Reranker:
             # - and every later search silently returned weaker ordering, with
             # the notice explaining it only on the first one. Nothing ever
             # tried again, so the only cure was restarting the application.
+            transient = is_transient_gpu_error(exc)
+            if transient:
+                # **Each retry within the budget gets a fresh scorer, not the
+                # same dead one.** Without this, `self._scorer` kept pointing
+                # at the session DirectML had already reported unavailable, so
+                # every one of the budget's remaining attempts was doomed
+                # identically - the budget counted down to zero without ever
+                # giving recovery a real chance. Clearing it here makes the
+                # *next* `_ensure_scorer()` call rebuild through
+                # `backends.with_fallback`, same idea as `embedder.py`.
+                self._scorer = None
+                self.choice = None
             self._failures += 1
             self._unavailable = self._failures >= RERANK_FAILURE_BUDGET
-            self._warn_once(exc)
+            self._warn_once(exc, transient=transient)
             return results
 
         # A run that works clears the debt: the budget is for *consecutive*

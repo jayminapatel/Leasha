@@ -15,7 +15,7 @@ import time
 import pytest
 
 from app.core import gpu_serialize
-from app.core.gpu_serialize import gpu_exclusive
+from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
 
 
 class _FakeLock:
@@ -164,3 +164,61 @@ def test_a_broken_section_does_not_block_a_second_caller() -> None:
     t2.start()
     t2.join(timeout=2.0)
     assert entered.is_set(), "the lock stayed held after the first caller raised"
+
+
+# --- 4: is_transient_gpu_error - the real crash text, and unrelated ones ----
+#
+# `logs/runs/run-20260908-050751-window.log` (line 121-123) is the real crash
+# this classifier exists to recognise: a DXGI device-removed event surfacing
+# through onnxruntime's DirectML provider as a plain `Fail`, no structured
+# exception type - so this is exercised against the actual wording rather
+# than an invented one.
+
+
+def test_the_real_device_removed_error_is_recognised() -> None:
+    exc = RuntimeError(
+        "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned "
+        "while running ... DmlExecutionProvider ... 887A0005 The GPU device "
+        "instance has been suspended. Use GetDeviceRemovedReason to "
+        "determine the appropriate action."
+    )
+    assert is_transient_gpu_error(exc)
+
+
+@pytest.mark.parametrize("text", [
+    "DXGI_ERROR_DEVICE_HUNG",
+    "dxgi_error_device_reset",
+    "887a0006",
+    "887A0007",
+    "some prefix then 887a0005 then a suffix",
+])
+def test_each_documented_marker_is_recognised(text: str) -> None:
+    assert is_transient_gpu_error(RuntimeError(text))
+
+
+@pytest.mark.parametrize("exc", [
+    ValueError("bad input"),
+    FileNotFoundError("model.onnx not found"),
+    RuntimeError("unsupported model format"),
+    ImportError("No module named 'fastembed'"),
+])
+def test_unrelated_exceptions_are_not_classified_as_transient(exc: BaseException) -> None:
+    assert not is_transient_gpu_error(exc)
+
+
+def test_classification_never_raises_on_an_odd_exception() -> None:
+    """A best-effort STRING classification, never a gate that can itself
+    take anything down - an exception whose `str()` misbehaves must still
+    resolve to a plain boolean."""
+    class Odd(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("str() itself is broken")
+
+    # `is_transient_gpu_error` builds its text from `type(exc).__name__` and
+    # `exc` via an f-string, which calls `str(exc)` - so a broken `__str__`
+    # is exactly the edge this test is checking does not escape upward.
+    try:
+        is_transient_gpu_error(Odd())
+    except RuntimeError:
+        pytest.fail("is_transient_gpu_error must not let an exception's own "
+                    "__str__ escape - callers rely on this never raising")

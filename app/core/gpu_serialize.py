@@ -40,7 +40,71 @@ import threading
 from contextlib import contextmanager
 from typing import Iterator
 
-__all__ = ["gpu_exclusive"]
+__all__ = ["gpu_exclusive", "is_transient_gpu_error"]
+
+#: Substrings that identify a DirectML/DXGI device-removed style event.
+#: Lower-cased before comparison, so this list is written in whatever case
+#: reads best.
+#:
+#: **What this exists to catch.** `logs/runs/run-20260908-050751-window.log`
+#: (line 121-123): an index run's embedding call failed with
+#: `[ONNXRuntimeError] : 1 : FAIL : ...DmlExecutionProvider... 887A0005 The
+#: GPU device instance has been suspended. Use GetDeviceRemovedReason to
+#: determine the appropriate action.` That HRESULT is `DXGI_ERROR_DEVICE_
+#: REMOVED` - the graphics driver reset, or the device was briefly taken away
+#: from every process using it (a driver crash-recover, a laptop waking from
+#: sleep, a display switch) - not a corrupt model or a bad input. The same
+#: log's line 95 shows this had already happened once before that run, more
+#: softly, and line 99-100 shows OCR falling back to the processor moments
+#: later because "no display adapter was detected", consistent with the
+#: device having genuinely dropped out of the system at that point.
+#:
+#: `887a0006` (`DXGI_ERROR_DEVICE_HUNG`) and `887a0007` (`DXGI_ERROR_DEVICE_
+#: RESET`) are included alongside the confirmed `887a0005` because they are
+#: the same family of event reported through the same mechanism - a
+#: reasonable, documented, **non-exhaustive** set, not a claim that these are
+#: the only transient GPU failures that exist.
+_TRANSIENT_GPU_MARKERS: tuple[str, ...] = (
+    "device instance has been suspended",
+    "getdeviceremovedreason",
+    "dxgi_error_device_removed",
+    "dxgi_error_device_hung",
+    "dxgi_error_device_reset",
+    "887a0005",
+    "887a0006",
+    "887a0007",
+)
+
+
+def is_transient_gpu_error(exc: BaseException) -> bool:
+    """True if `exc` looks like a DirectML/DXGI device-removed style event
+    (device suspended, hung, reset, or removed) rather than a genuine model
+    or data problem.
+
+    See `_TRANSIENT_GPU_MARKERS` above for exactly what this matches on and
+    the real crash (`logs/runs/run-20260908-050751-window.log`, line
+    121-123) that it exists to distinguish from an ordinary model failure.
+
+    **This is a best-effort classification of an error STRING, not a
+    structured exception type.** onnxruntime does not raise a distinct
+    exception class for a DXGI device-removed event - it surfaces as a
+    plain `Fail` with the HRESULT and driver text embedded in the message -
+    so string matching is the only signal available here. A false negative
+    (a transient GPU error whose wording this does not recognise) is
+    therefore expected and must stay harmless: callers use this to choose
+    better *guidance and recovery*, never as a correctness gate, so an
+    unrecognised transient error simply falls back to whatever the generic,
+    always-safe handling already was.
+    """
+    try:
+        text = f"{type(exc).__name__}: {exc}".lower()
+    except Exception:                            # noqa: BLE001 - a classifier must never itself crash
+        # An exception whose own `__str__` raises is exactly the kind of
+        # thing this function exists to survive - see the docstring above:
+        # this is guidance, never a gate, so an unreadable exception simply
+        # classifies as "not recognised" rather than escaping upward.
+        return False
+    return any(marker in text for marker in _TRANSIENT_GPU_MARKERS)
 
 #: The one process-wide gate. A plain `Lock`, not an `RLock`: every call path
 #: into this file was read before choosing — `embedder._ensure_encoder`,

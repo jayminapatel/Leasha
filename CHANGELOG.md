@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.05 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 4.06 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Fixed: a graphics driver hiccup used to turn off meaning search, picture-reading and result reordering for the rest of a run
+
+- **A real event, from the user's own machine on 2026-09-08.** The graphics driver briefly
+  reported the graphics card as unavailable mid-run - the sort of thing a driver reset, the
+  machine waking from sleep, or heavy system load can cause, and which often clears up within
+  seconds. Leasha did not know the difference between that and a genuinely broken or corrupted
+  model, so it said "delete the model cache and let it download again" - which would not have
+  helped, because nothing was wrong with the downloaded model.
+- **Worse, none of the three affected parts of Leasha - the meaning model, picture-reading (OCR),
+  and search result reordering - tried again on their own.** Each one kept using the same
+  session the graphics card had already dropped, for the rest of the run, even though the card
+  usually recovers on its own moments later. Meaning search, OCR and reordering could all end up
+  silently switched off for the remainder of a long indexing run or a whole session, over one
+  brief hiccup.
+- **This is fixed.** Leasha now recognises this specific kind of graphics-driver event, says so
+  in plain language rather than pointing at the model, and starts a fresh session on the very
+  next attempt - which may land back on the graphics card once the driver has recovered, or fall
+  back to the processor if it has not. A genuinely broken or corrupted model still gets the
+  original "delete the model cache" guidance; only this one, recognisable cause is treated
+  differently. Picture-reading also now says something the first time this happens, rather than
+  nothing at all - previously it was recorded at a logging level nobody would ever see, so a
+  scanned document could quietly lose all its text for the rest of a run with no sign anything
+  was wrong.
 
 ### Fixed: indexing could crash when the graphics card was doing two things at once
 

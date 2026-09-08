@@ -433,3 +433,116 @@ def test_on_progress_is_called_even_if_the_load_fails(monkeypatch, tmp_path) -> 
         embedder.warm_up()
 
     assert progress and progress[-1] == 100.0
+
+
+# --- transient GPU device-removed recovery (2026-09-08) ---------------------
+#
+# `logs/runs/run-20260908-050751-window.log` (line 121-123): embedding failed
+# with onnxruntime's own text for a DXGI device-removed event, and the old
+# code (a) always said "delete the model cache", which is wrong for this
+# failure class, and (b) never cleared `self._encoder`, so every later
+# `embed()` on the same instance kept hitting the identical dead session.
+
+_TRANSIENT_MESSAGE = (
+    "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned "
+    "while running... DmlExecutionProvider... 887A0005 The GPU device "
+    "instance has been suspended. Use GetDeviceRemovedReason to determine "
+    "the appropriate action."
+)
+
+
+def test_transient_gpu_error_gets_accurate_suggestion_and_clears_the_session() -> None:
+    def device_removed(_texts):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    embedder = Embedder(encoder=device_removed)
+    assert embedder.loaded
+
+    with pytest.raises(AppErrorException) as caught:
+        embedder.embed(["a"])
+
+    error = caught.value.error
+    assert error.code == "ERR_MODEL_LOAD"
+    assert "delete the model cache" not in error.suggestion.lower()
+    assert "graphics driver" in error.suggestion.lower()
+    assert "not a problem with the downloaded model" in error.suggestion.lower()
+
+    # **The whole point.** A stale, dead session must not still be cached for
+    # the next `embed()` to hit again.
+    assert embedder._encoder is None
+    assert embedder.choice is None
+    assert not embedder.loaded
+
+
+def test_transient_gpu_error_does_not_retry_inline_within_the_same_call() -> None:
+    """`pipeline.py` already tolerates one failed batch and moves on (see
+    `Pipeline._drain_unembedded`'s "Indexing continues" warning) - `embed()`
+    itself must not loop and retry the same failed batch."""
+    calls = []
+
+    def device_removed(_texts):
+        calls.append(1)
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    embedder = Embedder(encoder=device_removed)
+    with pytest.raises(AppErrorException):
+        embedder.embed(["a"])
+
+    assert len(calls) == 1, "embed() retried the same failed batch inline"
+
+
+def test_transient_gpu_error_recovers_on_the_next_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The session is invalidated, not merely marked broken - the *next*
+    `_ensure_encoder()` call must actually rebuild and succeed, proving the
+    recovery path recovers rather than resetting state nothing reads again."""
+
+    class FlakyTextEmbedding:
+        """The first instance built simulates a GPU that has dropped out;
+        every instance built after it simulates the driver having
+        recovered (or `backends.with_fallback` having landed on the
+        processor) - either way, a fresh session that actually works."""
+
+        instances_built = 0
+
+        def __init__(self, model_name, cache_dir=None, **_kwargs):
+            self._broken = FlakyTextEmbedding.instances_built == 0
+            FlakyTextEmbedding.instances_built += 1
+
+        def embed(self, texts):
+            if self._broken:
+                raise RuntimeError(_TRANSIENT_MESSAGE)
+            return [unit(float(i)) for i, _ in enumerate(texts)]
+
+    monkeypatch.setattr("fastembed.TextEmbedding", FlakyTextEmbedding)
+
+    embedder = Embedder("fake/flaky-model")
+
+    with pytest.raises(AppErrorException):
+        embedder.embed(["a"])
+    assert embedder._encoder is None, "the dead session must be cleared"
+
+    # The next call rebuilds from scratch and this one actually works.
+    vectors = embedder.embed(["a", "b"])
+    assert len(vectors) == 2
+    assert FlakyTextEmbedding.instances_built == 2, \
+        "recovery must rebuild a fresh session, not reuse the dead one"
+
+
+def test_a_non_transient_error_keeps_the_generic_suggestion_and_the_session() -> None:
+    """Only the classified failure class gets the accurate message and the
+    invalidate-and-retry treatment - an ordinary broken-model error must keep
+    behaving exactly as before."""
+    def corrupt_model(_texts):
+        raise ValueError("unsupported model format")
+
+    embedder = Embedder(encoder=corrupt_model)
+
+    with pytest.raises(AppErrorException) as caught:
+        embedder.embed(["a"])
+
+    error = caught.value.error
+    assert "delete the model cache" in error.suggestion.lower()
+    assert "graphics driver" not in error.suggestion.lower()
+    # Unlike the transient-GPU case, nothing here rebuilds anything - the
+    # (still broken) encoder is left exactly as it was.
+    assert embedder._encoder is corrupt_model

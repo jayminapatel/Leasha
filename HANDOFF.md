@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.1 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 5.2 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1096,6 +1096,34 @@ whether `SettingsView` needs the same live reference rather than assuming it alr
 More generally: **a caught exception logged below INFO is a bug wearing a disguise** - grep this
 codebase for `except Exception` next to a bare `_log.debug` before trusting that a "successful"
 save actually did anything live.
+
+**2026-09-08: a transient DXGI device-removed event (driver reset, or the GPU briefly dropping
+out of the system) was being treated as a permanent, silent failure in all three GPU consumers.**
+`logs/runs/run-20260908-050751-window.log` (line 121-123): the embedder's ONNX call failed with
+DirectML's own text for HRESULT `887A0005` (`DXGI_ERROR_DEVICE_REMOVED`) - "The GPU device
+instance has been suspended" - and the same log's line 95 shows this had already happened once,
+more softly, with OCR falling back to the processor moments later at line 99-100 because "no
+display adapter was detected". Three separate bugs followed from the same gap: `embedder.py`'s
+`embed()` gave every exception the same "delete the model cache" suggestion, which is wrong for
+a driver hiccup, and never cleared `self._encoder`, so every later call kept hitting the
+identical dead session for the rest of the run; `ocr.py`'s `ocr_image()` logged a per-image
+inference failure at DEBUG only (invisible) and never cleared the module-global `_engine`, so a
+scanned corpus silently lost OCR for the rest of the run with nothing in the logs anyone would
+see; `rerank.py`'s scoring failure had a "budget, not a latch" pattern (`RERANK_FAILURE_BUDGET`)
+but kept retrying the same cached `self._scorer`, so if the scorer itself was the broken thing,
+every retry inside the budget was doomed identically and the budget counted down to zero without
+recovery ever getting a chance. Fixed with one classifier,
+`app/core/gpu_serialize.py::is_transient_gpu_error()` - a best-effort match on the DXGI
+device-removed text and HRESULT codes (`887a0005`/`887a0006`/`887a0007`), documented as guidance
+and recovery only, never a correctness gate - and, in each of the three, invalidating the cached
+session/engine/scorer (and `choice`, where the module tracks one) on a classified failure so the
+*next* attempt rebuilds fresh through the existing `backends.with_fallback` machinery, which may
+land back on the graphics card or fall back to the processor. OCR's invalidation is guarded by
+its existing `_engine_lock`, since `ocr_image()` runs on extraction worker threads concurrently;
+OCR's construction-retry-budget (`_engine_failed`/`_engine_attempts`) is untouched by this - it is
+a different, already-correct mechanism for "the package genuinely is not installed". This
+sandbox has no graphics card, so the classifier and the recovery paths are proved with injected
+fake sessions that fail once and then succeed, not against real DirectML hardware.
 
 ## 7. Open questions
 

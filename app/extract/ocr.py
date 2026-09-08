@@ -35,7 +35,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.core.errors import raise_error
 from app.core.format_health import Requirement
-from app.core.gpu_serialize import gpu_exclusive
+from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
 from app.core.logging import logger
 from app.extract import ocr_ladder
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
@@ -105,6 +105,15 @@ _engine_failed = False
 #: `False` until an engine has actually loaded on the graphics card, which is
 #: also the safe default: no engine yet means no GPU session exists to guard.
 _engine_is_gpu = False
+
+#: Whether a transient-GPU inference failure has already been warned about
+#: for the *current* engine. Reset to `False` every time `_load_engine()`
+#: successfully builds an engine (see there), so a fresh session that later
+#: hits its own hardware trouble is still reported once - this is "once per
+#: loaded engine", not "once ever for the life of the process". Follows the
+#: same warn-once shape as `rerank.py`'s `_warn_once`, the established
+#: convention in this codebase for "say it once, not on every item".
+_warned_transient_gpu = False
 
 
 class OcrResult:
@@ -212,7 +221,7 @@ def _load_engine() -> Any:
     stops a machine without the package paying the import cost on every image in
     the corpus.
     """
-    global _engine, _engine_failed, _engine_is_gpu
+    global _engine, _engine_failed, _engine_is_gpu, _warned_transient_gpu
 
     if _engine is not None or _engine_failed:
         return _engine
@@ -244,6 +253,9 @@ def _load_engine() -> Any:
                 _engine = RapidOCR(**({"det_use_dml": True, "cls_use_dml": True,
                                        "rec_use_dml": True} if choice.is_gpu else {}))
             _engine_is_gpu = choice.is_gpu
+            # A fresh engine deserves its own first warning if it later hits
+            # transient GPU trouble - see `_warned_transient_gpu` above.
+            _warned_transient_gpu = False
             log.info("OCR engine loaded in {:.1f}s on the {}",
                      time.monotonic() - started,
                      "graphics card" if choice.is_gpu else "processor")
@@ -315,6 +327,8 @@ def ocr_image(
     or `bytes` (the fake string sources the unit tests below use to drive the
     fake `engine` seam) skips routing entirely and behaves exactly as before.
     """
+    global _engine, _engine_is_gpu, _warned_transient_gpu
+
     run = engine or _load_engine()
     if run is None:
         return OcrResult(engine_missing=True)
@@ -345,7 +359,32 @@ def ocr_image(
         with gpu_exclusive(_engine_is_gpu):
             raw = run(source if isinstance(source, (str, bytes)) else str(source))
     except Exception as exc:                     # noqa: BLE001 - one image, not the run
-        log.debug("OCR failed on an image: {}: {}", type(exc).__name__, exc)
+        if is_transient_gpu_error(exc):
+            # **A previously-working engine just had a transient hardware
+            # hiccup mid-run - distinct from `_engine_failed` above, which is
+            # about construction never having succeeded at all.** Left alone,
+            # `_engine`/`_engine_is_gpu` would keep pointing at the same dead
+            # session for every remaining image in the corpus, with nothing
+            # but a DEBUG line - invisible to anyone - to say so. Warn once
+            # (see `_warned_transient_gpu`) and clear the engine so the next
+            # image's `_load_engine()` call rebuilds fresh, reusing the
+            # construction-retry-budget machinery already there rather than
+            # the `_engine_failed` latch, which stays untouched: the package
+            # is not missing, the hardware just blinked.
+            with _engine_lock:
+                if not _warned_transient_gpu:
+                    _warned_transient_gpu = True
+                    log.warning(
+                        "OCR's graphics-card session was reported unavailable "
+                        "mid-run (a driver reset, heavy system load, or the "
+                        "machine waking from sleep can cause this) - not a "
+                        "problem with the OCR package or your images. "
+                        "Leasha will reload it and try again on the next "
+                        "image. Cause: {}: {}", type(exc).__name__, exc)
+                _engine = None
+                _engine_is_gpu = False
+        else:
+            log.debug("OCR failed on an image: {}: {}", type(exc).__name__, exc)
         return OcrResult(elapsed_s=time.monotonic() - started)
 
     # RapidOCR returns `(results, timings)`; results is a list of

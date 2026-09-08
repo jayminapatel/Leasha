@@ -40,7 +40,7 @@ import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from app.core.errors import AppErrorException, make_error
-from app.core.gpu_serialize import gpu_exclusive
+from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
 from app.core.logging import logger
 from app.index import backends
 
@@ -392,11 +392,37 @@ class Embedder:
         except AppErrorException:
             raise
         except Exception as exc:                   # noqa: BLE001 - boundary
+            # **A transient DXGI device-removed event is not the same failure
+            # as a corrupt model.** `logs/runs/run-20260908-050751-window.log`
+            # (line 121-123): the driver reported the GPU as suspended
+            # mid-batch - a driver reset or the device briefly dropping out of
+            # the system, not the downloaded model being wrong - and yet every
+            # exception here used to get the same "delete the model cache"
+            # suggestion regardless. Worse, `self._encoder` was never cleared,
+            # so every later `embed()` on this same instance kept hitting the
+            # identical now-broken session for the rest of the run even after
+            # a driver reset that often resolves within seconds. Clearing it
+            # here makes the *next* `_ensure_encoder()` call rebuild from
+            # scratch through `backends.with_fallback` - which may land back
+            # on the graphics card if it recovered, or fall back to the
+            # processor if it has not, either of which beats repeating a call
+            # that is doomed to fail identically every time.
+            transient = is_transient_gpu_error(exc)
+            if transient:
+                self._encoder = None
+                self.choice = None
             raise AppErrorException(make_error(
                 "ERR_MODEL_LOAD", "index.embedder",
                 details=f"embedding {len(texts)} text(s) failed: {type(exc).__name__}: {exc}",
-                suggestion="The model loaded but would not run. Delete the model cache under "
-                           "<DATA_PATH>\\models and let it download again.",
+                suggestion=(
+                    "Your graphics driver reported the GPU as unavailable (a driver "
+                    "reset, heavy system load, or the machine waking from sleep can "
+                    "cause this) - this is not a problem with the downloaded model. "
+                    "Leasha will try again on the next batch."
+                ) if transient else (
+                    "The model loaded but would not run. Delete the model cache under "
+                    "<DATA_PATH>\\models and let it download again."
+                ),
             )) from exc
 
         if len(raw) != len(texts):
