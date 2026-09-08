@@ -150,3 +150,65 @@ def test_each_retry_within_the_budget_gets_a_fresh_scorer_rebuild(monkeypatch) -
     assert calls["built"] == 2, \
         "recovery must rebuild a fresh scorer, not reuse the dead one"
     assert ranker.available
+
+
+# --- 2026-09-08, later: the rebuild lands on the processor ------------------
+
+
+def test_transient_gpu_scoring_failure_latches_the_driver() -> None:
+    from app.core.gpu_serialize import gpu_unreliable
+    from app.index import backends
+
+    def device_removed(_query, _passages):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    ranker = Reranker("model", enabled=True)
+    ranker._scorer = device_removed
+    ranker.choice = SimpleNamespace(is_gpu=True)
+
+    ranker.rerank("pump", list(_HITS), terms=["pump"])
+
+    assert gpu_unreliable()
+
+    class _Card:
+        gpus = ("Iris Xe",)
+        directml_available = True
+
+    assert not backends.choose(_Card(), "auto").is_gpu, \
+        "the next _ensure_scorer() must choose the processor"
+    assert ranker.available, "the failure budget is unchanged - one failure is not the end"
+
+
+def test_the_rebuild_after_a_transient_failure_is_on_the_processor(monkeypatch) -> None:
+    class _Card:
+        gpus = ("Iris Xe",)
+        directml_available = True
+
+    built: list = []
+
+    class FlakyCrossEncoder:
+        def __init__(self, model_name, cache_dir=None, providers=None, **_kwargs):
+            built.append(providers)
+            self._broken = len(built) == 1
+
+        def rerank(self, query, passages):
+            if self._broken:
+                raise RuntimeError(_TRANSIENT_MESSAGE)
+            return [1.0 for _ in passages]
+
+    monkeypatch.setattr(
+        "fastembed.rerank.cross_encoder.TextCrossEncoder", FlakyCrossEncoder)
+
+    ranker = Reranker("fake-reranker-model", enabled=True)
+    ranker._profile = _Card()
+
+    first = ranker.rerank("pump", list(_HITS), terms=["pump"])
+    assert first == _HITS
+    assert built[0] == ["DmlExecutionProvider", "CPUExecutionProvider"], \
+        "the setup must start on the graphics card or the test proves nothing"
+
+    second = ranker.rerank("pump", list(_HITS), terms=["pump"])
+    assert second[0]["rerank_score"] == 1.0
+    assert built[1] is None, "the rebuild must take the plain CPU constructor path"
+    assert ranker.choice is not None and not ranker.choice.is_gpu
+    assert ranker._failures == 0, "a rebuild that works clears the debt"

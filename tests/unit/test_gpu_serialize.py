@@ -222,3 +222,70 @@ def test_classification_never_raises_on_an_odd_exception() -> None:
     except RuntimeError:
         pytest.fail("is_transient_gpu_error must not let an exception's own "
                     "__str__ escape - callers rely on this never raising")
+
+
+# --- 5: 2026-09-08, later - the whole DXGI facility, and the driver latch --
+#
+# `logs/runs/run-20260908-055844-window.log` at 06:29:49 is the second real
+# failure: `887A0020` (`DXGI_ERROR_DRIVER_INTERNAL_ERROR`), which the
+# hand-picked list above did not match, so nothing recovered and the index
+# run ended. The classifier now matches every `887A00xx` HRESULT and the
+# DirectML provider's own file names.
+
+_REAL_887A0020 = (
+    "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned while "
+    "running ... D:\\a\\_work\\1\\s\\onnxruntime\\core\\providers\\dml\\"
+    "DmlExecutionProvider\\src\\DmlCommandRecorder.cpp(371)\\"
+    "onnxruntime_pybind11_state.pyd!00007FFB6A2C4B1E: (caller: ...) Exception(1) "
+    "tid(4a3c) 887A0020 An internal issue prevented the driver from carrying out "
+    "the specified operation. The driver's state is probably suspect, and the "
+    "application should not continue."
+)
+
+
+def test_the_real_driver_internal_error_is_recognised() -> None:
+    assert is_transient_gpu_error(RuntimeError(_REAL_887A0020))
+
+
+@pytest.mark.parametrize("text", [
+    "887A0021",
+    "887a00ff somewhere",
+    "DmlCommandRecorder",
+    "dmlexecutionprovider failed",
+    "DXGI_ERROR_DRIVER_INTERNAL_ERROR",
+    "The driver's state is probably suspect",
+])
+def test_the_facility_and_the_dml_markers_are_recognised(text: str) -> None:
+    assert is_transient_gpu_error(RuntimeError(text))
+
+
+@pytest.mark.parametrize("exc", [
+    ValueError("bad input"),
+    FileNotFoundError("model.onnx not found"),
+    RuntimeError("[ONNXRuntimeError] : 1 : FAIL : Load model from x.onnx failed: "
+                 "Protobuf parsing failed."),
+    RuntimeError("887b0001 is a different facility"),
+    RuntimeError("887a0 too short"),
+])
+def test_unrelated_errors_and_other_facilities_are_still_not_transient(exc) -> None:
+    assert not is_transient_gpu_error(exc)
+
+
+def test_the_latch_starts_clear_and_holds_the_first_reason() -> None:
+    assert gpu_serialize.gpu_unreliable() == ""
+    gpu_serialize.mark_gpu_unreliable("887A0020 first")
+    gpu_serialize.mark_gpu_unreliable("887A0005 second")
+    assert gpu_serialize.gpu_unreliable() == "887A0020 first", \
+        "the first reason explains everything after it; a later one must not replace it"
+
+
+def test_an_empty_reason_still_latches_with_plain_words() -> None:
+    gpu_serialize.mark_gpu_unreliable("")
+    assert gpu_serialize.gpu_unreliable() == "the graphics driver failed"
+
+
+def test_the_latch_is_cleared_between_tests_by_the_autouse_fixture() -> None:
+    """The two tests above set it; `tests/conftest.py` must have cleared it
+    before this one ran, or every later `backends.choose()` in this pytest
+    process would land on the processor for a reason unrelated to its test."""
+    assert gpu_serialize.gpu_unreliable() == ""

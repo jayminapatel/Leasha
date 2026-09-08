@@ -41,6 +41,22 @@ REQUIRED_FREE_GB=150
 """
 
 
+@pytest.fixture(autouse=True)
+def _clear_gpu_unreliable_latch() -> Iterator[None]:
+    """`app.core.gpu_serialize.mark_gpu_unreliable` is a process-wide latch
+    that the application never clears (2026-09-08). One test that trips it
+    - a simulated driver failure in the embedder, OCR or reranker suites -
+    would otherwise send every later `backends.choose()` in the same pytest
+    process to the processor and turn the backends suite red for a reason
+    that has nothing to do with the test that failed. Cleared before and
+    after every test, so no module has to remember."""
+    from app.core import gpu_serialize
+
+    gpu_serialize._reset_for_tests()
+    yield
+    gpu_serialize._reset_for_tests()
+
+
 @pytest.fixture()
 def temp_env(tmp_path: Path) -> Iterator[Path]:
     """A valid .env pointing at throwaway directories. Yields the .env path."""

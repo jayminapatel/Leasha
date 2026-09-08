@@ -35,7 +35,11 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.core.errors import raise_error
 from app.core.format_health import Requirement
-from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
+from app.core.gpu_serialize import (
+    gpu_exclusive,
+    is_transient_gpu_error,
+    mark_gpu_unreliable,
+)
 from app.core.logging import logger
 from app.extract import ocr_ladder
 from app.extract.base import Document, DocumentBuilder, SourceKind, register
@@ -371,6 +375,16 @@ def ocr_image(
             # construction-retry-budget machinery already there rather than
             # the `_engine_failed` latch, which stays untouched: the package
             # is not missing, the hardware just blinked.
+            #
+            # 2026-09-08, later: the rebuild now lands on the processor, not
+            # back on the same suspect driver - `mark_gpu_unreliable` is the
+            # process-wide latch `backends.choose()` reads, so the next
+            # `_load_engine()` chooses the CPU with no code here to say so.
+            # That reload is a *construction* attempt like any other and
+            # counts against `_engine_attempts` only if it fails, exactly
+            # as before; a CPU engine that builds costs nothing from the
+            # budget.
+            mark_gpu_unreliable(f"{type(exc).__name__}: {exc}"[:200])
             with _engine_lock:
                 if not _warned_transient_gpu:
                     _warned_transient_gpu = True

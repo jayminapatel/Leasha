@@ -451,12 +451,122 @@ _TRANSIENT_MESSAGE = (
 )
 
 
-def test_transient_gpu_error_gets_accurate_suggestion_and_clears_the_session() -> None:
-    def device_removed(_texts):
-        raise RuntimeError(_TRANSIENT_MESSAGE)
+# 2026-09-08, later the same day: the three tests that used to sit here
+# (`..._gets_accurate_suggestion_and_clears_the_session`, `..._does_not_retry_
+# inline_within_the_same_call`, `..._recovers_on_the_next_call`) asserted
+# that a transient error *escapes* `embed()` and is recovered from on the
+# next call. `logs/runs/run-20260908-055844-window.log` at 06:29:49 is the
+# run where that design ended the whole index thirty minutes in - the
+# pipeline's feeder ends the run on any escaped exception, so "the next
+# call" never came. `embed()` now retries the same batch once, on the
+# processor, and the tests below replace those three rather than rewording
+# them: their premise was wrong, not their wording.
 
-    embedder = Embedder(encoder=device_removed)
-    assert embedder.loaded
+
+class Machine:
+    """A profile, invented. Only the fields `backends.choose` reads."""
+
+    def __init__(self, gpus=(), directml=False) -> None:
+        self.gpus = gpus
+        self.directml_available = directml
+
+
+GPU_READY = Machine(gpus=("Iris Xe",), directml=True)
+
+
+class _FlakyTextEmbedding:
+    """A fake `fastembed.TextEmbedding`: every instance records the providers
+    it was built with and how many times it was called, and raises the
+    driver's own text for the first `fail_first` calls across all instances.
+    The first instance is the one the graphics card gets; the rebuild's
+    instance is whatever `backends.choose` decides after the failure."""
+
+    instances: list = []
+    fail_calls = 1
+    calls = 0
+
+    def __init__(self, model_name, cache_dir=None, providers=None, **_kwargs):
+        self.providers = providers
+        self.seen: list = []
+        _FlakyTextEmbedding.instances.append(self)
+
+    def embed(self, texts):
+        self.seen.append(list(texts))
+        _FlakyTextEmbedding.calls += 1
+        if _FlakyTextEmbedding.calls <= _FlakyTextEmbedding.fail_calls:
+            raise RuntimeError(_TRANSIENT_MESSAGE)
+        return [unit(float(i)) for i, _ in enumerate(texts)]
+
+
+@pytest.fixture()
+def flaky(monkeypatch: pytest.MonkeyPatch):
+    _FlakyTextEmbedding.instances = []
+    _FlakyTextEmbedding.calls = 0
+    _FlakyTextEmbedding.fail_calls = 1
+    monkeypatch.setattr("fastembed.TextEmbedding", _FlakyTextEmbedding)
+    return _FlakyTextEmbedding
+
+
+_DRIVER_INTERNAL_ERROR = (
+    "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned while "
+    "running ... onnxruntime\\core\\providers\\dml\\DmlExecutionProvider\\src\\"
+    "DmlCommandRecorder.cpp(371)\\onnxruntime_pybind11_state.pyd!... 887A0020 "
+    "An internal issue prevented the driver from carrying out the specified "
+    "operation. The driver's state is probably suspect, and the application "
+    "should not continue."
+)
+
+
+def test_a_transient_gpu_error_is_retried_once_on_the_processor(flaky) -> None:
+    """The whole fix, end to end: the graphics-card session fails on a batch,
+    `embed()` returns that batch's vectors anyway - from a rebuilt session
+    that `backends.choose` sent to the processor - and says so."""
+    from app.core.gpu_serialize import gpu_unreliable
+
+    problems: list = []
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY, problems=problems)
+    embedder.warm_up()
+    assert embedder.choice is not None and embedder.choice.is_gpu, \
+        "the setup must start on the graphics card or the test proves nothing"
+    assert flaky.instances[0].providers == ["DmlExecutionProvider", "CPUExecutionProvider"]
+
+    vectors = embedder.embed(["a", "b"])
+
+    assert len(vectors) == 2 and len(vectors[0]) == 384
+    assert gpu_unreliable(), "the process-wide latch must be set"
+    assert embedder.choice is not None and not embedder.choice.is_gpu, \
+        "the rebuilt session must be on the processor, not the same driver"
+    assert len(flaky.instances) == 2, "recovery must rebuild, not reuse the dead session"
+    assert flaky.instances[1].providers is None, \
+        "the rebuild must take the byte-for-byte CPU constructor path"
+    assert flaky.instances[1].seen == [["a", "b"]], \
+        "the retry must be the same batch, once"
+    assert problems and "graphics driver" in problems[0], \
+        "the run's notice must carry it"
+
+
+def test_the_real_887a0020_text_is_retried_not_fatal(flaky, monkeypatch) -> None:
+    """The exact wording from `run-20260908-055844-window.log` - the one the
+    morning's classifier did not recognise."""
+    def driver_internal_error(self, texts):
+        _FlakyTextEmbedding.calls += 1
+        if _FlakyTextEmbedding.calls == 1:
+            raise RuntimeError(_DRIVER_INTERNAL_ERROR)
+        return [unit(1.0) for _ in texts]
+
+    monkeypatch.setattr(_FlakyTextEmbedding, "embed", driver_internal_error)
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY)
+
+    assert len(embedder.embed(["a"])) == 1
+
+
+def test_a_second_failure_on_the_processor_ends_the_run_with_the_accurate_words(flaky) -> None:
+    """Bounded to one retry. A driver that fails and a processor that fails
+    too is genuine breakage, raised loudly - with the transient-GPU words,
+    never "delete the model cache", which would send somebody to fix a
+    model that is fine."""
+    flaky.fail_calls = 2
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY)
 
     with pytest.raises(AppErrorException) as caught:
         embedder.embed(["a"])
@@ -465,74 +575,58 @@ def test_transient_gpu_error_gets_accurate_suggestion_and_clears_the_session() -
     assert error.code == "ERR_MODEL_LOAD"
     assert "delete the model cache" not in error.suggestion.lower()
     assert "graphics driver" in error.suggestion.lower()
-    assert "not a problem with the downloaded model" in error.suggestion.lower()
-
-    # **The whole point.** A stale, dead session must not still be cached for
-    # the next `embed()` to hit again.
-    assert embedder._encoder is None
-    assert embedder.choice is None
-    assert not embedder.loaded
+    assert "retried once on the processor" in error.suggestion.lower()
+    assert flaky.calls == 2, "exactly one retry - never a loop"
+    assert len(flaky.instances) == 2
 
 
-def test_transient_gpu_error_does_not_retry_inline_within_the_same_call() -> None:
-    """`pipeline.py` already tolerates one failed batch and moves on (see
-    `Pipeline._drain_unembedded`'s "Indexing continues" warning) - `embed()`
-    itself must not loop and retry the same failed batch."""
-    calls = []
-
-    def device_removed(_texts):
-        calls.append(1)
-        raise RuntimeError(_TRANSIENT_MESSAGE)
-
-    embedder = Embedder(encoder=device_removed)
-    with pytest.raises(AppErrorException):
-        embedder.embed(["a"])
-
-    assert len(calls) == 1, "embed() retried the same failed batch inline"
-
-
-def test_transient_gpu_error_recovers_on_the_next_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The session is invalidated, not merely marked broken - the *next*
-    `_ensure_encoder()` call must actually rebuild and succeed, proving the
-    recovery path recovers rather than resetting state nothing reads again."""
-
-    class FlakyTextEmbedding:
-        """The first instance built simulates a GPU that has dropped out;
-        every instance built after it simulates the driver having
-        recovered (or `backends.with_fallback` having landed on the
-        processor) - either way, a fresh session that actually works."""
-
-        instances_built = 0
-
-        def __init__(self, model_name, cache_dir=None, **_kwargs):
-            self._broken = FlakyTextEmbedding.instances_built == 0
-            FlakyTextEmbedding.instances_built += 1
-
-        def embed(self, texts):
-            if self._broken:
-                raise RuntimeError(_TRANSIENT_MESSAGE)
-            return [unit(float(i)) for i, _ in enumerate(texts)]
-
-    monkeypatch.setattr("fastembed.TextEmbedding", FlakyTextEmbedding)
-
-    embedder = Embedder("fake/flaky-model")
+def test_a_transient_error_does_not_re_enter_the_retry_path(flaky, monkeypatch) -> None:
+    """Guard against recursion: a second transient error during the retry
+    must raise, not mark-invalidate-rebuild-retry again. Proved by counting
+    how many times the latch is marked."""
+    marks: list[str] = []
+    monkeypatch.setattr("app.index.embedder.mark_gpu_unreliable", marks.append)
+    flaky.fail_calls = 5
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY)
 
     with pytest.raises(AppErrorException):
         embedder.embed(["a"])
-    assert embedder._encoder is None, "the dead session must be cleared"
 
-    # The next call rebuilds from scratch and this one actually works.
-    vectors = embedder.embed(["a", "b"])
-    assert len(vectors) == 2
-    assert FlakyTextEmbedding.instances_built == 2, \
-        "recovery must rebuild a fresh session, not reuse the dead one"
+    assert marks == [marks[0]] and len(marks) == 1
+    assert flaky.calls == 2
+
+
+def test_a_transient_gpu_error_is_warned_about_in_plain_words(flaky, monkeypatch) -> None:
+    warnings: list[str] = []
+
+    class _Log:
+        def warning(self, template, *args, **kwargs):
+            warnings.append(template.format(*args, **kwargs))
+
+        def info(self, *a, **k):
+            pass
+
+        def debug(self, *a, **k):
+            pass
+
+    monkeypatch.setattr("app.index.embedder._log", _Log())
+    Embedder("fake/flaky-model", profile=GPU_READY).embed(["a"])
+
+    assert len(warnings) == 1
+    text = warnings[0].lower()
+    assert "graphics driver" in text and "processor" in text and "searches still work" in text
 
 
 def test_a_non_transient_error_keeps_the_generic_suggestion_and_the_session() -> None:
     """Only the classified failure class gets the accurate message and the
     invalidate-and-retry treatment - an ordinary broken-model error must keep
     behaving exactly as before."""
+    from app.core.gpu_serialize import gpu_unreliable
+
+    calls: list = []
+
     def corrupt_model(_texts):
+        calls.append(1)
         raise ValueError("unsupported model format")
 
     embedder = Embedder(encoder=corrupt_model)
@@ -546,3 +640,6 @@ def test_a_non_transient_error_keeps_the_generic_suggestion_and_the_session() ->
     # Unlike the transient-GPU case, nothing here rebuilds anything - the
     # (still broken) encoder is left exactly as it was.
     assert embedder._encoder is corrupt_model
+    # 2026-09-08, later: and nothing here retries or latches either.
+    assert len(calls) == 1, "a non-transient error must not be retried"
+    assert gpu_unreliable() == "", "a non-transient error must not blame the driver"

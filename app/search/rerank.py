@@ -26,7 +26,11 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Sequence
 
-from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
+from app.core.gpu_serialize import (
+    gpu_exclusive,
+    is_transient_gpu_error,
+    mark_gpu_unreliable,
+)
 from app.core.logging import logger
 from app.search.window import RERANK_WINDOW_CHARS, windows_for
 
@@ -290,6 +294,13 @@ class Reranker:
                 # giving recovery a real chance. Clearing it here makes the
                 # *next* `_ensure_scorer()` call rebuild through
                 # `backends.with_fallback`, same idea as `embedder.py`.
+                #
+                # 2026-09-08, later: that rebuild now lands on the processor
+                # rather than the same suspect driver - `mark_gpu_unreliable`
+                # is the process-wide latch `backends.choose()` reads. The
+                # failure budget below is untouched: this attempt still
+                # counts, and a CPU scorer that then works clears the debt.
+                mark_gpu_unreliable(f"{type(exc).__name__}: {exc}"[:200])
                 self._scorer = None
                 self.choice = None
             self._failures += 1

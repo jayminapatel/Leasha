@@ -588,3 +588,79 @@ def test_engine_reloads_and_succeeds_after_a_transient_gpu_failure(monkeypatch) 
     second = ocr_image("x")
     assert second.text == "recovered text"
     assert calls["loads"] == 2, "recovery must reload, not reuse the broken engine"
+
+
+# --- 2026-09-08, later: the reload lands on the processor -------------------
+
+
+def test_transient_gpu_failure_latches_the_driver_so_the_reload_chooses_the_cpu(monkeypatch) -> None:
+    """`_load_engine` goes through `backends.choose`, which reads the
+    process-wide latch - so after one transient failure the next engine is
+    built without DirectML, with no OCR-specific code deciding that."""
+    from app.core.gpu_serialize import gpu_unreliable
+    from app.index import backends
+
+    def device_removed(_source):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    monkeypatch.setattr(module, "log", _FakeLog())
+    monkeypatch.setattr(module, "_engine", "a live but now-dead session")
+    monkeypatch.setattr(module, "_engine_is_gpu", True)
+    monkeypatch.setattr(module, "_warned_transient_gpu", False)
+
+    ocr_image("x", engine=device_removed)
+
+    assert gpu_unreliable(), "one transient OCR failure must set the process-wide latch"
+
+    class _Card:
+        gpus = ("Iris Xe",)
+        directml_available = True
+
+    assert not backends.choose(_Card(), "auto").is_gpu, \
+        "the next _load_engine() must choose the processor"
+
+
+def test_a_cpu_reload_after_a_transient_failure_costs_nothing_from_the_budget(monkeypatch) -> None:
+    """`_engine_attempts` counts *failed constructions* only. A rebuild on
+    the processor that succeeds must leave the budget as it was."""
+    class _Card:
+        gpus = ("Iris Xe",)
+        directml_available = True
+
+    built: list[dict] = []
+
+    class _FakeRapidOCR:
+        def __init__(self, **kwargs):
+            built.append(kwargs)
+
+        def __call__(self, _source):
+            return ([], 0.0)
+
+    import types
+    fake_pkg = types.SimpleNamespace(RapidOCR=_FakeRapidOCR)
+    monkeypatch.setitem(__import__("sys").modules, "rapidocr_onnxruntime", fake_pkg)
+    monkeypatch.setattr(module, "log", _FakeLog())
+    monkeypatch.setattr(module, "_profile", lambda: _Card())
+    monkeypatch.setattr(module, "_engine", None)
+    monkeypatch.setattr(module, "_engine_failed", False)
+    monkeypatch.setattr(module, "_engine_attempts", 0)
+    monkeypatch.setattr(module, "_engine_is_gpu", False)
+    monkeypatch.setattr(module, "_warned_transient_gpu", False)
+    monkeypatch.setattr(module, "_device", "auto")
+
+    first = module._load_engine()
+    assert first is not None and built[0].get("det_use_dml") is True, \
+        "the setup must start on the graphics card or the test proves nothing"
+
+    def device_removed(_source):
+        raise RuntimeError(_TRANSIENT_MESSAGE)
+
+    monkeypatch.setattr(module, "_engine_is_gpu", True)
+    ocr_image("x", engine=device_removed)
+    assert module._engine is None
+
+    second = module._load_engine()
+    assert second is not None and second is not first
+    assert built[1] == {}, "the reload must be built without DirectML"
+    assert module._engine_attempts == 0, "a reload that works must not spend the budget"
+    assert module._engine_failed is False

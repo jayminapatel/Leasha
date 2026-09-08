@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from app.core.gpu_serialize import gpu_unreliable
 from app.core.logging import logger
 
 __all__ = [
@@ -149,6 +150,25 @@ def choose(profile: Any, requested: str = AUTO, *,
 
     if wanted == CPU:
         return Choice(CPU, providers_for(CPU), "asked for the processor")
+
+    # **2026-09-08: a driver that failed this session is not asked again.**
+    # `logs/runs/run-20260908-055844-window.log` at 06:29:49: the driver
+    # reported `887A0020` mid-batch with the words "the driver's state is
+    # probably suspect, and the application should not continue", and this
+    # function had no memory of it - the embedder's rebuild would have asked
+    # for the same suspect driver again. Checked after `blocked`, so that a
+    # machine with no usable graphics card keeps its own, more useful
+    # sentence (no adapter is a hardware fact; no provider is a `pip
+    # install` away), and the driver sentence is used only where the card
+    # would otherwise have been chosen. It outranks an explicit `gpu` as
+    # well: a stored setting does not overrule the driver's own verdict, and
+    # `fell_back_from` is set so the run's notice says so.
+    failed = gpu_unreliable()
+    if failed and not blocked:
+        return Choice(CPU, providers_for(CPU),
+                      f"the processor, because the graphics driver failed "
+                      f"earlier in this session ({failed})",
+                      fell_back_from=GPU)
 
     if wanted == GPU:
         if blocked:

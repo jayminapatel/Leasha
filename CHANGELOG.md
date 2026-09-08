@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.06 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 4.07 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,31 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Fixed: one graphics-driver failure used to end the whole indexing run - now it carries on using the processor
+
+- **A real event, from the user's own machine on 2026-09-08, later the same morning as the
+  fix below.** Half an hour into an indexing run, the graphics driver reported an internal
+  error - its own words were that its state was "probably suspect" and the application should
+  not continue. Leasha's reply was to end the indexing run on the spot, and then say nothing
+  further: the window stayed open for hours looking as though indexing was just very slow,
+  when in fact it had stopped at that moment. The fix below, shipped earlier the same morning,
+  did not catch this: it recognised three specific driver error codes, and this was a fourth
+  from the same family.
+- **This is fixed, in three parts.** Leasha now recognises the whole family of graphics-driver
+  error codes, not a hand-picked few. When one happens during indexing, the batch that failed
+  is tried once more on the processor rather than being given up on - so the run continues,
+  more slowly, and searches still work. And once the driver has failed in a session, every
+  part of Leasha that might use the graphics card (the meaning model, picture-reading,
+  result reordering, and the picture model) uses the processor for the rest of that session
+  instead of asking the same driver again - even if the settings say "use the graphics card",
+  because the driver has said it should not be trusted. Restarting Leasha gives the graphics
+  card a fresh chance.
+- **What you will see.** A single warning in the log in plain words when it happens, the
+  run log recording that the meaning model then ran on the processor, and a slower rate from that
+  point. If the processor also fails on the same batch - which would be a genuine fault, not
+  a driver hiccup - the run still stops loudly, with a message that says what happened rather
+  than telling you to delete the model cache.
 
 ### Fixed: a graphics driver hiccup used to turn off meaning search, picture-reading and result reordering for the rest of a run
 

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.2 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 5.3 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1124,6 +1124,44 @@ OCR's construction-retry-budget (`_engine_failed`/`_engine_attempts`) is untouch
 a different, already-correct mechanism for "the package genuinely is not installed". This
 sandbox has no graphics card, so the classifier and the recovery paths are proved with injected
 fake sessions that fail once and then succeed, not against real DirectML hardware.
+
+**2026-09-08, later the same day: the fix above did not fire, and a single embed failure ended
+the whole index run.** `logs/runs/run-20260908-055844-window.log` at 06:29:49: `887A0020`
+(`DXGI_ERROR_DRIVER_INTERNAL_ERROR`, "the driver's state is probably suspect, and the application
+should not continue") escaped `Embedder.embed()`, `pipeline._feed_worker` recorded it and
+`_raise_if_feeder_failed` ended the run - by design, and correctly - thirty minutes in; the log is
+then silent for 3h40m until the window was closed, which the user experienced as "indexing is
+extremely slow". Three gaps: the classifier matched only `887a0005/6/7`, so `887A0020` was
+"generic"; even when classified, `embed()` only invalidated and re-raised, so the batch was lost
+and the run ended anyway; and `backends.choose()` had no memory that the driver had failed, so the
+rebuild would have asked for it again. Fixed: (1) `is_transient_gpu_error` matches the whole DXGI
+facility via regex `887a00[0-9a-f]{2}` plus `dmlexecutionprovider`/`dmlcommandrecorder`/the driver
+phrases - one facility, not a hand-picked list; (2) `gpu_serialize.mark_gpu_unreliable(reason)` /
+`gpu_unreliable()` is a **process-wide sticky latch** (a plain string replaced whole - assignment
+of an immutable is atomic under the GIL, so no lock; first reason wins; never cleared by the app,
+`_reset_for_tests()` and an autouse fixture in `tests/conftest.py` clear it between tests) that
+`backends.choose()` reads after `blocked`: when set and the card would otherwise have been chosen,
+`auto` **and explicit `gpu`** return the CPU `Choice` with `fell_back_from=GPU` and the sentence
+"the processor, because the graphics driver failed earlier in this session (...)"; `cpu` and a
+machine whose card is `blocked` anyway keep their own sentences; (3) `Embedder.embed()` on a
+classified failure now calls `_retry_on_processor`: mark the latch, warn once, append `problems`,
+drop the session, `_ensure_encoder()` (lands on CPU because of the latch - `test_embedder.py`
+proves it against a fake `TextEmbedding` that records its providers), then **one straight second
+call** to the encoder on the same batch, never back through `embed()`'s except path; a second
+failure raises `ERR_MODEL_LOAD` with the transient-GPU words. Non-transient exceptions take
+exactly the old path (asserted: encoder called once, latch not set). OCR's `ocr_image` and the
+reranker's `rerank` also mark the latch where they already invalidate, so their next
+`_load_engine()`/`_ensure_scorer()` lands on the CPU with no per-subsystem code; OCR's
+`_engine_attempts` counts only failed constructions, so a CPU reload that works costs nothing from
+that budget (tested); the reranker's `RERANK_FAILURE_BUDGET` is untouched. **The pipeline's loud
+end is deliberately unchanged** - what reaches `_feed_worker` now is a batch that failed on the
+card *and* on the processor, which is genuine breakage; a dated paragraph in its docstring says
+so. Trap for the next reader: **the latch is process-wide and sticky** - any test that simulates
+a transient GPU error in any subsystem will silently send every later `choose()` in the same
+pytest process to the CPU unless the autouse fixture is in scope; and `clip_embedder.py` gets
+the CPU fallback for free through `choose()` but has no retry of its own - a driver failure
+mid-CLIP-batch still raises out of `ClipImageEmbedder.embed` as before (decide whether it needs
+the same one-retry treatment; not done here because no log shows it happening).
 
 ## 7. Open questions
 

@@ -245,3 +245,66 @@ def test_all_three_model_users_go_through_the_seam(module: Path) -> None:
     assert "backends" in source, module
     assert "DmlExecutionProvider" not in source, (
         f"{module} names a provider directly instead of asking the seam")
+
+
+# --- 2026-09-08: a driver that failed this session is not asked again -----
+#
+# `logs/runs/run-20260908-055844-window.log` at 06:29:49: the driver said
+# "the application should not continue", and `choose` had no memory of it.
+
+
+def test_auto_lands_on_the_processor_after_the_driver_failed() -> None:
+    from app.core.gpu_serialize import mark_gpu_unreliable
+
+    mark_gpu_unreliable("RuntimeError: 887A0020 internal driver error")
+    choice = backends.choose(GPU_READY, backends.AUTO)
+
+    assert choice.device == backends.CPU
+    assert choice.fell_back_from == backends.GPU, "the notice must be able to say so"
+    assert "graphics driver failed earlier in this session" in choice.why
+    assert "887A0020" in choice.why
+
+
+def test_an_explicit_gpu_setting_does_not_outrank_the_driver() -> None:
+    from app.core.gpu_serialize import mark_gpu_unreliable
+
+    mark_gpu_unreliable("887A0020")
+    choice = backends.choose(GPU_READY, backends.GPU)
+
+    assert choice.device == backends.CPU
+    assert choice.fell_back_from == backends.GPU
+    assert "graphics driver failed earlier in this session" in choice.why
+
+
+def test_asking_for_the_processor_is_unchanged_by_the_driver_latch() -> None:
+    from app.core.gpu_serialize import mark_gpu_unreliable
+
+    mark_gpu_unreliable("887A0020")
+    choice = backends.choose(GPU_READY, backends.CPU)
+
+    assert choice == backends.choose(GPU_READY, backends.CPU)
+    assert choice.why == "asked for the processor"
+    assert choice.fell_back_from == ""
+
+
+def test_a_machine_with_no_usable_card_keeps_its_own_sentence() -> None:
+    """No adapter is a hardware fact and sends somebody to a different
+    place than a driver failure does; the driver sentence is only for the
+    machine where the card would otherwise have been chosen."""
+    from app.core.gpu_serialize import mark_gpu_unreliable
+
+    mark_gpu_unreliable("887A0020")
+
+    assert backends.choose(NO_GPU).why == "the processor, because no display adapter was detected"
+    assert "pip install" in backends.choose(GPU_NO_PROVIDER, backends.GPU).why
+
+
+def test_the_latch_is_honoured_over_an_injected_provider_list() -> None:
+    from app.core.gpu_serialize import mark_gpu_unreliable
+
+    mark_gpu_unreliable("887A0020")
+    choice = backends.choose(GPU_READY, backends.AUTO,
+                             available=[backends.DML_PROVIDER, backends.CPU_PROVIDER])
+
+    assert choice.device == backends.CPU
+    assert choice.fell_back_from == backends.GPU

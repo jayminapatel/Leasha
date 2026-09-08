@@ -2414,6 +2414,18 @@ class Pipeline:
         worker started while a CPU embed is genuinely mid-batch would
         compete with it for the same cores; one started while a batch is
         merely *waiting its turn* would not.
+
+        **2026-09-08: the embedder now absorbs one graphics-driver failure
+        before this path is reached.** `logs/runs/run-20260908-055844-
+        window.log` at 06:29:49: a `887A0020` driver error escaped
+        `Embedder.embed()` on one batch and the loud end above did exactly
+        what it says, thirty minutes into a run that then sat dead for three
+        and a half hours. `Embedder.embed()` now retries that batch once on
+        the processor (`_retry_on_processor`) and only raises if the retry
+        fails too - so what reaches here is genuine breakage, and nothing in
+        this loop or in `_raise_if_feeder_failed` changed. The loud end is
+        still right; it is just no longer the first thing a flaky driver
+        meets.
         """
         while True:
             batch = self._feeder_queue.get()

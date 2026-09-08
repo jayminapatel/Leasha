@@ -32,15 +32,29 @@ extractor) would let one stuck GPU call block the other two subsystems'
 safe for concurrent independent use, and there is no reason to slow down a
 CPU-only machine, or a machine where only one of the three ever resolves to
 the graphics card, by serialising work that was never at risk.
+
+**2026-09-08: also the process-wide "the graphics driver failed" latch.**
+`is_transient_gpu_error` classifies a DirectML/DXGI driver event, and
+`mark_gpu_unreliable` / `gpu_unreliable` remember that one happened so
+`app/index/backends.py::choose()` sends every later session build in this
+process to the processor. Both live here rather than in `backends.py` because
+the three consumers already import this module for the gate, and the
+classifier and the latch are read at the same moment the gate is.
 """
 
 from __future__ import annotations
 
+import re
 import threading
 from contextlib import contextmanager
 from typing import Iterator
 
-__all__ = ["gpu_exclusive", "is_transient_gpu_error"]
+__all__ = [
+    "gpu_exclusive",
+    "gpu_unreliable",
+    "is_transient_gpu_error",
+    "mark_gpu_unreliable",
+]
 
 #: Substrings that identify a DirectML/DXGI device-removed style event.
 #: Lower-cased before comparison, so this list is written in whatever case
@@ -64,16 +78,41 @@ __all__ = ["gpu_exclusive", "is_transient_gpu_error"]
 #: the same family of event reported through the same mechanism - a
 #: reasonable, documented, **non-exhaustive** set, not a claim that these are
 #: the only transient GPU failures that exist.
+#:
+#: **2026-09-08, later the same day: the hand-picked three were not enough.**
+#: `logs/runs/run-20260908-055844-window.log` at 06:29:49: the embedder
+#: failed with `...DmlExecutionProvider\src\DmlCommandRecorder.cpp(371)...
+#: 887A0020 An internal issue prevented the driver from carrying out the
+#: specified operation. The driver's state is probably suspect, and the
+#: application should not continue.` That is `DXGI_ERROR_DRIVER_INTERNAL_
+#: ERROR` - the same family as the three above, reported through the same
+#: mechanism, and this list did not match it, so the recovery path built
+#: that morning never fired and the whole index run ended thirty minutes in.
+#: Every `887A00xx` HRESULT is the DXGI facility (`_FACDXGI = 0x87a`), and
+#: every code in it that reaches an inference call is a driver or device
+#: event rather than a model or data problem - so the whole facility is now
+#: matched by `_DXGI_HRESULT` below rather than by a hand-picked few, and the
+#: DirectML provider's own file names are markers too: a failure whose text
+#: names `DmlCommandRecorder` came from the driver path, whatever the code.
 _TRANSIENT_GPU_MARKERS: tuple[str, ...] = (
     "device instance has been suspended",
     "getdeviceremovedreason",
     "dxgi_error_device_removed",
     "dxgi_error_device_hung",
     "dxgi_error_device_reset",
+    "dxgi_error_driver_internal_error",
+    "driver_internal_error",
+    "driver's state is probably suspect",
+    "dmlexecutionprovider",
+    "dmlcommandrecorder",
     "887a0005",
     "887a0006",
     "887a0007",
 )
+
+#: Any HRESULT in the DXGI facility: `0x887A00xx`. Matched case-insensitively
+#: against the lower-cased text, so written in lower case here.
+_DXGI_HRESULT = re.compile(r"887a00[0-9a-f]{2}")
 
 
 def is_transient_gpu_error(exc: BaseException) -> bool:
@@ -84,6 +123,13 @@ def is_transient_gpu_error(exc: BaseException) -> bool:
     See `_TRANSIENT_GPU_MARKERS` above for exactly what this matches on and
     the real crash (`logs/runs/run-20260908-050751-window.log`, line
     121-123) that it exists to distinguish from an ordinary model failure.
+
+    **2026-09-08, later the same day:** also any `887A00xx` HRESULT - the
+    whole DXGI facility, via `_DXGI_HRESULT` - and the DirectML provider's
+    own source-file names and driver phrases, after `887A0020`
+    (`logs/runs/run-20260908-055844-window.log` at 06:29:49) slipped past
+    the hand-picked codes and ended an index run. One facility, not a list
+    somebody has to keep extending one crash at a time.
 
     **This is a best-effort classification of an error STRING, not a
     structured exception type.** onnxruntime does not raise a distinct
@@ -104,7 +150,60 @@ def is_transient_gpu_error(exc: BaseException) -> bool:
         # this is guidance, never a gate, so an unreadable exception simply
         # classifies as "not recognised" rather than escaping upward.
         return False
+    if _DXGI_HRESULT.search(text):
+        return True
     return any(marker in text for marker in _TRANSIENT_GPU_MARKERS)
+
+
+#: Set once the graphics driver has failed mid-inference in this process,
+#: and never cleared for the life of the process - see `mark_gpu_unreliable`.
+#:
+#: **A plain string, replaced whole, no lock.** Assigning a name to an
+#: immutable object is a single bytecode under the GIL, so a reader on
+#: another thread sees either the old string or the new one, never a torn
+#: value; the only race is two subsystems both marking within the same
+#: instant, and the outcome of that race is that one of two true reasons
+#: wins, which is acceptable. A lock would guard against nothing here.
+_GPU_UNRELIABLE_REASON: str = ""
+
+
+def mark_gpu_unreliable(reason: str) -> None:
+    """Record that the graphics driver failed this session, so every later
+    `backends.choose()` lands on the processor.
+
+    **Why a process-wide latch and not a per-subsystem retry.** The driver's
+    own words in `logs/runs/run-20260908-055844-window.log` were "the
+    driver's state is probably suspect, and the application should not
+    continue" - and `backends.choose()` had no memory that anything had
+    happened, so the embedder's rebuild would have asked for the same
+    suspect driver again, and OCR and the reranker each would have had to
+    learn the same lesson separately. One flag, read at the one seam every
+    GPU consumer goes through, means the first subsystem to be hit moves
+    the whole process to the processor, and nothing needs per-subsystem
+    code to follow it.
+
+    Sticky until the process ends: a driver that has said "do not continue"
+    does not get a second chance from a stored setting, and searches, OCR
+    and indexing all still work on the processor. The first reason recorded
+    is kept; a later one does not overwrite it, because the first is the
+    one that explains everything after it.
+    """
+    global _GPU_UNRELIABLE_REASON
+    text = str(reason or "").strip() or "the graphics driver failed"
+    if not _GPU_UNRELIABLE_REASON:
+        _GPU_UNRELIABLE_REASON = text
+
+
+def gpu_unreliable() -> str:
+    """Why the graphics driver is not to be used again this session, or
+    `""` while nothing has gone wrong."""
+    return _GPU_UNRELIABLE_REASON
+
+
+def _reset_for_tests() -> None:
+    """Clear the latch. Tests only - the process never clears it itself."""
+    global _GPU_UNRELIABLE_REASON
+    _GPU_UNRELIABLE_REASON = ""
 
 #: The one process-wide gate. A plain `Lock`, not an `RLock`: every call path
 #: into this file was read before choosing — `embedder._ensure_encoder`,

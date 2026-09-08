@@ -40,7 +40,11 @@ import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from app.core.errors import AppErrorException, make_error
-from app.core.gpu_serialize import gpu_exclusive, is_transient_gpu_error
+from app.core.gpu_serialize import (
+    gpu_exclusive,
+    is_transient_gpu_error,
+    mark_gpu_unreliable,
+)
 from app.core.logging import logger
 from app.index import backends
 
@@ -384,11 +388,7 @@ class Embedder:
 
         encoder = self._ensure_encoder()
         try:
-            # **Gated on what actually ran, not on what was asked for.** A
-            # fallen-back-to-CPU choice must not keep paying the cross-
-            # subsystem lock it no longer needs; see `gpu_serialize`.
-            with gpu_exclusive(bool(self.choice and self.choice.is_gpu)):
-                raw = list(encoder(texts))
+            raw = self._run(encoder, texts)
         except AppErrorException:
             raise
         except Exception as exc:                   # noqa: BLE001 - boundary
@@ -407,23 +407,31 @@ class Embedder:
             # on the graphics card if it recovered, or fall back to the
             # processor if it has not, either of which beats repeating a call
             # that is doomed to fail identically every time.
-            transient = is_transient_gpu_error(exc)
-            if transient:
-                self._encoder = None
-                self.choice = None
-            raise AppErrorException(make_error(
-                "ERR_MODEL_LOAD", "index.embedder",
-                details=f"embedding {len(texts)} text(s) failed: {type(exc).__name__}: {exc}",
-                suggestion=(
-                    "Your graphics driver reported the GPU as unavailable (a driver "
-                    "reset, heavy system load, or the machine waking from sleep can "
-                    "cause this) - this is not a problem with the downloaded model. "
-                    "Leasha will try again on the next batch."
-                ) if transient else (
-                    "The model loaded but would not run. Delete the model cache under "
-                    "<DATA_PATH>\\models and let it download again."
-                ),
-            )) from exc
+            #
+            # **2026-09-08, later the same day: clearing was not enough.**
+            # `logs/runs/run-20260908-055844-window.log` at 06:29:49: the
+            # driver failed with `887A0020` thirty minutes into a run, the
+            # exception left this method, and `pipeline._feed_worker` ended
+            # the whole run on it - by design, since a batch that cannot be
+            # embedded must not be silently dropped. So the "next batch"
+            # the old suggestion promised never came, and the user sat for
+            # three and a half hours in front of a run that was already
+            # dead. The batch is now retried **once**, on the processor, in
+            # `_retry_on_processor` below; only a second failure reaches the
+            # pipeline. A non-transient exception takes exactly the path it
+            # always did.
+            if not is_transient_gpu_error(exc):
+                raise AppErrorException(make_error(
+                    "ERR_MODEL_LOAD", "index.embedder",
+                    details=f"embedding {len(texts)} text(s) failed: "
+                            f"{type(exc).__name__}: {exc}",
+                    suggestion=(
+                        "The model loaded but would not run. Delete the model "
+                        "cache under <DATA_PATH>\\models and let it download "
+                        "again."
+                    ),
+                )) from exc
+            raw = self._retry_on_processor(texts, exc)
 
         if len(raw) != len(texts):
             raise AppErrorException(make_error(
@@ -472,6 +480,80 @@ class Embedder:
         if divide.any():
             np.divide(block, magnitudes, out=block, where=divide)
         return block.tolist()
+
+    def _run(self, encoder: Encoder, texts: Sequence[str]) -> list:
+        """One inference call, behind the cross-subsystem gate. Raises
+        whatever the encoder raises - classification is the caller's job."""
+        # **Gated on what actually ran, not on what was asked for.** A
+        # fallen-back-to-CPU choice must not keep paying the cross-
+        # subsystem lock it no longer needs; see `gpu_serialize`.
+        with gpu_exclusive(bool(self.choice and self.choice.is_gpu)):
+            return list(encoder(texts))
+
+    def _retry_on_processor(self, texts: Sequence[str],
+                            cause: BaseException) -> list:
+        """The same batch, once more, on the processor. 2026-09-08.
+
+        Called only for an exception `is_transient_gpu_error` recognised.
+        The flow, in order, and bounded to exactly one retry:
+
+        1. `mark_gpu_unreliable` - process-wide, so `backends.choose()` sends
+           this rebuild **and every other subsystem's next rebuild** to the
+           processor. The driver's own words were "the application should
+           not continue"; it is not asked again this session.
+        2. Warn once, in plain words, and put the same words in `problems`
+           so the run's notice carries it.
+        3. Drop the dead session and rebuild through `_ensure_encoder()`,
+           which lands on the processor because of step 1 - proved by
+           `test_embedder.py`, not assumed.
+        4. Call the encoder once more on the same `texts`. A straight second
+           call, deliberately **not** through `embed()`, so there is no way
+           back into the except path that led here: a second failure raises
+           out of this method and ends the run, as any genuine breakage
+           should (H4: degrade loudly, never loop, never hang).
+
+        A rebuild that itself fails raises `_ensure_encoder`'s own
+        `AppErrorException`, whose details already name the construction
+        failure; it is left as it is rather than re-wrapped.
+        """
+        reason = f"{type(cause).__name__}: {cause}"
+        if len(reason) > 200:
+            # The driver text runs to several lines with a source path in
+            # it; the HRESULT and the first sentence are what a reader needs.
+            reason = reason[:200] + "..."
+        mark_gpu_unreliable(reason)
+
+        message = ("the graphics driver failed while embedding, so this run "
+                   "continues on the processor - slower, and searches still "
+                   "work")
+        _log.warning("{} ({})", message, reason)
+        if self._problems is not None:
+            try:
+                self._problems.append(message)
+            except Exception:                      # noqa: BLE001 - a notice list must never break a batch
+                pass
+
+        self._encoder = None
+        self.choice = None
+        encoder = self._ensure_encoder()           # lands on the processor - see step 3
+
+        try:
+            return self._run(encoder, texts)
+        except Exception as exc:                   # noqa: BLE001 - boundary
+            raise AppErrorException(make_error(
+                "ERR_MODEL_LOAD", "index.embedder",
+                details=f"embedding {len(texts)} text(s) failed on the graphics "
+                        f"card ({reason}) and again on the processor: "
+                        f"{type(exc).__name__}: {exc}",
+                suggestion=(
+                    "Your graphics driver reported the GPU as unavailable (a "
+                    "driver reset, heavy system load, or the machine waking from "
+                    "sleep can cause this) - this is not a problem with the "
+                    "downloaded model. Leasha retried once on the processor and "
+                    "that failed too, so this run has stopped. Restart Leasha "
+                    "and run indexing again; what was already indexed is kept."
+                ),
+            )) from exc
 
     def embed_all(self, texts: Sequence[str]) -> Iterator[list[float]]:
         """Embed any number of texts, `batch_size` at a time, lazily.
