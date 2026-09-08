@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.3 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 5.4 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1096,6 +1096,35 @@ whether `SettingsView` needs the same live reference rather than assuming it alr
 More generally: **a caught exception logged below INFO is a bug wearing a disguise** - grep this
 codebase for `except Exception` next to a bare `_log.debug` before trusting that a "successful"
 save actually did anything live.
+
+**2026-09-08: the governor's "own load" was the main process only, so every converter
+subprocess counted as "other programs".** `logs/runs/run-20260908-055844-window.log`: ~25
+pause/resume cycles between 06:06 and 06:28, each "the machine is busy (81-95% CPU used by
+other programs)", with `index_cpu_percent 80`. LibreOffice, the DWG converters and the RTF
+converter run as children (`app/extract/converter.py`, `rtf.py`, `diagrams.py`), and
+`Snapshot.own_cpu_percent` was `Process.cpu_percent()/cores` for the main process alone - so
+the indexer paused because of its own converter, waited it out, spawned the next and paused
+again. `SystemProbe._children_cpu_percent` now adds `children(recursive=True)` (0.28ms for the
+walk with six real children in the sandbox; per-child guarded, a child exiting mid-read
+contributes nothing). Nobody could say *which* programs were busy, because nothing logged
+it - three candidate diagnoses (antivirus, Ollama, Windows Search) and no way to choose. So
+`busiest_processes()` samples the process table for half a second on the way into a CPU pause
+(`resource governor: busiest right now - X 41%, Y 22%, Z 9%`), rate-limited to once per 30s,
+own pid and children excluded. **Read that line before guessing next time.** The same run
+said OCR was on the processor "because no display adapter was detected" while the embedder
+was on the GPU: `_dxgi_adapters()`'s 15s PowerShell probe had timed out under that load, and
+a timeout returned `()` - the same value as "no graphics card" - which `why_unavailable()`
+then stated as a hardware fact, and which `cached_profile()` treated as a different
+fingerprint and **overwrote the stored profile with**. Now `_dxgi_adapters` returns
+`(adapters, failure)`, `ComputeProfile.gpu_probe_failed` records that the check did not run
+(defaults False for profiles written by older code), a module-level `_last_known_adapters`
+serves later `detect()` calls in the same process (the embedder, OCR and the image model each
+call `detect()` for themselves - that is why one could be right and another wrong twenty
+minutes apart), `cached_profile` keeps the stored adapters rather than deleting them, and the
+sentence with nothing to fall back on is "the graphics card check could not run". The timeout
+was deliberately not lengthened. Still open: `detect()` is called per subsystem and each call
+spawns PowerShell twice; a process-wide detect-once would remove the exposure altogether, but
+that is a structural change and "working version first" applies.
 
 **2026-09-08: a transient DXGI device-removed event (driver reset, or the GPU briefly dropping
 out of the system) was being treated as a permanent, silent failure in all three GPU consumers.**

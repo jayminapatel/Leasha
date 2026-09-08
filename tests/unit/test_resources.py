@@ -321,3 +321,238 @@ def test_the_probe_adopts_its_first_reading_as_the_baseline():
 
     assert first.baseline_mb == pytest.approx(first.rss_mb, rel=0.5)
     assert probe.read().growth_mb is not None
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-08: the converters are our load too, and a pause names its cause.
+#
+# From `logs/runs/run-20260908-055844-window.log`: ~25 pause/resume cycles in
+# 22 minutes on "81-95% CPU used by other programs", on a machine where the
+# "other programs" were largely the indexer's own converter subprocesses.
+# ---------------------------------------------------------------------------
+
+class FakeChild:
+    def __init__(self, pid: int, percent: float, *, raises: type | None = None):
+        self.pid = pid
+        self._percent = percent
+        self._raises = raises
+        self.info = {"pid": pid, "name": f"child{pid}.exe"}
+
+    def cpu_percent(self, interval=None) -> float:
+        if self._raises is not None:
+            raise self._raises(self.pid)
+        return self._percent
+
+
+class FakeProcess:
+    """Enough of `psutil.Process` for the probe."""
+
+    def __init__(self, own_percent: float, children: list, pid: int = 4242):
+        self.pid = pid
+        self._own = own_percent
+        self._children = children
+        self.info = {"pid": pid, "name": "Leasha.exe"}
+
+    class _Mem:
+        rss = 300 * 1_048_576
+
+    def memory_info(self):
+        return self._Mem()
+
+    def cpu_percent(self, interval=None) -> float:
+        return self._own
+
+    def children(self, recursive: bool = False) -> list:
+        return list(self._children)
+
+
+class FakePsutil:
+    """A psutil module with a scripted process table and no real machine."""
+
+    class NoSuchProcess(Exception):
+        pass
+
+    class AccessDenied(Exception):
+        pass
+
+    def __init__(self, process: FakeProcess, table: list | None = None,
+                 cores: int = 4, iter_raises: bool = False):
+        self._process = process
+        self._table = table or []
+        self._cores = cores
+        self._iter_raises = iter_raises
+
+    def Process(self, pid=None):
+        return self._process
+
+    def cpu_count(self, logical: bool = True) -> int:
+        return self._cores
+
+    def cpu_percent(self, interval=None) -> float:
+        return 90.0
+
+    def sensors_battery(self):
+        return None
+
+    def process_iter(self, attrs=None):
+        if self._iter_raises:
+            raise RuntimeError("the process table is not available")
+        return iter(self._table)
+
+
+def probe_with(fake: FakePsutil):
+    from app.index.resources import SystemProbe
+
+    probe = SystemProbe()
+    probe._psutil = lambda: fake                # the seam, exactly as `read` uses it
+    probe._process = fake.Process()
+    return probe
+
+
+def test_child_processes_count_as_our_own_load():
+    """LibreOffice, the DWG and RTF converters run as children. Their CPU was
+    landing on the "other programs" side, so the governor paused the indexer
+    because of the indexer's own converter, resumed, spawned the next one and
+    paused again."""
+    me = FakeProcess(own_percent=40.0, children=[FakeChild(1, 120.0), FakeChild(2, 40.0)])
+    snapshot = probe_with(FakePsutil(me, cores=4)).read()
+
+    # (40 + 120 + 40) per-core-summed, over four cores.
+    assert snapshot.own_cpu_percent == pytest.approx(50.0)
+    assert snapshot.other_cpu_percent == pytest.approx(40.0)
+
+
+def test_a_child_that_exits_mid_read_is_skipped_and_the_probe_still_answers():
+    """Children exit between being listed and being read - a converter
+    finishing is the ordinary case. The probe never raises."""
+    me = FakeProcess(own_percent=40.0, children=[
+        FakeChild(1, 80.0),
+        FakeChild(2, 999.0, raises=FakePsutil.NoSuchProcess),
+        FakeChild(3, 999.0, raises=FakePsutil.AccessDenied),
+    ])
+    snapshot = probe_with(FakePsutil(me, cores=4)).read()
+
+    assert isinstance(snapshot, Snapshot)
+    assert snapshot.own_cpu_percent == pytest.approx(30.0)
+
+
+def test_the_probe_stays_cheap_with_children():
+    """The cost of the children walk, stated rather than assumed: with eight
+    fake children a full `read()` stays well under a millisecond here, so the
+    real `children(recursive=True)` call - one process-table walk - is the
+    only cost added, and psutil's own is a few hundred microseconds."""
+    import time as _time
+
+    me = FakeProcess(own_percent=10.0, children=[FakeChild(i, 5.0) for i in range(8)])
+    probe = probe_with(FakePsutil(me, cores=4))
+    probe.read()                                # warm
+
+    started = _time.perf_counter()
+    for _ in range(200):
+        probe.read()
+    per_read = (_time.perf_counter() - started) / 200
+
+    assert per_read < 0.005, f"{per_read * 1000:.2f}ms per read with eight children"
+
+
+# -- who is busy -------------------------------------------------------------
+
+@pytest.fixture
+def captured():
+    """INFO and above from the resources logger, as plain messages."""
+    from app.core.logging import logger
+
+    lines: list[str] = []
+    handle = logger.add(lambda message: lines.append(message.record["message"]),
+                        level="INFO", format="{message}")
+    yield lines
+    logger.remove(handle)
+
+
+def test_a_cpu_pause_names_the_three_busiest_programs(captured):
+    """The "plant logging" move: the next log answers "busy with what" instead
+    of a guess between antivirus, Ollama, Windows Search and OneDrive."""
+    from app.index.resources import busiest_processes
+
+    me = FakeProcess(own_percent=0.0, children=[FakeChild(7, 400.0)], pid=4242)
+    table = [
+        FakeChild(10, 160.0), FakeChild(11, 40.0), FakeChild(12, 90.0),
+        FakeChild(13, 8.0), me, FakeChild(7, 400.0),   # us, and our child
+    ]
+    table[0].info["name"] = "MsMpEng.exe"
+    table[1].info["name"] = "chrome.exe"
+    table[2].info["name"] = "ollama.exe"
+    slept: list[float] = []
+    fake = FakePsutil(me, table=table, cores=4)
+
+    top = busiest_processes(psutil_module=fake, sleep=slept.append)
+
+    assert top == [("MsMpEng.exe", 40.0), ("ollama.exe", 22.5), ("chrome.exe", 10.0)]
+    assert slept == [0.5], "two readings half a second apart, at a pause boundary"
+
+
+def test_the_busiest_sample_never_raises(captured):
+    from app.index.resources import busiest_processes
+
+    me = FakeProcess(own_percent=0.0, children=[])
+    fake = FakePsutil(me, iter_raises=True)
+
+    assert busiest_processes(psutil_module=fake, sleep=lambda _s: None) == []
+
+
+def test_the_governor_logs_the_busiest_on_the_way_into_a_cpu_pause(captured):
+    calls: list[int] = []
+
+    def busiest():
+        calls.append(1)
+        return [("MsMpEng.exe", 41.0), ("ollama.exe", 22.0), ("chrome.exe", 9.0)]
+
+    governor = ResourceGovernor(LIMITS, probe=FakeProbe(snap(system_cpu_percent=95.0)),
+                                sleep=lambda _s: None, busiest=busiest)
+    governor.check(now=100.0)                   # starts the busy timer
+    found = governor.check(now=110.0)           # busy long enough: pause
+
+    assert found.action == "pause" and found.cause == "cpu"
+    assert calls == [1]
+    line = next(l for l in captured if "busiest right now" in l)
+    assert line.endswith("MsMpEng.exe 41%, ollama.exe 22%, chrome.exe 9%")
+
+
+def test_the_busiest_sample_is_not_repeated_within_thirty_seconds(captured):
+    """A flapping governor must not spend half a second per flap."""
+    calls: list[int] = []
+    busy, quiet = snap(system_cpu_percent=95.0), snap(system_cpu_percent=5.0)
+    probe = FakeProbe(busy, busy, quiet, quiet, busy, busy, quiet, quiet, busy, busy)
+    governor = ResourceGovernor(LIMITS, probe=probe, sleep=lambda _s: None,
+                                busiest=lambda: calls.append(1) or [("x.exe", 50.0)])
+
+    governor.check(now=0.0); governor.check(now=6.0)        # pause 1 at t=6
+    governor.check(now=7.0); governor.check(now=18.0)       # run again at t=18
+    governor.check(now=19.0); governor.check(now=25.0)      # pause 2 at t=25: <30s, skipped
+    governor.check(now=26.0); governor.check(now=37.0)      # run
+    governor.check(now=38.0); governor.check(now=44.0)      # pause 3 at t=44: 38s, sampled
+
+    assert governor.pauses == 3
+    assert calls == [1, 1]
+
+
+def test_a_memory_pause_does_not_sample_the_process_table(captured):
+    calls: list[int] = []
+    governor = ResourceGovernor(LIMITS, probe=FakeProbe(snap(rss_mb=2000.0)),
+                                sleep=lambda _s: None,
+                                busiest=lambda: calls.append(1) or [])
+
+    assert governor.check(now=0.0).cause == "memory"
+    assert calls == []
+    assert not any("busiest" in l for l in captured)
+
+
+def test_a_failing_busiest_sample_does_not_break_the_check(captured):
+    def broken():
+        raise RuntimeError("no process table")
+
+    governor = ResourceGovernor(LIMITS, probe=FakeProbe(snap(system_cpu_percent=95.0)),
+                                sleep=lambda _s: None, busiest=broken)
+    governor.check(now=0.0)
+
+    assert governor.check(now=10.0).action == "pause"

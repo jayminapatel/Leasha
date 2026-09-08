@@ -258,3 +258,151 @@ def test_a_setting_with_no_machine_bound_has_no_envelope() -> None:
     shows the registry's static bounds for those."""
     assert env.for_setting("INDEX_SCHEDULE", OWNER) is None
     assert env.for_setting("INDEX_WORKERS", OWNER) is not None
+
+
+# --- 2026-09-08: a probe that did not run is not a probe that found nothing --
+#
+# From `logs/runs/run-20260908-055844-window.log`: at 06:06:38, under 80-95%
+# CPU, OCR ran "on cpu - the processor, because no display adapter was
+# detected" while the embedder in the same process had loaded on the GPU at
+# startup. The PowerShell adapter probe had timed out; the empty answer was
+# indistinguishable from "no graphics card".
+
+
+import subprocess
+import sys
+
+from app.core import compute_profile as cp
+
+IRIS = (GpuAdapter(name="Intel Iris Xe", vram_mb=128),)
+
+
+@pytest.fixture
+def windows_with_no_earlier_answer(monkeypatch):
+    """Pretend to be Windows with nothing remembered from an earlier probe.
+    Everything else `detect()` asks on win32 (topology, AVX2) fails through
+    its own guard on Linux and is recorded as an unknown, which is fine."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(cp, "_last_known_adapters", None)
+    monkeypatch.setattr(cp, "_directml_provider_available", lambda: True)
+
+
+def _timing_out(*args, **kwargs):
+    raise subprocess.TimeoutExpired(cmd="powershell", timeout=kwargs.get("timeout", 15))
+
+
+class _Done:
+    returncode = 0
+    stdout = '{"Name":"Intel Iris Xe","AdapterRAM":134217728}'
+
+
+@pytest.fixture
+def warnings(monkeypatch):
+    from app.core.logging import logger
+
+    lines: list[str] = []
+    handle = logger.add(lambda m: lines.append(m.record["message"]),
+                        level="WARNING", format="{message}")
+    yield lines
+    logger.remove(handle)
+
+
+def test_a_timed_out_probe_is_flagged_not_reported_as_no_adapters(
+        windows_with_no_earlier_answer, monkeypatch, warnings) -> None:
+    monkeypatch.setattr(cp.subprocess, "run", _timing_out)
+
+    profile = detect()
+
+    assert profile.gpus == ()
+    assert profile.gpu_probe_failed, "an empty answer from a probe that did " \
+        "not run must not look like a machine with no graphics card"
+    assert "display adapters" in profile.unknowns
+    assert any("timed out after 15s" in line for line in warnings)
+
+
+def test_a_timed_out_probe_reuses_the_answer_from_an_earlier_one(
+        windows_with_no_earlier_answer, monkeypatch, warnings) -> None:
+    """The embedder, OCR and the image model each call `detect()`. When the
+    first probe worked and a later one times out under load, the later one
+    must get the same answer - the machine did not lose its graphics card."""
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Done())
+    first = detect()
+    assert [g.name for g in first.gpus] == ["Intel Iris Xe"]
+    assert not first.gpu_probe_failed
+
+    monkeypatch.setattr(cp.subprocess, "run", _timing_out)
+    later = detect()
+
+    assert [g.name for g in later.gpus] == ["Intel Iris Xe"]
+    assert later.directml_available
+    assert later.gpu_probe_failed, "still says the card was not re-checked"
+    assert later.fingerprint() == first.fingerprint()
+    assert any("timed out after 15s - using the last known answer (1 adapters)"
+               in line for line in warnings)
+
+
+def test_a_probe_that_ran_and_found_nothing_is_not_a_failure(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    class Nothing:
+        returncode = 0
+        stdout = ""
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: Nothing())
+
+    profile = detect()
+
+    assert profile.gpus == ()
+    assert not profile.gpu_probe_failed
+
+
+def test_the_cache_keeps_stored_adapters_when_the_probe_could_not_run(
+        tmp_path, monkeypatch, warnings) -> None:
+    """Before this, the empty `gpus` changed the fingerprint, the store read
+    as "a different machine", and the cache was overwritten with a GPU-less
+    profile - a timeout deleting a hardware fact."""
+    from dataclasses import replace
+
+    stored = replace(OWNER, gpus=IRIS)
+    unchecked = replace(OWNER, gpus=(), gpu_probe_failed=True,
+                        unknowns=("display adapters",))
+    monkeypatch.setattr(cp, "detect", lambda index_path=None: unchecked)
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        store.set_state(PROFILE_STATE_KEY, json.dumps(stored.as_dict()))
+
+        profile = cached_profile(store)
+
+        assert profile.gpus == IRIS
+        assert profile.fingerprint() == stored.fingerprint()
+        kept = ComputeProfile.from_dict(json.loads(store.get_state(PROFILE_STATE_KEY, "")))
+        assert kept is not None and kept.gpus == IRIS, "the cache was not overwritten"
+    assert any("using the last known answer from the stored profile (1 adapters)"
+               in line for line in warnings)
+
+
+def test_the_cache_does_not_invent_adapters_it_never_had(tmp_path, monkeypatch) -> None:
+    from dataclasses import replace
+
+    unchecked = replace(OWNER, gpus=(), gpu_probe_failed=True)
+    monkeypatch.setattr(cp, "detect", lambda index_path=None: unchecked)
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        profile = cached_profile(store)
+
+    assert profile.gpus == ()
+    assert profile.gpu_probe_failed
+
+    from app.index.backends import why_unavailable
+
+    assert why_unavailable(profile) == "the graphics card check could not run"
+
+
+def test_a_profile_written_before_the_flag_existed_still_loads() -> None:
+    payload = OWNER.as_dict()
+    del payload["gpu_probe_failed"]
+
+    back = ComputeProfile.from_dict(payload)
+
+    assert back is not None
+    assert back.gpu_probe_failed is False
+    assert back.fingerprint() == OWNER.fingerprint()
