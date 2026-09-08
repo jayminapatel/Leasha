@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.06 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 4.07 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,37 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Fixed: indexing kept pausing itself for "other programs" that were its own converters, and a busy machine could make Leasha say there was no graphics card
+
+- **A real run, from the user's own machine on 2026-09-08.** Between 06:06 and 06:28 the
+  resource governor paused and resumed indexing about 25 times, each pause saying "the machine
+  is busy (81-95% CPU used by other programs)". Indexing crawled. But a good part of that CPU
+  was Leasha's own: the programs it starts to convert files (LibreOffice for old Office
+  formats, the drawing converters, the RTF converter) run as separate processes, and their
+  work was being counted as somebody else's. So Leasha paused because of its own converter,
+  waited for it to finish, resumed, started the next converter, and paused again.
+- **This is fixed.** The converters' CPU now counts as Leasha's own, exactly as its main
+  process already did, so the governor only yields to programs that are genuinely not Leasha.
+- **And when it does pause, the log now says who is busy.** On the way into a CPU pause, the
+  run log names the three programs using the most CPU (for example `busiest right now -
+  MsMpEng.exe 41%, ollama.exe 22%, chrome.exe 9%`), in the same units as the pause message.
+  This takes about half a second, at a moment when indexing is stopping anyway, and is never
+  done more than once every thirty seconds. The next time this happens, the log will answer
+  "busy with what" instead of anybody having to guess between antivirus, Ollama, Windows
+  Search and OneDrive.
+- **Separately, at 06:06 the same run said picture-reading was "on the processor, because no
+  display adapter was detected"** - on a machine with a graphics card, while the meaning
+  model in the same process was already running on it. The check that asks Windows which
+  graphics cards are present had simply not finished in time under all that load, and an
+  unfinished check was being reported exactly like "there is no graphics card". Now the
+  difference is kept: when the check cannot run, Leasha reuses the answer it already had from
+  earlier in the session or from the stored machine profile (and says so in the log:
+  `graphics card check timed out after 15s - using the last known answer (1 adapters)`); when
+  there is no earlier answer, the sentence is the truthful "the graphics card check could not
+  run" rather than a claim about the hardware. A timed-out check also no longer overwrites
+  the stored machine profile with one that has no graphics card in it. The check is not
+  given longer to run - a longer wait under load is still a wait that can fail.
 
 ### Fixed: a graphics driver hiccup used to turn off meaning search, picture-reading and result reordering for the rest of a run
 

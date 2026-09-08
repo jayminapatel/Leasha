@@ -105,8 +105,17 @@ def why_unavailable(profile: Any) -> str:
     The control shows this beside a greyed option. Two different causes need
     two different sentences, because they send somebody to different places:
     no adapter is a hardware fact, and no provider is one `pip install` away.
+
+    2026-09-08: a third cause. When the profile says the adapter check did
+    not run (`gpu_probe_failed` - the PowerShell probe timed out under load),
+    "no display adapter was detected" would state a hardware fact from a
+    measurement that did not happen; on the owner's machine it said so while
+    the embedder was running on the graphics card in the same process. So
+    that case gets its own, truthful sentence.
     """
     if not getattr(profile, "gpus", ()):
+        if getattr(profile, "gpu_probe_failed", False):
+            return "the graphics card check could not run"
         return "no display adapter was detected"
     if not getattr(profile, "directml_available", False):
         return ("this installation has no DirectML provider - "

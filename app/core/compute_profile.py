@@ -95,6 +95,14 @@ class ComputeProfile:
     #: Anything that could not be answered, and why. `doctor` prints it: a
     #: silent gap in a profile is a wrong number waiting to be believed.
     unknowns: tuple[str, ...] = field(default_factory=tuple)
+    #: 2026-09-08. True when the display-adapter check did not run to
+    #: completion - the PowerShell probe timed out or errored, which happens
+    #: under exactly the CPU load the resource governor pauses for. **An empty
+    #: `gpus` with this set is not "no graphics card"**; it is "nobody looked".
+    #: `backends.why_unavailable` says so. Absent from a profile written by
+    #: older code, so it defaults to False on load - a stored profile's `gpus`
+    #: were always the result of a probe that ran.
+    gpu_probe_failed: bool = False
 
     @property
     def hybrid(self) -> bool:
@@ -159,6 +167,7 @@ def detect(index_path: Any = None) -> ComputeProfile:
     unknowns: list[str] = []
     logical = os.cpu_count() or 0
     physical, performance, efficiency = _cores(unknowns)
+    gpus, gpu_probe_failed = _gpus(unknowns)
     return ComputeProfile(
         logical_processors=logical,
         physical_cores=physical or logical,
@@ -167,9 +176,10 @@ def detect(index_path: Any = None) -> ComputeProfile:
         ram_mb=_ram_mb(unknowns),
         avx2=_avx2(unknowns),
         index_disk=_disk_kind(index_path, unknowns),
-        gpus=_gpus(unknowns),
+        gpus=gpus,
         platform=f"{platform.system()} {platform.release()}".strip(),
         unknowns=tuple(unknowns),
+        gpu_probe_failed=gpu_probe_failed,
     )
 
 
@@ -365,21 +375,63 @@ def _linux_disk_kind(path: Path, unknowns: list[str]) -> str:
 # --- the GPU half ------------------------------------------------------------
 
 
-def _gpus(unknowns: list[str]) -> tuple[GpuAdapter, ...]:
+#: 2026-09-08. The adapters from the last display-adapter probe **in this
+#: process** that ran to completion - including an honest empty answer. The
+#: embedder, OCR and the image model each call `detect()` for themselves, so
+#: when the probe worked for the embedder at startup and then timed out for
+#: OCR twenty minutes later under load, this is what lets OCR get the same
+#: answer instead of a false "no display adapter was detected".
+_last_known_adapters: Optional[tuple[GpuAdapter, ...]] = None
+
+#: Seconds the display-adapter probe is allowed. Deliberately not lengthened
+#: as a fix: a longer wait under load is still a wait that can fail.
+_DXGI_TIMEOUT = 15
+
+
+def _gpus(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], bool]:
     """Display adapters, and whether DirectML can actually be used.
 
     **Two separate questions, deliberately.** An adapter that DXGI reports and
     an execution provider that onnxruntime offers are different facts, and a
     machine can easily have the first without the second - which is exactly the
     case that would otherwise be read as "the GPU does not work".
+
+    2026-09-08: returns `(adapters, probe_failed)`. **A probe that did not run
+    is not a probe that found nothing.** Under CPU load the PowerShell probe
+    can time out, and until now that came back as an empty tuple - the same
+    value as "this machine has no graphics card" - so `why_unavailable` stated
+    a hardware fact from a measurement that had not happened, on a machine
+    whose embedder was running on the GPU at that moment. When the probe fails
+    and an earlier one in this process succeeded, that answer is reused and
+    said so at WARNING; when there is none, the empty tuple comes back flagged
+    so the sentence downstream can be truthful.
     """
+    global _last_known_adapters
+
     directml = _directml_provider_available()
-    adapters = _dxgi_adapters(unknowns) if sys.platform == "win32" else ()
+    if sys.platform != "win32":
+        return (), False
+
+    adapters, failure = _dxgi_adapters(unknowns)
+    if failure:
+        if _last_known_adapters is None:
+            _log.warning("graphics card check {} - no earlier answer to fall "
+                         "back on, so the graphics card is not known", failure)
+            return (), True
+        _log.warning("graphics card check {} - using the last known answer "
+                     "({} adapters)", failure, len(_last_known_adapters))
+        adapters = _last_known_adapters
+        probe_failed = True
+    else:
+        _last_known_adapters = adapters
+        probe_failed = False
+
     if not adapters:
-        return ()
+        return (), probe_failed
     from dataclasses import replace
 
-    return tuple(replace(adapter, directml=directml) for adapter in adapters)
+    return (tuple(replace(adapter, directml=directml) for adapter in adapters),
+            probe_failed)
 
 
 def _directml_provider_available() -> bool:
@@ -391,7 +443,7 @@ def _directml_provider_available() -> bool:
         return False
 
 
-def _dxgi_adapters(unknowns: list[str]) -> tuple[GpuAdapter, ...]:
+def _dxgi_adapters(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], str]:
     """Name and dedicated VRAM per adapter, from PowerShell's CIM data.
 
     DXGI through `ctypes` would be exact and is a page of COM vtable
@@ -400,6 +452,11 @@ def _dxgi_adapters(unknowns: list[str]) -> tuple[GpuAdapter, ...]:
     profile records and what a person reads in `doctor`; the question that
     actually gates the backend - can onnxruntime use it - is answered
     separately and definitively above.
+
+    2026-09-08: returns `(adapters, failure)`. `failure` is `""` when the
+    probe ran - even if it found nothing - and otherwise a short phrase saying
+    why it did not (`timed out after 15s`, `failed (OSError)`), which is the
+    difference between "no graphics card" and "could not look".
     """
     script = (
         "Get-CimInstance Win32_VideoController -ErrorAction Stop | "
@@ -408,16 +465,27 @@ def _dxgi_adapters(unknowns: list[str]) -> tuple[GpuAdapter, ...]:
     try:
         done = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=_DXGI_TIMEOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if done.returncode != 0:
+            # `-ErrorAction Stop` makes a CIM failure a non-zero exit with
+            # empty stdout - indistinguishable from "no adapters" without this.
+            unknowns.append("display adapters")
+            return (), f"failed (PowerShell exit {done.returncode})"
         payload = json.loads((done.stdout or "").strip() or "null")
-    except Exception:                            # noqa: BLE001
+    except subprocess.TimeoutExpired:
         unknowns.append("display adapters")
-        return ()
+        return (), f"timed out after {_DXGI_TIMEOUT}s"
+    except Exception as exc:                     # noqa: BLE001
+        unknowns.append("display adapters")
+        return (), f"failed ({type(exc).__name__})"
     if payload is None:
+        # PowerShell answered and the answer was "none" (or unparseable
+        # output, which the probe cannot tell apart from none without
+        # inventing a distinction). Reported as an honest empty answer.
         unknowns.append("display adapters")
-        return ()
+        return (), ""
     if isinstance(payload, dict):
         payload = [payload]
 
@@ -434,7 +502,7 @@ def _dxgi_adapters(unknowns: list[str]) -> tuple[GpuAdapter, ...]:
             ))
         except Exception:                        # noqa: BLE001
             continue
-    return tuple(adapters)
+    return tuple(adapters), ""
 
 
 # --- the cache ---------------------------------------------------------------
@@ -457,6 +525,27 @@ def cached_profile(store: Any, index_path: Any = None) -> ComputeProfile:
             json.loads(store.get_state(PROFILE_STATE_KEY, "") or "null"))
     except Exception:                            # noqa: BLE001
         stored = None
+
+    if (
+        stored is not None
+        and fresh.gpu_probe_failed
+        and not fresh.gpus
+        and stored.gpus
+        and not stored.gpu_probe_failed
+    ):
+        # 2026-09-08. The graphics card check did not run this time, and the
+        # stored profile holds an answer from a time it did. Without this the
+        # empty `gpus` changed the fingerprint, this read as "a different
+        # machine", and the cache was *overwritten* with a GPU-less profile -
+        # a timeout under load quietly deleting a hardware fact. Keep the
+        # stored adapters; the flag stays set so `doctor` can say they were
+        # not re-checked.
+        from dataclasses import replace
+
+        _log.warning("graphics card check could not run - using the last known "
+                     "answer from the stored profile ({} adapters)",
+                     len(stored.gpus))
+        fresh = replace(fresh, gpus=stored.gpus)
 
     if stored is not None and stored.fingerprint() == fresh.fingerprint():
         return stored

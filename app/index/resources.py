@@ -50,6 +50,7 @@ __all__ = [
     "verdict",
     "default_workers",
     "psutil_available",
+    "busiest_processes",
 ]
 
 log = logger.bind(component="index.resources")
@@ -155,6 +156,8 @@ class Snapshot:
     system_cpu_percent: Optional[float] = None
     #: This process's own share, normalised the same way as the system figure.
     #: Subtracted before the busy check - see `other_cpu_percent`.
+    #: 2026-09-08: includes the child processes (converters) - see
+    #: `SystemProbe._children_cpu_percent`.
     own_cpu_percent: Optional[float] = None
     #: What the process was using before indexing started. The ceiling applies
     #: to growth above this, not to the absolute figure.
@@ -358,6 +361,17 @@ class SystemProbe:
                 # concludes the machine is busy whenever it is working.
                 cores = psutil.cpu_count() or 1
                 own = self._process.cpu_percent(interval=None) / cores
+                # 2026-09-08: the converters are our load too. LibreOffice,
+                # the DWG converters and the RTF converter run as child
+                # processes, and their CPU was landing on the "other programs"
+                # side of the subtraction - so the governor paused the indexer
+                # because of the indexer's own converter, waited, resumed,
+                # spawned the next one and paused again: ~25 pause/resume
+                # cycles in 22 minutes on a 12-core machine. A child's first
+                # reading is 0.0 by psutil's contract (nothing to compare
+                # against yet); it is accurate from the second reading, which
+                # is soon enough for a converter that runs for seconds.
+                own += self._children_cpu_percent(psutil) / cores
         except Exception:                       # noqa: BLE001
             cpu = own = None
         try:
@@ -376,6 +390,32 @@ class SystemProbe:
             free_disk_gb=free_gb, on_battery=battery,
             baseline_mb=self.baseline_mb, at=time.monotonic(),
         )
+
+    def _children_cpu_percent(self, psutil) -> float:
+        """Per-core-summed CPU of every child process, or 0.0. Never raises.
+
+        Children exit between being listed and being read - a converter
+        finishing is the ordinary case, not an error - so each one is read
+        under its own guard and a vanished child simply contributes nothing.
+        `children(recursive=True)` walks the process table once. Measured in
+        the Linux sandbox with six real children: 0.28ms for the walk, 0.41ms
+        for the whole `read()` - against a 2s poll. Windows takes a process
+        snapshot for the same call, so expect low single-digit milliseconds
+        there; still nothing against the poll interval.
+        `test_the_probe_stays_cheap_with_children` guards the probe's own
+        arithmetic with a fake psutil.
+        """
+        total = 0.0
+        try:
+            children = self._process.children(recursive=True)
+        except Exception:                       # noqa: BLE001
+            return 0.0
+        for child in children:
+            try:
+                total += child.cpu_percent(interval=None)
+            except Exception:                   # noqa: BLE001 - NoSuchProcess, AccessDenied
+                continue
+        return total
 
     def lower_priority(self) -> bool:
         """Drop below normal priority. Returns whether it worked.
@@ -403,6 +443,78 @@ class SystemProbe:
             return False
 
 
+#: Seconds between two "busiest right now" samples. A governor flapping every
+#: few seconds must not spend half a second sampling on every flap.
+BUSIEST_MIN_INTERVAL = 30.0
+
+#: How long the sample waits between priming and reading, in seconds.
+BUSIEST_SAMPLE_SECONDS = 0.5
+
+
+def busiest_processes(
+    *,
+    count: int = 3,
+    psutil_module=None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[tuple[str, float]]:
+    """The `count` processes using the most CPU right now, as `(name, percent)`.
+
+    2026-09-08. **The "plant logging" move.** A run paused ~25 times in 22
+    minutes on "the machine is busy (81-95% CPU used by other programs)" and
+    nothing in the log said *which* programs - so every diagnosis was a guess
+    between antivirus, Ollama, Windows Search and OneDrive. This puts the
+    answer next to the pause.
+
+    Percentages are divided by the core count so they are in the same units as
+    the pause message. Our own process and its children are left out - they
+    are already counted as our load - and if one still appears (a child that
+    started between the two listings) it is labelled `(Leasha)`.
+
+    Costs about half a second: `cpu_percent` needs two readings to say
+    anything. This runs on the consumer thread at a pause boundary - we are
+    pausing anyway, so half a second is fine. Never raises; a failure returns
+    an empty list and the caller logs nothing extra.
+    """
+    try:
+        psutil = psutil_module
+        if psutil is None:
+            import psutil  # noqa: PLC0415
+        cores = psutil.cpu_count() or 1
+        me = psutil.Process()
+        ours = {me.pid}
+        try:
+            ours.update(child.pid for child in me.children(recursive=True))
+        except Exception:                       # noqa: BLE001
+            pass
+
+        primed = []
+        for proc in psutil.process_iter(["pid", "name"]):
+            try:
+                if proc.pid in ours:
+                    continue
+                proc.cpu_percent(interval=None)     # prime: the first reading is 0.0
+                primed.append(proc)
+            except Exception:                   # noqa: BLE001 - gone, or not ours to read
+                continue
+
+        sleep(BUSIEST_SAMPLE_SECONDS)
+
+        readings: list[tuple[str, float]] = []
+        for proc in primed:
+            try:
+                percent = proc.cpu_percent(interval=None) / cores
+                name = str(proc.info.get("name") or proc.pid)
+                if proc.pid in ours:
+                    name = f"{name} (Leasha)"
+                readings.append((name, percent))
+            except Exception:                   # noqa: BLE001
+                continue
+        readings.sort(key=lambda item: item[1], reverse=True)
+        return readings[:count]
+    except Exception:                           # noqa: BLE001 - diagnostics never break a run
+        return []
+
+
 # ---------------------------------------------------------------------------
 # The governor the pipeline actually calls
 # ---------------------------------------------------------------------------
@@ -421,11 +533,16 @@ class ResourceGovernor:
         probe: Optional[Callable[[], Snapshot]] = None,
         sleep: Callable[[float], None] = time.sleep,
         on_state_change: Optional[Callable[[Verdict], None]] = None,
+        busiest: Optional[Callable[[], list[tuple[str, float]]]] = None,
     ) -> None:
         self.limits = limits or ResourceLimits()
         self._probe = probe or SystemProbe().read
         self._sleep = sleep
         self._on_state_change = on_state_change
+        #: Names the programs behind a CPU pause. Injectable for the same
+        #: reason `probe` is: the real one reads the process table.
+        self._busiest = busiest or (lambda: busiest_processes(sleep=self._sleep))
+        self._last_busiest_at: Optional[float] = None
         self._busy_since: Optional[float] = None
         self._last_action = "run"
         #: The most recent RSS reading, so a pause can tell whether waiting is
@@ -471,9 +588,33 @@ class ResourceGovernor:
             if found.action != "run":
                 self.pauses += 1
             log.info("resource governor: {} - {}", found.action, found.reason or "clear")
+            if found.action != "run" and found.cause == "cpu":
+                self._log_busiest(moment)
             if self._on_state_change is not None:
                 self._on_state_change(found)
         return found
+
+    def _log_busiest(self, moment: float) -> None:
+        """Say who the machine is busy with, on the way into a CPU pause.
+
+        2026-09-08. Once per pause transition (this is only reached from the
+        state-change branch) and never twice within `BUSIEST_MIN_INTERVAL`, so
+        a flapping governor cannot spend half a second per flap. Never raises.
+        """
+        if (
+            self._last_busiest_at is not None
+            and (moment - self._last_busiest_at) < BUSIEST_MIN_INTERVAL
+        ):
+            return
+        self._last_busiest_at = moment
+        try:
+            top = self._busiest()
+        except Exception:                       # noqa: BLE001 - diagnostics only
+            return
+        if not top:
+            return
+        log.info("resource governor: busiest right now - {}",
+                 ", ".join(f"{name} {percent:.0f}%" for name, percent in top))
 
     def wait_while_throttled(self, should_stop: Callable[[], bool] = lambda: False) -> Verdict:
         """Block until it is reasonable to continue, or until told to stop.

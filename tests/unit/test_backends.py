@@ -82,6 +82,22 @@ def test_the_two_reasons_the_graphics_card_is_unavailable_read_differently(
     assert backends.why_unavailable(GPU_READY) == ""
 
 
+def test_a_check_that_did_not_run_is_not_reported_as_no_graphics_card() -> None:
+    """2026-09-08. The display-adapter probe timed out under CPU load, came
+    back empty, and `why_unavailable` said "no display adapter was detected" -
+    a hardware fact from a measurement that did not happen, on a machine whose
+    embedder was running on the graphics card in the same process."""
+    unchecked = Machine()
+    unchecked.gpu_probe_failed = True
+
+    sentence = backends.why_unavailable(unchecked)
+
+    assert sentence == "the graphics card check could not run"
+    assert "no display adapter" not in sentence
+    assert backends.choose(unchecked).device == backends.CPU, \
+        "still the processor: an unknown card is not a usable one"
+
+
 def test_asking_for_a_graphics_card_that_is_not_there_says_so() -> None:
     """The control greys the option, so reaching this means the machine changed
     under a stored setting - which is exactly when silence would be worst."""
