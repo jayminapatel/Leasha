@@ -36,7 +36,7 @@ from typing import Any, Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import definitions, folding, keyword, recency, relax, vector
+from app.search import definitions, folding, keyword, name_match, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -139,6 +139,44 @@ def _result_chunk_id(hit: dict[str, Any]) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return int(hit.get("file_id", 0) or 0)
+
+
+def _blend_recency_and_filename(hits: list[dict], terms: Any,
+                                *, now_ns: Optional[int] = None) -> list[dict]:
+    r"""Both "Relevance" nudges, applied to one original score in one pass.
+
+    **Why this exists rather than calling `recency.blend` then `name_match.
+    blend`.** Neither writes its multiplied score back to `rrf_score` - each
+    reads it fresh and only annotates its own field (`recency`, `name_match`)
+    - so calling them in sequence has the second silently discard the first's
+    reorder: it re-sorts the whole list from the same untouched original
+    score, and the tiny gap two identically-worded documents get from their
+    RRF rank alone (`1/61` versus `1/62`) is enough to win that re-sort even
+    after the first blend had correctly reordered them. `definitions.boost`,
+    below, runs last for exactly this reason and is deliberately the only
+    thing allowed to have the final word; two independent nudges that are
+    each supposed to *compound* need the opposite treatment.
+
+    Reuses each module's own measured `WEIGHT` and pure per-hit function
+    (`recency.freshness`, `name_match.name_overlap`) rather than duplicating
+    either - if a future sweep changes one weight, this picks it up with no
+    edit here.
+    """
+    ranked = []
+    for position, hit in enumerate(hits):
+        try:
+            score = float(hit.get("rrf_score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        fresh = recency.freshness(
+            hit.get("taken_at_ns") or hit.get("mtime_ns"), now_ns=now_ns)
+        overlap = name_match.name_overlap(hit.get("path", ""), terms)
+        hit["recency"] = fresh
+        hit["name_match"] = overlap
+        multiplier = (1.0 + recency.WEIGHT * fresh) * (1.0 + name_match.WEIGHT * overlap)
+        ranked.append((-(score * multiplier), position, hit))
+    ranked.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in ranked]
 
 
 def _wait(future: Any, half: str, problems: list[str]) -> list:
@@ -1350,12 +1388,30 @@ class SearchEngine:
             fused.sort(
                 key=lambda hit: int(hit.get("taken_at_ns") or hit.get("mtime_ns") or 0),
                 reverse=parsed.sort != "oldest")
-        elif policy is not None and policy.recency_blend:
-            # §2d. **Only when relevance is still in charge.** `/newest` is a
+        elif policy is not None:
+            # §2d, and the review remediation order's "Relevance" item.
+            # **Only when relevance is still in charge.** `/newest` is a
             # date sort that abandons relevance and says so; nudging within an
             # order that is already by date would be arithmetic with no effect
             # and a second rule to reason about.
-            fused = recency.blend(fused)
+            #
+            # **Both at once needs its own pass, not two calls in a row.**
+            # Neither `blend` writes its result back to `rrf_score` - see the
+            # comment on `definitions.boost` below, which runs last for
+            # exactly this reason - so calling both here in sequence would
+            # have the second silently discard the first: it re-sorts from
+            # the same untouched original score, and old-notes.txt beating
+            # new-notes.txt on raw score by an RRF-rank artifact is enough to
+            # win that re-sort even after recency had already reordered them.
+            # `_blend_recency_and_filename` reuses each module's own measured
+            # weight and pure per-hit function, so both nudges apply to the
+            # one original score in a single pass instead.
+            if policy.recency_blend and policy.filename_match_blend:
+                fused = _blend_recency_and_filename(fused, parsed.terms)
+            elif policy.recency_blend:
+                fused = recency.blend(fused)
+            elif policy.filename_match_blend:
+                fused = name_match.blend(fused, parsed.terms)
 
         # §4c. **Last, because it is the strongest claim and the ones above it
         # re-sort from the untouched score.**

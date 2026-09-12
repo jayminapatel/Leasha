@@ -1,23 +1,23 @@
-r"""What search may do for you — six switches, and what each tab does with them.
+r"""What search may do for you — seven switches, and what each tab does with them.
 
 Layer: L6 (UI)
 
-**A switch and a grid, and the grid is the honest half.** Six switches on their
-own would be a lie by omission: "Fix obvious spelling" is on, and it still does
-nothing on the Code tab, because a misspelt identifier may be exactly what is
-in the codebase. Somebody who switches it on and finds no correction there has
-been misled by a control that was telling the truth.
+**A switch and a grid, and the grid is the honest half.** Seven switches on
+their own would be a lie by omission: "Fix obvious spelling" is on, and it
+still does nothing on the Code tab, because a misspelt identifier may be
+exactly what is in the codebase. Somebody who switches it on and finds no
+correction there has been misled by a control that was telling the truth.
 
 So the grid shows the *effect* per tab, read straight from
 `app/search/policy.py`. It is not editable: what a person controls is whether a
 behaviour is allowed at all, and each tab's contract is a design decision this
-application stands behind. Making every cell editable would be twenty-four
-controls in place of six, and twenty-three of them would be wrong to change.
+application stands behind. Making every cell editable would be twenty-eight
+controls in place of seven, and twenty-seven of them would be wrong to change.
 
 **"Reset search behaviour to defaults" is one click**, the sibling of Index
 Tuning's Return to automatic. Support at a distance depends on it: "press that
 button and tell me what happens" is a sentence somebody can follow over the
-telephone, and the alternative is six.
+telephone, and the alternative is seven.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ _KEYS = {
     "relax_on_empty": "SEARCH_RELAX_ON_EMPTY",
     "auto_chips": "SEARCH_AUTO_CHIPS",
     "recency_blend": "SEARCH_RECENCY_BLEND",
+    "filename_match_blend": "SEARCH_FILENAME_MATCH_BLEND",
     "version_folding": "SEARCH_VERSION_FOLDING",
     "notice_register": "SEARCH_PLAIN_WORDS",
     "explain_results": "SEARCH_EXPLAIN_RESULTS",
@@ -79,7 +80,7 @@ def _cell(value: Any) -> str:
 
 
 class SearchBehaviourBox(QGroupBox):
-    """The six switches, the effect grid, and the reset."""
+    """The seven switches, the effect grid, and the reset."""
 
     #: `{registry key: value}` - the shape `_settings_changed` writes.
     changed = pyqtSignal(dict)
@@ -117,6 +118,8 @@ class SearchBehaviourBox(QGroupBox):
         self.controls["relax_on_empty"].setObjectName("SEARCH_RELAX_ON_EMPTY")
         self.controls["auto_chips"].setObjectName("SEARCH_AUTO_CHIPS")
         self.controls["recency_blend"].setObjectName("SEARCH_RECENCY_BLEND")
+        self.controls["filename_match_blend"].setObjectName(
+            "SEARCH_FILENAME_MATCH_BLEND")
         self.controls["version_folding"].setObjectName("SEARCH_VERSION_FOLDING")
         self.controls["notice_register"].setObjectName("SEARCH_PLAIN_WORDS")
         self.controls["explain_results"].setObjectName("SEARCH_EXPLAIN_RESULTS")
@@ -255,6 +258,7 @@ class SearchBehaviourBox(QGroupBox):
                 ("relax_on_empty", "search_relax_on_empty"),
                 ("auto_chips", "search_auto_chips"),
                 ("recency_blend", "search_recency_blend"),
+                ("filename_match_blend", "search_filename_match_blend"),
                 ("version_folding", "search_version_folding"),
                 ("notice_register", "search_plain_words"),
                 ("explain_results", "search_explain_results"),
@@ -301,6 +305,8 @@ class SearchBehaviourBox(QGroupBox):
             "SEARCH_AUTO_CHIPS": bool(self.controls["auto_chips"].isChecked()),
             "SEARCH_RECENCY_BLEND": bool(
                 self.controls["recency_blend"].isChecked()),
+            "SEARCH_FILENAME_MATCH_BLEND": bool(
+                self.controls["filename_match_blend"].isChecked()),
             "SEARCH_VERSION_FOLDING": bool(
                 self.controls["version_folding"].isChecked()),
             "SEARCH_PLAIN_WORDS": bool(
@@ -325,8 +331,8 @@ class SearchBehaviourBox(QGroupBox):
         try:
             self.controls["typo_correction"].setCurrentIndex(0)
             for name in ("relax_on_empty", "auto_chips", "recency_blend",
-                         "version_folding", "notice_register",
-                         "explain_results"):
+                         "filename_match_blend", "version_folding",
+                         "notice_register", "explain_results"):
                 self.controls[name].setChecked(True)
             self.offer_recent.blockSignals(True)
             self.offer_recent.setChecked(True)

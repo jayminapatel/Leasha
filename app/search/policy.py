@@ -87,6 +87,10 @@ class SearchPolicy:
     auto_chips: bool = True
     #: A mild preference for recent documents in the fused score.
     recency_blend: bool = True
+    #: A mild preference for documents whose own filename already says most
+    #: of what was typed. The other half of the same "Relevance" item
+    #: `recency_blend` closes the age half of - see `app/search/name_match.py`.
+    filename_match_blend: bool = True
     #: Near-identical results collapse to one row, newest shown.
     version_folding: bool = True
     #: Each result can say why it is on the page, from signals already
@@ -125,6 +129,10 @@ BEHAVIOURS = (
     ("recency_blend", "Prefer recent documents",
      "Among equally good matches, newer ones come first. It never hides an "
      "older document, it only orders them."),
+    ("filename_match_blend", "Prefer a matching filename",
+     "Among equally good matches, one whose file name already contains most "
+     "of what you typed comes first. It never hides another document, it "
+     "only orders them."),
     ("version_folding", "Fold older versions together",
      "Near-identical documents collapse into one row with the newest shown "
      "and the rest one click away."),
@@ -169,6 +177,7 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "notice_register": "technical",
         "auto_chips": False,
         "recency_blend": False,
+        "filename_match_blend": False,
         "version_folding": False,
     },
 }
@@ -206,7 +215,7 @@ def from_settings(surface: str, stored: Optional[dict] = None) -> SearchPolicy:
     r"""The surface's default, narrowed by what the person has switched off.
 
     **A global switch can only turn a behaviour off, never force it on.** That
-    is the rule, and it is what makes six settings do the work of twenty-four:
+    is the rule, and it is what makes seven settings do the work of twenty-eight:
     off means off everywhere, and on means "follow this surface's contract".
 
     The alternative - a global `on` overriding each surface - would put plain-
@@ -251,6 +260,7 @@ SETTING_FIELDS = {
     "search_relax_on_empty": "relax_on_empty",
     "search_auto_chips": "auto_chips",
     "search_recency_blend": "recency_blend",
+    "search_filename_match_blend": "filename_match_blend",
     "search_version_folding": "version_folding",
     "search_plain_words": "notice_register",
     "search_explain_results": "explain_results",

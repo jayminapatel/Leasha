@@ -9,7 +9,7 @@ correction that reached the notice and not the query, and a translator asking
 the store for kinds it does not have. `test_settings_are_used` catches a key
 nobody reads; **this catches a field that is read and changes nothing.**
 
-So each of the six behaviours is flipped, and the *response* has to differ.
+So each of the seven behaviours is flipped, and the *response* has to differ.
 Not the policy object, not a call count — the answer a person would see.
 """
 
@@ -44,7 +44,7 @@ class _NoModel:
 
 @pytest.fixture(scope="module")
 def engine():
-    """A corpus shaped so that every one of the six has something to do."""
+    """A corpus shaped so that every one of the seven has something to do."""
     from app.storage.sqlite_store import SqliteStore
 
     store = SqliteStore(pathlib.Path(tempfile.mkdtemp()) / "policy.db").connect()
@@ -76,7 +76,7 @@ def _with(**changes):
 
 
 # --------------------------------------------------------------------------
-# Each of the six, proved against the response
+# Each of the seven, proved against the response
 # --------------------------------------------------------------------------
 
 def test_typo_correction_changes_the_query_that_runs(engine):
@@ -113,6 +113,41 @@ def test_recency_blend_changes_the_order(engine):
     off = built.search("lava flows", policy=_with(recency_blend=False),
                        use_cache=False)
     assert on.results[0].path.endswith("new-notes.txt")
+    assert [r.path for r in on.results] != [r.path for r in off.results]
+
+
+def test_filename_match_blend_changes_the_order():
+    """Two documents with the same words and only one of them named for it.
+
+    **Its own store, not the shared `engine` fixture.** Adding these two
+    documents to the corpus every other test in this file shares perturbed
+    BM25's corpus-wide term statistics enough to flip the near-tie
+    `test_recency_blend_changes_the_order` depends on, on a query that never
+    mentioned either new file - the same class of contamination a shared
+    fixture is supposed to be safe from and was not.
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    store = SqliteStore(pathlib.Path(tempfile.mkdtemp()) / "filename.db").connect()
+    now = time.time_ns()
+    for name, digest in (("plain-notes.txt", "x"), ("budget-review.txt", "y")):
+        file_id = store.upsert_file(
+            f"C:/work/{name}", parent_dir="C:/work", ext="txt",
+            size_bytes=1, mtime_ns=now, content_hash=digest,
+            status="INDEXED", source_kind="file")
+        store.replace_chunks(file_id, [{
+            "ordinal": 0, "text": "Council budget review for the coming year",
+        }])
+    built = SearchEngine(store, _NoVectors(), _NoModel())
+    try:
+        on = built.search("budget review",
+                          policy=_with(filename_match_blend=True), use_cache=False)
+        off = built.search("budget review",
+                           policy=_with(filename_match_blend=False), use_cache=False)
+    finally:
+        built.close()
+
+    assert on.results[0].path.endswith("budget-review.txt")
     assert [r.path for r in on.results] != [r.path for r in off.results]
 
 
@@ -155,7 +190,7 @@ def test_auto_chips_changes_whether_filters_are_offered(engine):
 
 
 def test_explain_results_changes_whether_a_row_can_say_why(engine):
-    """**The seventh behaviour, and the only one that changes nothing about
+    """**The eighth behaviour, and the only one that changes nothing about
     the search.** It adds an explanation beside a result, so what it must
     provably change is whether that explanation exists at all."""
     from app.ui.presenter import explain_for
@@ -175,15 +210,15 @@ def test_explain_results_changes_whether_a_row_can_say_why(engine):
 
 
 def test_every_behaviour_in_the_table_is_proved_above():
-    r"""**The guard on the guard.** A seventh behaviour added to the policy
+    r"""**The guard on the guard.** An eighth behaviour added to the policy
     with no test here would be a switch nobody proved does anything - which
     is the defect this whole file exists to prevent, arriving by the back
     door.
     """
     proved = {
         "typo_correction", "relax_on_empty", "recency_blend",
-        "version_folding", "notice_register", "auto_chips",
-        "explain_results",
+        "filename_match_blend", "version_folding", "notice_register",
+        "auto_chips", "explain_results",
     }
     assert {name for name, _label, _help in BEHAVIOURS} == proved
 

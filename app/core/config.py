@@ -148,11 +148,12 @@ class Settings(BaseModel):
     # **Each can only switch a behaviour off.** On means "follow the surface's
     # own contract" - see `app/search/policy.py` for the table. That is what
     # keeps spelling correction away from identifiers on the Code tab without
-    # needing twenty-four settings instead of six.
+    # needing twenty-eight settings instead of seven.
     search_fix_spelling: str = "auto"
     search_relax_on_empty: bool = True
     search_auto_chips: bool = True
     search_recency_blend: bool = True
+    search_filename_match_blend: bool = True
     search_version_folding: bool = True
     search_plain_words: bool = True
     #: Adoptions §1. A result that cannot be interrogated is one
@@ -371,6 +372,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_RELAX_ON_EMPTY",
     "SEARCH_AUTO_CHIPS",
     "SEARCH_RECENCY_BLEND",
+    "SEARCH_FILENAME_MATCH_BLEND",
     "SEARCH_VERSION_FOLDING",
     "SEARCH_PLAIN_WORDS",
     "SEARCH_EXPLAIN_RESULTS",
@@ -500,6 +502,9 @@ def load_settings(
                 "SEARCH_AUTO_CHIPS", values.get("SEARCH_AUTO_CHIPS", "true")),
             search_recency_blend=_as_bool(
                 "SEARCH_RECENCY_BLEND", values.get("SEARCH_RECENCY_BLEND", "true")),
+            search_filename_match_blend=_as_bool(
+                "SEARCH_FILENAME_MATCH_BLEND",
+                values.get("SEARCH_FILENAME_MATCH_BLEND", "true")),
             search_version_folding=_as_bool(
                 "SEARCH_VERSION_FOLDING", values.get("SEARCH_VERSION_FOLDING", "true")),
             code_editor=(

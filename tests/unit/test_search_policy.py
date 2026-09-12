@@ -7,7 +7,7 @@ where it was almost decided. Here the difference between tabs is a table
 anybody can read, and these tests are over the table.
 
 The rule that does the most work: **a global switch can only turn a behaviour
-off, never force it on.** Six settings then do what twenty-four would - off
+off, never force it on.** Seven settings then do what twenty-eight would - off
 means off everywhere, on means "follow this surface's contract" - and spelling
 correction stays away from identifiers on the Code tab without anybody having
 to remember to keep it there.
@@ -85,7 +85,7 @@ def test_a_surface_nobody_has_thought_about_gets_the_strict_contract() -> None:
     assert policy.for_surface("") == policy.for_surface(policy.CODE)
 
 
-# --- the global switches, and the one rule that makes six enough ------------
+# --- the global switches, and the one rule that makes seven enough ---------
 
 
 def test_a_global_switch_turns_a_behaviour_off_everywhere() -> None:
@@ -99,7 +99,7 @@ def test_a_global_switch_turns_a_behaviour_off_everywhere() -> None:
 
 
 def test_a_global_switch_cannot_force_a_behaviour_on() -> None:
-    r"""**The rule that makes six settings do the work of twenty-four.**
+    r"""**The rule that makes seven settings do the work of twenty-eight.**
 
     A global `on` overriding each surface would put plain-words notices on the
     Code tab and spelling correction on identifiers - precisely what the

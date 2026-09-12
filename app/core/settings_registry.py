@@ -167,6 +167,13 @@ SETTINGS: tuple[Setting, ...] = (
              "hides an older document, it only orders them.",
     ),
     Setting(
+        key="SEARCH_FILENAME_MATCH_BLEND", label="Prefer a matching filename",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="Among equally good matches, one whose file name already "
+             "contains most of what you typed comes first. It never hides "
+             "another document, it only orders them.",
+    ),
+    Setting(
         key="SEARCH_VERSION_FOLDING", label="Fold older versions together",
         kind="bool", default=True, group="Search", surface="settings.search",
         help="Near-identical documents collapse into one row, newest shown, "

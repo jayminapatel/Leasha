@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -46,7 +46,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 
 | # | Ref | Order | Status | Done/Open | Blocked by |
 |---|---|---|---|---|---|
-| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | Three of the six are structural splits, deferred by "working version first" |
+| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 53 / 5 | Three of the five are structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
 | 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 35 / 5 | — |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
@@ -64,6 +64,20 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
+
+**2026-09-13 — order 0's "Relevance" item closed, 52/6 → 53/5.** The recency
+half was already shipped in 0c; the filename-match half did not exist. Built
+as `app/search/name_match.py`, measured against the twenty built-in sentences
+the same way `recency.WEIGHT` was (14/20 off, 16/20 on), and wired in behind
+its own `SEARCH_FILENAME_MATCH_BLEND` setting. Chaining it after `recency.
+blend` in sequence turned out to silently discard whichever ran first - see
+the item's own dated note in `WORKORDER-202626082352-review-remediation.md`
+for why, and `engine._blend_recency_and_filename` for the fix. The other five
+open items in that order were checked individually rather than assumed
+buildable: `schema.sql`'s seed version is a documented "closed on
+measurement, not built" decision, `P8` needs `evaluate --builtin` on the
+owner's own machine, and the remaining three are the structural splits
+already deferred by "working version first".
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

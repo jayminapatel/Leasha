@@ -1,6 +1,6 @@
 # Work order (One thread): remediate the 2026-08-26 review
 
-**Doc version:** 1.0 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (items are tagged with their layer)
 **Source:** `docs/REVIEW-2026-08-26.md` — every item below cites its finding ID there;
 the review carries the evidence, the reasoning, and the suggested fix. This document
@@ -221,8 +221,20 @@ Three notes:
 - [x] **A3** delete the dead knowledge-graph methods from `SqliteStore`.
 - [x] **Partial A4** `filters.py:85` — escape `%`/`_` with `ESCAPE '\'` like the
   store helpers do, so a literal `%` means the same thing everywhere.
-- [ ] **Relevance**: blend a small recency decay + filename-match bonus into the
+- [x] **Relevance**: blend a small recency decay + filename-match bonus into the
   fused score; `/newest` should not be the only way to prefer this decade.
+  *Closed 2026-09-13. The recency half already shipped in 0c
+  (`app/search/recency.py`, `SEARCH_RECENCY_BLEND`) - found already done by
+  reading it rather than assumed. The filename half did not exist:
+  `app/search/name_match.py`, `SEARCH_FILENAME_MATCH_BLEND`, its own Settings
+  checkbox and grid row. Measured against the twenty built-in sentences
+  through the real engine, the same standard `recency.WEIGHT` was held to:
+  14/20 off, 16/20 at the shipped `WEIGHT=0.15` - see that constant's own
+  docstring for the full sweep. Chaining the two blends in sequence turned
+  out to silently discard whichever ran first (neither writes its result
+  back to the score it reads), found by this same measurement and fixed by
+  `engine._blend_recency_and_filename`, which applies both to the one
+  original score in a single pass when both are on.*
 
 ## 7. Structural (schedule as its own orders when picked up)
 

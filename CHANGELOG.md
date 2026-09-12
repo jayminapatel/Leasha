@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.08 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 4.09 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,29 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Added: search now favours a document whose file name already matches what you typed
+
+- Among equally good matches, one whose file name already says most of what you typed comes
+  first - "site survey.pdf" for "site survey" beats the same words buried somewhere in a much
+  longer report. It never hides another document, it only orders them, and it can be switched
+  off in Settings ("Prefer a matching filename") the same way "Prefer recent documents"
+  already could be.
+
+### Fixed: a stalled index run said "about 1823 days" left, and a later run said "done" while it was still working
+
+- **A rate too small to trust used to be reported as a real number.** One file finished in a
+  fifteen-minute stretch printed "0 files/min" and, right beside it, an estimate of nearly
+  five years - the two halves of the same sentence disagreeing about whether anything was
+  known at all. It now says "estimating…" until the rate is worth dividing by, and caps a
+  very long estimate at "more than a week" rather than guessing months ahead from a
+  quarter-hour's evidence.
+- **A run started from the window, over folders nobody had counted first, had no real total
+  to measure progress against - and once it grew past a stale count from an earlier, smaller
+  run, the panel could announce the run had finished while it was still indexing.** Starting
+  an index now counts the folders in the background automatically, the same way the Scan
+  button always has, so nobody has to remember to click it first - and if the count still
+  turns out low, the panel says so plainly instead of the estimate silently going wrong.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

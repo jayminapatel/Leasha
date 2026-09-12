@@ -198,7 +198,12 @@ def test_the_shipped_weight_still_earns_its_place():
     engine = SearchEngine(store, _NoVectors(), _NoModel())
     try:
         def recall(blend_on: bool) -> tuple:
-            policy = for_surface(SEARCH).with_overrides(recency_blend=blend_on)
+            # `filename_match_blend` isolated off: it is the sibling half of
+            # this same "Relevance" item and defaults on, and this measures
+            # recency alone against the baseline it was originally chosen
+            # against - see `test_name_match.py` for the sibling isolation.
+            policy = for_surface(SEARCH).with_overrides(
+                recency_blend=blend_on, filename_match_blend=False)
             hit = []
             for question in QUESTIONS:
                 found = engine.search(question.sentence, policy=policy,
