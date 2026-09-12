@@ -1,16 +1,17 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
-**Status: HELD — created at the owner's request, to be scheduled BY THE OWNER
-later. Do not execute until he promotes it (registers a queue position in
-HANDOFF).** Promotion consciously reopens the search-and-chat scope decision:
-at promotion, a dated note goes on `WORKORDER-scope-change-search-and-chat.md`
-recording that the owner reopened it with this design — appended, never
-edited. Prerequisites when promoted: the search-experience order (translator
-seam, policy machinery) landed; benefits compound with 0510–0512 (photo
-lanes) and grow with the GPU machine, but a 7–8B CPU model is the design
-target — this must be good on the machine of today.
+**Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
+request to be scheduled by him later; the owner has now promoted it. The
+reopening note is on `WORKORDER-scope-change-search-and-chat.md`, appended
+2026-09-13. Prerequisites at promotion, checked rather than assumed: the
+search-experience order (translator seam, policy machinery) landed and is
+`SHIPPED` (0c); the photo lanes (0510-0512) have not, so their benefit does
+not compound yet - built against text only until they do. A 7-8B CPU model
+is the design target and is available locally (`mistral:latest`, 7.2B,
+already the configured `OLLAMA_MODEL` default) - see §4 for what gets
+measured against it as sections land, rather than all at once at the end.
 
 ## Why this design succeeds where naive RAG disappoints
 
@@ -33,12 +34,30 @@ codebase:
 
 ## 1. The engine: an agentic retrieval loop (the core)
 
-- [ ] **1a Question router** (rules first, model assist second — the
+- [x] **1a Question router** (rules first, model assist second — the
   translator pattern): classifies each question into LOOKUP (extract from
   documents), AGGREGATE (count/list/filter — the index answers), SYNTHESIS
   (across documents), FIND (really a search — return results, not prose),
   ABSENCE ("do I have…"), and FOLLOW-UP (context-dependent). The router is
   Qt-free, testable, and its decision is visible in the debug pane.
+  *Built 2026-09-13 as `app/chat/router.py`, `RouteDecision.matched_rule`/
+  `used_model`/`raw_model_output` carrying the debug-pane visibility. Two
+  real bugs found and fixed by checking against the actual design-target
+  model (`mistral:latest`, 7.2B) rather than only the fake-client tests: a
+  blunt "how much" rule misrouted a single-figure LOOKUP question straight
+  to AGGREGATE with no chance for the model to overrule it, and the
+  SYNTHESIS rule missed "what's changed" (only matching the bare "what
+  changed"). `ROUTE_TIMEOUT_S=5s` is kept short on measurement, not despite
+  it: a genuinely cold model load took 15.91s and a warm one 0.86s; Ollama
+  keeps generating after the client's timeout gives up, so a cold miss
+  costs one safe LOOKUP fallback while the model warms for every later
+  question in the session, which is preferable to making routing itself
+  the slow part of the first question. FOLLOW-UP is gated on `history`
+  being non-empty and is never offered to the model (no conversation is
+  shown to it in this call), so a follow-up phrase with nothing to follow
+  falls through to LOOKUP rather than being guessed. 35 tests, `tests/
+  unit/test_chat_router.py`, all fake-client per the same rule `test_
+  translate.py` holds itself to.*
 - [ ] **1b The loop**: plan search queries from the question (REUSING the
   translator — question → filter grammar + terms); retrieve via the real
   engine (all lanes: text, and when 0510+ land, images/people/places);

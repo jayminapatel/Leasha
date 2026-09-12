@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.4 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 5.5 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -51,9 +51,9 @@ line, no traceback and no window.
 
 ## 3. Current state
 
-**Version 0.3.3. Eight of the nine live layers are code-complete; L8b is deferred by decision
-and L9 has not been started. 3,890 tests collected, 2 deselected (JVM - see below) and 1
-xfailed (real-Outlook COM, deliberately).**
+**Version 0.3.3. Eight of the nine live layers are code-complete; L8b was promoted 2026-09-13
+and is now under construction (0t in the register) and L9 has not been started. 3,890 tests
+collected, 2 deselected (JVM - see below) and 1 xfailed (real-Outlook COM, deliberately).**
 
 Eleven layers were numbered and three are dead: L6 was removed, L7 and L10 were cancelled.
 The line above counts the nine that are still live, and *code-complete is not the same as
@@ -71,7 +71,7 @@ verified* - three of them carry a check nobody has run yet, and those are §11's
 | ~~L7~~ | ~~Office document builder~~ | **Cancelled** - never requested, never started |
 | **L8a** | Natural-language query translation | **Code-complete** - justified by measurement, §3b |
 | **Repos** | Repository awareness: `repos` table, `repo:`, `code` scope | **Phase 1 done** - see below. Phase 2 (history) **not authorised** |
-| L8b | Prose answers over results | **Deferred** until L8a has been used in anger |
+| L8b | Prose answers over results, with receipts | **Promoted 2026-09-13, under construction** - 0t in the register, 0/26 |
 | L9 | Hardening and packaging | **Not started.** `docs/WORKORDER-202626082213-install-and-distribution.md` is a draft: three decisions taken, **five marked [FINALISE]** and none answerable from the code |
 | ~~L10~~ | ~~Adaptive tuning~~ | **Cancelled** - speculative |
 
@@ -438,13 +438,15 @@ order or to the owner):**
     loop on the owner's machine + windows CI for contributors. Owner has
     installed pytest-qt/pywinauto/hypothesis.
 
-HELD (not for execution until the owner promotes it):
-`WORKORDER-202626270611-chat-tab.md` — the Chat tab, fully designed: agentic
-retrieval loop, no-sentence-without-a-receipt verification, aggregate
-questions answered by queries not generation, absence protocol, inline
-result-set answers, context shelf, measured floors before shipping. The
-owner will schedule it himself; promotion adds a dated note to the old
-search-and-chat scope order. Do not start.
+**Promoted 2026-09-13 — `WORKORDER-202626270611-chat-tab.md`, the Chat tab.**
+Was HELD; the owner has now asked for it, per §10 of `WORKORDER-scope-
+change-search-and-chat.md`'s condition ("L8a used in anger"), which that
+document's own dated note now records as met. Queue position `0t` in
+`docs/ORDER_REGISTER.md`, ACTIVE, 0/26. Fully designed: agentic retrieval
+loop, no-sentence-without-a-receipt verification, aggregate questions
+answered by queries not generation, absence protocol, inline result-set
+answers, context shelf, measured floors before shipping. Read the register
+for current progress rather than this paragraph.
 
 Draft (not for execution): `WORKORDER-202626270515-video-audio-DRAFT.md` —
     video/audio epoch, promoted only by the owner after the picture stack.
@@ -564,6 +566,12 @@ stating something wrong confidently over technical material is worse than no ans
 
 *What would justify L8b:* L8a in daily use, and the owner saying "now I want it to just tell
 me". Not before.
+
+**That happened on 2026-09-13.** L8a had been in real use; the owner asked for it. L8b is not
+the "one search, then answer" sketch this section describes above - it is the far more
+elaborate agentic-retrieval-with-receipts design in `WORKORDER-202626270611-chat-tab.md`,
+promoted the same day. See that order and `docs/ORDER_REGISTER.md`'s `0t` row for where it
+stands; the reasoning above for *why* it waited is still correct and is not revised by this.
 
 **The three `entities` tables stay in the schema, empty and commented as deprecated.**
 Dropping them needs a migration to v5, and migrations only step forward - so reviving the

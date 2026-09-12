@@ -64,6 +64,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
+| 0t | `202626270611` | The Chat tab — ask your archive, and every answer has receipts | **ACTIVE** | 1 / 25 | Promoted 2026-09-13 (was HELD) — see `WORKORDER-scope-change-search-and-chat.md`'s reopening note. Photo lanes (0h-0j) not yet landed, so built against text only for now. §1a (router) closed same day |
 
 **2026-09-13 — order 0's "Relevance" item closed, 52/6 → 53/5.** The recency
 half was already shipped in 0c; the filename-match half did not exist. Built
@@ -140,7 +141,6 @@ that same unmodified commit, confirming they predate this session's work.
 | Ref | Order | Status | Done/Open | Note |
 |---|---|---|---|---|
 | `202626270547` | Test automation — the GUI clicked for real | HELD | 0 / 18 | Queue letter **0m**, referenced by 0n's sequencing. §0 is the `widget.grab()` utility, first item on release |
-| `202626270611` | The Chat tab — answers with receipts | HELD | 0 / 26 | Deliberately after the finder is finished |
 | `202626082213` | Install and distribution | DRAFT | 0 / 0 | **Five `[FINALISE]` decisions open.** See §5 |
 | `202626270238` | Migrate PyQt6 → PySide6 | DRAFT | 0 / 10 | Structural — deferred behind the working version |
 | `202626270515` | Video and audio | DRAFT | 0 / 4 | The epoch after pictures |

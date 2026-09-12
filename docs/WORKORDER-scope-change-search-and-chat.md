@@ -1,6 +1,6 @@
 # Work order: scope change - local search you can describe in plain English
 
-**Doc version:** 2.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 **Supersedes version 1.0 of this document**, which made prose chat the headline feature. That
 was an inference, and it was wrong. The owner has since been explicit:
@@ -225,6 +225,21 @@ until it has.** No test can cover it.
 - **Translation is optional and never blocks a search.** Ollama down means plain search.
 - **Graph removed, L7 cancelled, L10 cancelled.**
 - **L8b deferred** until L8a has been used in anger.
+
+---
+
+## Reopened 2026-09-13 — the owner promoted the Chat tab
+
+§10's "L8b deferred until L8a has been used in anger" is answered: L8a
+(Interpret / `Ctrl+Enter` query translation) has been in real use, and the
+owner has asked for chat. This does not revise the decision above that L8b
+is secondary and search-that-returns-documents remains the point - it
+records that the condition gating L8b has now been met, and that the far
+more elaborate design in `WORKORDER-202626270611-chat-tab.md` (an agentic
+retrieval loop with sentence-level verification, not the "one search, then
+answer" sketch in §5 above) supersedes that sketch as the L8b build. Its own
+`## Done means` section states the acceptance bar. Promoted the same day,
+in `docs/ORDER_REGISTER.md`.
 
 ---
 
