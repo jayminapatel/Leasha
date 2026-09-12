@@ -373,6 +373,20 @@ def test_eta_is_vague_past_an_hour() -> None:
     (500, 100, "about 5 minutes"),
     (6_000, 100, "about 1 hour"),
     (300_000, 100, "about 2 days"),
+    # One file finished in the 15-minute rate window (RATE_WINDOW_S in
+    # pipeline.py) measures 1/900*60 = 0.067 files/min: not zero, but far
+    # below what "{rate:,.0f} files/min" would ever print as anything but
+    # "0". This is the exact rate that used to divide out to "about 1823
+    # days" - see presenter.py's format_eta docstring.
+    (200_000, 1 / 900 * 60, "estimating…"),
+    # No measurement at all yet - `IndexStats.recent_files_per_minute` is
+    # `None` until there are two samples, and that must read the same as an
+    # unmeasurably small rate, not as a crash.
+    (200_000, None, "estimating…"),
+    # A quarter-million files at one a minute is months away. Extrapolating
+    # a fifteen-minute sample that far is precision the measurement does not
+    # have, so it is capped rather than reported as a specific count.
+    (250_000, 1, "more than a week"),
 ])
 def test_eta_wording(remaining: int, rate: float, expected: str) -> None:
     assert format_eta(remaining, files_per_minute=rate) == expected

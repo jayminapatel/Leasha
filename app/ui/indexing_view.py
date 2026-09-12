@@ -320,6 +320,16 @@ class IndexingView(QWidget):
         self._worker = worker
         run(self._pool, worker)
 
+    def update_total_estimate(self, total: int) -> None:
+        """A background count, finishing mid-run, gives the bar a real total.
+
+        See `MainWindow._start_background_scan`. Ignored once the run it was
+        counted for has ended - a slow count can finish after a short run.
+        """
+        if self._worker is None or total <= 0:
+            return
+        self._total_estimate = total
+
     def stop(self) -> None:
         """Ask the run to end after the file it is on.
 

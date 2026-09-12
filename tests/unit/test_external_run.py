@@ -226,3 +226,41 @@ def test_the_scan_button_exists_and_says_what_it_costs():
     tip = view.scan_button.toolTip().lower()
     assert "percentage" in tip
     assert "contents" in tip, "say that it reads no file contents"
+
+
+# ---------------------------------------------------------------------------
+# A background count landing on a run that started with no total
+# ---------------------------------------------------------------------------
+
+def test_a_background_count_updates_a_running_view():
+    """`MainWindow._start_background_scan` hands its result here. See
+    `test_a_scan_that_undercounted_does_not_make_the_eta_say_done` for the bug
+    a run stuck without any total led to."""
+    view = _view()
+    view._worker = object()               # a run is under way
+
+    view.update_total_estimate(5_000)
+
+    assert view._total_estimate == 5_000
+
+
+def test_a_background_count_is_ignored_once_the_run_has_ended():
+    """A count that takes minutes on a large corpus can finish after a short
+    run is already done - setting a denominator nobody is drawing against
+    would only be read back by the next, unrelated run."""
+    view = _view()
+    assert view._worker is None
+
+    view.update_total_estimate(5_000)
+
+    assert view._total_estimate == 0
+
+
+def test_a_bad_count_does_not_overwrite_a_good_one():
+    view = _view()
+    view._worker = object()
+    view._total_estimate = 5_000
+
+    view.update_total_estimate(0)
+
+    assert view._total_estimate == 5_000

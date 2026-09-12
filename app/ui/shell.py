@@ -2233,7 +2233,45 @@ class MainWindow(QMainWindow):
         # exactly as long as the run - taking it here would hold it across the
         # whole life of the window again, which is the bug being fixed.
         pipeline.run_owner = GUI
-        self.indexing_view.start(pipeline, total_estimate=self._scan_total(chosen))
+        total = self._scan_total(chosen)
+        self.indexing_view.start(pipeline, total_estimate=total)
+        if not total:
+            # **Nobody should have to remember to click Scan first.** Without
+            # this a run over folders nobody has counted shows a denominator
+            # that grows with the walk - reading ~97% within the first minute,
+            # per `progress_for`'s own docstring - and, on a corpus that has
+            # grown since an old scan of a *different* total of folders, an
+            # ETA that can claim "done" mid-run once the walker's own count
+            # overtakes it (`format_eta` reads a negative remainder as
+            # finished - see `test_a_scan_that_undercounted_does_not_make_
+            # the_eta_say_done`). This is the same walk the Scan button runs,
+            # just started automatically.
+            self._start_background_scan(chosen)
+
+    def _start_background_scan(self, roots: list[str]) -> None:
+        """Count the corpus alongside a run that started with no total.
+
+        Reads no file contents - see `_scan_corpus` - so it costs the disk a
+        second directory walk next to the run's own, and nothing worse.
+        Skipped if a scan (this one, or the Scan button) is already counting:
+        two of these at once would only waste that effort twice over.
+        """
+        if not self.indexing_view.scan_button.isEnabled():
+            return
+        self.indexing_view.scan_button.setEnabled(False)
+        worker = CallableWorker(_scan_and_save, self._store, roots,
+                                component="ui.index.background_scan")
+        worker.signals.finished.connect(self._background_scan_finished)
+        worker.signals.failed.connect(
+            lambda error: _log.debug("background file count failed: {}", error))
+        worker.signals.done.connect(
+            lambda: self.indexing_view.scan_button.setEnabled(True))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _background_scan_finished(self, payload: dict) -> None:
+        """Hand the count to whichever run is still going. See `IndexingView.
+        update_total_estimate` for why a run that has already finished ignores it."""
+        self.indexing_view.update_total_estimate(int(payload.get("files", 0) or 0))
 
     def _index_resolve_failed(self, error: Any) -> None:
         """`resolve_for_run` does not raise by contract - see its own docstring -

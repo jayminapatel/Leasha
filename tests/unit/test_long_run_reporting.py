@@ -153,6 +153,39 @@ def test_with_a_scan_total_the_eta_is_a_real_one():
     assert "about" in detail                       # "about 4 hours", not a to-the-second claim
 
 
+def test_a_scan_that_undercounted_does_not_make_the_eta_say_done():
+    """**The bug this closes.** A scan of 680 files against a corpus that
+    turned out to hold far more used to make `remaining` go negative the
+    moment `done` passed 680, and `format_eta` reads `remaining <= 0` as
+    "done" - so the panel announced the run had finished while the headline
+    above it kept counting indexed files. `progress_for` already refuses to
+    let the stale total cap the *bar*; the ETA must use that same corrected
+    total rather than reading the original scan figure straight back out."""
+    stats = IndexStats(indexed=1_000, seen=1_200, walk_complete=False)
+    stats.sample(now=0.0)
+    stats.indexed = 1_100
+    stats.sample(now=60.0)
+
+    _headline, detail = progress_text(stats, total_estimate=680)
+
+    assert "done" not in detail
+    assert "unknown" not in detail
+
+
+def test_an_undercounted_scan_says_so_rather_than_changing_silently():
+    """A total that grows with no explanation reads as a bug, even though the
+    walker finding more than a stale count expected is the ordinary case on a
+    corpus that has grown since the last scan."""
+    stats = IndexStats(indexed=1_000, seen=1_200, walk_complete=False)
+    stats.sample(now=0.0)
+    stats.indexed = 1_100
+    stats.sample(now=60.0)
+
+    _headline, detail = progress_text(stats, total_estimate=680)
+
+    assert "found more than the last count expected" in detail
+
+
 def test_the_progress_line_says_which_rate_it_is_quoting():
     """A number with no window attached invites the reading that it is current
     when it is a four-day average."""

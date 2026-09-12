@@ -454,17 +454,42 @@ def format_count(value: int) -> str:
     return f"{value:,}"
 
 
-def format_eta(remaining: int, *, files_per_minute: float) -> str:
+#: Below this, "{rate:,.0f} files/min" (the text this ETA is always printed
+#: beside - see `progress_text`) rounds to "0 files/min". Treating a rate that
+#: small as usable is the bug this guard replaces: a run that finished exactly
+#: one file inside the fifteen-minute rate window (`RATE_WINDOW_S` in
+#: `app/index/pipeline.py`) measured 1/900*60 = 0.067 files/min. That is not
+#: `<= 0`, so the old guard let it through, and dividing a six-figure scan
+#: total by it printed "about 1823 days" right beside "0 files/min" - two
+#: halves of one sentence disagreeing about whether anything was known at
+#: all. The floor is set at the display's own rounding boundary, not at zero,
+#: so the two halves can never contradict each other again: anything that
+#: would print as "0" here reads as unmeasured instead of as a number.
+MIN_MEASURABLE_FILES_PER_MINUTE = 0.5
+
+#: Extrapolating a fifteen-minute sample across weeks or months is precision
+#: the measurement does not have, so anything past this many days is reported
+#: as "more than a week" rather than as a specific count.
+ETA_CAP_DAYS = 7
+
+
+def format_eta(remaining: int, *, files_per_minute: Optional[float]) -> str:
     """A human ETA from a measured rate.
 
     Deliberately vague past an hour. A progress bar claiming "2 hours 14 minutes"
     on a rate measured over the last thirty seconds is precision the number does
     not have, and being visibly wrong about it costs more trust than saying
     "about 2 hours" and being right.
+
+    `files_per_minute` is `None` while nothing has been measured yet (see
+    `IndexStats.recent_files_per_minute`), and is rejected below
+    `MIN_MEASURABLE_FILES_PER_MINUTE` even when positive - both read as
+    "estimating…", never as a number. Past `ETA_CAP_DAYS`, the estimate is
+    capped rather than extrapolated further; see that constant's docstring.
     """
     if remaining <= 0:
         return "done"
-    if files_per_minute <= 0:
+    if files_per_minute is None or files_per_minute < MIN_MEASURABLE_FILES_PER_MINUTE:
         return "estimating…"
 
     minutes = remaining / files_per_minute
@@ -476,7 +501,11 @@ def format_eta(remaining: int, *, files_per_minute: float) -> str:
     hours = minutes / 60
     if hours < 24:
         return f"about {round(hours)} hour{'s' if round(hours) != 1 else ''}"
-    return f"about {round(hours / 24)} day{'s' if round(hours / 24) != 1 else ''}"
+
+    days = hours / 24
+    if days > ETA_CAP_DAYS:
+        return "more than a week"
+    return f"about {round(days)} day{'s' if round(days) != 1 else ''}"
 
 
 @dataclass
@@ -1906,7 +1935,7 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
             "it will continue on its own.",
         )
 
-    done, _total = progress_for(stats, total_estimate=total_estimate)
+    done, total = progress_for(stats, total_estimate=total_estimate)
 
     # **The rate over the last quarter of an hour, not since the start.**
     #
@@ -1923,8 +1952,26 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
     # is no total, so the only honest answer to "how much longer" is that
     # nothing here can tell - and no number is better than a wrong one on a job
     # measured in days.
-    if total_estimate:
-        eta = format_eta(max(0, total_estimate - done), files_per_minute=rate)
+    #
+    # **`total`, not `total_estimate`.** `progress_for` already refuses to let
+    # a scanned total cap the bar below what the walker is actually finding -
+    # see `test_the_estimate_is_ignored_once_the_walk_passes_it` - but this
+    # used to read the original `total_estimate` straight back out here,
+    # ignoring that correction. A scan that had counted 680 files against a
+    # corpus that turned out to hold many more meant `remaining` went negative
+    # the moment `done` passed 680, and `format_eta` reads `remaining <= 0` as
+    # "done" - so the panel announced the run had finished while the headline
+    # above it kept counting. `total` already carries whichever is bigger, so
+    # the ETA and the bar can no longer disagree about how much is left.
+    grew_past_the_estimate = bool(total_estimate) and total > total_estimate
+    if total:
+        eta = format_eta(max(0, total - done), files_per_minute=rate)
+        if grew_past_the_estimate:
+            # Said once, plainly, rather than leaving the number to change with
+            # no explanation - a total that silently grows reads as a bug even
+            # though the walker finding more than a stale count expected is the
+            # ordinary case on a corpus that has grown since the last scan.
+            eta += " (found more than the last count expected)"
     else:
         eta = "time remaining unknown - run `app.cli scan` for a real estimate"
 
