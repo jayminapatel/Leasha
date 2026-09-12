@@ -19,7 +19,14 @@ from pathlib import Path
 
 import pytest
 
-from app.ui.tray import ICON_FILE, TRAY_ICON_FILE, TrayPresence, assets_dir, icon_path
+from app.ui.tray import (
+    ICON_FILE,
+    TRAY_ICON_FILE,
+    TrayPresence,
+    assets_dir,
+    icon_path,
+    set_app_user_model_id,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 TRAY = ROOT / "app" / "ui" / "tray.py"
@@ -67,6 +74,45 @@ def test_the_tray_uses_a_different_file_from_the_window():
 def test_a_missing_icon_is_none_rather_than_a_guess():
     """A silently substituted default would hide an incomplete build."""
     assert icon_path("does-not-exist.ico") is None
+
+
+def test_app_user_model_id_is_a_noop_off_windows():
+    """Off Windows, `SetCurrentProcessExplicitAppUserModelID` does not exist -
+    the call must return False rather than raise."""
+    import sys
+    from unittest.mock import patch
+
+    with patch.object(sys, "platform", "linux"):
+        assert set_app_user_model_id() is False
+
+
+def test_app_user_model_id_failure_is_cosmetic_only():
+    """A broken shell32 call must never be allowed to crash startup over a
+    taskbar icon - same rule as `install_window_icon` just above it."""
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    fake_ctypes = MagicMock()
+    fake_ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID.side_effect = (
+        OSError("no shell32 here")
+    )
+    with patch.object(sys, "platform", "win32"), \
+            patch.dict("sys.modules", {"ctypes": fake_ctypes}):
+        assert set_app_user_model_id() is False
+
+
+def test_app_user_model_id_calls_shell32_on_windows():
+    """The real fix: give the process its own taskbar identity before any
+    window exists, so Windows stops keying the icon on pythonw.exe."""
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    fake_ctypes = MagicMock()
+    with patch.object(sys, "platform", "win32"), \
+            patch.dict("sys.modules", {"ctypes": fake_ctypes}):
+        assert set_app_user_model_id("Leasha.Test") is True
+    fake_ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once_with(
+        "Leasha.Test")
 
 
 def test_the_icon_is_looked_for_beside_a_frozen_executable_too():

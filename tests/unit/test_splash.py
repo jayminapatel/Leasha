@@ -34,6 +34,24 @@ class TestSplashScreen:
         assert splash.widget.isVisible() is False
 
     @pytest.mark.qt
+    def test_splash_is_not_always_on_top(self) -> None:
+        """The splash must not outlive its own screen-time on top of other apps.
+
+        `WindowStaysOnTopHint` pins a widget above every other window on the
+        desktop for as long as it exists - not just above the main window
+        underneath it during the hold-and-fade. If `hide_and_close` is ever
+        skipped or delayed (a test, a future early return, a hang in some
+        other startup step), a stays-on-top splash blocks every application
+        the user opens next, not just Leasha's own window.
+        """
+        from PyQt6.QtCore import Qt
+
+        from app.ui.splash import SplashScreen
+
+        splash = SplashScreen()
+        assert not (splash.widget.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+    @pytest.mark.qt
     def test_splash_shows(self) -> None:
         """Splash can be shown, and hide_and_close makes it invisible."""
         import time

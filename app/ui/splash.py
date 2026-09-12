@@ -176,8 +176,19 @@ class SplashScreen:
         # numeric value) raise `TypeError: unexpected type 'int'` at
         # construction, crashing every startup before the window ever shows.
         self.widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.widget.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        # `WindowStaysOnTopHint` used to be set here, which keeps the widget
+        # above every other window on the desktop - not just the main window
+        # underneath it - for as long as the widget exists. `hide_and_close`
+        # is guarded against exceptions (H4, see its docstring) precisely
+        # because splash behaviour must never block startup, but that guard
+        # only stops the *hold-and-fade* from hanging; it does nothing about
+        # a widget that stays alive and stays-on-top through some other path
+        # (a test calling `show()` without `hide_and_close()`, a future
+        # early-return added above it). Frameless alone is enough: a normal
+        # top-level window still paints above whatever else is on screen
+        # while it has focus, without pinning itself over the user's other
+        # applications for the rest of the process's life.
+        self.widget.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
         # Size: ~560×380 logical px, DPI-aware
         self._setup_geometry()

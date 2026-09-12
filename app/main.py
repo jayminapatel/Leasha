@@ -430,13 +430,19 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             suggestion="Re-run the installer: run-install.cmd",
         ))
 
+    # Before QApplication, so the taskbar has this process's own identity
+    # from the first frame rather than showing pythonw.exe's generic icon -
+    # see `set_app_user_model_id`'s docstring for why that happens when
+    # running unpackaged, which is every run until L9 ships a real .exe.
+    from app.ui.tray import install_window_icon, set_app_user_model_id
+
+    set_app_user_model_id()  # cosmetic only; failure is not fatal
+
     application = QApplication(qt_arguments)
     application.setApplicationName(NAME)
     # Before any window exists, so the taskbar entry is right from the first
     # frame rather than flickering from a default. A missing file is logged and
     # ignored - refusing to start over an icon would be absurd.
-    from app.ui.tray import install_window_icon
-
     if not install_window_icon(application):
         pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
