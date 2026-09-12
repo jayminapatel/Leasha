@@ -21,16 +21,53 @@ is the only way to know.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 __all__ = [
-    "icon_path", "tray_icon_path", "install_window_icon", "TrayPresence",
+    "icon_path", "tray_icon_path", "install_window_icon",
+    "set_app_user_model_id", "TrayPresence",
     "ICON_FILE", "TRAY_ICON_FILE",
 ]
 
 ICON_FILE = "leasha.ico"
 TRAY_ICON_FILE = "leasha-tray.ico"
+
+#: Arbitrary but stable - Windows only uses this to tell one app's windows
+#: apart from another's, never displays it.
+APP_USER_MODEL_ID = "Leasha.Leasha.DesktopApp.1"
+
+
+def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
+    """Give this process its own taskbar identity, separate from pythonw.exe.
+
+    L9 (packaging) has not started - see HANDOFF.md - so today the app is
+    always launched as a plain script, with no packaged `.exe` and no Start
+    Menu shortcut to carry an icon resource of its own. Without this call,
+    Windows has nothing to key the taskbar icon on but the interpreter's own
+    path, `pythonw.exe`, shared by every Python GUI script on the machine -
+    `application.setWindowIcon` sets the *window's* icon, but the taskbar
+    button shows the generic interpreter icon (or none) regardless, because
+    that is a property of the process identity, not the window. This is the
+    documented fix: `SetCurrentProcessExplicitAppUserModelID`, called before
+    any window exists. Once L9 packages a real `.exe`, that carries its own
+    identity and this call becomes a no-op in practice - safe to leave in.
+
+    True if the call succeeded. Windows-only; a no-op everywhere else. A
+    failure here is cosmetic, same as `install_window_icon` below - never a
+    reason to refuse to start.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
+            app_id)
+        return True
+    except Exception:                             # noqa: BLE001 - cosmetic only
+        return False
 
 
 def assets_dir() -> Path:
@@ -40,8 +77,6 @@ def assets_dir() -> Path:
     beside `app/`. Checking both means the icon does not silently vanish the
     first time somebody packages this.
     """
-    import sys
-
     candidates = [
         Path(getattr(sys, "_MEIPASS", "")) / "assets" if hasattr(sys, "_MEIPASS") else None,
         Path(sys.argv[0]).resolve().parent / "assets",

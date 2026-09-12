@@ -17,6 +17,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
+
+- **The splash screen was set to stay on top of everything, not just the window loading
+  underneath it.** `WindowStaysOnTopHint` pins a window above the rest of the desktop for as
+  long as it exists, not only for as long as it is meant to be visible. The splash is only
+  ever meant to be on top of Leasha's own window while that window loads; it should never be
+  able to sit above the browser, email, or anything else once that moment has passed. Removed
+  - a normal window already paints above whatever else is on screen while it holds focus,
+  without needing to be pinned there.
+- **Leasha's taskbar button carried no icon.** Running from source, with no installer or
+  Start Menu shortcut yet (that is L9, not started - see `HANDOFF.md`), Windows had nothing
+  to identify the app's taskbar entry by except the shared Python interpreter it runs under -
+  so the icon set on the window itself never reached the taskbar button. Leasha now gives
+  its process its own identity before any window is created, which is what the taskbar
+  actually keys the icon on.
+
 ### Fixed: one graphics-driver failure used to end the whole indexing run - now it carries on using the processor
 
 - **A real event, from the user's own machine on 2026-09-08, later the same morning as the
