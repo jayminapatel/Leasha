@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.3 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
 request to be scheduled by him later; the owner has now promoted it. The
@@ -120,10 +120,20 @@ codebase:
   correctness tests against a real `SqliteStore` (`tests/unit/
   test_aggregate_count.py`) and 14 fake-client tests for the phrasing
   contract (`tests/unit/test_chat_aggregate.py`).*
-- [ ] **1e ABSENCE protocol**: retrieval-negative questions answer with what
+- [x] **1e ABSENCE protocol**: retrieval-negative questions answer with what
   was searched (the queries, visibly), the honest scope sentence ("nothing
   in Leasha's index matches — sources currently indexed: …"), and offer the
   obvious next steps (different words; is it on an unscanned drive?).
+  *Built 2026-09-13 as `app/chat/absence.py`. Deliberately not gated on the
+  router's `ABSENCE` class - this is the loop's own principle 4
+  ("absence is stated honestly"), not only that route's: a `LOOKUP` that
+  finds nothing deserves the same honesty an "is there…" question does, so
+  `is_empty(loop_result)` is the gate, checked after the loop runs,
+  independent of which class routed it there. No model involved at all -
+  the whole point is a deterministic sentence that cannot itself
+  hallucinate, built from the queries `run_loop` actually ran and whichever
+  folders are currently configured. 11 tests, `tests/unit/
+  test_chat_absence.py`, pure - no client, no store.*
 
 ## 2. Verification: no sentence without a receipt
 
