@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
 request to be scheduled by him later; the owner has now promoted it. The
@@ -58,7 +58,7 @@ codebase:
   falls through to LOOKUP rather than being guessed. 35 tests, `tests/
   unit/test_chat_router.py`, all fake-client per the same rule `test_
   translate.py` holds itself to.*
-- [ ] **1b The loop**: plan search queries from the question (REUSING the
+- [x] **1b The loop**: plan search queries from the question (REUSING the
   translator — question → filter grammar + terms); retrieve via the real
   engine (all lanes: text, and when 0510+ land, images/people/places);
   assess sufficiency; the model may request FURTHER searches (bounded, ≤3
@@ -66,6 +66,36 @@ codebase:
   small model with a stuffed window. Each step streams a plain-words
   narration line ("Searching… found 8 documents · reading the 2019
   contract…") — the loop's own progress is the trust-building UX.
+  *Built 2026-09-13 as `app/chat/loop.py`. Text lanes only - photo/people/
+  places lanes wait on 0h-0j, unlanded; "reading the 2019 contract" style
+  per-document narration is §1c's job (context economy) and is not claimed
+  here. Round one reuses `QueryTranslator` exactly as asked; rounds two and
+  three ask the model for a follow-up query, validated the same way a
+  translation is - parsed with `parse_query()`, rejected rather than run if
+  it does not fit.*
+
+  *Three real bugs found by testing against the real local models rather
+  than only fakes. (1) `parse_query()` happily accepts prose as a bag of
+  keywords - that is what it is for - so a follow-up like "I think you
+  should look in the Documents folder" parsed cleanly and would have run as
+  a search; rejected now on the same "translation compresses" principle
+  `translate.py` uses, capped at `_MAX_PLAIN_WORDS` when nothing about the
+  reply reads as a deliberate query (no operator, no phrase). (2) A model
+  repeating its own last query is now rejected as stalling rather than run
+  again for no new information. (3) The sufficiency-check timeout was first
+  measured at a misleadingly fast 4.4-4.7s by timing the *same* prompt three
+  times against `mistral:latest` (7.2B) - which is fast only because Ollama
+  caches an identical prompt. Against real, varying questions the same model
+  took 31-36s per check; `qwen2.5:1.5b`, the "tiny+fast" role §4d of this
+  order designs for rather than the "strongest affordable" Chat role, did
+  the same job in 4.6-7.6s cold/semi-warm and under a second once genuinely
+  warm. `SUFFICIENCY_TIMEOUT_S=10s` is set against that model, documented as
+  such, and will need reconsidering once model roles (§4d) exist and
+  sufficiency might run on whichever model is actually answering.*
+
+  *21 tests, `tests/unit/test_chat_loop.py`, fake engine/translator/client
+  throughout - the same rule `test_translate.py` and `test_chat_router.py`
+  hold themselves to.*
 - [ ] **1c Context economy for small models**: per-document extract-then-
   combine (map-reduce) for synthesis instead of one giant prompt; the
   RERANK_WINDOW machinery reused for snippet windows; context budget derived
