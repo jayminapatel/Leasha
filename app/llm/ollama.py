@@ -190,6 +190,32 @@ class OllamaClient:
             return []
         return [str(entry.get("name", "")) for entry in payload.get("models", [])]
 
+    def context_length(self) -> Optional[int]:
+        """The configured model's context window, in tokens - or `None`
+        when it cannot be determined. **Never raises.**
+
+        Read from `/api/tags`, the same endpoint `available_models()` and
+        `has_model()` already call - it answers as soon as the service is
+        up, needs no model load, and already carries `details.
+        context_length` per installed model; there is no cheaper place to
+        ask. Matched on the bare name as well as the full tag, the same
+        rule `has_model()` uses, so `mistral` and `mistral:latest` agree
+        about which entry answers for `self.model`.
+        """
+        try:
+            payload = self._get("/api/tags", timeout=min(self.timeout, 5.0))
+        except Exception:                            # noqa: BLE001 - a probe never fails a caller
+            return None
+        wanted = self.model.split(":")[0]
+        for entry in payload.get("models", []):
+            name = str(entry.get("name", ""))
+            if name != self.model and name.split(":")[0] != wanted:
+                continue
+            length = entry.get("details", {}).get("context_length")
+            if isinstance(length, int) and length > 0:
+                return length
+        return None
+
     def has_model(self) -> bool:
         """Is the configured model actually installed?
 

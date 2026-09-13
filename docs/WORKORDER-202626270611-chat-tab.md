@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.4 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
 request to be scheduled by him later; the owner has now promoted it. The
@@ -96,10 +96,35 @@ codebase:
   *21 tests, `tests/unit/test_chat_loop.py`, fake engine/translator/client
   throughout - the same rule `test_translate.py` and `test_chat_router.py`
   hold themselves to.*
-- [ ] **1c Context economy for small models**: per-document extract-then-
+- [x] **1c Context economy for small models**: per-document extract-then-
   combine (map-reduce) for synthesis instead of one giant prompt; the
   RERANK_WINDOW machinery reused for snippet windows; context budget derived
   from the model's actual window (queried from Ollama), envelope-style.
+  *Built 2026-09-13: the "extract" half. `OllamaClient.context_length()`
+  (new) reads `/api/tags`, which already carries `details.context_length`
+  per installed model - the same endpoint `available_models()`/`has_model()`
+  already call, so this needed no new probe. `app/chat/context.py` turns
+  that into a character budget by envelope arithmetic (reserve output
+  tokens, reserve prompt overhead, convert the rest at `app.search.window.
+  RERANK_WINDOW_CHARS`'s own already-measured ratio - "600 is about 150
+  tokens" - rather than a second, invented one), divides it across however
+  many documents are in play, floored at `RERANK_WINDOW_CHARS` for the same
+  reason that module's own docstring gives ("the licence expires" without
+  which licence), and calls `app.search.window.windows_for` - unchanged -
+  to do the actual cutting. Verified against the real `qwen2.5:1.5b` and its
+  real 32,768-token window, not an assumed number.*
+
+  *The "combine" half - folding sized extracts into one synthesis prompt -
+  is deliberately not built yet. It would mean generating prose before §2
+  (verification) exists to check it, which is the order's own principle 1:
+  "the model never speaks unverified." `build_context` produces exactly the
+  sized, per-document material a combine step will need; the step itself
+  waits until there is a verifier to gate its output.*
+
+  *22 tests total: 7 for `context_length()` (`tests/unit/
+  test_ollama_context_length.py`, `_get` monkeypatched, no real Ollama
+  needed) and 15 for the budget arithmetic (`tests/unit/
+  test_chat_context.py`).*
 - [x] **1d AGGREGATE answers are computed, not generated**: "how many PDFs
   did Dave send in 2019" runs as a real query; the number in the answer IS
   the query result, injected — the model may only phrase around values it

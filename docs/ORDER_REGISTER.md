@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.6 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -64,7 +64,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
-| 0t | `202626270611` | The Chat tab — ask your archive, and every answer has receipts | **ACTIVE** | 4 / 22 | Promoted 2026-09-13 (was HELD) — see `WORKORDER-scope-change-search-and-chat.md`'s reopening note. Photo lanes (0h-0j) not yet landed, so built against text only for now. §1a, §1b, §1d, §1e closed same day; §1c (context economy) is section 1's one remaining item |
+| 0t | `202626270611` | The Chat tab — ask your archive, and every answer has receipts | **ACTIVE** | 5 / 21 | Promoted 2026-09-13 (was HELD) — see `WORKORDER-scope-change-search-and-chat.md`'s reopening note. Photo lanes (0h-0j) not yet landed, so built against text only for now. §1 ("the engine") fully closed same day - §2 (verification, the order's own load-bearing mechanism) is next |
 
 **2026-09-13 — order 0's "Relevance" item closed, 52/6 → 53/5.** The recency
 half was already shipped in 0c; the filename-match half did not exist. Built
