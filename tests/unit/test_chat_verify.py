@@ -60,6 +60,25 @@ def test_internal_whitespace_is_collapsed():
     assert split_sentences("One.\n\n  Two.") == ["One.", "Two."]
 
 
+def test_a_citation_marker_after_the_period_stays_with_its_sentence():
+    r"""**Found live, against the real model this order targets.** A model
+    asked to end every sentence with a citation marker more often writes
+    "Claim. [1]" than "Claim [1]." - splitting on the period alone stranded
+    the marker as its own citation-only fragment with no sentence to
+    belong to."""
+    assert split_sentences("The deposit was 500 pounds. [1] The lease "
+                           "started in 2019. [2]") == [
+        "The deposit was 500 pounds. [1]", "The lease started in 2019. [2]",
+    ]
+
+
+def test_a_citation_marker_before_the_period_still_works_too():
+    assert split_sentences("The deposit was 500 pounds [1]. The lease "
+                           "started in 2019 [2].") == [
+        "The deposit was 500 pounds [1].", "The lease started in 2019 [2].",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # extract_citations
 # ---------------------------------------------------------------------------

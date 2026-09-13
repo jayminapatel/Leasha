@@ -79,11 +79,19 @@ __all__ = [
 #: notice one digit changing, and the order never claimed it would.
 SIMILARITY_THRESHOLD = 0.75
 
-#: A run of whitespace immediately after sentence-ending punctuation. Not a
-#: general-purpose sentence tokeniser - this only ever splits the
+#: A run of whitespace immediately after sentence-ending punctuation - or
+#: after a citation marker's closing `]`, so "The deposit was 500 pounds.
+#: [1]" (the marker *after* the period - what models actually write more
+#: often than the "[1]." this project's own prompt originally assumed) is
+#: not split between the period and its own marker. The negative lookahead
+#: blocks a split immediately before a marker for the same reason: found
+#: live, splitting there stranded the marker as its own citation-only
+#: fragment with no sentence to belong to.
+#:
+#: Not a general-purpose sentence tokeniser - this only ever splits the
 #: application's own generated answers, which are short, plain and written
 #: to this prompt's own instructions, not arbitrary uploaded prose.
-_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?\]])\s+(?!\[\d+\])")
 
 #: `[1]`, `[12]` - a citation marker. `\[` and `\]` are literal; digits only,
 #: so a sentence that happens to contain `[note]` is left alone rather than
