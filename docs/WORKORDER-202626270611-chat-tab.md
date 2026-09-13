@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.2 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
 request to be scheduled by him later; the owner has now promoted it. The
@@ -100,10 +100,26 @@ codebase:
   combine (map-reduce) for synthesis instead of one giant prompt; the
   RERANK_WINDOW machinery reused for snippet windows; context budget derived
   from the model's actual window (queried from Ollama), envelope-style.
-- [ ] **1d AGGREGATE answers are computed, not generated**: "how many PDFs
+- [x] **1d AGGREGATE answers are computed, not generated**: "how many PDFs
   did Dave send in 2019" runs as a real query; the number in the answer IS
   the query result, injected — the model may only phrase around values it
   cannot alter (template slots, not free generation over numbers).
+  *Built 2026-09-13. `app.search.keyword.count_matching(store, parsed)` is
+  the query - an exact, unlimited `COUNT(DISTINCT file_id)` over the same
+  FTS expression and filter SQL `search()` already uses, not a count of
+  `search()`'s own capped, ranked page (a file with three matching passages
+  is one document, not three; `KEYWORD_LIMIT` never truncates the total).
+  `app/chat/aggregate.py` wraps it: the model, if one is given, may only
+  phrase a sentence around the number - its reply is rejected, falling back
+  to a plain templated sentence that cannot be wrong, unless every number in
+  it is `count` and no other. Found live, the same lesson `translate.
+  build_prompt`'s own docstring already records: asked only for "the number,
+  unchanged, in a sentence," `qwen2.5:1.5b` answered with the bare digit and
+  nothing else - correct, but not a sentence. One example fixed it
+  immediately ("There are 12 contracts." → "There are 7 invoices."). 9 SQL
+  correctness tests against a real `SqliteStore` (`tests/unit/
+  test_aggregate_count.py`) and 14 fake-client tests for the phrasing
+  contract (`tests/unit/test_chat_aggregate.py`).*
 - [ ] **1e ABSENCE protocol**: retrieval-negative questions answer with what
   was searched (the queries, visibly), the honest scope sentence ("nothing
   in Leasha's index matches — sources currently indexed: …"), and offer the

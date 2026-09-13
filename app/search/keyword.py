@@ -28,7 +28,7 @@ from app.core.logging import logger
 from app.search.query import ParsedQuery, _fts_quote
 from app.storage.filters import epoch_ns, file_filter_sql, merge_by_date
 
-__all__ = ["search", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP"]
+__all__ = ["search", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP", "count_matching"]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 KEYWORD_LIMIT = 100
@@ -402,6 +402,63 @@ class Eligibility:
             [*wanted, *self._params],
         ).fetchall()
         return {int(row["id"]) for row in rows}
+
+
+def count_matching(store: Any, parsed: ParsedQuery) -> int:
+    r"""Exact count of *files* matching `parsed`'s terms and filters.
+
+    Layer: L4, built for L8b §1d - "AGGREGATE answers are computed, not
+    generated": the model may phrase a sentence, but the number in it has
+    to be a real query result, and this is that query.
+
+    **Distinct files, never chunks.** A document with three matching
+    passages is one document, counted once - `search()`'s own rows are one
+    per *chunk*, which is right for showing three snippets and wrong for
+    counting one thing three times.
+
+    **The full expression, not `search()`'s narrow-first optimisation.**
+    `_narrow_first`/`search()` try the AND-joined form first and only widen
+    to OR if it does not fill the page - a ranking trick that trades recall
+    for speed on the results actually *shown*, and a stable count must not
+    depend on the incidental fact that it does not affect what gets
+    counted. This uses `parsed.fts_match()` plain, the same OR-if-implied
+    expression `search()` eventually falls back to when the narrow form
+    comes up short - the total a person means by "how many", not however
+    many the top page happened to include.
+
+    Not capped like `KEYWORD_LIMIT` or `search()`'s own `limit` - a count
+    silently truncated at the ranking page size would be exactly the wrong
+    number reported with total confidence, which is the one failure this
+    function exists to be incapable of.
+    """
+    expression = parsed.fts_match()
+    where, params = _filter_sql(parsed)
+
+    if not expression:
+        row = store.conn.execute(
+            f"SELECT COUNT(*) AS n FROM files f WHERE 1=1{where}", params
+        ).fetchone()
+        return int(row["n"])
+
+    sql = f"""
+        SELECT COUNT(DISTINCT c.file_id) AS n
+        FROM chunks_fts
+        JOIN chunks c ON c.id = chunks_fts.rowid
+        JOIN files  f ON f.id = c.file_id
+        WHERE chunks_fts MATCH ?{where}
+    """
+    try:
+        row = store.conn.execute(sql, [expression, *params]).fetchone()
+    except sqlite3.OperationalError as exc:
+        # Unreachable if query.py did its job - see `_run_match`'s own
+        # identical guard and its reasoning.
+        _log.error(
+            "FTS5 rejected a sanitised expression in a count - this is a "
+            "sanitiser bug, not a bad query. expression={!r} error={}",
+            expression, exc,
+        )
+        return 0
+    return int(row["n"])
 
 
 def file_ids_matching(store: Any, parsed: ParsedQuery) -> Optional[set[int]]:
