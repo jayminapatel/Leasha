@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -46,7 +46,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 
 | # | Ref | Order | Status | Done/Open | Blocked by |
 |---|---|---|---|---|---|
-| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | Three of the six are structural splits, deferred by "working version first" |
+| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 55 / 3 | The remaining three are the structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
 | 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 35 / 5 | — |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
@@ -150,6 +150,28 @@ note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.
 against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
 not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
 0h is now satisfied.
+
+**2026-09-15 — order 0's three remaining feature items closed, 52/6 to 55/3.**
+`schema.sql:336` was re-verified rather than rebuilt: the §5 decision to hold
+`SCHEMA_BASELINE_VERSION` at 4 still stands, its guard test still passes, and the
+schema-versus-migration-replay cost was re-measured against today's
+`CURRENT_VERSION` (22, up from 14) - a few tens of milliseconds either way, not a
+reason to skip migrations that build `messages_fts`. **P8** closed on its latency
+half, the way its own note said it could: `rerank_enabled` now defaults to `False`
+across all four places that read it (`config.py`, `settings_registry.py`,
+`rerank.py`'s fallback, `build_rerank`'s toolbar checkbox), leaving the toggle where
+M12 put it. Its quality half - whether reranking is worth turning back on by default
+- still needs `evaluate --builtin` against a real index and stays open as future
+work, not as this item. **Relevance** found its recency half already shipped, in
+`202626270157` §2d, and built only the missing filename-match half:
+`app.search.filename_match`, a measured 0.05 bonus that persists into `rrf_score` so
+later steps compose with it instead of discarding it, the way `definitions.boost`'s
+own docstring records having happened once already. `test_recency.py`'s own measured
+baseline moved from 14/20 to 15/20 as a direct, documented consequence and is
+corrected in place. The three structural items in §7 (`cli.py`, `presenter.py`,
+`SettingsController`/`IndexController`) were deliberately left untouched - "working
+version first" defers them until the feature orders are done. Full account in
+`docs/WORKORDER-202626082352-review-remediation.md`'s own three new dated notes.
 
 ---
 

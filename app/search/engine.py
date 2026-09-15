@@ -36,7 +36,7 @@ from typing import Any, Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.search import definitions, folding, keyword, recency, relax, vector
+from app.search import definitions, filename_match, folding, keyword, recency, relax, vector
 from app.search.fusion import RRF_K, fuse_hits
 from app.search.plain_notices import for_register
 from app.search.policy import SEARCH, SearchPolicy, for_surface
@@ -250,6 +250,13 @@ class SearchResult:
     #: True when this passage declares the symbol that was searched for.
     #: Written by `definitions.boost`, and carried for the same reason.
     declares: bool = False
+    #: True when the file's own name carries one of the search terms.
+    #: Written by `filename_match.blend`, and carried for the same reason -
+    #: work order 0 §6's "Relevance" item. Not yet read by
+    #: `app.ui.presenter.why_result`; wiring a fact into a sentence there is
+    #: a UI-layer follow-up, the same shape `recency` and `declares` already
+    #: went through, not a reason to withhold the fact itself.
+    filename_match: bool = False
     #: Which retrievers found it. Both agreeing is the strongest signal the
     #: pipeline produces, and the UI is expected to say so.
     sources: tuple[int, ...] = ()
@@ -1357,6 +1364,23 @@ class SearchEngine:
         # and no reason to keep the two-branch SQL discipline `keyword.py`'s
         # `_filter_only` needs; a photo's shot date simply wins over its copy
         # date here the same way `SearchResult.taken_at_ns` documents.
+        #
+        # **Filename match runs first, and persists its boosted score - work
+        # order 0 §6's "Relevance" item.** `recency.blend` and
+        # `definitions.boost` both discard whatever ran before them: they
+        # read `rrf_score` fresh and never write it back, so two independent
+        # reorders run in sequence do not blend, the later one simply wins
+        # (see `definitions.boost`'s own note below, which names the exact
+        # bug this caused once already). A document whose name already
+        # carries the query is not competing with recency, it is the same
+        # kind of "which of these equally good matches wins" nudge - so it
+        # writes its result back into `rrf_score` and lets whatever runs next
+        # compose on top of it rather than overwrite it. Skipped under an
+        # explicit `/newest`/`/oldest` for the same "relevance has already
+        # been abandoned" reason `recency_blend` is skipped below.
+        if not parsed.sort:
+            fused = filename_match.blend(fused, parsed.terms)
+
         if parsed.sort:
             fused.sort(
                 key=lambda hit: int(hit.get("taken_at_ns") or hit.get("mtime_ns") or 0),
@@ -1700,6 +1724,7 @@ class SearchEngine:
             photo_match=str(hit.get("photo_match", "") or ""),
             recency=float(hit.get("recency") or 0.0),
             declares=bool(hit.get("declares") or False),
+            filename_match=bool(hit.get("filename_match") or False),
             score=float(hit.get("rerank_score", score) if "rerank_score" in hit else score),
             rank=rank,
             sources=tuple(sources),

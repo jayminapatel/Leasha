@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.16 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.17 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A search that also names the file wins the tie - and the slower second-pass ranking step is off until it has earned its place
+
+- If a word in your search also sits in a file's own name - "the pump
+  station drawings" now favours `pump-station-drawings.pdf` over a report
+  that only mentions pumps in passing - that file is nudged slightly ahead.
+  It only ever breaks a near-tie: a much better match elsewhere still wins.
+- Reranking - the extra pass that re-orders the best few results - is now
+  off by default. Measured against a 300ms search budget it was costing
+  seconds rather than milliseconds; turn it back on any time from the
+  search bar's own switch or Settings if you would rather wait for it.
 
 ### A file stored online-only by OneDrive or Google Drive is now findable, never silently missing or silently downloaded
 

@@ -183,10 +183,13 @@ def build_interpret(parent: Optional[QWidget], on_click: Any) -> QPushButton:
 def build_rerank(parent: Optional[QWidget], on_change: Any) -> QCheckBox:
     r"""The rerank toggle.
 
-    On by default because it is what makes the top three results worth reading.
-    Offered at all because it is the single biggest cost in the pipeline, and
-    somebody on a slow machine should be able to trade precision for speed
-    without editing configuration or restarting.
+    **Off by default since work order 0 section 6's P8** - see the
+    `rerank_enabled` field in `app.core.config.Settings` for the measurement
+    that closed it (0.46s to 8s per search against a 300ms warm budget,
+    against a quality gain nobody has measured yet). Offered at all because
+    it is the single biggest cost in the pipeline, and somebody who has
+    measured their own corpus and wants the extra precision should be able
+    to have it without editing configuration or restarting.
 
     **It is not the source of truth, and pretending otherwise made it lie.**
     This box was hard-coded checked and never persisted, while the Settings
@@ -195,14 +198,17 @@ def build_rerank(parent: Optional[QWidget], on_change: Any) -> QCheckBox:
     that box asked for it again. Two controls for one setting that never agreed:
     the same shape as the bug fixed in `set_message` the day before.
     `shell` now initialises both from `ui:rerank_enabled` and routes both
-    through one handler.
+    through one handler - and, now that the hard-coded value here agrees with
+    `Settings.rerank_enabled`'s own default, a fresh install shows the same
+    "off" on both controls rather than a toolbar that briefly disagreed with
+    itself before the stored state (if any) was read.
     """
     toggle = QCheckBox("Rerank", parent)
     toggle.setToolTip(
         "Slower but more precise ordering. Turning it off does not need a "
         "restart, and it is the same setting as the one on the Settings page."
     )
-    toggle.setChecked(True)
+    toggle.setChecked(False)
     toggle.stateChanged.connect(on_change)
     return toggle
 

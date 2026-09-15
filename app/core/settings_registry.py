@@ -109,7 +109,7 @@ class Setting:
 SETTINGS: tuple[Setting, ...] = (
     # --- Search ------------------------------------------------------------
     Setting(
-        key="RERANK_ENABLED", label="Rerank results", kind="bool", default=True,
+        key="RERANK_ENABLED", label="Rerank results", kind="bool", default=False,
         group="Search", surface="settings.search",
         help="Slower and more precise. Reranking runs a second model over the "
              "top results; switch it off if search feels sluggish.",

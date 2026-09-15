@@ -89,7 +89,7 @@ class SearchBox(QGroupBox):
 
         self.rerank = QCheckBox("Rerank results (slower, more precise)")
         self.rerank.setObjectName("RERANK_ENABLED")
-        self.rerank.setChecked(bool(getattr(settings, "rerank_enabled", True)))
+        self.rerank.setChecked(bool(getattr(settings, "rerank_enabled", False)))
         self.rerank.setToolTip(
             "Runs a second, more careful model over the top results.\n"
             "If search feels slow, lower the two numbers below before turning\n"
