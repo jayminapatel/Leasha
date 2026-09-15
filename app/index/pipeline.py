@@ -808,6 +808,24 @@ class Pipeline:
         self._interrupted = True
         self._stop.set()
 
+    def _background(self, target: Callable[..., None]) -> Callable[..., None]:
+        """Wrap a thread body so it lowers **its own** OS priority first.
+
+        Applied only where a pipeline thread is actually started - the four
+        `threading.Thread(target=...)` call sites below and in
+        `_maybe_grow_workers` - never by editing `_produce`, `_extract_worker`
+        or `_feed_worker` themselves. Those are also called directly, on the
+        caller's own thread, by tests exercising them without a full `run()`;
+        priority is an OS-level, process-lifetime side effect on Windows
+        (`THREAD_MODE_BACKGROUND_BEGIN` lasts until the thread exits), so it
+        must never land on whatever thread happens to call a pipeline method
+        directly - only on the threads this class starts for itself.
+        """
+        def wrapped(*args: Any, **kwargs: Any) -> None:
+            self.governor.apply_priority()
+            target(*args, **kwargs)
+        return wrapped
+
     # -- the run ------------------------------------------------------------
 
     def run(
@@ -846,11 +864,17 @@ class Pipeline:
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
-        # Below-normal CPU and background I/O priority, before a single file is
-        # read. The cheapest courtesy available and the most effective: the
-        # scheduler simply prefers whatever the person is actually doing.
+        # Below-normal CPU, memory and I/O priority for *this* thread, before a
+        # single file is read - the cheapest courtesy available and the most
+        # effective: the scheduler simply prefers whatever the person is
+        # actually doing. Per-thread, not process-wide - see
+        # `SystemProbe.lower_current_thread_priority` for why that distinction
+        # is load-bearing rather than cosmetic. This covers the thread `run()`
+        # itself executes on (the GUI's dedicated worker thread, or the CLI's
+        # main thread); the walker, extraction and feeder threads started
+        # below each lower their own priority the same way, via `_background`.
         if self.governor.apply_priority():
-            self._log.debug("running at below-normal priority")
+            self._log.debug("running this thread at below-normal priority")
 
         self.vectors.ensure_table()
         if self.image_vectors is not None:
@@ -902,10 +926,11 @@ class Pipeline:
         self._seen_paths = set()
         seen_paths = self._seen_paths
         producer = threading.Thread(
-            target=self._produce, args=(work, stats, seen_paths), name="walker", daemon=True
+            target=self._background(self._produce), args=(work, stats, seen_paths),
+            name="walker", daemon=True
         )
         workers = [
-            threading.Thread(target=self._extract_worker, args=(work, results),
+            threading.Thread(target=self._background(self._extract_worker), args=(work, results),
                              name=f"extract-{i}", daemon=True)
             for i in range(self.config.worker_count())
         ]
@@ -917,7 +942,7 @@ class Pipeline:
         # same reason the extraction workers are started here rather than in
         # `_produce` - thread lifecycle belongs at the one place that tears
         # every thread down again, in `finally` below.
-        feeder = threading.Thread(target=self._feed_worker, name="feeder", daemon=True)
+        feeder = threading.Thread(target=self._background(self._feed_worker), name="feeder", daemon=True)
         self._feeder_thread = feeder
 
         producer.start()
@@ -1976,7 +2001,7 @@ class Pipeline:
         self._last_growth = now
         self._expected_stops += 1
         worker = threading.Thread(
-            target=self._extract_worker, args=(work, results),
+            target=self._background(self._extract_worker), args=(work, results),
             name=f"extract-dynamic-{len(self._dynamic_workers) + 1}", daemon=True)
         self._dynamic_workers.append(worker)
         worker.start()

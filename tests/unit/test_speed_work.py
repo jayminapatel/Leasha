@@ -9,13 +9,16 @@ long confidentiality notice produce 80 chunks, of which the model needs to see
 trade-off taken - identical text produces an identical vector - which is why
 this needed no quality gate, only a saving to report.
 
-**§6f, bulk FTS, half-built on purpose.** The control changes behaviour today:
-`on` merges whatever the run wrote, `off` leaves the segments alone. What is
-deliberately absent is dropping the triggers, because the dirty flag that makes
-an interrupted bulk run recoverable has to be written *before* they go - and
-shipping the fast half without the safe half is how a corpus becomes
-unsearchable with nothing to say why. A test pins that it stays absent until
-the safe half arrives with it.
+**§6f, bulk FTS.** The control changes behaviour today: `on` merges whatever
+the run wrote, `off` leaves the segments alone, `auto` merges only past
+`FTS_OPTIMIZE_AFTER_CHUNKS`. `on` mode also drops the chunk FTS triggers for
+the length of the run and restores them at the end - both halves shipped
+together, deliberately: a dirty flag is written *before* the triggers go
+(`SqliteStore.drop_fts_triggers`), so a run killed mid-bulk is recoverable on
+resume (`check_and_rebuild_fts_if_dirty`) rather than leaving a corpus
+silently unsearchable. Both are tested behaviourally below, not by pinning
+the *absence* of the feature - the trip-wire this file carried while only the
+fast half existed is gone now that the safe half has landed with it.
 """
 
 from __future__ import annotations
@@ -244,22 +247,69 @@ def test_on_merges_a_run_too_small_to_qualify(tmp_path: Path) -> None:
     store.close()
 
 
-def test_the_triggers_are_not_dropped_until_the_dirty_flag_exists() -> None:
-    r"""**The half deliberately left out, pinned so it cannot creep in alone.**
+def test_the_dirty_flag_is_set_before_triggers_drop_and_cleared_once_restored() -> None:
+    r"""**The safe half of §6f, now that it has landed.**
 
-    Dropping the chunk FTS triggers is the fast half of §6f. The safe half is a
-    flag written *before* they go, so an interrupted bulk run knows on resume
-    that the word index is missing everything the run wrote. Without it, a run
-    killed at hour forty leaves a corpus that is silently unsearchable - and
-    nothing anywhere says why.
+    This was a trip-wire pinning `DROP TRIGGER` absent from `pipeline.py`
+    altogether, written *before* the safe half existed, so the fast half could
+    not ship alone - see the module docstring's own account of why, and its
+    "when the flag lands, this test changes with it". The flag has landed
+    (`SqliteStore.drop_fts_triggers`/`restore_fts_triggers`/`check_and_
+    rebuild_fts_if_dirty`), so the thing worth pinning now is the actual
+    safety property, tested behaviourally rather than by grepping source for
+    a string that was always going to reappear once the feature was finished:
 
-    When the flag lands, this test changes with it.
+    - the dirty flag is set *before or with* the triggers dropping, so a
+      crash between the two still leaves the flag set and resume rebuilds;
+    - restoring the triggers does not, by itself, clear the flag - only
+      `Pipeline._optimise_keyword_index` does, after the restore succeeds,
+      because the index is not trustworthy again until then.
     """
-    source = (ROOT / "app" / "index" / "pipeline.py").read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as tmp:
+        store = SqliteStore(Path(tmp) / "index.db").connect()
+        try:
+            assert not store.get_state("fts_dirty")
 
-    assert "DROP TRIGGER" not in source.upper(), (
-        "the FTS triggers are being dropped - the dirty flag has to land in "
-        "the same change, or an interrupted run loses the word index silently")
+            trigger_sql = store.drop_fts_triggers()
+            assert trigger_sql, (
+                "nothing came back to restore - drop_fts_triggers found no "
+                "FTS content triggers on a freshly migrated store")
+            assert store.get_state("fts_dirty") == "1", (
+                "the dirty flag must be set once the triggers are dropped, so "
+                "a run killed before they are restored is recoverable on resume")
+
+            assert store.restore_fts_triggers(trigger_sql)
+            assert store.get_state("fts_dirty") == "1", (
+                "restoring the triggers must not by itself clear the flag - "
+                "the index is not trustworthy again until the merge that "
+                "follows the restore has actually run"
+            )
+        finally:
+            store.close()
+
+
+def test_an_interrupted_bulk_run_rebuilds_fts_on_resume() -> None:
+    """The other half of the same property: a fresh `SqliteStore.connect()` -
+    standing in for the next process, after the one holding the dropped
+    triggers was killed - sees the flag and rebuilds rather than leaving the
+    word index silently missing everything the interrupted run wrote."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "index.db"
+        store = SqliteStore(path).connect()
+        try:
+            store.drop_fts_triggers()
+            assert store.get_state("fts_dirty") == "1"
+        finally:
+            store.close()
+
+        resumed = SqliteStore(path).connect()
+        try:
+            resumed.check_and_rebuild_fts_if_dirty()
+            assert not resumed.get_state("fts_dirty"), (
+                "the flag must be cleared once the word index has been rebuilt"
+            )
+        finally:
+            resumed.close()
 
 
 # --- the thread count reaches the model -------------------------------------

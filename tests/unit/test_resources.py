@@ -13,6 +13,8 @@ to index because psutil is missing would be a self-inflicted outage.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.index.resources import (
@@ -556,3 +558,102 @@ def test_a_failing_busiest_sample_does_not_break_the_check(captured):
     governor.check(now=0.0)
 
     assert governor.check(now=10.0).action == "pause"
+
+
+# ---------------------------------------------------------------------------
+# Priority is per-thread, never per-process
+#
+# **2026-09: `apply_priority` used to call `psutil.Process().nice(...)`
+# with no PID - the whole process, GUI thread included.** Non-negotiable #1
+# runs the window and the indexer in one process, so this silently ran the
+# window below normal priority for as long as an index was going, and on a
+# real machine under real competing load that produced multi-second frozen
+# windows the instant Start was pressed - measured, not assumed: heartbeat
+# gaps up to 7.3s with the old process-wide call under ~75% external CPU
+# load, versus sub-20ms with the per-thread fix under the same load. See
+# `SystemProbe.lower_current_thread_priority`.
+#
+# Not tested by actually spawning threads and saturating a CPU - the module
+# docstring's own rule against slow, flaky tests that could take the runner
+# down applies here as much as anywhere else in this file. What is tested:
+# the real Windows call is reached through one seam, and nothing here ever
+# reaches for a whole-process priority API again.
+# ---------------------------------------------------------------------------
+
+def test_lower_current_thread_priority_goes_through_the_one_seam(monkeypatch):
+    """`SystemProbe` never touches the OS directly - it calls the module-level
+    function a test can replace, so no test run ever changes its own thread's
+    real priority."""
+    import app.index.resources as resources
+    from app.index.resources import SystemProbe
+
+    calls = []
+    monkeypatch.setattr(resources, "_lower_this_thread_to_background",
+                        lambda: calls.append(1) or True)
+
+    assert SystemProbe().lower_current_thread_priority() is True
+    assert calls == [1]
+
+
+def test_apply_priority_lowers_the_calling_thread_only(monkeypatch):
+    """`ResourceGovernor.apply_priority()` is what `Pipeline.run()` and each
+    of its own threads call - assert it reaches the per-thread seam, not a
+    process-wide one, and that turning `low_priority` off skips it entirely."""
+    import app.index.resources as resources
+
+    calls = []
+    monkeypatch.setattr(resources, "_lower_this_thread_to_background",
+                        lambda: calls.append(1) or True)
+
+    on = ResourceGovernor(replace(LIMITS, low_priority=True), probe=FakeProbe(snap()))
+    assert on.apply_priority() is True
+    assert calls == [1]
+
+    off = ResourceGovernor(replace(LIMITS, low_priority=False), probe=FakeProbe(snap()))
+    assert off.apply_priority() is False
+    assert calls == [1]                          # unchanged - never called
+
+
+def test_nothing_in_resources_calls_the_whole_process_priority_api():
+    """A guard, in the spirit of `tests/unit/test_ui_never_blocks.py`, against
+    a regression that no runtime test on an idle CI machine would ever catch -
+    the freeze this replaces only shows up under real competing load.
+
+    Checked by introspection, not a source substring: the fix's own docstring
+    has to *describe* the old `psutil.Process().nice(BELOW_NORMAL_PRIORITY_
+    CLASS)` call in prose to explain why it was wrong, and a plain substring
+    check cannot tell that explanation from the call itself.
+    """
+    from app.index.resources import SystemProbe
+
+    assert not hasattr(SystemProbe, "lower_priority"), (
+        "SystemProbe still has the old whole-process lower_priority() method - "
+        "see lower_current_thread_priority's docstring for why it was replaced"
+    )
+    assert hasattr(SystemProbe, "lower_current_thread_priority")
+
+
+def test_a_real_windows_thread_priority_call_only_touches_the_calling_thread():
+    """Runs the real `ctypes` call - safe because `THREAD_MODE_BACKGROUND_
+    BEGIN` is, by definition, scoped to the thread that asks for it, so this
+    is the one place in the suite allowed to call it directly rather than
+    through the seam. Skipped everywhere but a real Windows interpreter."""
+    import sys
+
+    if sys.platform != "win32":
+        pytest.skip("Windows-only API")
+
+    import threading
+
+    from app.index.resources import _lower_this_thread_to_background
+
+    result: dict = {}
+
+    def worker() -> None:
+        result["ok"] = _lower_this_thread_to_background()
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=5)
+
+    assert result.get("ok") is True

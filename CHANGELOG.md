@@ -17,6 +17,19 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Fixed: the window could freeze the moment indexing started, on a machine doing anything else at the same time
+
+- **Starting an index run used to quietly slow down the whole window, not just the indexing
+  itself.** The courtesy that asks Windows to prefer whatever else you are doing over the
+  indexer was being applied to the entire application - including the part painting the
+  window and answering a click - rather than only to the indexing work. On an idle machine
+  this was never visible; the moment something else wanted the processor, the window could
+  stop responding for seconds at a time, right when Start was pressed. Measured directly: on
+  a machine under realistic competing load, the old behaviour produced multi-second freezes;
+  the same load now keeps the window answering in under 20 milliseconds. The courtesy to the
+  rest of the machine is unchanged - indexing still steps out of the way of whatever you are
+  doing - it simply no longer takes the window down with it.
+
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 
 - **The splash screen was set to stay on top of everything, not just the window loading

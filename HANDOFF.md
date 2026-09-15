@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.4 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 5.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1191,6 +1191,53 @@ pytest process to the CPU unless the autouse fixture is in scope; and `clip_embe
 the CPU fallback for free through `choose()` but has no retry of its own - a driver failure
 mid-CLIP-batch still raises out of `ClipImageEmbedder.embed` as before (decide whether it needs
 the same one-retry treatment; not done here because no log shows it happening).
+
+**2026-09-15: indexing was quietly dropping the whole process's priority, GUI thread included -
+found from the owner's own report that the window "gets stuck when indexing starts".**
+`Pipeline.run()` called `governor.apply_priority()` once, and that reached `psutil.Process()
+.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)` - `psutil.Process()` with no PID means *this*
+process, and `SetPriorityClass`, what `nice()` calls on Windows, sets every thread in it.
+Non-negotiable #1 runs the window and the indexer in one process, so "index below normal
+priority" also meant "the thread painting the Start button and answering a click runs below
+normal priority for as long as an index is running" - invisible on an idle machine, where
+Windows has cycles to spare for everyone, and a real, measured, multi-second frozen window the
+moment anything else on the machine wanted the CPU. Confirmed rather than guessed, in this
+order: read `SystemProbe.lower_priority`'s source and Windows' own documented semantics for
+`SetPriorityClass` first; then a live `pytest-qt` harness with a real `Pipeline` running
+through `IndexingView`'s actual `QThreadPool`, timing Qt event-loop gaps with a 10ms heartbeat
+timer, reproduced **up to 7.3 seconds of frozen event loop** under real competing CPU load
+(another process at ~75%) on the unmodified code - and near-zero (sub-20ms) gaps once fixed,
+same machine, same load. Isolating further: the ONNX embedder's own model-load and inference
+calls were *not* the cause (max 345ms during a cold load, ~20ms steady-state, measured
+directly) - the process-wide priority class was.
+
+Fixed with `SystemProbe.lower_current_thread_priority` (`app/index/resources.py`): Windows'
+`THREAD_MODE_BACKGROUND_BEGIN` via `ctypes.windll.kernel32.SetThreadPriority`, which drops CPU,
+memory *and* I/O priority together for **the calling thread only** - the same courtesy, scoped
+correctly. Because a new OS thread does not inherit another thread's priority, it has to be
+asked for **on every thread the pipeline itself starts**, not once from outside them:
+`Pipeline._background()` wraps the walker, every extraction worker (static and dynamically
+grown) and the feeder at their `threading.Thread(target=...)` call sites; `run()` itself still
+lowers the thread it is called on directly, which covers the GUI's dedicated worker thread and
+the CLI's own main thread. The GUI thread never calls either, so nothing indexing does can
+touch it, however busy the run gets. `test_pipeline_thread_priority.py`'s first assertion is
+membership *and count* - a regression back to one process-wide call would still make "the
+calling thread lowered its own priority" pass while silently never touching the other three,
+which is exactly how the original bug shipped unnoticed.
+
+**A second, independent bug was caught only by running the fix for real, on real Windows,
+rather than trusting the `ctypes` call by inspection.** `GetCurrentThread()` returns a
+pointer-sized pseudo-handle; ctypes' undeclared default return type is a 32-bit `c_int`, which
+truncated it before `SetThreadPriority` ever saw it - so the first version of the fix compiled,
+imported, and returned `False` on every real 64-bit Windows call, silently doing nothing.
+`test_a_real_windows_thread_priority_call_only_touches_the_calling_thread` - the one test in
+the suite allowed to call the real API rather than the injectable seam, because the whole point
+of `THREAD_MODE_BACKGROUND_BEGIN` is that it cannot touch any thread but the one calling it -
+caught this immediately by actually asserting `True`, not just "did not raise". `restype`/
+`argtypes` are now declared explicitly. The general lesson, not just this one call: **a mocked
+or seam-based test proves the code *routes* to the right place; only a real call on the real
+platform proves the platform call itself is correct** - this codebase already knew that for COM
+(§6, "COM is per-thread") and PowerShell encoding, and this is the same shape of gap.
 
 ## 7. Open questions
 

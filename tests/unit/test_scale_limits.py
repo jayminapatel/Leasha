@@ -179,6 +179,12 @@ def test_a_small_run_does_not_pay_for_a_merge(tmp_path):
     # The merge now also reads `bulk_fts` - `off` never merges, `on` always
     # does, `auto` keeps the threshold this test is about. See index-tuning §6f.
     pipeline.config = SimpleNamespace(bulk_fts="auto")
+    # §6f's trigger-restore half added a second attribute `_optimise_keyword_
+    # index` now reads, normally set by `__init__`/`run()` - a bare `Pipeline.
+    # __new__(Pipeline)` skips both, so this test must set it by hand or every
+    # call raises `AttributeError` before the merge logic under test is even
+    # reached. Empty, exactly as a fresh (non-bulk) run would have it.
+    pipeline._suspended_fts_triggers = []
 
     pipeline._optimise_keyword_index(IndexStats(chunks=4))
     assert not calls

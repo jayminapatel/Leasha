@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -52,6 +53,51 @@ __all__ = [
     "psutil_available",
     "busiest_processes",
 ]
+
+#: `THREAD_MODE_BACKGROUND_BEGIN`, from the Windows SDK's `WinBase.h`. Not
+#: exposed by `psutil` - only its whole-process `nice()`/`ionice()` are - so
+#: it is called directly via `ctypes`. See `SystemProbe.lower_current_thread_
+#: priority` for what it does and why the process-wide call it replaces was a
+#: real bug, not a style choice.
+_THREAD_MODE_BACKGROUND_BEGIN = 0x00010000
+
+
+def _lower_this_thread_to_background() -> bool:
+    """The real Windows syscall, isolated to a module-level function so a
+    test can replace it by name - `monkeypatch.setattr(resources,
+    "_lower_this_thread_to_background", fake)` - without ever touching the
+    priority of the thread actually running the test.
+    """
+    if sys.platform != "win32":
+        # No shipped build runs anywhere but Windows (non-negotiable scope),
+        # and POSIX has no single portable equivalent to a per-thread
+        # background mode at this layer. `os.nice()` here would raise
+        # immediately (it takes an *increment*, not psutil's absolute
+        # enum) and would in any case be whole-process again - so a
+        # development or CI run on another platform simply reports that it
+        # could not lower priority, same as a Windows run with no psutil.
+        return False
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32                   # type: ignore[attr-defined]
+        # **`restype`/`argtypes` are not optional here.** `GetCurrentThread`
+        # returns a pseudo-handle (`HANDLE`, pointer-sized - 0xFFFFFFFFFFFFFFFE
+        # on 64-bit Windows). ctypes' undeclared default return type is a
+        # 32-bit signed `c_int`, which truncates that value before
+        # `SetThreadPriority` ever sees it - so the first version of this
+        # silently handed `SetThreadPriority` a corrupted handle and it
+        # returned failure every time, on every real 64-bit Windows machine,
+        # caught only by `test_a_real_windows_thread_priority_call_only_
+        # touches_the_calling_thread` actually running on one.
+        kernel32.GetCurrentThread.restype = ctypes.c_void_p
+        kernel32.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        kernel32.SetThreadPriority.restype = ctypes.c_int
+        handle = kernel32.GetCurrentThread()
+        return bool(kernel32.SetThreadPriority(handle, _THREAD_MODE_BACKGROUND_BEGIN))
+    except Exception as exc:                        # noqa: BLE001
+        log.debug("could not lower this thread's priority: {}", exc)
+        return False
 
 log = logger.bind(component="index.resources")
 
@@ -417,30 +463,33 @@ class SystemProbe:
                 continue
         return total
 
-    def lower_priority(self) -> bool:
-        """Drop below normal priority. Returns whether it worked.
+    def lower_current_thread_priority(self) -> bool:
+        """Ask the OS to go easy on **this thread only**. Returns whether it worked.
 
-        On Windows this also asks for background I/O priority, which matters as
-        much as CPU: the indexer reads constantly, and a foreground application
-        waiting behind it for the disk feels exactly like a slow computer.
+        **This used to be `psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)`
+        - a whole-process call.** On Windows, `SetPriorityClass` - what `nice()`
+        calls under that name - sets the priority of *every thread in the
+        process*, and this project's own GUI runs the window and the indexer in
+        one process (non-negotiable #1). So "index below normal priority" also
+        meant "the window that paints the Start button and answers a click runs
+        below normal priority, for as long as an index is running" - invisible
+        on an idle machine, where Windows has cycles to spare for everyone, and
+        a multi-second frozen window the moment anything else on the machine
+        wants the CPU. Measured directly: with another process holding ~75% CPU,
+        the old process-wide call produced event-loop gaps up to 7.3 seconds;
+        moving to per-thread priority (this method) on the same machine, same
+        load, kept every gap under 20ms. See `docs/TROUBLESHOOTING.md` and the
+        2026-09 HANDOFF trap this fix is recorded under.
+
+        `THREAD_MODE_BACKGROUND_BEGIN` is the Windows primitive built for
+        exactly this: CPU, memory *and* I/O priority all drop together, for the
+        calling thread alone. It must be called **from each thread that does
+        indexing work** - the walker, every extraction worker, the feeder - not
+        once from outside them, because a new thread does not inherit another
+        thread's priority. The GUI thread never calls this, so it is never
+        touched by anything indexing does, regardless of how busy the run gets.
         """
-        psutil = self._psutil()
-        if psutil is None:
-            return False
-        try:
-            process = psutil.Process()
-            if hasattr(psutil, "BELOW_NORMAL_PRIORITY_CLASS"):
-                process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-                try:
-                    process.ionice(psutil.IOPRIO_LOW)
-                except Exception:               # noqa: BLE001 - not on every Windows build
-                    pass
-            else:
-                process.nice(10)                # POSIX
-            return True
-        except Exception as exc:                # noqa: BLE001
-            log.debug("could not lower process priority: {}", exc)
-            return False
+        return _lower_this_thread_to_background()
 
 
 #: Seconds between two "busiest right now" samples. A governor flapping every
@@ -716,12 +765,17 @@ class ResourceGovernor:
         return True
 
     def apply_priority(self) -> bool:
+        """Lower **the calling thread's** priority, if the setting allows it.
+
+        Must be called from each thread that does indexing work, not once from
+        outside them - see `SystemProbe.lower_current_thread_priority`.
+        """
         if not self.limits.low_priority:
             return False
         probe = getattr(self._probe, "__self__", None)
         if isinstance(probe, SystemProbe):
-            return probe.lower_priority()
-        return SystemProbe().lower_priority()
+            return probe.lower_current_thread_priority()
+        return SystemProbe().lower_current_thread_priority()
 
     def summary(self) -> dict[str, object]:
         return {
