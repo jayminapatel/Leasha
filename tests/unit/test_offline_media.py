@@ -487,3 +487,43 @@ def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
     assert record.volume_guid is None          # never set for a share
     assert len(rows) == 1
     assert rows[0].path == volume_synthetic_path(volume_id, "minutes.txt")
+
+
+# ---------------------------------------------------------------------------
+# The manual guarantee (202626270513 order-level test list, item 5)
+# ---------------------------------------------------------------------------
+
+def test_nothing_outside_the_cli_command_and_tests_calls_a_scan(tmp_path):
+    r"""**"Plugging in any volume triggers NO index activity and NO
+    prompt."** Nothing here can plug in a real drive and watch for a
+    reaction - there is no device watcher to watch - so this proves the
+    weaker, checkable half: no code path exists that *could* fire on its
+    own. `upsert_volume` and `identify_source` are the two calls that start
+    a source's life; if anything outside `app/cli.py`'s own offline-media
+    handlers and the test suite calls either, something now scans on
+    something other than a press of Scan.
+
+    The same shape as the order's own "nothing anywhere stored the letter"
+    grep-shaped guard, aimed at the sibling promise.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    app_dir = root / "app"
+
+    allowed_files = {
+        app_dir / "cli.py",
+        app_dir / "index" / "offline_media.py",       # defines both
+        app_dir / "storage" / "sqlite_store.py",       # defines upsert_volume
+    }
+    offenders = []
+    for path in app_dir.rglob("*.py"):
+        if path in allowed_files:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"\bupsert_volume\s*\(", text) or re.search(r"\bidentify_source\s*\(", text):
+            offenders.append(str(path.relative_to(root)))
+
+    assert not offenders, (
+        f"a scan can start outside app.cli's own command and its definitions: {offenders}"
+    )

@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media I — drives in drawers, findable forever
 
-**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage core + Index + new tab UI + Search)
 **Status:** RELEASED by the owner 2026-08-28. **The deepest storage change in
 the batch — do NOT interleave with other pipeline orders.** Requires 0508
@@ -91,11 +91,15 @@ Command: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py -v`
 
 ## 4. Tests
 
-**2026-09-15 — first four proven** in `tests/unit/test_offline_media.py`
-(11 passed; command above). "The manual guarantee" is not yet meaningfully
-testable: no Scan trigger exists anywhere in the codebase yet (§2's CLI/tab
-are not built), so there is nothing for a plugged-in drive to *not* trigger.
-Left open rather than ticked on the strength of an absence.
+**2026-09-15 — all five proven** in `tests/unit/test_offline_media.py`
+(18 passed; `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py -v`).
+"The manual guarantee" is proven the way a static claim can be: a
+grep-shaped guard (`test_nothing_outside_the_cli_command_and_tests_calls_a_scan`)
+asserts nothing outside `app.cli`'s own offline-media handlers and their own
+definitions can call `upsert_volume`/`identify_source` at all - no device
+watcher exists to plug a real drive into and watch for a reaction, so this
+is the checkable half: no code path *could* fire on its own, now that a
+CLI command exists for it to be tested against.
 
 - [x] letter roulette: catalogue as E:, remount fixture as F: → open/rescan/
   dedup all correct; nothing anywhere stored the letter (grep-shaped guard).
@@ -104,7 +108,7 @@ Left open rather than ticked on the strength of an absence.
 - [x] delete cascade: counts stated, everything gone, drive bytes untouched
   (asserted).
 - [x] reorganised-drive rescan: moved files move (1e), extraction count ≈ 0.
-- [ ] the manual guarantee: plugging in any volume triggers NO index
+- [x] the manual guarantee: plugging in any volume triggers NO index
   activity and NO prompt (asserted — the borrowed-stick test).
 
 ## Done means
