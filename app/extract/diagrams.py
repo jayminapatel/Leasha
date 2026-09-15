@@ -437,7 +437,7 @@ def readers_available() -> dict[str, str]:
             else "name only - install olefile for title and author"
         ),
         ".mpp": (
-            "full task list (mpxj)" if _mpp_reader() is not None
+            "full task list (mpxj)" if _jvm_allowed() and _mpp_reader() is not None
             else ("name + document properties" if ole
                   else "name only - install olefile for title and author")
         ),
