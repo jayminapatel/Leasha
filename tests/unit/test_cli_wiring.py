@@ -824,3 +824,57 @@ def test_scan_does_not_warn_when_repositories_sit_below_the_root(tmp_path, capsy
     out = capsys.readouterr().out
     assert "the indexed folder itself" not in out
     assert "scope:code" not in out
+
+
+# ---------------------------------------------------------------------------
+# report - order 202626270602 (0n)
+# ---------------------------------------------------------------------------
+
+def test_report_inheritance_runs_on_an_empty_index(tmp_path, capsys):
+    """No sources catalogued and nothing indexed is not an error - a fresh
+    install has exactly this shape. Ships before the Reports page per
+    non-negotiable 8, order 202626270602."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_report(
+        parser_for(["report", "inheritance", "--env", env])) == cli.EXIT_OK
+    assert "map of" in capsys.readouterr().out.lower()
+
+
+def test_report_unknown_name_is_a_clean_error(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_report(
+        parser_for(["report", "not-a-real-report", "--env", env])) != cli.EXIT_OK
+
+
+def test_report_json_is_machine_readable(tmp_path, capsys):
+    import json as _json
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_report(
+        parser_for(["report", "inheritance", "--env", env, "--json"])) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert out.lstrip().startswith("{"), f"a human preamble came first: {out[:80]!r}"
+    payload = _json.loads(out)
+    assert payload == {"sources": [], "generated_at": None}
+
+
+def test_report_out_writes_to_a_file(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    out_file = tmp_path / "map.md"
+    assert cli.cmd_report(
+        parser_for(["report", "inheritance", "--env", env,
+                   "--out", str(out_file)])) == cli.EXIT_OK
+    assert out_file.is_file()
+    assert "map of" in out_file.read_text(encoding="utf-8").lower()

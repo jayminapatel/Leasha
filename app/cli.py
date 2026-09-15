@@ -1786,6 +1786,72 @@ def _forget_repo(settings: Any, root: str, *, as_json: bool = False) -> int:
     return EXIT_OK
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    r"""Reports: read-only surfaces over the existing index.
+
+    Layer 4's entry point for order 202626270602 (0n), shipped before the
+    Reports page per non-negotiable 8. Text output here; the PDF export
+    named in the order's own 2b is a UI-only concern (`QPrinter`), so the
+    CLI proves the report's content and wording headlessly, which is what
+    non-negotiable 8 actually asks for.
+    """
+    from dataclasses import replace as _replace
+
+    from app.reports.inheritance import (
+        catalogue_sources, render_inheritance_document, report_generated_at,
+    )
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+
+    name = str(getattr(args, "name", "") or "").strip().lower()
+    if name not in ("inheritance", "digital-inheritance"):
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.report",
+            key="name", reason=f"no report named {name!r}",
+            suggestion="Try: leasha report inheritance",
+        ), args.json)
+
+    excluded = {
+        part.strip().lower() for part in str(args.exclude or "").split(",")
+        if part.strip()
+    }
+
+    with SqliteStore(settings.fts_db) as store:
+        roots = _saved_roots(settings)
+        sources = catalogue_sources(store, roots=roots)
+        generated_at = report_generated_at(store)
+
+    if excluded:
+        sources = [
+            s if s.name.strip().lower() not in excluded else _replace(s, include=False)
+            for s in sources
+        ]
+
+    document = render_inheritance_document(sources, generated_at=generated_at)
+
+    if args.json:
+        print(json.dumps({
+            "sources": [
+                {"name": s.name, "kind": s.kind, "file_count": s.file_count,
+                 "size_bytes": s.size_bytes, "status": s.status,
+                 "include": s.include}
+                for s in sources
+            ],
+            "generated_at": generated_at,
+        }, indent=2, default=str))
+        return EXIT_OK
+
+    if args.out:
+        Path(args.out).write_text(document, encoding="utf-8")
+        print(f"Written to {args.out}")
+        return EXIT_OK
+
+    print(document)
+    return EXIT_OK
+
+
 def cmd_repos(args: argparse.Namespace) -> int:
     """Every code repository found under an indexed root.
 
@@ -3858,6 +3924,22 @@ def build_parser() -> argparse.ArgumentParser:
              "Rescan says so before it starts. Names-only cataloguing is "
              "unaffected and stays instant")
     p_offline.set_defaults(func=cmd_offline_media)
+
+    p_report = sub.add_parser(
+        "report", parents=[common],
+        help="a read-only report over the existing index - the catalogue, "
+             "not a search")
+    p_report.add_argument(
+        "name", metavar="NAME",
+        help="which report: inheritance (the Digital Inheritance catalogue)")
+    p_report.add_argument(
+        "--out", metavar="FILE",
+        help="write the report's text to this file instead of stdout")
+    p_report.add_argument(
+        "--exclude", metavar="NAME,NAME",
+        help="202626270602 2c: leave these sources out of the report by name, "
+             "comma-separated")
+    p_report.set_defaults(func=cmd_report)
 
     p_eval = sub.add_parser(
         "evaluate", parents=[common],
