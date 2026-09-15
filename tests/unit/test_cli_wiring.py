@@ -457,7 +457,8 @@ def test_offline_media_delete_of_an_unknown_source_is_a_clean_error(tmp_path, ca
     code = cli.cmd_offline_media(
         parser_for(["offline-media", "--env", env, "--delete", "Nonexistent"]))
     assert code != cli.EXIT_OK
-    assert "no catalogued source" in capsys.readouterr().out.lower()
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
 
 
 def test_offline_media_rescan_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
@@ -468,7 +469,8 @@ def test_offline_media_rescan_of_an_unknown_source_is_a_clean_error(tmp_path, ca
     code = cli.cmd_offline_media(
         parser_for(["offline-media", "--env", env, "--rescan", "Nonexistent"]))
     assert code != cli.EXIT_OK
-    assert "no catalogued source" in capsys.readouterr().out.lower()
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
 
 
 def test_offline_media_scan_without_a_name_is_a_clean_error(tmp_path, capsys):
@@ -481,7 +483,8 @@ def test_offline_media_scan_without_a_name_is_a_clean_error(tmp_path, capsys):
     code = cli.cmd_offline_media(
         parser_for(["offline-media", "--env", env, "--scan", str(tmp_path)]))
     assert code != cli.EXIT_OK
-    assert "name" in capsys.readouterr().out.lower()
+    combined = "".join(capsys.readouterr()).lower()
+    assert "name" in combined
 
 
 def test_an_empty_vector_store_is_reported_as_not_working():
