@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.10 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.11 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -48,6 +48,26 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   (`["Dog","Park","dog"]` stored three rows, not two), and `ParsedQuery.has_filters` did not
   know about `shows`, so a `/shows` search would have under-reported whether a filter was
   active. Both fixed, both covered by `tests/unit/test_photo_tags.py`.
+
+### Added: one unified enrichment-backlog mechanism, per-kind counts in the run summary (order 0i, item 2a)
+
+- **`Pipeline._run_enrichment_drains`** is now the one place every backlog kind registers
+  through, with `IndexStats.enrichment_counts` (present even at zero, so "ran, found nothing"
+  reads differently from "did not run") and a new `Backlog` line in `app.cli index`'s summary
+  ("filled 214 vector(s) repaired" etc, per kind).
+- **The order's own text claimed three existing ad-hoc drains; only one was real.**
+  `unembedded_chunk` migrated for real (its internal logic untouched, only the call site moved
+  into the new loop - nothing that already pinned it through `Pipeline.run()` had to change).
+  `ocr_pending` already existed but as a requeue woven into the walker (`_no_text_layer_
+  candidates`/`_candidates`), not a drain - left in that shape rather than restructured, and
+  made visible with an additive count instead. `image_tag` ("untagged images") did not exist in
+  any form and is not built this session - what should count as "untagged" is a real product
+  question the order does not answer.
+- **Found and fixed a real, pre-existing bug along the way**: `_drain_unembedded` measured
+  `len(pending)` *after* calling `_embed_pending`, which clears its own argument in place for
+  its normal caller's benefit - so `stats.vectors_repaired` has silently reported 0 for every
+  real repair since the function was written. The repair itself always worked; only its own
+  count was wrong. Fixed by capturing the length before the call.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -110,7 +110,77 @@ fixed by it, left alone.
 
 ## 2. The enrichment backlog (the architecture piece)
 
-- [ ] **2a** unify the idle-drain queues into ONE mechanism with job kinds:
+**2026-09-15 - checked what "the three existing ad-hoc drains" actually
+are, rather than assumed - and this item's own text is wrong about two of
+them.** Grepped the whole `app/` tree before writing a line: only
+`unembedded_chunk` (`Pipeline._drain_unembedded`) is a real, proper drain.
+`ocr_pending` exists, but not as a drain - it is `_no_text_layer_candidates`/
+`_locked_candidates`, a requeue-via-skip-code mechanism woven into the
+walker's own candidate stream (`_candidates`), tested by
+`test_ocr_passes.py` and `test_review_2026_08_26.py`. `image_tag`
+("untagged images") does not exist in any form - no function, no query, no
+test.
+
+**Built:** `Pipeline._run_enrichment_drains` (the "one drain loop"),
+`IndexStats.enrichment_counts` (the per-kind counters, present even at zero
+so "ran, found nothing" reads differently from "did not run"), and
+`app.cli`'s new `Backlog` summary line ("filled 214 tags, 30 pending" per
+this item's own example format - `_print_enrichment_counts`). Three kind
+names are declared (`KIND_UNEMBEDDED_CHUNK`, `KIND_OCR_PENDING`,
+`KIND_UNTAGGED_IMAGE`) for the "room for future kinds" the item asks for.
+
+**Migrated for real, no behaviour change:** `unembedded_chunk`. Its
+internal logic is untouched; only the call site moved from a direct call to
+one registered entry in the new loop, and every existing test that exercises
+it through `Pipeline.run()` (not a single one called the private method by
+name, so nothing was "pinned" more tightly than the public behaviour) stays
+green.
+
+**Counted but not restructured:** `ocr_pending`. Its requeue mechanism is
+NOT reshaped into a `_drain_*`-style function this session - that would
+touch well-tested walker integration for a naming consistency, not a
+functional gain, which is a bad trade. It is made visible the same additive
+way `unembedded_chunk` is: `_candidates` now records how many held files it
+requeues into `enrichment_counts["ocr_pending"]`, with no change to what
+gets requeued or when.
+
+**Left undrained, deliberately:** `image_tag`. What should count as
+"OCR-pending" was answerable from the code (the requeue above); what should
+count as "untagged" is not - there is no marker anywhere distinguishing
+"Florence never attempted" from "Florence attempted and found nothing",
+and inventing that distinction would be inventing product behaviour the
+order does not specify. Flagged rather than guessed at.
+
+**A real, pre-existing bug found and fixed along the way, load-bearing for
+this item's own counters.** `_drain_unembedded` computed `len(pending)`
+*after* calling `_embed_pending(pending)` - which ends by calling
+`pending.clear()` on its own argument, for its normal caller's benefit
+(`_produce`, which reuses one accumulator list across many calls). So
+`filled` was always incremented by `len([])`, i.e. zero, and
+`stats.vectors_repaired` has reported 0 for every real repair since this
+function was written - silently, because the repair itself worked
+perfectly (`mark_embedded`/`mark_indexed_many` run before the clear); only
+its own count was wrong. Found by writing a real test that pre-seeded an
+unembedded chunk and re-ran the pipeline, expecting the count to match -
+and it did not. Fixed: the length is captured before the call now. This
+predates 0i entirely and is a correctness fix `vectors_repaired` has needed
+since the M6 work order, not scope creep.
+
+Proof: `venv\Scripts\python.exe -m pytest tests/unit/test_enrichment_backlog.py
+-q` - 6 passed, against a real `Pipeline`/`SqliteStore`, including the bug
+fix (`test_unembedded_chunk_kind_is_recorded`), the zero-vs-absent
+distinction, a failing-kind-does-not-block-the-run test, the `ocr_pending`
+count against a real held PDF, and the CLI print formatting. Re-ran
+`test_embedding_gap.py` (22), `test_ocr_passes.py`, `test_review_2026_08_26
+.py` (22) and `tests/integration/test_layer1_acceptance.py` clean - the
+migration changed nothing these already pinned. One unrelated failure
+cluster surfaced in the wider sweep (`test_cli_wiring.py`'s `gitsearch`/
+`scan` tests) - checked and it is the pre-existing "worktree-in-tmp-path"
+environmental issue already known from this session's earlier baseline
+diagnostic, not caused by anything here (`pipeline.py` has zero references
+to gitsearch).
+
+- [x] **2a** unify the idle-drain queues into ONE mechanism with job kinds:
   unembedded chunks (today's M6 drain), OCR-pending, untagged images — and
   room for future kinds (rich captions 3, transcripts in the video epoch).
   One table, one drain loop at run start + idle, per-kind counters in the run

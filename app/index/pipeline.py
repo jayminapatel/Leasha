@@ -243,6 +243,14 @@ class IndexStats:
     #: worth saying, because the only previous symptom was search quietly
     #: getting worse. See `Pipeline._drain_unembedded`.
     vectors_repaired: int = 0
+    #: Work order 0i section 2a: the unified enrichment backlog's per-kind
+    #: counts for THIS run - "unembedded_chunk" is `vectors_repaired` under
+    #: its generic name (kept as a duplicate rather than a replacement, so
+    #: nothing reading `vectors_repaired` directly has to change). Other
+    #: kinds appear here once a drain for them exists; a kind absent from
+    #: this dict was not run this pass, not "ran and found nothing" - see
+    #: `Pipeline._ENRICHMENT_DRAINS`.
+    enrichment_counts: dict[str, int] = field(default_factory=dict)
     #: Files the walk could not `stat`, by reason. **Not skips**: a skip has
     #: a row explaining itself, and these have no row at all. Reported so
     #: that files invisible to the whole application are at least a number -
@@ -405,6 +413,7 @@ class IndexStats:
             "skipped_by_code": dict(self.skipped_by_code),
             "settled_by_code": dict(self.settled_by_code),
             "vectors_repaired": self.vectors_repaired,
+            "enrichment_counts": dict(self.enrichment_counts),
             "unreachable_by_reason": dict(self.unreachable_by_reason),
             "root_problems": dict(self.root_problems),
             "skipped_roots": list(self.skipped_roots),
@@ -875,8 +884,9 @@ class Pipeline:
         # if needed. This must happen before extraction starts.
         self.store.check_and_rebuild_fts_if_dirty()
         # **Anything left without a vector by a previous run is filled first.**
-        # See `_drain_unembedded`.
-        self._drain_unembedded(stats)
+        # See `_drain_unembedded`. Work order 0i section 2a: now one of the
+        # registered enrichment-backlog kinds - see `_run_enrichment_drains`.
+        self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
@@ -1645,6 +1655,12 @@ class Pipeline:
         # exists to avoid.
         scanned = (list(self._no_text_layer_candidates())
                    if self.config.ocr_mode == "images" else [])
+        # Work order 0i section 2a: visibility into a requeue mechanism that
+        # already existed before this item - additive counting only, no
+        # change to what gets requeued or when. See the note on
+        # `KIND_OCR_PENDING` for why this stays a count rather than being
+        # restructured into a `_drain_*`-shaped function.
+        self._stats_ref.enrichment_counts[self.KIND_OCR_PENDING] = len(scanned)
 
         # **One set, shared with the walker and with `_produce`.** This used to
         # keep its own `walked`, the walker kept its own `seen`, and `_produce`
@@ -2609,6 +2625,51 @@ class Pipeline:
             repo_id=self._repo_id_for(candidate.path),
         )
 
+    #: Work order 0i section 2a: the unified enrichment backlog, one entry
+    #: per job kind. `_run_enrichment_drains` below is the "one drain loop"
+    #: the item asks for.
+    #:
+    #: **2026-09-15 - checked what "the three existing ad-hoc drains" this
+    #: item's own text names actually are, rather than assumed.** Two are
+    #: real: `unembedded_chunk` (`_drain_unembedded`, below - a proper drain
+    #: with its own counted pass) and `ocr_pending`, which already existed
+    #: but in a different shape - `_no_text_layer_candidates`/`_candidates`
+    #: requeue held files by reading `skip_code` back off `files`, not by a
+    #: separate counted drain step. It is NOT restructured into a
+    #: `_drain_*`-shaped function this session: it is woven into the
+    #: walker's candidate stream (`_candidates`), and existing tests
+    #: (`test_ocr_passes.py`, `test_review_2026_08_26.py`) pin that exact
+    #: integration - changing its shape for a naming consistency would risk
+    #: well-tested retry behaviour for no functional gain. Instead it is
+    #: made visible the same additive way `unembedded_chunk` is: a count
+    #: recorded into `enrichment_counts["ocr_pending"]` from `_candidates`
+    #: itself (see there), with no change to what gets requeued or when.
+    #:
+    #: The third, `image_tag` ("untagged images"), does not exist in any
+    #: form - no function, no query, no test, confirmed by search. Declared
+    #: here so the mechanism is genuinely extensible, but nothing drains it:
+    #: what should count as "untagged" (Florence never attempted vs.
+    #: attempted and found nothing) is not recorded anywhere today, and
+    #: guessing at that distinction would be inventing product behaviour
+    #: rather than migrating it. Left open - see the dated note on this item
+    #: in the work order.
+    KIND_UNEMBEDDED_CHUNK = "unembedded_chunk"
+    KIND_OCR_PENDING = "ocr_pending"      # counted in _candidates, not drained here
+    KIND_UNTAGGED_IMAGE = "image_tag"     # declared, not yet drained - see above
+
+    def _run_enrichment_drains(self, stats: IndexStats) -> None:
+        """Run every registered enrichment-backlog kind, once, at run start.
+
+        One failing kind must not stop another - each is wrapped separately,
+        matching `_drain_unembedded`'s own existing promise ("bounded and
+        never fatal") rather than adding a new failure mode on top of it.
+        """
+        for kind, drain in ((self.KIND_UNEMBEDDED_CHUNK, self._drain_unembedded),):
+            try:
+                drain(stats)
+            except Exception as exc:              # noqa: BLE001 - a repair, not the job
+                self._log.warning("enrichment backlog kind {!r} failed: {}", kind, exc)
+
     def _drain_unembedded(self, stats: IndexStats) -> None:
         r"""Embed chunks a previous run committed and never vectorised.
 
@@ -2640,13 +2701,32 @@ class Pipeline:
                 if self._stop.is_set():
                     break
                 pending = [(chunk.id, chunk.file_id, chunk.text) for chunk in batch]
+                # **Counted before the call, not after.** `_embed_pending` ends
+                # by clearing its own `pending` argument in place
+                # (`pending.clear()`), for its normal caller (`_produce`),
+                # which reuses one accumulator list across many calls - so
+                # `len(pending)` read after the call always measured zero,
+                # silently. `vectors_repaired` has reported 0 for every real
+                # repair since this function was written; the repair itself
+                # was never affected (`mark_embedded`/`mark_indexed_many` run
+                # inside `_embed_pending` before the clear), only this count.
+                # Found running this session, work order 0i section 2a - see
+                # the dated note on the item.
+                batch_size = len(pending)
                 self._embed_pending(pending)
-                filled += len(pending)
+                filled += batch_size
         except Exception as exc:                 # noqa: BLE001
             self._log.warning(
                 "could not finish filling in missing vectors: {}. Indexing "
                 "continues; run `app.cli reembed` when the cause is fixed.", exc)
 
+        # Work order 0i section 2a: recorded even when zero, so the run
+        # summary can tell "this kind ran and found nothing outstanding"
+        # apart from "this kind did not run" - see `IndexStats.
+        # enrichment_counts`. `vectors_repaired` and the log line below keep
+        # their old `if filled:` gate unchanged - this is additive, not a
+        # behaviour change to what already existed.
+        stats.enrichment_counts["unembedded_chunk"] = filled
         if filled:
             stats.vectors_repaired = filled
             self._log.info(
