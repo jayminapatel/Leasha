@@ -1,6 +1,6 @@
 # Work order (One thread): Index Tuning — one screen, three modes, any machine
 
-**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Core profile + Index pipeline + Storage + UI panel)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626082352` §2 leftovers (H5/H6) and
@@ -303,6 +303,29 @@ asked, not two).
   half-built: a fake "quiet upgrade" bolted onto the wrong layer would look
   done and would not be.
 
+  **Re-checked 2026-09-15, unchanged.** `app/index/autotune.py::should_bench()`
+  still exists, still answers "why should the bench run" correctly, and is
+  still not called anywhere - no reference in `app/ui/shell.py`, `app/cli.py`,
+  or any scheduler (checked by grep, not assumed). The missing piece is
+  still exactly what the 2026-09-05 note above names: an idle-detection
+  scheduler that checks `should_bench()`, never mid-run, never on battery,
+  and on a positive answer runs the §5a bench worker off the UI thread,
+  then switches `INDEX_TUNING_MODE` from `defaults` to `auto` and posts the
+  plain-words notice.
+
+  `shell.py` already has the shape this wants (`_optimize_timer` /
+  `_run_idle_optimize`, an hourly `CallableWorker` with the identical
+  off-UI-thread reasoning), so the mechanism is not in doubt. What stopped
+  this session from building it is the same thing that stopped the last
+  one, for a sharper reason this time: `shell.py` is one file with several
+  concurrent worktrees editing it this week (order 0r's splash/lifecycle
+  work among them, touching the same file's startup and timer wiring per
+  `docs/ORDER_REGISTER.md`'s own 2026-09-07 note), and a scheduler bolted
+  on under time pressure, in a file this contested, without room to verify
+  it against a real idle/battery/mid-run matrix, is the "fake quiet
+  upgrade... bolted onto the wrong layer" this item's own text already
+  warns against. Left unticked rather than forced.
+
 ## 6. The speed work itself (what tuning controls)
 
 Ordered; each lands with its measurement gate. **6a is first and gates all.**
@@ -395,7 +418,7 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   test missing an attribute §6f added, not this item), one in
   `tests/unit/test_speed_work.py` (a "triggers are never dropped" assertion
   overtaken by the already-shipped §6f).
-- [ ] **6c numpy/pyarrow end-to-end** (carries P9/F12): embedder returns
+- [x] **6c numpy/pyarrow end-to-end** (carries P9/F12): embedder returns
   float32 arrays; `vector_store.add` builds one arrow table per batch; no
   per-float Python boxing on the hot path.
   **Investigated 2026-09-05, left open - the half that matters is out of
@@ -441,10 +464,99 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   column), passed to `self._table.add(table)` in place of the list-of-dicts,
   with the embedder change above landing in the same change so the numpy
   array only gets built once.
+
+  **Closed 2026-09-15.** Both halves are done together - the "half that
+  matters" was `vector_store.py`, out of the previous thread's file scope
+  but explicitly in this order's own scope (the header above names
+  `pipeline.py`, `resources.py`, `embedder.py` **and** `vector_store.py`).
+  `Embedder.embed()` (`app/index/embedder.py`) now returns a float32
+  `numpy.ndarray` directly instead of widening to float64 and `.tolist()`-ing
+  it, and `VectorStore.add` (`app/storage/vector_store.py`) builds one
+  `pyarrow.Table` per batch straight from the stacked block
+  (`VectorStore._arrow_table`) instead of a `list[dict]` of boxed floats for
+  LanceDB to convert a second time - the hidden second conversion the
+  2026-09-05 note above named as "where the real cost and the real fix both
+  are".
+
+  Every caller checked and left working: `app/search/vector.py`'s
+  `embedder.embed([text])[0]` still indexes fine (one row of a 2D array),
+  `pipeline.py`'s dedup path (`_embed_texts`) still re-indexes a list of
+  rows, and `VectorStore.add` still accepts a plain `list[list[float]]` -
+  the image lane (`clip_embedder.py`) and every hand-written test -
+  alongside the new numpy shapes; `np.asarray(vectors, dtype=np.float32)`
+  normalises all of them to one `(n, dim)` block before the Arrow build.
+
+  Five pre-existing tests broke on the type change, not the arithmetic, and
+  were fixed rather than weakened: four (three in `test_embedder.py`, one in
+  `test_speed_work.py`'s dedup test) compared `embed()`'s or `_embed_texts`'s
+  result against a plain list with `==`, which raises on an `ndarray`
+  ("truth value ... is ambiguous") instead of comparing - fixed with
+  `.tolist()` first, same as every production caller already does.
+  `test_vectors_come_back_unit_length` had `abs_tol=1e-9`, tight enough only
+  for float64; loosened to `1e-6`, still two orders tighter than float32's
+  own ~1.19e-7 epsilon, so a real normalisation bug still fails it.
+  `test_numpy_normalisation_agrees_with_the_python_it_replaced` (the P9
+  test) needed no change at all - its `np.allclose(..., atol=1e-12)` call
+  left `rtol` at its 1e-5 default, which already covers float32 rounding
+  against the float64 reference.
+
+  **One pre-existing, unrelated failure confirmed still present and not
+  caused by this item**: `test_speed_work.py::test_the_triggers_are_not_dropped_until_the_dirty_flag_exists`
+  - exactly the one the §6b delivery note above already names ("a
+  'triggers are never dropped' assertion overtaken by the already-shipped
+  §6f"). `git diff --stat -- app/index/pipeline.py` for this session is
+  empty - that file was never touched - so this is not a regression from
+  §6c; it is left exactly as found, for whoever owns §6f's
+  follow-up.
+
+  New tests: `tests/unit/test_numpy_pyarrow_hotpath.py` (10 new) - the
+  embedder's return type and dtype, that `vector_store.add` hands LanceDB
+  one real `pyarrow.Table` per batch (a monkeypatched spy on `_table.add`,
+  checked directly rather than inferred from a timing), values surviving
+  the round trip to float32 precision, and that every shape this item's
+  callers actually pass (2D ndarray, list of 1D ndarray rows, list of
+  lists) is still accepted.
+
+  **Measured, not assumed** (a temporary script, deleted before this
+  session ended - same convention as `bench_feeder2.py` /
+  `bench_dynamic_workers.py` for §6b/§6g): the pre-§6c `add()` body
+  (rebuilt byte-for-byte as a local function) against the new one, both
+  against a real LanceDB table, 20 batches of 256 vectors at 384
+  dimensions, 7 trials each. **Median 2.795s to 1.717s, 38.6% faster - and
+  every one of the 7 trials was individually faster**, not just the median
+  (old: 2.33-4.34s; new: 0.91-3.39s, each new trial below its paired old
+  trial). `(representative: false)` for the exact percentage - this is
+  wall-clock against a real LanceDB write path on one shared machine, not
+  an isolated measurement of the boxing loop alone - but the direction and
+  the "every trial" consistency are the claim, and both hold.
+
+  Verified: `pytest tests/unit/test_numpy_pyarrow_hotpath.py
+  tests/unit/test_embedder.py tests/unit/test_speed_work.py -q` and the
+  storage/pipeline suites this item touches
+  (`tests/integration/test_layer1_acceptance.py`,
+  `tests/unit/test_vector_compaction.py`, `test_vector_filters.py`,
+  `test_embedding_gap.py`, `test_stages.py`, `test_feeder_thread.py`,
+  `test_dynamic_workers.py`) - all green except the one pre-existing failure
+  named above. Full-suite count is in `HANDOFF.md` and this session's own
+  report.
 - [ ] **6d Two-phase indexing**: phase 1 extract+SQLite only (keyword
   searchable at parse speed), phase 2 drains `embedded=0` (machinery exists
   since the M6 repair). Index stats show semantic coverage %; the existing
   `NOTICE_NO_VECTORS` wording extends to "…still embedding, N% done".
+
+  **Re-checked 2026-09-15, unchanged - still blocked on the owner's schema
+  decision, not on file scope this time.** `app/storage/sqlite_store.py`'s
+  `FileStatus` still defines exactly `PENDING` and `INDEXED` (checked by
+  reading the class, not assumed). The third status this item needs -
+  chunks written, vectors still pending - does not exist yet. Building it
+  is a schema change plus a decision about what "indexed but not yet
+  embedded" means everywhere that already treats `INDEXED` as "and
+  searchable by meaning too" (`NOTICE_NO_VECTORS`, search results, the
+  M6/invariant #50b ordering). CLAUDE.md's own standing rule - never create
+  a work order unprompted, answer design questions in conversation, offer
+  in one line and wait - is why this thread does not make that call
+  unilaterally. Left exactly where the 2026-08-27 and 2026-09-05 notes
+  below already found it.
 - [x] **6e Chunk dedup**: hash chunk text; embed each unique hash once; map
   vectors to chunks. Measure the dedup ratio on the owner's corpus first —
   one GROUP BY — and record it here; if it is under 15% the feature is not
@@ -569,9 +681,35 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   and the item's own acceptance gate - `evaluate --builtin` recall against a
   recorded tolerance - has nothing to measure yet. Left unticked with the
   wiring intact rather than ticked on a control that still does nothing.
+
+  **Re-checked 2026-09-15, unchanged.** `fastembed.TextEmbedding.list_supported_models()`
+  in this venv still registers exactly one entry for `BAAI/bge-small-en-v1.5`
+  (`qdrant/bge-small-en-v1.5-onnx-q`, the fp16 file already cached) - no
+  second, genuinely int8 entry has appeared. `requirements.txt` still has no
+  `onnx` package, so the `onnxruntime.quantization.quantize_dynamic` route
+  is still a new dependency nobody has weighed in on. Order 0t (raised
+  2026-09-13, running concurrently with this session) pins
+  `onnxruntime`/`onnxruntime-directml` versions but adds nothing to the
+  model catalogue and does not touch this question. Left unticked for the
+  same reason as 2026-09-05: sourcing a different HuggingFace repo without
+  the owner's say-so is the "downloading files from an untrusted source"
+  this session must not do on its own judgement, and adding `onnx` as a
+  dependency for a feature most users will never touch is a real
+  install-footprint decision, not a detail.
 - [ ] **6i Converter session** (only if 6a shows conversion matters on the
   owner's corpus): persistent soffice listener instead of per-file cold
   starts. Same evidence rule as 6e — numbers or closed.
+
+  **Checked 2026-09-15, per this item's own condition.** §6a's own
+  entry (the stage timers) and its delivery note above measure seven
+  things - `waiting`, `write`, `embed`, `vectors`, plus worker-seconds for
+  `walk`/`extract` - and none of them is conversion or soffice cold-start
+  time; §6a's text does not mention LibreOffice, `soffice` or
+  conversion at all, and nothing else in this order or in `HANDOFF.md`
+  shows it costing anything on the owner's corpus. §6i's own condition
+  - "only if 6a shows conversion matters" - is therefore not met, so this
+  item stays exactly where it was: not started, not because the mechanism
+  is hard, but because nothing has shown it is needed.
 
 ## 7. Tests
 
@@ -737,3 +875,41 @@ quantised-model checkbox saying "a quantised model" in its tooltip — this
 codebase's vocabulary spoken at somebody tuning their computer. Rewritten. The
 guard now stands over every control on the screen, which is the only way the
 rule survives the next one added.
+
+---
+
+## Order 0b remainder, closed out 2026-09-15 (appended — the text above is unchanged)
+
+Five items were the whole of this session's scope: 5e, 6c, 6d, 6h, 6i. One
+closed. Four stayed open, each with a fresh dated note directly under the
+item recording what was re-checked and why the same blocker still holds -
+no guessing, no re-litigating a decision this thread cannot make on its own.
+
+**6c is done.** `Embedder.embed()` returns a float32 `numpy.ndarray`;
+`VectorStore.add` builds one `pyarrow.Table` per batch directly. Measured
+38.6% faster (median) on a real LanceDB write path, every trial individually
+faster, not just the median. Full detail is in the dated note under the item
+itself, not repeated here.
+
+**5e, 6d, 6h and 6i all stayed open for the same shape of reason: a genuine
+blocker outside what this thread can decide alone**, re-verified against
+current code rather than assumed unchanged from the 2026-08-27/2026-09-05
+notes:
+
+- **5e** needs an idle-detection scheduler in `app/ui/shell.py`, a file
+  several concurrent worktrees are editing this week. The mechanism is
+  understood and `should_bench()` already answers the "why" half; only the
+  "when" half (idle, not mid-run, not on battery) is missing.
+- **6d** needs a third `FileStatus` (chunks written, vectors pending) and a
+  decision about what that means everywhere `INDEXED` currently means
+  "and searchable by meaning too" - a schema and product decision for the
+  owner, per CLAUDE.md's own standing rule against building one unprompted.
+- **6h** needs either a new `onnx` dependency or an unvetted external model
+  repo - fastembed's catalogue still ships exactly one, non-int8, entry for
+  `BAAI/bge-small-en-v1.5`.
+- **6i**'s own condition (§6a shows conversion matters) is not met: §6a
+  measures seven things and none of them is soffice/conversion time.
+
+`docs/ORDER_REGISTER.md` and `HANDOFF.md` carry the one-line version of the
+same facts, appended rather than rewritten, per this session's own
+instructions.

@@ -127,6 +127,11 @@ def test_the_reused_vector_is_the_same_vector(tmp_path: Path) -> None:
     got = pipeline._embed_texts(["a", "b", "a", "b", "a"])   # noqa: SLF001
 
     assert calls == [["a", "b"]], "the model saw each distinct passage once"
+    # Order 0b §6c: `_embed_texts` rows are `numpy.ndarray` now (each one
+    # a row `Embedder.embed_all` yielded), so `==` on the bare arrays raises
+    # ("truth value ... is ambiguous") rather than compares. `.tolist()`
+    # first, same fix as every other caller in this codebase.
+    got = [row.tolist() for row in got]
     assert got[0] == got[2] == got[4]
     assert got[1] == got[3]
     store.close()

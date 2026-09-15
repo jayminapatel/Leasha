@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.7 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -272,6 +272,23 @@ gets lost by accident.
 > stays open and 0r stays `RELEASED`. Full account, including the measured numbers
 > and the two pre-existing test failures ruled out as regressions, is in
 > `docs/ORDER_REGISTER.md`'s own 2026-09-07 second-pass note.
+>
+> **2026-09-15 — 0b's remainder: one of five closed, four re-verified still
+> blocked.** `docs/WORKORDER-202626270114-index-tuning.md` §6c (numpy/pyarrow
+> end-to-end) is done: `Embedder.embed()` returns a float32 `numpy.ndarray` instead
+> of widening to float64 and `.tolist()`-ing it, `VectorStore.add` builds one
+> `pyarrow.Table` per batch directly instead of a `list[dict]` LanceDB converted a
+> second time, measured 38.6% faster (median, every trial individually faster) on a
+> real LanceDB write path. §5e, §6d, §6h and §6i were each
+> re-checked against current code, not assumed unchanged, and each is still blocked
+> on the same thing the 2026-08-27/2026-09-05 notes already found: §5e needs an
+> idle-detection scheduler in `app/ui/shell.py`, a file several concurrent worktrees
+> are editing this week; §6d needs a third `FileStatus` and an owner decision
+> about what "indexed but not embedded" means; §6h needs a new `onnx` dependency
+> or an unvetted external model repo, and fastembed's catalogue still offers neither;
+> §6i's own condition (§6a shows conversion matters) is not met. 0b moves
+> from 35/5 to **36/4**. See `docs/ORDER_REGISTER.md`'s own 2026-09-15 note and the
+> order's per-item dated notes for the full account.
 
 In order, and grouped by what is actually blocking.
 

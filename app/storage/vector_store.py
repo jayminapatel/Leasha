@@ -295,28 +295,35 @@ class VectorStore:
         exts = exts or [""] * len(chunk_ids)
         mtimes_ns = mtimes_ns or [0] * len(chunk_ids)
 
-        rows = [
-            {
-                "chunk_id": int(chunk_ids[i]),
-                "file_id": int(file_ids[i]),
-                "vector": [float(x) for x in vectors[i]],
-                "ext": str(exts[i]),
-                "mtime_ns": int(mtimes_ns[i]),
-            }
-            for i in range(len(chunk_ids))
-        ]
-
         self.ensure_table()
-        self._table.add(rows)
+        # **One Arrow table built directly from the batch, not a list of
+        # per-chunk dicts for LanceDB to convert a second time.** Order 0b
+        # index-tuning, section 6c. The dict-of-boxed-floats version below is
+        # what this replaced:
+        #
+        #     rows = [{"chunk_id": int(chunk_ids[i]), "file_id": int(file_ids[i]),
+        #              "vector": [float(x) for x in vectors[i]], ...}
+        #             for i in range(len(chunk_ids))]
+        #     self._table.add(rows)
+        #
+        # `self._table.add(rows)` still converts a list of dicts to Arrow
+        # internally to match the schema `ensure_table` already declares
+        # (`vector: list_(float32(), dim)`) - so the boxing loop above ran,
+        # and then LanceDB's own conversion ran again on top of it. A batch
+        # of 256 chunks at 384 dimensions boxed and reboxed roughly 98,000
+        # floats for a column that was float32 the whole time.
+        # `_arrow_table` builds the same schema once, from a stacked numpy
+        # block, and hands LanceDB the finished `pyarrow.Table` directly.
+        self._table.add(self._arrow_table(chunk_ids, file_ids, vectors, exts, mtimes_ns))
 
         # **Counted, not queried.** `maybe_create_index` called `count_rows()`
         # on every single batch - a full scan of a growing table, on the write
         # path, to answer a question that only matters when it crosses a
         # threshold. The running total is exact between reopens and is corrected
         # from the table whenever one happens.
-        self._rows_added += len(rows)
-        self._approx_rows += len(rows)
-        self._since_compact += len(rows)
+        self._rows_added += len(chunk_ids)
+        self._approx_rows += len(chunk_ids)
+        self._since_compact += len(chunk_ids)
 
         # **`maybe_create_index()` is deliberately NOT called here any more.**
         #
@@ -336,7 +343,53 @@ class VectorStore:
         # Compaction stays: it is bounded, incremental, and the fragmentation it
         # prevents makes the *rest of the run* slower if it is deferred.
         self.maybe_compact()
-        return len(rows)
+        return len(chunk_ids)
+
+    def _arrow_table(
+        self,
+        chunk_ids: Sequence[int],
+        file_ids: Sequence[int],
+        vectors: Sequence[Sequence[float]],
+        exts: Sequence[str],
+        mtimes_ns: Sequence[int],
+    ) -> "Any":
+        """One `pyarrow.Table` per batch, built from arrays - no per-float
+        Python boxing. Order 0b index-tuning, section 6c.
+
+        `vectors` arrives three different shapes across this codebase's
+        callers - a 2D `numpy.ndarray` straight from `Embedder.embed()`, a
+        Python `list` of 1D numpy rows from `Embedder.embed_all()`
+        (`Pipeline._embed_texts`'s dedup path re-indexes them into a plain
+        list), or a `list[list[float]]` from the image lane
+        (`clip_embedder.py`, which returns plain floats) and from hand-built
+        test data. `np.asarray(vectors, dtype=np.float32)` accepts all three
+        and produces one contiguous `(n, dim)` block either way - the
+        dimension check above has already proved every row is `self.dim`
+        wide, so the reshape below cannot silently misalign a ragged input.
+
+        Chunk and file ids go through `numpy` too, for the same reason:
+        two `int64` columns of length n cost nothing next to the vector
+        column, but building them the same way keeps this one function
+        boxing-free rather than fixing three quarters of the problem.
+        """
+        import numpy as np
+        import pyarrow as pa
+
+        stacked = np.asarray(vectors, dtype=np.float32)
+        flat_values = pa.array(np.ascontiguousarray(stacked).reshape(-1),
+                                type=pa.float32())
+        vector_array = pa.FixedSizeListArray.from_arrays(flat_values, self.dim)
+
+        return pa.Table.from_arrays(
+            [
+                pa.array(np.asarray(chunk_ids, dtype=np.int64), type=pa.int64()),
+                pa.array(np.asarray(file_ids, dtype=np.int64), type=pa.int64()),
+                vector_array,
+                pa.array([str(e) for e in exts], type=pa.string()),
+                pa.array(np.asarray(mtimes_ns, dtype=np.int64), type=pa.int64()),
+            ],
+            schema=self._table.schema,
+        )
 
     def maybe_compact(self, *, force: bool = False) -> bool:
         """Merge fragments and drop old versions. True if it ran.

@@ -169,16 +169,33 @@ def test_a_matching_dimension_passes_quietly() -> None:
 
 def test_vectors_come_back_unit_length() -> None:
     """Cosine ranking degrades quietly without this - no error, just slightly
-    wrong ordering for the life of the index."""
+    wrong ordering for the life of the index.
+
+    **`abs_tol` loosened from 1e-9 to 1e-6, order 0b §6c.** `embed()` now
+    returns float32 (it used to widen to float64 before returning), and
+    float32 has about seven decimal digits of precision - a unit vector's
+    norm coming back 1.0000002 rather than 1.0 is the arithmetic working
+    correctly at the precision it now runs in, not a regression. 1e-6 is
+    still two orders of magnitude tighter than float32's own epsilon
+    (~1.19e-7), so a real normalisation bug still fails this.
+    """
     embedder = Embedder(encoder=encoder_for(normalised=False))
     for vector in embedder.embed(["a", "b"]):
-        assert math.isclose(math.sqrt(sum(v * v for v in vector)), 1.0, abs_tol=1e-9)
+        assert math.isclose(math.sqrt(sum(v * v for v in vector)), 1.0, abs_tol=1e-6)
 
 
 def test_already_normalised_vectors_are_left_alone() -> None:
+    """§6c: `embed()` returns an `ndarray` now, so a plain `==` against a
+    list would raise ("truth value of an array is ambiguous") rather than
+    compare - `.tolist()` first, same as every other caller does. The
+    tolerance is `pytest.approx`'s default (1e-6 relative) rather than exact
+    equality: `expected` is computed by `unit()` in float64 and the embedder
+    now runs the identical arithmetic in float32, so the two agree to
+    float32 precision, not bit for bit.
+    """
     embedder = Embedder(encoder=encoder_for(normalised=True))
     expected = unit(0.0)
-    assert embedder.embed(["a"])[0] == expected
+    assert embedder.embed(["a"])[0].tolist() == pytest.approx(expected)
 
 
 def test_l2_normalise_handles_a_zero_vector() -> None:
@@ -328,7 +345,11 @@ def test_an_already_unit_vector_is_returned_bit_for_bit() -> None:
     vector[1] = 0.0
     embedder = Embedder(encoder=lambda _texts: [vector])
 
-    assert embedder.embed(["x"])[0] == list(vector)
+    # §6c: `embed()` returns an `ndarray`; `.tolist()` first so this compares
+    # two plain lists rather than raising on an ambiguous array truth value.
+    # Still bit-for-bit: 1.0 and 0.0 are exactly representable in float32,
+    # so the cast this item added costs nothing here.
+    assert embedder.embed(["x"])[0].tolist() == list(vector)
 
 
 def test_a_zero_vector_is_not_divided_by(tmp_path) -> None:
@@ -340,7 +361,10 @@ def test_a_zero_vector_is_not_divided_by(tmp_path) -> None:
     zeros = np.zeros(384, dtype=np.float64)
     embedder = Embedder(encoder=lambda _texts: [zeros])
 
-    got = embedder.embed(["x"])[0]
+    # §6c: `.tolist()` first - `embed()` returns an `ndarray` now, and `==`
+    # against a list would raise on an ambiguous array truth value rather
+    # than compare.
+    got = embedder.embed(["x"])[0].tolist()
     assert got == [0.0] * 384
     assert not any(g != g for g in got), "nan reached the index"
 

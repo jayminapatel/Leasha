@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -48,7 +48,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 |---|---|---|---|---|---|
 | 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 52 / 6 | Three of the six are structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
-| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | 35 / 5 | — |
+| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **36 / 4** | Item 6c closed 2026-09-15; 5e, 6d, 6h, 6i remain open, each re-verified and blocked on a decision outside this thread — see the order's own 2026-09-15 notes |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
 | 0d | `202626270257` | Privacy defaults | **SHIPPED** | **9 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |
@@ -150,6 +150,22 @@ note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.
 against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
 not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
 0h is now satisfied.
+
+**2026-09-15 — 0b's remainder: one of five closed, four re-verified still blocked.**
+`docs/WORKORDER-202626270114-index-tuning.md` §6c (numpy/pyarrow end-to-end) is
+done — `Embedder.embed()` returns a float32 `numpy.ndarray`, `VectorStore.add`
+builds one `pyarrow.Table` per batch directly instead of a `list[dict]` LanceDB
+converted a second time, measured 38.6% faster (median, every trial individually
+faster) on a real LanceDB write path. §5e, §6d, §6h and §6i were
+each re-checked against current code rather than assumed unchanged, and each is
+still blocked on the same thing the 2026-08-27/2026-09-05 notes found: §5e
+needs an idle-detection scheduler in `app/ui/shell.py`, a file several concurrent
+worktrees are editing this week; §6d needs a third `FileStatus` and a product
+decision for the owner, not this thread; §6h needs a new `onnx` dependency or
+an unvetted external model repo, neither of which fastembed's catalogue offers
+today; §6i's own condition (§6a shows conversion matters) is not met. 0b
+moves from 35/5 to **36/4**. Full detail in the order's own dated notes, one under
+each item.
 
 ---
 
