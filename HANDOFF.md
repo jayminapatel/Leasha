@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.7 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -954,6 +954,34 @@ empty namespace package, so `onnxruntime.get_available_providers` raises
 reports "already satisfied" from the surviving DirectML `.dist-info` and writes
 nothing. **Close Leasha first, delete the `~` remnants and both dist-infos, then
 `pip install --force-reinstall --no-deps onnxruntime-directml==<pinned>`.**
+
+**2026-09-15 — this trap is now guarded against; work order `202626130120`
+(0t) is SHIPPED, 24/24.** `onnxruntime==1.24.4` is pinned directly in
+`requirements.txt`, no longer left to an unpinned transitive requirement, and
+`onnxruntime-directml==1.24.4` is documented in the same comment for
+`install.ps1` to install. `install.ps1` now installs the DirectML wheel
+unconditionally and last, on any Windows machine with a display adapter,
+using `--force-reinstall --no-deps` so it always wins the directory
+regardless of install order, and verifies `DmlExecutionProvider` immediately
+afterward — failing the step loudly if it is absent, rather than trusting
+that the wheel did something. Before touching any package it now checks for
+a Leasha process holding the venv and clears stray `~*` stash directories
+from a previous failed uninstall, so the WinError 5 sequence above cannot
+recur silently. `doctor.py` gained a required check
+(`check_onnxruntime_integrity`) that fails on a version mismatch between the
+two distributions or a stash remnant — though a matching-version pair is the
+healthy, intended state now, since the installer's own fix means a correctly
+configured DirectML machine always carries both — and an optional one
+(`check_gpu_provider_intent`) that warns when an adapter has no provider.
+`Pipeline.run()` reports a lost-provider notice through `IndexStats.notices`
+the moment a run starts, so the Indexing tab shows it without anybody having
+to read a log. Verified against this session's own real Windows venv, which
+has a genuine Intel Iris Xe adapter: reproduced the original fault first (a
+plain `pip install -r requirements.txt` against the pre-fix file pulled
+`onnxruntime` 1.30.0, exactly as this trap describes), then fixed it and
+confirmed `onnxruntime.get_available_providers()` returns
+`['DmlExecutionProvider', 'CPUExecutionProvider']` and `doctor.py` prints
+READY.
 
 **A throughput number without its conditions is not a number.** Embedding was measured at
 1.53 passages/second and called "twenty times too slow", on the assumption that a small model

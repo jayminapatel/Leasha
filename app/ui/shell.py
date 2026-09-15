@@ -2266,6 +2266,11 @@ class MainWindow(QMainWindow):
                 # folders now" button, which walks them all in full this once.
                 recheck_archives=recheck_archives,
                 recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
+                # Work order 202626130120 (0t) section 6: resolved above, off
+                # this thread, by the same resolve_for_run call that decided
+                # tuned.workers - see its own docstring for why the notice
+                # cannot be computed from the Pipeline's cached profile alone.
+                gpu_regression_notice=tuned.gpu_regression_notice,
             ),
             image_embedder=image_embedder, image_vectors=self._image_vectors,
         )

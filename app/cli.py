@@ -1089,6 +1089,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         dedup_chunks=settings.embed_dedup,
         two_phase=settings.index_two_phase,
         bulk_fts=settings.index_bulk_fts,
+        # Work order 202626130120 (0t) section 6: resolved once, above, by
+        # the same resolve_for_run call the window uses before it builds a
+        # Pipeline.
+        gpu_regression_notice=tuned.gpu_regression_notice,
     )
 
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)

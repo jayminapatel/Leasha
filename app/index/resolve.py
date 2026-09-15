@@ -44,6 +44,12 @@ class Resolved:
     why: dict = None                             # type: ignore[assignment]
     #: True when the rates came from a measurement rather than the heuristics.
     measured: bool = False
+    #: Work order 202626130120 (0t) section 6: "" unless this machine had a
+    #: working DirectML provider last time and genuinely does not have one
+    #: now. Carried on `Resolved` rather than looked up again beside the
+    #: Pipeline, because this is the one place both the CLI and the window
+    #: already resolve the machine off the UI thread before a run starts.
+    gpu_regression_notice: str = ""
 
     def __post_init__(self) -> None:
         if self.why is None:
@@ -114,6 +120,17 @@ def resolve_for_run(settings: Any, store: Any = None,
     if note:
         _log.warning("{}", note)
         found.why["oversubscribed"] = note
+
+    # Work order 202626130120 (0t) section 6. Only when there is a real store
+    # to read "last time" from - every test in this module calls with
+    # `store=None` and an invented `profile=`, which must stay exactly as
+    # quiet as it is today.
+    if store is not None:
+        gpu_notice = _gpu_regression(store, settings)
+        if gpu_notice:
+            _log.warning("{}", gpu_notice)
+            found.why["gpu_lost"] = gpu_notice
+            found.gpu_regression_notice = gpu_notice
     return found
 
 
@@ -147,6 +164,36 @@ def _profile(store: Any, settings: Any) -> Optional[Any]:
     except Exception as exc:                     # noqa: BLE001 - never fatal
         _log.debug("this machine could not be examined: {}", exc)
         return None
+
+
+def _gpu_regression(store: Any, settings: Any) -> str:
+    r"""Work order 202626130120 (0t) section 6's three-way check.
+
+    Compares the profile `store` had cached **before** this call against a
+    genuinely fresh `detect()` - never the value `cached_profile` returns,
+    because a DirectML loss alone does not change `ComputeProfile.fingerprint`
+    (it hashes adapter name and VRAM, not provider availability), so
+    `cached_profile` can return the *old*, still-rosy stored profile on
+    exactly the machine this check exists for. Only reached when a store is
+    given, and only detects again when the stored profile shows the provider
+    was ever available - the common case (never had a GPU, or nothing cached
+    yet) costs nothing beyond one state read.
+
+    Never raises: any failure here is a missed notice, not a failed run.
+    """
+    try:
+        from app.core.compute_profile import detect, stored_profile
+
+        stored = stored_profile(store)
+        if stored is None or not stored.directml_available:
+            return ""
+        fresh = detect(getattr(settings, "data_path", None))
+        from app.index.backends import gpu_regression_notice
+
+        return gpu_regression_notice(stored, fresh)
+    except Exception as exc:                     # noqa: BLE001 - never fatal
+        _log.debug("could not check for a lost graphics-card provider: {}", exc)
+        return ""
 
 
 def _rates(store: Any, profile: Any) -> Optional[Any]:
