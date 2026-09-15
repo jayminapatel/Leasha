@@ -595,7 +595,52 @@ class _Extracted:
 
     @property
     def row_key(self) -> str:
-        return self.key or str(self.candidate.path)
+        r"""What `files.path` should hold for this document.
+
+        **Volume-aware, and this is 1c's dedup/prune keying.** A file the
+        walker found under a catalogued source's current mount point carries
+        `candidate.volume_id`/`relative_path` (see `walker.Candidate`), and
+        this builds the same letter-free synthetic string every time,
+        whatever letter the drive happened to have *this* walk - so the same
+        file seen as `E:\a.txt` then `F:\a.txt` is one row, not two, without
+        `_prune_missing` or anything else having to know why.
+
+        `self.key` still wins when an extractor has set one - an archive
+        member's key already encodes its container's path. A `.pst` catalogued
+        on an offline drive is a known gap this pass does not close: its
+        messages would still key off the container's *walked* path rather
+        than the volume-synthetic one. Recorded in the work order's dated
+        note rather than silently accepted.
+        """
+        if self.key:
+            return self.key
+        return _candidate_row_key(self.candidate)
+
+
+def _candidate_row_key(candidate: "Candidate") -> str:
+    """The row key for a bare candidate that never became a `Document` -
+    a name-only file or one recorded as skipped. Mirrors `Document.row_key`'s
+    volume-aware branch (1c); kept as a free function because both call sites
+    only have the candidate, never a `Document` to ask."""
+    if candidate.volume_id is not None and candidate.relative_path is not None:
+        from app.storage.sqlite_store import volume_synthetic_path
+
+        return volume_synthetic_path(candidate.volume_id, candidate.relative_path)
+    return str(candidate.path)
+
+
+def _candidate_parent_dir(candidate: "Candidate") -> str:
+    """`files.parent_dir` for a bare candidate - the real folder for an
+    ordinary file, and the equivalent synthetic folder for a volume-backed
+    one, so browsing by folder never has to parse `leasha-volume://...`
+    through `Path()`, which does not understand that scheme."""
+    if candidate.volume_id is not None and candidate.relative_path is not None:
+        from app.storage.sqlite_store import volume_synthetic_path
+
+        parent = str(Path(candidate.relative_path).parent)
+        parent = "" if parent == "." else parent
+        return volume_synthetic_path(candidate.volume_id, parent)
+    return str(candidate.path.parent)
 
 
 _STOP = object()
@@ -1732,7 +1777,16 @@ class Pipeline:
         having done nothing, reporting no skips and no error the user could see.
         """
         try:
-            record = self.store.get_file(str(candidate.path))
+            # **Volume-aware, same as `row_key`/`_candidate_row_key`.** A
+            # volume-backed row is stored under its synthetic
+            # `leasha-volume://...` key (1c), never `str(candidate.path)` -
+            # looking it up by the real path here always missed, so every
+            # file on a catalogued volume looked new on every single rescan
+            # and was re-extracted every time. Found by
+            # `test_a_moved_file_is_repaired_without_re_extraction`, whose
+            # second pipeline run kept reporting `indexed=1` instead of the
+            # `unchanged=1` a settled file should produce.
+            record = self.store.get_file(_candidate_row_key(candidate))
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
                 "could not read the row for {}, queuing it anyway: {}",
@@ -2095,6 +2149,20 @@ class Pipeline:
                     continue
 
                 key = document.key
+                # **The real fix belongs here, not only in `row_key`.** An
+                # extractor's `Document.key` already defaults to
+                # `str(candidate.path)` for an ordinary single-document file,
+                # so by the time `row_key`'s fallback ran, `key` was already
+                # truthy and the volume-safe branch never fired - found by
+                # `test_the_same_volume_walked_at_two_mount_points_is_one_row`
+                # returning the real, letter-bearing path. Only substituted
+                # when the extractor left the default in place: a multi-
+                # document extractor's own `virtual_path` (an archive member,
+                # a mail message) must never be overridden here.
+                if (key == str(candidate.path)
+                        and candidate.volume_id is not None
+                        and candidate.relative_path is not None):
+                    key = _candidate_row_key(candidate)
                 if key in seen_keys:
                     # An extractor yielding many documents must give each a
                     # `virtual_path`. Without one they all share the file's path,
@@ -2135,12 +2203,20 @@ class Pipeline:
                 details="Extracted successfully but produced no text."))
             return
 
-        if seen_keys != {str(candidate.path)}:
+        # The single-document default, volume-substituted the same way the
+        # loop above substitutes it - otherwise a volume-backed plain file
+        # would look like it had "become a container" the moment its key
+        # stopped being the raw `str(candidate.path)`, and get a spurious
+        # `source_kind="archive"` marker row alongside its real one.
+        default_key = str(candidate.path)
+        if candidate.volume_id is not None and candidate.relative_path is not None:
+            default_key = _candidate_row_key(candidate)
+        if seen_keys != {default_key}:
             # This file was a container. Close it with a row for the archive
             # itself so the next run can see it is unchanged and skip it whole.
             yield _Extracted(
                 candidate=candidate, content_hash=digest,
-                key=str(candidate.path), source_kind="archive",
+                key=default_key, source_kind="archive",
                 first_of_file=False, file_marker=True,
             )
 
@@ -2595,7 +2671,7 @@ class Pipeline:
         """
         candidate = item.candidate
         self.store.upsert_file(
-            str(candidate.path),
+            _candidate_row_key(candidate),
             size_bytes=candidate.size_bytes,
             mtime_ns=candidate.mtime_ns,
             content_hash=None,
@@ -2604,7 +2680,9 @@ class Pipeline:
             clear_hash=True,
             status=FileStatus.NAME_ONLY,
             source_kind="file",
-            parent_dir=str(candidate.path.parent),
+            volume_id=candidate.volume_id,
+            relative_path=candidate.relative_path,
+            parent_dir=_candidate_parent_dir(candidate),
             ext=indexed_ext(candidate.path),
             repo_id=self._repo_id_for(candidate.path),
         )
@@ -2664,6 +2742,12 @@ class Pipeline:
                 content_hash=item.content_hash,
                 status=FileStatus.PENDING,
                 source_kind=item.source_kind,
+                # The container itself (the `.pst`/archive file) is exactly
+                # as volume-safe as an ordinary file - it is `row_key` above
+                # that already made the *key* letter-free. Its members are a
+                # separate, harder question; see `row_key`'s docstring.
+                volume_id=candidate.volume_id,
+                relative_path=candidate.relative_path,
             )
             self.store.mark_indexed(file_id)
         # Work order 202626270509, item 1b. The file is done - a resume
@@ -2770,10 +2854,18 @@ class Pipeline:
                 clear_hash=item.source_kind == "file" and item.content_hash is None,
                 status=FileStatus.PENDING,
                 source_kind=item.source_kind,
+                # Only for a plain file. An archive member's identity is
+                # `<container>#<key>`, not `(volume_id, relative_path)` - see
+                # `row_key`'s docstring for why that is a known, flagged gap
+                # rather than something silently pretended away here.
+                volume_id=candidate.volume_id if item.source_kind == "file" else None,
+                relative_path=candidate.relative_path if item.source_kind == "file" else None,
                 # A message key is `<archive>#<EntryID>`, so its parent directory
                 # must come from the archive rather than from splitting a path that
                 # is not one. Without this, `path:` filters stop matching mail.
-                parent_dir=str(candidate.path.parent),
+                # For a plain file, `_candidate_parent_dir` is volume-safe too.
+                parent_dir=(_candidate_parent_dir(candidate) if item.source_kind == "file"
+                           else str(candidate.path.parent)),
                 # **The name, for a file that has no extension.** `Dockerfile`
                 # and `Makefile` are indexed and were unfilterable: `ext` was
                 # `''`, `distinct_values` skips those rows, and `type:` matches
@@ -3313,13 +3405,13 @@ class Pipeline:
         candidate = item.candidate
         with self.store.batch():
             file_id = self.store.upsert_file(
-                str(candidate.path),
+                _candidate_row_key(candidate),
                 size_bytes=candidate.size_bytes,
                 mtime_ns=candidate.mtime_ns,
                 content_hash=item.content_hash,
                 clear_hash=item.content_hash is None,
                 status=FileStatus.PENDING,
-                parent_dir=str(candidate.path.parent),
+                parent_dir=_candidate_parent_dir(candidate),
                 ext=indexed_ext(candidate.path),
                 # Work order 0f §3a. **The path most photographs actually
                 # take**, and the reason the shot date is read here rather
@@ -3329,6 +3421,8 @@ class Pipeline:
                 # findable by name and by CLIP, and it is still from the year
                 # it was taken - see `_photo_taken_at_ns`.
                 taken_at_ns=self._photo_taken_at_ns(candidate),
+                volume_id=candidate.volume_id,
+                relative_path=candidate.relative_path,
             )
             self.store.mark_skipped(file_id, item.error)
 
@@ -3439,6 +3533,32 @@ class Pipeline:
 
         archived = self._archive_roots()
 
+        # **Offline Media, 1d: offline is not deleted.** `record.path` for a
+        # volume-backed row is the synthetic `leasha-volume://...` string
+        # (1c), which is never a real filesystem path and always fails
+        # `.exists()` - so without this, unplugging a catalogued drive and
+        # running an unrelated index over a normal folder would prune every
+        # row that drive had ever contributed, the moment `_prune_missing`
+        # reached them. Resolved once per run, not once per row: a machine
+        # with a dozen catalogued sources must not pay a Windows volume
+        # enumeration per candidate.
+        from app.index.offline_media import connected_volumes
+
+        online = connected_volumes(self.store)
+
+        def _volume_row_is_missing(record: Any) -> bool:
+            if record.volume_id is None:
+                return not Path(record.path).exists()
+            root = online.get(record.volume_id)
+            if root is None:
+                # The source is not currently connected. Not seen, not
+                # confirmed gone either - exactly the H8 precedent, now
+                # formalised for every catalogued row, not only archives.
+                return False
+            if not record.relative_path:
+                return False
+            return not (root / record.relative_path).exists()
+
         # Narrowed in SQL, and only the ids to delete are held. An archive of
         # 200,000 emails is 200,000 rows: materialising every one of them as a
         # FileRecord just to discard the mail is minutes and hundreds of
@@ -3452,7 +3572,7 @@ class Pipeline:
             for record in self.store.iter_files(source_kind="file")
             if str(record.path).lower() not in seen
             and (not archived or files_under(record.path, archived) is None)
-            and not Path(record.path).exists()
+            and _volume_row_is_missing(record)
         ]
         # **The archive's contents go with the archive**, which nothing did.
         # The loop above only ever looked at `source_kind="file"`, and no other

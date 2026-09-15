@@ -63,6 +63,7 @@ def parser_for(argv):
 COMMANDS = [
     "search", "index", "formats", "commands", "ollama", "doctor",
     "evaluate", "embed-bench", "rerank-bench", "diagnose", "repos", "gitsearch",
+    "offline-media",
 ]
 
 
@@ -416,6 +417,74 @@ def test_repos_lists_what_the_store_holds(tmp_path, capsys):
 def warnings_for(chunks, embedded, rows):
     return cli.semantic_search_warnings(
         {"chunks_total": chunks, "chunks_embedded": embedded}, {"rows": rows})
+
+
+def test_offline_media_runs_on_an_empty_index(tmp_path, capsys):
+    """No catalogued sources is not an error - most machines have none.
+
+    Ships before the tab per non-negotiable 8, order 202626270513.
+    """
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+
+    capsys.readouterr()          # discard `init`'s own output
+    assert cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env])) == cli.EXIT_OK
+    assert "No Offline Media sources" in capsys.readouterr().out
+
+
+def test_offline_media_json_is_machine_readable(tmp_path, capsys):
+    import json as _json
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env, "--json"])) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert out.lstrip().startswith("{"), f"a human preamble came first: {out[:80]!r}"
+    payload = _json.loads(out)
+    assert payload == {"volumes": [], "count": 0}
+
+
+def test_offline_media_delete_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
+    """A typo in a name must not look like a crash."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    code = cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env, "--delete", "Nonexistent"]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
+
+
+def test_offline_media_rescan_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    code = cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env, "--rescan", "Nonexistent"]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
+
+
+def test_offline_media_scan_without_a_name_is_a_clean_error(tmp_path, capsys):
+    """2b: the first Scan requires a name - there is no dialog to ask twice
+    from a command line, so this refuses rather than inventing one."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    code = cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env, "--scan", str(tmp_path)]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "name" in combined
 
 
 def test_an_empty_vector_store_is_reported_as_not_working():

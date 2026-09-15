@@ -57,8 +57,8 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0h | `202626270510` | Pictures I — the CLIP lane | **SHIPPED** | **13 / 0** | Closed 2026-09-15 — see the order's 2026-09-15 note |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h (closed 2026-09-15) |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
-| 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 0 / 17 | Deepest storage change — no interleaving |
-| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
+| 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | **10 / 7** | §1 (identity/storage), the CLI half of §2, and all five §4 tests are done 2026-09-15; the tab (§2 UI) and §3 (search/browse) remain |
+| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **2 / 15** | 0k. §1b/1c done 2026-09-15 (network identity, reachability, verify_hash); §1a left open (compound — UI half missing); §2/§3/§3b not started |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |

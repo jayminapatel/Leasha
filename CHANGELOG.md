@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.08 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 4.09 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,36 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A network share now catalogues the same way a drive does, and never hangs when it is offline
+
+- `app.cli offline-media` now catalogues a network share by the share
+  itself, not by whichever drive letter it happens to be mapped to today -
+  the same identity guarantee a removable drive already had.
+- Scanning a share that is not reachable right now - the server is off, or
+  Windows has not signed in to it - says so plainly within a few seconds,
+  rather than sitting for however long Windows itself would wait before
+  giving up.
+- A share scanned before a server is retired stays searchable for as long
+  as the index exists, exactly like an unplugged drive.
+
+### A removable drive can now be catalogued once and found forever, even unplugged
+
+- `app.cli offline-media` catalogues a removable drive by its own identity -
+  never the letter it happens to be plugged in as, which Windows changes on
+  its own. Scan a drive once, give it a name, and every file on it stays
+  findable by what it says, whether the drive is plugged in or sitting in a
+  drawer.
+- Unplugging a catalogued drive never removes what was found on it. Only
+  the Offline Media tab's own Delete does that, and it says exactly how
+  many files it is removing from the index before it touches anything -
+  the drive itself is never written to.
+- A drive tidied up - files moved to new folders - rescans without
+  re-reading what has not changed: Leasha notices the same file at a new
+  location and repairs its record rather than reading it again.
+- The tab this belongs to, and the rest of what the drive-in-a-drawer order
+  promises, are not built yet - this is the storage layer and the command
+  line underneath them, first.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

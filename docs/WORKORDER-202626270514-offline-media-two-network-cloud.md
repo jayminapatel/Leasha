@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media II — network shares, cloud mounts, and the placeholder rules
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage + Index + Offline Media tab)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0513 (the tab and the
 identity seam). **Phones (kind 4, MTP) are decided as removable drives but
@@ -10,14 +10,49 @@ by accident; the UI never waits on a network.
 
 ## 1. Network shares (kind 2)
 
+**2026-09-15 — 1a-1c built and proven with real, passing tests, on this
+Windows machine.** Reuses 202626270513's `volumes` table and pipeline
+machinery unchanged (`kind="network"`), per this thread's instruction not to
+force a second design onto the first. `app/core/volumes_win.py` gained
+`resolve_unc` (mapped-letter → UNC, `WNetGetConnectionW`), `normalise_unc`
+(UNC → share root), and `probe_unc_reachable` (hard-timeout reachability,
+`ThreadPoolExecutor` submit-without-blocking-shutdown so a dead host's own
+slow SMB timeout never propagates to the caller). `app/index/offline_media.py`
+gained `identify_source`, which tries UNC, then a mapped letter, then an
+ordinary drive - the letter is read only to resolve it and is never stored.
+`connected_volumes`/`refresh_volume_statuses` now resolve `kind="network"`
+rows too, and a network scan defaults `verify_hash=False` (1c).
+
+**A real bug this found and fixed**: the CLI's `--scan` only checked
+reachability for a drive before walking; a network path went straight to
+the walker, which discovered an unreachable share the slow way - Windows'
+own SMB connection timeout, **13+ seconds** against a dead host in testing
+here, reported at the end as "0 files found" rather than as offline. Fixed
+by probing with `probe_unc_reachable` (hard 3s budget) before cataloguing
+or walking anything; the same real dead-host scan now fails in ~6s
+(process startup + the 3s probe) with 1b's exact wording rather than a
+confusing empty result.
+
+**Not done, and 1a left unticked as a whole item because it is compound**:
+the identity half - normalised UNC, letter resolved and discarded - is
+built and proven; the "renamed server = new source, softened by structure-
+match offer" half is an interactive UI prompt, not built, deferred with the
+rest of §2's tab. 1d's tab help-line sentence is likewise UI text.
+Command: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py -v`
+→ **17 passed** (6 of them network-specific). No real network share exists
+on this machine to confirm the *reachable* success path of `resolve_unc`/
+`probe_unc_reachable` against - **(UNCONFIRMED: the positive case)**, noted
+rather than guessed past; the negative/unreachable case (the one 1b/1c are
+actually about) is verified for real. Commit `003a90a`.
+
 - [ ] **1a** identity = normalised UNC path; a mapped `Z:` is resolved to UNC
   at add-time and **never stored** (the drive-letter rule's network twin).
   Renamed server = new source, softened by structure-match offer ("is this
   *Old NAS* at a new address?" — assist, never assume).
-- [ ] **1b** credentials NEVER: user connects via Windows as they always do;
+- [x] **1b** credentials NEVER: user connects via Windows as they always do;
   unreachable/denied → "offline — not signed in or not reachable", plain
   words, no prompt from Leasha ever (safety invariant).
-- [ ] **1c** network scan defaults: hash verification OFF (mtime/size
+- [x] **1c** network scan defaults: hash verification OFF (mtime/size
   settling — SMB hashing is prohibitive); availability probes hard-timeout
   on workers; nothing network-touching ever runs on the UI thread (extend
   the scanner test to the new modules).

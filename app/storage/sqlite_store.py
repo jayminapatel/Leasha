@@ -38,7 +38,7 @@ from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
 from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus"]
+__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -70,6 +70,33 @@ NAME_MIN_CHARS = 2
 #: a bare -1 at each call site because "what does minus one mean here" is a
 #: question nobody should have to answer twice.
 NO_REPO = -1
+
+
+#: Scheme prefix for a volume-backed file's synthetic `files.path`. Never a
+#: real URL and never opened as one - `resolve.py` recognises the prefix and
+#: routes to volume resolution instead of treating it as a filesystem path.
+VOLUME_PATH_SCHEME = "leasha-volume://"
+
+
+def volume_synthetic_path(volume_id: int, relative_path: str) -> str:
+    r"""The letter-free identity `files.path` holds for a catalogued file.
+
+    **Why `path` carries this instead of a real absolute path.** `files.path`
+    is `UNIQUE`, and an absolute path collides the moment two different
+    volumes are ever mounted at the same letter - which is exactly the bug
+    class 1c exists to kill (`E:\Documents\a.txt` from volume A must never be
+    the same row as `E:\Documents\a.txt` from volume B, seen after A is
+    unplugged and B takes its letter). Built only from `(volume_id,
+    relative_path)`, so it is stable across every remount and never needs the
+    letter at all.
+
+    Forward slashes only, whatever the source used, so the same relative file
+    always produces the same string - `relative_path` is read back off a
+    Windows walk (backslashes) and, for a network share, may arrive already
+    slash-normalised from a UNC path.
+    """
+    normalised = str(relative_path).replace("\\", "/").lstrip("/")
+    return f"{VOLUME_PATH_SCHEME}{int(volume_id)}/{normalised}"
 
 
 def _basename(path: str) -> str:
@@ -276,11 +303,43 @@ class FileRecord:
     #: Defaulted for the same reason `phash` is - `from_row` builds from
     #: whatever columns a SELECT actually asked for.
     taken_at_ns: Optional[int] = None
+    #: repo_id is read directly by callers that already exist above this
+    #: dataclass; not added here to keep this change to what Offline Media
+    #: needs. Both are additive and default to None for every row untouched
+    #: by a volume Scan - "an ordinary, always-connected file".
+    volume_id: Optional[int] = None
+    relative_path: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
         return cls(**{key: row[key] for key in cls.__dataclass_fields__
                       if key in row.keys()})
+
+
+@dataclass(frozen=True)
+class VolumeRecord:
+    """One catalogued Offline Media source - a drive, share, cloud mount,
+    phone, or archived location. See `schema.sql`'s `volumes` table."""
+    id: int
+    kind: str
+    identity_key: str
+    volume_guid: Optional[str]
+    hardware_serial: Optional[str]
+    fs_label: Optional[str]
+    name: str
+    description: Optional[str]
+    location_note: Optional[str]
+    status: str
+    sequential_medium: int
+    first_seen: int
+    last_seen: int
+    last_scanned_at: Optional[int]
+    size_bytes: Optional[int]
+    file_count: Optional[int]
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "VolumeRecord":
+        return cls(**{key: row[key] for key in cls.__dataclass_fields__})
 
 
 @dataclass(frozen=True)
@@ -603,6 +662,8 @@ class SqliteStore:
         repo_id: Optional[int] = None,
         clear_hash: bool = False,
         taken_at_ns: Optional[int] = None,
+        volume_id: Optional[int] = None,
+        relative_path: Optional[str] = None,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
 
@@ -636,6 +697,13 @@ class SqliteStore:
         right on its own and became a trap in combination with two others; see
         `forget_repo`. A defensive default that cannot be overridden is not a
         guard, it is a one-way door, so this is the door's handle.
+
+        `volume_id`/`relative_path` are additive and optional, the same shape
+        as `repo_id`: NULL for a file outside any catalogued source, COALESCEd
+        on conflict so a caller that knows nothing about Offline Media -
+        every extractor, `_record_skip`, every existing test - cannot blank an
+        attribution a volume Scan established. They always travel together;
+        nothing sets one without the other.
         """
         if status not in FileStatus.ALL:
             raise AppErrorException(make_error(
@@ -662,8 +730,9 @@ class SqliteStore:
                 """
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
-                     status, source_kind, repo_id, taken_at_ns)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, source_kind, repo_id, taken_at_ns, volume_id,
+                     relative_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -696,11 +765,17 @@ class SqliteStore:
                     -- callers that write a row for a photo without knowing
                     -- its shot date must not erase one. See the docstring.
                     taken_at_ns  = COALESCE(excluded.taken_at_ns,
-                                            files.taken_at_ns)
+                                            files.taken_at_ns),
+                    -- Offline Media's own attribution, same COALESCE reasoning
+                    -- as repo_id above. The two always travel together, so one
+                    -- CASE covers both rather than two independent flags.
+                    volume_id     = COALESCE(excluded.volume_id, files.volume_id),
+                    relative_path = COALESCE(excluded.relative_path, files.relative_path)
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
                  content_hash, status, source_kind, stored_repo,
                  None if taken_at_ns is None else int(taken_at_ns),
+                 volume_id, relative_path,
                  forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
@@ -1637,7 +1712,8 @@ class SqliteStore:
         return record.id
 
     def iter_files(
-        self, status: Optional[str] = None, *, source_kind: Optional[str] = None
+        self, status: Optional[str] = None, *, source_kind: Optional[str] = None,
+        volume_id: Optional[int] = None,
     ) -> Iterator[FileRecord]:
         """Files, optionally narrowed. Filter in SQL, never in Python.
 
@@ -1645,6 +1721,10 @@ class SqliteStore:
         200,000 emails is 200,000 rows, and a caller that wants only the few
         thousand real files would otherwise build a `FileRecord` for every
         message first and discard 98% of them.
+
+        `volume_id` is the same idea for Offline Media: a rescan or a delete
+        only ever cares about one source's rows, and `idx_files_volume` makes
+        the filter free.
         """
         clauses: list[str] = []
         params: list[Any] = []
@@ -1654,9 +1734,21 @@ class SqliteStore:
         if source_kind is not None:
             clauses.append("source_kind = ?")
             params.append(source_kind)
+        if volume_id is not None:
+            clauses.append("volume_id = ?")
+            params.append(volume_id)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         for row in self.conn.execute(f"SELECT * FROM files{where} ORDER BY id", params):
             yield FileRecord.from_row(row)
+
+    def volume_file_ids(self, volume_id: int) -> list[int]:
+        """Ids only, for a batched cascade delete. See `file_ids_under_archive`
+        for why materialising full records first would be the wrong shape at
+        scale - a media drive can hold hundreds of thousands of rows."""
+        rows = self.conn.execute(
+            "SELECT id FROM files WHERE volume_id = ?", (int(volume_id),)
+        ).fetchall()
+        return [int(row[0]) for row in rows]
 
     def skipped_summary(self) -> dict[str, int]:
         """Counts by skip_code, for the 'N files skipped - review' panel."""
@@ -2567,6 +2659,160 @@ class SqliteStore:
             ORDER BY files DESC, r.name COLLATE NOCASE
         """).fetchall()
         return [dict(row) for row in rows]
+
+    # -- Offline Media: volumes ------------------------------------------------
+    #
+    # Orders 202626270513 (drives) and 202626270514 (network, cloud, tape).
+    # One catalogue for every kind - see the reasoning beside `volumes` in
+    # schema.sql - so this section grows rather than being duplicated later.
+
+    def upsert_volume(
+        self, identity_key: str, *, kind: str, name: str,
+        description: Optional[str] = None, volume_guid: Optional[str] = None,
+        hardware_serial: Optional[str] = None, fs_label: Optional[str] = None,
+        location_note: Optional[str] = None, sequential_medium: bool = False,
+        status: Optional[str] = None, size_bytes: Optional[int] = None,
+        file_count: Optional[int] = None, seen_at: Optional[int] = None,
+    ) -> int:
+        r"""Insert a new source, or refresh an existing one by `identity_key`.
+
+        **Fully manual, per the owner's model**: this is called only from a
+        Scan the user pressed, never from anything that runs on its own. A
+        rescan of a known source updates `last_seen`/`last_scanned_at` and the
+        measured `size_bytes`/`file_count`; `first_seen`, the name and the
+        description are never touched by a re-scan - `name`/`description` are
+        only written again when the caller explicitly asks to rename, because
+        this same call is what every rescan uses and a rescan must never
+        silently overwrite words the user typed.
+        """
+        now = int(time.time()) if seen_at is None else int(seen_at)
+        resolved_status = status or "ONLINE"
+        with self.write() as conn:
+            conn.execute(
+                """
+                INSERT INTO volumes
+                    (kind, identity_key, volume_guid, hardware_serial, fs_label,
+                     name, description, location_note, status, sequential_medium,
+                     first_seen, last_seen, last_scanned_at, size_bytes, file_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(identity_key) DO UPDATE SET
+                    volume_guid     = COALESCE(excluded.volume_guid, volumes.volume_guid),
+                    hardware_serial = COALESCE(excluded.hardware_serial, volumes.hardware_serial),
+                    fs_label        = COALESCE(excluded.fs_label, volumes.fs_label),
+                    status          = excluded.status,
+                    sequential_medium = excluded.sequential_medium,
+                    last_seen       = excluded.last_seen,
+                    last_scanned_at = excluded.last_scanned_at,
+                    size_bytes      = COALESCE(excluded.size_bytes, volumes.size_bytes),
+                    file_count      = COALESCE(excluded.file_count, volumes.file_count)
+                """,
+                (kind, identity_key, volume_guid, hardware_serial, fs_label,
+                 name, description, location_note, resolved_status,
+                 1 if sequential_medium else 0,
+                 now, now, now, size_bytes, file_count),
+            )
+            row = conn.execute(
+                "SELECT id FROM volumes WHERE identity_key = ?", (identity_key,)
+            ).fetchone()
+            return int(row["id"])
+
+    def get_volume(self, volume_id: int) -> Optional[VolumeRecord]:
+        row = self.conn.execute(
+            "SELECT * FROM volumes WHERE id = ?", (int(volume_id),)
+        ).fetchone()
+        return VolumeRecord.from_row(row) if row else None
+
+    def get_volume_by_identity(self, identity_key: str) -> Optional[VolumeRecord]:
+        row = self.conn.execute(
+            "SELECT * FROM volumes WHERE identity_key = ?", (identity_key,)
+        ).fetchone()
+        return VolumeRecord.from_row(row) if row else None
+
+    def set_volume_status(self, volume_id: int, status: str) -> None:
+        """The cheap write for a panel refresh - §2a checks passively, no
+        device watcher, so this is called often and must cost one row write."""
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE volumes SET status = ? WHERE id = ?",
+                (status, int(volume_id)),
+            )
+
+    def rename_volume(self, volume_id: int, *, name: Optional[str] = None,
+                      description: Optional[str] = None) -> bool:
+        """The one place `name`/`description` change after the first Scan."""
+        if name is None and description is None:
+            return False
+        with self.write() as conn:
+            if name is not None:
+                conn.execute(
+                    "UPDATE volumes SET name = ? WHERE id = ?",
+                    (name, int(volume_id)),
+                )
+            if description is not None:
+                conn.execute(
+                    "UPDATE volumes SET description = ? WHERE id = ?",
+                    (description, int(volume_id)),
+                )
+            return conn.total_changes > 0
+
+    def list_volumes(self) -> list[dict[str, Any]]:
+        """Every known source with its indexed file count, most recent first.
+
+        `LEFT JOIN`, not `JOIN` - a freshly-scanned volume with zero indexable
+        files (an empty drive, a share nothing could read) still exists and
+        must still be listed, the same reasoning as `repos_list`.
+        """
+        rows = self.conn.execute("""
+            SELECT v.*, COUNT(f.id) AS indexed_files
+            FROM volumes v
+            LEFT JOIN files f ON f.volume_id = v.id
+            GROUP BY v.id
+            ORDER BY v.last_seen DESC
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+    def move_volume_file(self, volume_id: int, old_relative_path: str,
+                         new_relative_path: str, *, size_bytes: int,
+                         mtime_ns: int) -> bool:
+        r"""1e: "same content hash at a new relative path moves the rows
+        instead of re-extracting." Updates identity and stat in place -
+        `content_hash`, chunks and vectors are exactly as correct as they
+        were before the move, because the *bytes* have not changed.
+
+        Called before the pipeline walk reaches this file, so its updated
+        `path`/`mtime_ns`/`size_bytes` already match what the walk is about
+        to find, and the ordinary incremental check - same path, same size,
+        same mtime - skips it as unchanged. That is the whole mechanism;
+        nothing downstream needs to know a move happened at all.
+        """
+        new_path = volume_synthetic_path(volume_id, new_relative_path)
+        with self.write() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE files SET
+                    path = ?, relative_path = ?, size_bytes = ?, mtime_ns = ?,
+                    parent_dir = ?
+                WHERE volume_id = ? AND relative_path = ?
+                """,
+                (new_path, new_relative_path, size_bytes, mtime_ns,
+                 volume_synthetic_path(volume_id, str(Path(new_relative_path).parent))
+                 if Path(new_relative_path).parent != Path(".")
+                 else volume_synthetic_path(volume_id, ""),
+                 volume_id, old_relative_path),
+            )
+            moved = cursor.rowcount > 0
+            if moved:
+                self._bump_generation(conn)
+        return moved
+
+    def delete_volume_row(self, volume_id: int) -> None:
+        """Remove the catalogue entry itself. Callers delete the files first -
+        see `app.index.offline_media.delete_volume` for the full cascade;
+        this alone would leave `files.volume_id` pointing at nothing until
+        `ON DELETE SET NULL` runs, which is the wrong order for a Delete that
+        must report an accurate file count."""
+        with self.write() as conn:
+            conn.execute("DELETE FROM volumes WHERE id = ?", (int(volume_id),))
 
     def distinct_values(self, kind: str, *, prefix: str = "",
                         limit: int = 40, within: Any = None) -> list[str]:

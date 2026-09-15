@@ -109,6 +109,15 @@ class Candidate:
     #: user cares about are indexed first and search becomes useful in minutes
     #: rather than after the whole corpus.
     priority: int = 100
+    #: Set only when this file was found under one of `WalkConfig.volume_roots`
+    #: - a root the caller has identified as a catalogued Offline Media source.
+    #: Both travel together and both are None for an ordinary file. See
+    #: `app.storage.sqlite_store.volume_synthetic_path`: the pipeline uses
+    #: these, not `path`, to build the row's identity - `path` still holds
+    #: the letter it happened to be found at *this walk*, which is exactly
+    #: what must never become the row's key (1c).
+    volume_id: Optional[int] = None
+    relative_path: Optional[str] = None
     #: Raw Windows attribute bits from the stat already performed, so a
     #: placeholder check costs nothing extra. None off Windows.
     attributes: Optional[int] = None
@@ -234,6 +243,14 @@ class WalkConfig:
     #: a full walk of a 100GB corpus to learn something the first walk already
     #: had in its hands.
     repo_sink: Optional[dict[str, str]] = None
+    #: `{root path, lowercased and without a trailing separator: volume_id}`.
+    #: A root in `roots` that is also a key here is a catalogued Offline Media
+    #: source's current mount point - resolved by the caller (§1b: "at the
+    #: last moment") immediately before the walk starts, never inside `walk()`
+    #: itself, which has no business knowing about Windows volumes. Every
+    #: candidate found under it gets `relative_path` set and `volume_id`
+    #: carried straight through.
+    volume_roots: dict[str, int] = field(default_factory=dict)
 
     def excluded_paths_lower(self) -> frozenset[str]:
         """`exclude_paths`, normalised once rather than per directory entry."""
@@ -502,6 +519,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
 
     for root in config.roots:
         root = Path(root)
+        root_volume_id = config.volume_roots.get(str(root).rstrip("\\/").lower())
         if not root.exists():
             # **Recorded, not merely skipped.** See `root_problems`: this
             # `continue` used to be silent, and a single mistyped or
@@ -598,6 +616,17 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     continue
 
                 attributes = getattr(stat, "st_file_attributes", None)
+                relative_path = None
+                if root_volume_id is not None:
+                    # **Relative to the root actually being walked**, not to
+                    # any other member of `config.roots` - a volume scan is
+                    # always one source's current mount point on its own, but
+                    # this stays correct even if a caller ever mixes one in
+                    # alongside ordinary roots.
+                    try:
+                        relative_path = str(path.relative_to(root)).replace("\\", "/")
+                    except ValueError:
+                        relative_path = str(path).replace("\\", "/")
                 candidate = Candidate(
                     path=path,
                     size_bytes=stat.st_size,
@@ -605,6 +634,8 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     priority=_priority_for(path, config.priority_roots),
                     attributes=attributes,
                     readable=readable and not too_big and stat.st_size > 0,
+                    volume_id=root_volume_id,
+                    relative_path=relative_path,
                 )
 
                 if candidate.is_cloud_placeholder and not config.include_cloud:
