@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -57,7 +57,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0h | `202626270510` | Pictures I — the CLIP lane | **SHIPPED** | **13 / 0** | Closed 2026-09-15 — see the order's 2026-09-15 note |
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 7 / 7 | 0h (closed 2026-09-15) |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
-| 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | **14 / 3** | §1 (identity/storage), §2 (the tab, UI and CLI), and all five §4 tests are done 2026-09-15; §3 (search/browse decoration) started, not finished — see the order's own dated note for exactly which half of each of 3a/3b/3c |
+| 0k | `202626270513` | Offline Media I — drives in drawers | **SHIPPED** | **17 / 0** | Closed 2026-09-15 — §3 (search/browse decoration) finished the same day; see the order's own dated note |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **8 / 9** | 0k. §1b/1c done 2026-09-15; §3a/3b/3c, 3b-1, and two of §4's three tests closed the same day (see the order's 2026-09-15 note — two real pipeline bugs found and fixed: cloud placeholders were invisible, not skipped; a hydrated placeholder never got re-indexed). §1a narrowed to just the tab dialog; 2a/2b(partial)/2c/3d/3b-2(partial)/3b-3 and one §4 test remain, mostly blocked on the still-unbuilt Offline Media tab (0k §2, now built — recheck which of these depended only on the tab existing) or unverifiable vendor/LTFS behaviour |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
@@ -150,6 +150,22 @@ note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.
 against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
 not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
 0h is now satisfied.
+
+**2026-09-15, later the same day — 0k closed.** §3 (search/browse
+decoration) was the one section left open, and its own 2026-09-15 note had
+already said exactly which half of 3a/3b/3c was missing: the inline row
+badge (3a), the whole of offline preview (3b), and the Files-tab picker
+control (3c). All three built and proven this session, plus a real,
+pre-existing bug found and fixed along the way — `browse_files` (what
+`/on` queries in the Files tab) never selected `volume_id`/`relative_path`
+at all, so a file found by browsing to a catalogued volume opened
+"missing" once selected, the identical bug 1b/3a had already fixed for
+search results and never carried over to the browser. 0k moves to
+SHIPPED, 17/0. See the order's own 2026-09-15 dated note (the later one)
+for the full account, including the one line item not built (3b's
+cached-thumbnail clause — checked against the code and found nothing to
+hook into, not merely assumed absent) and the `files_view.py` 250-line
+guard the new picker pushed over and then was brought back under.
 
 ---
 

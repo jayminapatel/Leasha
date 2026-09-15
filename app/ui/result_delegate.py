@@ -26,7 +26,10 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
-from app.ui.presenter import ResultGroup, Terminator, group_subtitle, is_code_kind, why
+from app.ui.presenter import (
+    ResultGroup, Terminator, group_subtitle, is_code_kind, offline_volume_note,
+    why,
+)
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
@@ -89,6 +92,12 @@ class ResultDelegate(QStyledItemDelegate):
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)
         self.prefs = ViewPreferences()
+        #: file_id -> {"name", "scanned"}, set by the view - Offline Media
+        #: §3a's remaining half. The same dict `results_view._volumes` already
+        #: holds for the tooltip; shared rather than recomputed, because a
+        #: live volume check belongs on the worker that already ran it, never
+        #: here on the paint path.
+        self.volumes: dict[int, Any] = {}
 
     # -- geometry ----------------------------------------------------------
 
@@ -248,7 +257,9 @@ class ResultDelegate(QStyledItemDelegate):
         painter.setFont(meta_font)
         painter.setPen(QPen(faint))
         meta_metrics = QFontMetrics(meta_font)
-        subtitle = group_subtitle(group, show_scores=self.prefs.show_scores, expanded=expanded)
+        note = offline_volume_note(self.volumes.get(int(getattr(group, "file_id", 0) or 0)))
+        subtitle = group_subtitle(group, show_scores=self.prefs.show_scores,
+                                  expanded=expanded, volume_note=note)
         # **Item 4c**: two results sharing a display name get the segment
         # that tells them apart bolded, in the same slot the folder always
         # occupies - `group_subtitle` puts `folder` first, so the emphasis

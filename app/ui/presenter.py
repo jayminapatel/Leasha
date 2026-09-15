@@ -987,6 +987,15 @@ class FileRow:
     #: hidden: "I can see the file but cannot search inside it" is a real and
     #: useful thing to know, and hiding it invites the same search twice.
     note: str = ""
+    #: Offline Media §3c. `None` for an ordinary file - straight through
+    #: from `FileRecord`, the same pair `ResultRow` already carries (see that
+    #: field's own comment). Without these, opening or previewing a file
+    #: found by browsing to a catalogued volume with `/on` tried `path` -
+    #: the letter-free synthetic key, never a real filesystem path - directly,
+    #: which is the exact bug 1b/3a's resolution exists to prevent for search
+    #: results and had never been extended to this tab.
+    volume_id: Optional[int] = None
+    relative_path: str = ""
 
 
 def format_size(size_bytes: int) -> str:
@@ -1090,6 +1099,7 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
         note = _STATUS_NOTES.get(status, "")
         if status == "SKIPPED" and row.get("skip_code"):
             note = f"{note} ({row['skip_code']})"
+        volume_id = row.get("volume_id")
         out.append(FileRow(
             file_id=int(row.get("id", 0)),
             name=name,
@@ -1101,6 +1111,8 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
             mtime_ns=int(row.get("mtime_ns", 0)),
             path=path,
             note=note,
+            volume_id=int(volume_id) if volume_id is not None else None,
+            relative_path=str(row.get("relative_path", "") or ""),
         ))
     return out
 
@@ -1228,15 +1240,28 @@ def why(row: Any) -> str:
 
 
 def group_subtitle(group: Any, *, show_scores: bool = False,
-                   expanded: bool = False, policy: Any = None) -> str:
+                   expanded: bool = False, policy: Any = None,
+                   volume_note: str = "") -> str:
     """The grey line under the name: where it is, and how many matches.
 
     `expanded` is passed in rather than read off the group, because a
     `ResultGroup` is frozen and describes the *data*. Whether its chunks are
     currently on screen is a fact about one view at one moment, and putting it
     on the dataclass would make two views of the same results fight over it.
+
+    `volume_note` is Offline Media §3a's remaining half: the tooltip already
+    carries `presenter.offline_volume_note`'s exact sentence - "on **<name>**
+    (offline, scanned <date>) - plug it in to open" - and this is the same
+    sentence painted inline, so a person does not have to hover to learn a
+    result is not where it looks like it is. Passed in rather than read off
+    `group`, for the same reason `expanded` is: whether a volume is connected
+    *right now* is a fact about one moment on one machine, not about the
+    data, and computing it here would make this a Windows-touching function
+    for every caller, including the Qt-free tests that check its wording.
     """
     bits = [getattr(group, "folder", "")]
+    if volume_note:
+        bits.append(volume_note)
     # §2 of the adoptions order. **On the group's best row, and only there.**
     # A badge on every row would make the one that matters invisible; this
     # appears exactly where a person would otherwise think the search had
@@ -4557,6 +4582,57 @@ def as_typed_value(value: str) -> str:
     if not text or ('"' in text):
         return text
     return f'"{text}"' if any(c.isspace() for c in text) else text
+
+
+#: Files tab's volume picker (§3c) - the first entry, meaning "no filter".
+ALL_LOCATIONS = "All locations"
+
+#: Strips whatever `on:`/`volume:`/`drive:` term is already typed, so picking
+#: a second volume replaces the first rather than ANDing two filters that can
+#: never both be true of one file. Every alias `query._FIELD_ALIASES` accepts
+#: for "volume" is covered, quoted or bare, negated or not - a person who
+#: typed `drive:` by hand and then used the picker must not end up with two
+#: terms fighting over the same filter.
+_VOLUME_FILTER_TERM = re.compile(
+    r'(?:(?<=\s)|^)[-!]?\b(?:on|volume|drive):(?:"[^"]*"|\S+)\s*',
+    re.IGNORECASE,
+)
+
+
+def set_volume_filter(text: str, value: str) -> str:
+    r"""Files tab's volume picker (§3c): swap whatever volume term is
+    already typed for `value`, or drop it entirely when `value` is empty -
+    the "All locations" choice. Qt-free, so a re-pick's exact wording is
+    checked without a display, the same reason every other value-menu
+    decision in this module lives here rather than in the widget.
+    """
+    cleaned = _VOLUME_FILTER_TERM.sub("", text or "").strip()
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    if not value:
+        return cleaned
+    addition = f"on:{as_typed_value(value)}"
+    return f"{cleaned} {addition}".strip() if cleaned else addition
+
+
+def volume_picker_options(values: Sequence[Any]) -> list[tuple[str, str]]:
+    r"""Files tab's volume picker (§3c): `(label, raw_value)` pairs, "All
+    locations" always first. `values` is `store.distinct_value_counts("on")` -
+    see that method's own docstring for why it is index-backed and bounded.
+
+    The raw value travels apart from its label so a name containing an em
+    dash or extra spacing is never parsed back out of `value_row`'s own
+    display text - `set_volume_filter` quotes the raw value directly.
+    """
+    options: list[tuple[str, str]] = [(ALL_LOCATIONS, "")]
+    for entry in values or ():
+        value = str(getattr(entry, "value", entry) or "").strip()
+        if not value:
+            continue
+        label = value_row(
+            value, count=getattr(entry, "count", None),
+            exact=bool(getattr(entry, "exact", True)), noun="files")
+        options.append((label, value))
+    return options
 
 
 def resolved_date(value: str, *, today: Any = None) -> str:

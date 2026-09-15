@@ -179,6 +179,11 @@ class ResultsView(QWidget):
             # results always carries this, but nothing else does, and a
             # missing argument must not be read as "nothing is offline".
             self._volumes = dict(volumes)
+            # §3a's remaining half: the delegate paints the same note inline,
+            # on the group's subtitle line - see `ResultDelegate.volumes`.
+            # Kept in step here rather than read by the delegate from this
+            # view directly, the same split `prefs` already draws.
+            self._delegate.volumes = self._volumes
         if register is not None:
             # **Only when told.** `redraw_with_details`'s follow-up paint of
             # the same results omits this - item 4b's register must not reset

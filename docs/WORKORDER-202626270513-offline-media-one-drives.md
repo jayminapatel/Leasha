@@ -1,8 +1,8 @@
 # Work order (One thread): Offline Media I — drives in drawers, findable forever
 
-**Doc version:** 1.3 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage core + Index + new tab UI + Search)
-**Status:** RELEASED by the owner 2026-08-28. **The deepest storage change in
+**Status:** SHIPPED, 2026-09-15 (17/0). Was RELEASED by the owner 2026-08-28. **The deepest storage change in
 the batch — do NOT interleave with other pipeline orders.** Requires 0508
 landed (the ladder makes picture-heavy drive scans affordable — owner:
 slow media scans accepted). Kinds 2–4 (network/cloud/phones) are order 0514
@@ -175,19 +175,88 @@ neither_scans_nor_sorts` (a SQLite query-plan assertion) and
 (`indexing_view.py` already over the 250-line guard) — flagged for whoever
 owns those areas, not fixed here.
 
+**2026-09-15, later the same day - §3 finished.** 3a/3b/3c closed, each the
+remaining half the earlier session's own note said was missing - read
+against that note rather than rediscovered.
+
+- **3a, the badge.** The tooltip already said the exact sentence; there was
+  no version painted on the row itself. `presenter.group_subtitle` now takes
+  a `volume_note` and puts it ahead of the match count, the same "most
+  important fact first" place `folder` already sits; `ResultDelegate` carries
+  a `volumes` dict (`results_view.show_results` keeps it in step with the
+  one the tooltip already used) and reads it in `_paint_group`. One dict,
+  two consumers, never recomputed twice.
+- **3b, the whole item, built from nothing.** `preview_loader.volume_preview`:
+  online, resolved through the current mount point exactly like Open/Reveal
+  (1b) and previewed like any other file; offline, the mail synthetic-path
+  pattern the item names - stored text from `chunks`, or an honest "this
+  drive is not plugged in right now" rather than "missing", which is false
+  of a file sitting in a drawer. `load_preview_for` gained an optional
+  `store` and checks `row.volume_id` before anything path-based; `store`
+  threads through `attach_preview` into every pane that already had one
+  (Search, Files) via `result_tools.build_results_pane` and `files_view.py`.
+  **Found and fixed as a side effect**: before this, *every* volume-backed
+  row's preview tried the synthetic key directly, online or not - 3b closes
+  the offline case the item names and the online case nobody had noticed
+  was broken too. **Not built**: the item's "images show cached thumbnail
+  when 0510's thumbnails exist" clause. Checked rather than assumed -
+  `thumbnail_loader.decode_thumbnail` decodes from the original file path on
+  every call; nothing in this tree persists a thumbnail anywhere an offline
+  row's bytes could still be read from, so there is no cache to reach for.
+  An offline photo gets the same honest "not connected" subtitle as
+  anything else with no stored text, not an invented cache.
+- **3c, the picker.** The `/on` operator already worked if typed; `FilesView`
+  now has a `QComboBox` beside the search box, populated from
+  `store.distinct_value_counts("on")` (the same catalogue the slash-menu
+  already reads), each row "name - N files" via the existing `value_row`
+  formatter. Picking one rewrites the box through `presenter.
+  set_volume_filter` (Qt-free, tested without a display) rather than adding
+  a second, parallel filter path - typing `/on` by hand and picking from the
+  box stay one mechanism. **A real, pre-existing bug found and fixed while
+  wiring this up**: `browse_files` - what `/on` actually queries in the
+  Files tab - never selected `volume_id`/`relative_path` at all, so a file
+  found by browsing to a catalogued volume opened "missing" for a file
+  sitting right there, the identical bug 1b/3a already fixed once for search
+  results and never carried over here. Fixed in all three of
+  `browse_files`'s SELECTs, `presenter.FileRow`/`file_rows`, and a new
+  `workers.open_row_async` (the resolve-then-open pattern `shell.
+  _open_volume_result` already had, shared rather than duplicated a second
+  time - `files_view._open` is now three lines).
+
+`app/ui/files_view.py` grew past the 250-line guard
+(`test_every_qt_view_keeps_its_logic_in_the_presenter`) while this was being
+built and was brought back under it (248) by moving every real decision into
+`presenter.py`/`workers.py` and folding the picker's own refresh into the
+existing `refresh_summary` worker round-trip rather than a second one -
+the guard is doing exactly the job it exists for. `indexing_view.py`
+remains over it, confirmed pre-existing and unrelated (unchanged by this
+session, matches the prior note's own finding).
+
+Command:
+`venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py
+tests/unit/test_offline_media_view.py tests/unit/test_result_delegate.py
+tests/unit/test_preview_loader.py tests/unit/test_volume_picker.py
+tests/unit/test_open_row_async.py tests/unit/test_presenter.py
+tests/unit/test_results_view.py -v` → all green except the one
+pre-existing, unrelated `indexing_view.py` line-count failure noted above.
+
 `test_window_opens.py`'s tab-order and tab-count assertions were updated
 for the new tab (Search, Files, Mail, Code, **Offline Media**, Indexing,
 Settings — verified against the real `insertTab` offsets, not assumed) —
 the same kind of update those tests needed when Mail and Code were
 themselves added.
 
-- [ ] **3a** results on offline volumes: "on **<name>** (offline, scanned
+- [x] **3a** results on offline volumes: "on **<name>** (offline, scanned
   <date>) — plug it in to open"; online → normal open via resolution (1b).
   The offline decoration rides the existing missing-path worker route.
-- [ ] **3b** preview from the index works offline (the mail synthetic-path
+- [x] **3b** preview from the index works offline (the mail synthetic-path
   pattern: stored text + segments; images show cached thumbnail when 0510's
   thumbnails exist).
-- [ ] **3c** `/on` operator: volume names with counts (slash-menu machinery);
+
+  **2026-09-15**: stored text is built and tested; the thumbnail-cache half
+  is not - see the dated note above for why (no such cache exists to reach
+  for anywhere in this tree).
+- [x] **3c** `/on` operator: volume names with counts (slash-menu machinery);
   Files tab gains the volume filter for browsing a drive in a drawer.
 
 ## 4. Tests

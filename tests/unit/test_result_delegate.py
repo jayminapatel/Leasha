@@ -289,6 +289,93 @@ def test_scores_appear_inline_when_asked_for():
     assert "score" in group_subtitle(group(), show_scores=True)
 
 
+# ---------------------------------------------------------------------------
+# Offline Media §3a's remaining half: the badge painted on the row itself,
+# not only in the tooltip - order 202626270513.
+# ---------------------------------------------------------------------------
+
+def test_group_subtitle_carries_the_offline_volume_note_when_given_one():
+    """The exact §3a sentence, inline - not a paraphrase of the tooltip's."""
+    from app.ui.presenter import group_subtitle
+
+    note = "on Projects 2019 (offline, scanned 12 Nov 2025) - plug it in to open"
+    text = group_subtitle(group(), volume_note=note)
+    assert note in text
+
+
+def test_group_subtitle_says_nothing_extra_for_an_ordinary_result():
+    """An online file, or one never on a catalogued volume at all, gets no
+    badge - the empty string `offline_volume_note` returns for both."""
+    from app.ui.presenter import group_subtitle
+
+    assert "offline" not in group_subtitle(group(), volume_note="").lower()
+
+
+def test_group_subtitle_puts_the_offline_note_ahead_of_the_match_count():
+    """Where it is not being what it looks like matters more than how many
+    places it matched - the same "most important fact first" rule the folder
+    breadcrumb already follows."""
+    from app.ui.presenter import group_subtitle
+
+    note = "on Old WD (offline, scanned 14 Aug 2025) - plug it in to open"
+    text = group_subtitle(group(matches=3), volume_note=note, expanded=False)
+    assert text.index(note) < text.index("3 matches")
+
+
+def test_the_delegate_paints_the_volume_note_into_the_subtitle():
+    """A real paint pass, not just the presenter's text decision - proves
+    `ResultDelegate.volumes` (set by `results_view.show_results`) actually
+    reaches `group_subtitle` rather than the wiring silently doing nothing."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QPainter, QPixmap
+    from PyQt6.QtWidgets import QStyle
+
+    from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
+
+    payload = group()
+
+    class Option:
+        def __init__(self):
+            self.rect = QRect(0, 0, 300, 60)
+            self.font = QFont()
+            self.state = QStyle.StateFlag.State_Enabled
+
+    class Index:
+        def data(self, role):
+            if role == ROLE_PAYLOAD:
+                return payload
+            if role == ROLE_EXPANDED:
+                return False
+            return None
+
+    delegate = ResultDelegate()
+    delegate.volumes = {
+        1: {"name": "Projects 2019", "scanned": "12 Nov 2025"},
+    }
+    pixmap = QPixmap(300, 60)
+    painter = QPainter(pixmap)
+    try:
+        delegate.paint(painter, Option(), Index())
+    finally:
+        painter.end()
+    # Never raised, and the same note the subtitle text decision produces -
+    # `sizeHint`/`paint` agreeing is this file's whole standing rule.
+    from app.ui.presenter import group_subtitle, offline_volume_note
+
+    note = offline_volume_note(delegate.volumes[1])
+    assert note in group_subtitle(payload, volume_note=note)
+
+
+def test_the_delegate_shows_no_note_for_a_file_not_in_the_volumes_map():
+    """§3a: online rows are absent from the map entirely (see
+    `presenter.offline_volume_marks`'s own docstring) - a missing key must
+    read as "nothing to say", never as a lookup error."""
+    from app.ui.result_delegate import ResultDelegate
+
+    delegate = ResultDelegate()
+    assert delegate.volumes == {}, "the default is empty, not None"
+
+
 def test_the_explanation_is_always_reachable_from_the_tooltip():
     """It came off every row to stop it competing with the name. It must not
     become unavailable - being able to ask why is where trust comes from."""

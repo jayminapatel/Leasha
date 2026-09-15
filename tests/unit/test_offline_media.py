@@ -1141,3 +1141,51 @@ def test_on_is_offered_and_honoured_everywhere_repo_is():
     names = {command.name for command in COMMANDS}
     assert "on" in names
     assert _FIELD_ALIASES.get("on") == "volume"
+
+
+def test_browse_files_carries_volume_identity_through_for_the_files_tab(tmp_path):
+    r"""§3c's remaining half: the Files tab picker is only useful if what
+    it finds can then be opened. Before this, `browse_files` (what `/on`
+    actually queries in the Files tab) never selected `volume_id`/
+    `relative_path` at all, so `presenter.file_rows` had nothing to carry and
+    opening a browsed-to volume row tried the synthetic key directly - the
+    exact bug 1b/3a already fixed once for search results. Covers both
+    `browse_files` branches: the empty-box "browse everything" merge and the
+    text-matched search, since they are two different SELECTs.
+    """
+    from app.search.query import parse_query
+    from app.ui.presenter import file_rows
+
+    with SqliteStore(tmp_path / "i.db") as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-BROWSE-FILES", kind="drive", name="Projects 2019",
+        )
+        on_volume = store.upsert_file(
+            volume_synthetic_path(volume_id, "reports/q3.txt"), size_bytes=10,
+            mtime_ns=1, ext="txt", parent_dir=volume_synthetic_path(volume_id, "reports"),
+            volume_id=volume_id, relative_path="reports/q3.txt",
+        )
+        store.upsert_file(
+            r"D:\work\notes.txt", size_bytes=10, mtime_ns=1, ext="txt",
+            parent_dir=r"D:\work",
+        )
+
+        # Branch 1: an empty box - "browse everything".
+        browsed = store.browse_files(parse_query(""), limit=200)
+        by_id = {row["id"]: row for row in browsed}
+        assert by_id[on_volume]["volume_id"] == volume_id
+        assert by_id[on_volume]["relative_path"] == "reports/q3.txt"
+
+        rows = file_rows(browsed)
+        volume_row = next(r for r in rows if r.file_id == on_volume)
+        assert volume_row.volume_id == volume_id
+        assert volume_row.relative_path == "reports/q3.txt"
+        ordinary_row = next(r for r in rows if r.file_id != on_volume)
+        assert ordinary_row.volume_id is None
+
+        # Branch 2: a text search that matches by name.
+        searched = store.browse_files(parse_query("q3.txt"), limit=200)
+        matched = {row["id"]: row for row in searched}
+        assert on_volume in matched
+        assert matched[on_volume]["volume_id"] == volume_id
+        assert matched[on_volume]["relative_path"] == "reports/q3.txt"

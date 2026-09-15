@@ -1539,7 +1539,8 @@ class SqliteStore:
             # full sort of every row, 0.011ms vs 39.5ms at 200,000 files.
             columns = """f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
                            f.taken_at_ns, f.status, f.skip_code,
-                           f.source_kind, 0.0 AS score"""
+                           f.source_kind, f.volume_id, f.relative_path,
+                           0.0 AS score"""
             no_shot_date = self.conn.execute(
                 f"""SELECT {columns}
                     FROM files f
@@ -1578,13 +1579,16 @@ class SqliteStore:
         # fallback is now narrow enough that it cannot hide this again.
         sql = f"""
             SELECT id, path, ext, size_bytes, mtime_ns, taken_at_ns, status,
-                   skip_code, source_kind, MIN(score) AS score
+                   skip_code, source_kind, volume_id, relative_path,
+                   MIN(score) AS score
             FROM (
                 SELECT f.id AS id, f.path AS path, f.ext AS ext,
                        f.size_bytes AS size_bytes, f.mtime_ns AS mtime_ns,
                        f.taken_at_ns AS taken_at_ns,
                        f.status AS status, f.skip_code AS skip_code,
                        f.source_kind AS source_kind,
+                       f.volume_id AS volume_id,
+                       f.relative_path AS relative_path,
                        bm25(files_fts, 10.0, 1.0) AS score
                 FROM files_fts
                 JOIN files f ON f.id = files_fts.rowid
@@ -1595,6 +1599,7 @@ class SqliteStore:
                 SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
                        f.taken_at_ns,
                        f.status, f.skip_code, f.source_kind,
+                       f.volume_id, f.relative_path,
                        bm25(chunks_fts) AS score
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid

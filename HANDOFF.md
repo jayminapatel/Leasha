@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.7 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -272,6 +272,22 @@ gets lost by accident.
 > stays open and 0r stays `RELEASED`. Full account, including the measured numbers
 > and the two pre-existing test failures ruled out as regressions, is in
 > `docs/ORDER_REGISTER.md`'s own 2026-09-07 second-pass note.
+>
+> **Corrected again, 2026-09-15 — both stale in the direction this section
+> keeps finding itself wrong in.** `202626270510` (0h)'s "12/1 deliberately"
+> two paragraphs up is no longer true: run from this session, on the real
+> machine rather than the build sandbox its last item was gated on, `0h`
+> closed at 13/0 the same day. And `202626270513` (0k,
+> offline media drives) is now SHIPPED at 17/0 too: §3 (search/browse
+> decoration) was the one section this document's queue list below still
+> describes as future work, and it closed the same session — the inline
+> offline-volume badge on a result row, preview from the index working
+> offline (a real, pre-existing bug fixed along the way: opening a file
+> found by browsing to a catalogued volume in the Files tab tried its
+> letter-free synthetic path directly, exactly the bug 1b/3a had already
+> fixed once for search results), and the Files tab's volume picker. Full
+> account in `docs/ORDER_REGISTER.md`'s own 2026-09-15 notes and the order
+> files' own dated entries.
 
 In order, and grouped by what is actually blocking.
 
