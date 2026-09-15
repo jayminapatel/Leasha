@@ -2700,6 +2700,22 @@ class Pipeline:
             for batch in batches:
                 if self._stop.is_set():
                     break
+                # Work order 0i section 2b: this repair respects the same
+                # battery/CPU pacing an ordinary run does, at the same
+                # granularity `_produce` already uses it at - one wait per
+                # unit of work about to start, here a batch rather than a
+                # single file. "Your index gets smarter while you sleep"
+                # is the product story; a repair pass that ignored the
+                # governor and ran the fan flat out would be the opposite
+                # of that promise.
+                verdict = self.governor.wait_while_throttled(
+                    should_stop=self._stop.is_set)
+                stats.paused_seconds = self.governor.paused_seconds
+                stats.pauses = self.governor.pauses
+                stats.paused = self.governor.paused
+                stats.pause_reason = self.governor.pause_reason
+                if verdict.action == "stop":
+                    break
                 pending = [(chunk.id, chunk.file_id, chunk.text) for chunk in batch]
                 # **Counted before the call, not after.** `_embed_pending` ends
                 # by clearing its own `pending` argument in place

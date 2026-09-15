@@ -182,3 +182,52 @@ def test_print_enrichment_counts_formats_plain_words(capsys):
     assert "214 vector(s) repaired" in out
     assert "30 photo(s) tagged" in out
     assert "ocr_pending" not in out
+
+
+class StopGovernor:
+    """Work order 0i section 2b: proves the drain asks the governor at all -
+    a fake that always says stop, so a batch it never got to process is the
+    signal the call happened and was honoured."""
+
+    def __init__(self):
+        self.paused_seconds = 0.0
+        self.pauses = 0
+        self.paused = False
+        self.pause_reason = ""
+        self.asked = 0
+
+    def wait_while_throttled(self, should_stop=None):
+        from app.index.resources import Verdict
+        self.asked += 1
+        return Verdict("stop", "deliberate test pause")
+
+    def apply_priority(self):
+        return False
+
+
+def test_a_stopped_governor_lets_no_batch_through(tmp_path):
+    """2b: the repair respects the same pacing an ordinary run does. The
+    first run uses the real default governor (nothing to throttle in a
+    test); only the second, drain-only run gets the always-stop fake, so a
+    batch it never got to process is proof the call happened and was
+    honoured, not proof indexing itself was blocked."""
+    root = _corpus(tmp_path / "docs")
+    vectors = FakeVectors()
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        first = _run(store, root, vectors, _embedder())
+        assert first.chunks == 1
+
+        store.mark_all_unembedded()
+        governor = StopGovernor()
+
+        pipeline2 = Pipeline(
+            store, vectors, _embedder(),
+            PipelineConfig(walk=WalkConfig(roots=[root]), workers=1),
+            governor=governor,
+        )
+        second = pipeline2.run()
+
+    assert governor.asked >= 1, "the drain never consulted the governor"
+    assert second.enrichment_counts.get("unembedded_chunk") == 0, (
+        "a governor that always says stop must not let any batch through")

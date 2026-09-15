@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.3 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -187,7 +187,32 @@ to gitsearch).
   summary ("filled 214 tags, 30 pending"). The three existing ad-hoc drains
   migrate INTO it; no behaviour change to what they drain, pinned by their
   existing tests.
-- [ ] **2b** trickle pacing: enrichment respects the resource governor and
+**2026-09-15.** Built and proven: the unembedded_chunk drain now calls
+`governor.wait_while_throttled(should_stop=self._stop.is_set)` at every
+batch boundary, the same call `_produce` already makes per file (`app/index/
+pipeline.py:1249`) - so a repair pass genuinely respects battery/CPU limits
+rather than running the fan flat out. `apply_priority()` was already called
+once at the top of `run()`, before any drain, so nothing new was needed
+there. Proof: `test_a_stopped_governor_lets_no_batch_through` - a fake
+governor that always says "stop" lets zero batches through, confirmed
+consulted at least once.
+
+**Not built: a dedicated idle-only trigger.** "While you sleep" implies
+enrichment runs even when nobody has started an index run at all - and no
+such infrastructure exists anywhere in this codebase (checked: no
+resource-governor-driven "machine is idle" loop; the one thing already
+called "idle" in the UI, `MainWindow._run_idle_optimize`, is an hourly
+`ANALYZE` refresh unrelated to enrichment). What exists is `app/ui/
+scheduler.py`/`app/index/schedule.py`, a time-based scheduled full index -
+if the owner has one configured, it already delivers "smarter while you
+sleep" for every drain that runs at start-of-run, with no new code, since a
+scheduled run is still a run. A dedicated trigger that runs enrichment
+*without* a full index (cadence, what counts as "idle", whether it competes
+with a scheduled run) is a real design question this item's text does not
+answer, and is left open rather than guessed at - same shape as 2a's
+`image_tag` gap.
+
+- [x] **2b** trickle pacing: enrichment respects the resource governor and
   the battery/CPU settings exactly as indexing does; "your index gets
   smarter while you sleep" is the product story, and it must never make a
   laptop hot in a lap.

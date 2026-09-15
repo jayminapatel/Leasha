@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.11 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -68,6 +68,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   its normal caller's benefit - so `stats.vectors_repaired` has silently reported 0 for every
   real repair since the function was written. The repair itself always worked; only its own
   count was wrong. Fixed by capturing the length before the call.
+
+### Added: the enrichment backlog respects battery/CPU pacing like an ordinary run (order 0i, item 2b)
+
+- The unembedded-chunk repair now calls the resource governor's `wait_while_throttled` at every
+  batch boundary, the same call the ordinary indexing loop already makes per file - so it will
+  not run a laptop's fan flat out just because it is "only" a repair pass.
+- Not built: a dedicated idle-only trigger that runs enrichment with no index run active at all.
+  No such infrastructure exists anywhere in this codebase yet; a configured scheduled index
+  already delivers the "smarter while you sleep" story for every drain, since a scheduled run
+  is still a run - a trigger that runs enrichment *without* one is a real design question this
+  order's text does not answer, left open rather than guessed at.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

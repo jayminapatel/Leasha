@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -55,7 +55,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0f | `202626270508` | Media by default, and the OCR ladder | **SHIPPED** | **17 / 0** | Closed 2026-09-07 by §3a's display/sort wiring and §2e's tunable |
 | 0g | `202626270509` | mbox, Takeout, chats | **SHIPPED** | **7 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0h | `202626270510` | Pictures I — the CLIP lane | **SHIPPED** | **13 / 0** | Closed 2026-09-15 — see the order's 2026-09-15 note |
-| 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 4 / 10 | 0h (closed 2026-09-15) |
+| 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 5 / 9 | 0h (closed 2026-09-15) |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 0 / 17 | Deepest storage change — no interleaving |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
