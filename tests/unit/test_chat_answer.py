@@ -102,6 +102,26 @@ def test_a_well_supported_answer_needs_no_retry():
     assert client.calls == 1
 
 
+def test_citations_carry_the_marker_numbers_a_superscript_needs():
+    r"""**Found while designing the tab: `.sentences` alone loses the
+    receipt.** `verify_answer` strips markers from its rendered text before
+    this module ever sees it - a caller drawing a superscript (§3a) needs
+    the marker back, not just the clean words."""
+    embedder = FakeEmbedder({"The deposit was 500 pounds .": SUPPORTED, PASSAGE: SUPPORTED})
+    client = FakeClient(["The deposit was 500 pounds [1]."])
+    answer = answer_question("q", [PASSAGE], embedder=embedder, client=client)
+    assert len(answer.citations) == 1
+    assert answer.citations[0].markers == (1,)
+    assert answer.citations[0].text == "The deposit was 500 pounds ."
+
+
+def test_sentences_is_still_the_plain_text_for_a_caller_that_only_wants_it():
+    embedder = FakeEmbedder({"The deposit was 500 pounds .": SUPPORTED, PASSAGE: SUPPORTED})
+    client = FakeClient(["The deposit was 500 pounds [1]."])
+    answer = answer_question("q", [PASSAGE], embedder=embedder, client=client)
+    assert answer.sentences == ("The deposit was 500 pounds .",)
+
+
 def test_the_passages_offered_are_recorded_on_the_answer():
     embedder = FakeEmbedder({"Answer .": SUPPORTED, PASSAGE: SUPPORTED})
     client = FakeClient(["Answer [1]."])

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence
 
 from app.chat.context import build_context
-from app.chat.verify import SIMILARITY_THRESHOLD, VerifiedAnswer, verify_answer
+from app.chat.verify import SIMILARITY_THRESHOLD, VerifiedAnswer, VerifiedSentence, verify_answer
 from app.core.logging import logger
 
 __all__ = [
@@ -73,18 +73,28 @@ class _Embedder(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Answer:
-    """`sentences` is the only part safe to render - every one of them
-    passed §2's two gates. `passages` is what was actually offered to the
-    model, in citation order, so a caller can show "source 3" as something
-    real. `thin` means even after the retry too little survived - the
-    caller's cue to fall back to the absence protocol rather than show a
-    threadbare answer."""
+    """`citations` is the only part safe to render - every one of them
+    passed §2's two gates. `sentences` is the same text alone, for a caller
+    that only wants the words; `citations` also carries `.markers`, the
+    passage numbers a superscript needs (§3a) - text without them renders
+    a receipt-free sentence, which is the one thing this whole order
+    refuses to ship. `passages` is what was actually offered to the model,
+    in citation order, so "source 3" is something real. `thin` means even
+    after the retry too little survived - the caller's cue to fall back to
+    the absence protocol rather than show a threadbare answer."""
 
     question: str
-    sentences: tuple[str, ...] = ()
+    citations: tuple[VerifiedSentence, ...] = ()
     passages: tuple[str, ...] = ()
     retried: bool = False
     thin: bool = False
+
+    @property
+    def sentences(self) -> tuple[str, ...]:
+        """The rendered text alone - `citations` is what carries the
+        source numbers a real caller needs; this is here for whichever one
+        only wants to read the words."""
+        return tuple(citation.text for citation in self.citations)
 
 
 def build_answer_prompt(question: str, passages: Sequence[str], *, tighter: bool = False) -> str:
@@ -165,7 +175,8 @@ def answer_question(
         generated = _generate(tighter_prompt, client, timeout_s=timeout_s)
         verified = verify_answer(generated, sized, embedder=embedder, threshold=threshold)
 
+    citations = tuple(sentence for sentence in verified.sentences if sentence.supported)
     return Answer(
-        question=raw, sentences=verified.rendered, passages=tuple(sized),
+        question=raw, citations=citations, passages=tuple(sized),
         retried=retried, thin=_is_thin(verified) or not verified.rendered,
     )

@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.7 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.8 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: ACTIVE — promoted 2026-09-13.** Was HELD, created at the owner's
 request to be scheduled by him later; the owner has now promoted it. The
@@ -145,6 +145,40 @@ codebase:
   correctness tests against a real `SqliteStore` (`tests/unit/
   test_aggregate_count.py`) and 14 fake-client tests for the phrasing
   contract (`tests/unit/test_chat_aggregate.py`).*
+
+  *2026-09-15: a genuine bug found only by running `app.chat.session.ask()`
+  end to end against the real fixture corpus, the real translator and the
+  real `qwen2.5:1.5b` — every unit test above fakes the translator or skips
+  it, so nothing had exercised what `answer_aggregate` actually does with
+  one. "how many PDFs are in the index" against a corpus that provably
+  contains a PDF (`Docs\Licences\licence-terms-2025.pdf`) came back "There
+  are 0 PDFs in the index." Root cause: `translate.build_prompt` tells the
+  model to "keep everything else as plain words," and with no worked
+  example showing an interrogative sentence, the model followed that
+  literally - "how many pdfs are in the index" became the query "how many
+  are in the index type:pdf", not "type:pdf". `count_matching` then
+  required the literal words "how"/"many"/"index" to appear in a document's
+  text, which real files never contain, so it silently returned 0 for a
+  corpus that had matches. The same lesson this file already records twice
+  over (§1a, §1d above): a small model needs a worked example, not a rule,
+  for an input shape it has not seen. Fixed with one more entry in
+  `app.search.commands.EXAMPLES` - `("how many pdfs are in the index",
+  "type:pdf")` - which fits under the existing 1901-char prompt ceiling
+  (`test_the_prompt_got_shorter_despite_gaining_examples`) with 9 characters
+  to spare. Re-verified against the real model: the same question now
+  returns a non-zero, correct-shaped count.*
+
+  *Not fixed, and flagged rather than guessed past: one example teaches the
+  one phrasing, not the pattern. Re-tested against the real model
+  afterwards, "how many PDFs are in the index" translated to
+  "type:docx type:pdf" (an extra, unrequested filter — over-counts rather
+  than under-counts) and "how many invoices are there" - a content-noun
+  aggregate rather than a file-type one - still translated to "how many are
+  there type:pdf" and returned 0. A second worked example for the
+  content-noun case would need roughly 45 more prompt characters than the
+  ceiling currently allows, so fixing it is a real, scoped follow-up (either
+  a documented ceiling increase or a shorter existing example), not
+  something to absorb quietly into this note.*
 - [x] **1e ABSENCE protocol**: retrieval-negative questions answer with what
   was searched (the queries, visibly), the honest scope sentence ("nothing
   in Leasha's index matches — sources currently indexed: …"), and offer the

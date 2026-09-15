@@ -506,15 +506,28 @@ def grammar_for_model() -> str:
 #: pattern-matches much better than it reasons.
 #:
 #: Chosen to cover one case each: a sender, a date and a file type, an
-#: exclusion, and - the one most often missed - a sentence with no constraints
-#: at all, so the model learns that returning bare words is a correct answer
-#: rather than a failure to find an operator.
+#: exclusion, a sentence with no constraints at all (so the model learns that
+#: returning bare words is a correct answer rather than a failure to find an
+#: operator), and a "how many" question.
+#:
+#: **The "how many" example exists because a real bug did.** `chat.aggregate`
+#: (§1d) hands a whole question to this translator, and with no worked example
+#: showing that the interrogative wrapper is not content, the model followed
+#: "keep everything else as plain words" literally: "how many pdfs are in the
+#: index" translated to "how many are in the index type:pdf" rather than
+#: "type:pdf" - a query that then requires the literal words "how", "many" or
+#: "index" to appear in a document's text, which real files almost never do.
+#: `count_matching` returned 0 for a corpus that provably had PDFs in it. One
+#: worked example fixes the same class of question this list already exists
+#: to teach; a special case in `chat.aggregate` would only have fixed this one
+#: phrasing of it.
 EXAMPLES: tuple[tuple[str, str], ...] = (
     ("emails from dave about the contract renewal", "from:dave contract renewal"),
     ("the pdf about pump maintenance from last March", "type:pdf pump maintenance after:2025-03-01 before:2025-04-01"),
     ("spreadsheets Priya sent me with attachments", "type:xlsx from:priya has:attachment"),
     ("notes on the leeds site but not the survey", "leeds site -survey"),
     ("quarterly revenue figures", "quarterly revenue figures"),
+    ("how many pdfs are in the index", "type:pdf"),
 )
 
 
