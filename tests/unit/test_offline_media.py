@@ -695,3 +695,61 @@ def _fake_settings(tmp_path):
         index_name_only=False,
         fts_db=tmp_path / "index.db",
     )
+
+
+# --- 3c: the /on operator ------------------------------------------------
+
+def test_on_parses_a_quoted_volume_name():
+    from app.search.query import parse_query
+
+    parsed = parse_query('on:"Projects 2019"')
+    assert parsed.volumes == ("projects 2019",)
+    assert parsed.has_filters
+
+
+def test_on_only_matches_files_on_that_volume(tmp_path):
+    r"""The shape `-repo:` already guards against: `-on:` must exclude the
+    named volume without also excluding the entire rest of the corpus,
+    which is a far larger wrong answer than the one being fixed and in the
+    same silent direction.
+    """
+    from app.search.query import parse_query
+    from app.storage.filters import file_filter_sql
+
+    def matching(store, query: str) -> set:
+        sql, params = file_filter_sql(parse_query(query))
+        rows = store.conn.execute(
+            f"SELECT f.id FROM files f WHERE 1=1 {sql}", params).fetchall()
+        return {row[0] for row in rows}
+
+    with SqliteStore(tmp_path / "i.db") as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-ON-OPERATOR", kind="drive", name="Projects 2019",
+        )
+        on_volume = store.upsert_file(
+            volume_synthetic_path(volume_id, "reports/q3.txt"), size_bytes=10,
+            mtime_ns=1, ext="txt", parent_dir=volume_synthetic_path(volume_id, "reports"),
+            volume_id=volume_id, relative_path="reports/q3.txt",
+        )
+        ordinary = store.upsert_file(
+            r"D:\work\notes.txt", size_bytes=10, mtime_ns=1, ext="txt",
+            parent_dir=r"D:\work",
+        )
+
+        assert matching(store, 'on:"Projects 2019"') == {on_volume}
+        found = matching(store, '-on:"Projects 2019"')
+        assert on_volume not in found
+        assert ordinary in found, (
+            "excluding one Offline Media source also excluded every file "
+            "that is not on any catalogued volume at all")
+
+
+def test_on_is_offered_and_honoured_everywhere_repo_is():
+    r"""§3c asks for the same `/` menu reach `/repo` already has - every
+    tab offers every switch, per `test_command_subsets.py`'s own rule."""
+    from app.search.commands import COMMANDS
+    from app.search.query import _FIELD_ALIASES
+
+    names = {command.name for command in COMMANDS}
+    assert "on" in names
+    assert _FIELD_ALIASES.get("on") == "volume"

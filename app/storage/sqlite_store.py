@@ -210,6 +210,13 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "repo": _ValueShape(
         "repos r LEFT JOIN files f ON f.repo_id = r.id", "r.name",
         "COUNT(f.id)", "r.name <> ''", "r.id, r.name"),
+    # `/on` - order 202626270513 §3c. Same shape as `repo` above: every
+    # catalogued volume is offered, including one just Scanned with nothing
+    # indexed from it yet, because a source with zero files still exists
+    # and a person still needs to be able to type its name.
+    "on": _ValueShape(
+        "volumes v LEFT JOIN files f ON f.volume_id = v.id", "v.name",
+        "COUNT(f.id)", "v.name <> ''", "v.id, v.name"),
     # **The one shape that does not touch `files`, and the one command that
     # cannot be narrowed.** `/saved` carries no `scoped_by`, so `scope_for`
     # returns None, so `_scope_sql` appends nothing - which is what makes it

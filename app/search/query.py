@@ -54,6 +54,7 @@ _FIELD_ALIASES = {
     "before": "before", "until": "before",
     "path": "path", "folder": "path", "dir": "path",
     "repo": "repo", "repository": "repo", "project": "repo",
+    "on": "volume", "volume": "volume", "drive": "volume",
     "from": "sender", "sender": "sender",
     "to": "recipient", "recipient": "recipient", "cc": "recipient",
     "subject": "subject", "title": "subject", "re": "subject",
@@ -196,6 +197,10 @@ class ParsedQuery:
     #: to a project by its name and to a checkout by its path and which one
     #: they reach for is not predictable.
     repos: tuple[str, ...] = ()
+    #: Offline Media source names - order 202626270513 §3c's `/on`. Matched
+    #: on name only: drive letters are never stored, so unlike `repos` there
+    #: is no path-shaped alternative to match against.
+    volumes: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
     #: Mail-only fields. Empty for a document search, which is why they cost
     #: nothing when unused: each becomes a subquery on `messages` only if the
@@ -220,6 +225,7 @@ class ParsedQuery:
     not_ext: tuple[str, ...] = ()
     not_paths: tuple[str, ...] = ()
     not_repos: tuple[str, ...] = ()
+    not_volumes: tuple[str, ...] = ()
     not_senders: tuple[str, ...] = ()
     not_recipients: tuple[str, ...] = ()
     not_subjects: tuple[str, ...] = ()
@@ -269,7 +275,7 @@ class ParsedQuery:
     def has_filters(self) -> bool:
         return bool(
             self.ext or self.after or self.before or self.paths
-            or self.repos
+            or self.repos or self.volumes
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes
             or self.has_attachment is not None or self.scope != "all"
@@ -424,6 +430,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     ext: list[str] = []
     paths: list[str] = []
     repos: list[str] = []
+    volumes: list[str] = []
     senders: list[str] = []
     recipients: list[str] = []
     subjects: list[str] = []
@@ -435,6 +442,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     not_ext: list[str] = []
     not_paths: list[str] = []
     not_repos: list[str] = []
+    not_volumes: list[str] = []
     not_senders: list[str] = []
     not_recipients: list[str] = []
     not_subjects: list[str] = []
@@ -471,13 +479,14 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         if negated:
             target = {
                 "ext": not_ext, "path": not_paths, "repo": not_repos,
+                "volume": not_volumes,
                 "sender": not_senders, "recipient": not_recipients,
                 "subject": not_subjects, "name": not_names,
             }.get(fld or "")
             if target is not None:
                 if fld == "ext":
                     target.extend(_norm_ext(val))
-                elif fld == "repo":
+                elif fld in ("repo", "volume"):
                     target.extend(part.strip().lower()
                                   for part in val.split(",") if part.strip())
                 elif val:
@@ -503,6 +512,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 part = part.strip().lower()
                 if part:
                     repos.append(part)
+        elif fld == "volume":
+            # `on:"Projects 2019","Old Backups"` - the same comma-separated
+            # form `repo:` accepts, for the same reason: a file is on
+            # exactly one Offline Media source, so asking about several at
+            # once only makes sense as an OR.
+            for part in val.split(","):
+                part = part.strip().lower()
+                if part:
+                    volumes.append(part)
         elif fld == "sender":
             if val:
                 senders.append(val.lower())
@@ -658,6 +676,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         before=before,
         paths=tuple(paths),
         repos=tuple(dict.fromkeys(repos)),
+        volumes=tuple(dict.fromkeys(volumes)),
         senders=tuple(senders),
         recipients=tuple(recipients),
         subjects=tuple(subjects),
@@ -666,6 +685,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         not_ext=tuple(dict.fromkeys(not_ext)),
         not_paths=tuple(not_paths),
         not_repos=tuple(dict.fromkeys(not_repos)),
+        not_volumes=tuple(dict.fromkeys(not_volumes)),
         not_senders=tuple(not_senders),
         not_recipients=tuple(not_recipients),
         not_subjects=tuple(not_subjects),
