@@ -285,6 +285,7 @@ class SettingsView(QWidget):
         self.photo_people_box = QGroupBox("People and photo descriptions")
         self.vision_model = QLineEdit()
         self.vision_model.setObjectName("OLLAMA_VISION_MODEL")
+        self.vision_model.setPlaceholderText("llava")
         self.vision_model.setText(str(getattr(settings, "ollama_vision_model", "") or ""))
         self.vision_model.setToolTip(
             "The Ollama model that answers Describe on a photo. Needs a "

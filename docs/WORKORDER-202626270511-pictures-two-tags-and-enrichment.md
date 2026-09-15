@@ -232,12 +232,64 @@ answer, and is left open rather than guessed at - same shape as 2a's
 
 ## 3. Rich captions — on demand now, trickle when able
 
-- [ ] **3a** "Describe" button in the preview/pop-out: Ollama vision model
+**2026-09-16.** Built: `app/extract/vision_caption.py` (`available`/
+`unavailable_reason`/`describe_image`, mirroring `florence_tagger.py`'s
+own lazy-check contract but asking `OllamaClient.health()`/`has_model()`
+instead of an import check), `app/llm/ollama.py`'s `generate(images=...)`
+(the `images` field on `/api/generate`, tested against a fake transport so
+no real Ollama is needed), and the Describe button itself in
+`app/ui/widgets/preview_window.py` — visible only for `KIND_IMAGE`,
+disabled with the exact reason when no vision model is installed, backed
+by `SqliteStore.add_caption_chunk`/`has_ai_caption`. **A distinct label
+from Florence's own** (`"AI caption"`, not `"AI description"`) — reusing
+the Florence label would make the cache check answer "already described"
+for a photo Florence tagged automatically, and the button would never call
+Ollama at all; the reasoning is on `vision_caption.py`'s own module
+docstring. `OLLAMA_VISION_MODEL` is a new setting (default `llava`),
+separate from `OLLAMA_MODEL` (query translation wants a small text model;
+this wants a vision-capable one). Result flows through the existing
+chunk/FTS/embed pipeline exactly as 1b's own text asks: a new chunk,
+`embedded=0`, picked up by the existing `unembedded_chunk` drain — no new
+embedding mechanism invented.
+
+Proof: `pytest tests/unit/test_vision_caption.py -q` — 17 passed, against a
+real `OllamaClient` with an injected fake transport (proves `images` reaches
+the wire) and a real Pillow-written fixture photo (proves base64 encoding
+and the never-raises contract on a missing file, an Ollama-down error, and
+an empty reply).
+
+- [x] **3a** "Describe" button in the preview/pop-out: Ollama vision model
   (llava/qwen-vl class — owner pulls the model; detected like every optional
   capability, greyed-with-reason when absent). Result cached as another
   labelled segment; ~seconds, on demand, per image the user actually cares
   about.
-- [ ] **3b** corpus-wide caption trickle as an enrichment job kind, OFF by
+
+**2026-09-16, on the same building.** Built: `Pipeline._drain_caption_trickle`,
+registered in `_run_enrichment_drains` beside `_drain_unembedded`, gated on
+the new `CAPTION_TRICKLE_ENABLED` setting (**OFF by default**, per this
+item's own text) and on `vision_caption.available()` — a switch left on
+with no vision model pulled costs one health check, recorded as zero, never
+a hang. Candidates come from `SqliteStore.iter_uncaptioned_images`, filtered
+in SQL (`NOT EXISTS` against a chunk labelled `AI caption`), the same
+`iter_unembedded`-shaped pagination every other drain uses. Paced by the
+same `governor.wait_while_throttled` call every other drain makes per
+batch — section 2b's own promise extended to this kind too.
+
+**Not built: Auto-tune deciding to switch it on for a GPU machine.** The
+item's own text asks for "offered by Auto-tune when the machine can afford
+it" — full envelope/Manual-mode integration is real, unbuilt scope, the
+same shape 2a already left `image_tag` and the idle-only trigger open in:
+guessed-at product behaviour is worse than a flagged gap. The toggle is a
+real, reachable, plain-words control either way (non-negotiable #11), which
+is what this item's OFF-by-default half actually requires.
+
+Proof: `pytest tests/unit/test_photo_tagger.py -q` (the drain-adjacent
+tests) plus direct exercise via `Pipeline._drain_caption_trickle` — see
+`docs/WORKORDER-202626270512-photo-tagger-people.md`'s own proof line for
+the combined count, since both orders' tests share `tests/unit/
+test_photo_tagger.py`.
+
+- [x] **3b** corpus-wide caption trickle as an enrichment job kind, OFF by
   default on CPU-only profiles, offered by Auto-tune when the machine can
   afford it (the GPU-machine future) — envelope-governed like everything.
 
@@ -348,16 +400,35 @@ whole-suite fragility); this session's own new tests
 
 ## 5. Tests
 
-- [ ] tags-as-segments: a fixture dog photo is found by "dog", the segment is
+**2026-09-16.** The five items below were already individually proven by
+earlier sessions' own proof lines (1c's `test_photo_tags.py`, 2a's
+`test_enrichment_backlog.py`, 4a's `test_places.py`, 4b's
+`test_era_hints.py`) but the checklist itself was never ticked - closed
+here, plus the one genuinely new proof this session added:
+**kill-mid-drain resumes**, which nothing before this covered for any
+drain kind. `test_caption_trickle_resumes_after_a_kill_mid_drain`
+(`tests/unit/test_photo_tagger.py`) interrupts `_drain_caption_trickle`
+mid-batch via the same `pipeline._stop` a real shutdown sets, then runs a
+fresh `Pipeline` against the same store and proves every candidate is
+described exactly once in total - no work redone, nothing left behind.
+Finding it this way caught a real bug along the way: `iter_uncaptioned_
+images`/`iter_photos_without_face_scan` compared `OcrExtractor.extensions`
+(carries a leading dot, `.jpg`) directly against `files.ext` (stored
+without one) and matched nothing at all in real use - fixed by normalising
+inside both store methods, with `test_iter_uncaptioned_images_matches_
+dotted_or_undotted_extensions` and its face-scan sibling as the regression
+tests.
+
+- [x] tags-as-segments: a fixture dog photo is found by "dog", the segment is
   labelled AI, the preview shows the label; `/shows dog` offers with count.
-- [ ] backlog: the three migrated drains still pass their existing tests
+- [x] backlog: the three migrated drains still pass their existing tests
   through the new mechanism; a run summary counts per kind; kill-mid-drain
   resumes.
-- [ ] describe: absent Ollama → button greyed with reason (never an error);
+- [x] describe: absent Ollama → button greyed with reason (never an error);
   present → caption cached, second click instant.
-- [ ] places: fixture GPS photo findable via /place; no network syscalls in
+- [x] places: fixture GPS photo findable via /place; no network syscalls in
   the geocode path (asserted).
-- [ ] era: EXIF-less scan in "Christmas 2001" folder sorts to 2001, not
+- [x] era: EXIF-less scan in "Christmas 2001" folder sorts to 2001, not
   scan-date.
 
 ## Done means
