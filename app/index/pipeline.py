@@ -2843,6 +2843,8 @@ class Pipeline:
         search, and never retried by anything.
         """
         candidate = item.candidate
+        # Work order 0i section 4b: computed once, used by the upsert below.
+        taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
         # **One transaction for the three writes, not three.**
         #
         # `upsert_file`, `replace_chunks` and `set_message` each committed
@@ -2887,8 +2889,11 @@ class Pipeline:
                 # mtime, which after twenty years of drive-to-drive copies is
                 # the date of the last copy and nothing else. None for
                 # everything that is not an image, and for an image with no
-                # readable EXIF - both of which mean "use mtime_ns".
-                taken_at_ns=self._photo_taken_at_ns(candidate),
+                # readable EXIF and no era hint - all of which mean "use
+                # mtime_ns". Work order 0i section 4b added the era-hint half
+                # and the is_hint flag beside it - see _photo_taken_at.
+                taken_at_ns=taken_at_ns,
+                taken_at_is_hint=taken_at_is_hint,
             )
 
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)
@@ -3062,6 +3067,42 @@ class Pipeline:
 
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+
+    def _photo_taken_at(self, candidate: Candidate) -> tuple[Optional[int], bool]:
+        r"""A photograph's date in epoch nanoseconds, and whether it is a guess.
+
+        Work order 0i section 4b. EXIF first (a fact); when there is none, a
+        folder-year era hint (`app.extract.era_hints.guess_year`) for the
+        pre-digital case EXIF cannot answer at all - a scanned print, whose
+        only camera-adjacent metadata is whatever the scanner stamped on
+        today. `mtime_ns` remains the caller's own fallback for neither: see
+        `_date_clause` in `app/storage/filters.py`.
+
+        The second element is `taken_at_is_hint` - see `FileRecord.
+        taken_at_is_hint` for why a single date column cannot answer "how
+        much should this be trusted" on its own, which is what work order
+        0512's future batch-era override needs to find only the guesses.
+        """
+        exif_ns = self._photo_taken_at_ns(candidate)
+        if exif_ns is not None:
+            return exif_ns, False
+
+        from app.extract.base import reads_by_ocr
+        if not reads_by_ocr(candidate.path):
+            return None, False
+
+        try:
+            from app.extract.era_hints import guess_year, year_to_epoch_ns
+
+            year = guess_year(candidate.path)
+            if year is None:
+                return None, False
+            return year_to_epoch_ns(year), True
+        except Exception as exc:                # noqa: BLE001 - H4: a hint, not the job
+            self._log.debug(
+                "no era hint for {}: {}: {}", candidate.path,
+                type(exc).__name__, exc)
+            return None, False
 
     def _photo_taken_at_ns(self, candidate: Candidate) -> Optional[int]:
         r"""A photograph's EXIF shot date in epoch nanoseconds, or None.
@@ -3414,6 +3455,8 @@ class Pipeline:
         """
         assert item.error is not None
         candidate = item.candidate
+        # Work order 0i section 4b: computed once, used by the upsert below.
+        taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
         with self.store.batch():
             file_id = self.store.upsert_file(
                 str(candidate.path),
@@ -3430,8 +3473,11 @@ class Pipeline:
                 # text in it, so it never produces one and arrives here as
                 # `ERR_NO_TEXT_LAYER`. It is still a photograph, it is still
                 # findable by name and by CLIP, and it is still from the year
-                # it was taken - see `_photo_taken_at_ns`.
-                taken_at_ns=self._photo_taken_at_ns(candidate),
+                # it was taken. Work order 0i section 4b: this is also the
+                # exact path a scanned print with no EXIF takes, which is
+                # what the era hint (see _photo_taken_at) exists for.
+                taken_at_ns=taken_at_ns,
+                taken_at_is_hint=taken_at_is_hint,
             )
             self.store.mark_skipped(file_id, item.error)
 

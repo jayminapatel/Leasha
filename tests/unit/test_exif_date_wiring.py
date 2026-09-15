@@ -130,14 +130,27 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
-def test_current_version_is_18():
-    assert CURRENT_VERSION == 18
+def test_the_migration_is_registered_and_current():
+    r"""**2026-09-15 (work order 0i, migrations v19/v20):** this asserted
+    `CURRENT_VERSION == 18` and broke the moment v19 (`file_tags`) and v20
+    (`taken_at_is_hint`) were added - the exact trap this file's own
+    `test_a_database_carried_forward_from_v17_gains_the_column` protects
+    against for v18 itself, and the one `test_phash_column_migration.py`
+    already records hitting at v17->v18. Retargeted onto what this test is
+    actually about, in that file's own shape: the v18 migration is
+    registered, and no later migration has dropped it. The literal 18 stays
+    as a floor because that genuinely is the version this column arrived at.
+    """
+    from app.storage.migrations import MIGRATIONS
+
+    assert 18 in MIGRATIONS
+    assert CURRENT_VERSION >= 18
 
 
 def test_a_fresh_database_has_the_column(tmp_path):
     with SqliteStore(tmp_path / "index.db") as store:
         assert "taken_at_ns" in _columns(store.conn, "files")
-        assert store.schema_version == 18
+        assert store.schema_version >= 18
 
 
 def test_a_database_carried_forward_from_v17_gains_the_column(tmp_path):

@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.4 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -54,6 +54,19 @@ and split in two - see the dated note directly on that test in
 case this item targets, so "yields nothing" stopped being the correct
 expectation for every blank page rather than only the Florence-unavailable
 one).
+
+**2026-09-15, addendum found closing item 4b - the real cost is bigger than
+the 11.36s/image figure above states on its own.** That number is inference
+only, on an already-loaded model. A *cold* Florence-2 load measured 17-25s
+on this machine on top of it (machine-load dependent), so the first
+OCR-empty image in any process - a real indexing run, or any pre-existing
+test that happens to exercise that path - pays 30-90s, not 11s, once
+torch/transformers are installed (they now are, in this shared venv - see
+this item's own note above on that). Confirmed this is the mechanism behind
+what first looked like a test hang while verifying 4b, not a deadlock - see
+4b's own dated note for the full account. Nothing here changes 1a's own
+scope or proof; recorded because whoever indexes 100,000 photos next should
+know the true floor, not just the warm-model number.
 
 - [x] **1a** one Florence-2 pass per photo-class image (the ladder routes;
   document-class images keep the specialist OCR): tags + brief caption in a
@@ -234,7 +247,63 @@ answer, and is left open rather than guessed at - same shape as 2a's
   dataset, zero network) → nearest-town name indexed as metadata text +
   `/place` operator with counts. Composes with the CLIP lane by construction
   (both are just lanes/filters).
-- [ ] **4b folder-year era hints**: filenames/folder names carrying a
+**2026-09-15 - "Takeout sidecar" does not exist to rank against.** Checked
+before writing this (grepped for `photoTakenTime`/`Takeout`/sidecar JSON
+reading anywhere in `app/extract`): no such date source exists in this
+codebase. The ranking built is EXIF > era hint > mtime - the two tiers that
+are real.
+
+Built: `app/extract/era_hints.py` (`guess_year`, `year_to_epoch_ns` - pure,
+no I/O, folder name wins over filename, a year bounded to [1826, this year]
+so a camera's own numbering like "img20045.jpg" is never mistaken for one),
+schema v20 (`files.taken_at_is_hint`, paired with `taken_at_ns` in
+`upsert_file`'s own conflict resolution rather than independently
+COALESCEd - see the migration's docstring), and `Pipeline._photo_taken_at`,
+the ranking wrapper both write paths (`_write_one` and `_record_skip`) now
+call instead of the EXIF-only `_photo_taken_at_ns`.
+
+**A real, useful side effect of building this: it surfaced that a "no text"
+photo can now take EITHER write path depending on whether Florence tagging
+(0i 1a/1b) succeeds**, which `test_exif_date_wiring.py`'s own docstring did
+not anticipate ("extract raises ERR_NO_TEXT_LAYER... written by
+_record_skip, not _write_one" - no longer universally true once Florence is
+available and produces a caption). Verified directly against a real
+Pipeline that the date still comes out correct via *either* path - `_write_
+one` now calls `_photo_taken_at` too, so this was a matter of proving it,
+not a gap to close. That pre-existing test's actual assertions still pass
+either way; only its docstring's claimed mechanism is now sometimes
+incomplete, which is a documentation nuance, not a fix - left alone.
+
+Proof: `pytest tests/unit/test_era_hints.py -q` - 14 passed (10 pure-logic,
+4 wiring tests against a real `Pipeline` instance with `read_datetime`/
+`guess_year` mocked, so these run in milliseconds rather than paying a
+real Florence-2 load). End-to-end correctness through both `_write_one`
+and `_record_skip`, including the Florence-tagged case, was verified
+directly against a real `Pipeline.run()` this session (not committed as a
+test - a cold Florence-2 load adds 20-70s to any scenario that touches an
+OCR-empty image once torch/transformers are installed, which no test in
+this file should have to pay to test EXIF/era-hint ranking specifically).
+
+Also fixed, found while verifying: two hardcoded `CURRENT_VERSION == 18`/
+`schema_version == 18` assertions in `test_exif_date_wiring.py` that this
+item's own migrations (v19, v20) broke - the exact trap that file's sibling
+`test_phash_column_migration.py` already documents hitting once before (at
+v17->v18) and fixed the same way: retargeted onto "is this migration
+registered and not since dropped" rather than the literal current version.
+
+**A separate, real finding surfaced investigating a reported test hang,
+unrelated to this item but worth recording here since it was found while
+verifying it**: this machine's `ResourceLimits.pause_on_battery` defaults
+to `True`, and the physical machine has been on battery for part of this
+session - any real `Pipeline.run()` test with no explicit override (several
+pre-existing files, including this one's own `_run` helper) blocks
+indefinitely waiting for AC power that a test run will never supply. Not
+this order's bug and not fixed here (out of scope - a pre-existing,
+whole-suite fragility); this session's own new tests
+(`test_enrichment_backlog.py`) were hardened against it with an explicit
+`ResourceLimits(pause_on_battery=False)`.
+
+- [x] **4b folder-year era hints**: filenames/folder names carrying a
   plausible year ("Diwali 2004", "Summer_1999") provide a date hint for
   images with no EXIF date (scanned prints — the pre-digital layer). Hint
   ranks below EXIF and Takeout sidecar, above file mtime; recorded as a hint

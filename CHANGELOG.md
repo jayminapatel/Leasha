@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -79,6 +79,26 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   already delivers the "smarter while you sleep" story for every drain, since a scheduled run
   is still a run - a trigger that runs enrichment *without* one is a real design question this
   order's text does not answer, left open rather than guessed at.
+
+### Added: folder-year era hints for photos with no EXIF at all (order 0i, item 4b)
+
+- **A scanned print with no EXIF now gets a date guess from its folder or file name**
+  ("Diwali 2004", "Summer_1999") instead of falling straight to the file's copy-date mtime -
+  `app/extract/era_hints.py`, ranked between EXIF (a fact) and mtime (the fallback of last
+  resort). New `files.taken_at_is_hint` column (schema v20) records which kind a date is, so
+  work order 0512's future batch-era override can find and override only the guesses.
+- "Takeout sidecar" date reading, named in this item's own ranking text, does not exist
+  anywhere in this codebase - checked, not assumed. The ranking built is EXIF > era hint > mtime.
+- Found while verifying: a "no text" photo can take either write path (`_write_one` or
+  `_record_skip`) depending on whether Florence-2 tagging (0i 1a/1b) succeeds on it - both now
+  correctly compute and store the era hint either way.
+- Also fixed two hardcoded `CURRENT_VERSION == 18` assertions in `test_exif_date_wiring.py`
+  that this item's new migrations (v19, v20) broke - the same trap its sibling
+  `test_phash_column_migration.py` already documents and fixes the same way.
+- A separate finding recorded for the record: this machine's `ResourceLimits.pause_on_battery`
+  defaults to `True`, and on battery power any real `Pipeline.run()` test with no override
+  blocks indefinitely - a pre-existing, whole-suite fragility, not fixed here, but worth knowing
+  before mistaking a slow real-model test for a hang.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

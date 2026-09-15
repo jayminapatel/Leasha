@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 19
+CURRENT_VERSION = 20
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -990,6 +990,32 @@ def _v19_file_tags(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_file_tags_tag ON file_tags(tag)")
 
 
+def _v20_taken_at_is_hint(conn: sqlite3.Connection) -> None:
+    r"""`files.taken_at_is_hint` - is `taken_at_ns` a guess or a fact?
+
+    Work order 0i section 4b. `taken_at_ns` (schema v18) already answers
+    "when is this from"; this answers "how much should that be trusted".
+    EXIF's `DateTimeOriginal` is a fact the camera wrote once - `taken_at_
+    is_hint` is 0 for it. A folder-year era hint ("Diwali 2004") is a
+    guess from a human-chosen album name, not a camera - 1 for it. The
+    distinction matters because work order 0512's future batch-era control
+    ("these are roughly 1998-2002") must be able to find and override only
+    the guesses, never a camera's own timestamp - a single `taken_at_ns`
+    column cannot answer "which kind is this one" on its own.
+
+    Additive and defaulted to 0 (a fact, not a hint), the same degradation
+    `_v17_image_phash` and `_v18_photo_taken_at` already accept: an index
+    built before this migration keeps every row, and every existing
+    `taken_at_ns` it already holds is EXIF-sourced (era hints did not exist
+    before this order), so 0 is not merely a safe default here - it is the
+    correct historical fact for every row that predates this column.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "taken_at_is_hint" not in existing:
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN taken_at_is_hint INTEGER NOT NULL DEFAULT 0")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1020,6 +1046,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     17: _v17_image_phash,
     18: _v18_photo_taken_at,
     19: _v19_file_tags,
+    20: _v20_taken_at_is_hint,
 }
 
 

@@ -282,6 +282,11 @@ class FileRecord:
     #: Defaulted for the same reason `phash` is - `from_row` builds from
     #: whatever columns a SELECT actually asked for.
     taken_at_ns: Optional[int] = None
+    #: Work order 0i section 4b. False for an EXIF-sourced date (the
+    #: default, and correct for every row written before this column
+    #: existed); True for a folder-year era hint - see
+    #: `app.extract.era_hints`.
+    taken_at_is_hint: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
@@ -609,6 +614,7 @@ class SqliteStore:
         repo_id: Optional[int] = None,
         clear_hash: bool = False,
         taken_at_ns: Optional[int] = None,
+        taken_at_is_hint: bool = False,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
 
@@ -668,8 +674,8 @@ class SqliteStore:
                 """
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
-                     status, source_kind, repo_id, taken_at_ns)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, source_kind, repo_id, taken_at_ns, taken_at_is_hint)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -702,11 +708,21 @@ class SqliteStore:
                     -- callers that write a row for a photo without knowing
                     -- its shot date must not erase one. See the docstring.
                     taken_at_ns  = COALESCE(excluded.taken_at_ns,
-                                            files.taken_at_ns)
+                                            files.taken_at_ns),
+                    -- Work order 0i section 4b. Paired with taken_at_ns
+                    -- above, not independently COALESCEd: whether a date is
+                    -- a fact or a guess only means anything alongside the
+                    -- date itself, so the flag follows the same "only a
+                    -- caller providing a new date gets to say" rule.
+                    taken_at_is_hint = CASE
+                        WHEN excluded.taken_at_ns IS NOT NULL THEN excluded.taken_at_is_hint
+                        ELSE files.taken_at_is_hint
+                    END
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
                  content_hash, status, source_kind, stored_repo,
                  None if taken_at_ns is None else int(taken_at_ns),
+                 1 if taken_at_is_hint else 0,
                  forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()

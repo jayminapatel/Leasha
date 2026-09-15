@@ -20,10 +20,17 @@ import pytest
 
 from app.index.embedder import Embedder
 from app.index.pipeline import Pipeline, PipelineConfig
+from app.index.resources import ResourceLimits
 from app.index.walker import WalkConfig
 from app.storage.sqlite_store import FileStatus, SqliteStore
 
 DIM = 8
+
+#: This machine runs on battery sometimes, and ResourceLimits.pause_on_battery
+#: defaults to True - a real Pipeline.run() would then wait forever for mains
+#: power that a test run will never supply. Every PipelineConfig below is
+#: built with this so these tests behave the same plugged in or not.
+NO_BATTERY_PAUSE = ResourceLimits(pause_on_battery=False)
 
 
 def _encode(texts):
@@ -79,7 +86,8 @@ def _corpus(root: Path):
 def _run(store, root, vectors, embedder, **config):
     pipeline = Pipeline(
         store, vectors, embedder,
-        PipelineConfig(walk=WalkConfig(roots=[root]), workers=1, **config),
+        PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
+                       limits=NO_BATTERY_PAUSE, **config),
     )
     return pipeline.run()
 
@@ -122,7 +130,8 @@ def test_a_failing_kind_does_not_stop_the_run(tmp_path, monkeypatch):
     with SqliteStore(tmp_path / "index.db") as store:
         pipeline = Pipeline(
             store, vectors, _embedder(),
-            PipelineConfig(walk=WalkConfig(roots=[root]), workers=1),
+            PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
+                            limits=NO_BATTERY_PAUSE),
         )
 
         def explode(_stats):
@@ -154,7 +163,7 @@ def test_ocr_pending_kind_is_counted_from_held_pdfs(tmp_path):
         pipeline = Pipeline(
             store, FakeVectors(), _embedder(),
             PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
-                            ocr_mode="images"),
+                            ocr_mode="images", limits=NO_BATTERY_PAUSE),
         )
         stats = pipeline.run()
 
@@ -223,7 +232,8 @@ def test_a_stopped_governor_lets_no_batch_through(tmp_path):
 
         pipeline2 = Pipeline(
             store, vectors, _embedder(),
-            PipelineConfig(walk=WalkConfig(roots=[root]), workers=1),
+            PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
+                            limits=NO_BATTERY_PAUSE),
             governor=governor,
         )
         second = pipeline2.run()
