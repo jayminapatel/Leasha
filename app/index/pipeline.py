@@ -1707,7 +1707,16 @@ class Pipeline:
         having done nothing, reporting no skips and no error the user could see.
         """
         try:
-            record = self.store.get_file(str(candidate.path))
+            # **Volume-aware, same as `row_key`/`_candidate_row_key`.** A
+            # volume-backed row is stored under its synthetic
+            # `leasha-volume://...` key (1c), never `str(candidate.path)` -
+            # looking it up by the real path here always missed, so every
+            # file on a catalogued volume looked new on every single rescan
+            # and was re-extracted every time. Found by
+            # `test_a_moved_file_is_repaired_without_re_extraction`, whose
+            # second pipeline run kept reporting `indexed=1` instead of the
+            # `unchanged=1` a settled file should produce.
+            record = self.store.get_file(_candidate_row_key(candidate))
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
                 "could not read the row for {}, queuing it anyway: {}",

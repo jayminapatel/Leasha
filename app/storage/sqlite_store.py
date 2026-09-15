@@ -2651,6 +2651,40 @@ class SqliteStore:
         """).fetchall()
         return [dict(row) for row in rows]
 
+    def move_volume_file(self, volume_id: int, old_relative_path: str,
+                         new_relative_path: str, *, size_bytes: int,
+                         mtime_ns: int) -> bool:
+        r"""1e: "same content hash at a new relative path moves the rows
+        instead of re-extracting." Updates identity and stat in place -
+        `content_hash`, chunks and vectors are exactly as correct as they
+        were before the move, because the *bytes* have not changed.
+
+        Called before the pipeline walk reaches this file, so its updated
+        `path`/`mtime_ns`/`size_bytes` already match what the walk is about
+        to find, and the ordinary incremental check - same path, same size,
+        same mtime - skips it as unchanged. That is the whole mechanism;
+        nothing downstream needs to know a move happened at all.
+        """
+        new_path = volume_synthetic_path(volume_id, new_relative_path)
+        with self.write() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE files SET
+                    path = ?, relative_path = ?, size_bytes = ?, mtime_ns = ?,
+                    parent_dir = ?
+                WHERE volume_id = ? AND relative_path = ?
+                """,
+                (new_path, new_relative_path, size_bytes, mtime_ns,
+                 volume_synthetic_path(volume_id, str(Path(new_relative_path).parent))
+                 if Path(new_relative_path).parent != Path(".")
+                 else volume_synthetic_path(volume_id, ""),
+                 volume_id, old_relative_path),
+            )
+            moved = cursor.rowcount > 0
+            if moved:
+                self._bump_generation(conn)
+        return moved
+
     def delete_volume_row(self, volume_id: int) -> None:
         """Remove the catalogue entry itself. Callers delete the files first -
         see `app.index.offline_media.delete_volume` for the full cascade;

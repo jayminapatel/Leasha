@@ -14,6 +14,7 @@ module caches a resolved path across calls.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -26,6 +27,8 @@ __all__ = [
     "resolve_file_path",
     "refresh_volume_statuses",
     "delete_volume",
+    "reconcile_moves",
+    "ReconcileResult",
 ]
 
 _log = logger.bind(component="index.offline_media")
@@ -121,6 +124,99 @@ def refresh_volume_statuses(store: Any) -> dict[int, str]:
         statuses[volume_id] = status
         store.set_volume_status(volume_id, status)
     return statuses
+
+
+class ReconcileResult:
+    """What one `reconcile_moves` pass found. `moved` is what 1e is for;
+    `hashed` is the honest cost - only candidates that could plausibly be a
+    move are ever hashed, never the whole volume."""
+
+    def __init__(self, moved: int = 0, hashed: int = 0) -> None:
+        self.moved = moved
+        self.hashed = hashed
+
+    def as_dict(self) -> dict[str, int]:
+        return {"moved": self.moved, "hashed": self.hashed}
+
+
+def reconcile_moves(store: Any, volume_id: int, mount_root: Path) -> ReconcileResult:
+    r"""1e: find files that moved on a reorganised drive, and repair their
+    rows **before** the ordinary pipeline walk reaches them.
+
+    **Must run before `Pipeline.run()` on the same root, never after.** Once
+    a row's `relative_path`/`path`/`mtime_ns`/`size_bytes` are updated to
+    where the file is *now*, the walk's ordinary incremental check - same
+    path, same size, same mtime - sees it as unchanged and never opens it.
+    That is 1e's own acceptance line: *"extraction count ~ 0"*. Reconciling
+    afterwards would be too late - the walk would already have logged the
+    old location as missing and the new one as a fresh file, and paid for a
+    full re-extraction before anything here ever ran.
+
+    A plain `os.walk` stat pass, not the full `app.index.walker.walk()` -
+    this only needs size and mtime for every file on the volume, not
+    extension routing, exclusions or cloud-placeholder handling, and paying
+    for those twice on every rescan would be waste with no benefit.
+
+    Hashing is the expensive part and is paid only where it can possibly pay
+    off: a "new" relative path is only ever hashed against "missing" rows of
+    the **same size** - `content_hash` is `blake2b` over the whole file
+    (`app.index.walker.content_hash`), and two different files sharing a
+    size is common; two different files sharing a size AND a blake2b digest
+    is not a case worth guarding against here.
+    """
+    from app.index.walker import content_hash as _hash_file
+
+    known = {
+        record.relative_path: record
+        for record in store.iter_files(volume_id=volume_id, source_kind="file")
+        if record.relative_path
+    }
+
+    current: dict[str, tuple[int, int]] = {}
+    for dirpath, _dirs, filenames in os.walk(mount_root):
+        for name in filenames:
+            full = Path(dirpath) / name
+            try:
+                stat = full.stat()
+            except OSError:
+                continue
+            rel = str(full.relative_to(mount_root)).replace("\\", "/")
+            current[rel] = (stat.st_size, stat.st_mtime_ns)
+
+    missing = [rel for rel in known if rel not in current]
+    new = [rel for rel in current if rel not in known]
+    if not missing or not new:
+        return ReconcileResult()
+
+    missing_by_size: dict[int, list[str]] = {}
+    for rel in missing:
+        missing_by_size.setdefault(known[rel].size_bytes, []).append(rel)
+
+    moved = 0
+    hashed = 0
+    for rel in new:
+        size, mtime_ns = current[rel]
+        candidates = missing_by_size.get(size)
+        if not candidates:
+            continue
+        try:
+            new_digest = _hash_file(mount_root / rel)
+        except OSError:
+            continue
+        hashed += 1
+        for old_rel in list(candidates):
+            if known[old_rel].content_hash == new_digest:
+                if store.move_volume_file(volume_id, old_rel, rel,
+                                          size_bytes=size, mtime_ns=mtime_ns):
+                    candidates.remove(old_rel)
+                    moved += 1
+                break
+    if moved:
+        _log.info("volume {} rescan: {} file(s) moved on disk, repaired "
+                 "without re-extraction ({} hashed to confirm)",
+                 volume_id, moved, hashed)
+    return ReconcileResult(moved=moved, hashed=hashed)
+
 
 
 def delete_volume(store: Any, vectors: Any, volume_id: int) -> dict[str, Any]:

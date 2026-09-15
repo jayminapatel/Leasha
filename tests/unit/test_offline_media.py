@@ -314,3 +314,78 @@ def test_the_real_fixed_drive_on_this_machine_round_trips_through_its_guid():
 
     found = find_drive_by_guid(identity.volume_guid)
     assert found == root
+
+# --- 1e: rescan efficiency - hash-match-means-move ---------------------------
+
+def test_a_moved_file_is_repaired_without_re_extraction(tmp_path):
+    r"""**The order's own acceptance line, word for word**: "moved files
+    move (1e), extraction count ~ 0."
+
+    A file relocated within the same volume - the ordinary "I tidied my
+    drive" case - must not cost a re-read, a re-chunk or a re-embed. Proved
+    by counting `stats.indexed` on the pipeline run that follows
+    `reconcile_moves`: it must be zero, because the file the walk reaches at
+    its new location already looks unchanged.
+    """
+    from app.index.offline_media import reconcile_moves
+
+    mount = tmp_path / "mount"
+    old_file = _write(mount / "2019" / "invoice.txt", "Q3 invoice for Acme Water Ltd.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-MOVE", kind="drive", name="Reorganised Drive",
+            volume_guid=r"\\?\Volume{33333333-0000-0000-0000-000000000033}",
+        )
+        stats1 = _run(store, [mount],
+                      volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+        assert stats1.indexed == 1
+        before = list(store.iter_files(volume_id=volume_id, source_kind="file"))[0]
+        assert before.relative_path == "2019/invoice.txt"
+
+        # The drive gets reorganised: the same bytes, moved to a new folder.
+        old_file.unlink()
+        new_file = _write(mount / "Invoices" / "2019" / "invoice.txt",
+                          "Q3 invoice for Acme Water Ltd.")
+
+        result = reconcile_moves(store, volume_id, mount)
+        assert result.moved == 1
+
+        after_move = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+        assert len(after_move) == 1, "reconcile_moves must repair the row in place, not add one"
+        assert after_move[0].id == before.id
+        assert after_move[0].relative_path == "Invoices/2019/invoice.txt"
+        assert after_move[0].path == volume_synthetic_path(volume_id, "Invoices/2019/invoice.txt")
+
+        # The pipeline walk that follows must find nothing left to do.
+        stats2 = _run(store, [mount],
+                      volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+
+    assert stats2.indexed == 0, (
+        f"the moved file was re-extracted (indexed={stats2.indexed}) instead of "
+        "being recognised as already up to date at its new location"
+    )
+    assert stats2.unchanged == 1
+
+
+def test_reconcile_moves_does_nothing_when_nothing_moved(tmp_path):
+    """The common case on every rescan: nothing changed. Must cost no writes."""
+    from app.index.offline_media import reconcile_moves
+
+    mount = tmp_path / "mount"
+    _write(mount / "steady.txt", "This file has not moved.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-STEADY", kind="drive", name="Quiet Drive",
+            volume_guid=r"\\?\Volume{44444444-0000-0000-0000-000000000044}",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+
+        result = reconcile_moves(store, volume_id, mount)
+
+    assert result.moved == 0
+    assert result.hashed == 0
