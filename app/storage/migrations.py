@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 16
+CURRENT_VERSION = 17
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -865,6 +865,72 @@ def _v16_chunk_label(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN label TEXT")
 
 
+def _v17_offline_media_volumes(conn: sqlite3.Connection) -> None:
+    r"""`volumes` and `files.volume_id`/`relative_path`. Orders 202626270513/14.
+
+    **Additive, and no re-index.** A new table and two nullable columns: an
+    existing 100GB index gains these in seconds and every row keeps whatever
+    it had. `volume_id` stays NULL - "an ordinary, always-connected file" -
+    until a Scan on the Offline Media tab attributes rows to a catalogued
+    source, which is a correct state rather than a broken one.
+
+    One table for every kind (drive, network, cloud, phone, archived) rather
+    than one per order, because building 202626270513's table first and
+    202626270514's second would have forced a second, incompatible design onto
+    rows the first order had already written. `kind` and the two orders'
+    identity shapes (`volume_guid`+`hardware_serial` for a drive,
+    `identity_key` alone for a UNC path or a cloud account) were read from
+    both work orders before this ran once.
+
+    `ON DELETE SET NULL`, deliberately not `CASCADE` - the same reasoning as
+    `repo_id` (`_v6_repositories`). Deleting a volume's catalogue entry must
+    not silently be how someone deletes 40,000 indexed rows; §2c's Delete
+    verb does that explicitly, with a stated count, never as a side effect of
+    this foreign key.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS volumes (
+            id                 INTEGER PRIMARY KEY,
+            kind               TEXT    NOT NULL,
+            identity_key       TEXT    NOT NULL UNIQUE,
+            volume_guid        TEXT,
+            hardware_serial    TEXT,
+            fs_label           TEXT,
+            name               TEXT    NOT NULL,
+            description        TEXT,
+            location_note      TEXT,
+            status             TEXT    NOT NULL DEFAULT 'OFFLINE',
+            sequential_medium  INTEGER NOT NULL DEFAULT 0,
+            first_seen         INTEGER NOT NULL,
+            last_seen          INTEGER NOT NULL,
+            last_scanned_at    INTEGER,
+            size_bytes         INTEGER,
+            file_count         INTEGER,
+            CHECK (kind IN ('drive', 'network', 'cloud', 'phone', 'archived')),
+            CHECK (status IN ('ONLINE', 'OFFLINE', 'LOCKED', 'ARCHIVED'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_volumes_kind ON volumes(kind)")
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "volume_id" not in columns:
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN volume_id INTEGER "
+            "REFERENCES volumes(id) ON DELETE SET NULL"
+        )
+    if "relative_path" not in columns:
+        conn.execute("ALTER TABLE files ADD COLUMN relative_path TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_volume ON files(volume_id) "
+        "WHERE volume_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_files_volume_relpath "
+        "ON files(volume_id, relative_path) WHERE volume_id IS NOT NULL"
+    )
+    conn.execute("ANALYZE")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -892,6 +958,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     14: _v14_folded_mail_columns,
     15: _v15_saved_searches,
     16: _v16_chunk_label,
+    17: _v17_offline_media_volumes,
 }
 
 

@@ -33,6 +33,43 @@ CREATE TABLE IF NOT EXISTS repos (
 CREATE INDEX IF NOT EXISTS idx_repos_name ON repos(name);
 
 -- ---------------------------------------------------------------------------
+-- Offline Media -- volumes: drives, network shares, cloud mounts, tape/archived
+-- ---------------------------------------------------------------------------
+--
+-- One catalogued *source*, shared by orders 202626270513 (drives) and
+-- 202626270514 (network shares, cloud mounts, tape/archived sources) so a
+-- later kind never forces a second, incompatible table onto the first.
+--
+-- **Nothing here ever stores a drive letter or a mapped network letter.**
+-- Identity is `identity_key` - a volume GUID for a drive, a normalised UNC
+-- for a share, the account as a cloud mount exposes it, a free-text name for
+-- an archived source (tape, DVD, a box handed to someone else). The current
+-- mount point is read live every time a real path is needed - open, reveal,
+-- rescan - and is never trusted as identity. See `sqlite_store.upsert_volume`.
+CREATE TABLE IF NOT EXISTS volumes (
+    id                 INTEGER PRIMARY KEY,
+    kind               TEXT    NOT NULL,      -- drive | network | cloud | phone | archived
+    identity_key       TEXT    NOT NULL UNIQUE,
+    volume_guid        TEXT,                  -- kind=drive: the \\?\Volume{guid}\ path
+    hardware_serial    TEXT,                  -- kind=drive: WMI disk serial - advisory, for reformat recognition only
+    fs_label           TEXT,                  -- filesystem label at the last scan
+    name               TEXT    NOT NULL,      -- the user's own name: "Projects 2019"
+    description        TEXT,
+    location_note      TEXT,                  -- kind=archived: free text, "LTO-7 tape B-0042, fire safe"
+    status             TEXT    NOT NULL DEFAULT 'OFFLINE',  -- last known: ONLINE | OFFLINE | LOCKED | ARCHIVED
+    sequential_medium  INTEGER NOT NULL DEFAULT 0,          -- LTFS/tape: content scans walk in on-tape order
+    first_seen         INTEGER NOT NULL,
+    last_seen          INTEGER NOT NULL,
+    last_scanned_at    INTEGER,
+    size_bytes         INTEGER,
+    file_count         INTEGER,
+    CHECK (kind IN ('drive', 'network', 'cloud', 'phone', 'archived')),
+    CHECK (status IN ('ONLINE', 'OFFLINE', 'LOCKED', 'ARCHIVED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_volumes_kind ON volumes(kind);
+
+-- ---------------------------------------------------------------------------
 -- Files
 -- ---------------------------------------------------------------------------
 
@@ -50,15 +87,27 @@ CREATE TABLE IF NOT EXISTS files (
     indexed_at    INTEGER,
     source_kind   TEXT    NOT NULL,          -- file | pst_message | eml | archive
     repo_id       INTEGER REFERENCES repos(id) ON DELETE SET NULL,
+    -- A file catalogued from `volumes`: identity is (volume_id, relative_path),
+    -- never an absolute path. `path` above then holds a synthetic, letter-free
+    -- string built from the two - see `sqlite_store.volume_synthetic_path` -
+    -- so the UNIQUE(path) constraint still holds and the same file seen as E:
+    -- then F: is one row, not two. NULL for an ordinary, always-connected file.
+    volume_id     INTEGER REFERENCES volumes(id) ON DELETE SET NULL,
+    relative_path TEXT,
     -- NAME_ONLY: the file exists and is findable by name; its contents
     -- were never read. A status, not a failure - see FileStatus.
     CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED', 'NAME_ONLY'))
 );
-
 CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);
 CREATE INDEX IF NOT EXISTS idx_files_dir    ON files(parent_dir);
 CREATE INDEX IF NOT EXISTS idx_files_ext    ON files(ext);
 CREATE INDEX IF NOT EXISTS idx_files_skip   ON files(skip_code) WHERE skip_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_files_volume ON files(volume_id) WHERE volume_id IS NOT NULL;
+-- Every relative_path under one volume is unique - it is the file's real
+-- location on that volume - so this both enforces the invariant and is how
+-- a rescan looks a candidate up without building the synthetic path string.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_volume_relpath
+    ON files(volume_id, relative_path) WHERE volume_id IS NOT NULL;
 -- **Three indexes that were missing, and one comment that claimed otherwise.**
 --
 -- `keyword.py` asserted that `source_kind` was "already indexed, so this costs
