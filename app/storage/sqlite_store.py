@@ -2737,6 +2737,63 @@ class SqliteStore:
                 (status, int(volume_id)),
             )
 
+    def rename_volume_identity(self, volume_id: int, new_identity_key: str) -> bool:
+        r"""202626270514 1a, the acceptance half of "softened by
+        structure-match offer": the user has confirmed a new UNC path (or
+        other identity) is the *same* catalogued source, renamed or moved,
+        not a second one. Repoints `identity_key`; every existing `files` row
+        is untouched, because those key on `volume_id`, never on
+        `identity_key` - see `volume_synthetic_path`. So nothing about the
+        catalogue's history moves, and the next Rescan simply finds the
+        source at its new address.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                "UPDATE volumes SET identity_key = ? WHERE id = ?",
+                (new_identity_key, int(volume_id)),
+            )
+            return cursor.rowcount > 0
+
+    def volume_top_level_names(self, volume_id: int) -> frozenset[str]:
+        r"""The distinct first path segment of every file catalogued under
+        this volume - "Invoices", "2019", "report.pdf" for a share whose
+        root holds those three. Used only for 1a's structure-match offer: a
+        cheap, name-only fingerprint of what a source's root looked like on
+        its last scan, never its full listing and never its content.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT
+                CASE WHEN instr(relative_path, '/') = 0
+                     THEN relative_path
+                     ELSE substr(relative_path, 1, instr(relative_path, '/') - 1)
+                END AS top
+            FROM files
+            WHERE volume_id = ? AND relative_path IS NOT NULL
+            """,
+            (int(volume_id),),
+        ).fetchall()
+        return frozenset(row["top"] for row in rows if row["top"])
+
+    def archive_volume(self, volume_id: int, location_note: str) -> bool:
+        r"""202626270514 3b-1: detach a catalogued source into kind='archived'
+        - "a name + free-text location", nothing more. `identity_key`,
+        `volume_guid` and every `files` row are left exactly as they are:
+        Browse (via `app.index.offline_media.resolve_file_path`, which
+        already returns None for anything not in `connected_volumes`) and
+        Delete both keep working unchanged, because neither depends on
+        `kind`. Only Rescan stops meaning anything - `connected_volumes`
+        never attempts to resolve an archived source, the same safe default
+        it already applies to kind='cloud'/'phone'.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                "UPDATE volumes SET kind = 'archived', status = 'ARCHIVED', "
+                "location_note = ? WHERE id = ?",
+                (location_note, int(volume_id)),
+            )
+            return cursor.rowcount > 0
+
     def rename_volume(self, volume_id: int, *, name: Optional[str] = None,
                       description: Optional[str] = None) -> bool:
         """The one place `name`/`description` change after the first Scan."""

@@ -1399,7 +1399,18 @@ class Pipeline:
     #: `ERR_FILE_LOCKED` is here as well as on its candidates: a lock is
     #: transient by definition, so it is never a settled answer regardless of
     #: which route the file arrives by.
-    DEFERRED_SKIP_CODES = frozenset({"ERR_OCR_HELD", "ERR_FILE_LOCKED"})
+    #:
+    #: `ERR_CLOUD_ONLY` (202626270514 3b): a placeholder that is still a
+    #: placeholder never reaches this check at all - the earlier
+    #: `not candidate.readable` branch settles it on mtime/size alone, with
+    #: no read. Reaching here with this skip code already on the row means
+    #: the walk just classified the *same* candidate as `readable=True` -
+    #: the file has hydrated, mtime and size held steady through the whole
+    #: transition, and the only thing that changed is not on disk at all.
+    #: Settling it here would leave a hydrated file claiming its content is
+    #: still online-only, forever - the exact bug this constant was built to
+    #: catch, reappearing for a skip code nobody had yet.
+    DEFERRED_SKIP_CODES = frozenset({"ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY"})
 
     def _is_deferred(self, skip_code: Optional[str]) -> bool:
         """Is this skip a queue entry that the current pass should honour?
@@ -1817,9 +1828,16 @@ class Pipeline:
                 # nothing to say about its contents.
                 return UNCHANGED
             if (record is not None
-                    and record.status == FileStatus.NAME_ONLY
+                    and record.status in (FileStatus.NAME_ONLY, FileStatus.SKIPPED)
                     and record.mtime_ns == candidate.mtime_ns
                     and record.size_bytes == candidate.size_bytes):
+                # **`SKIPPED` joins `NAME_ONLY` here for 202626270514 3a.** A
+                # cloud placeholder now settles as `ERR_CLOUD_ONLY` (see
+                # `_extract_worker`), and without this it would fail the
+                # exact H1 bug class the order register already fixed once:
+                # re-queued, re-classified as a fresh skip and rewritten,
+                # every incremental pass, forever - for every placeholder in
+                # a synced library, not just the ones that changed.
                 return UNCHANGED
             return None                      # write the name row, read nothing
 
@@ -1923,8 +1941,28 @@ class Pipeline:
             if not getattr(candidate, "readable", True):
                 # **Nothing is opened.** The row is its name, path, size and
                 # date - one INSERT on top of a `stat` the walk already did.
-                self._offer(results, _Extracted(
-                    candidate=candidate, content_hash=None, name_only=True))
+                #
+                # **202626270514 3a: a cloud placeholder is not the same kind
+                # of "cannot read" as a `.zip` or a `.exe`.** Those have no
+                # reader and no fix - `name_only=True` is the honest answer
+                # forever. A placeholder has a perfectly good reader; its
+                # content simply is not local right now, which is exactly
+                # what `ERR_CLOUD_ONLY` (`SKIP_CONTINUE`) exists to say -
+                # "3,412 files skipped: stored online only", with the fix
+                # ("Always keep on this device", or the opt-in) named, per
+                # non-negotiable 2. Checked from `candidate.attributes`
+                # alone, so this still opens nothing.
+                if getattr(candidate, "is_cloud_placeholder", False):
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=None,
+                        error=make_error(
+                            "ERR_CLOUD_ONLY", "index.pipeline",
+                            path=str(candidate.path),
+                        ),
+                    ))
+                else:
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=None, name_only=True))
                 work.task_done()
                 continue
             self._stats_ref.current = candidate.path.name

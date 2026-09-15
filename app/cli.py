@@ -1866,10 +1866,15 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
         return _offline_media_delete(settings, args.delete, args.json,
                                      confirmed=args.yes)
 
+    if args.archive is not None:
+        return _offline_media_archive(settings, args.archive, args.location,
+                                      as_json=args.json)
+
     if args.scan:
         return _offline_media_scan(settings, Path(args.scan).expanduser(),
                                    name=args.name, description=args.description,
-                                   as_json=args.json)
+                                   as_json=args.json, same_as=args.same_as,
+                                   sequential_medium=args.sequential_medium)
 
     if args.rescan is not None:
         return _offline_media_rescan(settings, args.rescan, as_json=args.json)
@@ -1909,15 +1914,17 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
 
 
 def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
-                        description: Optional[str], as_json: bool) -> int:
+                        description: Optional[str], as_json: bool,
+                        same_as: Optional[str] = None,
+                        sequential_medium: bool = False) -> int:
     r"""The first Scan of a new source: a drive, or a network share
     (202626270514 1a - identity resolved here, the mapped letter if any
     discarded immediately after). 2b: asks for a name; here, requires one,
     because there is no dialog to ask twice."""
-    from app.index.offline_media import identify_source
+    from app.index.offline_media import identify_source, suggest_renamed_source
     from app.storage.sqlite_store import SqliteStore
 
-    if not name:
+    if not name and not same_as:
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.offline_media",
             key="name", reason="a Scan needs a name to remember this source by",
@@ -1960,11 +1967,50 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
                           "then scan again.",
             ), as_json)
 
+    notice: Optional[str] = None
     with SqliteStore(settings.fts_db) as store:
-        volume_id = store.upsert_volume(
-            fields["identity_key"], kind=kind, name=name, description=description,
-            **{k: v for k, v in fields.items() if k != "identity_key"},
-        )
+        existing = store.get_volume_by_identity(fields["identity_key"])
+
+        if same_as is not None:
+            # **1a's acceptance half**: the person has confirmed this new
+            # identity IS a catalogued source, renamed or moved - reattach
+            # rather than catalogue a second, duplicate row. `--same-as`
+            # never fires silently; it is always something the caller typed.
+            target = _find_volume(store, same_as)
+            if target is None:
+                return _report(make_error(
+                    "ERR_CONFIG_INVALID", "cli.offline_media",
+                    key="same_as", reason=f"no catalogued source matches {same_as!r}",
+                ), as_json)
+            if existing is not None and existing.id != target.id:
+                return _report(make_error(
+                    "ERR_CONFIG_INVALID", "cli.offline_media",
+                    key="same_as",
+                    reason=f"{fields['identity_key']!r} is already catalogued "
+                           f"as {existing.name!r}, not {target.name!r}",
+                ), as_json)
+            store.rename_volume_identity(target.id, fields["identity_key"])
+            volume_id = target.id
+            name = target.name
+        elif existing is None and kind in ("drive", "network"):
+            # **1a's offer half, softened: assist, never assume.** Only
+            # surfaced for a genuinely new identity - an ordinary rescan at
+            # an already-known identity never reaches here at all.
+            suggestion = suggest_renamed_source(store, kind, root,
+                                                exclude_identity_key=fields["identity_key"])
+            if suggestion is not None:
+                notice = (f"This looks like {suggestion['name']!r} at a new "
+                          f"address (its folders match). If it is the same "
+                          f"source, rescan it with "
+                          f"--same-as \"{suggestion['name']}\" instead of "
+                          f"cataloguing it again.")
+
+        if same_as is None:
+            volume_id = store.upsert_volume(
+                fields["identity_key"], kind=kind, name=name, description=description,
+                sequential_medium=sequential_medium,
+                **{k: v for k, v in fields.items() if k != "identity_key"},
+            )
         if kind == "drive":
             # The advisory hardware serial (1a: reformat recognition) is
             # fetched after the row exists, so a slow or missing WMI
@@ -1976,6 +2022,13 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
                 store.upsert_volume(fields["identity_key"], kind=kind, name=name,
                                    hardware_serial=serial)
 
+        if sequential_medium and not as_json:
+            # 3b-2: named before the scan starts, not buried in a log line -
+            # a tape read is minutes, not the instant a names-only pass over
+            # an ordinary drive would suggest.
+            print("This is a sequential medium (tape): a content scan reads "
+                  "it end to end. Names-only cataloguing stays instant.")
+
         # 1c: a network share never hashes to verify - SMB makes reading
         # every byte of every file just to confirm it has not moved
         # prohibitive, where a local mtime/size settling is nearly free.
@@ -1985,11 +2038,15 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
         )
 
     if as_json:
-        print(json.dumps({"volume_id": volume_id, "kind": kind, **stats.as_dict()},
-                         indent=2, default=str))
+        payload = {"volume_id": volume_id, "kind": kind, **stats.as_dict()}
+        if notice:
+            payload["notice"] = notice
+        print(json.dumps(payload, indent=2, default=str))
         return EXIT_OK
     print(f"Catalogued as {name!r} ({kind}): {stats.indexed:,} document(s), "
           f"{stats.seen:,} file(s) seen.")
+    if notice:
+        print(notice)
     return EXIT_OK
 
 
@@ -2038,6 +2095,41 @@ def _offline_media_rescan(settings: Any, identifier: str, *, as_json: bool) -> i
     print(f"Rescanned {record.name!r}: {stats.indexed:,} new/changed document(s), "
           f"{reconciled.moved:,} file(s) moved on disk and repaired without "
           f"re-extraction, {stats.deleted:,} row(s) removed for files genuinely gone.")
+    return EXIT_OK
+
+
+def _offline_media_archive(settings: Any, identifier: str,
+                           location: Optional[str], *, as_json: bool) -> int:
+    r"""3b-1: "Mark as archived" - detach a catalogued source into a name +
+    free-text location. Generalises past tape - DVDs, a destroyed drive,
+    media handed to someone else."""
+    from app.index.offline_media import archive_volume
+    from app.storage.sqlite_store import SqliteStore
+
+    if not location:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.offline_media",
+            key="location", reason="archiving a source needs a location to "
+                                   "remember it by",
+            suggestion='Say where it physically is: --location "LTO-7 tape '
+                       'B-0042, fire safe, IT room"',
+        ), as_json)
+
+    with SqliteStore(settings.fts_db) as store:
+        record = _find_volume(store, identifier)
+        if record is None:
+            return _report(make_error(
+                "ERR_CONFIG_INVALID", "cli.offline_media",
+                key="identifier", reason=f"no catalogued source matches {identifier!r}",
+            ), as_json)
+        result = archive_volume(store, record.id, location)
+
+    if as_json:
+        print(json.dumps(result, indent=2))
+        return EXIT_OK
+    print(f"{result['name']!r} is now archived: {location}")
+    print("Rescan is disabled. Browse and Delete still work. Nothing already "
+         "indexed was touched.")
     return EXIT_OK
 
 
@@ -3748,6 +3840,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_offline.add_argument(
         "--yes", action="store_true",
         help="--delete only: actually delete, having seen the count")
+    p_offline.add_argument(
+        "--same-as", metavar="NAME_OR_ID",
+        help="--scan only (202626270514 1a): this new source is the same one "
+             "already catalogued as NAME_OR_ID, renamed or moved to a new "
+             "address - reattach its identity instead of cataloguing a "
+             "second, duplicate source. Existing files keep their history; "
+             "nothing is re-indexed")
+    p_offline.add_argument(
+        "--archive", metavar="NAME_OR_ID",
+        help="202626270514 3b-1: detach a catalogued source into a "
+             "manual/archived one - a name and a free-text location "
+             "(--location), nothing more. Rescan is disabled from then on; "
+             "Browse and Delete still work. Requires --location")
+    p_offline.add_argument(
+        "--location", metavar="TEXT",
+        help='--archive only: free text, e.g. "LTO-7 tape B-0042, fire '
+             'safe, IT room"')
+    p_offline.add_argument(
+        "--sequential-medium", action="store_true",
+        help="--scan only (202626270514 3b-2): this volume is a tape or "
+             "other sequential medium - a content scan reads it end to end "
+             "in on-tape order rather than the ordinary walk order, and "
+             "Rescan says so before it starts. Names-only cataloguing is "
+             "unaffected and stays instant")
     p_offline.set_defaults(func=cmd_offline_media)
 
     p_eval = sub.add_parser(

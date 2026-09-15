@@ -208,6 +208,60 @@ def test_candidate_without_attributes_is_not_a_placeholder(tmp_path: Path) -> No
     assert not Candidate(path=tmp_path / "x.txt", size_bytes=1, mtime_ns=1).is_cloud_placeholder
 
 
+def test_a_real_placeholder_is_findable_by_name_not_dropped(tmp_path: Path) -> None:
+    r"""**202626270514 3a**: a cloud placeholder must still get a row - name,
+    path, size, date - and never be opened. Before this fix `walk()` simply
+    `continue`d past a placeholder candidate, which is indistinguishable from
+    the file not existing: no row, no skip code, no count anywhere. This is
+    the same "invisible is the worst of the three possible answers" bug
+    `WalkConfig.name_only` was built to kill for unreadable extensions,
+    reappearing for cloud placeholders through a different door.
+
+    `FILE_ATTRIBUTE_OFFLINE` is set for real via `SetFileAttributesW` - it is
+    an ordinary, settable NTFS attribute (used by HSM systems), unlike the
+    reparse-provider-specific `RECALL_ON_*` bits a real sync client sets -
+    so this is a genuine Windows attribute round-trip, not a mock.
+    """
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    import ctypes
+
+    target = tmp_path / "report.txt"
+    target.write_text("would-be-cloud content", encoding="utf-8")
+    FILE_ATTRIBUTE_OFFLINE = 0x1000
+    ok = ctypes.windll.kernel32.SetFileAttributesW(str(target), FILE_ATTRIBUTE_OFFLINE)
+    assert ok, "could not set a real FILE_ATTRIBUTE_OFFLINE bit for this test"
+
+    try:
+        found = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT)))
+    finally:
+        ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)  # FILE_ATTRIBUTE_NORMAL
+
+    assert names(found) == {"report.txt"}, "the placeholder vanished instead of getting a row"
+    assert readable(found) == set(), "a placeholder must never be opened"
+    assert found[0].is_cloud_placeholder
+
+
+def test_include_cloud_reads_placeholders_when_opted_in(tmp_path: Path) -> None:
+    """`include_cloud=True` is the explicit opt-in (2b): the same file becomes
+    an ordinary readable candidate."""
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    import ctypes
+
+    target = tmp_path / "report.txt"
+    target.write_text("would-be-cloud content", encoding="utf-8")
+    FILE_ATTRIBUTE_OFFLINE = 0x1000
+    ctypes.windll.kernel32.SetFileAttributesW(str(target), FILE_ATTRIBUTE_OFFLINE)
+
+    try:
+        found = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT, include_cloud=True)))
+    finally:
+        ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)
+
+    assert readable(found) == {"report.txt"}
+
+
 # --- prioritisation ---------------------------------------------------------
 
 def test_nominated_folders_sort_first(tmp_path: Path) -> None:

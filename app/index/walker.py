@@ -35,7 +35,7 @@ import fnmatch
 import hashlib
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
@@ -639,7 +639,23 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 )
 
                 if candidate.is_cloud_placeholder and not config.include_cloud:
-                    continue
+                    # **202626270514 3a: never read placeholder bytes, but
+                    # never make the file invisible either.** `continue` here
+                    # used to drop the candidate entirely - no row, no skip
+                    # code, no count, the exact "invisible is the worst of the
+                    # three possible answers" bug `name_only` was built to
+                    # eliminate (see `WalkConfig.name_only`'s own docstring),
+                    # arriving through a different door: a name-only OneDrive
+                    # or Google Drive library indexed as if it were empty.
+                    # `LOCAL_KNOWLEDGE_GRAPH_V2.md`'s own architecture section
+                    # already documented the intended shape - SKIPPED with
+                    # `ERR_CLOUD_ONLY`, findable by name, reported and
+                    # actionable - `app.cli extract` already raises it; the
+                    # real walk never did. Forcing `readable=False` here is
+                    # what makes `Pipeline._extract_worker` take that branch
+                    # (see there) without opening the file - the check stays
+                    # exactly where it was, on the stat already performed.
+                    candidate = replace(candidate, readable=False)
 
                 seen.add(key)
                 yield candidate

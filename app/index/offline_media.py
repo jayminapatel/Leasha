@@ -30,6 +30,9 @@ __all__ = [
     "reconcile_moves",
     "ReconcileResult",
     "identify_source",
+    "suggest_renamed_source",
+    "archive_volume",
+    "volume_location_label",
 ]
 
 _log = logger.bind(component="index.offline_media")
@@ -74,6 +77,118 @@ def identify_source(path: Path) -> Optional[tuple[str, dict[str, Any]]]:
             "fs_label": identity.fs_label,
         }
     return None
+
+
+#: 1a's structure-match offer: how similar a new root's top-level names must
+#: be to a catalogued-but-different source's own last-scan fingerprint before
+#: it is worth suggesting at all. High enough that two shares which merely
+#: both happen to contain "2019" and "Invoices" - unremarkable - never fire;
+#: a renamed server's own share, whose whole top level survived the move,
+#: clears it by a wide margin.
+STRUCTURE_MATCH_MIN_OVERLAP = 0.6
+STRUCTURE_MATCH_MIN_SHARED = 2
+
+
+def suggest_renamed_source(store: Any, kind: str, new_root: Path,
+                           exclude_identity_key: Optional[str] = None) -> Any:
+    r"""1a: "renamed server = new source, softened by structure-match offer
+    ('is this *Old NAS* at a new address?' - assist, never assume)."
+
+    A **shallow, name-only** comparison: the top-level entries at `new_root`
+    right now, against `store.volume_top_level_names` for every catalogued
+    source of the same `kind` - one `os.scandir` and one already-cheap SQL
+    query, never a walk and never a byte of content read. Returns the
+    best-matching volume row (a `dict`, from `store.list_volumes()`'s own
+    shape) if the overlap clears `STRUCTURE_MATCH_MIN_OVERLAP`, or None.
+
+    **This only ever suggests - nothing here writes to the database.** The
+    caller offers the suggestion (today, `app.cli offline_media`'s own
+    notice plus `--same-as`; the Offline Media tab's interactive dialog is
+    202626270513 §2's, not built - see the work order's dated note) and a
+    person decides, via `SqliteStore.rename_volume_identity`. Never assumed
+    automatically, because two unrelated shares sharing a couple of common
+    folder names ("2019", "Invoices") is not unusual.
+    """
+    try:
+        entries = frozenset(entry.name for entry in os.scandir(new_root))
+    except OSError:
+        return None
+    if len(entries) < STRUCTURE_MATCH_MIN_SHARED:
+        return None
+
+    best = None
+    best_overlap = 0.0
+    for row in store.list_volumes():
+        if row.get("kind") != kind:
+            continue
+        if exclude_identity_key and row.get("identity_key") == exclude_identity_key:
+            continue
+        volume_id = int(row["id"])
+        known = store.volume_top_level_names(volume_id)
+        if not known:
+            continue
+        shared = entries & known
+        if len(shared) < STRUCTURE_MATCH_MIN_SHARED:
+            continue
+        union = entries | known
+        overlap = len(shared) / len(union) if union else 0.0
+        if overlap >= STRUCTURE_MATCH_MIN_OVERLAP and overlap > best_overlap:
+            best_overlap = overlap
+            best = row
+    return best
+
+
+def volume_location_label(record: Any) -> str:
+    r"""3a/3b-1's results decoration text for one source - "on **<name>**
+    (offline, scanned <date>)" for an ordinary offline volume, "on tape
+    **<name>** (archived <month year>)" for one 3b-1 detached.
+
+    A pure formatting function, deliberately free of any store or search
+    dependency, so it can be reused wherever a source needs to say what it
+    is without duplicating the wording - and unit-testable on its own before
+    any results surface actually calls it. **Not yet wired into search
+    results display**: 202626270513 §3's own decoration path (the row that
+    reads "on <name> (offline, scanned <date>)") is itself unbuilt - see
+    that order's §3a, still unchecked - so there is nothing here to ride
+    yet; this exists so that wiring, whenever it happens, does not also have
+    to invent the archived-source wording from scratch.
+    """
+    name = str(getattr(record, "name", "") or "")
+    kind = str(getattr(record, "kind", "") or "")
+    if kind == "archived":
+        scanned = getattr(record, "last_scanned_at", None)
+        when = (time.strftime("%b %Y", time.localtime(int(scanned)))
+                if scanned else "date unknown")
+        return f"on tape {name} (archived {when})"
+    status = str(getattr(record, "status", "") or "OFFLINE")
+    if status == "ONLINE":
+        return f"on {name}"
+    scanned = getattr(record, "last_scanned_at", None)
+    when = (time.strftime("%Y-%m-%d", time.localtime(int(scanned)))
+            if scanned else "date unknown")
+    return f"on {name} (offline, scanned {when})"
+
+
+def archive_volume(store: Any, volume_id: int, location_note: str) -> dict[str, Any]:
+    r"""3b-1: "Mark as archived" - the scan-before-archive workflow. Detaches
+    a catalogued source into kind='archived': a name and this free-text
+    location, nothing more. Rescan stops meaning anything from here -
+    `connected_volumes` never attempts an archived source, the same safe
+    default it already applies to kind='cloud'/'phone'; Browse and Delete
+    both keep working, because `SqliteStore.archive_volume` touches only
+    `kind`/`status`/`location_note` and every `files` row is untouched.
+
+    Generalises past tape, per the order's own wording: DVDs, a destroyed
+    drive, media handed to a third party - anything for which the catalogue
+    is now the only surviving record of what was once there.
+    """
+    record = store.get_volume(volume_id)
+    if record is None:
+        return {"archived": False, "name": None}
+    ok = store.archive_volume(volume_id, location_note)
+    if ok:
+        _log.info("archived Offline Media source {!r}: {}", record.name, location_note)
+    return {"archived": ok, "name": record.name, "location_note": location_note}
 
 
 def connected_volumes(store: Any) -> dict[int, Path]:

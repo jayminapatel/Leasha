@@ -34,6 +34,7 @@ import pytest
 from app.index.embedder import Embedder, l2_normalise
 from app.index.offline_media import connected_volumes, delete_volume, resolve_file_path
 from app.index.pipeline import Pipeline, PipelineConfig
+from app.index.resources import ResourceLimits
 from app.index.walker import WalkConfig
 from app.storage.sqlite_store import SqliteStore, volume_synthetic_path
 
@@ -72,6 +73,16 @@ def _write(path: Path, text: str = "Barnsley Dairy commissioning notes.") -> Pat
 
 
 def _run(store, roots, *, volume_roots=None, **config):
+    # **Deterministic regardless of machine load.** Without an explicit
+    # `limits`, `PipelineConfig` defaults to `ResourceLimits(cpu_percent=80)`
+    # - correct in production (never compete with the owner), wrong for a
+    # unit test that must not depend on what else happens to be running on
+    # the box right now. Same pattern as `test_resources.py`/
+    # `test_governor_settles.py`'s own `LIMITS`.
+    config.setdefault("limits", ResourceLimits(
+        memory_mb=100_000, cpu_percent=0, pause_on_battery=False,
+        min_free_gb=0, poll_seconds=0.0,
+    ))
     pipeline = Pipeline(
         store, NullVectors(), _embedder(),
         PipelineConfig(
@@ -487,6 +498,383 @@ def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
     assert record.volume_guid is None          # never set for a share
     assert len(rows) == 1
     assert rows[0].path == volume_synthetic_path(volume_id, "minutes.txt")
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 1a - the structure-match offer, and the acceptance half
+# (`rename_volume_identity`). The interactive dialog is 0k §2's tab, not
+# built; this is the backend + CLI half that can be proven without it.
+# ---------------------------------------------------------------------------
+
+def test_suggest_renamed_source_finds_a_structurally_similar_offline_share(tmp_path):
+    from app.index.offline_media import suggest_renamed_source
+
+    mount = tmp_path / "old_mount"
+    _write(mount / "Invoices" / "2019.txt", "x")
+    _write(mount / "Minutes" / "q3.txt", "x")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        old_id = store.upsert_volume(
+            r"\\old-nas\projects", kind="network", name="Old NAS",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): old_id})
+
+        # The "server" has been renamed - same folders, new UNC identity.
+        new_mount = tmp_path / "renamed_mount"
+        _write(new_mount / "Invoices" / "placeholder.txt", "x")
+        (new_mount / "Minutes").mkdir(parents=True, exist_ok=True)
+
+        suggestion = suggest_renamed_source(
+            store, "network", new_mount, exclude_identity_key=r"\\new-nas\projects")
+
+    assert suggestion is not None
+    assert suggestion["name"] == "Old NAS"
+
+
+def test_suggest_renamed_source_stays_quiet_for_unrelated_shares(tmp_path):
+    """Assist, never assume: two shares sharing nothing meaningful must not
+    be offered as a match."""
+    from app.index.offline_media import suggest_renamed_source
+
+    mount = tmp_path / "old_mount"
+    _write(mount / "Invoices" / "2019.txt", "x")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        old_id = store.upsert_volume(
+            r"\\old-nas\projects", kind="network", name="Old NAS",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): old_id})
+
+        new_mount = tmp_path / "unrelated_mount"
+        _write(new_mount / "Photos" / "beach.jpg", "x")
+        _write(new_mount / "Music" / "song.mp3", "x")
+
+        suggestion = suggest_renamed_source(store, "network", new_mount)
+
+    assert suggestion is None
+
+
+def test_rename_volume_identity_keeps_every_file_row(tmp_path):
+    r"""The acceptance half: repointing `identity_key` must not touch a
+    single `files` row - they key on `volume_id`, never `identity_key`."""
+    mount = tmp_path / "mount"
+    _write(mount / "notes.txt", "Old NAS notes.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            r"\\old-nas\projects", kind="network", name="Old NAS",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+        before = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+        assert len(before) == 1
+
+        ok = store.rename_volume_identity(volume_id, r"\\new-nas\projects")
+        after = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+        record = store.get_volume(volume_id)
+
+    assert ok is True
+    assert record.identity_key == r"\\new-nas\projects"
+    assert [f.id for f in after] == [f.id for f in before]
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 3b-1 - archived sources (kind='archived')
+# ---------------------------------------------------------------------------
+
+def test_archive_volume_flips_kind_and_status_and_keeps_files(tmp_path):
+    from app.index.offline_media import archive_volume, connected_volumes
+
+    mount = tmp_path / "mount"
+    _write(mount / "manifest.txt", "What was on the tape before it was written.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            "TAPE-B-0042", kind="drive", name="Staging Folder",
+            volume_guid=r"\\?\Volume{55555555-0000-0000-0000-000000000055}",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+
+        result = archive_volume(store, volume_id, "LTO-7 tape B-0042, fire safe, IT room")
+        record = store.get_volume(volume_id)
+        files_after = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+        online = connected_volumes(store)
+
+    assert result["archived"] is True
+    assert record.kind == "archived"
+    assert record.status == "ARCHIVED"
+    assert record.location_note == "LTO-7 tape B-0042, fire safe, IT room"
+    assert len(files_after) == 1, "archiving must not touch a single files row"
+    assert volume_id not in online, "an archived source is never resolvable/rescannable"
+
+
+def test_archiving_an_unknown_volume_is_reported_not_raised(tmp_path):
+    from app.index.offline_media import archive_volume
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        result = archive_volume(store, 999_999, "nowhere")
+    assert result == {"archived": False, "name": None}
+
+
+def test_scan_records_sequential_medium_for_a_tape_volume(tmp_path):
+    r"""3b-2: the flag a Scan can set so a later content scan knows to warn
+    and read end to end. **Not proven here**: real on-tape physical
+    ordering - this machine has no LTFS medium to verify that part of 3b-2
+    against, so only the flag's storage and the plain-words warning (in
+    `app.cli`) are covered."""
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            "TAPE-B-0042", kind="drive", name="Tape Staging",
+            volume_guid=r"\\?\Volume{66666666-0000-0000-0000-000000000066}",
+            sequential_medium=True,
+        )
+        record = store.get_volume(volume_id)
+    assert bool(record.sequential_medium) is True
+
+
+def test_volume_location_label_for_archived_and_offline_sources(tmp_path):
+    from app.index.offline_media import volume_location_label
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        archived_id = store.upsert_volume(
+            "TAPE-1", kind="archived", name="Tape B-0042",
+            location_note="fire safe", status="ARCHIVED",
+        )
+        offline_id = store.upsert_volume(
+            "SHARE-1", kind="network", name="Old NAS", status="OFFLINE",
+        )
+        archived = store.get_volume(archived_id)
+        offline = store.get_volume(offline_id)
+
+    assert volume_location_label(archived).startswith("on tape Tape B-0042 (archived ")
+    assert volume_location_label(offline).startswith("on Old NAS (offline, scanned ")
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 3a/3b/3c - the per-file placeholder model
+# ---------------------------------------------------------------------------
+
+def _set_offline(path: Path) -> None:
+    import ctypes
+    ok = ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x1000)  # OFFLINE
+    assert ok, "could not set a real FILE_ATTRIBUTE_OFFLINE bit for this test"
+
+
+def _clear_offline(path: Path) -> None:
+    import ctypes
+    ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x80)  # NORMAL
+
+
+def test_2b_names_only_scan_of_a_placeholder_performs_zero_content_reads(tmp_path):
+    r"""**2b's own test, word for word**: "names-only scan of a placeholder
+    fixture performs zero content reads (asserted at the file-open level)."
+    `cloudstub`'s guard is `winfs.is_cloud_placeholder`, checked from the
+    stat already performed - this asserts nothing downstream ever calls
+    `Path.open`/`os.open` on the placeholder's path at all, not merely that
+    the result looks right."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    import builtins
+
+    mount = tmp_path / "mount"
+    target = _write(mount / "report.txt", "would-be-cloud content, never read")
+    _set_offline(target)
+
+    real_open = builtins.open
+    opened: list[str] = []
+
+    def guarded_open(file, *args, **kwargs):
+        path_str = str(file)
+        if path_str == str(target):
+            opened.append(path_str)
+        return real_open(file, *args, **kwargs)
+
+    try:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(builtins, "open", guarded_open)
+            db = tmp_path / "index.db"
+            with SqliteStore(db) as store:
+                stats = _run(store, [mount])
+    finally:
+        _clear_offline(target)
+
+    assert opened == [], "the placeholder's bytes were opened - this is the download trigger 2b exists to prevent"
+    assert stats.skipped == 1
+
+
+def test_3a_a_placeholder_is_findable_and_skipped_with_a_reason(tmp_path):
+    r"""**3a, end to end through a real Pipeline run.** A placeholder must
+    never be invisible (the pre-fix bug: `continue` dropped it with no row
+    at all) and must never be opened - it settles as SKIPPED/ERR_CLOUD_ONLY,
+    findable by name, with a stated, fixable reason (non-negotiable 2)."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    mount = tmp_path / "mount"
+    target = _write(mount / "report.txt", "would-be-cloud content")
+    _set_offline(target)
+    try:
+        db = tmp_path / "index.db"
+        with SqliteStore(db) as store:
+            stats = _run(store, [mount])
+            rows = list(store.iter_files(source_kind="file"))
+    finally:
+        _clear_offline(target)
+
+    assert len(rows) == 1, "the placeholder must still get a row"
+    assert rows[0].status == "SKIPPED"
+    assert rows[0].skip_code == "ERR_CLOUD_ONLY"
+    assert stats.skipped == 1
+    assert stats.indexed == 0
+
+
+def test_3a_a_settled_placeholder_is_not_reprocessed_every_run(tmp_path):
+    """The H1 bug class, for placeholders specifically: an unchanged
+    placeholder must cost a stat, not a re-classify-and-rewrite, on every
+    incremental pass."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    mount = tmp_path / "mount"
+    target = _write(mount / "report.txt", "would-be-cloud content")
+    _set_offline(target)
+    try:
+        db = tmp_path / "index.db"
+        with SqliteStore(db) as store:
+            _run(store, [mount])
+            stats2 = _run(store, [mount])
+    finally:
+        _clear_offline(target)
+
+    assert stats2.skipped == 0
+    assert stats2.unchanged == 1
+
+
+def test_3b_a_placeholder_that_becomes_hydrated_is_indexed_next_run(tmp_path):
+    r"""**3b: "placeholder -> hydrated (user opened it) -> next incremental
+    run content-indexes it."** Recomputed fresh every walk, from the stat -
+    nothing needs to notice the transition happened."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    mount = tmp_path / "mount"
+    target = _write(mount / "report.txt", "Barnsley Dairy commissioning notes.")
+    _set_offline(target)
+    db = tmp_path / "index.db"
+    try:
+        with SqliteStore(db) as store:
+            stats1 = _run(store, [mount])
+            assert stats1.skipped == 1
+
+            # The user opened it in Explorer; Windows hydrated it for real.
+            _clear_offline(target)
+            stats2 = _run(store, [mount])
+            rows = list(store.iter_files(source_kind="file"))
+    finally:
+        _clear_offline(target)
+
+    assert stats2.indexed == 1, "a hydrated placeholder must be content-indexed"
+    assert rows[0].status == "INDEXED"
+
+
+def test_3c_dehydration_keeps_content_and_prunes_nothing(tmp_path):
+    r"""**3c, the order's own acceptance line**: "dehydrate a fixture ->
+    content still searchable, zero rows pruned." `status` must stay
+    `INDEXED` - dehydration is neither deletion nor modification - even
+    though the file cannot be opened on this pass."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    mount = tmp_path / "mount"
+    target = _write(mount / "report.txt", "Barnsley Dairy commissioning notes.")
+    db = tmp_path / "index.db"
+    try:
+        with SqliteStore(db) as store:
+            stats1 = _run(store, [mount])
+            assert stats1.indexed == 1
+            before = list(store.iter_files(source_kind="file"))[0]
+            assert before.status == "INDEXED"
+
+            # Windows frees local space: the file dehydrates back to a
+            # placeholder. Bytes are gone locally; the logical file is not.
+            _set_offline(target)
+            stats2 = _run(store, [mount], prune_missing=True)
+            after = list(store.iter_files(source_kind="file"))[0]
+    finally:
+        _clear_offline(target)
+
+    assert after.status == "INDEXED", "dehydration must never demote a row that was read"
+    assert after.id == before.id
+    assert stats2.deleted == 0, "dehydration is not deletion - zero rows pruned"
+
+
+def test_3a_mixed_folder_hydrated_and_placeholder_get_different_treatment(tmp_path):
+    r"""**§4**: "mixed folder fixture (hydrated + placeholder): per-file
+    treatment exactly as 3a." One folder, one file of each kind, in the same
+    run - proves the decision is genuinely per-file (from each candidate's
+    own attributes) rather than per-folder or per-run."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    mount = tmp_path / "mount"
+    hydrated = _write(mount / "local.txt", "Barnsley Dairy commissioning notes.")
+    placeholder = _write(mount / "cloud.txt", "would-be-cloud content")
+    _set_offline(placeholder)
+    try:
+        db = tmp_path / "index.db"
+        with SqliteStore(db) as store:
+            stats = _run(store, [mount])
+            by_name = {r.path.replace("\\", "/").rsplit("/")[-1]: r
+                      for r in store.iter_files(source_kind="file")}
+    finally:
+        _clear_offline(placeholder)
+
+    assert stats.indexed == 1 and stats.skipped == 1
+    assert by_name["local.txt"].status == "INDEXED"
+    assert by_name["cloud.txt"].status == "SKIPPED"
+    assert by_name["cloud.txt"].skip_code == "ERR_CLOUD_ONLY"
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 §4 - share-offline immunity, network's own copy of 0513's
+# ---------------------------------------------------------------------------
+
+def test_a_run_elsewhere_does_not_prune_an_offline_shares_rows(tmp_path):
+    r"""**§4**: "share-offline immunity mirrors 0513's (never prune, never
+    wait)." The mechanism is the same one `test_a_run_elsewhere_does_not_
+    prune_an_offline_volumes_rows` already proves for kind=drive -
+    `_prune_missing` keys on `connected_volumes`, not on `kind` - so this is
+    the same guarantee, proven for kind=network specifically rather than
+    assumed to generalise."""
+    share_mount = tmp_path / "was_mounted_here"
+    _write(share_mount / "archive.txt", "A file from the decommissioned share.")
+    unrelated_root = tmp_path / "unrelated"
+    _write(unrelated_root / "today.txt", "An ordinary, always-connected file.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            r"\\decommissioned-server\archive", kind="network",
+            name="Old File Server (retired)",
+        )
+        _run(store, [share_mount],
+             volume_roots={str(share_mount).rstrip("\\/").lower(): volume_id},
+             verify_hash=False)
+        before = {r.id: (r.status, r.path) for r in
+                 store.iter_files(volume_id=volume_id, source_kind="file")}
+        assert len(before) == 1
+
+        _run(store, [unrelated_root], prune_missing=True)
+
+        after = {r.id: (r.status, r.path) for r in
+                store.iter_files(volume_id=volume_id, source_kind="file")}
+
+    assert after == before, "a decommissioned share's rows changed on a run that never touched it"
 
 
 # ---------------------------------------------------------------------------

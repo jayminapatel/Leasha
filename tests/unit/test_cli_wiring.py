@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import pathlib
 
 import pytest
@@ -485,6 +486,53 @@ def test_offline_media_scan_without_a_name_is_a_clean_error(tmp_path, capsys):
     assert code != cli.EXIT_OK
     combined = "".join(capsys.readouterr()).lower()
     assert "name" in combined
+
+
+def test_offline_media_archive_without_a_location_is_a_clean_error(tmp_path, capsys):
+    """3b-1: archiving needs a location to remember the source by."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    code = cli.cmd_offline_media(
+        parser_for(["offline-media", "--env", env, "--archive", "Whatever"]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "location" in combined
+
+
+def test_offline_media_archive_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    code = cli.cmd_offline_media(parser_for([
+        "offline-media", "--env", env, "--archive", "Nonexistent",
+        "--location", "a box somewhere",
+    ]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
+
+
+def test_offline_media_same_as_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
+    """1a's acceptance half at the CLI: `--same-as` naming a source that does
+    not exist must refuse cleanly, never invent one."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    # A real, identifiable drive root - `--same-as` fails before any walk
+    # happens (`_find_volume` returns None immediately), so this never reads
+    # anything from it.
+    system_drive = os.environ.get("SystemDrive", "C:") + "\\"
+    code = cli.cmd_offline_media(parser_for([
+        "offline-media", "--env", env, "--scan", system_drive,
+        "--same-as", "Nonexistent",
+    ]))
+    assert code != cli.EXIT_OK
+    combined = "".join(capsys.readouterr()).lower()
+    assert "no catalogued source" in combined
 
 
 def test_an_empty_vector_store_is_reported_as_not_working():

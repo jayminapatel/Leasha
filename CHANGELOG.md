@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.09 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.10 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A file stored online-only by OneDrive or Google Drive is now findable, never silently missing or silently downloaded
+
+- Indexing a folder synced by OneDrive Files On-Demand or Google Drive for
+  Desktop no longer leaves online-only files invisible. Each one now gets a
+  row by its name, folder and date - findable and, if you ask why it has no
+  content, told plainly that it is stored online only, with the fix named.
+- Its content is still never read without asking - opening it is still what
+  downloads it, exactly as before.
+- Open a file so Windows fetches it for real, and the next indexing run
+  reads its contents automatically - no re-scan, no setting to remember.
+  Windows freeing the space back up afterwards costs nothing already
+  found: the content stays searchable.
+- A catalogued removable drive or network share can now be detached into an
+  archived record - a name and a free-text location, such as "LTO-7 tape
+  B-0042, fire safe" - once it is written off and put away. The catalogue
+  stays searchable forever; nothing on the source itself is touched, and
+  nothing already indexed is affected.
+- Rescanning a network share whose server was renamed or moved can now be
+  told it is the same source, rather than being catalogued a second time -
+  `app.cli offline-media --scan ... --same-as "Old Name"` - and a Scan at a
+  new, unrecognised address is offered the match if its top-level folders
+  look like an already-catalogued source, without ever assuming so on its
+  own.
+- A drive or share can be marked as a sequential medium (a tape) at Scan
+  time, so a content scan of it says plainly that it reads end to end
+  before starting.
 
 ### A network share now catalogues the same way a drive does, and never hangs when it is offline
 
