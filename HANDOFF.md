@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.4 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 5.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -52,7 +52,7 @@ line, no traceback and no window.
 ## 3. Current state
 
 **Version 0.3.3. Eight of the nine live layers are code-complete; L8b is deferred by decision
-and L9 has not been started. 3,890 tests collected, 2 deselected (JVM - see below) and 1
+and L9 has not been started. 6,509 tests collected, 2 deselected (JVM - see below) and 1
 xfailed (real-Outlook COM, deliberately).**
 
 Eleven layers were numbered and three are dead: L6 was removed, L7 and L10 were cancelled.
