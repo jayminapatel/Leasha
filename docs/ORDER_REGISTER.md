@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.14 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.15 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -59,7 +59,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
 | 0k | `202626270513` | Offline Media I — drives in drawers | **SHIPPED** | **17 / 0** | Closed 2026-09-15 — §3 (search/browse decoration) finished the same day; see the order's own dated note |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **12 / 5** | 0k (SHIPPED). 1a/1d/3d/3b-3 closed 2026-09-16 (see the order's own dated note) — the tab dialog, the help line, the online-only results badge. Open: 2a/2b (real, substantial, deliberately not attempted partially — see the order's 2026-09-16 assessment), 2c (DEFERRED INDEFINITELY, do not build), 3b-2's on-tape ordering and one §4 test (both need hardware not present on this machine) |
-| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
+| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 5 / 10 | After 0l, before 0m. §1/§2 (Reports page, Digital Inheritance) built and verified 2026-09-16; §3 (Space Report) and §4 (Life Timeline) not started; §5's tests only partly cover what's built so far |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |

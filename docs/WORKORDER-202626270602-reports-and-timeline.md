@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -18,32 +18,42 @@ to user files, and report generation runs on workers like everything else.
 
 ## 1. The Reports section (the home)
 
-- [ ] **1a** a Reports page in the shell (sibling of Indexing/Settings, not
+**2026-09-16 — §1 and §2 built and independently verified** (a crashed session's
+uncommitted work, recovered and checked rather than trusted): `app/reports/inheritance.py`
++ `app/ui/reports_view.py` + `app/ui/widgets/report_export_dialog.py`, reached from the CLI
+(`leasha report inheritance`, `--json`, `--out`) before the UI per non-negotiable #8, and wired
+into the shell as its own tab (`test_window_opens.py` confirms six tabs, Reports among them).
+21 tests in `test_reports_inheritance.py` (three added this session: location text reaching
+the document, the no-location case rendering cleanly, and a source-scan guard mirroring
+`test_preview_window.py`'s read-only proof), plus `test_cli_wiring.py`'s report tests, all
+green. §3 and §4 below are genuinely not started - do not read this note as covering them.
+
+- [x] **1a** a Reports page in the shell (sibling of Indexing/Settings, not
   one of the four search tabs — reports are outputs, not searches): a list
   of available reports with one-line plain-words descriptions, each opening
   into its view with an **Export** action (PDF via the print machinery, and
   CSV where tabular). Room for future reports (this is a section, not two
   hard-coded screens).
-- [ ] **1b** every report view states its data timestamp ("from the index as
+- [x] **1b** every report view states its data timestamp ("from the index as
   of last run, <date>") — a report is a snapshot of the catalogue, honest
   like everything else.
 
 ## 2. Report: Digital Inheritance — the catalogue book
 
-- [ ] **2a** one document that maps *everything Leasha knows exists*: every
+- [x] **2a** one document that maps *everything Leasha knows exists*: every
   source (local roots, drives, shares, cloud, archived/tape) with its NAME,
   user description, physical location text where given, kind, counts, sizes,
   snapshot dates, online/offline status — grouped by kind, written for a
   reader who is NOT the owner ("the drive labelled 'Projects 2019', last
   seen Nov 2026, holds 41,205 files — photos 2004–2019, project documents…"
   — top-level folder summary per source, derived from the index).
-- [ ] **2b** export as a clean printable PDF titled for its purpose
+- [x] **2b** export as a clean printable PDF titled for its purpose
   ("A map of <name>'s files — generated <date>"), plain words throughout;
   contents = names/locations/summaries ONLY — never file contents, never
   credentials-adjacent names beyond what listing already shows. One
   plain-words note in the UI about what it's for (with the will; the family
   finds the map) — dignified, one sentence, no melodrama.
-- [ ] **2c** optional per-source include/exclude checkboxes before export
+- [x] **2c** optional per-source include/exclude checkboxes before export
   (a source can be private even from the map).
 
 ## 3. Report: the Space Report — duplicates and uniqueness
@@ -81,6 +91,12 @@ to user files, and report generation runs on workers like everything else.
   own — the search box already speaks dates; this is for wandering.
 
 ## 5. Rules and tests
+
+**2026-09-16 note:** the read-only-guarantee half of the first bullet is now asserted
+for §1/§2 (`test_the_inheritance_module_never_writes_to_disk`, source-scan style). The
+plain-words deny-list and tooltip-effect halves, and the fixture/pytest-qt items below,
+are not yet written for this order's surfaces and stay open — §3/§4 don't exist yet to
+test either, so this bullet cannot be ticked whole.
 
 - [ ] read-only guarantee asserted (no write syscalls to user paths from any
   report path — the view-only invariant extended); plain-words deny-list

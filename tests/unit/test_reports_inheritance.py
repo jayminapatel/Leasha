@@ -253,3 +253,44 @@ def test_an_archived_source_names_when_it_was_archived():
                              file_count=200, snapshot_date=1_690_000_000)]
     doc = render_inheritance_document(sources)
     assert "archived" in doc.lower()
+
+
+def test_a_sources_physical_location_text_appears_in_the_document():
+    r"""2a's own words: "physical location text where given" - the field
+    exists on `SourceSummary` (`location_note`, from `volumes.location_note`)
+    but nothing previously proved it reached the rendered document rather
+    than being read and silently dropped on the way to `_source_paragraph`."""
+    sources = [SourceSummary(name="Old WD", kind="drive", file_count=40,
+                             location_note="loft, blue crate")]
+    doc = render_inheritance_document(sources)
+    assert "loft, blue crate" in doc
+
+
+def test_a_source_with_no_location_text_renders_without_a_stray_dash():
+    r"""The paragraph builder only appends "- <location>" when a location
+    is given; confirms the empty case doesn't leave a dangling separator
+    a reader beside the will would have to puzzle over."""
+    sources = [SourceSummary(name="Docs", kind="local", file_count=1)]
+    doc = render_inheritance_document(sources)
+    line = next(l for l in doc.splitlines() if l.startswith("'Docs'"))
+    assert not line.rstrip().endswith("-")
+
+
+# ---------------------------------------------------------------------------
+# read-only guarantee - order 0n's own §5 first bullet, applied to the one
+# module that talks to the store: no write syscalls against a user path.
+# ---------------------------------------------------------------------------
+
+def test_the_inheritance_module_never_writes_to_disk():
+    r"""§5: "no write syscalls to user paths from any report path". This
+    module reads `SqliteStore` and returns strings; nothing in it should
+    ever open a path for writing, remove one, or shell out to move one -
+    the same guard `test_preview_window.py::
+    test_nothing_in_the_window_opens_a_file_for_writing` already applies
+    to the preview pane, applied here to the module `ReportsView` calls
+    off its worker thread."""
+    source = (Path(__file__).resolve().parents[2] / "app" / "reports"
+              / "inheritance.py").read_text(encoding="utf-8")
+    for writing in ("write_text(", "write_bytes(", "shutil.", "os.remove",
+                    "unlink(", '"w")', "'w')", "open("):
+        assert writing not in source, f"inheritance.py has {writing}"
