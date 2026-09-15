@@ -29,6 +29,7 @@ __all__ = [
     "delete_volume",
     "reconcile_moves",
     "ReconcileResult",
+    "identify_source",
 ]
 
 _log = logger.bind(component="index.offline_media")
@@ -37,6 +38,42 @@ _log = logger.bind(component="index.offline_media")
 #: prune - one LanceDB dataset version and one SQLite transaction per few
 #: thousand rows, not per file. See that method's docstring for why.
 DELETE_BATCH = 2_000
+
+
+def identify_source(path: Path) -> Optional[tuple[str, dict[str, Any]]]:
+    r"""What kind of Offline Media source `path` is, and its identity fields
+    for `SqliteStore.upsert_volume` - or None if neither a drive nor a
+    network share can be identified there.
+
+    **UNC first, then a mapped letter, then a real Windows volume.** A UNC
+    path (`\\server\share\...`) needs no resolution at all - it already is
+    its own identity (1a, order 202626270514). A mapped drive letter is
+    resolved to the UNC behind it and **the letter is discarded immediately**
+    - 1a's "at add-time and never stored" is upheld by this being the only
+    place the letter is ever read. Only once both network possibilities are
+    ruled out does this try `identify_root` for an ordinary removable drive.
+    """
+    from app.core.volumes_win import identify_root, normalise_unc, resolve_unc
+
+    unc = normalise_unc(path)
+    if unc:
+        return "network", {"identity_key": unc}
+
+    drive = str(path.drive).rstrip(":")
+    if drive:
+        mapped = resolve_unc(drive)
+        if mapped:
+            unc = normalise_unc(Path(mapped)) or mapped
+            return "network", {"identity_key": unc}
+
+    identity = identify_root(path)
+    if identity is not None and identity.volume_guid:
+        return "drive", {
+            "identity_key": identity.volume_guid,
+            "volume_guid": identity.volume_guid,
+            "fs_label": identity.fs_label,
+        }
+    return None
 
 
 def connected_volumes(store: Any) -> dict[int, Path]:
@@ -58,18 +95,30 @@ def connected_volumes(store: Any) -> dict[int, Path]:
     """
     if sys.platform != "win32":
         return {}
-    from app.core.volumes_win import find_drive_by_guid
+    from app.core.volumes_win import find_drive_by_guid, probe_unc_reachable
 
     online: dict[int, Path] = {}
     for row in store.list_volumes():
-        if row.get("kind") != "drive":
-            continue
-        guid = row.get("volume_guid")
-        if not guid:
-            continue
-        root = find_drive_by_guid(guid)
-        if root is not None:
-            online[int(row["id"])] = root
+        kind = row.get("kind")
+        volume_id = int(row["id"])
+        if kind == "drive":
+            guid = row.get("volume_guid")
+            if not guid:
+                continue
+            root = find_drive_by_guid(guid)
+            if root is not None:
+                online[volume_id] = root
+        elif kind == "network":
+            # **A UNC path needs no letter resolution at all** - unlike a
+            # drive, its identity *is* a usable filesystem root (1a: "the
+            # letter's network twin"). Only reachability is in question, and
+            # 1b/1c say an unconfirmed answer must read as offline, never as
+            # a hang or a credential prompt.
+            unc = row.get("identity_key")
+            if unc and probe_unc_reachable(unc):
+                online[volume_id] = Path(unc)
+        # kind in (cloud, phone, archived): not yet resolvable - order
+        # 202626270514's later sections. Correctly absent from `online`.
     return online
 
 
@@ -115,11 +164,11 @@ def refresh_volume_statuses(store: Any) -> dict[int, str]:
     statuses: dict[int, str] = {}
     for row in store.list_volumes():
         volume_id = int(row["id"])
-        if row.get("kind") == "drive":
+        if row.get("kind") in ("drive", "network"):
             status = "ONLINE" if volume_id in online else "OFFLINE"
         else:
-            # Not yet resolvable (network/cloud/phone/archived) - last known
-            # status stands rather than being overwritten with a guess.
+            # Not yet resolvable (cloud/phone/archived) - last known status
+            # stands rather than being overwritten with a guess.
             status = str(row.get("status") or "OFFLINE")
         statuses[volume_id] = status
         store.set_volume_status(volume_id, status)

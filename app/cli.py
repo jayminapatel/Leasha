@@ -1895,17 +1895,13 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
 
 def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
                         description: Optional[str], as_json: bool) -> int:
-    r"""The first Scan of a new source. 2b: asks for a name; here, requires
-    one, because there is no dialog to ask twice."""
-    from app.core.volumes_win import identify_root
+    r"""The first Scan of a new source: a drive, or a network share
+    (202626270514 1a - identity resolved here, the mapped letter if any
+    discarded immediately after). 2b: asks for a name; here, requires one,
+    because there is no dialog to ask twice."""
+    from app.index.offline_media import identify_source
     from app.storage.sqlite_store import SqliteStore
 
-    if not root.exists():
-        return _report(make_error(
-            "ERR_CONFIG_INVALID", "cli.offline_media",
-            key="path", reason=f"'{root}' does not exist or is not reachable",
-            suggestion="Check the drive is plugged in and the path is right.",
-        ), as_json)
     if not name:
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.offline_media",
@@ -1914,39 +1910,70 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
                        '--name "Projects 2019"',
         ), as_json)
 
-    identity = identify_root(root)
-    if identity is None or not identity.volume_guid:
+    found = identify_source(root)
+    if found is None:
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.offline_media",
-            key="path", reason=f"could not read a volume identity for '{root}'",
-            suggestion="This works for a real Windows drive letter or mount "
-                       "folder. A plain network path is order 202626270514, "
-                       "not this one.",
+            key="path", reason=f"could not read a volume or network identity for '{root}'",
+            suggestion="Check the drive is plugged in, or the share is "
+                       "reachable, and the path is right.",
         ), as_json)
+    kind, fields = found
+    if kind == "drive" and not root.exists():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.offline_media",
+            key="path", reason=f"'{root}' does not exist or is not reachable",
+            suggestion="Check the drive is plugged in and the path is right.",
+        ), as_json)
+    if kind == "network":
+        # **Probed here, hard-timeout, before anything is catalogued or
+        # walked.** Without this, a genuinely unreachable share was
+        # discovered the slow way - `os.walk` itself hanging on Windows'
+        # own SMB connection timeout, 13+ seconds against a dead host in
+        # testing here and potentially much longer on a real corporate
+        # network - and reported as "0 files found", which reads as an
+        # empty share rather than an unreachable one. 1c: "availability
+        # probes hard-timeout on workers."
+        from app.core.volumes_win import probe_unc_reachable
+
+        if not probe_unc_reachable(fields["identity_key"]):
+            return _report(make_error(
+                "ERR_UNEXPECTED", "cli.offline_media",
+                details=f"{fields['identity_key']} is offline - not signed "
+                        "in or not reachable.",
+                suggestion="Reconnect it the way you always do in Windows, "
+                          "then scan again.",
+            ), as_json)
 
     with SqliteStore(settings.fts_db) as store:
         volume_id = store.upsert_volume(
-            identity.volume_guid, kind="drive", name=name, description=description,
-            volume_guid=identity.volume_guid, fs_label=identity.fs_label,
+            fields["identity_key"], kind=kind, name=name, description=description,
+            **{k: v for k, v in fields.items() if k != "identity_key"},
         )
-        # The advisory hardware serial (1a: reformat recognition) is fetched
-        # after the row exists, so a slow or missing WMI provider never stops
-        # the volume being catalogued.
-        from app.core.volumes_win import hardware_serial_for_root
+        if kind == "drive":
+            # The advisory hardware serial (1a: reformat recognition) is
+            # fetched after the row exists, so a slow or missing WMI
+            # provider never stops the volume being catalogued.
+            from app.core.volumes_win import hardware_serial_for_root
 
-        serial = hardware_serial_for_root(root)
-        if serial:
-            store.upsert_volume(identity.volume_guid, kind="drive", name=name,
-                               hardware_serial=serial)
+            serial = hardware_serial_for_root(root)
+            if serial:
+                store.upsert_volume(fields["identity_key"], kind=kind, name=name,
+                                   hardware_serial=serial)
 
-        stats = _run_offline_media_pipeline(settings, store, root, volume_id,
-                                           quiet=as_json)
+        # 1c: a network share never hashes to verify - SMB makes reading
+        # every byte of every file just to confirm it has not moved
+        # prohibitive, where a local mtime/size settling is nearly free.
+        stats = _run_offline_media_pipeline(
+            settings, store, root, volume_id, quiet=as_json,
+            verify_hash=(kind != "network"),
+        )
 
     if as_json:
-        print(json.dumps({"volume_id": volume_id, **stats.as_dict()},
+        print(json.dumps({"volume_id": volume_id, "kind": kind, **stats.as_dict()},
                          indent=2, default=str))
         return EXIT_OK
-    print(f"Catalogued as {name!r}: {stats.indexed:,} document(s), "
+    print(f"Catalogued as {name!r} ({kind}): {stats.indexed:,} document(s), "
           f"{stats.seen:,} file(s) seen.")
     return EXIT_OK
 
@@ -1965,16 +1992,29 @@ def _offline_media_rescan(settings: Any, identifier: str, *, as_json: bool) -> i
         online = connected_volumes(store)
         root = online.get(record.id)
         if root is None:
+            # 202626270514 1b's exact wording for a share; a drive gets its
+            # own plainer one. Never a credential prompt either way - this
+            # command does not know why it is unreachable, only that it is.
+            if record.kind == "network":
+                details = (f"{record.name!r} is offline - not signed in "
+                          "or not reachable.")
+                suggestion = ("Reconnect it the way you always do in Windows, "
+                             "then rescan again. Nothing about its existing "
+                             "catalogue entry has changed.")
+            else:
+                details = f"{record.name!r} is not currently connected."
+                suggestion = ("Plug it in, then rescan again. Nothing about "
+                             "its existing catalogue entry has changed.")
             return _report(make_error(
                 "ERR_UNEXPECTED", "cli.offline_media",
-                details=f"{record.name!r} is not currently connected.",
-                suggestion="Plug it in, then rescan again. Nothing about its "
-                           "existing catalogue entry has changed.",
+                details=details, suggestion=suggestion,
             ), as_json)
 
         reconciled = reconcile_moves(store, record.id, root)
-        stats = _run_offline_media_pipeline(settings, store, root, record.id,
-                                           quiet=as_json)
+        stats = _run_offline_media_pipeline(
+            settings, store, root, record.id, quiet=as_json,
+            verify_hash=(record.kind != "network"),
+        )
 
     if as_json:
         print(json.dumps({"volume_id": record.id, "moved": reconciled.moved,
@@ -2039,12 +2079,19 @@ def _find_volume(store: Any, identifier: str) -> Any:
 
 
 def _run_offline_media_pipeline(settings: Any, store: Any, root: Path,
-                                volume_id: int, *, quiet: bool) -> Any:
+                                volume_id: int, *, quiet: bool,
+                                verify_hash: bool = True) -> Any:
     """One Pipeline run scoped to a single catalogued volume's current mount
     point. The CLI's own equivalent of `cmd_index`'s construction, trimmed to
     what a single-source Scan/Rescan needs - no multi-root priority list, no
     hand-tuned resource flags; `resolve_for_run`'s Auto numbers are enough
-    for a foreground command a person is watching."""
+    for a foreground command a person is watching.
+
+    `verify_hash=False` for a network share (202626270514 1c): SMB makes
+    reading every byte just to confirm nothing changed prohibitive, where
+    mtime/size settling for an unmoved file is nearly free. Drives keep the
+    ordinary default.
+    """
     from app.index.embedder import Embedder
     from app.index.pipeline import Pipeline, PipelineConfig
     from app.index.resolve import resolve_for_run
@@ -2069,6 +2116,7 @@ def _run_offline_media_pipeline(settings: Any, store: Any, root: Path,
         required_free_gb=settings.required_free_gb,
         embed_batch=tuned.embed_batch,
         dedup_chunks=settings.embed_dedup,
+        verify_hash=verify_hash,
     )
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 

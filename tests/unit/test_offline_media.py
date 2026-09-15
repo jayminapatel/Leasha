@@ -389,3 +389,101 @@ def test_reconcile_moves_does_nothing_when_nothing_moved(tmp_path):
 
     assert result.moved == 0
     assert result.hashed == 0
+
+
+# ---------------------------------------------------------------------------
+# Order 202626270514 (network shares, kind=network) - built on the same
+# `volumes` table and the same pipeline machinery as the tests above, per
+# CLAUDE.md's instruction that 202626270513's schema must not be forced into
+# a second, incompatible shape by this order. Nothing below is drive-only.
+# ---------------------------------------------------------------------------
+
+def test_normalise_unc_keeps_only_the_share_root():
+    from app.core.volumes_win import normalise_unc
+
+    assert normalise_unc(Path(r"\\nas01\projects\2019\report.pdf")) == r"\\nas01\projects"
+    assert normalise_unc(Path(r"\\nas01\projects")) == r"\\nas01\projects"
+    assert normalise_unc(Path(r"D:\local\path")) is None
+
+
+def test_resolve_unc_says_none_for_an_ordinary_local_drive():
+    """1a's network twin of the letter rule: `identify_source` must not
+    mistake C: for a network mapping. Real Windows call, real machine."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only")
+    from app.core.volumes_win import resolve_unc
+
+    assert resolve_unc("C") is None
+
+
+def test_probe_unc_reachable_times_out_rather_than_hanging():
+    r"""1c: "availability probes hard-timeout on workers." A host that does
+    not exist must come back within budget, not block on the OS's own SMB
+    timeout (which can be tens of seconds)."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only")
+    import time as _time
+
+    from app.core.volumes_win import probe_unc_reachable
+
+    started = _time.monotonic()
+    result = probe_unc_reachable(r"\\nonexistent-host-999999\share", timeout=2.0)
+    elapsed = _time.monotonic() - started
+
+    assert result in (None, False)
+    assert elapsed < 10.0, f"probe did not honour its timeout: took {elapsed:.1f}s"
+
+
+def test_identify_source_recognises_a_unc_path(tmp_path):
+    from app.index.offline_media import identify_source
+
+    kind, fields = identify_source(Path(r"\\nas01\projects\2019"))
+    assert kind == "network"
+    assert fields["identity_key"] == r"\\nas01\projects"
+
+
+def test_a_network_share_unreachable_is_offline_not_an_error(tmp_path):
+    r"""**202626270514's own acceptance line**: "a share scanned before
+    decommission stays searchable years later." A fake UNC identity never
+    resolves via `probe_unc_reachable` on this machine (no such host), which
+    is exactly the "server switched off" case - proven the same honest way
+    as the drive tests: a real function asked a real question, not a mock
+    told what to say.
+    """
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: UNC reachability")
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            r"\\decommissioned-server\archive", kind="network",
+            name="Old File Server (retired)",
+        )
+        online = connected_volumes(store)
+    assert volume_id not in online
+
+
+def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
+    r"""The letter-free identity guarantee (1c) extends past drives: even
+    though a network share is walked through whatever path the user typed
+    (a mapped letter or a UNC path), the stored row never depends on it -
+    proven by scanning the SAME content through a fake "mapped" root and
+    checking the row's `kind` and identity."""
+    mount = tmp_path / "mapped_z_stand_in"
+    _write(mount / "minutes.txt", "Meeting minutes, Q3 2019.")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            r"\\nas01\minutes", kind="network", name="Old NAS - Minutes",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): volume_id},
+             verify_hash=False)
+
+        record = store.get_volume(volume_id)
+        rows = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+
+    assert record.kind == "network"
+    assert record.volume_guid is None          # never set for a share
+    assert len(rows) == 1
+    assert rows[0].path == volume_synthetic_path(volume_id, "minutes.txt")

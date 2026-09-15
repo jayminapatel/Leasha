@@ -1,4 +1,4 @@
-"""Windows removable-volume identity: the GUID, label and disk serial behind
+r"""Windows removable-volume identity: the GUID, label and disk serial behind
 a drive letter - never the letter itself.
 
 Layer: L1 (read by storage/CLI at Scan/Rescan time; L3's walker never calls
@@ -40,6 +40,8 @@ __all__ = [
     "mounted_drive_roots",
     "find_drive_by_guid",
     "hardware_serial_for_root",
+    "resolve_unc",
+    "probe_unc_reachable",
 ]
 
 #: How long a `Get-Partition`/`Get-PhysicalDisk` probe may run. Advisory data
@@ -175,3 +177,108 @@ def hardware_serial_for_root(root: Path,
         return None
     serial = (done.stdout or "").strip()
     return serial or None
+
+# ---------------------------------------------------------------------------
+# Network shares (order 202626270514 kind=network) - the same "never trust
+# the letter" rule, for a mapped drive rather than a removable one.
+# ---------------------------------------------------------------------------
+
+#: Windows' own error for "this letter is not a network mapping at all" -
+#: the ordinary answer for C:, D:, and every local drive.
+_ERROR_NOT_CONNECTED = 2250
+
+#: How long a reachability probe may run before it is treated as "cannot
+#: confirm right now" - 1b/1c: unreachable must read as offline, not hang
+#: the caller, and an SMB timeout to a genuinely dead server is tens of
+#: seconds, not the sub-second cost every other check here pays.
+_UNC_PROBE_TIMEOUT_S = 3.0
+
+#: One small, reused pool for reachability probes. Not a `with` block per
+#: call: `ThreadPoolExecutor.__exit__` waits for every submitted task to
+#: finish, which would make a "hard timeout" call block for the full SMB
+#: timeout anyway - exactly the hang 1c exists to prevent. A probe that
+#: times out simply abandons its thread to finish on its own; the pool is
+#: sized to absorb a realistic number of these without growing unbounded.
+_probe_pool: Optional["ThreadPoolExecutor"] = None
+
+
+def _pool() -> "ThreadPoolExecutor":
+    global _probe_pool
+    if _probe_pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _probe_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="unc-probe")
+    return _probe_pool
+
+
+def resolve_unc(mapped_letter: str) -> Optional[str]:
+    r"""The UNC path behind a mapped drive letter, or None if it is not one.
+
+    **1a: "a mapped Z: is resolved to UNC at add-time and never stored."**
+    Called once, when a network source is first catalogued - never kept
+    around and re-read later, because the mapping is exactly the kind of
+    per-machine, per-session fact the letter itself is.
+
+    `mapped_letter` is a bare letter (`"Z"`), not `"Z:"` or `"Z:\\"` - this
+    normalises so a caller can pass whichever form `Path(...).drive` handed
+    it.
+
+    Verified on this machine only for the negative case - `ERROR_NOT_CONNECTED`
+    (2250) for an ordinary local drive - there being no mapped network drive
+    here to confirm the success path against. **(UNCONFIRMED: the success
+    path.)** Say so rather than guessing past it.
+    """
+    if sys.platform != "win32":
+        return None
+    letter = str(mapped_letter).rstrip("\\/").rstrip(":")
+    if not letter or len(letter) != 1:
+        return None
+    try:
+        mpr = ctypes.windll.mpr
+        buf = ctypes.create_unicode_buffer(261)
+        length = ctypes.c_uint(261)
+        rc = mpr.WNetGetConnectionW(
+            ctypes.c_wchar_p(f"{letter}:"), buf, ctypes.byref(length)
+        )
+    except OSError:
+        return None
+    if rc != 0 or not buf.value:
+        return None
+    return buf.value
+
+
+def normalise_unc(path: Path) -> Optional[str]:
+    r"""A UNC path as typed (`\\server\share\sub`), normalised to its share
+    root (`\\server\share`) - that root is the identity (1a); a sub-path is
+    where inside the share the user pointed, not a different source."""
+    text = str(path).replace("/", "\\")
+    if not text.startswith("\\\\"):
+        return None
+    parts = [p for p in text.split("\\") if p]
+    if len(parts) < 2:
+        return None
+    return "\\\\" + parts[0] + "\\" + parts[1]
+
+
+def probe_unc_reachable(unc_root: str,
+                        timeout: float = _UNC_PROBE_TIMEOUT_S) -> Optional[bool]:
+    r"""Is this share reachable **right now**? None if the answer could not
+    be confirmed within budget - which 1b/1c both read the same way as
+    False: "offline - not signed in or not reachable", never an error and
+    never a retry loop.
+
+    **Never touches credentials.** This is exactly the check Explorer itself
+    does when a mapped drive shows a red X - "is the thing there", nothing
+    about who is allowed to see it. No prompt, no sign-in dialog: 1b's
+    "credentials NEVER" is upheld by this function doing nothing more than
+    `os.path.exists` ever could.
+    """
+    if not unc_root:
+        return None
+    import os
+
+    future = _pool().submit(os.path.exists, unc_root)
+    try:
+        return bool(future.result(timeout=timeout))
+    except Exception:                              # noqa: BLE001 - includes TimeoutError
+        return None
