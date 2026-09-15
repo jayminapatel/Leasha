@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -54,9 +54,9 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |
 | 0f | `202626270508` | Media by default, and the OCR ladder | **SHIPPED** | **17 / 0** | Closed 2026-09-07 by §3a's display/sort wiring and §2e's tunable |
 | 0g | `202626270509` | mbox, Takeout, chats | **SHIPPED** | **7 / 0** | Was already complete; status corrected 2026-09-07 |
-| 0h | `202626270510` | Pictures I — the CLIP lane | RELEASED | 12 / 1 | Its last item's proof is **gated on the real CLIP model** — see the order's 2026-09-07 note for the one command that closes it |
-| 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
-| 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h |
+| 0h | `202626270510` | Pictures I — the CLIP lane | **SHIPPED** | **13 / 0** | Closed 2026-09-15 — see the order's 2026-09-15 note |
+| 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h (closed 2026-09-15) |
+| 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 0 / 17 | Deepest storage change — no interleaving |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
@@ -118,6 +118,16 @@ Both orders' full diffs were verified against the pre-lane commit (`d042f09`) be
 merging — additive only, no reversions — and the two pipeline.py/doctor.py test
 failures surfaced during the post-merge sweep were independently reproduced against
 that same unmodified commit, confirming they predate this session's work.
+
+**2026-09-15 — 0h closed.** Its one open item was gated on a build sandbox with no
+route to `huggingface.co`. This session runs directly on the Windows machine the app
+ships for, not that sandbox — `curl https://huggingface.co` returns `HTTP 200` from
+here — so the gate no longer holds. Ran the exact command the order's own 2026-09-07
+note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.py -v`.
+3 passed, 0 skipped, 48.30s; `test_a_photo_is_found_by_typing_a_description_of_it` ran
+against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
+not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
+0h is now satisfied.
 
 ---
 

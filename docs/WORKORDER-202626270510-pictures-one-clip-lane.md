@@ -1,8 +1,12 @@
 # Work order (One thread): Pictures I — the CLIP lane: find photos by describing them
 
-**Doc version:** 1.4 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Index + Storage/vectors + Search + results UI)
-**Status:** RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
+
+**2026-09-15 — all 13 items closed; see the dated note under §4's lane-wiring
+item for how the last one was proved on the real model.**
+
+**Status:** SHIPPED. Was RELEASED by the owner 2026-08-28. Requires 0508 (media defaults +
 ladder + EXIF dates) landed first. **Scope discipline: vectors and
 presentation only — NO tag/caption text generation (that is 0511), NO faces
 (0512).** The owner's killer case sits behind this order: describe a picture
@@ -618,7 +622,7 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
 
 ## 4. Tests
 
-- [ ] lane wiring: a fixture photo of a distinctive scene is found by a text
+- [x] lane wiring: a fixture photo of a distinctive scene is found by a text
   description with zero matching filename/text (the whole point, as a test);
   lane failure → keyword+text-vector results + notice (H4 pattern pinned).
 
@@ -727,6 +731,20 @@ does not write CLIP vectors — see §1c's dated note for the exact site.
   turning `vector.search`'s `AppErrorException` degrade into a `raise` → the
   H4 test red with the exception escaping the search, which is the exact
   failure H4 forbids.
+
+  **2026-09-15 — closed for real, on the Windows machine.** The session
+  that gated this item ran in a build sandbox with no route to
+  `huggingface.co`; this session runs directly on the machine the app ships
+  for, and `curl https://huggingface.co` returns `HTTP 200` from here. Ran
+  the exact command named above:
+  `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.py -v`
+  — 3 passed, 0 skipped, in 48.30s. `test_a_photo_is_found_by_typing_a_
+  description_of_it` **ran** rather than skipped (the real
+  `Qdrant/clip-ViT-B-32-vision` and `Qdrant/clip-ViT-B-32-text` weights
+  downloaded — `huggingface_hub`'s symlink-cache warning in the run output
+  is itself evidence of a genuine download, not a stand-in), and passed:
+  the real vision tower and real text tower rank the described photo above
+  the other one. This order's Done/Open goes to 13/0.
 
 - [x] pHash: duplicate fixture across two roots folds; reverse-image finds
   the original from a recompressed copy.
