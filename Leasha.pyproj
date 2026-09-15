@@ -90,6 +90,7 @@
     <Compile Include="app\core\settings_registry.py" />
     <Compile Include="app\core\single_instance.py" />
     <Compile Include="app\core\version.py" />
+    <Compile Include="app\core\volumes_win.py" />
     <Compile Include="app\core\winfs.py" />
     <Compile Include="app\extract\__init__.py" />
     <Compile Include="app\extract\archive.py" />
@@ -125,6 +126,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\index_bench.py" />
+    <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\repo_health.py" />
@@ -189,6 +191,7 @@
     <Compile Include="app\ui\indexing_view.py" />
     <Compile Include="app\ui\log_lines.py" />
     <Compile Include="app\ui\mail_view.py" />
+    <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter.py" />
     <Compile Include="app\ui\preview_loader.py" />
@@ -244,6 +247,7 @@
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
+    <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
     <Compile Include="app\ui\widgets\pinned_panel.py" />
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
@@ -407,6 +411,8 @@
     <Compile Include="tests\unit\test_ocr_strategy.py" />
     <Compile Include="tests\unit\test_odf.py" />
     <Compile Include="tests\unit\test_office_full_layout.py" />
+    <Compile Include="tests\unit\test_offline_media.py" />
+    <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
