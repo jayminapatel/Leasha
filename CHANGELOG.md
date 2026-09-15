@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.01 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.02 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A removable drive can now be catalogued once and found forever, even unplugged
+
+- `app.cli offline-media` catalogues a removable drive by its own identity -
+  never the letter it happens to be plugged in as, which Windows changes on
+  its own. Scan a drive once, give it a name, and every file on it stays
+  findable by what it says, whether the drive is plugged in or sitting in a
+  drawer.
+- Unplugging a catalogued drive never removes what was found on it. Only
+  the Offline Media tab's own Delete does that, and it says exactly how
+  many files it is removing from the index before it touches anything -
+  the drive itself is never written to.
+- A drive tidied up - files moved to new folders - rescans without
+  re-reading what has not changed: Leasha notices the same file at a new
+  location and repairs its record rather than reading it again.
+- The tab this belongs to, and the rest of what the drive-in-a-drawer order
+  promises, are not built yet - this is the storage layer and the command
+  line underneath them, first.
 
 ### Search results can now be dragged, pinned and read on a timeline
 
