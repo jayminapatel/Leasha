@@ -119,6 +119,54 @@ class _PileList(QListWidget):
             self.combine_requested.emit(source_id, target_id)
 
 
+class _SuggestionChip(QWidget):
+    """One "Is this <name>?" chip - section 2c's learning-loop queue. A
+    face crop, the question in the pile's own name, and a plain Yes/No -
+    the "explicit... never a silent auto-rename" promise this module's own
+    docstring makes, given a face."""
+
+    decided = pyqtSignal(int, bool)          # face_id, accept
+
+    def __init__(self, suggestion: Any, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._face_id = int(suggestion.face_id)
+
+        self._picture = QLabel()
+        self._picture.setFixedSize(72, 72)
+        self._picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        question = QLabel(f"Is this {suggestion.pile_name}?")
+        question.setWordWrap(True)
+        question.setFixedWidth(96)
+
+        yes = QPushButton("Yes")
+        yes.setToolTip(f"Adds this photo to {suggestion.pile_name}.")
+        yes.clicked.connect(lambda: self.decided.emit(self._face_id, True))
+        no = QPushButton("No")
+        no.setToolTip(
+            "Leasha will not guess this one on its own again - you can "
+            "still place it by hand from the pile it belongs to.")
+        no.clicked.connect(lambda: self.decided.emit(self._face_id, False))
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(yes)
+        buttons.addWidget(no)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._picture, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(question, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addLayout(buttons)
+
+    def set_picture(self, image: Any) -> None:
+        if image is None:
+            return
+        pixmap = QPixmap.fromImage(image)
+        if not pixmap.isNull():
+            self._picture.setPixmap(pixmap.scaled(
+                72, 72, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
+
+
 class PhotoTaggerPage(QWidget):
     """Grid of piles, biggest first. Click to name, drag to combine."""
 
@@ -172,10 +220,19 @@ class PhotoTaggerPage(QWidget):
         top_bar.addWidget(self._batch_era_button)
         top_bar.addStretch(1)
 
+        #: Section 2c: "Is this Daddy?" - a row of chips above the grid,
+        #: nothing here until `reload()` finds a suggestion to ask about.
+        self._suggestions_row = QHBoxLayout()
+        self._suggestions_row.addStretch(1)
+        self._suggestions_holder = QWidget()
+        self._suggestions_holder.setLayout(self._suggestions_row)
+        self._suggestions_holder.setVisible(False)
+
         layout = QVBoxLayout(self)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addLayout(top_bar)
+        layout.addWidget(self._suggestions_holder)
         layout.addWidget(self._list, stretch=1)
         layout.addWidget(self._empty_note)
 
@@ -184,8 +241,9 @@ class PhotoTaggerPage(QWidget):
     # -- loading ----------------------------------------------------------
 
     def reload(self) -> None:
-        """Re-read every pile from the store. Worker, always - this is a
-        real query over `faces`/`piles`, not free."""
+        """Re-read every pile - and every pending suggestion - from the
+        store. Worker, always - these are real queries over
+        `faces`/`piles`, not free."""
         from app.ui.workers import CallableWorker, run
 
         self._generation += 1
@@ -197,6 +255,14 @@ class PhotoTaggerPage(QWidget):
         worker.signals.failed.connect(
             lambda _error, g=generation: self._piles_ready([], g))
         run(self._pool, worker)
+
+        suggestions_worker = CallableWorker(
+            self._store.pending_suggestions, component="ui.photo_tagger.suggestions")
+        suggestions_worker.signals.finished.connect(
+            lambda suggestions, g=generation: self._suggestions_ready(suggestions, g))
+        suggestions_worker.signals.failed.connect(
+            lambda _error, g=generation: self._suggestions_ready([], g))
+        run(self._pool, suggestions_worker)
 
     def _piles_ready(self, piles: Any, generation: int) -> None:
         if generation != self._generation:
@@ -245,6 +311,52 @@ class PhotoTaggerPage(QWidget):
         if pixmap.isNull():
             return
         self._list.item(index).setIcon(QIcon(pixmap))
+
+    # -- suggestions: "Is this Daddy?" (section 2c) --------------------------
+
+    def _suggestions_ready(self, suggestions: Any, generation: int) -> None:
+        if generation != self._generation:
+            return                               # a later reload won
+        while self._suggestions_row.count() > 1:      # keep the trailing stretch
+            item = self._suggestions_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        suggestions = list(suggestions or [])
+        self._suggestions_holder.setVisible(bool(suggestions))
+        if not suggestions:
+            return
+
+        from app.ui.thumbnail_loader import decode_face_crop
+        from app.ui.workers import CallableWorker, run
+
+        for suggestion in suggestions:
+            chip = _SuggestionChip(suggestion, self)
+            chip.decided.connect(self._on_suggestion_decided)
+            self._suggestions_row.insertWidget(
+                self._suggestions_row.count() - 1, chip)
+
+            worker = CallableWorker(
+                decode_face_crop, suggestion.path, suggestion.bbox,
+                component="ui.photo_tagger.suggestions")
+            worker.signals.finished.connect(
+                lambda image, c=chip, g=generation:
+                c.set_picture(image) if g == self._generation else None)
+            worker.signals.failed.connect(lambda _error: None)
+            run(self._pool, worker)
+
+    def _on_suggestion_decided(self, face_id: int, accept: bool) -> None:
+        """The chip's Yes/No. Declining does not delete anything - see
+        `SqliteStore.confirm_suggestion`'s own docstring: the face just
+        returns to the unclustered pool."""
+        try:
+            self._store.confirm_suggestion(face_id, accept)
+        except Exception as exc:                     # noqa: BLE001 - one action, not a crash
+            _log.warning("could not confirm suggestion for face {}: {}", face_id, exc)
+            QMessageBox.warning(self, "Could not record that", str(exc))
+            return
+        self.reload()
 
     # -- naming -------------------------------------------------------------
 
