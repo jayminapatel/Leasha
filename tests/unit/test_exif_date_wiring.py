@@ -131,13 +131,17 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def test_the_migration_is_registered_and_current():
-    r"""**2026-09-15 (offline-media merge):** this asserted `CURRENT_VERSION
-    == 18` and broke the moment v19 (`_v19_offline_media_volumes`) was added -
-    the same trap `test_phash_column_migration.py` records against itself for
-    v17, and `test_query_plans.py` for v5. Retargeted the same way: the claim
-    is "the shot-date migration is registered and nothing later dropped it",
-    which has nothing to do with the literal number. The literal 18 stays as
-    a floor because that genuinely is the version this column arrived at.
+    r"""**2026-09-15, twice over, same trap:** this asserted `CURRENT_VERSION
+    == 18` and broke the moment a later migration landed - first from the
+    offline-media merge (`_v19_offline_media_volumes`), independently again
+    from work order 0i (`file_tags`, `taken_at_is_hint`) before that merge's
+    renumbering was visible to it. The same trap `test_phash_column_
+    migration.py` records against itself for v17, and `test_query_plans.py`
+    for v5. Retargeted the same way in both cases, converging on the same
+    fix: the claim is "the shot-date migration is registered and nothing
+    later dropped it", which has nothing to do with the literal number. The
+    literal 18 stays as a floor because that genuinely is the version this
+    column arrived at.
     """
     from app.storage.migrations import MIGRATIONS
 

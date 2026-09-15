@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 19
+CURRENT_VERSION = 22
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1028,6 +1028,102 @@ def _v19_offline_media_volumes(conn: sqlite3.Connection) -> None:
     conn.execute("ANALYZE")
 
 
+def _v20_file_tags(conn: sqlite3.Connection) -> None:
+    r"""`file_tags` - Florence-2 tag vocabulary, for the `/shows` operator.
+
+    **Renumbered from v19 to v20 at merge time** — written against a base
+    before `_v19_offline_media_volumes` (orders 202626270513/14) had landed
+    on the main line, and both claimed v19 independently. Nothing about this
+    migration's own logic changed; only its version number and its position
+    in `MIGRATIONS` did.
+
+    Work order 0i sections 1a-1c. The tag words themselves already flow into
+    search through the ordinary document/chunk/FTS path - 1b's "zero new
+    storage concepts" is about that text. This table is the different thing
+    1c asks for: a **browsable vocabulary with counts**, the same job `repos`
+    (schema v6) does for `/repo` - `distinct_values` needs a real table to
+    `GROUP BY`, and free text inside a chunk cannot be grouped or counted
+    cheaply behind a keystroke.
+
+    One row per (file, tag) - a file commonly has several tags, unlike a
+    repository, which owns exactly one file each. `ON DELETE CASCADE`
+    because a tag row has no meaning once its file is gone - the same
+    reasoning `chunks` already uses, and different from `repos`' `SET NULL`
+    on `files.repo_id`, where the *file* survives a repository disappearing.
+
+    Additive: an index built before this migration keeps every row and
+    simply has no tags until the next Florence-2 pass touches each photo -
+    the same degradation `_v17_image_phash` and `_v18_photo_taken_at` already
+    accept for their own columns.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS file_tags (
+            file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            tag        TEXT    NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_tags_file ON file_tags(file_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_tags_tag ON file_tags(tag)")
+
+
+def _v21_taken_at_is_hint(conn: sqlite3.Connection) -> None:
+    r"""`files.taken_at_is_hint` - is `taken_at_ns` a guess or a fact?
+
+    **Renumbered from v20 to v21 at merge time**, for the same reason
+    `_v20_file_tags` was — see that function's note.
+
+    Work order 0i section 4b. `taken_at_ns` (schema v18) already answers
+    "when is this from"; this answers "how much should that be trusted".
+    EXIF's `DateTimeOriginal` is a fact the camera wrote once - `taken_at_
+    is_hint` is 0 for it. A folder-year era hint ("Diwali 2004") is a
+    guess from a human-chosen album name, not a camera - 1 for it. The
+    distinction matters because work order 0512's future batch-era control
+    ("these are roughly 1998-2002") must be able to find and override only
+    the guesses, never a camera's own timestamp - a single `taken_at_ns`
+    column cannot answer "which kind is this one" on its own.
+
+    Additive and defaulted to 0 (a fact, not a hint), the same degradation
+    `_v17_image_phash` and `_v18_photo_taken_at` already accept: an index
+    built before this migration keeps every row, and every existing
+    `taken_at_ns` it already holds is EXIF-sourced (era hints did not exist
+    before this order), so 0 is not merely a safe default here - it is the
+    correct historical fact for every row that predates this column.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "taken_at_is_hint" not in existing:
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN taken_at_is_hint INTEGER NOT NULL DEFAULT 0")
+
+
+def _v22_places(conn: sqlite3.Connection) -> None:
+    r"""`files.place` - the nearest town to a photo's EXIF GPS, offline.
+
+    **Renumbered from v21 to v22 at merge time**, for the same reason
+    `_v20_file_tags` was — see that function's note.
+
+    Work order 0i section 4a. A single nullable column, not a join table
+    like `file_tags` (schema v20): a photo has exactly one GPS reading and
+    therefore at most one place, where a photo commonly carries several
+    Florence-2 tags - the cardinality is the whole reason one is a table and
+    the other is a column, the same reasoning `taken_at_ns` already used
+    against `file_tags` when 4b was built.
+
+    Additive and nullable - an index built before this migration keeps
+    every row and simply has no place until the next images pass re-touches
+    each photo, the same degradation every column this order has added
+    already accepts. The partial index mirrors `idx_files_taken_at`: most
+    rows have no GPS and never will.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "place" not in existing:
+        conn.execute("ALTER TABLE files ADD COLUMN place TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_place ON files(place) "
+        "WHERE place IS NOT NULL")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1058,6 +1154,9 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     17: _v17_image_phash,
     18: _v18_photo_taken_at,
     19: _v19_offline_media_volumes,
+    20: _v20_file_tags,
+    21: _v21_taken_at_is_hint,
+    22: _v22_places,
 }
 
 

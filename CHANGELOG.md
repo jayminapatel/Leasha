@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.10 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.15 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -73,6 +73,103 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - The tab this belongs to, and the rest of what the drive-in-a-drawer order
   promises, are not built yet - this is the storage layer and the command
   line underneath them, first.
+
+### Added: Florence-2 tags and a caption for photos with no readable text (order 0i, items 1a/1b)
+
+- **A photo-class image - the OCR ladder's "no text found" half - now gets one Florence-2 pass**
+  instead of being left unsearchable: a brief caption and object tags, written as a labelled
+  "AI description" segment through the existing chunk/FTS/embed pipeline, exactly parallel to
+  how OCR's own "Text read from the image" segment already works. Document-class images
+  (the ladder found text) are untouched - they still go through the specialist OCR engine only.
+- **torch and transformers were not installed**, despite the work order's own text assuming
+  they were. Installed for real (`torch==2.14.0+cpu`, `transformers==4.49.0` - pinned below
+  5.0 after the first version tried broke Florence-2's own modeling code with a real,
+  reproduced `AttributeError`), plus `einops`/`timm`, which Florence-2's remote code needs and
+  which the order never mentioned. See `requirements.txt`'s "Optional: Florence-2 photo
+  tagging" section for the full reasoning, and the dated note on 0i's §1 for the honestly
+  measured CPU budget (11.36s/image against the order's ~100-300ms target - a gap the order's
+  own text anticipated with "the thread MAY swap to an ONNX port later for speed").
+- Soft dependency throughout: a machine without torch/transformers gets exactly today's
+  behaviour (an untagged photo-class image is simply skipped, as before).
+
+### Added: `/shows` - Florence-2's tag vocabulary, browsable and filterable (order 0i, item 1c)
+
+- **New `file_tags` table (schema v19)**, one row per (file, tag), populated whenever a
+  Florence-2 pass (0i 1a/1b) produces tags for a photo. `distinct_values`/`distinct_value_counts`
+  can now answer `/shows` with real, counted values the way `/repo` and `/type` already do -
+  free text inside a chunk cannot be grouped or counted cheaply behind a keystroke, which is
+  why this needed a real table rather than reading the indexed words back out.
+- `shows:dog,cat` and `-shows:dog` both work, matching `repo:`'s own comma-separated, ORed
+  grammar - deliberate consistency rather than a special case for tags.
+- Found and fixed along the way: `SqliteStore.set_file_tags` did not deduplicate
+  (`["Dog","Park","dog"]` stored three rows, not two), and `ParsedQuery.has_filters` did not
+  know about `shows`, so a `/shows` search would have under-reported whether a filter was
+  active. Both fixed, both covered by `tests/unit/test_photo_tags.py`.
+
+### Added: one unified enrichment-backlog mechanism, per-kind counts in the run summary (order 0i, item 2a)
+
+- **`Pipeline._run_enrichment_drains`** is now the one place every backlog kind registers
+  through, with `IndexStats.enrichment_counts` (present even at zero, so "ran, found nothing"
+  reads differently from "did not run") and a new `Backlog` line in `app.cli index`'s summary
+  ("filled 214 vector(s) repaired" etc, per kind).
+- **The order's own text claimed three existing ad-hoc drains; only one was real.**
+  `unembedded_chunk` migrated for real (its internal logic untouched, only the call site moved
+  into the new loop - nothing that already pinned it through `Pipeline.run()` had to change).
+  `ocr_pending` already existed but as a requeue woven into the walker (`_no_text_layer_
+  candidates`/`_candidates`), not a drain - left in that shape rather than restructured, and
+  made visible with an additive count instead. `image_tag` ("untagged images") did not exist in
+  any form and is not built this session - what should count as "untagged" is a real product
+  question the order does not answer.
+- **Found and fixed a real, pre-existing bug along the way**: `_drain_unembedded` measured
+  `len(pending)` *after* calling `_embed_pending`, which clears its own argument in place for
+  its normal caller's benefit - so `stats.vectors_repaired` has silently reported 0 for every
+  real repair since the function was written. The repair itself always worked; only its own
+  count was wrong. Fixed by capturing the length before the call.
+
+### Added: the enrichment backlog respects battery/CPU pacing like an ordinary run (order 0i, item 2b)
+
+- The unembedded-chunk repair now calls the resource governor's `wait_while_throttled` at every
+  batch boundary, the same call the ordinary indexing loop already makes per file - so it will
+  not run a laptop's fan flat out just because it is "only" a repair pass.
+- Not built: a dedicated idle-only trigger that runs enrichment with no index run active at all.
+  No such infrastructure exists anywhere in this codebase yet; a configured scheduled index
+  already delivers the "smarter while you sleep" story for every drain, since a scheduled run
+  is still a run - a trigger that runs enrichment *without* one is a real design question this
+  order's text does not answer, left open rather than guessed at.
+
+### Added: folder-year era hints for photos with no EXIF at all (order 0i, item 4b)
+
+- **A scanned print with no EXIF now gets a date guess from its folder or file name**
+  ("Diwali 2004", "Summer_1999") instead of falling straight to the file's copy-date mtime -
+  `app/extract/era_hints.py`, ranked between EXIF (a fact) and mtime (the fallback of last
+  resort). New `files.taken_at_is_hint` column (schema v20) records which kind a date is, so
+  work order 0512's future batch-era override can find and override only the guesses.
+- "Takeout sidecar" date reading, named in this item's own ranking text, does not exist
+  anywhere in this codebase - checked, not assumed. The ranking built is EXIF > era hint > mtime.
+- Found while verifying: a "no text" photo can take either write path (`_write_one` or
+  `_record_skip`) depending on whether Florence-2 tagging (0i 1a/1b) succeeds on it - both now
+  correctly compute and store the era hint either way.
+- Also fixed two hardcoded `CURRENT_VERSION == 18` assertions in `test_exif_date_wiring.py`
+  that this item's new migrations (v19, v20) broke - the same trap its sibling
+  `test_phash_column_migration.py` already documents and fixes the same way.
+- A separate finding recorded for the record: this machine's `ResourceLimits.pause_on_battery`
+  defaults to `True`, and on battery power any real `Pipeline.run()` test with no override
+  blocks indefinitely - a pre-existing, whole-suite fragility, not fixed here, but worth knowing
+  before mistaking a slow real-model test for a hang.
+
+### Added: `/place` - offline reverse geocoding from a photo's EXIF GPS (order 0i, item 4a)
+
+- **A photo's GPS coordinates now resolve to a real place name** ("London", "Leeds") entirely
+  offline, from a dataset bundled inside `reverse_geocoder` - new `app/extract/exif.py::read_gps`
+  and `app/extract/places.py::reverse_geocode`, a new `files.place` column (schema v21), and a
+  `/place` operator (aliases `/near`, `/location`) with real, counted values.
+- **Measured, not assumed: the package's own convenience function was the wrong call.**
+  `reverse_geocoder.search()` defaults to a multiprocessing pool, which on Windows spawns a
+  fresh child process per call and reparses the bundled dataset each time - seconds of cost,
+  repeated. `RGeocoder(mode=1)`, loaded once and reused, measured at 2.16s first lookup then
+  0.0s after.
+- Proof includes the item's own required test: a real lookup still succeeds with `socket.connect`
+  blocked, proving zero network syscalls directly rather than by inspection.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

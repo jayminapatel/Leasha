@@ -226,6 +226,17 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "saved": _ValueShape(
         "saved_searches s", "s.name", "s.run_count", "s.name <> ''",
         "s.id, s.name"),
+    # Work order 0i section 1c. file_tags (schema v20) is Florence-2's
+    # tag vocabulary - see _v20_file_tags for why it exists as a real
+    # table rather than being read out of chunk text.
+    "shows": _ValueShape(
+        "file_tags ft JOIN files f ON f.id = ft.file_id", "ft.tag",
+        "COUNT(*)", "ft.tag <> ''", "ft.tag"),
+    # Work order 0i section 4a. A plain column, not a join table - see
+    # _v22_places for why a photo's place has different cardinality than
+    # its tags.
+    "place": _ValueShape(
+        "files f", "f.place", "COUNT(*)", "f.place <> ''", "f.place"),
 }
 
 
@@ -309,6 +320,15 @@ class FileRecord:
     #: by a volume Scan - "an ordinary, always-connected file".
     volume_id: Optional[int] = None
     relative_path: Optional[str] = None
+    #: Work order 0i section 4b. False for an EXIF-sourced date (the
+    #: default, and correct for every row written before this column
+    #: existed); True for a folder-year era hint - see
+    #: `app.extract.era_hints`.
+    taken_at_is_hint: bool = False
+    #: Work order 0i section 4a. The nearest town to a photo's EXIF
+    #: GPS, offline - None for everything that is not a photo, and
+    #: for one with no GPS block. See `app.extract.places`.
+    place: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
@@ -664,6 +684,8 @@ class SqliteStore:
         taken_at_ns: Optional[int] = None,
         volume_id: Optional[int] = None,
         relative_path: Optional[str] = None,
+        taken_at_is_hint: bool = False,
+        place: Optional[str] = None,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
 
@@ -731,8 +753,8 @@ class SqliteStore:
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
                      status, source_kind, repo_id, taken_at_ns, volume_id,
-                     relative_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     relative_path, taken_at_is_hint, place)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -770,12 +792,28 @@ class SqliteStore:
                     -- as repo_id above. The two always travel together, so one
                     -- CASE covers both rather than two independent flags.
                     volume_id     = COALESCE(excluded.volume_id, files.volume_id),
-                    relative_path = COALESCE(excluded.relative_path, files.relative_path)
+                    relative_path = COALESCE(excluded.relative_path, files.relative_path),
+                    -- Work order 0i section 4b. Paired with taken_at_ns
+                    -- above, not independently COALESCEd: whether a date is
+                    -- a fact or a guess only means anything alongside the
+                    -- date itself, so the flag follows the same "only a
+                    -- caller providing a new date gets to say" rule.
+                    taken_at_is_hint = CASE
+                        WHEN excluded.taken_at_ns IS NOT NULL THEN excluded.taken_at_is_hint
+                        ELSE files.taken_at_is_hint
+                    END,
+                    -- Work order 0i section 4a. COALESCEd for the same
+                    -- reason taken_at_ns is: a caller re-touching a file
+                    -- without a GPS answer of its own (a resume, a retry)
+                    -- must not blank a place an earlier pass established.
+                    place = COALESCE(excluded.place, files.place)
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
                  content_hash, status, source_kind, stored_repo,
                  None if taken_at_ns is None else int(taken_at_ns),
                  volume_id, relative_path,
+                 1 if taken_at_is_hint else 0,
+                 place,
                  forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
@@ -848,6 +886,39 @@ class SqliteStore:
         with self.write() as conn:
             conn.executemany(
                 "UPDATE files SET phash = ? WHERE id = ?", items)
+
+    def set_file_tags(self, file_id: int, tags: Sequence[str]) -> None:
+        r"""Replace one file's Florence-2 tags. Work order 0i section 1c.
+
+        **Replace, not append.** Re-indexing a photo (a re-tag after a model
+        upgrade, a forced re-run) must not accumulate duplicate rows forever -
+        the old set for this `file_id` is cleared first, in the same
+        transaction, so a crash between the two leaves either the old tags
+        or the new ones, never both and never neither.
+
+        Called once per photo from `Pipeline._write_one`, straight after
+        `upsert_file` gives it a `file_id` - not batched across a flush the
+        way `set_phashes` is, because tags are produced per-image already
+        (the Florence-2 call itself is the expensive part; this write is one
+        DELETE and a handful of INSENTs) and 0i's own `_write_one` call site
+        already holds a transaction it can reuse.
+
+        An empty or all-blank `tags` still clears any old row for this file
+        and writes nothing new - the correct state for a photo that used to
+        have tags before a re-tag found none.
+        """
+        # Deduplicated, order preserved - `dict.fromkeys` rather than a
+        # set, the same convention `florence_tagger.tag_image` already uses
+        # for its own label dedup, so "Dog" and "dog" collapse to one row.
+        raw = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+        cleaned = list(dict.fromkeys(raw))
+        with self.write() as conn:
+            conn.execute("DELETE FROM file_tags WHERE file_id = ?", (file_id,))
+            if cleaned:
+                conn.executemany(
+                    "INSERT INTO file_tags (file_id, tag) VALUES (?, ?)",
+                    [(file_id, tag) for tag in cleaned],
+                )
 
     def mark_skipped(self, file_id: int, error: AppError) -> None:
         """Record why a file was skipped, so the UI can group and retry.

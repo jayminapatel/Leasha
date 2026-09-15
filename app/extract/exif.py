@@ -89,6 +89,76 @@ def read_datetime(path: Path) -> Optional[datetime.datetime]:
     return None
 
 
+#: The EXIF tag holding the whole GPS IFD as a nested dict, and the four
+#: sub-tags this needs out of it. Work order 0i section 4a.
+_GPS_IFD_TAG = 34853
+_GPS_LAT_REF, _GPS_LAT, _GPS_LON_REF, _GPS_LON = 1, 2, 3, 4
+
+
+def _dms_to_degrees(dms) -> float:
+    """`((d,1),(m,1),(s,100))`-shaped EXIF rationals to decimal degrees.
+
+    Pillow exposes each of degrees/minutes/seconds as either a plain number
+    or an `IFDRational` (itself numerator/denominator) depending on Pillow
+    version and how the file was written - `float()` handles both without
+    this module needing to know which.
+    """
+    degrees, minutes, seconds = (float(part) for part in dms)
+    return degrees + minutes / 60.0 + seconds / 3600.0
+
+
+def read_gps(path: Path) -> Optional[tuple[float, float]]:
+    r"""A photo's EXIF GPS coordinates as `(latitude, longitude)`, or None.
+
+    Work order 0i section 4a. Never raises - the same H4 contract as
+    `read_datetime` beside it: a photo with no GPS block, a corrupt one, or
+    one Pillow cannot parse costs this one photo its place, never the run.
+
+    South and West are negative, per the ordinary decimal-degrees
+    convention `reverse_geocoder` (and everything else) expects - EXIF
+    itself stores the *reference* (`N`/`S`, `E`/`W`) and an unsigned
+    magnitude separately, which is the one translation this function does.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            exif = img._getexif()
+            if exif is None:
+                return None
+
+            gps = exif.get(_GPS_IFD_TAG)
+            if not gps:
+                return None
+
+            lat_ref = gps.get(_GPS_LAT_REF)
+            lat = gps.get(_GPS_LAT)
+            lon_ref = gps.get(_GPS_LON_REF)
+            lon = gps.get(_GPS_LON)
+            if not (lat_ref and lat and lon_ref and lon):
+                return None
+
+            latitude = _dms_to_degrees(lat)
+            if str(lat_ref).upper().startswith("S"):
+                latitude = -latitude
+            longitude = _dms_to_degrees(lon)
+            if str(lon_ref).upper().startswith("W"):
+                longitude = -longitude
+
+            # A (0, 0) reading is Null Island, not a real photo location -
+            # the value a camera writes when it has a GPS block but no fix.
+            if latitude == 0.0 and longitude == 0.0:
+                return None
+
+            return (latitude, longitude)
+
+    except Exception as exc:  # noqa: BLE001
+        log.debug("could not read GPS from {}: {}: {}",
+                  path.name, type(exc).__name__, exc)
+
+    return None
+
+
 def read_orientation(path: Path) -> int:
     """EXIF orientation tag from an image.
 

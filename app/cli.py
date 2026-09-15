@@ -916,6 +916,24 @@ def _console_sink(progress: ProgressLine):
     return write
 
 
+_ENRICHMENT_LABELS = dict(
+    unembedded_chunk="vector(s) repaired",
+    ocr_pending="held file(s) retried",
+    image_tag="photo(s) tagged",
+)
+
+
+def _print_enrichment_counts(stats) -> None:
+    """Work order 0i section 2a: per-kind backlog counts, plain words."""
+    counts = getattr(stats, "enrichment_counts", None) or dict()
+    nonzero = list((k, v) for k, v in counts.items() if v)
+    if not nonzero:
+        return
+    bits = list(
+        str(v) + " " + _ENRICHMENT_LABELS.get(k, k) for k, v in nonzero)
+    print("Backlog   " + ", ".join(bits))
+
+
 def _print_vector_coverage(stats) -> None:
     r"""How many of the passages this run wrote actually got a vector.
 
@@ -1168,6 +1186,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     # where the two numbers were different units.
     print(f"Indexed   {stats.indexed:,} document(s) -> {stats.chunks:,} chunks")
     _print_vector_coverage(stats)
+    _print_enrichment_counts(stats)
     print(f"Files     {stats.seen:,} seen, {stats.unchanged:,} unchanged")
     if stats.unchanged_documents:
         print(f"          {stats.unchanged_documents:,} document(s) inside them were "

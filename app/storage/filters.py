@@ -206,6 +206,25 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         for repo in parsed.repos:
             params.extend((repo, contains(repo)))
 
+    # Work order 0i section 1c. `file_tags` (schema v19) is Florence-2's tag
+    # vocabulary. ORed within the tuple, the same convention `parsed.repos`
+    # uses just above and for the same reason: `shows:dog,cat` asks for
+    # either, not both, and a file commonly carries several tags so an AND
+    # reading of one filter occurrence would be a different (and unasked)
+    # question. Unlike `repo_id` there is no single column to `IN (...)`
+    # against, so this is a subquery over the join table instead.
+    if parsed.shows:
+        conditions = " OR ".join("tag = ? COLLATE NOCASE" for _ in parsed.shows)
+        clauses.append(f"f.id IN (SELECT file_id FROM file_tags WHERE {conditions})")
+        params.extend(parsed.shows)
+
+    # Work order 0i section 4a. A plain column (f.place), unlike shows:
+    # which needs a subquery over the join table - see _v22_places.
+    if getattr(parsed, "place", ()):
+        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.place)
+        clauses.append(f"({conditions})")
+        params.extend(parsed.place)
+
     for name in parsed.names:
         # The **basename**, not the whole path - `path:` already answers "which
         # folder", and matching the full path here would make `name:leeds` hit
@@ -240,6 +259,17 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     for name in getattr(parsed, "not_names", ()):
         clauses.append("REPLACE(f.path, f.parent_dir, '') NOT LIKE ?" + ESCAPE)
         params.append(contains(name))
+
+    if getattr(parsed, "not_place", ()):
+        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.not_place)
+        clauses.append(f"(f.place IS NULL OR NOT ({conditions}))")
+        params.extend(parsed.not_place)
+
+    if getattr(parsed, "not_shows", ()):
+        conditions = " OR ".join("tag = ? COLLATE NOCASE" for _ in parsed.not_shows)
+        clauses.append(
+            f"f.id NOT IN (SELECT file_id FROM file_tags WHERE {conditions})")
+        params.extend(parsed.not_shows)
 
     if getattr(parsed, "not_repos", ()):
         # **`OR f.repo_id IS NULL` is the whole difference.** Most files belong

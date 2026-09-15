@@ -176,15 +176,64 @@ def test_real_text_in_a_real_image_comes_back(tmp_path):
 
 
 @pytest.mark.skipif(not (HAS_OCR and HAS_PIL), reason="OCR is not installed")
-def test_a_blank_page_yields_nothing_rather_than_an_empty_document(tmp_path):
+def test_a_blank_page_yields_nothing_when_florence_is_unavailable(tmp_path, monkeypatch):
     """Which becomes ERR_NO_TEXT_LAYER upstream - the honest answer for a
-    photograph of a wall, and one that lands in the skip ledger to be counted."""
+    photograph of a wall, and one that lands in the skip ledger to be counted.
+
+    2026-09-15, work order 0i section 1a/1b: this used to assert `== []` for
+    every blank page unconditionally. That is no longer the whole story - a
+    "photograph of a wall" is exactly the photo-class case 0i's Florence-2
+    pass exists to give words to, and with `torch`/`transformers` installed on
+    this machine a truly blank image now *does* get an AI-written caption
+    (see `test_a_blank_page_gets_an_ai_description_instead_of_nothing` below,
+    the real-model proof of that). This test keeps the original assertion
+    alive for the case it actually describes: Florence genuinely unavailable,
+    where the pre-0i behaviour must still hold exactly as before.
+    """
     from PIL import Image
+    from app.extract import florence_tagger
+
+    monkeypatch.setattr(florence_tagger, "available", lambda: False)
 
     path = tmp_path / "blank.png"
     Image.new("RGB", (600, 200), "white").save(path)
 
     assert list(OcrExtractor().extract(path)) == []
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not (HAS_OCR and HAS_PIL and importlib.util.find_spec("torch")
+         and importlib.util.find_spec("transformers")),
+    reason="OCR and/or Florence-2 (torch/transformers) are not installed")
+def test_a_blank_page_gets_an_ai_description_instead_of_nothing(tmp_path):
+    """0i section 1a/1b, proved against the real model, not a stub.
+
+    A page with no OCR text is photo-class - the ladder's other half of
+    "document-class images keep the specialist OCR" - and now gets one
+    Florence-2 pass instead of being left unsearchable. The caption is
+    non-deterministic model output, so this only asserts the *shape* the
+    work order specifies: a labelled "AI description" segment, present in
+    both the built document's own segments and its rendered text (so a
+    preview can find and show the label), through the ordinary
+    `DocumentBuilder` path used everywhere else in this module.
+    """
+    from PIL import Image
+
+    path = tmp_path / "blank.png"
+    Image.new("RGB", (600, 200), "white").save(path)
+
+    documents = list(OcrExtractor().extract(path))
+
+    assert documents, "a blank image with Florence available should still yield a document"
+    document = documents[0]
+    assert document.meta["format"] == "florence_tags"
+    assert document.meta["ai_caption_seconds"] > 0
+    # Not prefixed into `document.text` itself - same convention as
+    # `ocr.py`'s own "Text read from the image" label just above this branch
+    # in the source: the label is carried on the segment for a preview to
+    # read structurally, not glued into the indexed words.
+    assert any(segment.label == "AI description" for segment in document.segments)
 
 
 # ---------------------------------------------------------------------------

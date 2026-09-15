@@ -456,6 +456,13 @@ class OcrExtractor:
         Requirement("pillow_heif", "pillow-heif",
                     provides="HEIC/HEIF image support (Apple Photos)",
                     hard=False),
+        # Work order 0i section 1a. Soft: without torch/transformers, a
+        # photo-class image (the ladder found no text) is simply not tagged -
+        # exactly today's behaviour - rather than being blocked. available()
+        # checks both modules; either one missing reads as "not available".
+        Requirement("transformers", "transformers",
+                    provides="AI tags and a caption for photos with no text "
+                             "(Florence-2)", hard=False),
     )
 
     def supports(self, path: Path) -> bool:
@@ -487,9 +494,42 @@ class OcrExtractor:
             return
 
         if result.empty:
-            # Nothing readable. `base.extract` turns an empty yield into
-            # ERR_NO_TEXT_LAYER, which is the honest answer for a photograph of
-            # a wall - and it lands in the skip ledger where it can be counted.
+            # Work order 0i section 1a/1b: a photo-class image (nothing OCR
+            # could read - the other half of the ladder's document-class/
+            # photo-class split) gets one Florence-2 pass instead of being
+            # left unsearchable. Soft dependency: absent torch/transformers
+            # falls straight through to the unchanged behaviour below
+            # (ERR_NO_TEXT_LAYER via the skip ledger).
+            from app.extract.florence_tagger import available as florence_available
+            from app.extract.florence_tagger import tag_image as florence_tag_image
+
+            if florence_available():
+                tagged = florence_tag_image(path)
+                if tagged is not None and (tagged.caption or tagged.tags):
+                    tag_builder = DocumentBuilder(path, source_kind=SourceKind.FILE)
+                    body = tagged.caption
+                    if tagged.tags:
+                        tag_line = "Tags: " + ", ".join(tagged.tags)
+                        body = body + chr(10) + tag_line if body else tag_line
+                    tag_builder.add(body, label="AI description")
+
+                    from app.extract.exif import read_datetime
+                    exif_date = read_datetime(path)
+                    if exif_date is not None:
+                        tag_builder.date = exif_date
+
+                    tag_builder.meta.update({
+                        "format": "florence_tags",
+                        "ai_tags": list(tagged.tags),
+                        "ai_caption_seconds": round(tagged.elapsed_s, 2),
+                    })
+                    yield tag_builder.build()
+                    return
+
+            # Nothing readable, and no AI tags either. base.extract turns an
+            # empty yield into ERR_NO_TEXT_LAYER, which is the honest answer
+            # for a photograph of a wall - and it lands in the skip ledger
+            # where it can be counted.
             log.debug("no text in {} after {:.1f}s", path.name, result.elapsed_s)
             return
 
