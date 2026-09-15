@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.14 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -99,6 +99,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   defaults to `True`, and on battery power any real `Pipeline.run()` test with no override
   blocks indefinitely - a pre-existing, whole-suite fragility, not fixed here, but worth knowing
   before mistaking a slow real-model test for a hang.
+
+### Added: `/place` - offline reverse geocoding from a photo's EXIF GPS (order 0i, item 4a)
+
+- **A photo's GPS coordinates now resolve to a real place name** ("London", "Leeds") entirely
+  offline, from a dataset bundled inside `reverse_geocoder` - new `app/extract/exif.py::read_gps`
+  and `app/extract/places.py::reverse_geocode`, a new `files.place` column (schema v21), and a
+  `/place` operator (aliases `/near`, `/location`) with real, counted values.
+- **Measured, not assumed: the package's own convenience function was the wrong call.**
+  `reverse_geocoder.search()` defaults to a multiprocessing pool, which on Windows spawns a
+  fresh child process per call and reparses the bundled dataset each time - seconds of cost,
+  repeated. `RGeocoder(mode=1)`, loaded once and reused, measured at 2.16s first lookup then
+  0.0s after.
+- Proof includes the item's own required test: a real lookup still succeeds with `socket.connect`
+  blocked, proving zero network syscalls directly rather than by inspection.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

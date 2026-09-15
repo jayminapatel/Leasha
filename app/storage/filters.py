@@ -218,6 +218,13 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append(f"f.id IN (SELECT file_id FROM file_tags WHERE {conditions})")
         params.extend(parsed.shows)
 
+    # Work order 0i section 4a. A plain column (f.place), unlike shows:
+    # which needs a subquery over the join table - see _v21_places.
+    if getattr(parsed, "place", ()):
+        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.place)
+        clauses.append(f"({conditions})")
+        params.extend(parsed.place)
+
     for name in parsed.names:
         # The **basename**, not the whole path - `path:` already answers "which
         # folder", and matching the full path here would make `name:leeds` hit
@@ -252,6 +259,11 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     for name in getattr(parsed, "not_names", ()):
         clauses.append("REPLACE(f.path, f.parent_dir, '') NOT LIKE ?" + ESCAPE)
         params.append(contains(name))
+
+    if getattr(parsed, "not_place", ()):
+        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.not_place)
+        clauses.append(f"(f.place IS NULL OR NOT ({conditions}))")
+        params.extend(parsed.not_place)
 
     if getattr(parsed, "not_shows", ()):
         conditions = " OR ".join("tag = ? COLLATE NOCASE" for _ in parsed.not_shows)

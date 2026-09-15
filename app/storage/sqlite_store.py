@@ -205,6 +205,11 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "shows": _ValueShape(
         "file_tags ft JOIN files f ON f.id = ft.file_id", "ft.tag",
         "COUNT(*)", "ft.tag <> ''", "ft.tag"),
+    # Work order 0i section 4a. A plain column, not a join table - see
+    # _v21_places for why a photo's place has different cardinality than
+    # its tags.
+    "place": _ValueShape(
+        "files f", "f.place", "COUNT(*)", "f.place <> ''", "f.place"),
 }
 
 
@@ -287,6 +292,10 @@ class FileRecord:
     #: existed); True for a folder-year era hint - see
     #: `app.extract.era_hints`.
     taken_at_is_hint: bool = False
+    #: Work order 0i section 4a. The nearest town to a photo's EXIF
+    #: GPS, offline - None for everything that is not a photo, and
+    #: for one with no GPS block. See `app.extract.places`.
+    place: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
@@ -615,6 +624,7 @@ class SqliteStore:
         clear_hash: bool = False,
         taken_at_ns: Optional[int] = None,
         taken_at_is_hint: bool = False,
+        place: Optional[str] = None,
     ) -> int:
         r"""Insert or update one file row. Returns its id.
 
@@ -674,8 +684,9 @@ class SqliteStore:
                 """
                 INSERT INTO files
                     (path, parent_dir, ext, size_bytes, mtime_ns, content_hash,
-                     status, source_kind, repo_id, taken_at_ns, taken_at_is_hint)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, source_kind, repo_id, taken_at_ns, taken_at_is_hint,
+                     place)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     parent_dir   = excluded.parent_dir,
                     ext          = excluded.ext,
@@ -717,12 +728,18 @@ class SqliteStore:
                     taken_at_is_hint = CASE
                         WHEN excluded.taken_at_ns IS NOT NULL THEN excluded.taken_at_is_hint
                         ELSE files.taken_at_is_hint
-                    END
+                    END,
+                    -- Work order 0i section 4a. COALESCEd for the same
+                    -- reason taken_at_ns is: a caller re-touching a file
+                    -- without a GPS answer of its own (a resume, a retry)
+                    -- must not blank a place an earlier pass established.
+                    place = COALESCE(excluded.place, files.place)
                 """,
                 (str(path), parent_dir, ext, size_bytes, mtime_ns,
                  content_hash, status, source_kind, stored_repo,
                  None if taken_at_ns is None else int(taken_at_ns),
                  1 if taken_at_is_hint else 0,
+                 place,
                  forget_hash, clearing),
             )
             row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()

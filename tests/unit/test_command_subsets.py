@@ -90,6 +90,7 @@ def test_no_tab_offers_a_command_it_cannot_honour() -> None:
         "before": ("before", "2024-12-31"), "path": ("paths", "src"),
         "size": ("sizes", ">1mb"), "sort": ("sort", "newest"),
         "shows": ("shows", "dog"),
+        "place": ("place", "leeds"),
     }
     for tab, names in SUBSETS.items():
         for name in names:

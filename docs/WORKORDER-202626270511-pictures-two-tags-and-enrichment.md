@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -243,7 +243,44 @@ answer, and is left open rather than guessed at - same shape as 2a's
 
 ## 4. Places and eras
 
-- [ ] **4a places, offline**: EXIF GPS → `reverse_geocoder` (bundled
+**2026-09-15 - the package's own convenience function was the wrong call,
+found by measuring rather than assumed correct.** `reverse_geocoder.
+search()` (what every example of the package uses) defaults to `mode=2`,
+which farms each query out to a `multiprocessing` pool - on Windows that is
+a fresh child *process* per call (no `fork`, only `spawn`), reparsing the
+bundled dataset in the child every time. Measured directly: repeated calls
+this way cost seconds each and are fragile outside a
+`if __name__ == "__main__":` guard. `RGeocoder(mode=1)` runs single-
+threaded in the calling process; `app/extract/places.py` loads one once
+(the same lazy-singleton shape `ocr.py`/`florence_tagger.py` already use)
+and reuses it - measured at 2.16s for the first lookup (dataset load) and
+0.0s for the second. See `requirements.txt`'s "Optional: offline reverse
+geocoding" section for the full reasoning.
+
+Built: `app.extract.exif.read_gps` (South/West correctly negative, a
+`(0, 0)` reading - the value a camera writes with a GPS block but no fix -
+treated as no reading rather than Null Island), `app.extract.places.
+reverse_geocode`, schema v21 (`files.place`, a plain column rather than a
+join table like `file_tags` - a photo has at most one place, where it
+commonly carries several Florence-2 tags, the same cardinality argument
+4b's `taken_at_ns` already made against `file_tags`), and the `/place`
+operator (with `near`/`location` aliases), wired through `_FIELD_ALIASES`,
+`file_filter_sql` and `_VALUE_SHAPES` exactly like `/shows` (0i 1c) and
+`/repo` before it - comma-separated and ORed, and a negated `-place:` does
+not exclude a file with no place at all, the same `IS NULL OR NOT (...)`
+shape `not_repos` already uses.
+
+Proof: `pytest tests/unit/test_places.py -q -m "not slow"` - 17 passed in
+under a second (GPS extraction against real synthetic EXIF, the storage
+layer, the `/place` operator end to end against a real SQLite database,
+and `Pipeline._photo_place` wiring with the geocoder mocked so these never
+pay a real dataset load). `-m slow` - 2 passed: a real coordinate resolves
+to a real place ("London"), and - section 5's own required test - a
+network-blocked `socket.connect` still lets a real lookup ("Leeds")
+through unaffected, proving zero network syscalls in the geocode path
+directly rather than by inspection.
+
+- [x] **4a places, offline**: EXIF GPS → `reverse_geocoder` (bundled
   dataset, zero network) → nearest-town name indexed as metadata text +
   `/place` operator with counts. Composes with the CLIP lane by construction
   (both are just lanes/filters).

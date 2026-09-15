@@ -263,6 +263,17 @@ COMMANDS: tuple[Command, ...] = (
         icon="◈",
         source="shows",
     ),
+    Command(
+        name="place",
+        aliases=("near", "location"),
+        # Work order 0i section 4a. Offline reverse geocoding, from a
+        # photo's own EXIF GPS - "the trip to Leeds" as a real filter.
+        summary="Only photos taken near this place",
+        example="/place leeds",
+        value_hint="a town name Leasha has found in a photo - or several: leeds,york",
+        icon="⚑",
+        source="place",
+    ),
 )
 
 #: Things the search box understands that are **not filters**. Adoptions §3.

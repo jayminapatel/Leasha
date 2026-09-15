@@ -66,7 +66,7 @@ def test_every_command_can_offer_something():
 def test_a_source_names_something_the_store_actually_answers():
     """A source the store does not know is a menu that is always empty - and
     empty reads as broken, not as unconfigured."""
-    known = {"ext", "folder", "sender", "repo", "shows"}
+    known = {"ext", "folder", "sender", "repo", "shows", "place"}
     unknown = [c.source for c in COMMANDS if c.source and c.source not in known]
 
     assert unknown == []

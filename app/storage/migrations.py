@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 20
+CURRENT_VERSION = 21
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1016,6 +1016,30 @@ def _v20_taken_at_is_hint(conn: sqlite3.Connection) -> None:
             "ALTER TABLE files ADD COLUMN taken_at_is_hint INTEGER NOT NULL DEFAULT 0")
 
 
+def _v21_places(conn: sqlite3.Connection) -> None:
+    r"""`files.place` - the nearest town to a photo's EXIF GPS, offline.
+
+    Work order 0i section 4a. A single nullable column, not a join table
+    like `file_tags` (schema v19): a photo has exactly one GPS reading and
+    therefore at most one place, where a photo commonly carries several
+    Florence-2 tags - the cardinality is the whole reason one is a table and
+    the other is a column, the same reasoning `taken_at_ns` already used
+    against `file_tags` when 4b was built.
+
+    Additive and nullable - an index built before this migration keeps
+    every row and simply has no place until the next images pass re-touches
+    each photo, the same degradation every column this order has added
+    already accepts. The partial index mirrors `idx_files_taken_at`: most
+    rows have no GPS and never will.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+    if "place" not in existing:
+        conn.execute("ALTER TABLE files ADD COLUMN place TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_place ON files(place) "
+        "WHERE place IS NOT NULL")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1047,6 +1071,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     18: _v18_photo_taken_at,
     19: _v19_file_tags,
     20: _v20_taken_at_is_hint,
+    21: _v21_places,
 }
 
 

@@ -185,3 +185,26 @@ prompt_toolkit==3.0.53
 # for `torch` and `transformers` only (import-time proof that einops/timm are
 # present would require loading the model itself, which `available()` must
 # not do).
+
+# --- Optional: offline reverse geocoding (work order 0i section 4a) --------
+# Install to turn a photo's EXIF GPS into a place name ("London", "Leeds")
+# for the /place operator - entirely offline, from a dataset bundled inside
+# the package.
+#     venv\Scripts\python.exe -m pip install reverse_geocoder
+#
+# Verified 2026-09-15 against reverse_geocoder 1.5.1 (numpy/scipy already
+# present as transitive dependencies of other packages this file pins).
+#
+# **Use RGeocoder(mode=1), never the package's own rg.search() convenience
+# function at its default mode=2.** Measured directly: mode=2 farms each
+# query out to a multiprocessing pool, which on Windows means a fresh
+# child *process* per call (no fork, only spawn) - seconds of cost,
+# repeated, for one photo's coordinates, and it re-parses the bundled
+# dataset in that child every time. mode=1 runs single-threaded in the
+# calling process; app/extract/places.py loads one RGeocoder(mode=1) once
+# and reuses it, the same lazy-singleton shape every other model in this
+# codebase already uses (app/extract/ocr.py, app/extract/florence_tagger.py).
+#
+# Optional at runtime - app/extract/places.py::available() checks for the
+# package only; degrades to "no place" for every photo when absent, the
+# same H4 shape as every other optional capability here.

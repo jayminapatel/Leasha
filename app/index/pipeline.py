@@ -2845,6 +2845,7 @@ class Pipeline:
         candidate = item.candidate
         # Work order 0i section 4b: computed once, used by the upsert below.
         taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
+        place = self._photo_place(candidate)
         # **One transaction for the three writes, not three.**
         #
         # `upsert_file`, `replace_chunks` and `set_message` each committed
@@ -2894,6 +2895,7 @@ class Pipeline:
                 # and the is_hint flag beside it - see _photo_taken_at.
                 taken_at_ns=taken_at_ns,
                 taken_at_is_hint=taken_at_is_hint,
+                place=place,
             )
 
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)
@@ -3067,6 +3069,35 @@ class Pipeline:
 
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+
+    def _photo_place(self, candidate: Candidate) -> Optional[str]:
+        r"""A photograph's place, from its EXIF GPS, offline. Or None.
+
+        Work order 0i section 4a. Same H4 shape as `_photo_taken_at`: gated
+        on `reads_by_ocr` so this costs one dictionary lookup for every
+        file that is not an image, and any failure - no GPS block, a
+        corrupt one, the geocoder package absent - costs this one photo its
+        place and nothing else.
+        """
+        from app.extract.base import reads_by_ocr
+        if not reads_by_ocr(candidate.path):
+            return None
+
+        try:
+            from app.extract.exif import read_gps
+            from app.extract.places import available, reverse_geocode
+
+            if not available():
+                return None
+            coords = read_gps(candidate.path)
+            if coords is None:
+                return None
+            return reverse_geocode(*coords)
+        except Exception as exc:                # noqa: BLE001 - H4: a place, not the job
+            self._log.debug(
+                "no place for {}: {}: {}", candidate.path,
+                type(exc).__name__, exc)
+            return None
 
     def _photo_taken_at(self, candidate: Candidate) -> tuple[Optional[int], bool]:
         r"""A photograph's date in epoch nanoseconds, and whether it is a guess.
@@ -3457,6 +3488,7 @@ class Pipeline:
         candidate = item.candidate
         # Work order 0i section 4b: computed once, used by the upsert below.
         taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
+        place = self._photo_place(candidate)
         with self.store.batch():
             file_id = self.store.upsert_file(
                 str(candidate.path),
@@ -3478,6 +3510,7 @@ class Pipeline:
                 # what the era hint (see _photo_taken_at) exists for.
                 taken_at_ns=taken_at_ns,
                 taken_at_is_hint=taken_at_is_hint,
+                place=place,
             )
             self.store.mark_skipped(file_id, item.error)
 
