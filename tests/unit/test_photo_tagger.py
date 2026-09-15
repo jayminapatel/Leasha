@@ -289,6 +289,91 @@ def test_the_learning_loop_end_to_end(store):
 
 
 # ---------------------------------------------------------------------------
+# pending_suggestions - the strip's own queue (section 2c UI, the "Is this
+# <name>?" chip). Separate from the learning-loop integration test above,
+# which never asked whether the read side actually surfaces what it wrote.
+# ---------------------------------------------------------------------------
+
+def test_pending_suggestions_returns_a_suggestion_against_a_named_pile(store):
+    file_id = _photo(store, "maybe.jpg")
+    daddy = store.create_pile(name="Daddy")
+    face_id = store.add_face(file_id, (1.0, 2.0, 3.0, 4.0), _vec(0.6, 0.8))
+    store.suggest_face(face_id, daddy)
+
+    suggestions = store.pending_suggestions()
+
+    assert len(suggestions) == 1
+    only = suggestions[0]
+    assert only.face_id == face_id
+    assert only.file_id == file_id
+    assert only.path == f"/photos/maybe.jpg"
+    assert only.bbox == (1.0, 2.0, 3.0, 4.0)
+    assert only.pile_id == daddy
+    assert only.pile_name == "Daddy"
+
+
+def test_pending_suggestions_excludes_a_suggestion_against_an_unnamed_pile(store):
+    r"""A suggestion has nothing to ask ("Is this None?") until somebody
+    names the pile it points at - it stays out of the strip's queue, not
+    silently dropped from the data."""
+    file_id = _photo(store)
+    unnamed = store.create_pile()          # never named
+    face_id = store.add_face(file_id, (0, 0, 1, 1), _vec(0.6, 0.8))
+    store.suggest_face(face_id, unnamed)
+
+    assert store.pending_suggestions() == []
+
+    store.rename_pile(unnamed, "Mum")
+    named_now = store.pending_suggestions()
+    assert len(named_now) == 1
+    assert named_now[0].pile_name == "Mum"
+
+
+def test_pending_suggestions_excludes_assigned_and_undecided_faces(store):
+    file_id = _photo(store)
+    pile_id = store.create_pile(name="Daddy")
+    assigned = store.add_face(file_id, (0, 0, 1, 1), _vec(1, 0))
+    store.assign_face(assigned, pile_id)          # already decided, not a suggestion
+    unclustered = store.add_face(file_id, (0, 0, 1, 1), _vec(0, 1))  # noqa: F841
+
+    assert store.pending_suggestions() == []
+
+
+def test_confirming_a_suggestion_removes_it_from_the_queue(store):
+    file_id = _photo(store)
+    daddy = store.create_pile(name="Daddy")
+    face_id = store.add_face(file_id, (0, 0, 1, 1), _vec(0.6, 0.8))
+    store.suggest_face(face_id, daddy)
+    assert len(store.pending_suggestions()) == 1
+
+    store.confirm_suggestion(face_id, True)
+
+    assert store.pending_suggestions() == []
+
+
+def test_declining_a_suggestion_also_removes_it_from_the_queue(store):
+    file_id = _photo(store)
+    daddy = store.create_pile(name="Daddy")
+    face_id = store.add_face(file_id, (0, 0, 1, 1), _vec(0.6, 0.8))
+    store.suggest_face(face_id, daddy)
+
+    store.confirm_suggestion(face_id, False)
+
+    assert store.pending_suggestions() == []
+
+
+def test_pending_suggestions_is_capped_by_limit(store):
+    daddy = store.create_pile(name="Daddy")
+    for i in range(5):
+        file_id = _photo(store, f"m{i}.jpg")
+        face_id = store.add_face(file_id, (0, 0, 1, 1), _vec(0.6, 0.8))
+        store.suggest_face(face_id, daddy)
+
+    assert len(store.pending_suggestions(limit=2)) == 2
+    assert len(store.pending_suggestions(limit=20)) == 5
+
+
+# ---------------------------------------------------------------------------
 # /who - section 3a
 # ---------------------------------------------------------------------------
 

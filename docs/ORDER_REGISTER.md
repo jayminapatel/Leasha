@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -55,8 +55,8 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0f | `202626270508` | Media by default, and the OCR ladder | **SHIPPED** | **17 / 0** | Closed 2026-09-07 by §3a's display/sort wiring and §2e's tunable |
 | 0g | `202626270509` | mbox, Takeout, chats | **SHIPPED** | **7 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0h | `202626270510` | Pictures I — the CLIP lane | **SHIPPED** | **13 / 0** | Closed 2026-09-15 — see the order's 2026-09-15 note |
-| 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 7 / 7 | 0h (closed 2026-09-15) |
-| 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
+| 0i | `202626270511` | Pictures II — tags, enrichment, places | **SHIPPED** | **14 / 0** | The register's old 7/7 was stale — the order's own doc had already reached 14/14 by 2026-09-15, recounted 2026-09-16 |
+| 0j | `202626270512` | The Photo Tagger — naming people | **SHIPPED** | **13 / 0** | Closed 2026-09-16 — 2c's suggestion-chip UI was the one real gap; see the order's own dated note |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | **14 / 3** | §1 (identity/storage), §2 (the tab, UI and CLI), and all five §4 tests are done 2026-09-15; §3 (search/browse decoration) started, not finished — see the order's own dated note for exactly which half of each of 3a/3b/3c |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **8 / 9** | 0k. §1b/1c done 2026-09-15; §3a/3b/3c, 3b-1, and two of §4's three tests closed the same day (see the order's 2026-09-15 note — two real pipeline bugs found and fixed: cloud placeholders were invisible, not skipped; a hydrated placeholder never got re-indexed). §1a narrowed to just the tab dialog; 2a/2b(partial)/2c/3d/3b-2(partial)/3b-3 and one §4 test remain, mostly blocked on the still-unbuilt Offline Media tab (0k §2, now built — recheck which of these depended only on the tab existing) or unverifiable vendor/LTFS behaviour |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |

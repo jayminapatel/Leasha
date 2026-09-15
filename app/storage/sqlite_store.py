@@ -38,7 +38,7 @@ from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
 from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample"]
+__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -424,6 +424,21 @@ class PileRecord:
     name: Optional[str]
     face_count: int
     samples: tuple[PileSample, ...]
+
+
+@dataclass(frozen=True)
+class PendingSuggestion:
+    """One "Is this <name>?" chip - section 2c's learning-loop queue. Only
+    ever built from a suggestion against an already-named pile; a match
+    against an unnamed one has no name to ask about yet, see
+    `pending_suggestions`."""
+
+    face_id: int
+    file_id: int
+    path: str
+    bbox: tuple[float, float, float, float]
+    pile_id: int
+    pile_name: str
 
 
 class SqliteStore:
@@ -2208,6 +2223,35 @@ class SqliteStore:
                 "UPDATE faces SET suggested_pile_id = ? WHERE id = ?",
                 (pile_id, face_id),
             )
+
+    def pending_suggestions(self, limit: int = 20) -> list["PendingSuggestion"]:
+        r"""Section 2c's own queue: every face suggested against an
+        already-*named* pile, oldest first, capped so the strip never grows
+        past a screenful. A suggestion against a pile nobody has named yet
+        is excluded - "Is this None?" has nothing to ask - and stays
+        reachable through the ordinary unclustered flow until someone names
+        that pile, at which point the next backfill pass (or a fresh
+        `classify` call) can suggest it again.
+        """
+        rows = self.conn.execute(
+            "SELECT f.id AS face_id, f.file_id, f.bbox_x, f.bbox_y, "
+            "f.bbox_w, f.bbox_h, p.id AS pile_id, p.name AS pile_name, "
+            "files.path AS path "
+            "FROM faces f "
+            "JOIN piles p ON p.id = f.suggested_pile_id "
+            "JOIN files ON files.id = f.file_id "
+            "WHERE f.suggested_pile_id IS NOT NULL AND p.name IS NOT NULL "
+            "ORDER BY f.id LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            PendingSuggestion(
+                face_id=row["face_id"], file_id=row["file_id"], path=row["path"],
+                bbox=(row["bbox_x"], row["bbox_y"], row["bbox_w"], row["bbox_h"]),
+                pile_id=row["pile_id"], pile_name=row["pile_name"],
+            )
+            for row in rows
+        ]
 
     def confirm_suggestion(self, face_id: int, accept: bool, *,
                             confidence: Optional[float] = None) -> None:
