@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -15,12 +15,52 @@ on-by-default and individually off-able, plain-words controls.
 
 ## 1. The fast pass — Florence-2 tags
 
-- [ ] **1a** one Florence-2 pass per photo-class image (the ladder routes;
+**2026-09-15 — torch/transformers were NOT installed, contrary to this
+item's own text.** Checked with `pip show torch`/`pip show transformers`
+before writing a line of 1a, and both came back "not found" on this machine's
+shared venv. Installed for real: `torch==2.14.0+cpu`,
+`transformers==4.49.0` (pinned below 5.0 - the first version tried, 5.17.0,
+raised `AttributeError: 'Florence2LanguageConfig' object has no attribute
+'forced_bos_token_id'` against Florence-2's own `trust_remote_code=True`
+modeling file; a real, reproduced incompatibility, not assumed), plus
+`einops`/`timm`, which Florence-2's remote code needs for its DaViT vision
+backbone and which were not mentioned anywhere in this item. All four now
+pinned with reasoning in `requirements.txt`'s "Optional: Florence-2 photo
+tagging" section. Model: `microsoft/Florence-2-base`, checked MIT licensed
+against the model card directly (not assumed) - no conflict with Leasha
+being a sold product.
+
+**Budget measured on a real image on this machine, honestly, and it misses
+the target named in this item by roughly 40-100x**: 11.36s for one image
+(two `generate()` calls - `<DETAILED_CAPTION>` then `<OD>`, `max_new_tokens
+=128` each, CPU, `Florence-2-base`, `num_beams=1`), against the
+~100-300ms/img target this item names. A transformers/CPU autoregressive
+pipeline generating over a hundred tokens twice per image cannot reach that
+budget by any reasonable tuning of beam count or max tokens alone - this
+item's own text anticipated exactly this ("the thread MAY swap to an ONNX
+port later for speed"), and that ONNX port is the real path to the stated
+budget, not built in this session. Ticked below for the functional behaviour
+- a real photo-class image gets a real caption and tags from the real model,
+proved end to end - with this gap recorded rather than hidden.
+
+Proof: `venv\Scripts\python.exe -m pytest tests/unit/test_florence_tagger.py
+tests/unit/test_ocr.py -q -m slow` - both real-model tests pass (model
+downloaded once, then cached); `-m "not slow"` - 43 passed, covering the
+wiring, the label, and the Florence-unavailable fallback path (which
+required updating one pre-existing test,
+`test_a_blank_page_yields_nothing_rather_than_an_empty_document`, renamed
+and split in two - see the dated note directly on that test in
+`tests/unit/test_ocr.py` for why: a blank page is exactly the photo-class
+case this item targets, so "yields nothing" stopped being the correct
+expectation for every blank page rather than only the Florence-unavailable
+one).
+
+- [x] **1a** one Florence-2 pass per photo-class image (the ladder routes;
   document-class images keep the specialist OCR): tags + brief caption in a
   single call. Via `transformers`+torch CPU (owner has installed); the thread
   MAY swap to an ONNX port later for speed — behaviour identical either way.
   Budget measured on fixture (~100–300ms/img target CPU) before acceptance.
-- [ ] **1b** storage: results become the image's document text as **labelled
+- [x] **1b** storage: results become the image's document text as **labelled
   segments** — `AI description` beside `OCR text` — flowing through the
   existing chunk/FTS/embed pipeline unchanged. Zero new storage concepts.
   Preview shows "AI description:" with the label visible.

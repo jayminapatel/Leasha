@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.08 · **Updated:** 2026-09-08 · **Applies to:** app v0.3.3
+**Doc version:** 4.09 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Added: Florence-2 tags and a caption for photos with no readable text (order 0i, items 1a/1b)
+
+- **A photo-class image - the OCR ladder's "no text found" half - now gets one Florence-2 pass**
+  instead of being left unsearchable: a brief caption and object tags, written as a labelled
+  "AI description" segment through the existing chunk/FTS/embed pipeline, exactly parallel to
+  how OCR's own "Text read from the image" segment already works. Document-class images
+  (the ladder found text) are untouched - they still go through the specialist OCR engine only.
+- **torch and transformers were not installed**, despite the work order's own text assuming
+  they were. Installed for real (`torch==2.14.0+cpu`, `transformers==4.49.0` - pinned below
+  5.0 after the first version tried broke Florence-2's own modeling code with a real,
+  reproduced `AttributeError`), plus `einops`/`timm`, which Florence-2's remote code needs and
+  which the order never mentioned. See `requirements.txt`'s "Optional: Florence-2 photo
+  tagging" section for the full reasoning, and the dated note on 0i's §1 for the honestly
+  measured CPU budget (11.36s/image against the order's ~100-300ms target - a gap the order's
+  own text anticipated with "the thread MAY swap to an ONNX port later for speed").
+- Soft dependency throughout: a machine without torch/transformers gets exactly today's
+  behaviour (an untagged photo-class image is simply skipped, as before).
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 
