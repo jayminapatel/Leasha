@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.16 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.17 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Start no longer invites a second click during a slow hardware detection
+
+- Clicking Start while Leasha is still working out how many workers to use
+  (a cold or invalidated hardware-profile cache) could, if the every-four-
+  second background check for an index running elsewhere happened to land
+  in that same window, briefly show the button as clickable again even
+  though nothing had actually started yet. It now stays disabled for the
+  whole detection, honestly, with no gap.
 
 ### A file stored online-only by OneDrive or Google Drive is now findable, never silently missing or silently downloaded
 

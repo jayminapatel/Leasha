@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.6 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1191,6 +1191,38 @@ pytest process to the CPU unless the autouse fixture is in scope; and `clip_embe
 the CPU fallback for free through `choose()` but has no retry of its own - a driver failure
 mid-CLIP-batch still raises out of `ClipImageEmbedder.embed` as before (decide whether it needs
 the same one-retry treatment; not done here because no log shows it happening).
+
+**2026-09-16 — the external-run poll could re-enable Start mid-resolve.**
+`_start_indexing` (`app/ui/shell.py`) sets `_resolving_index` and disables the
+button before dispatching `resolve_for_run` off-thread, but the 4-second
+`_watch_timer`'s poll (`_poll_external_run` → `_show_external_run` →
+`IndexingView.show_external` → `widgets/external_run.py`'s `_go_idle`) had no
+notion of that flag. `IndexingView.is_running()` stays False for the whole
+resolve - no Pipeline exists yet, which is the very thing being resolved - so
+the poll would conclude "nothing is indexing" and re-enable Start while a
+resolve was genuinely in flight, inviting the second click non-negotiable #5
+and the button's own disable-on-click logic exist to prevent. Fixed by
+checking `_resolving_index` in both `_poll_external_run` (skip the read
+entirely) and `_show_external_run` (skip the paint even if the read was
+already dispatched before resolving began). `tests/unit/
+test_start_indexing_resolves_off_thread.py::test_the_watch_timers_poll_does_not_re_enable_start_while_resolving`
+is the regression test, and it leaves the real `_watch_timer` running rather
+than stopping it - the earlier test in the same file
+(`test_the_start_button_is_disabled_while_resolving_and_restored_after`) only
+ever passed because it never happened to trigger the poller within its own
+observation window, which is exactly the kind of accidental pass that hides
+this class of bug.
+
+**2026-09-16 — pytest's own basetemp can pollute the docs version check.**
+`pyproject.toml` points `--basetemp` at `.pytest_tmp` inside the project (a
+OneDrive junction breaks the default location), so fixture markdown another
+test writes mid-run - a fake git repo's README.md, a `docs/b.md` an indexing
+test builds - lands inside `test_docs_versioned.py`'s own walk if that file
+runs around the same time, or if a basetemp from an interrupted prior run is
+still on disk. Those files have no version header and are not a real project
+doc, but the walk swept them in and failed the suite on somebody else's
+scratch data. Fixed by excluding any directory whose name starts with
+`.pytest_tmp`, alongside the existing `.worktrees`/`.claude` exclusions.
 
 ## 7. Open questions
 

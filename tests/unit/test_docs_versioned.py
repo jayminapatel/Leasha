@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -50,13 +51,28 @@ EXCLUDED = {
     ".worktrees", ".claude",
 }
 
+# **pytest's own basetemp, not ours to version either.** `pyproject.toml`'s
+# addopts points `--basetemp` at `.pytest_tmp` inside the project (see the
+# comment there on why - a OneDrive junction otherwise breaks the default
+# location), so fixture markdown a *different* test writes mid-run - a fake
+# git repo's README.md, a `docs/b.md` an indexing test builds - lands inside
+# the tree this file walks. Caught twice live: those fixture files have no
+# version header, so a suite run that hits both files at once (or a basetemp
+# left over from an interrupted prior run) fails this one on somebody else's
+# scratch data, not a real doc. Matched by prefix, not exact name, so a
+# custom `--basetemp=.pytest_tmp_adhoc` from another session or worktree is
+# excluded the same way.
+_BASETEMP_PREFIX = ".pytest_tmp"
+
 
 def _tracked_markdown() -> list[Path]:
     found: list[Path] = []
     for directory, subdirectories, filenames in os.walk(PROJECT_ROOT):
         subdirectories[:] = [
             name for name in subdirectories
-            if name not in EXCLUDED and not name.startswith(("D:", "E:"))
+            if name not in EXCLUDED
+            and not name.startswith(("D:", "E:"))
+            and not name.startswith(_BASETEMP_PREFIX)
         ]
         found.extend(
             Path(directory) / name for name in filenames if name.lower().endswith(".md")
@@ -74,6 +90,37 @@ DOCS = _tracked_markdown()
 def test_there_are_documents_to_check() -> None:
     """Guards against the glob silently matching nothing and the suite passing."""
     assert len(DOCS) >= 7, f"expected the project's docs, found {_ids(DOCS)}"
+
+
+def test_pytest_basetemp_fixture_markdown_is_excluded(tmp_path, monkeypatch) -> None:
+    r"""Reproduced live twice: `--basetemp=.pytest_tmp` (`pyproject.toml`)
+    means another test's fixture markdown - a fake git repo's README.md, a
+    `docs/b.md` an indexing test writes - lands inside this file's own walk
+    when it runs mid-suite, or when a basetemp from an interrupted prior run
+    is still on disk. Those files have no version header and are not a real
+    project doc; the walk must prune them the same way it already prunes
+    `.worktrees`. Matched by prefix (`.pytest_tmp*`), not exact name, so a
+    differently-configured `--basetemp` from another session or worktree -
+    `.pytest_tmp_adhoc` - is caught the same way.
+    """
+    (tmp_path / ".pytest_tmp" / "fake_repo").mkdir(parents=True)
+    (tmp_path / ".pytest_tmp" / "fake_repo" / "README.md").write_text(
+        "not a real doc, no header", encoding="utf-8")
+    (tmp_path / ".pytest_tmp_adhoc" / "docs").mkdir(parents=True)
+    (tmp_path / ".pytest_tmp_adhoc" / "docs" / "b.md").write_text(
+        "also not a real doc", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "REAL.md").write_text(
+        "# Real\n\n**Doc version:** 1.0 · **Updated:** 2026-01-01 · "
+        "**Applies to:** app v0.3.3\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", tmp_path)
+    found = _ids(_tracked_markdown())
+
+    assert "docs/REAL.md" in found
+    assert not any(".pytest_tmp" in path for path in found), (
+        f"pytest's own basetemp fixture markdown leaked into the walk: {found}"
+    )
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=_ids(DOCS))
