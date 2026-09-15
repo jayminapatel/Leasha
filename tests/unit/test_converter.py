@@ -34,6 +34,16 @@ from app.extract.converter import (
 
 HAS_SOFFICE = shutil.which("soffice") is not None
 
+#: Whether the application itself can find `soffice` - PATH first, then the
+#: Windows Program Files fallback (see `resolve_binary`). Deliberately not the
+#: same test as `HAS_SOFFICE`: on Windows LibreOffice is rarely on PATH, so a
+#: test gated on `HAS_SOFFICE` that then exercises `extract()` or `convert()`
+#: - which both call `resolve_binary`, not `shutil.which` - can find itself
+#: "simulating no binary" on a machine where the binary is in fact found and
+#: run for real. Defined here, ahead of every test, rather than only near the
+#: Windows section below where it was first needed.
+RESOLVED_SOFFICE = resolve_binary("soffice")
+
 
 def rule_for(binary: str, *args: str) -> ConverterRule:
     return ConverterRule(
@@ -119,17 +129,29 @@ def test_a_filename_with_shell_metacharacters_stays_one_argument(tmp_path):
 
 
 def test_a_missing_binary_is_reported_rather_than_run(tmp_path):
+    """Patches `resolve_binary`, not `shutil.which`.
+
+    `resolve_binary` falls back to a Windows Program Files search when
+    `which` finds nothing - see `_installed_on_windows`. On a machine that
+    actually has LibreOffice installed there (as this one does), mocking
+    only `shutil.which` left that fallback intact, so `convert()` still
+    found the real binary and ran it: a genuine `soffice`/`soffice.bin`
+    process against the fake `.doc` below, left holding a lock on this
+    test's `tmp_path` after `subprocess.run`'s timeout killed only the
+    launcher and not the child it spawned. Mocking the function `convert()`
+    actually calls is the one mock that is complete on every platform.
+    """
     source = tmp_path / "doc.doc"
     source.write_text("x", encoding="utf-8")
 
-    original = shutil.which
-    module.shutil.which = lambda _name: None
+    original = module.resolve_binary
+    module.resolve_binary = lambda _name: None
     try:
         with pytest.raises(AppErrorException) as caught:
             convert(source, rule_for("soffice", "{input}"))
         assert caught.value.error.code == "ERR_CONVERTER_MISSING"
     finally:
-        module.shutil.which = original
+        module.resolve_binary = original
 
 
 def test_the_timeout_is_capped_regardless_of_configuration():
@@ -264,7 +286,8 @@ def test_an_unknown_target_extractor_fails_precisely(tmp_path):
 # Reached through the ordinary extraction path
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(HAS_SOFFICE, reason="LibreOffice is installed, so it converts")
+@pytest.mark.skipif(RESOLVED_SOFFICE is not None,
+                    reason="LibreOffice is installed, so it converts")
 def test_an_enabled_converter_with_no_binary_says_which_binary(tmp_path):
     """**The reason converters may now ship enabled.**
 
@@ -334,9 +357,11 @@ def test_an_enabled_converter_is_used_by_the_ordinary_extract(real_doc):
 #
 # A skip that always fires is a test that does not exist. These are marked
 # `windows` and use `resolve_binary`, which is what the application uses.
+#
+# `RESOLVED_SOFFICE` itself is defined near the top of the file, not here -
+# `test_an_enabled_converter_with_no_binary_says_which_binary`, above, needs
+# it too, for exactly the same reason.
 # ---------------------------------------------------------------------------
-
-RESOLVED_SOFFICE = resolve_binary("soffice")
 
 #: Off Windows these cannot run at all - `_installed_on_windows` returns None
 #: by design. That is a different thing from the skip this section exists to
