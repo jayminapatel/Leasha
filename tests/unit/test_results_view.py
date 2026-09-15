@@ -269,3 +269,54 @@ def test_the_whole_row_still_toggles_by_activation(qtbot):
     assert 1 in view._expanded
     view._on_activated(view._model.index(0, 0))
     assert 1 not in view._expanded
+
+
+# ---------------------------------------------------------------------------
+# Items 4a and 5c, closing this order's two remaining checklist decisions
+# (owner, 2026-09-15): both are genuinely about what a live model shows,
+# which is exactly what this file is for - see the work order's own dated
+# notes on 4a and 5c for the reasoning.
+# ---------------------------------------------------------------------------
+
+def test_the_terminator_row_is_the_last_row_in_a_live_list(qtbot):
+    """Item 5c, proven against a live model rather than a source-text scan.
+    The existing wiring test (`test_the_terminator_is_appended_after_every_
+    rebuild`, `test_result_delegate.py`) only checks that `_rebuild`'s
+    source calls `_append_terminator` - it cannot see whether the row that
+    actually lands in the model is last, or actually unselectable. A real
+    `show_results` on a real `ResultsView` is what a click or a screen
+    reader would meet."""
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1), result(2, 2)], ["pump"])
+
+    from PyQt6.QtCore import Qt
+    from app.ui.presenter import Terminator
+    from app.ui.result_delegate import ROLE_PAYLOAD
+
+    last = view._model.index(view._model.rowCount() - 1, 0)
+    assert isinstance(last.data(ROLE_PAYLOAD), Terminator)
+    assert not (last.flags() & Qt.ItemFlag.ItemIsSelectable)
+    assert not (last.flags() & Qt.ItemFlag.ItemIsEnabled)
+
+
+def test_a_deep_result_s_location_line_keeps_the_tail_in_a_live_row(qtbot):
+    """Item 4a, against a live row's actual folder text rather than the
+    bare function in isolation. elide_path_left() was removed as dead code
+    (owner decision, 2026-09-15 - see the work order's dated note on 4a):
+    it was never called from anywhere that draws a location line, and
+    breadcrumb() already satisfies the item's spirit - tail-first,
+    "... > 2019 > Leeds" rather than the full root-first path. This proves
+    that is genuinely what a real row carries in a real list, complementing
+    test_the_folder_is_a_breadcrumb_keeping_the_end (test_result_groups.py),
+    which checks the same claim against the bare function."""
+    view = ResultsView()
+    qtbot.addWidget(view)
+    deep = 'D:\\Archive\\2015\\Projects\\Infrastructure\\Reports\\Final\\report.pdf'
+    view.show_results([result(1, 1, path=deep)], ["pump"])
+
+    from app.ui.result_delegate import ROLE_PAYLOAD
+    group = view._model.index(0, 0).data(ROLE_PAYLOAD)
+    assert group.folder.startswith("… > ")
+    assert group.folder.endswith("Final")
+    assert "Archive" not in group.folder, "the root, not the leaf, is what elides away"

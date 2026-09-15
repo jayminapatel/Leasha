@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.8 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -926,6 +926,8 @@ Dated, because several of them supersede an earlier position.
 | 2026-08-28 | **mbox is a must; bookmarks are withdrawn; calendar and contacts dropped** | Owner | One stdlib extractor unlocks Takeout Gmail, Thunderbird and Unix mail. Sync products own the bookmark space | — |
 | 2026-08-28 | **History search is its own job, not a mode of the search box** | Backend measurement, ratified by owner | `git log -S` cost 1.59s over 75 commits against a 300ms budget, and the cost is proportional to history. Not a marginal call | Option 1 and option 3 of `HANDOFF-ui-to-backend.md` B4 |
 | 2026-08-26 | **`LICENSE` added: MIT** | Owner | — | **Reopens a closed question.** `202626082213` concluded free SignPath code signing was unavailable *because* the repository had no OSS licence. That premise no longer holds — see `docs/ORDER_REGISTER.md` §5 |
+| 2026-09-15 | **Order 0q §3c: drop the line-number half.** Code rows keep the monospace font already shipped; no line number, and no follow-up order to add one | Owner | Nothing between extraction and a `SearchResult` carries a line number today (verified against `plaintext.py`, `chunker.py`, `base.py`'s `Segment`); a guessed one would mislead rather than merely be absent | The item's original wording, kept unedited — see the dated note on 3c in `docs/WORKORDER-202626271510-results-presentation.md` |
+| 2026-09-15 | **Order 0q §4a: `elide_path_left()` is dead code.** `breadcrumb()` already satisfies the item's spirit — tail-first, `… > 2019 > Leeds` — and is what every location line actually shows | Owner | `elide_path_left()` was defined and tested since session 2 but never called from anywhere that draws a location line | The item's original wording, kept unedited; `elide_path_left()` and its three tests were removed from `app/ui/presenter.py` / `test_presenter.py` |
 
 ## 6. Traps
 
@@ -1214,6 +1216,40 @@ a transient GPU error in any subsystem will silently send every later `choose()`
 pytest process to the CPU unless the autouse fixture is in scope; and `clip_embedder.py` gets
 the CPU fallback for free through `choose()` but has no retry of its own - a driver failure
 mid-CLIP-batch still raises out of `ClipImageEmbedder.embed` as before (decide whether it needs
+
+**2026-09-15/16 - running the full suite while several agent worktrees run it at
+the same time genuinely does not work, and the product's own governor said so
+first.** Closing order 0q, the final full-suite pass required by the release
+checklist could not be completed: five attempts (the bare suite, the documented
+"not slow" fast loop, and progressively smaller chunks) each stalled or died
+under load rather than from anything in this order's four files. Direct evidence,
+not inference: index.resources's own resource governor logged "pause - The
+machine is busy (94% CPU used by other programs). Indexing waits until it is
+free" mid-run; a bare unit-test chunk of 44 files crashed the interpreter
+outright with a Windows fatal exception (0x8007000e, out-of-memory); and a
+process listing at the same moment showed twelve concurrent pytest/pip-install
+processes across at least four different worktrees (this one plus three others)
+all sharing the one venv. What was verified, cleanly, twice: the files this
+order touched (app/ui/presenter.py, tests/unit/test_presenter.py,
+tests/unit/test_results_view.py, plus the two docs and this file) - 212 tests
+across test_results_view.py, test_presenter.py (deselecting the one pre-
+existing, unrelated indexing_view.py line-count failure - see below),
+test_result_delegate.py, test_result_groups.py, test_no_stray_paths.py and
+test_search_view.py, and separately the two release-checklist guards,
+test_docs_versioned.py plus test_handoff_current.py (216 tests) - all green, no
+failures. Trap for the next reader: check machine load before trusting a full-
+suite result, or its absence - a red or a stalled run under this kind of
+contention proves nothing about the code, and a session that does not check will
+misdiagnose its own changes.
+
+**One pre-existing, unrelated failure was observed and left alone, as scope
+requires.** test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_
+presenter fails because app/ui/indexing_view.py is at 270 lines against the
+250-line guard - confirmed identical to this branch's own starting point (no
+diff against main for that file), so it predates this session and is outside
+0q's four-file scope (presenter.py / result_delegate.py / results_view.py /
+search_view.py). Worth its own thread.
+
 the same one-retry treatment; not done here because no log shows it happening).
 
 ## 7. Open questions

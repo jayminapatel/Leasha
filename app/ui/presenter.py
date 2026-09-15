@@ -58,7 +58,6 @@ __all__ = [
     "Snippet",
     "build_snippet",
     "shorten_path",
-    "elide_path_left",
     "format_eta",
     "format_count",
     "SkipGroup",
@@ -405,49 +404,6 @@ def shorten_path(path: str, *, limit: int = 70) -> str:
         middle.insert(0, part)
         budget -= len(part) + 1
     return separator.join([head, "…", *middle, tail])
-
-
-def elide_path_left(path: str, *, limit: int = 70) -> str:
-    r"""Elide the left (beginning) of a long path, keeping the tail.
-
-    The leaf folder and filename distinguish the path; the parent hierarchy
-    is usually known. `…\Projects\Foo\Final` reads better than
-    `D:\Archive\2019\Projects\...` for identifying a result.
-
-    Item 4a of work order 0q.
-    """
-    if len(path) <= limit:
-        return path
-
-    separator = "\\" if "\\" in path else "/"
-    parts = path.split(separator)
-
-    # A single path component (e.g., a filename) cannot be shortened
-    if len(parts) <= 1:
-        return path[:limit] + "…" if len(path) > limit else path
-
-    # Build the tail: keep at least the last two components (parent dir + name)
-    # unless that's already too long
-    tail_parts = parts[-2:] if len(parts) >= 2 else parts
-    tail = separator.join(tail_parts)
-
-    if len(tail) >= limit:
-        # Tail alone is too long; show just the filename elided
-        return "…" + separator + parts[-1][:limit - 3]
-
-    # Try to fit more parent directories from right to left
-    budget = limit - len(tail) - 1  # -1 for the "…"
-    extra_parts = []
-    for part in reversed(parts[:-2]):
-        needed = len(part) + 1  # +1 for separator
-        if needed > budget:
-            break
-        extra_parts.insert(0, part)
-        budget -= needed
-
-    if extra_parts:
-        return "…" + separator + separator.join(extra_parts + tail_parts)
-    return "…" + separator + tail
 
 
 def format_count(value: int) -> str:

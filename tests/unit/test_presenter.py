@@ -277,39 +277,6 @@ def test_a_short_path_is_untouched() -> None:
     assert shorten_path(r"D:\Docs\report.pdf") == r"D:\Docs\report.pdf"
 
 
-def test_left_eliding_keeps_the_tail() -> None:
-    r"""Left-eliding removes the beginning, keeping the leaf folder and filename.
-
-    Item 4a: location lines elide on the left so `…\Projects\Foo\Final` reads
-    as an answer while `D:\Archive\2019\Projects\...` hides the distinguisher.
-    """
-    from app.ui.presenter import elide_path_left
-    path = r"D:\Archive\2015\Projects\Infrastructure\Reports\Final\report.pdf"
-    elided = elide_path_left(path, limit=50)
-    assert elided.endswith(r"\report.pdf")
-    assert "…" in elided
-    # Should keep some parent dirs
-    assert len(elided) <= 50
-
-
-def test_left_eliding_short_paths_unchanged() -> None:
-    """Short paths need no elision."""
-    from app.ui.presenter import elide_path_left
-    path = r"D:\Docs\report.pdf"
-    assert elide_path_left(path, limit=70) == path
-
-
-def test_left_eliding_shows_tail_first() -> None:
-    """The leaf folder and name are more important than the root."""
-    from app.ui.presenter import elide_path_left
-    path = r"D:\Archive\2015\2016\2017\2018\2019\folder\file.pdf"
-    elided = elide_path_left(path, limit=40)
-    assert "folder" in elided
-    assert "file.pdf" in elided
-    # Should not show the deep archive dates
-    assert "Archive" not in elided
-
-
 def test_a_long_path_keeps_both_ends() -> None:
     """The drive says where it is; the filename says what it is. The middle is a
     hierarchy the person already knows."""

@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -61,7 +61,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **8 / 9** | 0k. §1b/1c done 2026-09-15; §3a/3b/3c, 3b-1, and two of §4's three tests closed the same day (see the order's 2026-09-15 note — two real pipeline bugs found and fixed: cloud placeholders were invisible, not skipped; a hydrated placeholder never got re-indexed). §1a narrowed to just the tab dialog; 2a/2b(partial)/2c/3d/3b-2(partial)/3b-3 and one §4 test remain, mostly blocked on the still-unbuilt Offline Media tab (0k §2, now built — recheck which of these depended only on the tab existing) or unverifiable vendor/LTFS behaviour |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
-| 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
+| 0q | `202626271510` | The results, world class | **SHIPPED** | **25 / 0** | Closed 2026-09-15 — 3c and 4a decided by the owner, and the three test-list items that were waiting on them |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | RELEASED | 0 / 24 | Gap-schedulable. §2/§3 (pins, installer) are independent of §5/§6 (doctor, notice) |
@@ -150,6 +150,29 @@ note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.
 against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
 not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
 0h is now satisfied.
+
+---
+
+**2026-09-15 — 0q closed, 20/5 to 25/0.** Its two open decisions (3c's
+line number, 4a's dead `elide_path_left()`) were the owner's to make, not
+this thread's to guess — both are now settled and recorded as dated notes
+in the order's own file, never as edits to the items' original wording.
+**3c**: the owner dropped the line-number half; monospace-only, already
+shipped and tested, satisfies it. **4a**: `breadcrumb()` already satisfies
+the item's spirit (tail-first, "… > 2019 > Leeds") and is what every
+location line actually shows; `elide_path_left()` was dead code — never
+called from anywhere that draws one — and has been removed along with its
+three dedicated tests. The three test-list items waiting on that pair
+("kind rows", "locations", "pytest-qt scenario per item") are closed the
+same way: tested against what is actually shipped, not the original
+literal wording. The last of the three turned out not to be blocked by 0m
+at all — 0m's own header says the per-order `qtbot` scenario convention
+continues while it is held, the same finding 0s recorded on 2026-09-07 —
+so two new live-`ResultsView` scenarios were written
+(`test_the_terminator_row_is_the_last_row_in_a_live_list`,
+`test_a_deep_result_s_location_line_keeps_the_tail_in_a_live_row`,
+`test_results_view.py`) rather than left unticked. Full suite: see
+`HANDOFF.md`'s matching note for the exact pass count.
 
 ---
 

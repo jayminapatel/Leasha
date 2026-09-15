@@ -1,9 +1,9 @@
 # Work order (One thread): the results, world class — every row earns its trust
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (ResultsView/ResultDelegate/presenter — the painted
 list and the Qt-free text decisions behind it)
-**Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable**
+**Status:** SHIPPED — all 25 items ticked; closed 2026-09-15 by the owner's rulings on 3c and 4a and the three test-list items that were waiting on them. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable**
 (privacy-defaults pattern) with per-item prerequisites noted. Scope
 boundary: `results_view.py` / `result_delegate.py` / `presenter.py` snippet
 and row-text functions. **Not here:** thumbnails and generous first-contact
@@ -95,7 +95,7 @@ job.
   photos" — because that is how people remember mail; subject follows,
   date stays right. Display order only: grouping, payloads and actions
   unchanged.
-- [ ] **3c** code rows paint their snippet in **monospace with the line
+- [x] **3c** code rows paint their snippet in **monospace with the line
   number** — the form coders already read everywhere else. Spreadsheet
   hits already carry Sheet/cell (0o §6a, landed): inherit, don't touch.
 
@@ -119,12 +119,31 @@ job.
   > a follow-up order through `app/extract/` to carry a line number the whole
   > way, or drop the line-number half of this item's wording.
 
+  > **2026-09-15.** The owner has decided: drop the line-number half of
+  > this item's wording. Not built, and no follow-up order is opened for
+  > it - that decision was made explicitly and is not being second-guessed
+  > here. **3c** is satisfied by the monospace-only implementation already
+  > shipped and tested (`presenter.is_code_kind`, `result_delegate._snippet_font`,
+  > per the 2026-09-04 note above).
+
 ## 4. Locations, dates, and twins
 
-- [ ] **4a** the location line **elides on the left**, keeping the tail —
+- [x] **4a** the location line **elides on the left**, keeping the tail —
   `…\Projects\Foo\Final` — because the leaf folder is the distinguishing
   part of a deep path. Same sin the name-elision fix corrected, one line
   down.
+
+  > **2026-09-15.** The owner's decision: `breadcrumb()` (`presenter.py:934`)
+  > already satisfies this item's spirit — tail-first display, e.g.
+  > "… > 2019 > Leeds" — and is what the location line actually shows on
+  > every row (`_build_group`, `presenter.py:866`). `elide_path_left()`
+  > (`presenter.py:410`) was dead code — defined and tested since session 2
+  > but never called from anywhere that draws a location line, per the
+  > 2026-09-04 verification note at the top of this file — and has been
+  > removed, along with its three dedicated tests in `test_presenter.py`.
+  > A new live-widget test, `test_a_deep_result_s_location_line_keeps_the_
+  > tail_in_a_live_row` (`test_results_view.py`), now proves this against a
+  > real `ResultsView` row rather than the bare function.
 - [x] **4b** dates on plain-register surfaces read **friendly** —
   "yesterday", "last week", "Mar 2019" — with the exact date always in
   the tooltip; technical surfaces keep exact dates. Register-gated via
@@ -263,7 +282,7 @@ job.
   > `test_a_click_off_the_chevron_does_not_toggle`,
   > `test_the_whole_row_still_toggles_by_activation` (`test_results_view.py`,
   > pytest-qt). `results_view.py` is now at 249/250 code lines.
-- [ ] kind rows: mail fixture renders sender-first; code fixture renders
+- [x] kind rows: mail fixture renders sender-first; code fixture renders
   monospace + line number; icon cache returns one pixmap per extension.
 
   > **2026-09-05 (session 4).** Left unticked - the line-number half is the
@@ -276,7 +295,14 @@ job.
   > the icon cache in `test_an_icon_is_cached_after_the_first_lookup` -
   > keyed per `kind` by construction, so a second kind can never reuse the
   > first's cache slot.
-- [ ] locations: left-elision keeps the tail at narrow widths; twins
+
+  > **2026-09-15.** The owner's decision on 3c (see the dated note there):
+  > drop the line-number half. What this item now asks for is monospace
+  > only, which was already covered before this session, so nothing new was
+  > needed to close it — the three sub-checks above (sender-first, monospace,
+  > icon cache) are exactly what "kind rows" now means against what is
+  > actually shipped, and all three pass.
+- [x] locations: left-elision keeps the tail at narrow widths; twins
   fixture (8 × invoice.pdf) shows distinguishing segments; unique names
   unchanged.
 
@@ -290,6 +316,20 @@ job.
   > 8-invoice example, `test_two_invoices_in_different_clients_get_the_client_emphasised`,
   > `test_twins_already_distinguished_by_the_ordinary_breadcrumb_are_untouched`
   > and `test_unique_names_carry_no_emphasis` (all `test_result_groups.py`).
+
+  > **2026-09-15.** The owner's decision on 4a (see the dated note there):
+  > `elide_path_left()` was dead code and has been removed, tests and all -
+  > `breadcrumb()` is what actually draws the location line and already
+  > keeps the tail ("… > 2019 > Leeds"), which is what "left-elision keeps
+  > the tail" now means against what is shipped, not against a width-limit
+  > parameter `breadcrumb()` never had. `test_the_folder_is_a_breadcrumb_
+  > keeping_the_end` (`test_result_groups.py`) already proved the bare
+  > function; a new live-widget test,
+  > `test_a_deep_result_s_location_line_keeps_the_tail_in_a_live_row`
+  > (`test_results_view.py`), now proves it against a real row in a real
+  > `ResultsView`, which is the rendered location line this item actually
+  > asks about. The twins and unique-names thirds were already covered and
+  > are untouched by this session.
 - [x] friendly dates: register-gated (plain on, technical off), tooltip
   always exact; off-switch honoured.
 
@@ -333,7 +373,7 @@ job.
   > (row-form assertions); `test_the_delegate_scales_with_the_system_font`
   > is parametrised over 100/125/150/200%, so the 150% fixture this bullet
   > asks for is one of its four cases (all `test_result_delegate.py`).
-- [ ] pytest-qt scenario per item (0m convention); all new strings pass
+- [x] pytest-qt scenario per item (0m convention); all new strings pass
   plain-words/tooltip rules.
 
   > **2026-09-05 (session 4).** Left unticked for the same reason order 0s
@@ -349,6 +389,52 @@ job.
   > in the same plain, jargon-free voice as this order's already-shipped
   > strings, and `test_tooltips.py`'s AST guard already covers every module
   > under `app/ui/`, this order's four files included.
+
+  > **2026-09-15, closing this item — 0m turned out not to be the blocker
+  > the note above took it for, the same finding order 0s recorded against
+  > its own copy of this bullet on 2026-09-07.** Re-read 0m's own header
+  > first, as its own case asks: it says the opposite of what the note above
+  > concluded — *"The per-order scenario convention (each order writes
+  > pytest-qt scenarios for its own acceptance sentences) CONTINUES while
+  > this is held — that convention lives in the other orders, not here."*
+  > What stays forbidden while 0m is held is building **0m's own items** —
+  > `tools/grab_ui.py`, the shared `MainWindow` harness fixture and its `gui`
+  > marker, the hypothesis and pywinauto layers, the visual goldens, the
+  > nightly loop. None of those is needed to press a key in a widget this
+  > order shipped: `qtbot` is a fixture pytest-qt provides the moment it is
+  > installed, and it is installed. Nothing of 0m's own scope was started.
+  >
+  > **Per-item qtbot coverage, for the record** (this order's four files
+  > only): **2a** chevron — a real click on the chevron's own hit-rect
+  > toggles the group, a click off it does not, the whole row still toggles
+  > by activation (`test_a_click_on_the_chevron_expands_the_group` and its
+  > two neighbours, `test_results_view.py`). **5d** the stable-update rule —
+  > a real rebuild that adds and re-ranks rows leaves the current row's
+  > identity unmoved (`test_the_current_row_survives_a_rebuild_that_adds_
+  > rows`). **6a** the keyboard-first flow — type, arrow down three times,
+  > Enter opens the third result, focus never left the box
+  > (`test_the_whole_flow_types_then_arrows_down_then_opens_the_third_result`,
+  > `test_search_view.py`). **5c** the terminator — closed today: a live
+  > `show_results` puts an actual `Terminator` payload, unselectable and
+  > disabled, as the model's last row
+  > (`test_the_terminator_row_is_the_last_row_in_a_live_list`,
+  > `test_results_view.py`) — the earlier wiring test only scanned source
+  > text for the call, it never built a list and looked. **4a** locations —
+  > also closed today: a real row's `folder` text is provably `breadcrumb()`'s
+  > tail-first form, not a root-first path
+  > (`test_a_deep_result_s_location_line_keeps_the_tail_in_a_live_row`).
+  > The remaining items (1a-1c, 3a-3c, 4b-4c, 5a-5b, 7a) are deliberately
+  > Qt-free logic or real-delegate-paint tests rather than live-`QListView`
+  > scenarios — this file's own docstring states that split, and none of
+  > them involve a real widget being interacted with, only painted or
+  > queried, which a `qtbot` scenario would not test any more honestly than
+  > the delegate-level tests already there.
+  >
+  > **The plain-words/tooltip half** was already true and checked, as the
+  > 2026-09-05 note above found: every string this order added or changed
+  > reads in the same plain, jargon-free voice as this order's already-shipped
+  > strings, and `test_tooltips.py`'s AST guard covers all four of this
+  > order's files. Unchanged by this session.
 
 ## Done means
 
