@@ -132,6 +132,7 @@ def search(
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+                   f.volume_id, f.relative_path,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -146,6 +147,7 @@ def search(
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+                   f.volume_id, f.relative_path,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -181,6 +183,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+                   f.volume_id, f.relative_path,
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
@@ -195,6 +198,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+                   f.volume_id, f.relative_path,
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
@@ -228,6 +232,7 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
 _FILTER_ONLY_COLUMNS = """c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                c.char_start, c.char_end,
                f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
+                   f.volume_id, f.relative_path,
                0.0 AS score"""
 
 

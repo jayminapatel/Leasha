@@ -42,6 +42,7 @@ __all__ = [
     "hardware_serial_for_root",
     "resolve_unc",
     "probe_unc_reachable",
+    "is_bitlocker_locked",
 ]
 
 #: How long a `Get-Partition`/`Get-PhysicalDisk` probe may run. Advisory data
@@ -282,3 +283,44 @@ def probe_unc_reachable(unc_root: str,
         return bool(future.result(timeout=timeout))
     except Exception:                              # noqa: BLE001 - includes TimeoutError
         return None
+
+
+#: How long a BitLocker lock-status probe may run - advisory only, and a
+#: hung or missing BitLocker module must never hold up a panel refresh.
+_BITLOCKER_TIMEOUT_S = 5.0
+
+
+def is_bitlocker_locked(letter: str, timeout: float = _BITLOCKER_TIMEOUT_S) -> Optional[bool]:
+    r"""Is the volume at this drive letter BitLocker-locked right now?
+
+    **2d: "BitLocker-locked volume = offline-with-reason ('locked')."**
+    Called only when a mounted letter's ordinary identity read has already
+    failed - `identify_root` returns None for a locked volume, because
+    Windows will not hand out a GUID or label for one, and that failure
+    looks identical to "nothing is there" without this. `None` means the
+    question could not be answered (no BitLocker module, no permission, or
+    the probe timed out) - read the same way every other advisory probe
+    here is: as "cannot confirm", never as a definite answer either way.
+
+    **Never touches credentials or a recovery key.** This only reads the
+    lock state Explorer itself already shows as a padlock icon - the same
+    boundary `probe_unc_reachable`'s docstring draws for a network share.
+    """
+    if sys.platform != "win32":
+        return None
+    text = str(letter).rstrip("\\/").rstrip(":")
+    if not text or len(text) != 1:
+        return None
+    script = f"(Get-BitLockerVolume -MountPoint '{text}:' -ErrorAction Stop).LockStatus"
+    try:
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:                              # noqa: BLE001
+        return None
+    status = (done.stdout or "").strip()
+    if not status:
+        return None
+    return status.lower() == "locked"

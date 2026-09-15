@@ -53,6 +53,25 @@ class NullVectors:
         return lambda *args, **kwargs: None
 
 
+class _NullRunLock:
+    r"""Stands in for `app.core.run_lock.IndexRunLock` in a test that must
+    not touch the real machine-wide named mutex - see the test that uses
+    this for why. Same shape, no `SingleInstance`, always acquires.
+    """
+
+    def __init__(self, store=None, *, owner="", name="", lock_dir=None) -> None:
+        self.store = store
+        self.owner = owner
+        self.acquired = False
+
+    def __enter__(self) -> "_NullRunLock":
+        self.acquired = True
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.acquired = False
+
+
 def _embedder(dim: int = 8) -> Embedder:
     def encode(texts):
         return [
@@ -526,4 +545,153 @@ def test_nothing_outside_the_cli_command_and_tests_calls_a_scan(tmp_path):
 
     assert not offenders, (
         f"a scan can start outside app.cli's own command and its definitions: {offenders}"
+    )
+
+
+# --- 2a-2d: the shared CLI/UI orchestration -----------------------------
+
+def test_scan_new_source_requires_a_name(tmp_path):
+    r"""2b: "requires one, because there is no dialog to ask twice" (the
+    CLI's own words) - `scan_new_source` is the shared core both the CLI
+    and the tab's `ScanNameDialog` now call, so the same refusal must come
+    from here rather than from either caller re-checking it."""
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    from app.index.offline_media import scan_new_source
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        with pytest.raises(AppErrorException) as excinfo:
+            scan_new_source(settings, store, tmp_path / "somewhere", name="",
+                            run_lock_owner=COMMAND_LINE)
+        assert excinfo.value.error.code == "ERR_CONFIG_INVALID"
+
+
+def test_scan_new_source_catalogues_and_indexes_a_real_folder(tmp_path, monkeypatch):
+    r"""The shared core, end to end: identify, catalogue, and the same
+    `Pipeline` run `_run_offline_media_pipeline` always did - now behind
+    `run_scoped_pipeline`, which both the CLI and this call share.
+
+    **`identify_source` is faked, not the folder.** It calls
+    `GetVolumeNameForVolumeMountPointW` on the real mount point, which only
+    a genuine drive root answers - a nested tmp_path folder is correctly
+    refused, the same as any other folder that is not a drive. Faking the
+    identification is the same trick `test_the_same_volume_walked_at_two_
+    mount_points_is_one_row` already plays with a GUID no real drive has;
+    this is one call earlier, at the point this function itself resolves
+    identity rather than being handed a `volume_id` already.
+    """
+    from app.core.run_lock import COMMAND_LINE
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import scan_new_source
+
+    root = tmp_path / "drive"
+    _write(root / "reports" / "q3.txt", "Barnsley Dairy commissioning notes.")
+    monkeypatch.setattr(
+        offline_media_module, "identify_source",
+        lambda path: ("drive", {"identity_key": "TEST-GUID-SCAN-NEW",
+                                "volume_guid": "TEST-GUID-SCAN-NEW",
+                                "fs_label": "TESTDRIVE"}),
+    )
+    # **The run lock is a real, machine-wide named mutex**
+    # (`app.core.single_instance.DEFAULT_MUTEX_NAME`) - every other test in
+    # this file constructs a `Pipeline` directly rather than going through
+    # `IndexRunLock` at all, and `run_scoped_pipeline` is the first thing
+    # in this order that takes it. On a machine running several checkouts
+    # of this project at once, a real acquire here can lose a race to
+    # whichever process got there first - found exactly that way, as an
+    # `ERR_INDEX_RUNNING` failure with nothing wrong in either process.
+    # Faked here because this test's job is `scan_new_source`'s own
+    # orchestration - identify, catalogue, index - not the lock's already-
+    # relied-upon serialisation of two real runs.
+    monkeypatch.setattr("app.core.run_lock.IndexRunLock", _NullRunLock)
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        result = scan_new_source(
+            settings, store, root, name="Projects 2019", description="top shelf",
+            run_lock_owner=COMMAND_LINE,
+        )
+        assert result["kind"] == "drive"
+        volume_id = result["volume_id"]
+        record = store.get_volume(volume_id)
+        assert record is not None
+        assert record.name == "Projects 2019"
+        assert record.description == "top shelf"
+        rows = list(store.iter_files(volume_id=volume_id, source_kind="file"))
+        assert len(rows) == 1
+        assert rows[0].path == volume_synthetic_path(volume_id, "reports/q3.txt")
+
+
+def test_rescan_source_reports_not_connected_rather_than_hanging(tmp_path):
+    r"""A catalogued source whose GUID matches nothing on this machine is
+    correctly \"not currently connected\" - never a hang, never an
+    exception that looks like a bug rather than an ordinary unplugged
+    drive."""
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    from app.index.offline_media import rescan_source
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        store.upsert_volume(
+            "TEST-GUID-RESCAN", kind="drive", name="Old Backups",
+            volume_guid=r"\\?\Volume{00000000-0000-0000-0000-0000000000aa}",
+        )
+        with pytest.raises(AppErrorException) as excinfo:
+            rescan_source(settings, store, "Old Backups", run_lock_owner=COMMAND_LINE)
+        assert "not currently connected" in str(excinfo.value.error.render())
+
+
+def test_rescan_source_unknown_identifier_is_reported(tmp_path):
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    from app.index.offline_media import rescan_source
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        with pytest.raises(AppErrorException):
+            rescan_source(settings, store, "does-not-exist", run_lock_owner=COMMAND_LINE)
+
+
+def test_find_volume_by_id_and_by_case_insensitive_name(tmp_path):
+    from app.index.offline_media import find_volume
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-FIND", kind="drive", name="Projects 2019",
+        )
+        assert find_volume(store, volume_id).id == volume_id
+        assert find_volume(store, str(volume_id)).id == volume_id
+        assert find_volume(store, "projects 2019").id == volume_id
+        assert find_volume(store, "nope") is None
+
+
+def _fake_settings(tmp_path):
+    r"""The handful of `Settings` fields `run_scoped_pipeline` actually
+    reads - a real `Settings` needs `DATA_PATH` resolved, which this
+    worktree's `.env`-less test environment does not have; every other
+    offline_media test in this file constructs a `Pipeline` directly for
+    the same reason, so this mirrors that rather than fighting it.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        vector_path=tmp_path / "vectors",
+        # **The real default model's real width.** `run_scoped_pipeline`
+        # always builds a real `Embedder.from_settings` - unlike the other
+        # tests in this file, which hand `Pipeline` a fake, instant encoder
+        # directly - so this has to match what `BAAI/bge-small-en-v1.5`
+        # actually returns or the embedder's own width guard refuses it.
+        embed_dim=384,
+        min_free_gb=0,
+        required_free_gb=0,
+        embed_dedup=False,
+        index_name_only=False,
+        fts_db=tmp_path / "index.db",
     )

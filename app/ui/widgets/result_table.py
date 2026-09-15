@@ -384,4 +384,5 @@ def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,
     found = extra if isinstance(extra, dict) else {}
     results.show_results(
         response.results, terms, summary=summary, keep_scroll=True,
-        details=found.get("details", {}), missing=found.get("missing", set()))
+        details=found.get("details", {}), missing=found.get("missing", set()),
+        volumes=found.get("volumes", {}))

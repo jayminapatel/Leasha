@@ -1857,7 +1857,6 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
-    from app.core.run_lock import IndexRunLock, COMMAND_LINE
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -2097,48 +2096,23 @@ def _run_offline_media_pipeline(settings: Any, store: Any, root: Path,
                                 volume_id: int, *, quiet: bool,
                                 verify_hash: bool = True) -> Any:
     """One Pipeline run scoped to a single catalogued volume's current mount
-    point. The CLI's own equivalent of `cmd_index`'s construction, trimmed to
-    what a single-source Scan/Rescan needs - no multi-root priority list, no
-    hand-tuned resource flags; `resolve_for_run`'s Auto numbers are enough
-    for a foreground command a person is watching.
+    point. Thin CLI wrapper: the construction itself - trimmed the way a
+    single-source Scan/Rescan needs, no multi-root priority list, no
+    hand-tuned resource flags - now lives in `app.index.offline_media.
+    run_scoped_pipeline`, shared with the Offline Media tab so a Scan typed
+    on the console and one clicked in the window run the identical Pipeline.
 
     `verify_hash=False` for a network share (202626270514 1c): SMB makes
     reading every byte just to confirm nothing changed prohibitive, where
     mtime/size settling for an unmoved file is nearly free. Drives keep the
     ordinary default.
     """
-    from app.index.embedder import Embedder
-    from app.index.pipeline import Pipeline, PipelineConfig
-    from app.index.resolve import resolve_for_run
-    from app.index.walker import WalkConfig, own_paths
-    from app.storage.vector_store import VectorStore
-    from app.core.run_lock import IndexRunLock, COMMAND_LINE
+    from app.index.offline_media import run_scoped_pipeline
 
-    tuned = resolve_for_run(settings, store)
-    limits = limits_from_settings(settings)
-    limits = replace(limits, workers=tuned.workers)
-
-    config = PipelineConfig(
-        walk=WalkConfig(
-            roots=[root],
-            volume_roots={str(root).rstrip("\\/").lower(): volume_id},
-            include_cloud=False,
-            exclude_paths=own_paths(settings),
-            name_only=settings.index_name_only,
-        ),
-        limits=limits,
-        min_free_gb=settings.min_free_gb,
-        required_free_gb=settings.required_free_gb,
-        embed_batch=tuned.embed_batch,
-        dedup_chunks=settings.embed_dedup,
-        verify_hash=verify_hash,
+    return run_scoped_pipeline(
+        settings, store, root, volume_id, run_lock_owner=COMMAND_LINE,
+        verify_hash=verify_hash, on_progress=None,
     )
-    embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
-
-    with IndexRunLock(store, owner=COMMAND_LINE), \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-        pipeline = Pipeline(store, vectors, embedder, config)
-        return pipeline.run(on_progress=None)
 
 
 def cmd_files(args: argparse.Namespace) -> int:
