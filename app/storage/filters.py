@@ -236,6 +236,16 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append("REPLACE(f.path, f.parent_dir, '') LIKE ?" + ESCAPE)
         params.append(contains(name))
 
+    # `/on` - order 202626270513 §3c. Simpler than `repo:`'s two-way match:
+    # a catalogued volume has only a name - drive letters are never stored,
+    # so there is no path-shaped alternative to match against - and ORed for
+    # the same reason `repo:` is: a file lives on exactly one volume, so
+    # `on:a on:b` under the usual AND would match nothing, ever.
+    if getattr(parsed, "volumes", ()):
+        conditions = " OR ".join("name = ? COLLATE NOCASE" for _ in parsed.volumes)
+        clauses.append(f"f.volume_id IN (SELECT id FROM volumes WHERE {conditions})")
+        params.extend(parsed.volumes)
+
     # --- the negated halves -------------------------------------------------
     #
     # **`-type:pdf` used to return only PDFs.** The parser lost the minus, so
@@ -270,6 +280,17 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append(
             f"f.id NOT IN (SELECT file_id FROM file_tags WHERE {conditions})")
         params.extend(parsed.not_shows)
+
+    if getattr(parsed, "not_volumes", ()):
+        # `OR f.volume_id IS NULL` for the same reason `not_repos` needs it:
+        # nearly every file is on no catalogued volume at all, and
+        # `volume_id NOT IN (...)` is NULL - not true - for every one of
+        # them, which would exclude the whole rest of the corpus.
+        conditions = " OR ".join("name = ? COLLATE NOCASE" for _ in parsed.not_volumes)
+        clauses.append(
+            f"(f.volume_id IS NULL OR f.volume_id NOT IN "
+            f"(SELECT id FROM volumes WHERE {conditions}))")
+        params.extend(parsed.not_volumes)
 
     if getattr(parsed, "not_repos", ()):
         # **`OR f.repo_id IS NULL` is the whole difference.** Most files belong

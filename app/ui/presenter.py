@@ -574,6 +574,12 @@ class ResultRow:
     #: scroll to the region, and re-parsing the sentence to get it back would
     #: be the mistake `cell_location` exists to prevent.
     label: str = ""
+    #: Offline Media §3a/3b. `None` for an ordinary file. Straight through
+    #: from `SearchResult` - see that field's own comment for why `path` on
+    #: such a row is never a real filesystem path and must be resolved
+    #: before it is opened.
+    volume_id: Optional[int] = None
+    relative_path: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1247,7 +1253,7 @@ def group_subtitle(group: Any, *, show_scores: bool = False,
     return "  ·  ".join(bit for bit in bits if bit)
 
 
-def result_tooltip(payload: Any, *, missing: bool = False) -> str:
+def result_tooltip(payload: Any, *, missing: bool = False, volume_note: str = "") -> str:
     """The full path and the explanation - both of which came off the row.
 
     The breadcrumb is a display choice; the tooltip is where the truth stays.
@@ -1255,9 +1261,20 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     whatever register the visible row is reading in. Item 3a/7a: the kind
     word (`kind_tag`) is here too, now that the painted row shows an icon
     instead of the `[PDF]` text it used to carry the word in directly.
+
+    `volume_note` is Offline Media §3a's own sentence - "on **<name>**
+    (offline, scanned <date>) - plug it in to open" - from `app.ui.
+    presenter.offline_volume_note`, and it replaces the generic `missing`
+    line rather than joining it: a person does not need to be told "this
+    file is missing" and then, separately, exactly where it actually is.
     """
-    path = getattr(payload, "path", "")
     best = getattr(payload, "best", payload)
+    relative_path = str(getattr(best, "relative_path", "") or "")
+    # **A catalogued-volume row's `path` is never a real filesystem path** -
+    # it is the letter-free key `volume_synthetic_path` builds - so showing
+    # it verbatim here would read as a broken tooltip rather than a helpful
+    # one. `relative_path` is where on the drive the file actually is.
+    path = relative_path if relative_path else getattr(payload, "path", "")
     lines = [path]
     kind = str(getattr(payload, "kind", "") or "")
     if kind:
@@ -1267,7 +1284,9 @@ def result_tooltip(payload: Any, *, missing: bool = False) -> str:
     exact = getattr(payload, "when_exact", "") or _exact_date(getattr(best, "mtime_ns", 0))
     if exact:
         lines.append(f"Date: {exact}")
-    if missing:
+    if volume_note:
+        lines.append(volume_note)
+    elif missing:
         lines.append("This file is missing - the index is stale for it.")
     return "\n\n".join(line for line in lines if line)
 
@@ -1392,17 +1411,83 @@ def search_options(tier: str, *, scope: str, rerank: bool,
 
 
 def decorate_results(store: Any, results: Any) -> dict:
-    """Mail subtitles and missing-file marks for one page. **Worker only.**
+    """Mail subtitles, missing-file marks and Offline Media status for one
+    page. **Worker only.**
 
-    Both halves were running on the UI thread in the handler that paints
-    results - a SQLite query and one filesystem stat per row. Together here so
-    there is one worker rather than two, and one place that says which of this
-    work is off-thread.
+    Three halves were running, or would have run, on the UI thread - a
+    SQLite query, one filesystem stat per row, and (§3a) a live Windows
+    volume check. Together here so there is one worker rather than three,
+    and one place that says which of this work is off-thread.
     """
     return {
         "details": mail_details(store, results),
-        "missing": missing_paths(getattr(row, "path", "") for row in results or ()),
+        "missing": missing_paths(
+            getattr(row, "path", "") for row in results or ()
+            if getattr(row, "volume_id", None) is None
+        ),
+        "volumes": offline_volume_marks(store, results),
     }
+
+
+def offline_volume_marks(store: Any, results: Any) -> dict[int, dict]:
+    r"""Which of this page's rows are on a catalogued Offline Media volume
+    that is not connected right now, and what to say about it. §3a: "on
+    **<name>** (offline, scanned <date>) - plug it in to open".
+
+    **Online rows are absent from the returned dict entirely.** They open
+    normally through 1b's ordinary resolution and 3a asks for nothing to
+    be said about them - a decoration on every row of a drive that is
+    plugged in right now would be noise, not information.
+
+    **Worker only** - `connected_volumes` is a live Windows volume check,
+    the same reason `missing_paths` is worker-only. Never raises: a
+    decoration that fails to compute costs a missing sentence, not the
+    search that found the row.
+    """
+    rows = [row for row in (results or ()) if getattr(row, "volume_id", None) is not None]
+    if not rows:
+        return {}
+    from app.index.offline_media import connected_volumes
+
+    try:
+        online = connected_volumes(store)
+    except Exception:                            # noqa: BLE001 - a decoration, not the search
+        online = {}
+
+    marks: dict[int, dict] = {}
+    volumes_seen: dict[int, Any] = {}
+    for row in rows:
+        volume_id = int(row.volume_id)
+        if volume_id in online:
+            continue
+        if volume_id not in volumes_seen:
+            try:
+                volumes_seen[volume_id] = store.get_volume(volume_id)
+            except Exception:                     # noqa: BLE001
+                volumes_seen[volume_id] = None
+        record = volumes_seen[volume_id]
+        if record is None:
+            continue
+        scanned_at = int(getattr(record, "last_scanned_at", 0) or 0)
+        marks[int(getattr(row, "file_id", 0))] = {
+            "name": record.name,
+            "scanned": format_when(scanned_at * 1_000_000_000) if scanned_at else "",
+        }
+    return marks
+
+
+def offline_volume_note(mark: Optional[dict]) -> str:
+    r"""§3a's exact sentence for a row `offline_volume_marks` found
+    offline. `""` for everything else - an online row, or an ordinary
+    file not on a catalogued volume at all.
+    """
+    if not mark:
+        return ""
+    name = mark.get("name") or "that drive"
+    scanned = mark.get("scanned")
+    if scanned:
+        return f"on {name} (offline, scanned {scanned}) - plug it in to open"
+    return f"on {name} (offline) - plug it in to open"
 
 
 def record_open(engine: Any, search_id: Any, chunk_id: Any) -> None:
@@ -5080,3 +5165,166 @@ def match_marker(row: Any, policy: Any = None) -> str:
         return ""
     lanes = tuple(getattr(row, "sources", ()) or ())
     return MEANING_MARKER if lanes == (1,) else ""
+
+
+@dataclass(frozen=True, slots=True)
+class VolumeRow:
+    """One Offline Media source, for the tab's list. 2a: name, status, size,
+    counts, snapshot date."""
+
+    volume_id: int
+    name: str
+    kind: str            # "drive" | "network" | "cloud" | "phone" | "archived"
+    status: str           # the sentence the row shows - see `volume_rows`
+    status_code: str      # ONLINE | OFFLINE | LOCKED, raw - for an icon or colour
+    size: str             # "128.4 GB"
+    files: str             # "48,301"
+    scanned: str           # "12 Nov 2025", or "never" before a first Scan finishes
+    description: str
+    #: Unformatted, for a table that wants to sort on the real value.
+    file_count: int = 0
+    size_bytes: int = 0
+    last_scanned_at: int = 0
+    last_seen: int = 0
+
+
+def volume_rows(rows: Iterable[Mapping[str, Any]],
+                online: Optional[Mapping[int, Any]] = None, *,
+                now: Optional[float] = None) -> list[VolumeRow]:
+    r"""Store rows to display rows for the Offline Media tab.
+
+    `online` is `app.index.offline_media.connected_volumes(store)`'s result -
+    fetched on a worker, never here, because it is a live Windows volume
+    enumeration and this function must stay a pure formatter like every
+    other `*_rows` in this module. `status_code` is read from the row's own
+    `status` column, which `refresh_volume_statuses` already wrote before
+    this is called - this function only turns a code into the sentence a
+    person reads; it never decides ONLINE/OFFLINE/LOCKED itself.
+
+    **"online as F:" - the letter shown as a transient fact only (2a).** It
+    is read from `online`, not stored anywhere, and a rescan a moment later
+    at a different letter simply reads differently next time this runs.
+    """
+    online = online or {}
+    out: list[VolumeRow] = []
+    for row in rows:
+        volume_id = int(row.get("id", 0) or 0)
+        status_code = str(row.get("status") or "OFFLINE").upper()
+        root = online.get(volume_id)
+        seen = int(row.get("last_seen") or 0)
+        if status_code == "ONLINE" and root is not None:
+            letter = str(root).rstrip("\\/") or str(root)
+            status = f"Online as {letter}"
+        elif status_code == "LOCKED":
+            status = "Locked (BitLocker)"
+        elif seen:
+            status = f"Offline - last seen {format_when(seen * 1_000_000_000, now=now)}"
+        else:
+            status = "Offline"
+        scanned_at = int(row.get("last_scanned_at") or 0)
+        count = int(row.get("indexed_files", row.get("file_count", 0)) or 0)
+        out.append(VolumeRow(
+            volume_id=volume_id,
+            name=str(row.get("name", "")),
+            kind=str(row.get("kind", "")),
+            status=status,
+            status_code=status_code,
+            size=format_size(int(row.get("size_bytes") or 0)),
+            files=format_count(count),
+            scanned=format_when(scanned_at * 1_000_000_000, now=now) if scanned_at else "never",
+            description=str(row.get("description") or ""),
+            file_count=count,
+            size_bytes=int(row.get("size_bytes") or 0),
+            last_scanned_at=scanned_at,
+            last_seen=seen,
+        ))
+    return out
+
+
+def offline_media_empty_state() -> str:
+    r"""2a's empty list: what to type and press, before there is anything to show."""
+    return (
+        "No drives catalogued yet. Press “Scan a drive…” and choose "
+        "the drive or folder to catalogue - nothing happens to any drive until "
+        "you do."
+    )
+
+
+def delete_volume_confirmation(name: str, file_count: int) -> tuple[str, str]:
+    r"""2c's confirmation text: the count, and the crucial sentence, verbatim.
+
+    A `(title, body)` pair so the dialog and any headless caller (a test, a
+    future CLI `--yes` prompt) render the identical words - the wording
+    lives here once, the way every notice and error message in this project
+    does, rather than typed again at each call site.
+    """
+    title = f"Forget {name!r}?"
+    body = (
+        f"This removes {file_count:,} file(s) catalogued under {name!r} "
+        f"from Leasha's index.\n\n"
+        "This removes the catalogue from Leasha's index. Nothing on the "
+        "drive itself is touched."
+    )
+    return title, body
+
+
+def offline_media_run_summary(result: Any) -> str:
+    r"""The status-bar sentence after a Scan, Rescan or Delete completes -
+    2a's whole "what happened" story, since the tab shows no progress bar
+    while one runs. **Always names an amount**, the same rule
+    `cleared_message` follows: a silent success is indistinguishable from
+    nothing having happened.
+    """
+    if not isinstance(result, dict):
+        return "Done."
+    if "deleted" in result:
+        name = result.get("name") or "that source"
+        files = int(result.get("files") or 0)
+        return (f"Forgot {name!r}: {files:,} file(s) removed from the index. "
+                "Nothing on the drive itself was touched.")
+    stats = result.get("stats")
+    indexed = int(getattr(stats, "indexed", 0) or 0)
+    seen = int(getattr(stats, "seen", 0) or 0)
+    deleted = int(getattr(stats, "deleted", 0) or 0)
+    moved = int(result.get("moved") or 0)
+    pieces = [f"{indexed:,} new/changed document(s)", f"{seen:,} file(s) seen"]
+    if moved:
+        pieces.append(f"{moved:,} moved on disk and repaired without re-extraction")
+    if deleted:
+        pieces.append(f"{deleted:,} row(s) removed for files genuinely gone")
+    return "Scanned: " + ", ".join(pieces) + "."
+
+
+def resolve_open_path(store: Any, row: Any) -> str:
+    r"""The real path to open for one result row. **Worker only.**
+
+    Straight through for an ordinary file. For one on a catalogued volume
+    (Offline Media, order 202626270513), `row.path` is never a real
+    filesystem path - it is the letter-free key `volume_synthetic_path`
+    builds - and 1b requires resolution through the volume's *current*
+    mount point, every time, which means a live Windows volume check and
+    therefore never the interface thread.
+
+    Raises `AppErrorException` (`ERR_FILE_CORRUPT`) when a volume-backed
+    row's volume is not connected right now - the same code
+    `open_in_explorer` already raises for an ordinary missing file, so
+    "cannot reach it" reads the same way in the error box regardless of
+    which kind of unreachable produced it.
+    """
+    volume_id = getattr(row, "volume_id", None)
+    if volume_id is None:
+        return str(getattr(row, "path", ""))
+
+    from app.core.errors import raise_error
+    from app.index.offline_media import resolve_file_path
+
+    resolved = resolve_file_path(store, row)
+    if resolved is None:
+        raise_error(
+            "ERR_FILE_CORRUPT", "ui.open",
+            path=str(getattr(row, "path", "")),
+            suggestion="This file is on a catalogued drive that is not "
+                      "plugged in right now. Plug it in and try again.",
+            details="Volume not currently connected.",
+        )
+    return str(resolved)

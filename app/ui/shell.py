@@ -45,6 +45,7 @@ from app.ui.code_view import CodeView
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
+from app.ui.offline_media_view import OfflineMediaView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
@@ -61,6 +62,7 @@ from app.core.run_lock import GUI
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import (
     _read_external_run, _scan_and_save, cleared_message, index_bytes, index_counts,
+    offline_media_run_summary,
 )
 from app.ui.workers import CallableWorker, open_async, open_in_explorer, run
 
@@ -408,6 +410,17 @@ class MainWindow(QMainWindow):
         self.files_view.error.connect(self._show_error)
         self.files_view.search_inside_requested.connect(self._search_inside)
 
+        # Order 202626270513 Â§2. Read-only refresh is the view's own - see
+        # `OfflineMediaView.refresh` - but Scan/Rescan/Delete run a real
+        # `Pipeline` (Scan/Rescan) or a full delete cascade, so they are
+        # signals the window turns into a `CallableWorker`, the same split
+        # `IndexingView` draws for `_start_indexing`.
+        self.offline_media_view = OfflineMediaView(store)
+        self.offline_media_view.error.connect(self._show_error)
+        self.offline_media_view.scan_requested.connect(self._offline_media_scan)
+        self.offline_media_view.rescan_requested.connect(self._offline_media_rescan)
+        self.offline_media_view.delete_requested.connect(self._offline_media_delete)
+
         # **Order 0r item 2b.** Mail and Code are not what first paint shows
         # (Search is), and building both here was real, measured constructor
         # cost - two more `ResultTable`s, two more preview panes, two more
@@ -456,6 +469,7 @@ class MainWindow(QMainWindow):
         for view, title, scroll in (
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
+            (self.offline_media_view, "Offline Media", False),
             (self.indexing_view, "Indexing", False),
             (self.settings_view, "Settings", True),
         ):
@@ -1713,6 +1727,8 @@ class MainWindow(QMainWindow):
             self.indexing_view.refresh_totals(self._store, self._settings)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
+        elif index == self._tab_index.get(self.offline_media_view):
+            self.offline_media_view.refresh()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
@@ -1778,8 +1794,34 @@ class MainWindow(QMainWindow):
         a launch that is nearly free once it is off the critical path.
 
         The click now returns immediately and the error, if any, arrives later.
+
+        **A row on a catalogued Offline Media volume needs resolving
+        first** (1b) - `row.path` for one of those is never a real
+        filesystem path, it is the letter-free key
+        `volume_synthetic_path` builds, and opening it directly would
+        report "missing" for a file that is sitting right there once the
+        drive is plugged in. `_open_volume_result` does the resolution and
+        the open in the same worker.
         """
+        if getattr(row, "volume_id", None) is not None:
+            self._open_volume_result(row, reveal=reveal)
+            return
         self._open_path(row.path, reveal=reveal)
+
+    def _open_volume_result(self, row: Any, *, reveal: bool = False) -> None:
+        """Resolve a catalogued-volume row's current real path, then open
+        it - one worker, never the interface thread for either half."""
+        from app.ui.presenter import resolve_open_path
+
+        def _resolve_and_open() -> Any:
+            target = resolve_open_path(self._store, row)
+            return open_in_explorer(target, select=reveal)
+
+        worker = CallableWorker(_resolve_and_open, component="ui.open")
+        worker.signals.finished.connect(
+            lambda error: self._show_error(error) if error is not None else None)
+        worker.signals.failed.connect(self._show_error)
+        run(QThreadPool.globalInstance(), worker)
 
     def _open_path(self, path: str, *, reveal: bool = False) -> None:
         """The same, for a caller that has a path rather than a result row.
@@ -2362,6 +2404,69 @@ class MainWindow(QMainWindow):
         self.indexing_view.refresh_totals(self._store, self._settings)
         self.files_view.refresh_summary()
         self._refresh_status()
+
+    # -- Offline Media: order 202626270513 -----------------------------------
+    #
+    # 2a has no progress bar - a status line on the tab itself and a plain
+    # `statusBar` sentence when it finishes, the same weight the order gives
+    # the whole feature. Scan and Rescan both run a real `Pipeline`, so both
+    # take the window's own run lock (`GUI`) exactly as `_start_indexing`
+    # does - a Scan started while an ordinary index run is already using the
+    # lock waits for it, on the worker thread, never on this one.
+
+    def _offline_media_scan(self, root: str, name: str, description: str) -> None:
+        """2b: the first Scan of a chosen folder - catalogues it, then runs a
+        `Pipeline` scoped to it. `scan_new_source` does both, off this worker.
+        """
+        from app.index.offline_media import scan_new_source
+
+        self.offline_media_view.set_busy(f"Scanning {root}\u2026")
+        worker = CallableWorker(
+            scan_new_source, self._settings, self._store, Path(root),
+            name=name, description=(description or None), run_lock_owner=GUI,
+            component="ui.offline_media",
+        )
+        worker.signals.finished.connect(self._offline_media_run_done)
+        worker.signals.failed.connect(self._offline_media_run_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _offline_media_rescan(self, volume_id: int) -> None:
+        """2a's Rescan: 1e's move-repair pass, then a `Pipeline` for what
+        actually changed."""
+        from app.index.offline_media import rescan_source
+
+        self.offline_media_view.set_busy("Rescanning\u2026")
+        worker = CallableWorker(
+            rescan_source, self._settings, self._store, volume_id,
+            run_lock_owner=GUI, component="ui.offline_media",
+        )
+        worker.signals.finished.connect(self._offline_media_run_done)
+        worker.signals.failed.connect(self._offline_media_run_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _offline_media_delete(self, volume_id: int) -> None:
+        """2c: the product's one deliberate deletion - the full cascade,
+        never the drive itself."""
+        from app.index.offline_media import delete_volume
+
+        self.offline_media_view.set_busy("Removing from the index\u2026")
+        worker = CallableWorker(
+            delete_volume, self._store, self._vectors, volume_id,
+            component="ui.offline_media",
+        )
+        worker.signals.finished.connect(self._offline_media_run_done)
+        worker.signals.failed.connect(self._offline_media_run_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _offline_media_run_done(self, result: Any) -> None:
+        self.offline_media_view.set_busy("")
+        self.offline_media_view.refresh()
+        self.files_view.refresh_summary()
+        self.statusBar().showMessage(offline_media_run_summary(result), 20_000)
+
+    def _offline_media_run_failed(self, error: Any) -> None:
+        self.offline_media_view.set_busy("")
+        self._show_error(error)
 
     def _show_error(self, error: Any) -> None:
         """Every error shows what happened, the fix, and a working button."""

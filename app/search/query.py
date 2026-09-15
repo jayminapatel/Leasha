@@ -54,6 +54,7 @@ _FIELD_ALIASES = {
     "before": "before", "until": "before",
     "path": "path", "folder": "path", "dir": "path",
     "repo": "repo", "repository": "repo", "project": "repo",
+    "on": "volume", "volume": "volume", "drive": "volume",
     "from": "sender", "sender": "sender",
     "to": "recipient", "recipient": "recipient", "cc": "recipient",
     "subject": "subject", "title": "subject", "re": "subject",
@@ -208,6 +209,10 @@ class ParsedQuery:
     #: Comma-separated and ORed within the tuple, the same grammar `repos`
     #: and `shows` already use.
     place: tuple[str, ...] = ()
+    #: Offline Media source names - order 202626270513 §3c's `/on`. Matched
+    #: on name only: drive letters are never stored, so unlike `repos` there
+    #: is no path-shaped alternative to match against.
+    volumes: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
     #: Mail-only fields. Empty for a document search, which is why they cost
     #: nothing when unused: each becomes a subquery on `messages` only if the
@@ -234,6 +239,7 @@ class ParsedQuery:
     not_repos: tuple[str, ...] = ()
     not_shows: tuple[str, ...] = ()
     not_place: tuple[str, ...] = ()
+    not_volumes: tuple[str, ...] = ()
     not_senders: tuple[str, ...] = ()
     not_recipients: tuple[str, ...] = ()
     not_subjects: tuple[str, ...] = ()
@@ -283,7 +289,7 @@ class ParsedQuery:
     def has_filters(self) -> bool:
         return bool(
             self.ext or self.after or self.before or self.paths
-            or self.repos or self.shows or self.place
+            or self.repos or self.shows or self.place or self.volumes
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes
             or self.has_attachment is not None or self.scope != "all"
@@ -440,6 +446,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     repos: list[str] = []
     shows: list[str] = []
     place: list[str] = []
+    volumes: list[str] = []
     senders: list[str] = []
     recipients: list[str] = []
     subjects: list[str] = []
@@ -453,6 +460,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     not_repos: list[str] = []
     not_shows: list[str] = []
     not_place: list[str] = []
+    not_volumes: list[str] = []
     not_senders: list[str] = []
     not_recipients: list[str] = []
     not_subjects: list[str] = []
@@ -490,13 +498,14 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             target = {
                 "ext": not_ext, "path": not_paths, "repo": not_repos,
                 "shows": not_shows, "place": not_place,
+                "volume": not_volumes,
                 "sender": not_senders, "recipient": not_recipients,
                 "subject": not_subjects, "name": not_names,
             }.get(fld or "")
             if target is not None:
                 if fld == "ext":
                     target.extend(_norm_ext(val))
-                elif fld in ("repo", "shows", "place"):
+                elif fld in ("repo", "shows", "place", "volume"):
                     target.extend(part.strip().lower()
                                   for part in val.split(",") if part.strip())
                 elif val:
@@ -534,6 +543,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 part = part.strip().lower()
                 if part:
                     place.append(part)
+        elif fld == "volume":
+            # `on:"Projects 2019","Old Backups"` - the same comma-separated
+            # form `repo:` accepts, for the same reason: a file is on
+            # exactly one Offline Media source, so asking about several at
+            # once only makes sense as an OR.
+            for part in val.split(","):
+                part = part.strip().lower()
+                if part:
+                    volumes.append(part)
         elif fld == "sender":
             if val:
                 senders.append(val.lower())
@@ -691,6 +709,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         repos=tuple(dict.fromkeys(repos)),
         shows=tuple(dict.fromkeys(shows)),
         place=tuple(dict.fromkeys(place)),
+        volumes=tuple(dict.fromkeys(volumes)),
         senders=tuple(senders),
         recipients=tuple(recipients),
         subjects=tuple(subjects),
@@ -701,6 +720,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         not_repos=tuple(dict.fromkeys(not_repos)),
         not_shows=tuple(dict.fromkeys(not_shows)),
         not_place=tuple(dict.fromkeys(not_place)),
+        not_volumes=tuple(dict.fromkeys(not_volumes)),
         not_senders=tuple(not_senders),
         not_recipients=tuple(not_recipients),
         not_subjects=tuple(not_subjects),

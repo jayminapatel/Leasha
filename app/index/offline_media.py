@@ -33,6 +33,10 @@ __all__ = [
     "suggest_renamed_source",
     "archive_volume",
     "volume_location_label",
+    "find_volume",
+    "run_scoped_pipeline",
+    "scan_new_source",
+    "rescan_source",
 ]
 
 _log = logger.bind(component="index.offline_media")
@@ -221,6 +225,17 @@ def connected_volumes(store: Any) -> dict[int, Path]:
             if not guid:
                 continue
             root = find_drive_by_guid(guid)
+            # **Never a BitLocker probe here.** This function is resolved
+            # fresh on every call and sits under `resolve_file_path` - the
+            # hot path a search result's Open/preview and every pipeline
+            # walk goes through - and `is_bitlocker_locked` is a PowerShell
+            # subprocess costing whole seconds, not microseconds. 2d's check
+            # belongs only in `refresh_volume_statuses`, which 2a already
+            # scopes to "once, on panel refresh" - see its docstring. A
+            # locked drive slipping through here as "online" costs one
+            # walk that finds every file access-denied and skips it, which
+            # the pipeline already handles; the alternative costs every
+            # caller of this function seconds per volume, every time.
             if root is not None:
                 online[volume_id] = root
         elif kind == "network":
@@ -269,17 +284,30 @@ def refresh_volume_statuses(store: Any) -> dict[int, str]:
     events."** This is the one place that happens: called when the Offline
     Media tab (or its CLI equivalent, `app.cli offline-media list`) is
     opened, never on a timer and never in response to a Windows device
-    notification. `LOCKED` (2d, BitLocker) is not distinguished from
-    `OFFLINE` here - a locked volume that cannot be identified looks
-    identical to one that is not plugged in at all, and this function does
-    not decrypt anything to find out; see the dated note in the work order
-    for what that means for 2d.
+    notification.
+
+    **2d, resolved.** `connected_volumes` already will not call a locked
+    BitLocker drive reachable - it cannot be walked - so a drive missing
+    from its `online` dict is ambiguous between "not plugged in" and
+    "plugged in but locked", and 2d asks for the two to read as different
+    sentences. This function alone pays the extra `find_drive_by_guid` +
+    `is_bitlocker_locked` probe to tell them apart, and only for a drive
+    that actually needs the answer - never for one `connected_volumes`
+    already resolved as online, and never for `network`/`cloud`/`phone`,
+    where BitLocker does not apply.
     """
+    from app.core.volumes_win import find_drive_by_guid
+
     online = connected_volumes(store)
     statuses: dict[int, str] = {}
     for row in store.list_volumes():
         volume_id = int(row["id"])
-        if row.get("kind") in ("drive", "network"):
+        kind = row.get("kind")
+        if kind == "drive" and volume_id not in online:
+            guid = row.get("volume_guid")
+            root = find_drive_by_guid(guid) if guid else None
+            status = "LOCKED" if root is not None and _drive_locked(root) else "OFFLINE"
+        elif kind in ("drive", "network"):
             status = "ONLINE" if volume_id in online else "OFFLINE"
         else:
             # Not yet resolvable (cloud/phone/archived) - last known status
@@ -412,3 +440,191 @@ def delete_volume(store: Any, vectors: Any, volume_id: int) -> dict[str, Any]:
     _log.info("deleted Offline Media source {!r} ({} file(s)); the drive "
              "itself was not touched", record.name, len(ids))
     return {"deleted": True, "files": len(ids), "name": record.name}
+
+def _drive_locked(root: Path) -> bool:
+    r"""2d: a BitLocker-locked drive is mounted but unreadable - never
+    treated as reachable by the walker, the same way an unreadable network
+    share never is. `Path(root).drive` reads the letter back off whatever
+    `find_drive_by_guid` returned, so this needs no assumption about the
+    root's exact spelling.
+    """
+    from app.core.volumes_win import is_bitlocker_locked
+
+    letter = Path(root).drive.rstrip(":")
+    if not letter:
+        return False
+    return bool(is_bitlocker_locked(letter))
+
+
+def find_volume(store: Any, identifier: Any) -> Any:
+    r"""By numeric id, or by exact name (case-insensitive) - whichever a
+    caller has at hand. Shared by the CLI's own lookup and the tab, so a
+    name that resolves on one resolves the same way on the other.
+    """
+    try:
+        return store.get_volume(int(identifier))
+    except (TypeError, ValueError):
+        pass
+    for row in store.list_volumes():
+        if str(row["name"]).lower() == str(identifier).lower():
+            return store.get_volume(int(row["id"]))
+    return None
+
+
+def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *,
+                        run_lock_owner: str, verify_hash: bool = True,
+                        on_progress: Optional[Any] = None) -> Any:
+    r"""One Pipeline run scoped to a single catalogued volume's current mount
+    point - the CLI and the tab's shared core for Scan/Rescan, so the two
+    never drift into two different ideas of what a Scan does.
+
+    Trimmed the way `app.cli`'s own version always was: no multi-root
+    priority list, no hand-tuned resource flags - `resolve_for_run`'s Auto
+    numbers are enough for a single-source run somebody is watching.
+
+    `run_lock_owner` is `app.core.run_lock.COMMAND_LINE` from the CLI or
+    `GUI` from the window - carried here rather than hidden behind a
+    default, because it must be taken on whichever thread is actually
+    doing the run (see `app.ui.workers.IndexWorker.run`'s own note on the
+    same point) and this function does not know which caller it is.
+    """
+    from dataclasses import replace as _replace
+
+    from app.index.embedder import Embedder
+    from app.index.pipeline import Pipeline, PipelineConfig
+    from app.index.resources import limits_from_settings
+    from app.index.resolve import resolve_for_run
+    from app.index.walker import WalkConfig, own_paths
+    from app.storage.vector_store import VectorStore
+    from app.core.run_lock import IndexRunLock
+
+    tuned = resolve_for_run(settings, store)
+    limits = _replace(limits_from_settings(settings), workers=tuned.workers)
+
+    config = PipelineConfig(
+        walk=WalkConfig(
+            roots=[root],
+            volume_roots={str(root).rstrip("\\/").lower(): volume_id},
+            include_cloud=False,
+            exclude_paths=own_paths(settings),
+            name_only=settings.index_name_only,
+        ),
+        limits=limits,
+        min_free_gb=settings.min_free_gb,
+        required_free_gb=settings.required_free_gb,
+        embed_batch=tuned.embed_batch,
+        dedup_chunks=settings.embed_dedup,
+        verify_hash=verify_hash,
+    )
+    embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
+
+    with IndexRunLock(store, owner=run_lock_owner), \
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+        pipeline = Pipeline(store, vectors, embedder, config)
+        return pipeline.run(on_progress=on_progress)
+
+
+def scan_new_source(settings: Any, store: Any, root: Path, *, name: str,
+                    description: Optional[str] = None, run_lock_owner: str,
+                    on_progress: Optional[Any] = None) -> dict[str, Any]:
+    r"""Catalogue `root` as a new Offline Media source and run its first
+    Scan. The shared core of `app.cli offline-media --scan` and 2a/2b's
+    Scan button - one place that identifies, validates, catalogues and
+    walks, so a name typed into the CLI and a name typed into the dialog
+    are caught by exactly the same checks.
+
+    Raises `AppErrorException` for anything the caller must show - a
+    missing name, an unreadable path, an unreachable share. Never prints
+    or shows anything itself; that is the caller's job on both sides.
+    """
+    from app.core.errors import raise_error
+    from app.core.volumes_win import hardware_serial_for_root
+
+    if not name:
+        raise_error(
+            "ERR_CONFIG_INVALID", "index.offline_media",
+            key="name", reason="a Scan needs a name to remember this source by",
+            suggestion="Give this drive a name you will remember.",
+        )
+    found = identify_source(root)
+    if found is None:
+        raise_error(
+            "ERR_CONFIG_INVALID", "index.offline_media",
+            key="path", reason=f"could not read a volume or network identity for {root!r}",
+            suggestion="Check the drive is plugged in, or the share is "
+                       "reachable, and the path is right.",
+        )
+    kind, fields = found
+    if kind == "drive" and not root.exists():
+        raise_error(
+            "ERR_CONFIG_INVALID", "index.offline_media",
+            key="path", reason=f"{root!r} does not exist or is not reachable",
+            suggestion="Check the drive is plugged in and the path is right.",
+        )
+    if kind == "network":
+        from app.core.volumes_win import probe_unc_reachable
+
+        if not probe_unc_reachable(fields["identity_key"]):
+            raise_error(
+                "ERR_UNEXPECTED", "index.offline_media",
+                details=f"{fields['identity_key']} is offline - not signed "
+                        "in or not reachable.",
+                suggestion="Reconnect it the way you always do in Windows, "
+                          "then scan again.",
+            )
+
+    volume_id = store.upsert_volume(
+        fields["identity_key"], kind=kind, name=name, description=description,
+        **{k: v for k, v in fields.items() if k != "identity_key"},
+    )
+    if kind == "drive":
+        serial = hardware_serial_for_root(root)
+        if serial:
+            store.upsert_volume(fields["identity_key"], kind=kind, name=name,
+                               hardware_serial=serial)
+
+    stats = run_scoped_pipeline(
+        settings, store, root, volume_id, run_lock_owner=run_lock_owner,
+        verify_hash=(kind != "network"), on_progress=on_progress,
+    )
+    return {"volume_id": volume_id, "kind": kind, "stats": stats}
+
+
+def rescan_source(settings: Any, store: Any, identifier: Any, *,
+                  run_lock_owner: str, on_progress: Optional[Any] = None) -> dict[str, Any]:
+    r"""Rescan a catalogued source by id or name - the shared core of
+    `app.cli offline-media --rescan` and 2a's Rescan button.
+
+    Raises `AppErrorException` when the source is unknown, or not currently
+    reachable - a drive that is unplugged, or a share that is not signed
+    in - naming which, since the fix is different for each.
+    """
+    from app.core.errors import raise_error
+
+    record = find_volume(store, identifier)
+    if record is None:
+        raise_error(
+            "ERR_CONFIG_INVALID", "index.offline_media",
+            key="identifier", reason=f"no catalogued source matches {identifier!r}",
+        )
+    online = connected_volumes(store)
+    root = online.get(record.id)
+    if root is None:
+        if record.kind == "network":
+            details = f"{record.name!r} is offline - not signed in or not reachable."
+            suggestion = ("Reconnect it the way you always do in Windows, "
+                         "then rescan again. Nothing about its existing "
+                         "catalogue entry has changed.")
+        else:
+            details = f"{record.name!r} is not currently connected."
+            suggestion = ("Plug it in, then rescan again. Nothing about its "
+                         "existing catalogue entry has changed.")
+        raise_error("ERR_UNEXPECTED", "index.offline_media",
+                   details=details, suggestion=suggestion)
+
+    reconciled = reconcile_moves(store, record.id, root)
+    stats = run_scoped_pipeline(
+        settings, store, root, record.id, run_lock_owner=run_lock_owner,
+        verify_hash=(record.kind != "network"), on_progress=on_progress,
+    )
+    return {"volume_id": record.id, "moved": reconciled.moved, "stats": stats}

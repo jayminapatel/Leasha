@@ -84,7 +84,8 @@ def test_no_tab_offers_a_command_it_cannot_honour() -> None:
     # feeding every command the same "x" tested the validator, not the offer.
     consumed = {
         "type": ("ext", "pdf"), "name": ("names", "notes"),
-        "repo": ("repos", "leasha"), "from": ("senders", "dave"),
+        "repo": ("repos", "leasha"), "on": ("volumes", "backups"),
+        "from": ("senders", "dave"),
         "to": ("recipients", "priya"), "subject": ("subjects", "invoice"),
         "has": ("has_attachment", "attachment"), "after": ("after", "2024-01-01"),
         "before": ("before", "2024-12-31"), "path": ("paths", "src"),

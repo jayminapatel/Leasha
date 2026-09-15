@@ -710,9 +710,10 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
             "same reason as mail_view above")
         # Search is what first paint shows, so it must be built already.
         assert built.search_view is not None
-        assert built.tabs.count() == 4, (
-            "only Search, Files, Indexing and Settings exist before the "
-            "event loop turns - Mail and Code are inserted a beat later")
+        assert built.tabs.count() == 5, (
+            "only Search, Files, Offline Media, Indexing and Settings exist "
+            "before the event loop turns - Mail and Code are inserted a beat "
+            "later. Order 202626270513 added Offline Media to this count.")
 
         # Let the singleShot(0, ...) callback run.
         for _ in range(5):
@@ -720,7 +721,7 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
 
         assert hasattr(built, "mail_view") and built.mail_view is not None
         assert hasattr(built, "code_view") and built.code_view is not None
-        assert built.tabs.count() == 6, "Mail and Code must both be inserted"
+        assert built.tabs.count() == 7, "Mail and Code must both be inserted"
     finally:
         store.close()
         vectors.close()
@@ -728,8 +729,13 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
 
 def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
     r"""The tab order nobody has to relearn: Search, Files, Mail, Code,
-    Indexing, Settings - the same order the single `addTab` loop produced
-    before this item split it in two.
+    Offline Media, Indexing, Settings.
+
+    Order 202626270513 added Offline Media to the single `addTab` loop
+    right after Files - the same slot Mail and Code are inserted into a
+    beat later (`_construct_secondary_views`'s `after_files + 1`/`+ 2`),
+    which is what pushes Offline Media one further place along rather than
+    ahead of them.
     """
     from PyQt6.QtWidgets import QApplication
     from app.core.config import load_settings
@@ -753,7 +759,8 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
             app.processEvents()
 
         assert [built.tabs.tabText(i) for i in range(built.tabs.count())] == [
-            "Search", "Files", "Mail", "Code", "Indexing", "Settings",
+            "Search", "Files", "Mail", "Code", "Offline Media", "Indexing",
+            "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
         # use to navigate) must agree with the tab bar itself, not just with
@@ -761,6 +768,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         for view, title in (
             (built.search_view, "Search"), (built.files_view, "Files"),
             (built.mail_view, "Mail"), (built.code_view, "Code"),
+            (built.offline_media_view, "Offline Media"),
             (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
         ):
             index = built._tab_index[view]

@@ -44,7 +44,8 @@ from PyQt6.QtWidgets import (
 
 from app.ui.presenter import (
     KIND_LABELS, ResultGroup, ResultRow, Terminator, accessible_text,
-    group_results, result_tooltip, results_terminator, row_identity, to_rows, why,
+    group_results, offline_volume_note, result_tooltip, results_terminator,
+    row_identity, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
@@ -83,6 +84,11 @@ class ResultsView(QWidget):
         self._expanded: set[int] = set()
         #: Paths that no longer exist, decided on a worker - never statted here.
         self._missing: set[str] = set()
+        #: file_id -> {"name", "scanned"} for a row on an Offline Media volume
+        #: that is not connected right now - §3a, decided on the same worker
+        #: as `_missing`. Absent entirely for an online volume or an ordinary
+        #: file; see `presenter.offline_volume_marks`.
+        self._volumes: dict[int, Any] = {}
         #: "plain" or "technical" - item 4b's date register, from the tab.
         self._register = "plain"
 
@@ -143,6 +149,7 @@ class ResultsView(QWidget):
 
     def show_results(self, results: Sequence[Any], terms: Sequence[str], summary: str = "",
                      details: Optional[dict[int, Any]] = None, missing: Optional[set[str]] = None,
+                     volumes: Optional[dict[int, Any]] = None,
                      keep_scroll: bool = False, register: Optional[str] = None) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
@@ -166,6 +173,12 @@ class ResultsView(QWidget):
         self._rows = to_rows(results, terms)
         self._details = dict(details or {})
         self._missing = set(missing or ())
+        if volumes is not None:
+            # **Only when told**, the same rule `_register` already follows
+            # just below: `redraw_with_details`'s follow-up paint of the same
+            # results always carries this, but nothing else does, and a
+            # missing argument must not be read as "nothing is offline".
+            self._volumes = dict(volumes)
         if register is not None:
             # **Only when told.** `redraw_with_details`'s follow-up paint of
             # the same results omits this - item 4b's register must not reset
@@ -237,8 +250,11 @@ class ResultsView(QWidget):
         item.setEditable(False)
         item.setData(payload, ROLE_PAYLOAD)
         item.setData(expanded, ROLE_EXPANDED)
-        item.setData(result_tooltip(payload, missing=getattr(payload, "path", "") in self._missing),
-                    int(Qt.ItemDataRole.ToolTipRole))
+        note = offline_volume_note(self._volumes.get(int(getattr(payload, "file_id", 0) or 0)))
+        item.setData(
+            result_tooltip(payload, missing=getattr(payload, "path", "") in self._missing,
+                           volume_note=note),
+            int(Qt.ItemDataRole.ToolTipRole))
         # **Both roles, or the list is empty to a screen reader.** The delegate
         # paints from `ROLE_PAYLOAD`, so the item carried no text of its own -
         # and `QAccessible` reads `AccessibleTextRole`, falling back to

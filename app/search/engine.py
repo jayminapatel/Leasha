@@ -267,6 +267,17 @@ class SearchResult:
     #: carries the commit, author and date that make a historical hit
     #: identifiable at all.
     source_label: str = ""
+    #: Offline Media, order 202626270513 §3a/3b. `None` for an ordinary file
+    #: - the overwhelming majority of rows - and the catalogued volume's id
+    #: for one on a drive in a drawer. `path` for such a row is never a real
+    #: filesystem path; it is the letter-free key `volume_synthetic_path`
+    #: builds, and it must be resolved - `app.index.offline_media.
+    #: resolve_file_path` - through the volume's *current* mount point
+    #: before it is opened, exactly as 1b requires.
+    volume_id: Optional[int] = None
+    #: The file's path relative to its volume's root - what resolution
+    #: needs alongside `volume_id`. `""` whenever `volume_id` is `None`.
+    relative_path: str = ""
 
     @property
     def found_by_both(self) -> bool:
@@ -1683,6 +1694,8 @@ class SearchEngine:
             taken_at_ns=int(hit.get("taken_at_ns") or 0),
             content_hash=str(hit.get("content_hash", "") or ""),
             phash=str(hit.get("phash", "") or ""),
+            volume_id=(int(hit["volume_id"]) if hit.get("volume_id") is not None else None),
+            relative_path=str(hit.get("relative_path", "") or ""),
             distance=hit.get("distance"),
             photo_match=str(hit.get("photo_match", "") or ""),
             recency=float(hit.get("recency") or 0.0),

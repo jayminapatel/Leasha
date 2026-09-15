@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.15 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.16 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -43,6 +43,28 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - A drive or share can be marked as a sequential medium (a tape) at Scan
   time, so a content scan of it says plainly that it reads end to end
   before starting.
+
+### The Offline Media tab: catalogue a drive once, find it forever - and the /on operator
+
+- New **Offline Media** tab: every catalogued drive, its status (online as
+  its current letter, or last seen, or locked), size, file count and last
+  Scan date. Three verbs and nothing else - **Scan**, **Rescan**, **Delete**
+  - matching the order's fully-manual model: nothing about a drive is ever
+    touched without one of these three being pressed.
+- The first Scan of a new drive asks for a name and an optional
+  description; Delete states exactly how many files it will remove from
+  the index and the sentence that matters - *"This removes the catalogue
+  from Leasha's index. Nothing on the drive itself is touched."*
+- A BitLocker-locked drive now reads as **Locked**, not as simply
+  unplugged.
+- Opening a search result on a catalogued drive that is currently plugged
+  in now works - it used to try to open the drive's internal, letter-free
+  storage key directly and report the file missing. An offline one now
+  says which drive it is on and when it was last scanned, in its tooltip.
+- New search filter: `on:`/`volume:`/`drive:` (aliases of one operator),
+  the same shape `repo:` already has - `on:"Projects 2019"` restricts a
+  search to one catalogued source, `-on:` excludes it. Offered on every
+  tab.
 
 ### A network share now catalogues the same way a drive does, and never hangs when it is offline
 

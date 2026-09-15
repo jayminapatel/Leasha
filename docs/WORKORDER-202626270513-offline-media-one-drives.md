@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media I — drives in drawers, findable forever
 
-**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage core + Index + new tab UI + Search)
 **Status:** RELEASED by the owner 2026-08-28. **The deepest storage change in
 the batch — do NOT interleave with other pipeline orders.** Requires 0508
@@ -65,20 +65,121 @@ Command: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py -v`
 
 ## 2. The Offline Media tab
 
-- [ ] **2a** source list: name, status (online as F: / last seen date —
+**2026-09-15 — 2a-2d built and proven.** `app/ui/offline_media_view.py`
+(the tab: `QTreeWidget` list, Scan/Rescan/Delete, `set_busy` in place of a
+progress bar — 2a has none), `app/ui/widgets/offline_media_dialogs.py`
+(`ScanNameDialog` for 2b, `DeleteVolumeDialog` for 2c), and the shared
+CLI/UI orchestration core added to `app/index/offline_media.py`
+(`scan_new_source`, `rescan_source`, `run_scoped_pipeline`, `find_volume`)
+so a Scan typed on the console and one clicked in the window run the
+identical `Pipeline` — `cli.py`'s own `_run_offline_media_pipeline` now
+delegates to `run_scoped_pipeline` rather than duplicating it. `shell.py`
+wires the view's `scan_requested`/`rescan_requested`/`delete_requested`
+signals to three new handlers, each a `CallableWorker` under the window's
+`GUI`-owned run lock, mirroring `_start_indexing`'s own split between
+"the view decides nothing about storage" and "the window owns the store".
+
+2d: `app/core/volumes_win.is_bitlocker_locked` (a `Get-BitLockerVolume`
+PowerShell probe, the same shape `hardware_serial_for_root` already uses),
+wired into `refresh_volume_statuses` only. **A first pass wired it into
+`connected_volumes` instead, by mistake** — that function sits under
+`resolve_file_path`, which every pipeline walk and every offline search
+decoration goes through, and a PowerShell subprocess per call turned an
+18-test file into one that would not finish. Found by the project's own
+prescribed method: `widget.grab()`-driven testing stalled, `--timeout`
+dumped the stack at `wait_while_throttled`, and the fix — BitLocker
+checked only in the explicitly-infrequent "on panel refresh" path 2a
+already names — is now regression-guarded
+(`test_connected_volumes_never_probes_bitlocker`).
+
+Verified with real, passing tests — `venv\Scripts\python.exe -m pytest
+tests/unit/test_offline_media.py tests/unit/test_offline_media_view.py -v`
+→ **44 passed**, including a `refresh()` round-trip against a real
+`SqliteStore` off a worker, every button's enabled state for
+ONLINE/OFFLINE/LOCKED, the Scan dialog's empty-name refusal, and
+`widget.grab()` used to catch and fix a real layout bug (the LOCKED status
+text was long enough to push Size/Files/Scanned off screen — shortened,
+the explanation moved to a tooltip). No visible progress bar exists for
+2a's plain "status line + disabled buttons" — deliberately, matching the
+order's own plainness rather than the fuller Indexing-page treatment.
+
+- [x] **2a** source list: name, status (online as F: / last seen date —
   letter shown as transient fact only), size/counts, snapshot date; verbs
   Scan/Rescan/Delete. Status checked passively on panel refresh — no device
   watcher, no events.
-- [ ] **2b** first Scan asks the name ("Give this drive a name you'll
+- [x] **2b** first Scan asks the name ("Give this drive a name you'll
   remember") and description; plain words throughout, tooltips state effects
   (standing rules).
-- [ ] **2c** Delete = the product's one deliberate deletion: full cascade
+- [x] **2c** Delete = the product's one deliberate deletion: full cascade
   (files/chunks/FTS/vectors — the batched H7/H8 machinery), confirmation
   stating counts and the crucial sentence: *"This removes the catalogue from
   Leasha's index. Nothing on the drive itself is touched."*
-- [ ] **2d** BitLocker-locked volume = offline-with-reason ("locked").
+- [x] **2d** BitLocker-locked volume = offline-with-reason ("locked").
 
 ## 3. Search and browse
+
+**2026-09-15 — started, not finished. None of 3a-3c ticked below** because
+each is real but partial; what is actually built and proven, so the next
+session does not have to re-discover it by reading the diff:
+
+- **`volume_id`/`relative_path` now travel the whole way through a search
+  result** — `SearchResult` (`app/search/engine.py`), every SELECT in
+  `keyword.py` and `vector.py`, and `ResultRow` (`app/ui/presenter.py`).
+  Nothing downstream can tell a catalogued-volume row from an ordinary one
+  without this, and before this order nothing did.
+- **3a, the tooltip half.** `presenter.decorate_results` now also computes
+  `offline_volume_marks` off-thread (`connected_volumes`, never on the
+  interface thread) and `results_view.py`'s tooltip reads "on **<name>**
+  (offline, scanned <date>) — plug it in to open" verbatim for an offline
+  row, straight from `presenter.offline_volume_note`. **Not done**: this is
+  the tooltip only — there is no permanently visible badge painted on the
+  row itself the way the order's wording could also be read. Extending
+  `result_delegate.py`'s paint pass and `group_subtitle` to show it inline
+  needs its own session; the tooltip already says the exact sentence and is
+  real, tested behaviour, not a placeholder.
+- **3a, the open half, done and correct.** `shell._open_result` now checks
+  `row.volume_id`; a volume-backed row resolves through `resolve_file_path`
+  (1b) on a worker before opening, instead of trying to open the
+  letter-free storage key directly, which is what it did before this
+  session and would have surfaced as "file missing" for a file sitting
+  right there with the drive plugged in. This half needed no UI decision
+  and is complete.
+- **3b, not started.** Preview-pane text for an offline row — the mail
+  synthetic-path pattern this item names — has not been touched.
+  `app/ui/preview_loader.py` was read only far enough to confirm the
+  pattern exists for mail; wiring it for a volume row is open.
+- **3c, half done.** The `/on` operator (`on:`/`volume:`/`drive:`, comma-
+  separated, negatable) is built and proven end to end — parser
+  (`query.py`), the SQL filter with the same `OR volume_id IS NULL` guard
+  `-repo:` needed (`filters.py`), the `/` menu's real value list
+  (`sqlite_store.py`'s `on` `_ValueShape`), and the catalogue entry
+  (`commands.py`) — and every tab already offers and honours it, the same
+  way every tab already offers `/repo`. **Not done**: "Files tab gains the
+  volume filter for browsing a drive in a drawer" — no control was added to
+  `files_view.py`. The operator works if typed; there is no picker.
+
+Command: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py
+tests/unit/test_offline_media_view.py -v` → **44 passed**, including the
+`/on` parser/filter/exclusion tests and the tooltip/open-resolution
+coverage above. Full regression run alongside (`test_ui_never_blocks.py`,
+`test_window_opens.py`, `test_presenter.py`, `test_results_view.py`,
+`test_result_delegate.py`, `test_search_view.py`, `test_commands.py`,
+`test_command_subsets.py`, `test_query.py`, `test_slash_context.py`,
+`test_eight_year_old.py`, `test_review_section_three.py`,
+`test_engine_image_lane.py`, `test_search_policy.py`, `test_folding.py`,
+`test_rerank.py`, `test_search_images.py`) all green. Two pre-existing
+failures found and confirmed unrelated (same failure against an unmodified
+checkout, via `git stash`): `test_query_plans.py::test_filter_only_browse_
+neither_scans_nor_sorts` (a SQLite query-plan assertion) and
+`test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter`
+(`indexing_view.py` already over the 250-line guard) — flagged for whoever
+owns those areas, not fixed here.
+
+`test_window_opens.py`'s tab-order and tab-count assertions were updated
+for the new tab (Search, Files, Mail, Code, **Offline Media**, Indexing,
+Settings — verified against the real `insertTab` offsets, not assumed) —
+the same kind of update those tests needed when Mail and Code were
+themselves added.
 
 - [ ] **3a** results on offline volumes: "on **<name>** (offline, scanned
   <date>) — plug it in to open"; online → normal open via resolution (1b).

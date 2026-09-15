@@ -271,7 +271,7 @@ def hydrate(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             f"""
             SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end, f.path, f.ext, f.mtime_ns,
-                   f.taken_at_ns, f.content_hash
+                   f.taken_at_ns, f.content_hash, f.volume_id, f.relative_path
             FROM chunks c JOIN files f ON f.id = c.file_id
             WHERE c.id IN ({placeholders})
             """,
@@ -461,7 +461,8 @@ def hydrate_images(store: Any, rows: Sequence[dict[str, Any]]) -> list[dict[str,
         int(record["file_id"]): dict(record)
         for record in store.conn.execute(
             f"""
-            SELECT id AS file_id, path, ext, mtime_ns, taken_at_ns, content_hash, phash
+            SELECT id AS file_id, path, ext, mtime_ns, taken_at_ns, content_hash, phash,
+                   volume_id, relative_path
             FROM files
             WHERE id IN ({placeholders})
             """,

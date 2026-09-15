@@ -226,6 +226,15 @@ COMMANDS: tuple[Command, ...] = (
         source="repo",
     ),
     Command(
+        name="on",
+        aliases=("volume", "drive"),
+        summary="Only files on this Offline Media source",
+        example='/on "Projects 2019"',
+        value_hint="a source name, as shown in the Offline Media tab - or several: \"a\",\"b\"",
+        icon="\u25a4",
+        source="on",
+    ),
+    Command(
         name="name",
         aliases=("filename", "file"),
         summary="Only files whose NAME contains this",
