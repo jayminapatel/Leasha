@@ -55,6 +55,20 @@ def _inside(document, archive: Path) -> str:
     return key[len(str(archive)):].lstrip("/\\")
 
 
+def _rel(path: str, corpus: Path) -> str:
+    r"""A `files.path` row, relative to `corpus`, for readable assertions.
+
+    The container half of an archive member's key is `str(archive_path)` - the
+    OS separator, backslash on Windows - while the member half is always
+    forward-slash, per the ZIP spec (`archive.py::_member`'s `member_key`).
+    A plain string replace leaves a leading backslash on Windows where these
+    assertions want the forward slash they already get on the sandbox's
+    POSIX paths, so both sides are normalised first - the same equivalence
+    `sqlite_store._basename` already relies on.
+    """
+    return path.replace("\\", "/").replace(str(corpus).replace("\\", "/"), "")
+
+
 def _codes(document) -> list[str]:
     return [warning.code for warning in document.warnings]
 
@@ -448,7 +462,7 @@ def test_a_members_contents_are_searchable(indexed):
 
     found = store.search_bm25("commissioning")
 
-    assert [row["path"].replace(str(corpus), "") for row in found] == [
+    assert [_rel(row["path"], corpus) for row in found] == [
         r"/backup.zip/q3/notes.txt"]
 
 
@@ -463,7 +477,7 @@ def test_members_are_not_pruned_at_the_end_of_the_run(indexed):
     """
     store, corpus, stats = indexed
 
-    kinds = {row["path"].replace(str(corpus), ""): row["source_kind"]
+    kinds = {_rel(row["path"], corpus): row["source_kind"]
              for row in store.conn.execute(
                  "SELECT path, source_kind FROM files")}
 
@@ -475,7 +489,7 @@ def test_members_are_not_pruned_at_the_end_of_the_run(indexed):
 def test_a_member_with_no_reader_still_gets_a_row(indexed):
     store, corpus, _stats = indexed
 
-    paths = {row["path"].replace(str(corpus), "")
+    paths = {_rel(row["path"], corpus)
              for row in store.conn.execute("SELECT path FROM files")}
 
     assert r"/backup.zip/q3/plan.dwg" in paths
