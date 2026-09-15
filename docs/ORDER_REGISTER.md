@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -58,7 +58,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 0 / 14 | 0h |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h |
 | 0k | `202626270513` | Offline Media I — drives in drawers | RELEASED | 9 / 8 | Deepest storage change — no interleaving. §1 (identity/storage) and the CLI half of §2 are done; the tab (§2 UI) and §3 (search/browse) remain |
-| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 0 / 17 | 0k |
+| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | 2 / 15 | 0k. §1b/1c done (network identity, reachability, verify_hash); §1a left open (compound - UI half missing); §2/§3/§3b not started |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | RELEASED | 11 / 6 | Gap-schedulable. §5 = column widths, do last |
 | 0q | `202626271510` | The results, world class | RELEASED | 0 / 25 | Gap-schedulable |
