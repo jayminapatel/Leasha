@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.09 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 4.10 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -34,6 +34,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   own text anticipated with "the thread MAY swap to an ONNX port later for speed").
 - Soft dependency throughout: a machine without torch/transformers gets exactly today's
   behaviour (an untagged photo-class image is simply skipped, as before).
+
+### Added: `/shows` - Florence-2's tag vocabulary, browsable and filterable (order 0i, item 1c)
+
+- **New `file_tags` table (schema v19)**, one row per (file, tag), populated whenever a
+  Florence-2 pass (0i 1a/1b) produces tags for a photo. `distinct_values`/`distinct_value_counts`
+  can now answer `/shows` with real, counted values the way `/repo` and `/type` already do -
+  free text inside a chunk cannot be grouped or counted cheaply behind a keystroke, which is
+  why this needed a real table rather than reading the indexed words back out.
+- `shows:dog,cat` and `-shows:dog` both work, matching `repo:`'s own comma-separated, ORed
+  grammar - deliberate consistency rather than a special case for tags.
+- Found and fixed along the way: `SqliteStore.set_file_tags` did not deduplicate
+  (`["Dog","Park","dog"]` stored three rows, not two), and `ParsedQuery.has_filters` did not
+  know about `shows`, so a `/shows` search would have under-reported whether a filter was
+  active. Both fixed, both covered by `tests/unit/test_photo_tags.py`.
 
 ### Fixed: the startup splash could sit on top of every other window on the screen, and the taskbar showed no icon for Leasha
 

@@ -251,6 +251,18 @@ COMMANDS: tuple[Command, ...] = (
         icon="⚖",
         values=(">1mb", ">10mb", ">100mb", "<100kb", "<1mb"),
     ),
+    Command(
+        name="shows",
+        aliases=(),
+        # Work order 0i section 1c. Florence-2's tag vocabulary, browsable the
+        # same way `/repo` and `/type` already are - a filter offered without
+        # real values from the index is a filter you can only guess at.
+        summary="Only photos an AI caption mentions this in",
+        example="/shows dog",
+        value_hint="a word Florence found in a photo - or several: dog,beach",
+        icon="◈",
+        source="shows",
+    ),
 )
 
 #: Things the search box understands that are **not filters**. Adoptions §3.

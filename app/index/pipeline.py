@@ -2799,6 +2799,13 @@ class Pipeline:
 
             if item.meta:
                 self._store_message_meta(file_id, item.meta)
+                # Work order 0i section 1c. Written whenever this pass's
+                # meta carries the key at all - including an empty list, so
+                # a re-tag that now finds nothing correctly clears whatever
+                # this file had before, rather than leaving stale tags
+                # behind that Florence itself no longer stands behind.
+                if "ai_tags" in item.meta:
+                    self.store.set_file_tags(file_id, item.meta["ai_tags"] or [])
 
         # Work order 0h §1a/§1c: independent of whether OCR found any text in
         # this file - most photographs have none, and CLIP is exactly the

@@ -61,6 +61,7 @@ _FIELD_ALIASES = {
     "name": "name", "filename": "name", "file": "name",
     "size": "size", "bigger": "size", "smaller": "size",
     "sort": "sort", "newest": "sort", "latest": "sort", "oldest": "sort",
+    "shows": "shows",
 }
 
 # field:value, where value is either "a quoted string" or a bare run of non-space.
@@ -196,6 +197,12 @@ class ParsedQuery:
     #: to a project by its name and to a checkout by its path and which one
     #: they reach for is not predictable.
     repos: tuple[str, ...] = ()
+    #: Florence-2 tags (work order 0i section 1c). Comma-separated within one
+    #: `shows:` the same way `repos` is - "or several: dog,beach" - matched
+    #: on `file_tags.tag`, ORed within this tuple exactly as `repos` is
+    #: ORed within its own, for the same reason: consistent grammar beats a
+    #: special case that only tags would need.
+    shows: tuple[str, ...] = ()
     senders: tuple[str, ...] = ()
     #: Mail-only fields. Empty for a document search, which is why they cost
     #: nothing when unused: each becomes a subquery on `messages` only if the
@@ -220,6 +227,7 @@ class ParsedQuery:
     not_ext: tuple[str, ...] = ()
     not_paths: tuple[str, ...] = ()
     not_repos: tuple[str, ...] = ()
+    not_shows: tuple[str, ...] = ()
     not_senders: tuple[str, ...] = ()
     not_recipients: tuple[str, ...] = ()
     not_subjects: tuple[str, ...] = ()
@@ -269,7 +277,7 @@ class ParsedQuery:
     def has_filters(self) -> bool:
         return bool(
             self.ext or self.after or self.before or self.paths
-            or self.repos
+            or self.repos or self.shows
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes
             or self.has_attachment is not None or self.scope != "all"
@@ -424,6 +432,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     ext: list[str] = []
     paths: list[str] = []
     repos: list[str] = []
+    shows: list[str] = []
     senders: list[str] = []
     recipients: list[str] = []
     subjects: list[str] = []
@@ -435,6 +444,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     not_ext: list[str] = []
     not_paths: list[str] = []
     not_repos: list[str] = []
+    not_shows: list[str] = []
     not_senders: list[str] = []
     not_recipients: list[str] = []
     not_subjects: list[str] = []
@@ -471,13 +481,14 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         if negated:
             target = {
                 "ext": not_ext, "path": not_paths, "repo": not_repos,
+                "shows": not_shows,
                 "sender": not_senders, "recipient": not_recipients,
                 "subject": not_subjects, "name": not_names,
             }.get(fld or "")
             if target is not None:
                 if fld == "ext":
                     target.extend(_norm_ext(val))
-                elif fld == "repo":
+                elif fld in ("repo", "shows"):
                     target.extend(part.strip().lower()
                                   for part in val.split(",") if part.strip())
                 elif val:
@@ -503,6 +514,12 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 part = part.strip().lower()
                 if part:
                     repos.append(part)
+        elif fld == "shows":
+            # Same comma-separated shape as `repo:` - see `ParsedQuery.shows`.
+            for part in val.split(","):
+                part = part.strip().lower()
+                if part:
+                    shows.append(part)
         elif fld == "sender":
             if val:
                 senders.append(val.lower())
@@ -658,6 +675,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         before=before,
         paths=tuple(paths),
         repos=tuple(dict.fromkeys(repos)),
+        shows=tuple(dict.fromkeys(shows)),
         senders=tuple(senders),
         recipients=tuple(recipients),
         subjects=tuple(subjects),
@@ -666,6 +684,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         not_ext=tuple(dict.fromkeys(not_ext)),
         not_paths=tuple(not_paths),
         not_repos=tuple(dict.fromkeys(not_repos)),
+        not_shows=tuple(dict.fromkeys(not_shows)),
         not_senders=tuple(not_senders),
         not_recipients=tuple(not_recipients),
         not_subjects=tuple(not_subjects),

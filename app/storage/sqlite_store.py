@@ -199,6 +199,12 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     "saved": _ValueShape(
         "saved_searches s", "s.name", "s.run_count", "s.name <> ''",
         "s.id, s.name"),
+    # Work order 0i section 1c. file_tags (schema v19) is Florence-2's
+    # tag vocabulary - see _v19_file_tags for why it exists as a real
+    # table rather than being read out of chunk text.
+    "shows": _ValueShape(
+        "file_tags ft JOIN files f ON f.id = ft.file_id", "ft.tag",
+        "COUNT(*)", "ft.tag <> ''", "ft.tag"),
 }
 
 
@@ -773,6 +779,39 @@ class SqliteStore:
         with self.write() as conn:
             conn.executemany(
                 "UPDATE files SET phash = ? WHERE id = ?", items)
+
+    def set_file_tags(self, file_id: int, tags: Sequence[str]) -> None:
+        r"""Replace one file's Florence-2 tags. Work order 0i section 1c.
+
+        **Replace, not append.** Re-indexing a photo (a re-tag after a model
+        upgrade, a forced re-run) must not accumulate duplicate rows forever -
+        the old set for this `file_id` is cleared first, in the same
+        transaction, so a crash between the two leaves either the old tags
+        or the new ones, never both and never neither.
+
+        Called once per photo from `Pipeline._write_one`, straight after
+        `upsert_file` gives it a `file_id` - not batched across a flush the
+        way `set_phashes` is, because tags are produced per-image already
+        (the Florence-2 call itself is the expensive part; this write is one
+        DELETE and a handful of INSENTs) and 0i's own `_write_one` call site
+        already holds a transaction it can reuse.
+
+        An empty or all-blank `tags` still clears any old row for this file
+        and writes nothing new - the correct state for a photo that used to
+        have tags before a re-tag found none.
+        """
+        # Deduplicated, order preserved - `dict.fromkeys` rather than a
+        # set, the same convention `florence_tagger.tag_image` already uses
+        # for its own label dedup, so "Dog" and "dog" collapse to one row.
+        raw = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+        cleaned = list(dict.fromkeys(raw))
+        with self.write() as conn:
+            conn.execute("DELETE FROM file_tags WHERE file_id = ?", (file_id,))
+            if cleaned:
+                conn.executemany(
+                    "INSERT INTO file_tags (file_id, tag) VALUES (?, ?)",
+                    [(file_id, tag) for tag in cleaned],
+                )
 
     def mark_skipped(self, file_id: int, error: AppError) -> None:
         """Record why a file was skipped, so the UI can group and retry.

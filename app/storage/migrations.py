@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 18
+CURRENT_VERSION = 19
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -956,6 +956,40 @@ def _v18_photo_taken_at(conn: sqlite3.Connection) -> None:
     )
 
 
+def _v19_file_tags(conn: sqlite3.Connection) -> None:
+    r"""`file_tags` - Florence-2 tag vocabulary, for the `/shows` operator.
+
+    Work order 0i sections 1a-1c. The tag words themselves already flow into
+    search through the ordinary document/chunk/FTS path - 1b's "zero new
+    storage concepts" is about that text. This table is the different thing
+    1c asks for: a **browsable vocabulary with counts**, the same job `repos`
+    (schema v6) does for `/repo` - `distinct_values` needs a real table to
+    `GROUP BY`, and free text inside a chunk cannot be grouped or counted
+    cheaply behind a keystroke.
+
+    One row per (file, tag) - a file commonly has several tags, unlike a
+    repository, which owns exactly one file each. `ON DELETE CASCADE`
+    because a tag row has no meaning once its file is gone - the same
+    reasoning `chunks` already uses, and different from `repos`' `SET NULL`
+    on `files.repo_id`, where the *file* survives a repository disappearing.
+
+    Additive: an index built before this migration keeps every row and
+    simply has no tags until the next Florence-2 pass touches each photo -
+    the same degradation `_v17_image_phash` and `_v18_photo_taken_at` already
+    accept for their own columns.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS file_tags (
+            file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            tag        TEXT    NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_tags_file ON file_tags(file_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_tags_tag ON file_tags(tag)")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -985,6 +1019,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     16: _v16_chunk_label,
     17: _v17_image_phash,
     18: _v18_photo_taken_at,
+    19: _v19_file_tags,
 }
 
 

@@ -1,6 +1,6 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
@@ -64,7 +64,47 @@ one).
   segments** — `AI description` beside `OCR text` — flowing through the
   existing chunk/FTS/embed pipeline unchanged. Zero new storage concepts.
   Preview shows "AI description:" with the label visible.
-- [ ] **1c** `/shows` operator: values from the tag vocabulary with counts
+**2026-09-15 — a real storage decision this item's own text left open.**
+1b says tags flow through the pipeline as plain text with "zero new storage
+concepts", but a browsable vocabulary with real counts needs something
+`GROUP BY` can run over - free text inside a chunk cannot be grouped or
+counted cheaply behind a keystroke. Followed the codebase's own precedent
+for exactly this problem (`repos`, schema v6, for `/repo`): a new
+`file_tags(file_id, tag)` table, schema v19, one row per (file, tag),
+written by `SqliteStore.set_file_tags` right after `upsert_file` in
+`Pipeline._write_one`. This is a new storage concept in the literal sense -
+recorded here rather than silently added, since 1b's own text says there
+isn't one - but it is the vocabulary index 1c explicitly asks for, not the
+document text itself, which is unchanged from 1b.
+
+`shows:dog,cat` is comma-separated and ORed within one filter, matching
+`repo:`'s own grammar exactly (`ParsedQuery.shows`, `file_filter_sql`) -
+deliberate consistency over a special case, even though a file commonly
+carries several tags where a repository owns exactly one file each.
+
+Proof: `venv\Scripts\python.exe -m pytest tests/unit/test_photo_tags.py -q`
+- 10 passed, against a real SQLite database (not a mock): schema v19 creates
+  `file_tags`; `set_file_tags` replaces rather than accumulates (a real
+  dedup bug was found and fixed here - `["Dog","Park","dog"]` stored three
+  rows before the fix, `dict.fromkeys` after); `distinct_value_counts
+  ("shows")` returns real per-tag counts; `shows:dog` and `-shows:dog` both
+  narrow a real query to the correct file end to end. Also re-ran the wider
+  query/command/filter suite (`test_commands.py`, `test_command_subsets.py`,
+  `test_value_suggestions.py`, `test_query.py`, `test_vector_filters.py`,
+  `tests/integration/test_layer1_acceptance.py` and others) after this
+  change - fixed two test files whose own hardcoded lists needed `shows`
+  added (`test_value_suggestions.py`'s `known` sources,
+  `test_command_subsets.py`'s `consumed` dict) and one real product gap
+  (`ParsedQuery.has_filters` did not check `self.shows`, so a `/shows dog`
+  search would have under-reported whether a filter was active).
+
+One pre-existing failure found and ruled out as unrelated: `test_query_plans
+.py::test_filter_only_browse_neither_scans_nor_sorts` fails identically at
+the pre-1c commit (`6861502`, checked directly by restoring that commit's
+files into the working tree and re-running) - not caused by this item, not
+fixed by it, left alone.
+
+- [x] **1c** `/shows` operator: values from the tag vocabulary with counts
   via `distinct_values` — the slash-menu machinery already built. Tags become
   a browsable dimension.
 
