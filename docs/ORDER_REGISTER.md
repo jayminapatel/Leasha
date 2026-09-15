@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.13 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.14 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -58,7 +58,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0i | `202626270511` | Pictures II — tags, enrichment, places | RELEASED | 7 / 7 | 0h (closed 2026-09-15) |
 | 0j | `202626270512` | The Photo Tagger — naming people | RELEASED | 0 / 13 | 0h (closed 2026-09-15) |
 | 0k | `202626270513` | Offline Media I — drives in drawers | **SHIPPED** | **17 / 0** | Closed 2026-09-15 — §3 (search/browse decoration) finished the same day; see the order's own dated note |
-| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **8 / 9** | 0k. §1b/1c done 2026-09-15; §3a/3b/3c, 3b-1, and two of §4's three tests closed the same day (see the order's 2026-09-15 note — two real pipeline bugs found and fixed: cloud placeholders were invisible, not skipped; a hydrated placeholder never got re-indexed). §1a narrowed to just the tab dialog; 2a/2b(partial)/2c/3d/3b-2(partial)/3b-3 and one §4 test remain, mostly blocked on the still-unbuilt Offline Media tab (0k §2, now built — recheck which of these depended only on the tab existing) or unverifiable vendor/LTFS behaviour |
+| 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **12 / 5** | 0k (SHIPPED). 1a/1d/3d/3b-3 closed 2026-09-16 (see the order's own dated note) — the tab dialog, the help line, the online-only results badge. Open: 2a/2b (real, substantial, deliberately not attempted partially — see the order's 2026-09-16 assessment), 2c (DEFERRED INDEFINITELY, do not build), 3b-2's on-tape ordering and one §4 test (both need hardware not present on this machine) |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
@@ -166,6 +166,32 @@ for the full account, including the one line item not built (3b's
 cached-thumbnail clause — checked against the code and found nothing to
 hook into, not merely assumed absent) and the `files_view.py` 250-line
 guard the new picker pushed over and then was brought back under.
+
+**2026-09-16 — 0l moves from 8/9 to 12/5.** 1a's interactive dialog was the
+only piece it was missing after 0k's tab shipped (its backend half was
+already done 2026-09-15) - `check_renamed_source` (the tab's cheap pre-Scan
+worker check), `scan_new_source`'s new `same_as` parameter, and
+`RenameSuggestionDialog`, wired into a two-phase `shell.py` scan flow. 1d
+and 3b-3 both needed only the tab's own help line, which did not exist
+until now (`presenter.offline_media_help_text`, one function for both
+sentences). 3d - the online-only results badge - rides 0513's §3a
+decoration path exactly as named, now that that path is built: a new
+`presenter.placeholder_marks` (a live `winfs.is_cloud_placeholder` check
+per row, the same cost class `missing_paths` already pays) reaches the
+same tooltip and inline-subtitle machinery 3a's offline-volume badge uses,
+proven with a real `FILE_ATTRIBUTE_OFFLINE` round-trip rather than a mock.
+
+**2a and 2b are assessed and deliberately left open**, not attempted
+partially. Both are real, substantial features - a cataloguable cloud
+volume kind with vendor-specific identity and a browser-routed Open action
+(2a), and a folder-scoped opt-in with a size cap and its own CLI/UI surface
+(2b) - neither of which shares much beyond the *read* guard §3 already
+proved. The order's own 2026-09-16 note has the reasoning in full.
+3b-2's on-tape ordering and one §4 test remain open for the same reason
+they were before: no LTFS tape or mapped network drive exists on this
+machine to verify real behaviour against, and this project's own standing
+rule is not to guess at vendor behaviour nobody has watched. 2c stays
+untouched, per the owner's DEFERRED INDEFINITELY decision.
 
 ---
 

@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["ScanNameDialog", "DeleteVolumeDialog"]
+__all__ = ["ScanNameDialog", "DeleteVolumeDialog", "RenameSuggestionDialog"]
 
 
 class ScanNameDialog(QDialog):
@@ -101,6 +101,43 @@ class ScanNameDialog(QDialog):
         ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
             ok.setEnabled(not problem)
+
+
+class RenameSuggestionDialog(QDialog):
+    r"""202626270514 1a's offer half, accepted or declined: "is this *Old
+    NAS* at a new address?" Shown only when `suggest_renamed_source` found
+    a structure match, never automatically - accepting reattaches to the
+    suggested source's existing catalogue (`scan_new_source(..., same_as=)`)
+    instead of cataloguing a second, duplicate one.
+
+    The wording lives in `app.ui.presenter.rename_suggestion_text`, the
+    same rule `DeleteVolumeDialog` follows just below.
+    """
+
+    def __init__(self, suggested_name: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        from app.ui.presenter import rename_suggestion_text
+
+        title, body = rename_suggestion_text(suggested_name)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(440)
+
+        message = QLabel(body)
+        message.setWordWrap(True)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
+        )
+        self.buttons.button(QDialogButtonBox.StandardButton.Yes).setText(
+            f"Yes — same as {suggested_name!r}")
+        self.buttons.button(QDialogButtonBox.StandardButton.No).setText(
+            "No — catalogue as new")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(message)
+        layout.addWidget(self.buttons)
 
 
 class DeleteVolumeDialog(QDialog):

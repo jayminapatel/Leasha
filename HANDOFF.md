@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.7 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.8 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -288,6 +288,24 @@ gets lost by accident.
 > fixed once for search results), and the Files tab's volume picker. Full
 > account in `docs/ORDER_REGISTER.md`'s own 2026-09-15 notes and the order
 > files' own dated entries.
+>
+> **Corrected a further time, 2026-09-16 — `202626270514` (0l, offline
+> media network/cloud) moves from 8/9 to 12/5.** The queue list below still
+> reads as if 0k's tab, which 0l's own §1a/1d/3d/3b-3 were waiting on, had
+> not shipped - it has (see the correction just above), and all four closed
+> the same day it did: 1a's interactive rename-suggestion dialog, the tab's
+> own help line (1d and 3b-3 share it), and the online-only results badge
+> (3d), riding 0k's own badge machinery exactly as the order asks. **2a and
+> 2b were assessed, not attempted** - both are real, substantial features
+> (a cataloguable cloud volume kind with a browser-routed Open action; a
+> folder-scoped download opt-in with a size cap) and neither shares much
+> beyond the read-guard 0l's own §3 already proved, so building either
+> partially and calling it done would have been the confidently-wrong kind
+> of state this document warns about elsewhere. 3b-2's on-tape ordering and
+> one §4 test stay open for the reason they always have: no LTFS tape or
+> mapped network drive exists on this machine to check real behaviour
+> against. Full account in `docs/ORDER_REGISTER.md`'s own 2026-09-16 note
+> and the order file's own dated entries.
 
 In order, and grouped by what is actually blocking.
 

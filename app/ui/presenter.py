@@ -126,6 +126,10 @@ __all__ = [
     "TYPING_DEBOUNCE_MS",
     "IDLE_DEBOUNCE_MS",
     "value_suggestions",
+    "rename_suggestion_text",
+    "offline_media_help_text",
+    "placeholder_marks",
+    "online_only_note",
     "enabled_extensions",
     "clear_format_catalogue",
     "VALUE_LIMIT",
@@ -1241,7 +1245,7 @@ def why(row: Any) -> str:
 
 def group_subtitle(group: Any, *, show_scores: bool = False,
                    expanded: bool = False, policy: Any = None,
-                   volume_note: str = "") -> str:
+                   volume_note: str = "", online_only: bool = False) -> str:
     """The grey line under the name: where it is, and how many matches.
 
     `expanded` is passed in rather than read off the group, because a
@@ -1262,6 +1266,8 @@ def group_subtitle(group: Any, *, show_scores: bool = False,
     bits = [getattr(group, "folder", "")]
     if volume_note:
         bits.append(volume_note)
+    elif online_only:
+        bits.append(online_only_note(True))
     # §2 of the adoptions order. **On the group's best row, and only there.**
     # A badge on every row would make the one that matters invisible; this
     # appears exactly where a person would otherwise think the search had
@@ -1278,7 +1284,8 @@ def group_subtitle(group: Any, *, show_scores: bool = False,
     return "  ·  ".join(bit for bit in bits if bit)
 
 
-def result_tooltip(payload: Any, *, missing: bool = False, volume_note: str = "") -> str:
+def result_tooltip(payload: Any, *, missing: bool = False, volume_note: str = "",
+                   placeholder: bool = False) -> str:
     """The full path and the explanation - both of which came off the row.
 
     The breadcrumb is a display choice; the tooltip is where the truth stays.
@@ -1313,6 +1320,8 @@ def result_tooltip(payload: Any, *, missing: bool = False, volume_note: str = ""
         lines.append(volume_note)
     elif missing:
         lines.append("This file is missing - the index is stale for it.")
+    if placeholder:
+        lines.append(online_only_note(True))
     return "\n\n".join(line for line in lines if line)
 
 
@@ -1436,13 +1445,14 @@ def search_options(tier: str, *, scope: str, rerank: bool,
 
 
 def decorate_results(store: Any, results: Any) -> dict:
-    """Mail subtitles, missing-file marks and Offline Media status for one
-    page. **Worker only.**
+    """Mail subtitles, missing-file marks, Offline Media status and cloud
+    placeholder status for one page. **Worker only.**
 
-    Three halves were running, or would have run, on the UI thread - a
-    SQLite query, one filesystem stat per row, and (§3a) a live Windows
-    volume check. Together here so there is one worker rather than three,
-    and one place that says which of this work is off-thread.
+    Four halves were running, or would have run, on the UI thread - a
+    SQLite query, one filesystem stat per row (missing files, then again
+    for §3d's placeholder check), and (§3a) a live Windows volume check.
+    Together here so there is one worker rather than four, and one place
+    that says which of this work is off-thread.
     """
     return {
         "details": mail_details(store, results),
@@ -1451,6 +1461,7 @@ def decorate_results(store: Any, results: Any) -> dict:
             if getattr(row, "volume_id", None) is None
         ),
         "volumes": offline_volume_marks(store, results),
+        "placeholders": placeholder_marks(results),
     }
 
 
@@ -1513,6 +1524,49 @@ def offline_volume_note(mark: Optional[dict]) -> str:
     if scanned:
         return f"on {name} (offline, scanned {scanned}) - plug it in to open"
     return f"on {name} (offline) - plug it in to open"
+
+
+def placeholder_marks(results: Any) -> set[str]:
+    r"""202626270514 3d: which of this page's rows are cloud placeholders
+    *right now* - a OneDrive/SharePoint file with Files On-Demand set,
+    never hydrated (or dehydrated again since). "3a, the per-file
+    placeholder model... applies to NORMAL roots too" is 3a/3b/3c's own
+    words: this is not about a catalogued Offline Media volume at all,
+    only about an ordinary indexed file whose bytes are not on this
+    machine right now.
+
+    **Worker only** - `winfs.is_cloud_placeholder` is a filesystem stat,
+    the same cost class `missing_paths` already pays for the identical
+    reason. Never raises: a decoration that fails to compute costs a
+    missing badge, not the search that found the row.
+
+    Volume-backed rows are never checked here - an offline catalogued
+    drive already has its own decoration (`offline_volume_marks`), and a
+    letter-free synthetic path would not `Path()` into anything real
+    anyway.
+    """
+    from app.core import winfs
+
+    marks: set[str] = set()
+    for row in results or ():
+        if getattr(row, "volume_id", None) is not None:
+            continue
+        text = str(getattr(row, "path", "") or "")
+        if not text or text.startswith("pst://"):
+            continue
+        try:
+            if winfs.is_cloud_placeholder(Path(text)):
+                marks.add(text)
+        except Exception:                         # noqa: BLE001 - see docstring
+            continue
+    return marks
+
+
+def online_only_note(is_placeholder: bool) -> str:
+    r"""202626270514 3d's exact words: "online-only - opening will
+    download." `""` for anything already on this machine.
+    """
+    return "online-only - opening will download" if is_placeholder else ""
 
 
 def record_open(engine: Any, search_id: Any, chunk_id: Any) -> None:
@@ -5324,6 +5378,54 @@ def offline_media_empty_state() -> str:
         "the drive or folder to catalogue - nothing happens to any drive until "
         "you do."
     )
+
+
+def offline_media_help_text() -> str:
+    r"""The tab's own help line - two sentences the order names
+    verbatim, neither of them obvious from the buttons alone.
+
+    202626270514 1d, the decommission case: scanning a share is worth
+    doing *before* the server goes away, not only for a share still
+    live - and what gets caught is exactly what this account could see
+    that day, nothing more.
+
+    202626270514 3b-3, the doctrine: a proprietary backup format is out
+    of scope by design - the backup product is the generating system,
+    and 3b-1's \"mark as archived\" is the supported path once a tape is
+    written.
+    """
+    return (
+        "Scan a network share before a server is switched off or access is "
+        "lost - it stays searchable forever after. The catalogue holds only "
+        "what this account could read on the day of the scan.\n\n"
+        "Leasha does not read backup software's own formats (Veeam, "
+        "NetBackup, tar-on-tape) directly. Catalogue the folder before it is "
+        "backed up, then mark the finished tape or disc as archived once it "
+        "is written."
+    )
+
+
+def rename_suggestion_text(suggested_name: str) -> tuple[str, str]:
+    r"""202626270514 1a's offer, worded once: "is this *Old NAS* at a new
+    address?" - assist, never assume. `(title, body)`, the same shape
+    `delete_volume_confirmation` uses, for the same reason: the tab's
+    `RenameSuggestionDialog` and any headless caller read the identical
+    words, and a test can check them without opening a window.
+
+    Shown only when `app.index.offline_media.suggest_renamed_source` found
+    a structure match against a *different*, already-catalogued identity -
+    never for an ordinary rescan of a source already known at this one.
+    """
+    title = f"Is this {suggested_name!r} at a new address?"
+    body = (
+        f"This location's top-level folders match a source already "
+        f"catalogued as {suggested_name!r}. If it is the same drive or "
+        f"share - moved, renamed, or reconnected differently - choosing "
+        f"\u201cYes\u201d keeps its existing catalogue and everything "
+        f"already indexed from it, instead of starting a new one.\n\n"
+        f"Nothing is changed until you choose."
+    )
+    return title, body
 
 
 def delete_volume_confirmation(name: str, file_count: int) -> tuple[str, str]:

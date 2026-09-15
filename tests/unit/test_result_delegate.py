@@ -376,6 +376,76 @@ def test_the_delegate_shows_no_note_for_a_file_not_in_the_volumes_map():
     assert delegate.volumes == {}, "the default is empty, not None"
 
 
+# ---------------------------------------------------------------------------
+# 202626270514 3d: online-only cloud placeholders, riding 0513 §3a's badge
+# ---------------------------------------------------------------------------
+
+def test_group_subtitle_shows_the_online_only_badge():
+    from app.ui.presenter import group_subtitle
+
+    text = group_subtitle(group(), online_only=True)
+    assert "online-only" in text
+    assert "opening will download" in text
+
+
+def test_online_only_yields_to_the_offline_volume_note():
+    """A row cannot be both at once in practice, but if both were somehow
+    set the volume note - the more specific, more actionable fact - wins;
+    "online-only" would be actively wrong for a row that is not on this
+    machine at all for a completely different reason."""
+    from app.ui.presenter import group_subtitle
+
+    text = group_subtitle(group(), volume_note="on Old WD (offline)",
+                          online_only=True)
+    assert "on Old WD" in text
+    assert "online-only" not in text
+
+
+def test_no_badge_for_an_ordinary_local_file():
+    from app.ui.presenter import group_subtitle
+
+    assert "online-only" not in group_subtitle(group(), online_only=False)
+
+
+def test_the_delegate_paints_the_online_only_badge_from_the_placeholders_set():
+    """A real paint pass, mirroring the existing offline-volume badge test -
+    proves `ResultDelegate.placeholders` actually reaches the subtitle."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QPainter, QPixmap
+    from PyQt6.QtWidgets import QStyle
+
+    from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
+
+    payload = group()
+
+    class Option:
+        def __init__(self):
+            self.rect = QRect(0, 0, 300, 60)
+            self.font = QFont()
+            self.state = QStyle.StateFlag.State_Enabled
+
+    class Index:
+        def data(self, role):
+            if role == ROLE_PAYLOAD:
+                return payload
+            if role == ROLE_EXPANDED:
+                return False
+            return None
+
+    delegate = ResultDelegate()
+    delegate.placeholders = {payload.path}
+    pixmap = QPixmap(300, 60)
+    painter = QPainter(pixmap)
+    try:
+        delegate.paint(painter, Option(), Index())
+    finally:
+        painter.end()
+
+    from app.ui.presenter import group_subtitle
+
+    assert "online-only" in group_subtitle(payload, online_only=True)
+
+
 def test_the_explanation_is_always_reachable_from_the_tooltip():
     """It came off every row to stop it competing with the name. It must not
     become unavailable - being able to ask why is where trust comes from."""

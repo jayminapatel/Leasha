@@ -30,7 +30,7 @@ from app.ui.presenter import (                                  # noqa: E402
     delete_volume_confirmation, offline_media_run_summary, volume_rows,
 )
 from app.ui.widgets.offline_media_dialogs import (              # noqa: E402
-    DeleteVolumeDialog, ScanNameDialog,
+    DeleteVolumeDialog, RenameSuggestionDialog, ScanNameDialog,
 )
 
 
@@ -301,3 +301,56 @@ def test_connected_volumes_never_probes_bitlocker(monkeypatch):
     # the point is only that no subprocess is ever attempted getting there.
     result = module.connected_volumes(_FakeStore())
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 1a's offer, accepted through the tab: RenameSuggestionDialog
+# ---------------------------------------------------------------------------
+
+def test_rename_suggestion_dialog_names_the_suggestion(qapp):
+    dialog = RenameSuggestionDialog("Old NAS")
+    assert "Old NAS" in dialog.windowTitle()
+    yes = dialog.buttons.button(dialog.buttons.StandardButton.Yes)
+    no = dialog.buttons.button(dialog.buttons.StandardButton.No)
+    assert "Old NAS" in yes.text()
+    assert yes.text() != no.text()
+
+
+def test_rename_suggestion_dialog_yes_accepts_no_rejects(qapp):
+    """Qt's own Yes/No roles - proven rather than assumed, since a mapped
+    role that silently changed would make `dialog.exec() == Accepted`
+    mean the opposite of what the button said."""
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    dialog = RenameSuggestionDialog("Old NAS")
+    yes = dialog.buttons.button(QDialogButtonBox.StandardButton.Yes)
+    no = dialog.buttons.button(QDialogButtonBox.StandardButton.No)
+    assert dialog.buttons.buttonRole(yes) == QDialogButtonBox.ButtonRole.YesRole
+    assert dialog.buttons.buttonRole(no) == QDialogButtonBox.ButtonRole.NoRole
+
+
+# ---------------------------------------------------------------------------
+# 202626270514 1d + 3b-3: the tab's own help line
+# ---------------------------------------------------------------------------
+
+def test_the_tab_shows_its_own_help_line(qapp):
+    from app.ui.presenter import offline_media_help_text
+
+    view = OfflineMediaView()
+    assert view.help_line.text() == offline_media_help_text()
+
+
+def test_help_text_names_the_decommission_case():
+    from app.ui.presenter import offline_media_help_text
+
+    text = offline_media_help_text().lower()
+    assert "switched off" in text or "decommission" in text
+    assert "this account could read" in text
+
+
+def test_help_text_names_the_backup_doctrine():
+    from app.ui.presenter import offline_media_help_text
+
+    text = offline_media_help_text().lower()
+    assert "veeam" in text
+    assert "archived" in text
