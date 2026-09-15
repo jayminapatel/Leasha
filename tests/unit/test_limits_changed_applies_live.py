@@ -78,6 +78,12 @@ def _window(tmp_path):
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
     built = MainWindow(settings, store, vectors, _Engine(store))
+    # Order 0r item 2b: `settings_view` (this file's own
+    # `built.settings_view._settings` needs it directly) is built a beat
+    # later via `QTimer.singleShot(0, ...)` - `_construct_deferred_views`.
+    # Every caller of this helper reaches into it immediately.
+    for _ in range(5):
+        app.processEvents()
     return app, built, store, vectors, env
 
 

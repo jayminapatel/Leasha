@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.13 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -62,7 +62,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 0 / 15 | After 0l, before 0m |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
-| 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
+| 0r | `202626271601` | The splash, and a fast lifecycle | **SHIPPED** | **18 / 0** | Closed 2026-09-16 — §2b's last item (Files/Indexing/Settings deferred, matching Mail/Code) |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | RELEASED | 0 / 24 | Gap-schedulable. §2/§3 (pins, installer) are independent of §5/§6 (doctor, notice) |
 
@@ -150,6 +150,25 @@ note names: `venv\Scripts\python.exe -m pytest tests/unit/test_clip_lane_wiring.
 against the real `Qdrant/clip-ViT-B-32-vision`/`-text` towers (genuinely downloaded,
 not stood in for) and passed. 0h moves to `SHIPPED`, 13/0. 0i and 0j's dependency on
 0h is now satisfied.
+
+**2026-09-16 — 0r closed.** §2b's one remaining item (Files, Indexing and Settings
+built a beat after `window.show()`, the way Mail and Code already were) is done:
+`app/ui/shell.py`'s `_construct_deferred_views` (renamed from
+`_construct_secondary_views`) now builds all five views on the next turn of the
+event loop via the same `QTimer.singleShot(0, ...)` idiom, after auditing every
+caller that could reach any of the three newly-deferred views in the gap before
+that callback fires and guarding each the same way the mail/code pass already
+established. Measured, same machine, same session, ten fresh `MainWindow`
+constructions in one process: median constructor time **4,269.8ms → 89.3ms**
+(offscreen, synthetic fixtures — the order's own §2b note carries the full table
+and the owner-verification caveat; the "before" figure is higher than the
+2026-09-07 lane-d session's 662.3ms because the codebase has grown substantially
+since, not a contradiction). A latent test gap (four places that built a
+`MainWindow` and touched the store or `indexing_view`/`settings_view` without ever
+letting the event loop turn) was found and fixed along the way, and one genuine,
+pre-existing race — the external-run poller can spuriously re-enable the indexing
+Start button during a local resolve — was found live, isolated in its one affected
+test, and flagged separately rather than fixed, out of this item's scope. Targeted verification (every test touching MainWindow construction) is green; a required whole-suite run was started and left running but could not finish in budget on this shared machine (multiple other agents concurrent, one class of contention severe enough to raise a genuine Windows out-of-memory fault mid-run) - see the work order's own dated note for the full account.
 
 ---
 

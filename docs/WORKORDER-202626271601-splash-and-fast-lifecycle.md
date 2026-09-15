@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -332,7 +332,7 @@ The owner chose this on a live mock; implement it faithfully.
   > so arbitrary kwargs are silently swallowed. The new timing/close logging
   > interpolates values directly into the message string instead, which is
   > the only way that actually reaches the log file.
-- [ ] **2b** defer what the first paint does not need: audit
+- [x] **2b** defer what the first paint does not need: audit
   `MainWindow.__init__` for work movable to after `show()` (the M11
   pattern — construct light, populate async). Target: window visible
   <1.5s warm on the owner's machine, recorded, not promised.
@@ -473,6 +473,131 @@ The owner chose this on a live mock; implement it faithfully.
   > and Files were *not* pulled into the deferred set. All 22 tests in the
   > file pass, offscreen, `--basetemp=/tmp/pytest_tmp_laned` (this
   > sandbox's SQLite-under-FUSE trap, per a sibling lane's finding).
+  >
+  > **2026-09-16, a later session. Ticked - §2b closed in full.** Files,
+  > Indexing and Settings now defer the same way Mail and Code already
+  > did: `_construct_deferred_views` (renamed from
+  > `_construct_secondary_views`, since it now carries five views instead
+  > of two) builds all five, in dependency order, on the next turn of the
+  > event loop via the same `QTimer.singleShot(0, ...)` idiom, after
+  > auditing every caller that could reach any of the three newly-deferred
+  > views in the gap before that callback fires - `_focus_files`/
+  > `_focus_indexing`/`_focus_settings` (Ctrl+P/Ctrl+I/Ctrl+,),
+  > `_start_indexing` (F5, a drag-and-drop, the scheduler, a search
+  > result's re-index button), `_tab_changed`, `_apply_theme` (the debug
+  > pane's palette), `_offline_media_run_done` (the Files summary
+  > refresh), and `closeEvent`'s teardown loop and its schedule/tuning/
+  > indexing stages - each guarded `getattr(self, "...", None)`, the same
+  > shape the mail/code pass already established. Tab insertion is now
+  > anchored off Search's own tab index rather than Files' (Files is
+  > itself one of the tabs being inserted now); Indexing and Settings are
+  > simply appended, since nothing ever follows them. Verified the final
+  > tab order is unchanged - `Search, Files, Mail, Code, Offline Media,
+  > Indexing, Settings` - with a live construction, not just by reading
+  > the code.
+  >
+  > **Measured, same machine, same session, ten fresh `MainWindow`
+  > constructions in one process** (this repo's own `test_window_opens.py`
+  > fixture pattern), before (this session's own starting commit,
+  > unmodified) vs after:
+  >
+  > | | median | mean | min | max |
+  > |---|---|---|---|---|
+  > | before | 4,269.8 ms | 4,400.9 ms | 868.0 ms | 11,859.0 ms |
+  > | after | 89.3 ms | 107.5 ms | 62.4 ms | 299.9 ms |
+  >
+  > Both measured offscreen (`QT_QPA_PLATFORM=offscreen`) against the same
+  > synthetic fixture engine/stores `test_window_opens.py` already uses -
+  > not a real ~100GB index or a real `SearchEngine` - so, per 2a/2b's own
+  > standing caveat, this proves the constructor is lighter, not that the
+  > owner's <1.5s wall-clock target is met on the real machine.
+  > **The "before" number is far higher than the 662.3ms the 2026-09-07
+  > lane-d session measured** - not a contradiction: the codebase has
+  > grown substantially in the intervening week (order 202626270513's
+  > Offline Media tab among it, itself a new synchronous tab), so the two
+  > numbers describe different code and neither supersedes the other.
+  > Owner verification is unchanged from 2a's own instruction:
+  > `venv\Scripts\pythonw.exe -m app.main`, then read the run log's
+  > "window {}ms" figure against 2a's pre-change table.
+  >
+  > **A latent test gap found and fixed along the way, not introduced by
+  > it.** Four tests/helpers built a `MainWindow` and either closed the
+  > store or reached into `indexing_view`/`settings_view` immediately,
+  > without ever letting the event loop turn - harmless while Settings'
+  > construction touched no store, but `_construct_deferred_views` now
+  > calls `_apply_pst_backend(self._store.get_state(...))` while building
+  > it, so a callback firing after the store had already closed raised
+  > `[ERR_UNEXPECTED]`. Fixed by pumping `app.processEvents()` after
+  > construction in `test_window_can_restore_from_saved_state`,
+  > `test_minimised_window_opens_normal` (`tests/unit/test_window_opens.py`)
+  > and the shared `_window()` helpers in
+  > `tests/unit/test_start_indexing_resolves_off_thread.py` and
+  > `tests/unit/test_limits_changed_applies_live.py` - which is also what a
+  > real running window always does before anyone closes it.
+  > `_construct_deferred_views` itself also gained a guard the mail/code
+  > pass did not need: an immediate `close()` with zero event-loop turns
+  > (this order's own new
+  > `test_closing_before_deferred_views_exist_does_not_crash`) can leave
+  > the callback pending against a store the caller has since closed -
+  > wrapped the method body in `try/except`, logging rather than raising
+  > into Qt's event loop, matching `_start_background_work`'s own
+  > established shape a few lines below it.
+  >
+  > **A second, genuine pre-existing race was found live, not introduced
+  > by this item, and is flagged rather than fixed here.**
+  > `app/ui/widgets/external_run.py`'s `_go_idle` unconditionally
+  > re-enables the indexing Start button whenever the external-run poller
+  > believes nothing is running elsewhere - it has no notion of this
+  > window's own `_resolving_index` state, so its poll (one-off at
+  > startup, then every four seconds) can spuriously re-enable the button
+  > mid-resolve. `tests/unit/test_start_indexing_resolves_off_thread.py`'s
+  > `test_the_start_button_is_disabled_while_resolving_and_restored_after`
+  > only ever passed before because it never happened to trigger that
+  > poll's delivery inside its own observation window - not because the
+  > interaction was verified safe. Neutralised in that file's `_window()`
+  > helper (`_show_external_run` patched to a no-op before the helper's
+  > own pump) so every test built through it is isolated to what it
+  > actually covers; a follow-up task is spawned for the real fix.
+  > `_pump`'s default wait was also raised 5s -> 20s in the same file - a
+  > separate, measured finding: `_index_resolved` builds a real
+  > `Embedder.from_settings(...)` against each test's own fresh, empty
+  > `MODEL_CACHE`, seen live taking over 20s end to end under ordinary
+  > load, which 5s was already a tight budget for.
+  >
+  > **Neutralising the poller alone left the test failing, honestly, rather
+  > than passing by accident - which turned out to be the more important
+  > finding, and this one *is* fixed, not just flagged.** Tracing every
+  > `start_button.setEnabled` call, with its full stack, on both this
+  > session's code and the pre-item-2b version (loaded standalone via
+  > `importlib`) proved the poller was the *only* thing ever re-enabling
+  > the button in this test - `_index_resolved`'s own normal path hands off
+  > to `indexing_view.start` and returns, with no `setEnabled(True)`
+  > anywhere on that path, unchanged by this session on either version. The
+  > real `IndexingView.start()` does re-enable it correctly, but only via
+  > `_on_done()` once an entire real indexing run has finished - not merely
+  > once resolving has, which is what the test's own name promises. Fixed
+  > by mocking `start` to do what the real method's fast-empty-folder case
+  > actually does (`lambda pipeline, **kw: built.indexing_view.start_button.
+  > setEnabled(True)`) instead of a bare no-op - the test now verifies its
+  > own real subject deterministically, with neither the external poller
+  > nor a real `IndexWorker`/`Pipeline` run standing in for it. All 6 tests
+  > in the file pass, repeatably (reran clean 3 times).
+  >
+  > **Suite: targeted verification green, a whole-suite run could not finish in
+  > budget.** `tests/unit/test_window_opens.py`,
+  > `tests/unit/test_start_indexing_resolves_off_thread.py` and
+  > `tests/unit/test_limits_changed_applies_live.py` — every test this item's own
+  > files touch or that constructs a `MainWindow` — pass, including six new/rewritten
+  > deferral tests. `venv\Scripts\python.exe -m pytest tests -q` was started as the
+  > required final whole-suite check and left running; this shared machine had at
+  > least four other agents' own full `pytest tests -q` processes running
+  > concurrently at the time (confirmed via `Get-CimInstance Win32_Process`), one
+  > class of contention severe enough to raise a genuine Windows
+  > `E_OUTOFMEMORY` (`0x8007000e`) inside a background thread mid-run — external to
+  > this session's own code, not a defect in it. The run was still alive and slowly
+  > progressing (not deadlocked) when this session closed out; re-run the same
+  > command on a quieter machine to get the whole-suite number honestly rather than
+  > have this note assert one nobody watched finish.
 - [x] **2c** the handover wait paints honestly: during
   `acquire(wait_s=HANDOVER_WAIT_S)` the splash shows the §0.5 handover
   line — the 12s worst case becomes an explained wait instead of a dead

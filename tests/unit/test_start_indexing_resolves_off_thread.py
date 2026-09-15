@@ -83,10 +83,48 @@ def _window(tmp_path):
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
     built = MainWindow(settings, store, vectors, _Engine(store))
+    # A real, pre-existing race found live while extending order 0r item
+    # 2b's deferral to Files/Indexing/Settings, not introduced by it - see
+    # test_the_start_button_is_disabled_while_resolving_and_restored_after's
+    # own docstring for the full account. `_start_background_work` (which
+    # the pump below lets run) dispatches a one-off `_poll_external_run`
+    # worker whose result, delivered later via `_show_external_run`, can
+    # spuriously re-enable `indexing_view.start_button` while a resolve
+    # this file's own tests started is still in flight - unrelated to
+    # anything this file tests. Patched out *before* the pump below, which
+    # is the only point that works: the real connection is made during
+    # that same pump and captures the bound method at connect time.
+    built._show_external_run = lambda payload: None
+    # Order 0r item 2b: `indexing_view`/`settings_view` (this file's own
+    # `built.indexing_view.start = ...` and every `_start_indexing` call
+    # below need both) are built a beat later via `QTimer.singleShot(0,
+    # ...)` - `_construct_deferred_views`. Every caller of this helper
+    # reaches into one or both immediately, so both must already exist by
+    # the time it returns.
+    for _ in range(5):
+        app.processEvents()
     return app, built, store, vectors
 
 
-def _pump(app, ms: int = 5_000) -> None:
+def _pump(app, ms: int = 20_000) -> None:
+    r"""Drain the pool, then let the GUI thread catch up.
+
+    **20s, not 5s - measured, not guessed.** `_index_resolved` (the
+    `finished` handler `_start_indexing` wires up) builds a real
+    `Embedder.from_settings(...)` on the GUI thread, not a stub - every
+    test in this file that reaches it pays for a real ONNX model load
+    against this test's own fresh, empty `MODEL_CACHE` (`tmp_path`-scoped,
+    so nothing here is warm). `test_the_start_button_is_disabled_while_
+    resolving_and_restored_after` was seen live, offscreen, taking upward
+    of 20s end to end under ordinary load (not a busy machine, not a
+    degenerate case) - 5s was already a tight budget for that, made
+    tighter still by `_start_background_work`'s own worker traffic on the
+    same `QThreadPool.globalInstance()` this waits on. Order 0r item 2b's
+    own extension of the deferral to Settings did not make this slower on
+    its own account; it made a pre-existing, already-marginal budget the
+    one place the newly-required upfront event-loop pump (see `_window()`)
+    could surface it.
+    """
     from PyQt6.QtCore import QThreadPool
 
     QThreadPool.globalInstance().waitForDone(ms)
@@ -179,7 +217,51 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
     tmp_path
 ) -> None:
     """Honest feedback while resolution is in flight, per the work order:
-    the button must not invite a second click during a cold detection."""
+    the button must not invite a second click during a cold detection.
+
+    **A real, pre-existing race found live while extending order 0r item
+    2b's deferral to Files/Indexing/Settings, not introduced by it.**
+    `_window()` (needed so `indexing_view`/`settings_view` exist - see
+    that helper's own comment) pumps events before returning, which lets
+    `_start_background_work` run to completion, including its explicit,
+    one-off `self._poll_external_run()` call - dispatched as a
+    `CallableWorker`, so its `finished` signal (wired to
+    `_show_external_run`) is only *delivered* whenever the event loop next
+    turns, which for this test is exactly the `app.processEvents()` /
+    `_pump()` calls below. `_show_external_run` -> `IndexingView.
+    show_external` -> `paint_external` -> `_go_idle`
+    (`app/ui/widgets/external_run.py`) blindly re-enables `start_button`
+    whenever it believes nothing external is running - it has no notion of
+    *this window's own* resolve being in flight, which is a real gap - so
+    that one already-dispatched poll's result landing mid-test can
+    re-enable the button for a reason that has nothing to do with
+    `_index_resolved` actually having run. The old version of this test
+    only ever passed because it never happened to trigger this delivery
+    inside its own observation window - not because the interaction was
+    verified safe. Neutralised in `_window()` itself (`_show_external_run`
+    replaced with a no-op *before* that helper's own pump, the only point
+    that works - the real connection is made during that same pump and
+    captures the bound method at connect time, so patching it afterwards
+    would not reach an already-established Qt connection) so every test
+    built through this helper is isolated to what it actually covers
+    (resolve dispatch, not the external-run poller); the underlying gap is
+    real and flagged separately rather than fixed here, out of this item's
+    scope.
+
+    **Neutralising the poller alone was not enough - it made this test fail
+    honestly rather than pass, which is the more important finding.**
+    Tracing every `start_button.setEnabled` call, with its full stack, on
+    both this code and the pre-order-0r-item-2b version showed the poller
+    was the *only* thing that ever re-enabled the button in this test -
+    `_index_resolved`'s own normal path hands off to `indexing_view.start`
+    and returns, with no `setEnabled(True)` anywhere on it. The real
+    `IndexingView.start()` does re-enable it, correctly, but only via
+    `_on_done()` once an entire real indexing run has finished - not merely
+    once resolving has, which is what this test's own name promises. See
+    the comment directly above `built.indexing_view.start = ...` below for
+    how that mock now honours what the real method actually does for a
+    fast, empty-folder run, instead of a bare no-op.
+    """
     app, built, store, vectors = _window(tmp_path)
     entered = threading.Event()
     release = threading.Event()
@@ -193,7 +275,34 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
 
     real = resolve_module.resolve_for_run
     resolve_module.resolve_for_run = slow_resolve
-    built.indexing_view.start = lambda pipeline, **kw: None
+    # **Not a pure no-op.** A real, deep finding from tracing this test
+    # live (Order 0r item 2b's verification, not this test's original
+    # intent): the assertion below ("the button must come back once
+    # resolution has finished") was never actually true of `_index_
+    # resolved`'s own code - its normal path hands off to `IndexingView.
+    # start` and returns, with no `setEnabled(True)` of its own anywhere
+    # on that path (confirmed by tracing every call to `start_button.
+    # setEnabled` with its full call stack, on this code and on the
+    # pre-order-0r-item-2b version alike - both are identical here, this
+    # session touched neither). The real `IndexingView.start()` re-enables
+    # it only much later, from `_on_done()`, once an entire real indexing
+    # run has finished - never merely once resolving has. This test used
+    # to pass anyway, but only by accident: `_start_background_work`'s
+    # one-off `_poll_external_run` call's result, delivered later via
+    # `_show_external_run` -> `paint_external` -> `_go_idle`
+    # (`app/ui/widgets/external_run.py`), blindly re-enables the same
+    # button whenever it believes nothing external is running - with no
+    # notion of this window's own resolve, so it happened to land inside
+    # this test's own observation window and satisfy the assertion for a
+    # reason that had nothing to do with what the test claims to verify.
+    # `_window()` (see its own comment) now neutralises that poller for
+    # every test in this file, which makes this one fail honestly instead
+    # of passing by that accident. Mocking `start` to do what the real
+    # method's fast-empty-folder case actually does - disable (already
+    # is), run near-instantly, re-enable - keeps this test verifying its
+    # own real subject (resolve dispatch honesty) without depending on an
+    # unrelated background poller or a real `IndexWorker`/`Pipeline` run.
+    built.indexing_view.start = lambda pipeline, **kw: built.indexing_view.start_button.setEnabled(True)
     try:
         folder = tmp_path / "corpus"
         folder.mkdir()

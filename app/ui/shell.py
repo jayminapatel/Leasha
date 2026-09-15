@@ -272,206 +272,41 @@ class MainWindow(QMainWindow):
         self.search_view.set_view_preferences(load_prefs(store, RESULTS_PREFS_KEY))
         self.search_view.view_preferences_changed.connect(
             lambda prefs: save_prefs(self._store, RESULTS_PREFS_KEY, prefs))
+        self.search_view.preview.pop_out_requested.connect(self._pin_document)
 
-        self.indexing_view = IndexingView()
-        self.indexing_view.error.connect(self._show_error)
-        self.indexing_view.reset_requested.connect(self._reset_index)
-        self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
-        self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
-        self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
-        self.indexing_view.scan_requested.connect(self._scan_corpus)
-        self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
-
-        # **The window watches for a run it did not start.** `app.cli index` is
-        # a separate process since the run lock was split from the window lock,
-        # so an index can be under way with nothing in here knowing - which used
-        # to mean a bar at zero and a Start button that produced a lock error.
-        #
-        # A poll rather than a notification, because the two processes share
-        # only a SQLite file and there is nothing to notify through. Every four
-        # seconds: a checkpoint is at most two seconds apart, and a bar that
-        # updates twice per checkpoint is smooth enough for something measured
-        # in hours. The read is one row and it is skipped entirely while this
-        # window is running its own index.
-        # **Built here, started in `_start_background_work`.** Starting it here
-        # broke the rule stated forty lines below - *"nothing runs on a
-        # background thread until construction is over"* - which exists because
-        # a worker opening SQLite while the main thread is inside
-        # `_apply_theme` produced an access violation with no Python exception
-        # and no window. `_poll_external_run` starts exactly such a worker, and
-        # calling it from `__init__` put this application back into the same
-        # race it had already been debugged out of once.
-        self._watch_timer = QTimer(self)
-        self._watch_timer.setInterval(4_000)
-        self._watch_timer.timeout.connect(self._poll_external_run)
-
-        # §3c: `PRAGMA optimize` refreshes the query planner's statistics.
-        # It used to run on every close, which delayed shutdown while
-        # holding the single-instance lock - a relaunch would wait on it
-        # unnecessarily. Moved here: a coarse, hourly timer while the app is
-        # open, which is what SQLite's own guidance recommends anyway
-        # (periodic, not per-close). Built here, started in
-        # `_start_background_work`, for the same construction-race reason
-        # as `_watch_timer` above.
-        self._optimize_timer = QTimer(self)
-        self._optimize_timer.setInterval(3_600_000)
-        self._optimize_timer.timeout.connect(self._run_idle_optimize)
-        # Connected once, here. Connecting inside _start_indexing would add a
-        # slot per run, so the tenth index would refresh the status bar ten times.
-        self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
-        # §5c. A finished run is the only free measurement this application
-        # ever gets: it is a benchmark somebody already paid for.
-        self.indexing_view.finished.connect(self._learn_from_run)
-        self.indexing_view.finished.connect(self._offer_images_pass)
-        self.indexing_view.finished.connect(
-            lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
-        )
-        # A finished index means new filenames, so the Files summary is stale.
-        self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
-        # New mail too, for the same reason.
-        self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
-
-        self.settings_view = SettingsView(settings, store)
-        #: The popped-out log, or None. Workspace §1c: a **copy**, not a move -
-        #: the pane in Settings never leaves, so closing this returns nothing
-        #: to re-wire. Declared here because `_apply_theme` pushes the palette
-        #: to whichever of the two exist, and it runs before anybody opens one.
-        self._log_window: Any = None
-        #: Workspace §2. **Multiples are allowed and expected** - comparing
-        #: two versions of a drawing falls out for free, and pinning the mail
-        #: you are answering while you search for what it mentions is the
-        #: whole point. Held so Qt does not collect them the moment the local
-        #: name goes out of scope, which is how a window flashes and vanishes.
-        self._pinned: list = []
-        #: Workspace §3a. The box a global shortcut opens, and the listener
-        #: that holds the shortcut. Built lazily - a person who never presses
-        #: it never pays for it.
-        self._mini: Any = None
-        self._hotkey: Any = None
-        self.settings_view.debug_pane.file_chosen.connect(self._open_path)
-        self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
-        self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
-        self.settings_view.roots_changed.connect(self._save_roots)
-        self.settings_view.root_modes_changed.connect(self._save_root_modes)
-        self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
-        self.settings_view.code_types_changed.connect(self._save_code_types)
-        self.settings_view.code_types.load(*self._load_code_types())
-        self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
-        self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
-        self.settings_view.models.load(
-            model, int(translator.timeout_s), enabled=interpret_on)
-        self.settings_view.convert_pst_requested.connect(self._convert_pst)
-        # The schedule and the tuning screen both live on the Indexing page
-        # now - one place to watch a run and to change how it goes. See §4 of
-        # the index-tuning order for why they were separated from Settings.
-        self.indexing_view.schedule_box.load_indexing(settings)
-        self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
-        self.indexing_view.tuning.load(settings)
-        # **Both arrive as registry keys**, which `_limits_changed` wants as
-        # `Settings` field names - it upper-cases them for `.env` and applies
-        # them to the live object, and that second half is what makes a change
-        # reach the *next run in this session* rather than the next launch.
-        self.indexing_view.tuning.changed.connect(
-            lambda values: self._limits_changed(
-                {key.lower(): value for key, value in values.items()}))
-        self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
-        self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
-        self.settings_view.theme_changed.connect(self._theme_changed)
-        # §1a. **What this surface may do on the person's behalf**, resolved
-        # once and pushed to the view - `Settings` belongs to the window, and a
-        # view that reaches for one has to be given one in every test.
-        self._apply_search_preferences()
-        self._apply_hotkey()
-        self.settings_view.environment.recording.setChecked(self.recorder.enabled)
-        self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
-        # **Both of these were emitted into nothing.** The rerank switch looked
-        # like it worked and changed no behaviour at all; the cloud switch was
-        # read live when a run started, so it worked for that run and silently
-        # reset to off at the next launch - which reads as the setting being
-        # ignored, and is the harder of the two to notice.
-        self.settings_view.rerank_toggled.connect(self._rerank_toggled)
-        # The toolbar box is the one every search reads, so it reports here too.
-        toolbar_rerank = getattr(self.search_view, "rerank_toggle", None)
-        if toolbar_rerank is not None:
-            toolbar_rerank.toggled.connect(self._rerank_toggled)
-        self.settings_view.cloud_toggled.connect(self._cloud_toggled)
-        self.settings_view.settings_changed.connect(self._settings_changed)
-        self.settings_view.move_index_requested.connect(self._change_index_location)
-        self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
-        self.settings_view.error.connect(self._show_error)
-        self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
-        self.settings_view.environment.set_recording_status(
-            f"Recording to {self.recorder.path.name}" if self.recorder.enabled
-            else "Not recording."
-        )
-        self._apply_pst_backend(self._store.get_state("ui:pst_backend", "auto") or "auto")
-
-        self.files_view = FilesView(store)
-        self.files_view.error.connect(self._show_error)
-        self.files_view.search_inside_requested.connect(self._search_inside)
-
-        # Order 202626270513 Â§2. Read-only refresh is the view's own - see
+        # Order 202626270513 §2. Read-only refresh is the view's own - see
         # `OfflineMediaView.refresh` - but Scan/Rescan/Delete run a real
         # `Pipeline` (Scan/Rescan) or a full delete cascade, so they are
         # signals the window turns into a `CallableWorker`, the same split
-        # `IndexingView` draws for `_start_indexing`.
+        # `IndexingView` draws for `_start_indexing`. Left synchronous here,
+        # unchanged - deferring it was never part of order 0r item 2b's scope.
         self.offline_media_view = OfflineMediaView(store)
         self.offline_media_view.error.connect(self._show_error)
         self.offline_media_view.scan_requested.connect(self._offline_media_scan)
         self.offline_media_view.rescan_requested.connect(self._offline_media_rescan)
         self.offline_media_view.delete_requested.connect(self._offline_media_delete)
 
-        # **Order 0r item 2b.** Mail and Code are not what first paint shows
-        # (Search is), and building both here was real, measured constructor
-        # cost - two more `ResultTable`s, two more preview panes, two more
-        # sets of signal wiring - for two tabs nobody sees until they click
-        # them. `_construct_secondary_views`, scheduled below with the same
-        # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
-        # uses, builds them a beat later instead: on the next turn of the
-        # event loop, after `show()` has already painted. Every place in this
-        # file that could reach `self.mail_view` / `self.code_view` before
-        # that callback fires - `_focus_mail`, `_focus_code`, `_tab_changed`,
-        # `_save_code_types`, `closeEvent` - is guarded to do nothing rather
-        # than raise, for exactly that gap.
-        #
-        # This loop only pins what already exists; Mail's and Code's preview
-        # panes are pinned inside `_construct_secondary_views` itself,
-        # alongside the views, not left here to fail on an attribute that
-        # does not exist yet.
-        for pane in (self.search_view.preview, self.files_view.preview):
-            pane.pop_out_requested.connect(self._pin_document)
-
         self.tabs = QTabWidget()
         #: view -> the widget actually sitting in its tab (itself, or a
-        #: `QScrollArea` wrapping it). Kept so Mail and Code can be inserted
-        #: at the right position once they exist without losing track of
-        #: where Indexing and Settings landed - `QTabWidget.indexOf` on the
+        #: `QScrollArea` wrapping it). Kept so the deferred tabs can be
+        #: inserted at the right position once they exist without losing
+        #: track of where the others landed - `QTabWidget.indexOf` on the
         #: exact wrapped widget always answers correctly even after an
         #: insertion has shifted everything after it. See
-        #: `_construct_secondary_views`.
+        #: `_construct_deferred_views`.
         self._tab_wrapped: dict[QWidget, QWidget] = {}
         # (view, title, wrap in a scroll area?)
         #
-        # Only stacked forms are wrapped. Search, Files and Indexing are
-        # each built around a table, list or splitter that already fills the
-        # window and scrolls its own contents - nesting a second scroll area
-        # around one of those makes the two fight over the wheel, and the outer
-        # one usually wins, which feels broken and is very hard to report.
-        #
-        # Settings is the opposite: six group boxes stacked vertically, growing
-        # every time an option is added. It had no scrollbar at all, so the
-        # bottom of it was simply unreachable on a short window.
-        #
-        # **Mail and Code are not in this loop.** Order 0r item 2b: they are
-        # built a beat later by `_construct_secondary_views` and inserted at
-        # the positions they would have had here - right after Files - once
-        # they exist, so the tab order nobody has to relearn never changes.
+        # **Only Search and Offline Media are in this loop.** Order 0r item
+        # 2b: Files, Indexing, Settings, Mail and Code are all built a beat
+        # later by `_construct_deferred_views` and inserted at the positions
+        # they would have had here, once they exist, so the tab order
+        # nobody has to relearn never changes. Offline Media (order
+        # 202626270513) stays here, synchronous, unchanged - deferring it
+        # was never part of this item's scope.
         for view, title, scroll in (
             (self.search_view, "Search", False),
-            (self.files_view, "Files", False),
             (self.offline_media_view, "Offline Media", False),
-            (self.indexing_view, "Indexing", False),
-            (self.settings_view, "Settings", True),
         ):
             wrapped = wrap_if_needed(view, scroll=scroll)
             self._tab_wrapped[view] = wrapped
@@ -498,42 +333,42 @@ class MainWindow(QMainWindow):
         # **Opt-in, and off until asked for.** An application that vanishes
         # from the taskbar when you did not ask it to is alarming: you close a
         # window, it disappears, and there is no obvious way back.
-        # Restore the two switches that persist as window state. Set before the
-        # signals are live would be simpler, but these are connected in the
-        # block above - so the stored value is written back through the same
-        # handler, which is harmless and keeps one path rather than two.
-        self.settings_view.cloud.setChecked(
-            self._read_state("ui:index_cloud", "") == "on")
-        # **Both controls, from one stored value.** The Settings checkbox was
-        # initialised here and the toolbar one was hard-coded True and never
-        # saved, so the two disagreed from the first launch after anybody
-        # changed it - and the toolbar is the one every search actually reads.
-        stored_rerank = self._read_state("ui:rerank_enabled", "")
-        if stored_rerank:
-            wanted = stored_rerank == "on"
-            self.settings_view.rerank.setChecked(wanted)
-            self._set_toolbar_rerank(wanted)
-
+        # The tray object and its install happen here, synchronously, so the
+        # icon appears on time; pushing its state into the Settings window
+        # box, and the two stored search checkboxes (cloud, rerank), all need
+        # `settings_view` - order 0r item 2b now builds that a beat later,
+        # see `_construct_deferred_views`.
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
         self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
-        self.settings_view.window_box.load(
-            self.tray.minimise_to_tray, self.tray.close_to_tray,
-            theme=self._theme_preference)
-        self.settings_view.tray_changed.connect(self._tray_changed)
         if self.tray.minimise_to_tray or self.tray.close_to_tray:
             if not self.tray.install():
                 # Never silently: a preference that does nothing is worse than
                 # one that is not offered.
                 self.tray.minimise_to_tray = self.tray.close_to_tray = False
                 _log.warning("no system tray available; minimising normally")
-        self.indexing_view.finished.connect(
-            lambda stats: self.tray.set_status(
-                f"{getattr(stats, 'indexed', 0):,} indexed"))
+
+        #: The popped-out log, or None. Workspace §1c: a **copy**, not a move -
+        #: the pane in Settings never leaves, so closing this returns nothing
+        #: to re-wire. Declared here, synchronously, because `_apply_theme`
+        #: (below, and again from `_construct_deferred_views`) pushes the
+        #: palette to whichever of the two exist and is called before either
+        #: `_log_window` or `settings_view` need to be built.
+        self._log_window: Any = None
+        #: Workspace §2. **Multiples are allowed and expected** - comparing
+        #: two versions of a drawing falls out for free, and pinning the mail
+        #: you are answering while you search for what it mentions is the
+        #: whole point. Held so Qt does not collect them the moment the local
+        #: name goes out of scope, which is how a window flashes and vanishes.
+        self._pinned: list = []
+        #: Workspace §3a. The box a global shortcut opens, and the listener
+        #: that holds the shortcut. Built lazily - a person who never presses
+        #: it never pays for it.
+        self._mini: Any = None
+        self._hotkey: Any = None
 
         self.setStatusBar(QStatusBar())
         self._build_shortcuts()
-        self._wire_recorder()
 
         self._apply_theme()
         self.search_view.focus()
@@ -564,84 +399,286 @@ class MainWindow(QMainWindow):
         # raised `UnboundLocalError` and the window would not open at all.
         # Python binds by function, not by line.
         #
-        # Order 0r item 2b: Mail and Code are built here too, on the same
-        # next-turn-of-the-loop timing, by `_construct_secondary_views`.
-        # Scheduled first so it has run by the time `_start_background_work`
-        # does, though nothing in either method actually depends on that
-        # order today.
-        QTimer.singleShot(0, lambda: self._construct_secondary_views(store))
+        # Order 0r item 2b: Files, Indexing, Settings, Mail and Code are all
+        # built here too, on the same next-turn-of-the-loop timing, by
+        # `_construct_deferred_views` - the same method Mail and Code alone
+        # used to be built by (`_construct_secondary_views`, the 2026-09-07
+        # lane-d pass), now carrying the three views that pass audited and
+        # left open. Scheduled first so it has run by the time
+        # `_start_background_work` does - and unlike the mail/code-only
+        # version, `_start_background_work` now genuinely depends on that
+        # order: it reaches into `indexing_view` and `settings_view`
+        # directly, with no guard of its own, on the assumption that this
+        # method has already built them.
+        QTimer.singleShot(0, lambda: self._construct_deferred_views(store, settings))
         QTimer.singleShot(0, lambda: self._start_background_work(store, settings))
 
-    def _construct_secondary_views(self, store: Any) -> None:
-        """Build Mail and Code, and insert them where they belong.
+    def _construct_deferred_views(self, store: Any, settings: Any) -> None:
+        """Build Files, Indexing, Settings, Mail and Code, and insert them
+        where they belong.
 
         Order 0r item 2b's audit of `MainWindow.__init__` found the
         constructor doing real, synchronous work for tabs nobody sees the
         instant the window appears - Search is the only one shown at first
-        paint. Mail and Code move here: built on the next turn of the event
-        loop instead of inside the constructor, via the same
+        paint, and Offline Media (order 202626270513) is left synchronous,
+        unchanged, because deferring it was never part of this item's
+        scope. The other five move here: built on the next turn of the
+        event loop instead of inside the constructor, via the same
         `QTimer.singleShot(0, ...)` idiom `__init__` already uses for
-        `_start_background_work`, a few lines above.
+        `_start_background_work`, a few lines above. This is the same
+        deferral a 2026-09-07 session (lane-d) built for Mail and Code
+        alone, extended now to the three views that pass audited and left
+        for a follow-up: Files, Indexing and Settings.
 
-        **Everything that could reach `self.mail_view` / `self.code_view`
-        before this callback fires is guarded**, for the gap between
-        `show()` returning and this method actually running:
-        `_focus_mail`, `_focus_code` (Ctrl+M / Ctrl+E), `_tab_changed`
-        (switching tabs), `_save_code_types` and `closeEvent`. A rapid
-        keypress or an immediate close in that gap does nothing, rather than
-        raising `AttributeError` on an attribute that does not exist yet.
+        **Everything that could reach `self.files_view` / `self.indexing_view`
+        / `self.settings_view` / `self.mail_view` / `self.code_view` before
+        this callback fires is guarded**, for the gap between `show()`
+        returning and this method actually running: `_focus_files`,
+        `_focus_indexing`, `_focus_settings`, `_focus_mail`, `_focus_code`
+        (Ctrl+P / Ctrl+I / Ctrl+, / Ctrl+M / Ctrl+E), `_start_indexing` (F5,
+        a drag-and-drop, the scheduler, a search result's re-index button),
+        `_tab_changed` (switching tabs), `_apply_theme` (the debug pane's
+        palette), `_offline_media_run_done` (the Files summary refresh),
+        `_save_code_types` and `closeEvent`. A rapid keypress, drop or close
+        in that gap does nothing, rather than raising `AttributeError` on an
+        attribute that does not exist yet.
         """
-        # Mail gets its own tab for the reason `mail_view.py` opens with: a
-        # mailbox is scanned in columns and read newest first, and relevance
-        # ranking answers a question nobody asked of it.
-        self.mail_view = MailView(store)
-        self.mail_view.error.connect(self._show_error)
-        self.mail_view.search_inside_requested.connect(self._search_inside)
+        # **Guarded as a whole**, matching `_start_background_work`'s own
+        # reasoning a few lines below. A real, live gap: `test_closing_
+        # before_deferred_views_exist_does_not_crash` proved that an
+        # immediate `close()` with no event-loop turn at all can leave this
+        # `QTimer.singleShot(0, ...)` callback still pending when a caller
+        # then closes the store (this file's own `store.close()` in a
+        # test's `finally`, or a real close racing ahead of the very first
+        # event-loop turn) - the callback still fires later, against a
+        # store that is no longer open. A window that never gets its
+        # secondary tabs in that vanishingly rare race is a small problem;
+        # an unhandled exception reaching Qt's event loop is a bigger one.
+        try:
+            # -- Indexing ---------------------------------------------------
+            self.indexing_view = IndexingView()
+            self.indexing_view.error.connect(self._show_error)
+            self.indexing_view.reset_requested.connect(self._reset_index)
+            self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
+            self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
+            self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
+            self.indexing_view.scan_requested.connect(self._scan_corpus)
+            self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
 
-        # Repositories are a browser, not a second search - see code_view.py.
-        self.code_view = CodeView(store)
-        self.code_view.error.connect(self._show_error)
-        self.code_view.search_repo_requested.connect(self._search_repo)
-        self.code_view.open_requested.connect(self._open_path)
-        self.code_view.reveal_requested.connect(
-            lambda path: self._open_path(path, reveal=True))
-        self.code_view.indexing_requested.connect(
-            lambda: self._show(self.indexing_view))
+            # See `__init__`'s historical comment on why these two timers are
+            # *built* here (rather than while other widgets are still being
+            # assembled) and *started* only in `_start_background_work`: a
+            # worker opening SQLite while the main thread is mid-construction
+            # produced an access violation with no Python exception and no
+            # window, once. Moving their construction into this deferred pass
+            # does not reopen that risk - `_start_background_work` is scheduled
+            # after this method (see `__init__`), so both timers already exist
+            # by the time it starts them.
+            self._watch_timer = QTimer(self)
+            self._watch_timer.setInterval(4_000)
+            self._watch_timer.timeout.connect(self._poll_external_run)
 
-        # **§2, and it goes here rather than beside Settings for a reason.**
-        # Every tab that has a preview can pin one, and each pane carries its
-        # own `body_provider` - §2h's "no special casing" for mail, whose
-        # message has no file on disk to open.
-        for pane in (self.mail_view.preview, self.code_view.results.preview):
-            pane.pop_out_requested.connect(self._pin_document)
+            self._optimize_timer = QTimer(self)
+            self._optimize_timer.setInterval(3_600_000)
+            self._optimize_timer.timeout.connect(self._run_idle_optimize)
 
-        # Inserted right after Files - the position this pair held in the
-        # original single loop - so the tab order nobody has to relearn
-        # never changes. `indexOf` on the exact wrapped widget, not a
-        # remembered number, is what keeps the refresh below correct
-        # regardless of how many tabs an insertion has shifted.
-        after_files = self._tab_index[self.files_view]
-        mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
-        self.tabs.insertTab(after_files + 1, mail_wrapped, "Mail")
-        self._tab_wrapped[self.mail_view] = mail_wrapped
-        code_wrapped = wrap_if_needed(self.code_view, scroll=False)
-        self.tabs.insertTab(after_files + 2, code_wrapped, "Code")
-        self._tab_wrapped[self.code_view] = code_wrapped
-        for view, wrapped in self._tab_wrapped.items():
-            self._tab_index[view] = self.tabs.indexOf(wrapped)
+            self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
+            # §5c. A finished run is the only free measurement this application
+            # ever gets: it is a benchmark somebody already paid for.
+            self.indexing_view.finished.connect(self._learn_from_run)
+            self.indexing_view.finished.connect(self._offer_images_pass)
+            self.indexing_view.finished.connect(
+                lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
+            )
+            # A finished index means new filenames, so the Files summary is stale.
+            self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
+            # New mail too, for the same reason.
+            self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
 
-        # `protect_all` already ran once in `__init__` for every control that
-        # existed by then; Mail's and Code's controls did not, so it runs
-        # again for exactly what it missed. Safe to call twice - a widget
-        # guarded a second time is guarded harmlessly, see `protect`.
-        guarded = protect_all(self)
-        _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
+            # -- Settings -----------------------------------------------------
+            self.settings_view = SettingsView(settings, store)
+            self.settings_view.debug_pane.file_chosen.connect(self._open_path)
+            self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
+            self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
+            self.settings_view.roots_changed.connect(self._save_roots)
+            self.settings_view.root_modes_changed.connect(self._save_root_modes)
+            self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
+            self.settings_view.code_types_changed.connect(self._save_code_types)
+            self.settings_view.code_types.load(*self._load_code_types())
+            self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
+            self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
+            # `model`/`interpret_on` were `__init__` locals, out of reach from a
+            # separate method - recomputed the same way `__init__` computed them
+            # the first time, which is safe: nothing can have changed them
+            # since, because `settings_view` (the only thing that could) did not
+            # exist until the line above.
+            self.settings_view.models.load(
+                self._read_state("ui:ollama_model", "") or settings.ollama_model,
+                int(self._translator.timeout_s), enabled=self._translator.enabled)
+            self.settings_view.convert_pst_requested.connect(self._convert_pst)
+            # The schedule and the tuning screen both live on the Indexing page
+            # now - one place to watch a run and to change how it goes. See §4 of
+            # the index-tuning order for why they were separated from Settings.
+            self.indexing_view.schedule_box.load_indexing(settings)
+            self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
+            self.indexing_view.tuning.load(settings)
+            # **Both arrive as registry keys**, which `_limits_changed` wants as
+            # `Settings` field names - it upper-cases them for `.env` and applies
+            # them to the live object, and that second half is what makes a change
+            # reach the *next run in this session* rather than the next launch.
+            self.indexing_view.tuning.changed.connect(
+                lambda values: self._limits_changed(
+                    {key.lower(): value for key, value in values.items()}))
+            self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
+            self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
+            self.settings_view.theme_changed.connect(self._theme_changed)
+            # §1a. **What this surface may do on the person's behalf**, resolved
+            # once and pushed to the view - `Settings` belongs to the window, and a
+            # view that reaches for one has to be given one in every test.
+            self._apply_search_preferences()
+            self._apply_hotkey()
+            self.settings_view.environment.recording.setChecked(self.recorder.enabled)
+            self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
+            # **Both of these were emitted into nothing.** The rerank switch looked
+            # like it worked and changed no behaviour at all; the cloud switch was
+            # read live when a run started, so it worked for that run and silently
+            # reset to off at the next launch - which reads as the setting being
+            # ignored, and is the harder of the two to notice.
+            self.settings_view.rerank_toggled.connect(self._rerank_toggled)
+            # The toolbar box is the one every search reads, so it reports here too.
+            toolbar_rerank = getattr(self.search_view, "rerank_toggle", None)
+            if toolbar_rerank is not None:
+                toolbar_rerank.toggled.connect(self._rerank_toggled)
+            self.settings_view.cloud_toggled.connect(self._cloud_toggled)
+            self.settings_view.settings_changed.connect(self._settings_changed)
+            self.settings_view.move_index_requested.connect(self._change_index_location)
+            self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
+            self.settings_view.error.connect(self._show_error)
+            self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
+            self.settings_view.environment.set_recording_status(
+                f"Recording to {self.recorder.path.name}" if self.recorder.enabled
+                else "Not recording."
+            )
+            self._apply_pst_backend(self._store.get_state("ui:pst_backend", "auto") or "auto")
+
+            # Restored here rather than in `__init__`: both controls live on
+            # `settings_view`, which this method just built.
+            self.settings_view.cloud.setChecked(
+                self._read_state("ui:index_cloud", "") == "on")
+            stored_rerank = self._read_state("ui:rerank_enabled", "")
+            if stored_rerank:
+                wanted = stored_rerank == "on"
+                self.settings_view.rerank.setChecked(wanted)
+                self._set_toolbar_rerank(wanted)
+
+            # The tray object itself was built in `__init__` (so the icon
+            # installs on time); pushing its state into the Settings window box
+            # and wiring the indexing-finished status line both need
+            # `settings_view`/`indexing_view`, which did not exist yet then.
+            self.settings_view.window_box.load(
+                self.tray.minimise_to_tray, self.tray.close_to_tray,
+                theme=self._theme_preference)
+            self.settings_view.tray_changed.connect(self._tray_changed)
+            self.indexing_view.finished.connect(
+                lambda stats: self.tray.set_status(
+                    f"{getattr(stats, 'indexed', 0):,} indexed"))
+
+            # -- Files ----------------------------------------------------------
+            self.files_view = FilesView(store)
+            self.files_view.error.connect(self._show_error)
+            self.files_view.search_inside_requested.connect(self._search_inside)
+            self.files_view.preview.pop_out_requested.connect(self._pin_document)
+
+            # -- Mail gets its own tab for the reason `mail_view.py` opens with: a
+            # mailbox is scanned in columns and read newest first, and relevance
+            # ranking answers a question nobody asked of it.
+            self.mail_view = MailView(store)
+            self.mail_view.error.connect(self._show_error)
+            self.mail_view.search_inside_requested.connect(self._search_inside)
+
+            # Repositories are a browser, not a second search - see code_view.py.
+            self.code_view = CodeView(store)
+            self.code_view.error.connect(self._show_error)
+            self.code_view.search_repo_requested.connect(self._search_repo)
+            self.code_view.open_requested.connect(self._open_path)
+            self.code_view.reveal_requested.connect(
+                lambda path: self._open_path(path, reveal=True))
+            self.code_view.indexing_requested.connect(
+                lambda: self._show(self.indexing_view))
+
+            # **§2, and it goes here rather than beside Settings for a reason.**
+            # Every tab that has a preview can pin one, and each pane carries its
+            # own `body_provider` - §2h's "no special casing" for mail, whose
+            # message has no file on disk to open.
+            for pane in (self.mail_view.preview, self.code_view.results.preview):
+                pane.pop_out_requested.connect(self._pin_document)
+
+            # -- Insert every deferred tab in its original position -------------
+            # Anchored off Search rather than Files, because Files itself is one
+            # of the tabs being inserted here now - Search is the one tab
+            # guaranteed to already exist and to never move (always tab 0).
+            # Offline Media (order 202626270513, left synchronous) already sits
+            # right after Search; each insertion below pushes it one place
+            # further along, ending exactly where it was before this item -
+            # right after Code - which is the tab order nobody has to relearn.
+            after_search = self._tab_index[self.search_view]
+
+            files_wrapped = wrap_if_needed(self.files_view, scroll=False)
+            self.tabs.insertTab(after_search + 1, files_wrapped, "Files")
+            self._tab_wrapped[self.files_view] = files_wrapped
+
+            mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
+            self.tabs.insertTab(after_search + 2, mail_wrapped, "Mail")
+            self._tab_wrapped[self.mail_view] = mail_wrapped
+
+            code_wrapped = wrap_if_needed(self.code_view, scroll=False)
+            self.tabs.insertTab(after_search + 3, code_wrapped, "Code")
+            self._tab_wrapped[self.code_view] = code_wrapped
+
+            # Indexing and Settings are always last, so a plain append is
+            # correct regardless of how many tabs precede them.
+            indexing_wrapped = wrap_if_needed(self.indexing_view, scroll=False)
+            self._tab_wrapped[self.indexing_view] = indexing_wrapped
+            self.tabs.addTab(indexing_wrapped, "Indexing")
+
+            settings_wrapped = wrap_if_needed(self.settings_view, scroll=True)
+            self._tab_wrapped[self.settings_view] = settings_wrapped
+            self.tabs.addTab(settings_wrapped, "Settings")
+
+            for view, wrapped in self._tab_wrapped.items():
+                self._tab_index[view] = self.tabs.indexOf(wrapped)
+
+            # `protect_all` already ran once in `__init__` for every control that
+            # existed by then (Search, Offline Media, the chrome); everything
+            # built above did not, so it runs again for exactly what it missed.
+            # Safe to call twice - a widget guarded a second time is guarded
+            # harmlessly, see `protect`.
+            guarded = protect_all(self)
+            _log.debug("wheel-guarded {} controls (second pass, Files/Indexing/"
+                       "Settings/Mail/Code)", guarded)
+
+            # Recording and the debug pane's palette both reach into views this
+            # method just built - `_wire_recorder` wires `indexing_view`,
+            # `files_view` and `settings_view` signals directly, and
+            # `_apply_theme`'s own guard (see its docstring) means this second
+            # call is what actually pushes the palette into
+            # `settings_view.debug_pane` for the first time.
+            self._wire_recorder()
+            self._apply_theme()
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("deferred view construction failed: {}", exc)
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.
 
         Guarded as a whole: a window that opens with no file count is a small
         problem, and one that refuses to open is a total one.
+
+        **Depends on `_construct_deferred_views` having already run** -
+        `indexing_view` and `settings_view` are used below with no guard of
+        their own. `__init__` schedules both with `QTimer.singleShot(0,
+        ...)`, that method first, so this is safe; it would not be if the
+        two were ever reordered.
         """
         try:
             # The watch for a run another process is doing. Here rather than in
@@ -764,8 +801,8 @@ class MainWindow(QMainWindow):
 
         bind("Ctrl+K", self._focus_search)
         bind("Ctrl+F", self._focus_search)
-        bind("Ctrl+,", lambda: self._show(self.settings_view))
-        bind("Ctrl+I", lambda: self._show(self.indexing_view))
+        bind("Ctrl+,", self._focus_settings)
+        bind("Ctrl+I", self._focus_indexing)
         bind("Ctrl+P", self._focus_files)
         bind("Ctrl+Shift+P", self._toggle_preview)
         bind("Ctrl+M", self._focus_mail)
@@ -1512,8 +1549,31 @@ class MainWindow(QMainWindow):
 
     def _focus_files(self) -> None:
         """Ctrl+P, the shortcut every editor uses for "go to file"."""
-        self._show(self.files_view)
-        self.files_view.focus()
+        files_view = getattr(self, "files_view", None)
+        if files_view is None:
+            # Order 0r item 2b: Files is built a beat after the window
+            # appears - see `_construct_deferred_views`. Pressed inside
+            # that gap, which needs unlucky timing; doing nothing is
+            # correct here, not a bug to chase.
+            return
+        self._show(files_view)
+        files_view.focus()
+
+    def _focus_indexing(self) -> None:
+        """Ctrl+I. Indexing has nowhere to type, so this only switches tabs."""
+        indexing_view = getattr(self, "indexing_view", None)
+        if indexing_view is None:
+            # See `_focus_files` - same gap, same reason.
+            return
+        self._show(indexing_view)
+
+    def _focus_settings(self) -> None:
+        """Ctrl+,. Settings deliberately does not steal focus - see `_tab_changed`."""
+        settings_view = getattr(self, "settings_view", None)
+        if settings_view is None:
+            # See `_focus_files` - same gap, same reason.
+            return
+        self._show(settings_view)
 
     def _toggle_preview(self) -> None:
         """Ctrl+Shift+P, on whichever list is in front.
@@ -1537,7 +1597,7 @@ class MainWindow(QMainWindow):
         mail_view = getattr(self, "mail_view", None)
         if mail_view is None:
             # Order 0r item 2b: Mail is built a beat after the window
-            # appears - see `_construct_secondary_views`. Pressed inside
+            # appears - see `_construct_deferred_views`. Pressed inside
             # that gap, which needs unlucky timing; doing nothing is
             # correct here, not a bug to chase.
             return
@@ -1579,7 +1639,15 @@ class MainWindow(QMainWindow):
         from app.ui.theme import palette_for
 
         colours = palette_for(preference, detected=detected)
-        for target in (self.settings_view.debug_pane, self._log_window):
+        # Order 0r item 2b: `settings_view` (and its debug pane) is built a
+        # beat after the window appears - see `_construct_deferred_views`,
+        # which calls this method again once it exists, so the palette
+        # still reaches it, just one tick later than everything else.
+        settings_view = getattr(self, "settings_view", None)
+        targets = [self._log_window]
+        if settings_view is not None:
+            targets.append(settings_view.debug_pane)
+        for target in targets:
             if target is not None:
                 target.set_palette(colours)
 
@@ -1718,15 +1786,18 @@ class MainWindow(QMainWindow):
         Asked for by capability rather than by name: a view that has nowhere to
         type has no `focus`, and Settings deliberately does not steal it.
         """
-        # `getattr(self, "code_view"/"mail_view", None)` rather than a bare
-        # attribute: Order 0r item 2b builds both a beat after the window
-        # appears (`_construct_secondary_views`), and `_tab_index.get(None)`
-        # is simply `None` - never equal to a real tab index - so this stays
-        # correct in the gap before either exists, with no exception raised.
-        if index == self._tab_index.get(self.indexing_view):
-            self.indexing_view.refresh_totals(self._store, self._settings)
-        elif index == self._tab_index.get(self.files_view):
-            self.files_view.refresh_summary()
+        # `getattr(self, "...", None)` rather than a bare attribute: Order 0r
+        # item 2b builds Files, Indexing, Settings, Mail and Code all a beat
+        # after the window appears (`_construct_deferred_views`), and
+        # `_tab_index.get(None)` is simply `None` - never equal to a real tab
+        # index - so this stays correct in the gap before any of them exist,
+        # with no exception raised.
+        indexing_view = getattr(self, "indexing_view", None)
+        files_view = getattr(self, "files_view", None)
+        if indexing_view is not None and index == self._tab_index.get(indexing_view):
+            indexing_view.refresh_totals(self._store, self._settings)
+        elif files_view is not None and index == self._tab_index.get(files_view):
+            files_view.refresh_summary()
         elif index == self._tab_index.get(self.offline_media_view):
             self.offline_media_view.refresh()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
@@ -1737,7 +1808,7 @@ class MainWindow(QMainWindow):
 
         # By index rather than by widget: a view inside a scroll area is not the
         # tab's widget, which is the same trap `_show` exists to avoid.
-        for view in (self.search_view, self.files_view,
+        for view in (self.search_view, files_view,
                      getattr(self, "mail_view", None),
                      getattr(self, "code_view", None)):
             if view is not None and self._tab_index.get(view) == index:
@@ -1837,7 +1908,10 @@ class MainWindow(QMainWindow):
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)
-        self._show(self.indexing_view)
+        # `getattr(..., None)`: Order 0r item 2b builds Indexing a beat
+        # after the window appears - `_show(None)` does nothing, and
+        # `_start_indexing` guards the same gap itself, immediately below.
+        self._show(getattr(self, "indexing_view", None))
         self._start_indexing(roots=[folder])
 
     def _load_roots(self) -> list[str]:
@@ -2151,6 +2225,17 @@ class MainWindow(QMainWindow):
         thread, at the exact moment somebody clicked Start - non-negotiable #5,
         broken by the one button people click to begin.
         """
+        # Order 0r item 2b: Indexing and Settings are built a beat after
+        # the window appears (`_construct_deferred_views`). F5, a
+        # drag-and-drop, the scheduler firing, or a search result's
+        # re-index button can all reach this method, and none of them go
+        # through a disabled widget the way the Start button does - so this
+        # does nothing in that gap, rather than raising on an attribute
+        # that does not exist yet.
+        if getattr(self, "indexing_view", None) is None or \
+                getattr(self, "settings_view", None) is None:
+            return
+
         # Checked *before* anything is built. `IndexingView.start` already
         # refuses a second run, but it refused silently and only after this
         # method had constructed a Pipeline and an Embedder - which loads the
@@ -2461,7 +2546,14 @@ class MainWindow(QMainWindow):
     def _offline_media_run_done(self, result: Any) -> None:
         self.offline_media_view.set_busy("")
         self.offline_media_view.refresh()
-        self.files_view.refresh_summary()
+        # Order 0r item 2b: Files is built a beat after the window appears.
+        # Offline Media itself is not deferred, so its Scan/Rescan/Delete
+        # buttons are clickable from first paint - a worker finishing that
+        # fast, in the same gap, must not raise on an attribute that does
+        # not exist yet.
+        files_view = getattr(self, "files_view", None)
+        if files_view is not None:
+            files_view.refresh_summary()
         self.statusBar().showMessage(offline_media_run_summary(result), 20_000)
 
     def _offline_media_run_failed(self, error: Any) -> None:
@@ -2492,7 +2584,9 @@ class MainWindow(QMainWindow):
         ]
         folders = [p if Path(p).is_dir() else str(Path(p).parent) for p in paths]
         if folders:
-            self._show(self.indexing_view)
+            # `getattr(..., None)`: see `_reindex_for` - the same gap,
+            # guarded the same way.
+            self._show(getattr(self, "indexing_view", None))
             self._start_indexing(roots=sorted(set(folders)))
         event.acceptProposedAction()
 
@@ -2634,14 +2728,15 @@ class MainWindow(QMainWindow):
         # engine and a store that were being shut. Cancelling first turns a race
         # into an ordinary stop - the same reasoning as asking the index run to
         # stop rather than closing over it.
-        # `getattr(..., None)` for Mail/Code: Order 0r item 2b builds both a
+        # `getattr(..., None)` for Files/Mail/Code: Order 0r item 2b builds
+        # all three (plus Indexing and Settings, guarded separately below) a
         # beat after the window appears, and a close arriving before that
         # callback has run (an automated close sent immediately after
         # `show()`, with no event-loop turn in between) must not raise here -
         # skipping a `shutdown()` that has nothing to shut down yet is
-        # correct, not a gap, since neither view has started any timer or
+        # correct, not a gap, since none of them has started any timer or
         # worker by then.
-        for view in (self.search_view, self.files_view,
+        for view in (self.search_view, getattr(self, "files_view", None),
                      getattr(self, "mail_view", None),
                      getattr(self, "code_view", None)):
             if view is None:
@@ -2650,9 +2745,13 @@ class MainWindow(QMainWindow):
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
         # the sluggishness the debounce was added to fix.
-        stage("schedule", self.indexing_view.schedule_box.flush_pending)
-        stage("tuning", self.indexing_view.tuning.flush_pending)
-        stage("indexing", self.indexing_view.stop)
+        # Same gap, same guard: `indexing_view` is one of the views Order 0r
+        # item 2b now defers.
+        indexing_view = getattr(self, "indexing_view", None)
+        if indexing_view is not None:
+            stage("schedule", indexing_view.schedule_box.flush_pending)
+            stage("tuning", indexing_view.tuning.flush_pending)
+            stage("indexing", indexing_view.stop)
         # **Pre-existing gap, found live by this session's own rapid-close
         # test for item 2b, not introduced by it.** `self.scheduler` is only
         # ever assigned inside `_start_scheduler`, which only ever runs from

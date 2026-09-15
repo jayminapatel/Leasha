@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.7 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1285,3 +1285,25 @@ behind `VERSION`.
 
 A handoff document that has quietly gone stale is worse than none: it is confidently wrong,
 and someone will act on it.
+
+## 10. Session note — 2026-09-16
+
+Order 0r (`docs/WORKORDER-202626271601-splash-and-fast-lifecycle.md`) closed at 18/0
+(**SHIPPED** — see `docs/ORDER_REGISTER.md`). §2b's last open item shipped: the
+`QTimer.singleShot(0, ...)` deferral already built for Mail/Code (2026-09-07) now
+also covers Files, Indexing and Settings — `app/ui/shell.py`'s
+`_construct_deferred_views` (renamed from `_construct_secondary_views`) builds all
+five on the next turn of the event loop rather than inside `MainWindow.__init__`.
+Measured on this machine, same session, ten fresh constructions in one process:
+median constructor time fell from 4,269.8ms to 89.3ms (offscreen, synthetic
+fixtures — see the order's own §2b note for the full table and the
+owner-verification caveat still outstanding on the real machine).
+
+A genuine, pre-existing race was found live while verifying this, not introduced by
+it: `app/ui/widgets/external_run.py`'s `_go_idle()` can spuriously re-enable the
+indexing Start button while a local `resolve_for_run` dispatch is in flight, because
+it has no notion of `MainWindow._resolving_index`. Flagged rather than fixed (out of
+this item's scope) — see the work order's own dated note and the spawned follow-up
+task.
+
+See `docs/ORDER_REGISTER.md` for the current queue; this section does not restate it.

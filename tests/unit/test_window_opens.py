@@ -273,12 +273,24 @@ def test_window_can_restore_from_saved_state(tmp_path):
     try:
         # Build first window, set a custom geometry, save it
         window1 = MainWindow(settings, store, vectors, _Engine(store))
+        # Order 0r item 2b: Files, Indexing, Settings, Mail and Code are all
+        # built a beat later via `QTimer.singleShot(0, ...)`, and
+        # `_construct_deferred_views` reads the store synchronously
+        # (`_apply_pst_backend`) as part of building Settings. Without this,
+        # both callbacks stay pending past the end of this function and fire
+        # only after `finally` has already closed the store below - which a
+        # real running window never does, since it pumps its own event loop
+        # long before anybody closes it.
+        for _ in range(5):
+            app.processEvents()
         window1.resize(width, height)
         window1.move(150, 100)
         saved_state = save_window_state(window1)
 
         # Build second window with default geometry
         window2 = MainWindow(settings, store, vectors, _Engine(store))
+        for _ in range(5):
+            app.processEvents()
         original_geom = window2.geometry()
         assert window2.width() != width or window2.height() != height, \
             "second window should have different geometry initially"
@@ -478,6 +490,14 @@ def test_minimised_window_opens_normal(tmp_path):
 
     try:
         window = MainWindow(settings, store, vectors, _Engine(store))
+        # Order 0r item 2b: let `_construct_deferred_views` (Files,
+        # Indexing, Settings, Mail, Code - via `QTimer.singleShot(0, ...)`)
+        # run before `finally` closes the store below - it reads the store
+        # synchronously (`_apply_pst_backend`) while building Settings, and
+        # a real running window always pumps its own event loop long before
+        # anybody closes it.
+        for _ in range(5):
+            app.processEvents()
 
         # If a window somehow got minimised (user action or crash recovery),
         # we want to ensure it opens normally. We can't easily create a
@@ -668,15 +688,26 @@ def test_an_ordinary_poll_leaves_the_search_box_alone(window):
     built.search_view.input.clear()
 
 
-# --- Order 0r item 2b: Mail and Code built a beat after show() -------------
+# --- Order 0r item 2b: Files, Indexing, Settings, Mail and Code built a
+# beat after show() -----------------------------------------------------
+#
+# Mail and Code were deferred first (a 2026-09-07 session, lane-d), and the
+# tests below this banner originally covered only that pair. This session
+# extends the same deferral to Files, Indexing and Settings - the three
+# views that pass's own audit found and explicitly left open (see the work
+# order's dated note under item 2b). Every test below is updated to match:
+# only Search and Offline Media (order 202626270513, never part of this
+# item's scope) are built before the event loop's first turn now.
 
 
-def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
-    r"""The deferral itself: `mail_view`/`code_view` do not exist the instant
-    `MainWindow()` returns, and do exist once the event loop has had a turn.
+def test_deferred_views_are_not_built_until_the_event_loop_turns(tmp_path):
+    r"""The deferral itself: none of `files_view` / `indexing_view` /
+    `settings_view` / `mail_view` / `code_view` exist the instant
+    `MainWindow()` returns, and all five exist once the event loop has had
+    a turn.
 
     This is the regression test for the whole point of item 2b - if
-    `_construct_secondary_views` were ever folded back into `__init__` by
+    `_construct_deferred_views` were ever folded back into `__init__` by
     accident, this would be the first thing to go red, because the "not yet
     built" half would stop being true.
     """
@@ -702,40 +733,45 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
         # Not built yet: the constructor only scheduled it, via the same
         # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
         # used before this item existed.
-        assert not hasattr(built, "mail_view"), (
-            "mail_view must not exist the instant MainWindow() returns - "
-            "if it does, the deferral has regressed back into __init__")
-        assert not hasattr(built, "code_view"), (
-            "code_view must not exist the instant MainWindow() returns - "
-            "same reason as mail_view above")
-        # Search is what first paint shows, so it must be built already.
+        for name in ("files_view", "indexing_view", "settings_view",
+                     "mail_view", "code_view"):
+            assert not hasattr(built, name), (
+                f"{name} must not exist the instant MainWindow() returns - "
+                "if it does, the deferral has regressed back into __init__")
+        # Search is what first paint shows, so it must be built already -
+        # and so must Offline Media, which stays synchronous, unchanged
+        # (order 202626270513, never part of this item's scope).
         assert built.search_view is not None
-        assert built.tabs.count() == 5, (
-            "only Search, Files, Offline Media, Indexing and Settings exist "
-            "before the event loop turns - Mail and Code are inserted a beat "
-            "later. Order 202626270513 added Offline Media to this count.")
+        assert built.offline_media_view is not None
+        assert built.tabs.count() == 2, (
+            "only Search and Offline Media exist before the event loop "
+            "turns - Files, Indexing, Settings, Mail and Code are all "
+            "inserted a beat later")
 
         # Let the singleShot(0, ...) callback run.
         for _ in range(5):
             app.processEvents()
 
-        assert hasattr(built, "mail_view") and built.mail_view is not None
-        assert hasattr(built, "code_view") and built.code_view is not None
-        assert built.tabs.count() == 7, "Mail and Code must both be inserted"
+        for name in ("files_view", "indexing_view", "settings_view",
+                     "mail_view", "code_view"):
+            assert hasattr(built, name) and getattr(built, name) is not None
+        assert built.tabs.count() == 7, "all five deferred views must be inserted"
     finally:
         store.close()
         vectors.close()
 
 
-def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
+def test_deferred_views_land_in_their_original_tab_order(tmp_path):
     r"""The tab order nobody has to relearn: Search, Files, Mail, Code,
     Offline Media, Indexing, Settings.
 
-    Order 202626270513 added Offline Media to the single `addTab` loop
-    right after Files - the same slot Mail and Code are inserted into a
-    beat later (`_construct_secondary_views`'s `after_files + 1`/`+ 2`),
-    which is what pushes Offline Media one further place along rather than
-    ahead of them.
+    Files, Mail and Code are all inserted by `_construct_deferred_views`,
+    anchored off Search's own tab index (`after_search + 1/+2/+3`) rather
+    than off Files - Files itself is one of the tabs being inserted now, so
+    it cannot be the anchor for the others the way it used to be when only
+    Mail and Code were deferred. Indexing and Settings are always last, so
+    they are simply appended. Offline Media (order 202626270513) stays
+    exactly where it always sat, synchronous and unmoved by this item.
     """
     from PyQt6.QtWidgets import QApplication
     from app.core.config import load_settings
@@ -775,17 +811,19 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
             assert built.tabs.tabText(index) == title, (
                 f"_tab_index says {title} is at {index}, but the tab bar "
                 f"disagrees - insertTab must have shifted something the "
-                f"index refresh in _construct_secondary_views missed")
+                f"index refresh in _construct_deferred_views missed")
     finally:
         store.close()
         vectors.close()
 
 
 def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_path):
-    r"""The rapid-interaction risk item 2b's own task names: Ctrl+M / Ctrl+E
-    pressed in the gap between `show()` and `_construct_secondary_views`
-    firing must do nothing, not raise `AttributeError` on an attribute that
-    does not exist yet.
+    r"""The rapid-interaction risk item 2b's own task names: Ctrl+P / Ctrl+I
+    / Ctrl+, / Ctrl+M / Ctrl+E pressed in the gap between `show()` and
+    `_construct_deferred_views` firing must all do nothing, not raise
+    `AttributeError` on an attribute that does not exist yet - and neither
+    must F5 (`_start_indexing`), which reaches into both `indexing_view`
+    and `settings_view` on its very first line.
 
     No `app.processEvents()` at all before calling these - this is exactly
     the "immediately, before the deferred callback has fired" window.
@@ -812,10 +850,15 @@ def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_
             "test only proves what it claims to if this fires before the "
             "deferred callback has run")
 
-        # The real methods F5/Ctrl+M/Ctrl+E are bound to - not a simulated
-        # keypress, which would need a real window manager offscreen.
+        # The real methods Ctrl+P/Ctrl+I/Ctrl+,/Ctrl+M/Ctrl+E/F5 are bound
+        # to - not a simulated keypress, which would need a real window
+        # manager offscreen.
+        built._focus_files()
+        built._focus_indexing()
+        built._focus_settings()
         built._focus_mail()
         built._focus_code()
+        built._start_indexing()
 
         # And the same gap for a Settings control that reaches for
         # `code_view` (`_save_code_types`, wired to
@@ -825,18 +868,22 @@ def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_
         for _ in range(5):
             app.processEvents()
 
-        assert hasattr(built, "mail_view") and hasattr(built, "code_view"), (
-            "the callback must still fire normally after being raced like "
-            "this - nothing above should have broken its own scheduling")
+        for name in ("files_view", "indexing_view", "settings_view",
+                     "mail_view", "code_view"):
+            assert hasattr(built, name), (
+                "the callback must still fire normally after being raced "
+                f"like this - nothing above should have broken its own "
+                f"scheduling ({name} missing)")
     finally:
         store.close()
         vectors.close()
 
 
-def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
-    r"""`_tab_changed` reaches for `code_view`/`mail_view` on every switch;
-    proves it tolerates the gap before either is built, not just that
-    nothing happens to switch to in that gap.
+def test_switching_tabs_before_deferred_views_exist_does_not_crash(tmp_path):
+    r"""`_tab_changed` reaches for `files_view`/`indexing_view` (and, via
+    `getattr`, `mail_view`/`code_view`) on every switch; proves it tolerates
+    the gap before any of them is built, not just that nothing happens to
+    switch to in that gap.
     """
     from PyQt6.QtWidgets import QApplication
     from app.core.config import load_settings
@@ -857,27 +904,31 @@ def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
     try:
         built = MainWindow(settings, store, vectors, _Engine(store))
         assert not hasattr(built, "code_view")
+        assert not hasattr(built, "indexing_view")
 
-        # Only Search, Files, Indexing and Settings exist yet - switch
-        # through all of them, which is the only switching a user could
-        # actually perform in this gap (there is nothing to click for Mail
-        # or Code, since their tabs do not exist either).
+        # Only Search and Offline Media exist yet - switch through both,
+        # which is the only switching a user could actually perform in this
+        # gap (there is nothing to click for the other five, since their
+        # tabs do not exist either).
         for index in range(built.tabs.count()):
             built.tabs.setCurrentIndex(index)
             built._tab_changed(index)
 
         for _ in range(5):
             app.processEvents()
-        assert hasattr(built, "mail_view") and hasattr(built, "code_view")
+        for name in ("files_view", "indexing_view", "settings_view",
+                     "mail_view", "code_view"):
+            assert hasattr(built, name)
     finally:
         store.close()
         vectors.close()
 
 
-def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
-    r"""`closeEvent`'s teardown loop reaches for `mail_view`/`code_view`
-    directly; proves an immediate close (no event-loop turn at all) is
-    guarded rather than raising `AttributeError` mid-`closeEvent`, which
+def test_closing_before_deferred_views_exist_does_not_crash(tmp_path):
+    r"""`closeEvent`'s teardown loop and its schedule/tuning/indexing stages
+    reach for `files_view`/`indexing_view` directly (`mail_view`/`code_view`
+    via `getattr`); proves an immediate close (no event-loop turn at all)
+    is guarded rather than raising `AttributeError` mid-`closeEvent`, which
     would defeat hide-first and the whole staged teardown after it - the
     exact failure mode `task_6c99824d` already found once for a different
     attribute on this same method.
@@ -901,6 +952,7 @@ def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
     try:
         built = MainWindow(settings, store, vectors, _Engine(store))
         assert not hasattr(built, "mail_view")
+        assert not hasattr(built, "indexing_view")
 
         built.close()   # no processEvents() first - the immediate-close case
 
@@ -911,23 +963,25 @@ def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
         vectors.close()
 
 
-def test_files_and_search_are_not_deferred(window):
-    r"""Regression guard the other way: item 2b defers Mail and Code only.
-    Search (first paint) and Files (named safe to keep synchronous - see
-    the dated note under §2b) must still be built by the time `MainWindow()`
-    returns, with no event-loop turn needed at all.
+def test_search_and_offline_media_are_not_deferred(window):
+    r"""Regression guard the other way: item 2b defers Files, Indexing,
+    Settings, Mail and Code - never Search (first paint) or Offline Media
+    (order 202626270513, out of this item's scope). Both must still be
+    built by the time `MainWindow()` returns, with no event-loop turn
+    needed at all.
 
     Uses the shared `window` fixture, which has already had several
     `processEvents()` calls by the time this test runs - so this only
     proves the *presence* of both views, not their timing. The timing claim
     (built before any event-loop turn) is covered by the fresh-window tests
-    above; this one guards against a future change silently pulling Files
-    into the deferred set too.
+    above; this one guards against a future change silently pulling Search
+    or Offline Media into the deferred set too.
     """
     _app, built = window
 
     assert built.search_view is not None
-    assert built.files_view is not None
+    assert built.offline_media_view is not None
     assert built._tab_index[built.search_view] == 0, \
         "Search must be tab 0 - the tab shown at first paint"
-    assert built._tab_index[built.files_view] == 1
+    assert built._tab_index[built.offline_media_view] == 4, \
+        "Offline Media's own position - right after Files, Mail, Code - is unchanged"
