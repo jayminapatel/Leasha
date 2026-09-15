@@ -1612,8 +1612,13 @@ class MainWindow(QMainWindow):
         try:
             from app.ui.widgets.preview_window import PreviewWindow
 
-            window = PreviewWindow(row, state=self._log_window_state(),
-                                   body_provider=provider)
+            window = PreviewWindow(
+                row, state=self._log_window_state(), body_provider=provider,
+                store=self._store,
+                ollama_url=str(getattr(
+                    self._settings, "ollama_url", "http://127.0.0.1:11434")),
+                ollama_vision_model=str(
+                    getattr(self._settings, "ollama_vision_model", "llava")))
             window.remember.connect(self._remember_log_window)
             window.open_requested.connect(self._open_path)
             window.reveal_requested.connect(
@@ -2266,6 +2271,14 @@ class MainWindow(QMainWindow):
                 # folders now" button, which walks them all in full this once.
                 recheck_archives=recheck_archives,
                 recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
+                caption_trickle_enabled=bool(
+                    getattr(self._settings, "caption_trickle_enabled", False)),
+                ollama_url=str(getattr(
+                    self._settings, "ollama_url", "http://127.0.0.1:11434")),
+                ollama_vision_model=str(
+                    getattr(self._settings, "ollama_vision_model", "llava")),
+                people_recognition_enabled=bool(getattr(
+                    self._settings, "people_recognition_enabled", False)),
             ),
             image_embedder=image_embedder, image_vectors=self._image_vectors,
         )

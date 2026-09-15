@@ -1089,6 +1089,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         dedup_chunks=settings.embed_dedup,
         two_phase=settings.index_two_phase,
         bulk_fts=settings.index_bulk_fts,
+        caption_trickle_enabled=settings.caption_trickle_enabled,
+        ollama_url=settings.ollama_url,
+        ollama_vision_model=settings.ollama_vision_model,
+        people_recognition_enabled=settings.people_recognition_enabled,
     )
 
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)

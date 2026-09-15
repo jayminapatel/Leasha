@@ -38,7 +38,7 @@ from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
 from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME"]
+__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -244,6 +244,15 @@ _VALUE_SHAPES: dict[str, _ValueShape] = {
     # its tags.
     "place": _ValueShape(
         "files f", "f.place", "COUNT(*)", "f.place <> ''", "f.place"),
+    # Work order 0j section 3a. Named piles only - `p.name IS NOT NULL` is
+    # the guard, the same "identity only ever comes from the user" line that
+    # keeps every unnamed pile out of anything a search box offers. Counted
+    # by distinct file, not by face: two photos of the same two people are
+    # two files, not four rows, and a person reading "Daddy (37)" means "37
+    # photos", not "37 faces detected".
+    "who": _ValueShape(
+        "faces fc JOIN piles p ON p.id = fc.pile_id JOIN files f ON f.id = fc.file_id",
+        "p.name", "COUNT(DISTINCT fc.file_id)", "p.name IS NOT NULL", "p.id, p.name"),
 }
 
 
@@ -379,6 +388,42 @@ class ChunkRecord:
     char_end: Optional[int] = None
     page: Optional[int] = None
     embedded: int = 0
+
+
+@dataclass(frozen=True)
+class FaceRecord:
+    """One detected face. Work order 0j. `embedding` is raw bytes - callers
+    that need it as a vector go through `app.index.face_clustering`, which
+    owns the (de)serialisation, the same separation `vector_store.py` keeps
+    from the SQLite layer for chunk embeddings."""
+
+    id: int
+    file_id: int
+    bbox: tuple[float, float, float, float]
+    embedding: bytes
+    pile_id: Optional[int]
+    confidence: Optional[float]
+    suggested_pile_id: Optional[int]
+
+
+@dataclass(frozen=True)
+class PileSample:
+    """One face the grid can draw a crop from - section 2a."""
+
+    file_id: int
+    path: str
+    bbox: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class PileRecord:
+    """One pile - named or not. Work order 0j section 2a: `name is None` is
+    an unnamed pile; `face_count` is what the grid sorts "biggest first" by."""
+
+    id: int
+    name: Optional[str]
+    face_count: int
+    samples: tuple[PileSample, ...]
 
 
 class SqliteStore:
@@ -1877,6 +1922,73 @@ class SqliteStore:
             self._bump_generation(conn)
         return ids
 
+    def has_ai_caption(self, file_id: int, *, label: str = "AI caption") -> bool:
+        """Has a vision-model caption already been fetched for this file?
+
+        Work order 0i section 3. Cheap cache check for the Describe button
+        ("second click instant" - the item's own test wording) and for the
+        corpus-wide trickle drain choosing which images still need one. A
+        separate label from Florence's own "AI description" (section 1) is
+        deliberate - see `app/extract/vision_caption.py`'s module docstring
+        for why reusing that label would have been a real bug, not a
+        simplification.
+        """
+        row = self.conn.execute(
+            "SELECT 1 FROM chunks WHERE file_id = ? AND label = ? LIMIT 1",
+            (file_id, label),
+        ).fetchone()
+        return row is not None
+
+    def add_caption_chunk(self, file_id: int, caption: str,
+                           *, label: str = "AI caption") -> int:
+        r"""Append one labelled segment to a file that is already indexed.
+
+        Work order 0i section 3. Deliberately additive, unlike
+        `replace_chunks` - this file may already carry chunks with other
+        labels (`OCR text`, Florence's `AI description`) that must survive
+        untouched. `replace_chunks` was considered and rejected for this:
+        it deletes and rewrites every chunk of the file, and `ChunkRecord`
+        (what `chunks_for_file` returns) has no `label` field, so rebuilding
+        the full chunk list from it would silently drop every existing
+        chunk's label on the next call - a real bug, not a hypothetical one.
+
+        **The label is written into the stored text itself**, the same
+        `prefix_label` convention `DocumentBuilder.add` already offers for
+        "a label with no column of its own" (spreadsheet sheet names, slide
+        notes markers) - `chunks.label` alone is read back nowhere a preview
+        renders from (`chunks_for_file`/`join_chunks` return plain text), so
+        a label that lives only in that column would be invisible to
+        whoever opens the file, and the standing rule is that AI-written
+        text is always marked as AI-written *in what a person reads*, not
+        only in a column a query can filter on.
+
+        `embedded=0`, the same starting state every new chunk gets
+        (`replace_chunks`) - `Pipeline._drain_unembedded` (the enrichment
+        backlog's own `unembedded_chunk` kind) picks it up at the next run,
+        which is the existing, tested mechanism for "chunks written first,
+        vectorised a batch later" rather than a new one invented here.
+        FTS stays in step through the same triggers `replace_chunks` already
+        relies on - they are on the table, not on any one write path.
+        """
+        text = f"{label}: {caption}"
+        with self.write() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(ordinal), -1) FROM chunks WHERE file_id = ?",
+                (file_id,),
+            ).fetchone()
+            next_ordinal = int(row[0]) + 1
+            cursor = conn.execute(
+                """
+                INSERT INTO chunks (file_id, ordinal, text, symbols,
+                                    char_start, char_end, page, label,
+                                    embedded)
+                VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 0)
+                """,
+                (file_id, next_ordinal, text, symbol_tokens(text), label),
+            )
+            self._bump_generation(conn)
+            return int(cursor.lastrowid)
+
     def get_chunk(self, chunk_id: int) -> Optional[ChunkRecord]:
         row = self.conn.execute("SELECT * FROM chunks WHERE id = ?", (chunk_id,)).fetchone()
         if row is None:
@@ -1919,6 +2031,442 @@ class SqliteStore:
                 for r in rows
             ]
             last_id = batch[-1].id
+            yield batch
+
+    def iter_uncaptioned_images(
+        self, extensions: Sequence[str], *, batch_size: int = 32,
+        label: str = "AI caption",
+    ) -> Iterator[list[tuple[int, str]]]:
+        r"""`(file_id, path)` pairs for indexed photos with no vision caption yet.
+
+        Work order 0i section 3b - the caption trickle's own candidate query.
+        Filtered in SQL, not iterated in Python: non-negotiable §"anything
+        that iterates all of `files` is a bug" (`HANDOFF.md`), the same
+        reasoning `_prune_missing`'s all-files scan was fixed for. `NOT
+        EXISTS` against `chunks` rather than a Python-side set of already
+        -captioned ids, so this scales the same way whether the backlog is
+        ten photos or a million.
+
+        `extensions` is passed in rather than imported - storage does not
+        depend on `app.extract` (the layering rule `app/ui/` may call below
+        it, nothing below may import from `app/ui/` has the same shape one
+        layer down: `app/storage/` stays free of `app/extract/`). Callers
+        pass `app.extract.ocr.OcrExtractor.extensions`, the same photo-class
+        set the OCR ladder and Florence-2 already route on.
+        """
+        if not extensions:
+            return
+        placeholders = ",".join("?" for _ in extensions)
+        last_id = 0
+        while True:
+            rows = self.conn.execute(
+                f"""
+                SELECT f.id, f.path FROM files f
+                WHERE f.id > ? AND f.status = 'INDEXED' AND f.ext IN ({placeholders})
+                  AND NOT EXISTS (
+                      SELECT 1 FROM chunks c
+                      WHERE c.file_id = f.id AND c.label = ?
+                  )
+                ORDER BY f.id LIMIT ?
+                """,
+                (last_id, *extensions, label, batch_size),
+            ).fetchall()
+            if not rows:
+                return
+            batch = [(int(r["id"]), str(r["path"])) for r in rows]
+            last_id = batch[-1][0]
+            yield batch
+
+    # -- faces and piles (work order 0j) --------------------------------------
+    #
+    # **Automatic (`faces`) and identity (`piles.name`) stay separate all the
+    # way down**, per the order's own guardrails: nothing here ever infers or
+    # suggests a name - only a person typing one does.
+
+    def add_face(self, file_id: int, bbox: tuple[float, float, float, float],
+                 embedding: bytes) -> int:
+        r"""Record one detection. Section 1a. Never pre-assigns a pile - the
+        caller (`app.index.face_clustering`, driven from the images pass or
+        the backfill drain) decides that separately, in its own transaction,
+        so a clustering failure never loses the detection itself.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO faces (file_id, bbox_x, bbox_y, bbox_w, bbox_h,
+                                   embedding, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (file_id, *bbox, embedding, int(time.time())),
+            )
+            return int(cursor.lastrowid)
+
+    def mark_face_scanned(self, file_id: int) -> None:
+        """This file has been through the face detector, whatever it found -
+        see `face_scans`' own migration note for why "looked and found
+        nothing" needs recording as its own fact."""
+        with self.write() as conn:
+            conn.execute(
+                "INSERT INTO face_scans (file_id, scanned_at) VALUES (?, ?) "
+                "ON CONFLICT(file_id) DO UPDATE SET scanned_at = excluded.scanned_at",
+                (file_id, int(time.time())),
+            )
+
+    @staticmethod
+    def _face_from_row(row: sqlite3.Row) -> FaceRecord:
+        return FaceRecord(
+            id=row["id"], file_id=row["file_id"],
+            bbox=(row["bbox_x"], row["bbox_y"], row["bbox_w"], row["bbox_h"]),
+            embedding=row["embedding"], pile_id=row["pile_id"],
+            confidence=row["confidence"], suggested_pile_id=row["suggested_pile_id"],
+        )
+
+    def faces_for_file(self, file_id: int) -> list[FaceRecord]:
+        rows = self.conn.execute(
+            "SELECT * FROM faces WHERE file_id = ? ORDER BY id", (file_id,)
+        ).fetchall()
+        return [self._face_from_row(r) for r in rows]
+
+    def iter_unclustered_faces(self, batch_size: int = 64) -> Iterator[list[FaceRecord]]:
+        """Faces neither assigned nor suggested yet. Section 1b's own queue.
+
+        Filtered by `idx_faces_unassigned`, the partial index built for
+        exactly this query - the same reasoning `iter_unembedded` and
+        `iter_uncaptioned_images` already use.
+        """
+        last_id = 0
+        while True:
+            rows = self.conn.execute(
+                "SELECT * FROM faces WHERE id > ? AND pile_id IS NULL "
+                "AND suggested_pile_id IS NULL ORDER BY id LIMIT ?",
+                (last_id, batch_size),
+            ).fetchall()
+            if not rows:
+                return
+            batch = [self._face_from_row(r) for r in rows]
+            last_id = batch[-1].id
+            yield batch
+
+    def pile_centroids(self) -> dict[int, list[bytes]]:
+        r"""Every pile's own face embeddings, keyed by pile id.
+
+        Returns the raw embeddings rather than one pre-averaged centroid -
+        `app.index.face_clustering.centroid_of` does the averaging, so the
+        maths that decides "is this the same person" lives in one pure,
+        tested module rather than being duplicated in SQL. A pile with
+        thousands of faces makes this expensive; nothing here claims that
+        scale is solved, the same honest gap `distinct_value_counts` records
+        for an unscoped GROUP BY - see its own docstring.
+        """
+        rows = self.conn.execute(
+            "SELECT pile_id, embedding FROM faces WHERE pile_id IS NOT NULL"
+        ).fetchall()
+        out: dict[int, list[bytes]] = {}
+        for row in rows:
+            out.setdefault(int(row["pile_id"]), []).append(row["embedding"])
+        return out
+
+    def create_pile(self, name: Optional[str] = None) -> int:
+        with self.write() as conn:
+            cursor = conn.execute(
+                "INSERT INTO piles (name, created_at) VALUES (?, ?)",
+                (name, int(time.time())),
+            )
+            return int(cursor.lastrowid)
+
+    def assign_face(self, face_id: int, pile_id: int, *,
+                     confidence: Optional[float] = None) -> None:
+        """Section 1b/2c. Clears any pending suggestion - a face is either
+        assigned or awaiting a decision, never both. Re-syncs this file's
+        `People:` segment (section 3a) - a no-op text-wise unless `pile_id`
+        is already named, but always correct rather than sometimes stale."""
+        with self.write() as conn:
+            row = conn.execute(
+                "SELECT file_id FROM faces WHERE id = ?", (face_id,)).fetchone()
+            conn.execute(
+                "UPDATE faces SET pile_id = ?, confidence = ?, "
+                "suggested_pile_id = NULL WHERE id = ?",
+                (pile_id, confidence, face_id),
+            )
+        if row is not None:
+            self.sync_people_segment(int(row["file_id"]))
+
+    def suggest_face(self, face_id: int, pile_id: int) -> None:
+        """Section 2c's borderline queue - "Is this Daddy?" - never assigns."""
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE faces SET suggested_pile_id = ? WHERE id = ?",
+                (pile_id, face_id),
+            )
+
+    def confirm_suggestion(self, face_id: int, accept: bool, *,
+                            confidence: Optional[float] = None) -> None:
+        """The yes/no chip. Section 2c. Declining returns the face to the
+        unclustered pool rather than anywhere else - the suggestion was
+        wrong, not a request to try a different pile."""
+        row = self.conn.execute(
+            "SELECT file_id, suggested_pile_id FROM faces WHERE id = ?", (face_id,)
+        ).fetchone()
+        pile_id = row["suggested_pile_id"] if row else None
+        with self.write() as conn:
+            if accept and pile_id is not None:
+                conn.execute(
+                    "UPDATE faces SET pile_id = ?, confidence = ?, "
+                    "suggested_pile_id = NULL WHERE id = ?",
+                    (pile_id, confidence, face_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE faces SET suggested_pile_id = NULL WHERE id = ?",
+                    (face_id,),
+                )
+        if row is not None:
+            self.sync_people_segment(int(row["file_id"]))
+
+    def remove_face_from_pile(self, face_id: int) -> None:
+        """Section 2b's "remove-from-pile" - back to the unclustered pool,
+        not deleted. Re-clustering (section 1b) may put it straight back;
+        that is a correct re-decision, not a bug."""
+        row = self.conn.execute(
+            "SELECT file_id FROM faces WHERE id = ?", (face_id,)).fetchone()
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE faces SET pile_id = NULL, confidence = NULL, "
+                "suggested_pile_id = NULL WHERE id = ?",
+                (face_id,),
+            )
+        if row is not None:
+            self.sync_people_segment(int(row["file_id"]))
+
+    def _files_with_pile(self, pile_id: int) -> list[int]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT file_id FROM faces WHERE pile_id = ?", (pile_id,)
+        ).fetchall()
+        return [int(r["file_id"]) for r in rows]
+
+    def rename_pile(self, pile_id: int, name: Optional[str]) -> None:
+        """Section 2a's "click -> name it". `name=None` un-names it - used by
+        `forget_person` below rather than duplicating this UPDATE. Every
+        file this pile's faces belong to gets its `People:` segment
+        rebuilt - a rename changes what every one of those files should say."""
+        cleaned = (name or "").strip() or None
+        affected = self._files_with_pile(pile_id)
+        with self.write() as conn:
+            conn.execute("UPDATE piles SET name = ? WHERE id = ?", (cleaned, pile_id))
+        for file_id in affected:
+            self.sync_people_segment(file_id)
+
+    def combine_piles(self, source_id: int, target_id: int) -> int:
+        r"""Section 2b's drag-pile-onto-pile. Every face `source_id` owns -
+        assigned or only suggested - moves to `target_id`, then the now-empty
+        source pile is deleted. Returns how many faces moved.
+
+        **Deliberately silent about names.** Combining a named pile into an
+        unnamed one, or two named piles into each other, is a real choice a
+        person makes by which pile they dragged onto which - this method
+        does exactly what it is told and does not guess which name should
+        win. The caller (the Photo Tagger page) decides that from which
+        pile the person dropped onto.
+        """
+        if source_id == target_id:
+            return 0
+        affected = self._files_with_pile(source_id)
+        with self.write() as conn:
+            moved = conn.execute(
+                "UPDATE faces SET pile_id = ? WHERE pile_id = ?",
+                (target_id, source_id),
+            ).rowcount
+            conn.execute(
+                "UPDATE faces SET suggested_pile_id = ? WHERE suggested_pile_id = ?",
+                (target_id, source_id),
+            )
+            conn.execute("DELETE FROM piles WHERE id = ?", (source_id,))
+        for file_id in affected:
+            self.sync_people_segment(file_id)
+        return int(moved)
+
+    def split_pile(self, face_ids: Sequence[int],
+                    *, new_name: Optional[str] = None) -> Optional[int]:
+        """Section 2b's "split a mixed pile" - the chosen faces become a
+        fresh pile of their own. Returns the new pile id, or `None` for an
+        empty selection (nothing to split)."""
+        ids = [int(i) for i in face_ids]
+        if not ids:
+            return None
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT DISTINCT file_id FROM faces WHERE id IN ({placeholders})", ids
+        ).fetchall()
+        affected = [int(r["file_id"]) for r in rows]
+        with self.write() as conn:
+            cursor = conn.execute(
+                "INSERT INTO piles (name, created_at) VALUES (?, ?)",
+                (new_name, int(time.time())),
+            )
+            new_id = int(cursor.lastrowid)
+            conn.execute(
+                f"UPDATE faces SET pile_id = ?, suggested_pile_id = NULL "
+                f"WHERE id IN ({placeholders})",
+                (new_id, *ids),
+            )
+        for file_id in affected:
+            self.sync_people_segment(file_id)
+        return new_id
+
+    def forget_person(self, pile_id: int, *, delete_faces: bool = False) -> None:
+        r"""Section 2e. Always removes the name - that half is never optional,
+        because a name kept anywhere after "Forget" is the guardrail broken.
+
+        `delete_faces=False` (the default): the pile keeps its faces, just
+        anonymously - it goes back to being an unnamed pile, exactly as if
+        clustering had found it and nobody had named it yet. `True` also
+        deletes every face row that points at it (assigned or suggested) and
+        the pile itself - "the face data" the guardrails' own wording names
+        as the second, explicit thing "Forget this person" may remove. The
+        two are separate confirmations in the UI (section 2e); this method
+        does exactly what it is asked, nothing inferred.
+        """
+        affected = self._files_with_pile(pile_id)
+        with self.write() as conn:
+            if delete_faces:
+                conn.execute(
+                    "DELETE FROM faces WHERE pile_id = ? OR suggested_pile_id = ?",
+                    (pile_id, pile_id),
+                )
+                conn.execute("DELETE FROM piles WHERE id = ?", (pile_id,))
+            else:
+                conn.execute("UPDATE piles SET name = NULL WHERE id = ?", (pile_id,))
+        for file_id in affected:
+            self.sync_people_segment(file_id)
+
+    def piles_with_counts(self, *, limit: int = 200,
+                           samples: int = 4) -> list[PileRecord]:
+        """Section 2a's grid: every pile, biggest first, with a few sample
+        file ids the UI draws crops from. `samples` per pile, not the whole
+        set - the grid shows a handful of thumbnails, not every photo."""
+        rows = self.conn.execute(
+            "SELECT p.id, p.name, COUNT(f.id) AS n FROM piles p "
+            "JOIN faces f ON f.pile_id = p.id "
+            "GROUP BY p.id, p.name ORDER BY n DESC, p.id LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out: list[PileRecord] = []
+        for row in rows:
+            sample_rows = self.conn.execute(
+                "SELECT f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
+                "       fl.id AS file_id, fl.path AS path "
+                "FROM faces f JOIN files fl ON fl.id = f.file_id "
+                "WHERE f.pile_id = ? ORDER BY f.id LIMIT ?",
+                (row["id"], samples),
+            ).fetchall()
+            out.append(PileRecord(
+                id=row["id"], name=row["name"], face_count=row["n"],
+                samples=tuple(
+                    PileSample(
+                        file_id=r["file_id"], path=r["path"],
+                        bbox=(r["bbox_x"], r["bbox_y"], r["bbox_w"], r["bbox_h"]),
+                    )
+                    for r in sample_rows
+                ),
+            ))
+        return out
+
+    def sync_people_segment(self, file_id: int, *, label: str = "People") -> None:
+        r"""Rebuild this file's `People:` labelled segment. Section 3a.
+
+        Called after any assignment change that could touch this file's set
+        of *named* people (`assign_face`, `confirm_suggestion`, a rename, a
+        combine, a forget) - never a store trigger, because only the caller
+        knows a change just happened and a chunk-table trigger recomputing
+        an aggregate on every unrelated write would be the kind of hidden
+        cost this project measures against, not assumes acceptable.
+
+        **Replace, not append** - unlike `add_caption_chunk`, which only
+        ever grows: the set of named people showing in one photo can shrink
+        (a rename to nothing, a forget) as well as grow, so the old segment
+        must go before the new one is written, in the same transaction.
+        """
+        with self.write() as conn:
+            names = [
+                r["name"] for r in conn.execute(
+                    "SELECT DISTINCT p.name FROM faces f "
+                    "JOIN piles p ON p.id = f.pile_id "
+                    "WHERE f.file_id = ? AND p.name IS NOT NULL "
+                    "ORDER BY p.name", (file_id,),
+                ).fetchall()
+            ]
+            conn.execute(
+                "DELETE FROM chunks WHERE file_id = ? AND label = ?",
+                (file_id, label),
+            )
+            if names:
+                text = f"{label}: " + ", ".join(names)
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(ordinal), -1) FROM chunks WHERE file_id = ?",
+                    (file_id,),
+                ).fetchone()
+                next_ordinal = int(row[0]) + 1
+                conn.execute(
+                    """
+                    INSERT INTO chunks (file_id, ordinal, text, symbols,
+                                        char_start, char_end, page, label,
+                                        embedded)
+                    VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 0)
+                    """,
+                    (file_id, next_ordinal, text, symbol_tokens(text), label),
+                )
+            self._bump_generation(conn)
+
+    def apply_batch_era(self, path_prefix: str, taken_at_ns: int) -> int:
+        r"""Section 2d's batch-era control - "these are roughly 1998-2002".
+
+        Only ever overrides an existing **hint** (`taken_at_is_hint = 1`) or
+        a row with no date at all - never a fact EXIF already wrote, which
+        stays ranked above every hint per 0511 section 4b's own ordering.
+        Scoped by a path prefix (a folder or a batch of scans share one),
+        not by file id one at a time - a person selects a folder, not four
+        hundred individual rows. Returns how many files changed.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                "UPDATE files SET taken_at_ns = ?, taken_at_is_hint = 1 "
+                "WHERE path LIKE ? ESCAPE '\\' "
+                "AND (taken_at_is_hint = 1 OR taken_at_ns IS NULL)",
+                (taken_at_ns, like_escape(path_prefix) + "%"),
+            )
+            return int(cursor.rowcount)
+
+    def iter_photos_without_face_scan(
+        self, extensions: Sequence[str], *, batch_size: int = 16,
+    ) -> Iterator[list[tuple[int, str]]]:
+        r"""`(file_id, path)` for indexed photos `faces` has never seen.
+
+        Work order 0j section 1a's own "Backfill for already-indexed images
+        runs as an enrichment-backlog job kind" - the face-detection half.
+        `NOT EXISTS` against `faces`, filtered in SQL - the same reasoning
+        `iter_uncaptioned_images` already gives for its own identical shape.
+        A photo that has been through the scan and genuinely has no face in
+        it never appears here again: this asks "have we looked", not "did
+        we find one" - the second question has no wrong answer to retry.
+        """
+        if not extensions:
+            return
+        placeholders = ",".join("?" for _ in extensions)
+        last_id = 0
+        while True:
+            rows = self.conn.execute(
+                f"""
+                SELECT f.id, f.path FROM files f
+                WHERE f.id > ? AND f.status = 'INDEXED' AND f.ext IN ({placeholders})
+                  AND NOT EXISTS (SELECT 1 FROM face_scans WHERE face_scans.file_id = f.id)
+                ORDER BY f.id LIMIT ?
+                """,
+                (last_id, *extensions, batch_size),
+            ).fetchall()
+            if not rows:
+                return
+            batch = [(int(r["id"]), str(r["path"])) for r in rows]
+            last_id = batch[-1][0]
             yield batch
 
     def mark_all_unembedded(self) -> int:
