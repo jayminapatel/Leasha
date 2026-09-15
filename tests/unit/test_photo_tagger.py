@@ -584,3 +584,108 @@ def test_switch_on_detects_and_records_faces(tmp_path, monkeypatch):
             "SELECT COUNT(*) AS n FROM face_scans").fetchone()
         assert faces["n"] == 1
         assert scans["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Backlog: kill-mid-drain resumes. Work order 0i section 5's own test list.
+# ---------------------------------------------------------------------------
+
+def test_caption_trickle_resumes_after_a_kill_mid_drain(tmp_path, monkeypatch):
+    r"""An interrupted trickle must not redo work, and must finish the rest.
+
+    Simulated the same way a real crash's *effect* is real here even though
+    the cause is not: `pipeline._stop` is set part-way through, exactly as
+    it would be by the moment a process dies - no thread actually needs to
+    die for the drain's own resumability (it reads its candidate list fresh
+    from SQL every call, via `iter_uncaptioned_images`) to be proved.
+    """
+    from app.extract import vision_caption
+
+    photos = [_real_photo(tmp_path, f"p{i}.jpg") for i in range(4)]
+    described: list[str] = []
+
+    def fake_describe(path, client, **_kwargs):
+        described.append(str(path))
+        return vision_caption.VisionCaptionResult(
+            caption="A person.", model=client.model, elapsed_s=0.01)
+
+    monkeypatch.setattr(vision_caption, "describe_image", fake_describe)
+    monkeypatch.setattr(vision_caption, "available", lambda client: True)
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_ids = [
+            store.upsert_file(path=str(p), size_bytes=1, mtime_ns=1,
+                              ext="jpg", source_kind="file", status="INDEXED")
+            for p in photos
+        ]
+
+        from app.index.pipeline import IndexStats
+
+        import dataclasses
+
+        first = _pipeline(store, people_recognition_enabled=False)
+        first.config = dataclasses.replace(first.config, caption_trickle_enabled=True)
+        # Interrupt after the first photo of the first (and only) batch -
+        # batch_size in the drain is 8, so this corpus of 4 is one batch;
+        # the per-file stop check inside that batch is what this proves.
+        real_describe = fake_describe
+        calls = {"n": 0}
+
+        def stopping_describe(path, client, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                first._stop.set()
+            return real_describe(path, client, **kwargs)
+
+        monkeypatch.setattr(vision_caption, "describe_image", stopping_describe)
+        stats1 = IndexStats()
+        first._drain_caption_trickle(stats1)
+
+        assert stats1.enrichment_counts["caption_trickle"] < len(photos)
+        interrupted_count = len(described)
+        assert 0 < interrupted_count < len(photos)
+
+        # A fresh pipeline (a fresh process, after the "crash") finishes it.
+        monkeypatch.setattr(vision_caption, "describe_image", real_describe)
+        second = _pipeline(store, people_recognition_enabled=False)
+        second.config = dataclasses.replace(second.config, caption_trickle_enabled=True)
+        stats2 = IndexStats()
+        second._drain_caption_trickle(stats2)
+
+        # Every photo described exactly once in total, across both drains -
+        # the proof that resuming did not redo completed work.
+        assert len(described) == len(photos)
+        assert len(set(described)) == len(photos)
+        for file_id in file_ids:
+            assert store.has_ai_caption(file_id)
+
+
+def test_iter_uncaptioned_images_matches_dotted_or_undotted_extensions(tmp_path):
+    r"""Regression: `OcrExtractor.extensions` carries a leading dot
+    (`.jpg`); `files.ext` is stored without one (`indexed_ext`'s own
+    convention). Passing the dotted set straight into the `IN (...)`
+    clause matched nothing at all - a real bug, found running the caption
+    trickle drain for real rather than assumed, not merely a hypothetical."""
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_id = store.upsert_file(
+            path="/photos/a.jpg", size_bytes=1, mtime_ns=1, ext="jpg",
+            source_kind="file", status="INDEXED")
+
+        dotted = list(store.iter_uncaptioned_images([".jpg", ".png"]))
+        assert {fid for batch in dotted for fid, _ in batch} == {file_id}
+
+        undotted = list(store.iter_uncaptioned_images(["jpg", "png"]))
+        assert {fid for batch in undotted for fid, _ in batch} == {file_id}
+
+
+def test_iter_photos_without_face_scan_matches_dotted_or_undotted_extensions(tmp_path):
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_id = store.upsert_file(
+            path="/photos/a.jpg", size_bytes=1, mtime_ns=1, ext="jpg",
+            source_kind="file", status="INDEXED")
+
+        dotted = list(store.iter_photos_without_face_scan([".jpg", ".png"]))
+        assert {fid for batch in dotted for fid, _ in batch} == {file_id}
+
+        undotted = list(store.iter_photos_without_face_scan(["jpg", "png"]))
+        assert {fid for batch in undotted for fid, _ in batch} == {file_id}

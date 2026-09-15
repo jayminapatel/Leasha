@@ -385,9 +385,13 @@ class _BatchEraDialog(QDialog):
         self._from = QSpinBox()
         self._from.setRange(1826, 2100)
         self._from.setValue(1998)
+        self._from.setToolTip(
+            "The earliest year this folder of scans is roughly from.")
         self._to = QSpinBox()
         self._to.setRange(1826, 2100)
         self._to.setValue(2002)
+        self._to.setToolTip(
+            "The latest year this folder of scans is roughly from.")
 
         row = QHBoxLayout()
         row.addWidget(QLabel("From"))
@@ -468,12 +472,14 @@ class _ManageFacesDialog(QDialog):
             return
 
         pool = QThreadPool.globalInstance()
-        for index, row in enumerate(faces):
-            check = QLabel(str(row["id"]))
-            check.setObjectName(f"face_{row['id']}")
-            from PyQt6.QtWidgets import QCheckBox
+        from PyQt6.QtWidgets import QCheckBox
 
+        for index, row in enumerate(faces):
             box = QCheckBox()
+            box.setAccessibleName(f"Select face {row['id']}")
+            box.setToolTip(
+                "Tick this face, then Remove or Move above to correct a "
+                "pile that has the wrong person mixed into it.")
             box.setProperty("face_id", int(row["id"]))
             self._checks.append(box)
             self._grid.addWidget(box, index, 0)

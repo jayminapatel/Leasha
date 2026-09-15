@@ -2054,9 +2054,19 @@ class SqliteStore:
         pass `app.extract.ocr.OcrExtractor.extensions`, the same photo-class
         set the OCR ladder and Florence-2 already route on.
         """
-        if not extensions:
+        # **Normalised here, not trusted from the caller.** `files.ext` is
+        # stored without its leading dot (`indexed_ext`/`_norm_ext`'s own
+        # convention) but `OcrExtractor.extensions` - the set every caller
+        # actually has to hand - carries one (`.jpg`), the shape the
+        # extractor registry itself uses. Comparing the two unnormalised
+        # silently matched nothing at all: found running this drain for
+        # real, not assumed - the exact "a filter that looks like it works
+        # and cannot" shape `file_filter_sql`'s own comment on `repo:`
+        # warns about.
+        cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
+        if not cleaned:
             return
-        placeholders = ",".join("?" for _ in extensions)
+        placeholders = ",".join("?" for _ in cleaned)
         last_id = 0
         while True:
             rows = self.conn.execute(
@@ -2069,7 +2079,7 @@ class SqliteStore:
                   )
                 ORDER BY f.id LIMIT ?
                 """,
-                (last_id, *extensions, label, batch_size),
+                (last_id, *cleaned, label, batch_size),
             ).fetchall()
             if not rows:
                 return
@@ -2449,9 +2459,12 @@ class SqliteStore:
         it never appears here again: this asks "have we looked", not "did
         we find one" - the second question has no wrong answer to retry.
         """
-        if not extensions:
+        # Normalised here for the same reason `iter_uncaptioned_images`
+        # normalises - see that method's own comment.
+        cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
+        if not cleaned:
             return
-        placeholders = ",".join("?" for _ in extensions)
+        placeholders = ",".join("?" for _ in cleaned)
         last_id = 0
         while True:
             rows = self.conn.execute(
@@ -2461,7 +2474,7 @@ class SqliteStore:
                   AND NOT EXISTS (SELECT 1 FROM face_scans WHERE face_scans.file_id = f.id)
                 ORDER BY f.id LIMIT ?
                 """,
-                (last_id, *extensions, batch_size),
+                (last_id, *cleaned, batch_size),
             ).fetchall()
             if not rows:
                 return
