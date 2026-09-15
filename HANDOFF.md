@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.5 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -930,6 +930,30 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-09-13 — `onnxruntime` and `onnxruntime-directml` overwrite each other, and
+the venv is currently half-uninstalled.** The two distributions unpack into the
+same `venv\Lib\site-packages\onnxruntime\` directory; whichever is installed
+second wins, and both `.dist-info` directories survive, so `pip list` shows two
+packages over one set of binaries. On 2026-09-12 at 21:10 a plain `onnxruntime`
+1.30.0 landed over the DirectML 1.24.4 build, and the 23:36 run fell to the CPU
+— five times slower, the resource governor breached by model residency alone,
+and the compute fingerprint changed so every measured rate was discarded. It
+reached the owner as an ETA of "about 1823 days". `install.ps1` ships the same
+trap to any machine: the CPU wheel arrives first from unpinned `fastembed` and
+`rapidocr-onnxruntime` requirements, DirectML second, and the next pip command
+that re-resolves either one reverts it. **Work order `202626130120` (0t) is the
+fix.**
+
+**The repair is not just `pip uninstall`.** That was attempted and failed with
+`WinError 5` because the running app held `onnxruntime.dll` open. It left
+`site-packages\~nnxruntime\`, `~nnxruntime-1.30.0.dist-info\` and an
+`onnxruntime\` package with no `__init__.py` — which still *imports*, as an
+empty namespace package, so `onnxruntime.get_available_providers` raises
+`AttributeError` rather than anything that names the cause. A reinstall then
+reports "already satisfied" from the surviving DirectML `.dist-info` and writes
+nothing. **Close Leasha first, delete the `~` remnants and both dist-infos, then
+`pip install --force-reinstall --no-deps onnxruntime-directml==<pinned>`.**
 
 **A throughput number without its conditions is not a number.** Embedding was measured at
 1.53 passages/second and called "twenty times too slow", on the assumption that a small model

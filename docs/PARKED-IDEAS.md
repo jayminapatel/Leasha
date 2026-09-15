@@ -1,6 +1,6 @@
 # Parked ideas
 
-**Doc version:** 1.0 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
 
 Ideas the owner has approved in discussion but **not ordered**. Nothing here may be
 started, and nothing here may become a work order without the owner asking for one.
@@ -72,3 +72,68 @@ re-derives it under pressure and mistakes the pressure for a new argument.
 
 The owner's instruction of 2026-08-28 stands: hold these, do not order anything from
 this collection unprompted. He will collate.
+
+---
+
+## 6. Leasha on macOS — parked 2026-09-13, with the census that sizes it
+
+Asked as a scope question, answered with a count rather than a feeling, and parked
+rather than ordered. **Nothing here may be started.**
+
+**The coupling is smaller than it feels.** `app/` is 203 files and 79,726 lines. Of
+those, **12 files ask what platform they are on**, **2 import pywin32/COM**
+(`extract/email_files.py`, `extract/email_pst.py`), **1 shells out to PowerShell**
+(`core/compute_profile.py`, for the DXGI adapter probe) and **1 touches the registry**
+(`core/deeplink.py`). Thirteen further files mention PowerShell and are false
+positives — they *recognise* `.ps1` as a file type, which is content, not coupling.
+All 92 UI files and 32,235 lines of PyQt6 are portable as they stand.
+
+| Tier | What | Size | Note |
+|---|---|---|---|
+| Portable | storage, search, index, most extractors, all of `app/ui/` | ~75,000 lines | Free |
+| Mechanical | `single_instance.py` 210, `winfs.py` 90, `deeplink.py` 288, `tray.py` 240, config path defaults | ~900 lines | Named mutex → `flock`; registry URL handler → `Info.plist`; `D:\Leasha\Data` → `~/Library/Application Support` |
+| Redesign | `ui/hotkey.py` 310, `ui/selection.py` 202 | ~500 lines | Both need macOS Accessibility permission — a prompt to grant and a support burden that does not exist on Windows |
+| New hardware story | `core/compute_profile.py` 561 | ~300 lines | DirectML is Windows-only. macOS means the CoreML provider, a `system_profiler` adapter probe, and re-measuring every tuning rate |
+| **The real work** | `email_pst.py` 748, `pst_libpff.py` 424, `email_files.py` 340 | 1,796 lines | Design, not porting — see below |
+| Packaging | `install.ps1` 855, `run-install.cmd`, `doctor.py`'s Windows checks | ~1,200 lines | A `.app` bundle, an Apple Developer ID, notarisation |
+
+**Mail is the whole of the difficulty.** `pywin32` MAPI does not exist on macOS, and
+Outlook for Mac keeps no `.pst` — it has its own store and exports `.olm`. Apple Mail
+is `.emlx` files. Reading a `.pst` *file* someone copied across would still work
+(`libpff` builds there, `extract-msg` is pure Python), but "index the mailbox open on
+this machine" has to be designed from nothing, and mail is one of the two headline
+corpora. **The scope decision comes before any estimate is worth having.**
+
+**The dependency wheels are not a blocker — checked against PyPI on 2026-09-13, at the
+exact pinned versions, CPython 3.12 macOS arm64:**
+
+| Package | Pinned | macOS arm64 |
+|---|---|---|
+| PyQt6 | 6.11.0 | yes (universal2) |
+| lancedb | 0.37.1 | yes |
+| pymupdf | 1.28.2 | yes |
+| pillow | 12.3.0 | yes |
+| scipy | 1.18.1 | yes (macosx_12_0) |
+| PyWavelets | 1.9.0 | yes |
+| psutil | 7.1.3 | yes |
+| ezdxf | 1.4.2 | yes (universal2) |
+| onnxruntime | 1.24.4 / 1.30.0 | yes (macosx_14_0) |
+| fastembed, rapidocr-onnxruntime, extract-msg, imagehash | — | pure Python |
+| **onnxruntime-directml** | 1.24.4 | **none, and there never will be** |
+
+Two caveats on that table. `scipy` wants macOS 12 and `onnxruntime` macOS 14, which
+sets the floor for a supported OS version. And whether the macOS `onnxruntime` wheel
+actually offers `CoreMLExecutionProvider` was **not** verified — the wheel exists; its
+provider list was not opened. **(UNCONFIRMED)**
+
+**Magnitude, flagged as judgement rather than measurement:** 6-10 weeks to a first
+macOS release with parity on files, photos and code, and mail reduced to "point me at
+a `.pst` or `.olm` file". Full mail parity is a separate epoch. The permanent cost is
+the part worth weighing before the one-off cost: a second CI target, a second
+packaging and signing chain, every Qt behaviour re-verified on a platform the owner
+does not run daily, and non-negotiable #7 (the `.ps1` BOM rule) becoming half-relevant
+while a new set of platform rules appears beside it.
+
+**Prerequisite if it is ever ordered:** the Windows release has to be finished first.
+"Working version first" applies with more force here than to any refactor — a second
+platform doubles the surface of an application that has not yet shipped on its first.

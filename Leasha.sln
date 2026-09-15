@@ -1,6 +1,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.10.12113.136 insiders
+VisualStudioVersion = 18.10.12113.136
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Leasha", "Leasha.pyproj", "{8B0E1F4A-3C7D-4A62-9E15-1D6C2A7B4E90}"
 EndProject

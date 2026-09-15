@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.11 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.12 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -64,6 +64,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
+| 0t | `202626130120` | One onnxruntime, and it says which one it is | RELEASED | 0 / 24 | Gap-schedulable. §2/§3 (pins, installer) are independent of §5/§6 (doctor, notice) |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
@@ -118,6 +119,27 @@ Both orders' full diffs were verified against the pre-lane commit (`d042f09`) be
 merging — additive only, no reversions — and the two pipeline.py/doctor.py test
 failures surfaced during the post-merge sweep were independently reproduced against
 that same unmodified commit, confirming they predate this session's work.
+
+**2026-09-13 — 0t raised from a live fault, not from a plan.** An index run the
+previous evening reported `0 files/min` and an ETA of `about 1823 days`. The
+cause was not the indexer: plain `onnxruntime` 1.30.0 had been installed at
+21:10 over the `onnxruntime-directml` 1.24.4 binaries — the two distributions
+share one `site-packages\onnxruntime\` directory — so the machine lost
+`DmlExecutionProvider` between a 19:03 run that logged *on the graphics card*
+and a 23:36 run that logged *on the processor*. Everything after that follows:
+CPU models breach the governor's 4,000MB ceiling, the compute fingerprint
+changes and discards the measured rates, and the throughput collapse reaches the
+user as an absurd ETA. `install.ps1` ships the same trap to every machine — it
+installs the CPU wheel from unpinned transitive requirements first and the
+DirectML wheel second, so GPU support survives only until the next `pip install`
+that re-resolves `fastembed` or `rapidocr-onnxruntime`. 0t pins the pair, makes
+the install order deterministic, gives `doctor.py` a check that can fail, and
+puts a notice in the window when a machine loses a provider it used to have.
+
+**The ETA arithmetic is deliberately not in 0t.** `format_eta`
+(`app/ui/presenter.py:457`) guards only `files_per_minute <= 0`, so 0.067
+files/min — printed as `0 files/min` on the same line — divides out to five
+years. It is a separate defect in a separate layer and wants its own fix.
 
 **2026-09-15 — 0h closed.** Its one open item was gated on a build sandbox with no
 route to `huggingface.co`. This session runs directly on the Windows machine the app
