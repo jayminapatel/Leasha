@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 22
+CURRENT_VERSION = 23
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1124,6 +1124,93 @@ def _v22_places(conn: sqlite3.Connection) -> None:
         "WHERE place IS NOT NULL")
 
 
+def _v23_people(conn: sqlite3.Connection) -> None:
+    r"""`piles` and `faces` - the Photo Tagger's own storage. Work order 0j
+    (`202626270512`), the whole order.
+
+    **One table for both an unnamed pile and a named person**, deliberately -
+    the guardrails' own principled line is "detection and grouping are
+    automatic; IDENTITY ONLY EVER COMES FROM THE USER", and a pile that
+    becomes a person the moment somebody names it is the same row before and
+    after, not a promotion between two tables. `piles.name IS NULL` is an
+    unnamed pile ("Person 1 - 47 photos", the count and label computed, not
+    stored); `piles.name IS NOT NULL` is what `/who` and the `People:`
+    segment (section 3a) read.
+
+    **`faces` is the automatic half, `piles.name` is the only place identity
+    lives.** A face row records what detection and clustering found -
+    `embedding` for the incremental cosine clustering (section 1b), `bbox_*`
+    for the sample crop the grid (section 2a) draws - and never a name of
+    its own. `pile_id` is nullable and `ON DELETE SET NULL` rather than
+    `CASCADE`: deleting a pile (a merge's losing side, or the second half of
+    "Forget this person" - section 2e) must return its faces to the unnamed
+    pool, never delete photos' worth of detections silently.
+
+    **`suggested_pile_id` is the learning loop's own queue** (section 2c) -
+    "close to a named pile, not confident enough to auto-assign" is a
+    different state from "assigned" and from "unclustered", and conflating
+    any two of the three loses either the suggestion chip or the auto-assign
+    guarantee.
+
+    Additive: an index built before this migration has no `piles`/`faces`
+    rows at all, which is the correct state for the Photo Tagger's own
+    switch (`PEOPLE_RECOGNITION_ENABLED`) defaulting OFF - see the order's
+    guardrails. `ON DELETE CASCADE` from `files` (not `SET NULL`, unlike
+    `pile_id`): a face detection has no meaning once its photo is gone, the
+    same reasoning `file_tags` (schema v20) already uses.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS piles (
+            id         INTEGER PRIMARY KEY,
+            name       TEXT,
+            created_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_piles_name ON piles(name) "
+        "WHERE name IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS faces (
+            id                 INTEGER PRIMARY KEY,
+            file_id            INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            bbox_x             REAL    NOT NULL,
+            bbox_y             REAL    NOT NULL,
+            bbox_w             REAL    NOT NULL,
+            bbox_h             REAL    NOT NULL,
+            embedding          BLOB    NOT NULL,
+            pile_id            INTEGER REFERENCES piles(id) ON DELETE SET NULL,
+            confidence         REAL,
+            suggested_pile_id  INTEGER REFERENCES piles(id) ON DELETE SET NULL,
+            created_at         INTEGER NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_file ON faces(file_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_pile ON faces(pile_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_faces_suggested ON faces(suggested_pile_id) "
+        "WHERE suggested_pile_id IS NOT NULL")
+    # Clustering (section 1b) asks "which faces have no pile yet" every run -
+    # a plain `pile_id IS NULL` scan with nothing to seek to on a corpus
+    # where most faces are already sorted. The partial index is exactly this
+    # query's shape, the same reasoning `idx_files_place` already uses.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_faces_unassigned ON faces(id) "
+        "WHERE pile_id IS NULL AND suggested_pile_id IS NULL")
+    # **"Scanned, found nothing" needs its own marker.** A photo that
+    # genuinely has no face in it never gets a `faces` row, so a backfill
+    # query that asks "does this file have any face rows" would re-scan it
+    # on every single drain, forever - precisely the H1 bug class 0i's own
+    # review found for extraction ("every skipped file is re-extracted on
+    # every incremental run"). This table answers "have we looked" as its
+    # own fact, independent of "did we find one".
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS face_scans (
+            file_id     INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+            scanned_at  INTEGER NOT NULL
+        )
+    """)
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1157,6 +1244,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     20: _v20_file_tags,
     21: _v21_taken_at_is_hint,
     22: _v22_places,
+    23: _v23_people,
 }
 
 

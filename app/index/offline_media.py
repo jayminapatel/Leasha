@@ -515,6 +515,10 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
         embed_batch=tuned.embed_batch,
         dedup_chunks=settings.embed_dedup,
         verify_hash=verify_hash,
+        caption_trickle_enabled=settings.caption_trickle_enabled,
+        ollama_url=settings.ollama_url,
+        ollama_vision_model=settings.ollama_vision_model,
+        people_recognition_enabled=settings.people_recognition_enabled,
     )
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 

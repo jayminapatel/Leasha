@@ -274,6 +274,62 @@ class SettingsView(QWidget):
         self.models.url_changed.connect(
             lambda url: self.settings_changed.emit({"OLLAMA_URL": url}))
 
+        # --- work order 0i section 3 / 0j: photo descriptions and people ---
+        #
+        # Plain controls, not a bespoke box like ModelBox above - none of
+        # the three needs a live probe or a Test button, so a QGroupBox with
+        # setObjectName-tagged fields plus the same
+        # `self.settings_changed.emit({KEY: value})` shape `url_changed`
+        # already uses just above is the whole of what non-negotiable #11
+        # asks for here.
+        self.photo_people_box = QGroupBox("People and photo descriptions")
+        self.vision_model = QLineEdit()
+        self.vision_model.setObjectName("OLLAMA_VISION_MODEL")
+        self.vision_model.setText(str(getattr(settings, "ollama_vision_model", "") or ""))
+        self.vision_model.setToolTip(
+            "The Ollama model that answers Describe on a photo. Needs a "
+            "vision-capable model - llava or qwen2.5vl are common choices."
+        )
+        self.vision_model.editingFinished.connect(
+            lambda: self.settings_changed.emit(
+                {"OLLAMA_VISION_MODEL": self.vision_model.text().strip()}))
+
+        self.caption_trickle = QCheckBox("Describe photos in the background")
+        self.caption_trickle.setObjectName("CAPTION_TRICKLE_ENABLED")
+        self.caption_trickle.setChecked(
+            bool(getattr(settings, "caption_trickle_enabled", False)))
+        self.caption_trickle.setToolTip(
+            "Slowly writes an AI description for every photo that does not "
+            "have one yet, a few at a time, paced the same way indexing "
+            "already is. Off by default - can take hours across a whole "
+            "photo collection. Needs the photo description model above."
+        )
+        self.caption_trickle.toggled.connect(
+            lambda on: self.settings_changed.emit({"CAPTION_TRICKLE_ENABLED": on}))
+
+        self.people_recognition = QCheckBox(
+            "Recognise people in photos on this computer")
+        self.people_recognition.setObjectName("PEOPLE_RECOGNITION_ENABLED")
+        self.people_recognition.setChecked(
+            bool(getattr(settings, "people_recognition_enabled", False)))
+        self.people_recognition.setToolTip(
+            "Finds faces in your photos and groups similar ones into piles "
+            "you can name, so you can search for people - nothing ever "
+            "leaves this computer. Off by default: stores a description of "
+            "each face's shape for every photo with a person in it, and "
+            "only names YOU give a pile are ever attached to it. Turning "
+            "this off stops new faces being found; use 'Forget this "
+            "person' on the Photo Tagger page to remove what is already "
+            "stored."
+        )
+        self.people_recognition.toggled.connect(
+            lambda on: self.settings_changed.emit({"PEOPLE_RECOGNITION_ENABLED": on}))
+
+        photo_people_form = QFormLayout(self.photo_people_box)
+        photo_people_form.addRow(self.people_recognition)
+        photo_people_form.addRow(self.caption_trickle)
+        photo_people_form.addRow("Photo description model", self.vision_model)
+
         # --- environment and diagnostics (its own widget; see the module)
         self.environment = EnvironmentBox(settings)
         self.environment.recording_toggled.connect(self.debug_recording_toggled)
@@ -414,6 +470,7 @@ class SettingsView(QWidget):
         models_layout = QVBoxLayout(models)
         models_layout.setContentsMargins(0, 0, 0, 0)
         models_layout.addWidget(self.models)
+        models_layout.addWidget(self.photo_people_box)
         models_layout.addStretch(1)
 
         # §0 settled decision #2, honoured here: theme relocates to

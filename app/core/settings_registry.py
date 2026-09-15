@@ -451,6 +451,59 @@ SETTINGS: tuple[Setting, ...] = (
         group="Models", surface="settings.models",
         help="Any model you have pulled in Ollama.",
     ),
+    # Work order 0i section 3. A separate setting from OLLAMA_MODEL - that one
+    # answers query translation and graph enrichment, which want a small, fast
+    # text model; Describe and the caption trickle need a vision-capable one
+    # (llava/qwen-vl class), and pointing both features at the same field
+    # would force one choice to serve two different jobs.
+    Setting(
+        key="OLLAMA_VISION_MODEL", label="Photo description model",
+        kind="text", default="llava", group="Models", surface="settings.models",
+        help="The Ollama model that answers Describe on a photo. Needs a "
+             "vision-capable model - llava or qwen2.5vl are common choices. "
+             "The Describe button is greyed out, with the exact command to "
+             "pull one, until this model is actually installed.",
+    ),
+    # Work order 0i section 3b. OFF by default per the item's own text - a
+    # description per photo costs seconds on CPU, corpus-wide that is hours
+    # of a machine's own time nobody asked to spend, so this stays a
+    # deliberate choice rather than something Auto-tune switches on for you
+    # today. Non-negotiable #11: a real control, plain words, not a hidden
+    # constant - the switch this item calls for.
+    # Work order 0j (202626270512), the whole order's own guardrails: "OFF
+    # by default behind one plain-words switch". Face embeddings are
+    # biometric-adjacent, so this is the one switch in the whole application
+    # whose help text has to name exactly what turning it on stores and what
+    # turning it off - or Forget - removes, in the same sentence, per the
+    # order's own instruction ("the whole feature's off-switch also states,
+    # plainly, what stored data the switch governs").
+    Setting(
+        key="PEOPLE_RECOGNITION_ENABLED",
+        label="Recognise people in photos on this computer",
+        kind="bool", default=False, group="Models", surface="settings.models",
+        help="Finds faces in your photos and groups similar ones into piles "
+             "you can name - 'Daddy', 'Mum' - so you can search for people, "
+             "the same way Google Photos does, except nothing ever leaves "
+             "this computer. Off by default: this stores a description of "
+             "each face's shape (numbers, not a picture) for every photo "
+             "with a person in it, and only names YOU give a pile are ever "
+             "attached to it - Leasha never guesses or suggests a name from "
+             "anywhere else. Turning this off stops new faces being found; "
+             "it does not delete what is already stored - use 'Forget this "
+             "person' on the Photo Tagger page for that, per photo or per "
+             "person.",
+    ),
+    Setting(
+        key="CAPTION_TRICKLE_ENABLED",
+        label="Describe photos in the background",
+        kind="bool", default=False, group="Models", surface="settings.models",
+        help="Slowly writes an AI description for every photo that does not "
+             "have one yet, a few at a time, paced by the same battery/CPU "
+             "limits indexing already respects - never enough to make a "
+             "laptop hot in a lap. Off by default: describing a whole photo "
+             "collection this way can take hours of the machine's own time. "
+             "Needs the photo description model above to be installed.",
+    ),
     # Grouped with Search, not Models, deliberately. **The Models panel is about
     # Ollama**, and a reranking field under that heading implies search calls
     # the LLM - which it never does, and which is the most persistent

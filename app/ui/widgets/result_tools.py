@@ -217,7 +217,9 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
             index = sibling_list.index(row)
         except ValueError:
             index = 0
-        window = PreviewWindow(row, state=_state_now(), siblings=sibling_list, index=index)
+        window = PreviewWindow(
+            row, state=_state_now(), siblings=sibling_list, index=index,
+            store=store)
         window.remember.connect(_remember)
         window.open_requested.connect(lambda path: open_async(path, on_error=on_error))
         window.reveal_requested.connect(
