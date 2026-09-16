@@ -3288,7 +3288,17 @@ class Pipeline:
                 ),
                 # `--fast` (`verify_hash=False`) reaches here with no digest.
                 clear_hash=item.source_kind == "file" and item.content_hash is None,
-                status=FileStatus.PENDING,
+                # Work order 202626270114 (0b) section 6d. PARTIAL, not
+                # PENDING, when there is something to be partial about:
+                # `replace_chunks` below gives this file real,
+                # keyword-searchable content in the same transaction, so
+                # "untouched" stops being true the moment this transaction
+                # commits - only "not embedded yet" remains true, until
+                # `_embed_pending` (below) or the M6 repair
+                # (`_drain_unembedded`) promotes it to INDEXED. A file with
+                # no chunks at all stays PENDING, exactly as before this
+                # section existed.
+                status=(FileStatus.PARTIAL if item.chunks else FileStatus.PENDING),
                 source_kind=item.source_kind,
                 # Only for a plain file. An archive member's identity is
                 # `<container>#<key>`, not `(volume_id, relative_path)` - see

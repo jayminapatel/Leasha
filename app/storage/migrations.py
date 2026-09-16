@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 23
+CURRENT_VERSION = 25
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1211,6 +1211,133 @@ def _v23_people(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v24_content_hash_index(conn: sqlite3.Connection) -> None:
+    r"""Work order 202626270602 (0n) §3c: the Space Report's own performance
+    box - "hash and pHash columns get the indexes these GROUP BYs need."
+
+    `content_hash` has carried duplicate-detection data since it was added
+    to `files`, and nothing ever indexed it. The Space Report's whole first
+    half (§3a: total duplicate bytes, the largest duplicate groups) is a
+    `GROUP BY content_hash HAVING COUNT(*) > 1` over the full table - the
+    exact shape H2's own lesson (`docs/REVIEW-2026-08-26.md`) warns against
+    running unindexed at scale. `idx_files_phash` already exists (schema
+    v17) for the photo half of the same report; this is its missing
+    sibling for the general-file half.
+
+    Partial, same reasoning `idx_files_phash`/`idx_files_skip` already use:
+    most rows outside the exact-duplicate set share their hash with
+    nothing, and an index entry for a hash nothing will ever `GROUP BY`
+    into a group of one is write cost with no reader.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files(content_hash) "
+        "WHERE content_hash IS NOT NULL")
+
+
+def _v25_partial_status(conn: sqlite3.Connection) -> None:
+    r"""Let `files.status` hold `PARTIAL`. Work order 202626270114 (0b)
+    section 6d - see `SqliteStore.FileStatus.PARTIAL`'s own docstring for
+    what it means and why `PENDING`/`INDEXED` were not enough.
+
+    **The same twelve-step dance as `_v10_name_only_status`, for the same
+    reason: `status` carries a `CHECK` constraint, which SQLite cannot
+    alter in place.** That migration's own docstring has the full hazard
+    account (`DROP TABLE files` cascades to every table with a foreign key
+    onto it while `PRAGMA foreign_keys = ON`) - it applies unchanged here,
+    against a wider table: `files` gained `repo_id`, `volume_id`,
+    `relative_path`, `phash`, `taken_at_ns`, `taken_at_is_hint` and `place`
+    since v10, and six tables now cascade from it (`chunks`, `messages`,
+    `entity_mentions`, `file_tags`, `faces`, `face_scans`), not three.
+
+    The column and index lists below are copied from a fully-migrated
+    database's own `PRAGMA table_info(files)` and `sqlite_master`, not
+    retyped from memory - the risk in a rebuild is exactly a column or
+    index quietly left out, and `test_the_rebuild_preserves_every_column_
+    and_index` in `test_partial_status_migration.py` checks both lists
+    against a fresh v24 database before this migration runs, so a future
+    column added to `files` without updating this migration fails loudly
+    here rather than silently losing data at whoever's real database
+    happens to run it first.
+    """
+    if _status_allows(conn, "PARTIAL"):
+        return                                # already rebuilt, or a fresh schema
+
+    steps = [
+        """CREATE TABLE files_rebuilt (
+                id                INTEGER PRIMARY KEY,
+                path              TEXT    NOT NULL UNIQUE,
+                parent_dir        TEXT    NOT NULL,
+                ext               TEXT    NOT NULL,
+                size_bytes        INTEGER NOT NULL,
+                mtime_ns          INTEGER NOT NULL,
+                content_hash      TEXT,
+                status            TEXT    NOT NULL,
+                skip_code         TEXT,
+                skip_detail       TEXT,
+                indexed_at        INTEGER,
+                source_kind       TEXT    NOT NULL,
+                repo_id           INTEGER REFERENCES repos(id) ON DELETE SET NULL,
+                volume_id         INTEGER,
+                relative_path     TEXT,
+                phash             TEXT,
+                taken_at_ns       INTEGER,
+                taken_at_is_hint  INTEGER NOT NULL DEFAULT 0,
+                place             TEXT,
+                CHECK (status IN ('PENDING', 'INDEXED', 'SKIPPED', 'FAILED',
+                                  'NAME_ONLY', 'PARTIAL'))
+           )""",
+        """INSERT INTO files_rebuilt
+                SELECT id, path, parent_dir, ext, size_bytes, mtime_ns,
+                       content_hash, status, skip_code, skip_detail,
+                       indexed_at, source_kind, repo_id, volume_id,
+                       relative_path, phash, taken_at_ns, taken_at_is_hint,
+                       place
+                FROM files""",
+        "DROP TABLE files",
+        "ALTER TABLE files_rebuilt RENAME TO files",
+        # Every index `PRAGMA table_info`/`sqlite_master` reported on a
+        # fresh v24 database, recreated verbatim - `DROP TABLE` takes every
+        # one of them with it.
+        "CREATE INDEX IF NOT EXISTS idx_files_status ON files(status)",
+        "CREATE INDEX IF NOT EXISTS idx_files_dir ON files(parent_dir)",
+        "CREATE INDEX IF NOT EXISTS idx_files_ext ON files(ext)",
+        "CREATE INDEX IF NOT EXISTS idx_files_skip ON files(skip_code) "
+        "WHERE skip_code IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_volume ON files(volume_id) "
+        "WHERE volume_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_files_volume_relpath "
+        "ON files(volume_id, relative_path) WHERE volume_id IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_source_kind ON files(source_kind)",
+        "CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo_id) "
+        "WHERE repo_id IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime_ns)",
+        "CREATE INDEX IF NOT EXISTS idx_files_phash ON files(phash) "
+        "WHERE phash IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_taken_at ON files(taken_at_ns) "
+        "WHERE taken_at_ns IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_place ON files(place) "
+        "WHERE place IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files(content_hash) "
+        "WHERE content_hash IS NOT NULL",
+    ]
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for statement in steps:
+            conn.execute(statement)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        # **Back on whatever happened.** Leaving them off would silently
+        # disable every cascade for the life of the connection, which is a
+        # far worse state than a failed migration - see `_v10_name_only_
+        # status`'s own identical comment.
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1245,6 +1372,8 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     21: _v21_taken_at_is_hint,
     22: _v22_places,
     23: _v23_people,
+    24: _v24_content_hash_index,
+    25: _v25_partial_status,
 }
 
 
