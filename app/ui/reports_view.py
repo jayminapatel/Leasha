@@ -233,8 +233,9 @@ def _report_snapshot(
     """
     from app.reports.inheritance import catalogue_sources, report_generated_at
     from app.reports.space import (
-        find_duplicate_groups, find_source_uniqueness, render_space_document,
-        total_reclaimable_bytes,
+        find_duplicate_groups, find_near_duplicate_photo_groups,
+        find_source_duplicate_share, find_source_uniqueness,
+        render_space_document, total_reclaimable_bytes,
     )
 
     generated_at = report_generated_at(store)
@@ -250,13 +251,18 @@ def _report_snapshot(
     sources = catalogue_sources(store, roots=roots)
     stage("Finding duplicates...")
     groups = find_duplicate_groups(store)
+    stage("Finding similar photos...")
+    near_duplicates = find_near_duplicate_photo_groups(store)
+    stage("Working out duplication by source...")
+    duplicate_share = find_source_duplicate_share(store)
     stage("Checking what exists nowhere else...")
     uniqueness = find_source_uniqueness(store)
     stage("Writing the report...")
     # The Space Report, exactly as `app.cli report space` builds it.
     space = render_space_document(
         groups, uniqueness,
-        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at)
+        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at,
+        near_duplicates=near_duplicates, duplicate_share=duplicate_share)
     return sources, generated_at, space
 
 
