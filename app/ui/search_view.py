@@ -37,6 +37,7 @@ from app.ui.presenter import (
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.result_table import redraw_with_details
+from app.ui.widgets.skeleton import arm as arm_skeleton
 from app.ui.widgets.result_tools import build_results_pane
 from app.ui.widgets.search_bar import (
     build_controls,
@@ -230,15 +231,13 @@ class SearchView(QWidget):
         self._full_timer.start()
 
     def _on_submitted(self) -> None:
-        self._interim_timer.stop()
-        self._full_timer.stop()
+        self._interim_timer.stop(); self._full_timer.stop()
         self._dispatch(Tier.FULL)
 
     def _maybe_dispatch(self, *, submitted: bool) -> None:
         still_for_ms = int((time.monotonic() - self._last_keystroke) * 1000)
         tier = tier_for(self.input.text(), still_for_ms=still_for_ms, submitted=submitted)
-        if tier != Tier.NONE:
-            self._dispatch(tier)
+        if tier != Tier.NONE: self._dispatch(tier)
 
     def _dispatch(self, tier: str) -> None:
         # `/type pdf` becomes `type:pdf` here, so nothing below this line -
@@ -259,6 +258,7 @@ class SearchView(QWidget):
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )
+        arm_skeleton(self.results)                 # §6d: bars if this takes >300ms
         worker.signals.finished.connect(self._on_results)
         # **The notice bar, not a modal.** This fires per debounced keystroke,
         # so a transiently locked database - which is exactly what an index run

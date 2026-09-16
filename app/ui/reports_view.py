@@ -39,6 +39,13 @@ REPORTS: tuple[tuple[str, str, str], ...] = (
     ("inheritance", "Digital Inheritance",
      "A map of every source Leasha knows about - names, locations and "
      "what's in each - for someone who isn't you."),
+    # Order 0n section 3, wired by WORKORDER-space-report-and-idle-tune-ui-wiring
+    # (2026-09-16). The content is `app.reports.space` - the same words
+    # `leasha report space` prints.
+    ("space", "The Space Report",
+     "Which files exist in more than one place, how much room the copies "
+     "take, and what exists nowhere else - so you know what is safe to "
+     "clear and what is not."),
 )
 
 
@@ -52,6 +59,9 @@ class ReportsView(QWidget):
         self._store = store
         self._sources: list = []
         self._generated_at: Optional[int] = None
+        #: The Space Report, rendered on the worker with the rest of the
+        #: snapshot - it touches the store, so never on this thread.
+        self._space_document: str = ""
 
         intro = QLabel(
             "What Leasha has catalogued, read out as a document rather "
@@ -119,25 +129,46 @@ class ReportsView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _loaded(self, snapshot: Any) -> None:
-        self._sources, self._generated_at = snapshot
-        self.export.setEnabled(bool(self._sources))
+        self._sources, self._generated_at, self._space_document = snapshot
+        self.export.setEnabled(bool(self._sources) or bool(self._space_document))
         self._show_selected(self.list.currentRow())
 
     def _show_selected(self, row: int) -> None:
         from app.reports.inheritance import data_timestamp_sentence, render_inheritance_document
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
-        if row < 0 or not self._sources:
+        if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return
         key = self.list.item(row).data(1)
         if key == "inheritance":
-            self.body.setMarkdown(
-                render_inheritance_document(self._sources, generated_at=self._generated_at))
+            if not self._sources:
+                self.body.setMarkdown("Nothing indexed yet.")
+            else:
+                self.body.setMarkdown(
+                    render_inheritance_document(self._sources, generated_at=self._generated_at))
+        elif key == "space":
+            self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
 
     # -- export -----------------------------------------------------------
 
+    def _selected_key(self) -> str:
+        row = self.list.currentRow()
+        return str(self.list.item(row).data(1)) if row >= 0 else ""
+
     def _start_export(self) -> None:
+        if self._selected_key() == "space":
+            # No source picker: the Space Report is about the whole corpus.
+            if not self._space_document:
+                return
+            path, _filter = QFileDialog.getSaveFileName(
+                self, "Export report", "space-report.pdf", "PDF files (*.pdf)")
+            if path:
+                worker = CallableWorker(_write_pdf, self._space_document, path,
+                                        component="ui.reports.export")
+                worker.signals.failed.connect(self.error.emit)
+                run(QThreadPool.globalInstance(), worker)
+            return
         if not self._sources:
             return
         dialog = SourceSelectionDialog(self._sources, self)
@@ -165,10 +196,19 @@ def _report_snapshot(store: Any) -> tuple:
     """The read-only half of a refresh, off the worker thread - the same
     split `_offline_media_snapshot` already draws."""
     from app.reports.inheritance import catalogue_sources, report_generated_at
+    from app.reports.space import (
+        find_duplicate_groups, find_source_uniqueness, render_space_document,
+        total_reclaimable_bytes,
+    )
 
     roots = _local_roots(store)
     sources = catalogue_sources(store, roots=roots)
-    return sources, report_generated_at(store)
+    generated_at = report_generated_at(store)
+    # The Space Report, exactly as `app.cli report space` builds it.
+    space = render_space_document(
+        find_duplicate_groups(store), find_source_uniqueness(store),
+        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at)
+    return sources, generated_at, space
 
 
 def _local_roots(store: Any) -> list:

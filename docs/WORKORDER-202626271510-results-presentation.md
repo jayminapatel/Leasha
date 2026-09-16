@@ -1,6 +1,6 @@
 # Work order (One thread): the results, world class — every row earns its trust
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (ResultsView/ResultDelegate/presenter — the painted
 list and the Qt-free text decisions behind it)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable**
@@ -95,7 +95,14 @@ job.
   photos" — because that is how people remember mail; subject follows,
   date stays right. Display order only: grouping, payloads and actions
   unchanged.
-- [ ] **3c** code rows paint their snippet in **monospace with the line
+  > **2026-09-16 — owner's decision, taken during the UI Redesign build
+  > (202626160950).** Asked directly, with the 2026-09-04 finding below in
+  > front of him: nothing in `app/extract` carries a line number, so code
+  > rows cannot show one honestly. Chosen: **drop the line-number clause,
+  > tick 3c.** The monospace half is done and tested; a future order
+  > through the extract layer (chunker, `Segment`, `SearchResult`) can carry
+  > a real line number end to end. Item wording left as written.
+- [x] **3c** code rows paint their snippet in **monospace with the line
   number** — the form coders already read everywhere else. Spreadsheet
   hits already carry Sheet/cell (0o §6a, landed): inherit, don't touch.
 
@@ -121,7 +128,15 @@ job.
 
 ## 4. Locations, dates, and twins
 
-- [ ] **4a** the location line **elides on the left**, keeping the tail —
+  > **2026-09-16 — owner's decision, taken during the UI Redesign build
+  > (202626160950).** Asked directly: *"elide_path_left() exists and is
+  > tested but nothing calls it; the visible location line already comes
+  > from breadcrumb()."* Chosen: **delete `elide_path_left`, tick 4a.**
+  > `breadcrumb()` (tail-first, `… > 2019 > Leeds`) already keeps the
+  > distinguishing tail, which is what the item asks for; the unused helper
+  > and its three tests are removed from `presenter.py` and
+  > `test_presenter.py`. Item wording left as written, per the standing rule.
+- [x] **4a** the location line **elides on the left**, keeping the tail —
   `…\Projects\Foo\Final` — because the leaf folder is the distinguishing
   part of a deep path. Same sin the name-elision fix corrected, one line
   down.
@@ -263,7 +278,11 @@ job.
   > `test_a_click_off_the_chevron_does_not_toggle`,
   > `test_the_whole_row_still_toggles_by_activation` (`test_results_view.py`,
   > pytest-qt). `results_view.py` is now at 249/250 code lines.
-- [ ] kind rows: mail fixture renders sender-first; code fixture renders
+  > **2026-09-16.** Ticked with 3c: the line-number half was dropped by
+  > the owner's decision (see 3c's note), the monospace and sender-first
+  > halves were already tested. The icon cache is now the kind badge's
+  > corner glyph (UI Redesign §4a) and still one `QIcon` per extension.
+- [x] kind rows: mail fixture renders sender-first; code fixture renders
   monospace + line number; icon cache returns one pixmap per extension.
 
   > **2026-09-05 (session 4).** Left unticked - the line-number half is the
@@ -276,7 +295,10 @@ job.
   > the icon cache in `test_an_icon_is_cached_after_the_first_lookup` -
   > keyed per `kind` by construction, so a second kind can never reuse the
   > first's cache slot.
-- [ ] locations: left-elision keeps the tail at narrow widths; twins
+  > **2026-09-16.** Ticked with 4a: left-elision is satisfied by
+  > `breadcrumb()` per the owner's decision, and the twins/unique-names
+  > thirds were already covered (see the 2026-09-05 note below).
+- [x] locations: left-elision keeps the tail at narrow widths; twins
   fixture (8 × invoice.pdf) shows distinguishing segments; unique names
   unchanged.
 

@@ -226,6 +226,46 @@ def test_close_closes_every_threads_connection_not_just_its_own(tmp_path):
         worker_conn.execute("SELECT 1")
 
 
+def test_a_reused_thread_that_loses_its_cache_does_not_leak_the_first_connection(store):
+    r"""The bug a Qt `QThreadPool` worker thread exposed.
+
+    A pooled thread can be handed a second task without this code seeing a
+    new native thread - `threading.get_ident()` is unchanged - but a fresh
+    `PyThreadState` for that task (from another `PyGILState_Ensure`/`Release`
+    cycle) means `self._local.conn` no longer has anything cached, so `conn`
+    opens a second connection for what looks like the same thread. Simulated
+    here by dropping the cached attribute directly rather than by reproducing
+    the Qt/GIL mechanics.
+
+    Keyed by thread ident, that second connection used to overwrite the
+    first one in `self._open`, orphaning it - `close()` never saw it again,
+    a real file handle leaked every time a pooled thread picked up more than
+    one task. `self._open` is a list precisely so a second connection from
+    the "same" thread adds rather than overwrites.
+    """
+    before = len(store._open)         # the fixture already opened one, on this thread
+    results: list[sqlite3.Connection] = []
+
+    def two_tasks_one_thread():
+        results.append(store.conn)
+        del store._local.conn         # the cache loss this test is about
+        results.append(store.conn)
+
+    thread = threading.Thread(target=two_tasks_one_thread, daemon=True)
+    thread.start()
+    thread.join(TIMEOUT)
+
+    assert len(results) == 2
+    assert results[0] is not results[1], "a second connection must actually open"
+    assert len(store._open) == before + 2, (
+        "both connections must be tracked, not one overwriting the other")
+
+    store.close()
+    for conn in results:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+
 def test_using_a_closed_store_says_so_rather_than_reopening(tmp_path):
     """Silently opening a fresh connection after `close()` would resurrect it.
 

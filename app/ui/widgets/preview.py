@@ -87,6 +87,11 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
     pane = PreviewPane()
     pane.open_requested.connect(on_open)
     pane.error.connect(on_error)
+    # §5b: "Show in folder" from the pane takes the results view's own
+    # reveal path, so the window handles both the same way.
+    reveal = getattr(results, "reveal_requested", None)
+    if reveal is not None:
+        pane.reveal_requested.connect(reveal.emit)
     pane.store = store
     results.selected.connect(pane.show_row)
 
@@ -112,6 +117,9 @@ class PreviewPane(QWidget):
 
     #: The person asked to open the file properly, from the pane.
     open_requested = pyqtSignal(object)
+    #: §5b: "Show in folder" from the pane - the same request the results'
+    #: context menu makes, routed the same way by `attach_preview`.
+    reveal_requested = pyqtSignal(object)
     #: Workspace §2: pin this document in a window of its own. Carries the
     #: pane's `body_provider` with it, because a mail row has no file on disk
     #: and the provider is the only thing that can read the message - §2h's
@@ -140,6 +148,10 @@ class PreviewPane(QWidget):
         #: offline, to the stored text in the index - needs the store, and
         #: nothing else in this pane otherwise touches one.
         self.store: Any = None
+        #: §5c: animate open/close. Pushed by the window from `ui:motion`;
+        #: off unless somebody turned it on.
+        self.motion: bool = False
+        self._animation: Any = None
 
         self.title = QLabel("")
         self.title.setObjectName("resultName")
@@ -153,6 +165,19 @@ class PreviewPane(QWidget):
         self.notice.setObjectName("resultMissing")
         self.notice.setWordWrap(True)
         self.notice.setVisible(False)
+
+        # UI Redesign (202626160950 §5a): the facts header. Filled from
+        # `inspector.preview_facts`, Qt-free; rows it has no value for are
+        # simply not drawn. Lives between the subtitle and the content.
+        from PyQt6.QtWidgets import QGridLayout
+
+        self.facts = QWidget()
+        self.facts.setObjectName("inspectorFacts")
+        self._facts_grid = QGridLayout(self.facts)
+        self._facts_grid.setContentsMargins(0, 4, 0, 8)
+        self._facts_grid.setHorizontalSpacing(14)
+        self._facts_grid.setVerticalSpacing(3)
+        self.facts.setVisible(False)
 
         # --- the renderers, one per kind, swapped rather than rebuilt
         self.text = QTextBrowser()
@@ -204,6 +229,15 @@ class PreviewPane(QWidget):
         if self._pdf is not None:
             self.stack.addWidget(self._pdf)
 
+        # §5b: the three actions carry icons (the window tints them via
+        # `retint`); their labels are the strings they always were, plus
+        # "Show in folder", which reuses the context menu's own wording.
+        self.reveal_button = QPushButton("Show in folder")
+        self.reveal_button.setToolTip("Open the folder this file is in, with the file selected")
+        self.reveal_button.setEnabled(False)
+        self.reveal_button.clicked.connect(
+            lambda _c=False: self._row is not None and self.reveal_requested.emit(self._row))
+
         self.pop_button = QPushButton("Pin in a window")
         self.pop_button.setToolTip(
             "Opens this document in its own window you can keep beside your "
@@ -240,12 +274,15 @@ class PreviewPane(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
+        layout.addWidget(self.facts)
         layout.addWidget(self.notice)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.find)
 
         buttons = QHBoxLayout()
+        self.open_button.setProperty("primary", True)
         buttons.addWidget(self.open_button)
+        buttons.addWidget(self.reveal_button)
         buttons.addWidget(self.pop_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
@@ -300,11 +337,54 @@ class PreviewPane(QWidget):
         if wanted == self.isVisible():
             return
 
-        self.setVisible(wanted)
+        if self.motion and self._animate(wanted):
+            pass                      # visibility is set by the animation
+        else:
+            self.setVisible(wanted)
         if wanted:
             self.show_row(selected)
         else:
             self.clear()             # stop a render nobody will see
+
+    def _animate(self, wanted: bool) -> bool:
+        """§5c: slide the splitter over 160ms. Returns False when there is no
+        splitter to animate, so the caller falls back to a plain toggle."""
+        from PyQt6.QtCore import QEasingCurve, QVariantAnimation
+
+        split = self.parentWidget()
+        if not isinstance(split, QSplitter) or split.indexOf(self) < 0:
+            return False
+        me = split.indexOf(self)
+        sizes = split.sizes()
+        total = sum(sizes) or split.width()
+        if wanted:
+            self.setVisible(True)
+            target = split.sizes()
+            if target[me] <= 0:
+                target[me] = total * 2 // 5
+                target[1 - me] = total - target[me]
+            start, end = 0, target[me]
+        else:
+            start, end = sizes[me], 0
+        anim = QVariantAnimation(self)
+        anim.setDuration(160)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.setStartValue(start)
+        anim.setEndValue(end)
+
+        def step(value: Any) -> None:
+            v = int(value)
+            new = list(split.sizes())
+            new[me] = v
+            new[1 - me] = max(0, total - v)
+            split.setSizes(new)
+
+        anim.valueChanged.connect(step)
+        if not wanted:
+            anim.finished.connect(lambda: self.setVisible(False))
+        self._animation = anim
+        anim.start()
+        return True
 
     def clear(self) -> None:
         self._row = None
@@ -313,9 +393,11 @@ class PreviewPane(QWidget):
         self.title.setText("Nothing selected")
         self.subtitle.setText("Select a result to preview it here.")
         self.notice.setVisible(False)
+        self._show_facts(())
         self.text.setPlainText("")
         self.stack.setCurrentWidget(self.text)
         self.open_button.setEnabled(False)
+        self.reveal_button.setEnabled(False)
         self.pop_button.setEnabled(False)
 
     def show_row(self, row: Any) -> None:
@@ -335,9 +417,37 @@ class PreviewPane(QWidget):
         self.title.setText(str(getattr(row, "name", "") or getattr(row, "path", "")))
         self.subtitle.setText("Loading…")
         self.notice.setVisible(False)
+        from app.ui.inspector import preview_facts
+        self._show_facts(preview_facts(row))
         self.open_button.setEnabled(True)
+        self.reveal_button.setEnabled(bool(getattr(row, "path", "")))
         self.pop_button.setEnabled(True)
         self._timer.start()
+
+    def _show_facts(self, facts: Any) -> None:
+        """§5a: redraw the facts grid; hidden when there is nothing to say."""
+        while self._facts_grid.count():
+            item = self._facts_grid.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        for n, (label, value) in enumerate(facts):
+            key = QLabel(label)
+            key.setObjectName("factLabel")
+            val = QLabel(value)
+            val.setObjectName("factValue")
+            val.setWordWrap(True)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse
+                                        | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+            self._facts_grid.addWidget(key, n, 0, Qt.AlignmentFlag.AlignTop)
+            self._facts_grid.addWidget(val, n, 1)
+        self.facts.setVisible(bool(facts))
+
+    def retint(self, colours: dict) -> None:
+        """§0.3: icons on the three buttons, in the palette's text colour."""
+        from app.ui.widgets.icons import icon
+        self.open_button.setIcon(icon("external-link", colours.get("rail_on", "#ffffff")))
+        self.reveal_button.setIcon(icon("folder-open", colours.get("text_dim", "#888888")))
+        self.pop_button.setIcon(icon("bookmark", colours.get("text_dim", "#888888")))
 
     def _start(self) -> None:
         if self._row is None:

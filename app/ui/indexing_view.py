@@ -88,6 +88,12 @@ class IndexingView(QWidget):
 
     finished = pyqtSignal(object)        # IndexStats
     error = pyqtSignal(object)
+    #: UI Redesign (202626160950 §2d/§2g): the rail's pill paints from this -
+    #: (state, indexed, value, total, paused, stopped_early, error) as plain
+    #: data, emitted on the UI thread from the same slots that paint this page.
+    progressed = pyqtSignal(str, int, int, int, bool, bool, str)
+    #: The document count the totals worker came back with, for the pill.
+    totals_shown = pyqtSignal(int)
     retry_requested = pyqtSignal(str)    # an error code to retry
     #: "Rescan these folders now" on the archived-folders panel. One full walk,
     #: not a change of policy - the modes stay as they are.
@@ -293,6 +299,11 @@ class IndexingView(QWidget):
             error=payload.get("error", ""),
         )
         self.stats_box.show_rows(rows)
+        stats = payload.get("stats") or {}
+        try:
+            self.totals_shown.emit(int(stats.get("files_total", 0) or 0))
+        except (AttributeError, TypeError, ValueError):
+            pass
 
     def set_next_run(self, text: str) -> None:
         self._next_run_text = text
@@ -367,6 +378,9 @@ class IndexingView(QWidget):
         value, total = progress_for(stats, total_estimate=self._total_estimate)
         self.bar.setRange(0, total)
         self.bar.setValue(value)
+        self.progressed.emit("running", int(getattr(stats, "indexed", 0) or 0),
+                             int(value), int(total),
+                             bool(getattr(stats, "paused", False)), False, "")
 
         headline, detail = progress_text(
             stats, total_estimate=self._total_estimate, stopping=self._stopping
@@ -386,6 +400,8 @@ class IndexingView(QWidget):
         finished_whole = not self._stopping and not getattr(stats, "stopped_early", None)
         self.bar.setRange(0, 1)
         self.bar.setValue(1 if finished_whole else 0)
+        self.progressed.emit("finished", int(getattr(stats, "indexed", 0) or 0),
+                             1, 1, False, not finished_whole, "")
         headline, detail = finished_text(stats)
         self.headline.setText(headline)
         self.detail.setText(detail)
@@ -402,6 +418,8 @@ class IndexingView(QWidget):
         self.bar.setValue(0)
         self.headline.setText(error.message)
         self.detail.setText(error.suggestion)
+        self.progressed.emit("failed", 0, 0, 1, False, False,
+                             str(getattr(error, "message", "") or ""))
         self.error.emit(error)
 
     def _on_done(self) -> None:

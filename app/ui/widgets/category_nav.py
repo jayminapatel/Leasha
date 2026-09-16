@@ -68,6 +68,27 @@ class CategoryNav(QWidget):
 
     # -- building -------------------------------------------------------------
 
+    #: §0.3 (owner: icons wherever possible). Category name -> Lucide glyph,
+    #: for both pages this widget serves. A name not listed gets no icon and
+    #: nothing else changes; the label is still the label.
+    ICONS = {
+        "What's indexed": "folder", "Search": "search", "Models & AI": "cpu",
+        "Appearance": "palette", "Storage & maintenance": "hard-drive",
+        "Status": "chart-column", "Schedule": "clock", "Tuning": "sliders-horizontal",
+    }
+
+    def retint(self, colours: dict) -> None:
+        """Re-render the category icons for a palette (called by the window)."""
+        from PyQt6.QtCore import QSize
+
+        from app.ui.widgets.icons import icon
+        self.sidebar.setIconSize(QSize(16, 16))
+        for row in range(self.sidebar.count()):
+            item = self.sidebar.item(row)
+            name = self.ICONS.get(item.text())
+            if name:
+                item.setIcon(icon(name, colours.get("text_dim", "#888888")))
+
     def add_category(self, name: str, page: QWidget) -> None:
         """Register one category's content widget, in display order.
 

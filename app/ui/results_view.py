@@ -34,6 +34,8 @@ from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem
+
+from app.ui.widgets.skeleton import disarm as disarm_skeleton
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QLabel,
@@ -98,12 +100,17 @@ class ResultsView(QWidget):
 
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
+        #: UI Redesign (202626160950 §3f): the label the toolbar's summary line
+        #: is folded against. When both would say the same thing, this one
+        #: hides; when this carries different information it stays.
+        self._fold_with: Optional[QLabel] = None
 
         # §3b: the same model, wherever it drags to - see `result_drag_model`.
         self._model = DraggableResultsModel(self, missing=lambda: self._missing)
         self._delegate = ResultDelegate(self)
 
         self._list = QListView()
+        self._list.setObjectName("resultsList")       # §1b: borderless rows
         self._list.setModel(self._model)
         self._list.setItemDelegate(self._delegate)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -169,6 +176,7 @@ class ResultsView(QWidget):
         moment after the rows and passes `keep_scroll=True`: it is the same
         results, so it is not a new search and must not move anybody.
         """
+        disarm_skeleton(self)                     # §6d
 
         # `missing` is the set of paths that no longer exist, computed **on the
         # worker** by `presenter.missing_paths`. It used to be a `Path.exists()`
@@ -201,6 +209,7 @@ class ResultsView(QWidget):
             self._register = str(register)
         self._expanded.clear()
         self._summary.setText(summary)
+        self._fold_summary(summary)
         self._rebuild(keep_scroll=keep_scroll)
 
     def append_results(self, results: Sequence[Any], terms: Sequence[str]) -> int:
@@ -298,10 +307,20 @@ class ResultsView(QWidget):
         self._model.appendRow(item)
 
     def clear(self, message: str = "") -> None:
+        disarm_skeleton(self)                     # §6d
         self._rows = []
         self._expanded.clear()
         self._model.clear()
         self._summary.setText(message)
+        self._fold_summary(message)
+
+    def fold_summary_with(self, label: Any) -> None:
+        """§3f: hide the summary when `label` already says it."""
+        self._fold_with = label
+
+    def _fold_summary(self, text: str) -> None:
+        other = self._fold_with.text() if self._fold_with is not None else None
+        self._summary.setVisible(bool(text) and text != other)
 
     # Item 6a: the search box's ↓/↑ forwards here - QListView's own key
     # handling already moves the selection, scrolls it into view, and skips

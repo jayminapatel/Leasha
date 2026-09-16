@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.21 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 4.22 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,43 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The window has a new shape - one box to start, a rail down the side
+
+- Open Leasha and there is one thing on screen: a box that asks what you
+  are looking for, with a few example searches under it and your recent
+  ones. Start typing and it becomes the results page. The eight tabs
+  across the top are gone; the pages are a column of icons down the left,
+  with Settings at the bottom and a small indexing pill that shows
+  progress without you having to go and look.
+- Every filter you type (`/type pdf`, `/from dave`, `/newest`) appears as a
+  chip under the box; click its × to take it out of the search.
+- Results show what kind of thing each one is as a coloured badge - blue
+  for documents, orange for mail, green for code - and the words that
+  matched are marked on a tinted ground rather than only in bold. The
+  preview pane now leads with the facts about the file (kind, date,
+  folder, page) and offers "Show in folder" beside "Open".
+- Messages that used to appear in a strip along the bottom now appear as
+  a short notice over the results, one at a time, and are read out to a
+  screen reader. There is a menu bar - File, Edit, View, Go, Help - that
+  lists every keyboard shortcut. "Animate panels when they open and close"
+  is a new Appearance switch, off unless you turn it on.
+- Under the hood: the same layout works unchanged on macOS (native title
+  bar, no Windows-only chrome, `Ctrl` reads as `⌘`), icons are from Lucide
+  (ISC) with the licence beside them, and nothing that used to say
+  something says it differently. Work order 202626160950; `tools/grab_ui.py`
+  (0m §0) captures every page to PNG for review.
+
+### The Space Report on the Reports page, and the idle-time benchmark
+
+- The Space Report now appears on the Reports page beside Digital
+  Inheritance, reads the same as `leasha report space`, and exports to
+  PDF. (`WORKORDER-space-report-and-idle-tune-ui-wiring` §1)
+- The first time the computer is idle and plugged in with nothing
+  indexing, Leasha times it once and moves Index Tuning from Defaults to
+  Auto on its own, then says so. It never does this while a run is in
+  progress, never on battery, and never over a Manual or Auto choice you
+  already made. (§2; order 0b §5e)
 
 ### A new report shows what's taking up space twice, and what only exists once
 

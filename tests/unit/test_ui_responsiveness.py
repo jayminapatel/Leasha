@@ -232,7 +232,7 @@ def test_the_window_maps_views_to_tab_indexes() -> None:
     """
     text = source("shell.py")
     assert "_tab_index" in text
-    assert "self.tabs.setCurrentWidget(" not in text, (
+    assert "self.rail.setCurrentWidget(" not in text and "self.tabs" not in text, (
         "use self._show(view), which works whether or not the view is wrapped"
     )
 

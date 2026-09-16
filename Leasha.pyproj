@@ -54,8 +54,10 @@
     <Folder Include="app\ui" />
     <Folder Include="app\ui\widgets" />
     <Folder Include="assets" />
+    <Folder Include="assets\icons" />
     <Folder Include="config" />
     <Folder Include="docs" />
+    <Folder Include="docs\mockups" />
     <Folder Include="scripts" />
     <Folder Include="tests" />
     <Folder Include="tests\fixtures" />
@@ -64,8 +66,19 @@
     <Folder Include="tests\fixtures\office" />
     <Folder Include="tests\fixtures\pdf" />
     <Folder Include="tests\fixtures\plaintext" />
+    <Folder Include="tests\golden" />
+    <Folder Include="tests\golden\ui-redesign" />
+    <Folder Include="tests\golden\ui-redesign\dark-1024x600" />
+    <Folder Include="tests\golden\ui-redesign\dark-1024x600\dark" />
+    <Folder Include="tests\golden\ui-redesign\dark-1100x760" />
+    <Folder Include="tests\golden\ui-redesign\dark-1100x760\dark" />
+    <Folder Include="tests\golden\ui-redesign\light-1024x600" />
+    <Folder Include="tests\golden\ui-redesign\light-1024x600\light" />
+    <Folder Include="tests\golden\ui-redesign\light-1100x760" />
+    <Folder Include="tests\golden\ui-redesign\light-1100x760\light" />
     <Folder Include="tests\integration" />
     <Folder Include="tests\unit" />
+    <Folder Include="tools" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="app\__init__.py" />
@@ -151,6 +164,7 @@
     <Compile Include="app\main.py" />
     <Compile Include="app\reports\__init__.py" />
     <Compile Include="app\reports\inheritance.py" />
+    <Compile Include="app\reports\space.py" />
     <Compile Include="app\search\__init__.py" />
     <Compile Include="app\search\commands.py" />
     <Compile Include="app\search\completions.py" />
@@ -191,6 +205,7 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\chips_logic.py" />
     <Compile Include="app\ui\code_view.py" />
     <Compile Include="app\ui\debug_recorder.py" />
     <Compile Include="app\ui\drag_out.py" />
@@ -201,12 +216,15 @@
     <Compile Include="app\ui\hotkey.py" />
     <Compile Include="app\ui\indexing_settings.py" />
     <Compile Include="app\ui\indexing_view.py" />
+    <Compile Include="app\ui\inspector.py" />
+    <Compile Include="app\ui\kind_badge.py" />
     <Compile Include="app\ui\log_lines.py" />
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter.py" />
     <Compile Include="app\ui\preview_loader.py" />
+    <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
     <Compile Include="app\ui\reports_view.py" />
     <Compile Include="app\ui\result_delegate.py" />
@@ -231,6 +249,7 @@
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
+    <Compile Include="app\ui\widgets\chips.py" />
     <Compile Include="app\ui\widgets\code_commands.py" />
     <Compile Include="app\ui\widgets\code_results.py" />
     <Compile Include="app\ui\widgets\code_types_box.py" />
@@ -249,6 +268,7 @@
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\history_pass.py" />
+    <Compile Include="app\ui\widgets\icons.py" />
     <Compile Include="app\ui\widgets\index_controls.py" />
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
@@ -265,6 +285,7 @@
     <Compile Include="app\ui\widgets\pinned_panel.py" />
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
+    <Compile Include="app\ui\widgets\rail.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
@@ -274,6 +295,9 @@
     <Compile Include="app\ui\widgets\search_bar.py" />
     <Compile Include="app\ui\widgets\search_behaviour_box.py" />
     <Compile Include="app\ui\widgets\search_box.py" />
+    <Compile Include="app\ui\widgets\search_home.py" />
+    <Compile Include="app\ui\widgets\segmented.py" />
+    <Compile Include="app\ui\widgets\skeleton.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
     <Compile Include="app\ui\widgets\sortable_item.py" />
@@ -282,6 +306,7 @@
     <Compile Include="app\ui\widgets\table_filter.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
     <Compile Include="app\ui\widgets\timeline_strip.py" />
+    <Compile Include="app\ui\widgets\toast.py" />
     <Compile Include="app\ui\widgets\tuning_box.py" />
     <Compile Include="app\ui\widgets\tuning_groups.py" />
     <Compile Include="app\ui\widgets\window_box.py" />
@@ -393,12 +418,14 @@
     <Compile Include="tests\unit\test_gpu_lock_wiring.py" />
     <Compile Include="tests\unit\test_gpu_regression_notice.py" />
     <Compile Include="tests\unit\test_gpu_serialize.py" />
+    <Compile Include="tests\unit\test_grab_ui.py" />
     <Compile Include="tests\unit\test_grammars.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
     <Compile Include="tests\unit\test_heif_preview.py" />
     <Compile Include="tests\unit\test_identifiers.py" />
     <Compile Include="tests\unit\test_idle_optimize.py" />
+    <Compile Include="tests\unit\test_idle_tune_and_space_report_ui.py" />
     <Compile Include="tests\unit\test_image_orientation.py" />
     <Compile Include="tests\unit\test_image_vector_store.py" />
     <Compile Include="tests\unit\test_index_flows.py" />
@@ -439,6 +466,7 @@
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
+    <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
@@ -476,6 +504,7 @@
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
     <Compile Include="tests\unit\test_reports_inheritance.py" />
+    <Compile Include="tests\unit\test_reports_space.py" />
     <Compile Include="tests\unit\test_rerank.py" />
     <Compile Include="tests\unit\test_rerank_off_by_default.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
@@ -545,6 +574,8 @@
     <Compile Include="tests\unit\test_tuning_screen.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
+    <Compile Include="tests\unit\test_ui_redesign.py" />
+    <Compile Include="tests\unit\test_ui_redesign_qt.py" />
     <Compile Include="tests\unit\test_ui_responsiveness.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
@@ -563,6 +594,8 @@
     <Compile Include="tests\unit\test_winfs.py" />
     <Compile Include="tests\unit\test_worker_calls.py" />
     <Compile Include="tests\unit\test_write_batching.py" />
+    <Compile Include="tools\__init__.py" />
+    <Compile Include="tools\grab_ui.py" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env.example" />
@@ -582,6 +615,46 @@
     <Content Include="add-to-path.cmd" />
     <Content Include="add-to-path.ps1" />
     <Content Include="app\storage\schema.sql" />
+    <Content Include="assets\icons\bookmark.svg" />
+    <Content Include="assets\icons\chart-column.svg" />
+    <Content Include="assets\icons\chart-no-axes-column.svg" />
+    <Content Include="assets\icons\chevron-down.svg" />
+    <Content Include="assets\icons\chevron-right.svg" />
+    <Content Include="assets\icons\circle-help.svg" />
+    <Content Include="assets\icons\clock.svg" />
+    <Content Include="assets\icons\code.svg" />
+    <Content Include="assets\icons\copy.svg" />
+    <Content Include="assets\icons\cpu.svg" />
+    <Content Include="assets\icons\database.svg" />
+    <Content Include="assets\icons\ellipsis.svg" />
+    <Content Include="assets\icons\external-link.svg" />
+    <Content Include="assets\icons\eye.svg" />
+    <Content Include="assets\icons\file-text.svg" />
+    <Content Include="assets\icons\folder-open.svg" />
+    <Content Include="assets\icons\folder.svg" />
+    <Content Include="assets\icons\hard-drive.svg" />
+    <Content Include="assets\icons\image.svg" />
+    <Content Include="assets\icons\info.svg" />
+    <Content Include="assets\icons\keyboard.svg" />
+    <Content Include="assets\icons\layout-grid.svg" />
+    <Content Include="assets\icons\list.svg" />
+    <Content Include="assets\icons\mail.svg" />
+    <Content Include="assets\icons\move.svg" />
+    <Content Include="assets\icons\palette.svg" />
+    <Content Include="assets\icons\panel-right.svg" />
+    <Content Include="assets\icons\pin.svg" />
+    <Content Include="assets\icons\play.svg" />
+    <Content Include="assets\icons\refresh-cw.svg" />
+    <Content Include="assets\icons\scan-search.svg" />
+    <Content Include="assets\icons\search.svg" />
+    <Content Include="assets\icons\settings.svg" />
+    <Content Include="assets\icons\sliders-horizontal.svg" />
+    <Content Include="assets\icons\sparkles.svg" />
+    <Content Include="assets\icons\square.svg" />
+    <Content Include="assets\icons\sun-moon.svg" />
+    <Content Include="assets\icons\trash-2.svg" />
+    <Content Include="assets\icons\x-circle.svg" />
+    <Content Include="assets\icons\x.svg" />
     <Content Include="assets\leasha-256.png" />
     <Content Include="assets\leasha-logo-400dpi.jpg" />
     <Content Include="assets\leasha-logo-white.png" />
@@ -616,6 +689,7 @@
     <Content Include="docs\WORKORDER-202626082213-install-and-distribution.md" />
     <Content Include="docs\WORKORDER-202626082352-review-remediation.md" />
     <Content Include="docs\WORKORDER-202626130120-gpu-provider-integrity.md" />
+    <Content Include="docs\WORKORDER-202626160950-ui-redesign.md" />
     <Content Include="docs\WORKORDER-202626270046-slash-menu-context-and-metadata.md" />
     <Content Include="docs\WORKORDER-202626270114-index-tuning.md" />
     <Content Include="docs\WORKORDER-202626270157-search-experience.md" />
@@ -647,6 +721,7 @@
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
+    <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
     <Content Include="docs\WORKORDER-ui-shell-and-results.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
@@ -661,6 +736,14 @@
     <Content Include="scripts\parse-check.ps1" />
     <Content Include="scripts\setup-github.ps1" />
     <Content Include="tests\fixtures\README.md" />
+    <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-results.png" />
+    <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-results.png" />
+    <Content Include="tests\golden\ui-redesign\light-1024x600\light\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\light-1024x600\light\search-results.png" />
+    <Content Include="tests\golden\ui-redesign\light-1100x760\light\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\light-1100x760\light\search-results.png" />
   </ItemGroup>
   <ItemGroup>
     <Interpreter Include="venv\">

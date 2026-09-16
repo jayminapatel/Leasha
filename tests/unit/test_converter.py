@@ -32,7 +32,14 @@ from app.extract.converter import (
     resolve_binary,
 )
 
-HAS_SOFFICE = shutil.which("soffice") is not None
+# resolve_binary, not shutil.which: LibreOffice never puts itself on PATH on
+# Windows (see resolve_binary's own docstring - the "two lookups, two
+# answers" bug), so shutil.which said "absent" on a machine that had it
+# installed at the standard location. That let the "binary is missing"
+# tests below run instead of skip, and they then hit the REAL soffice
+# against deliberately corrupt bytes crafted to look like a genuine OLE2
+# document - popping a real recovery dialog on the desktop running them.
+HAS_SOFFICE = resolve_binary("soffice") is not None
 
 
 def rule_for(binary: str, *args: str) -> ConverterRule:
@@ -122,14 +129,20 @@ def test_a_missing_binary_is_reported_rather_than_run(tmp_path):
     source = tmp_path / "doc.doc"
     source.write_text("x", encoding="utf-8")
 
-    original = shutil.which
-    module.shutil.which = lambda _name: None
+    # resolve_binary, not shutil.which: patching only shutil.which defeats
+    # half of resolve_binary's two-step lookup (PATH, then the Windows
+    # install-location fallback _installed_on_windows) and leaves the other
+    # half live - on a machine with LibreOffice actually installed at its
+    # standard Windows location, this used to still find and run the real
+    # thing, popping a real soffice window during this test.
+    original = module.resolve_binary
+    module.resolve_binary = lambda _name: None
     try:
         with pytest.raises(AppErrorException) as caught:
             convert(source, rule_for("soffice", "{input}"))
         assert caught.value.error.code == "ERR_CONVERTER_MISSING"
     finally:
-        module.shutil.which = original
+        module.resolve_binary = original
 
 
 def test_the_timeout_is_capped_regardless_of_configuration():
@@ -190,14 +203,26 @@ def test_available_binaries_reports_every_allowed_one():
 @pytest.fixture
 def real_doc(tmp_path):
     """A genuine `.doc`, made by asking LibreOffice for one."""
+    binary = resolve_binary("soffice")
+    if not binary:
+        pytest.skip("LibreOffice is not installed")
     source = tmp_path / "leeds.txt"
     source.write_text(
         "Leeds site safety report. Findings from the annual inspection.",
         encoding="utf-8",
     )
+    # resolve_binary, not a bare "soffice": LibreOffice never puts itself on
+    # PATH on Windows, so subprocess.run(["soffice", ...]) failed outright
+    # here with FileNotFoundError instead of skipping - the same "two
+    # lookups, two answers" bug as HAS_SOFFICE above, reached through a
+    # direct subprocess.run rather than convert(). Isolated profile for the
+    # same reason convert() in app/extract/converter.py uses one.
+    profile_dir = tmp_path / ".leasha-lo-profile"
+    profile_dir.mkdir(exist_ok=True)
+    profile_url = "file:///" + str(profile_dir.resolve()).replace("\\", "/")
     subprocess.run(
-        ["soffice", "--headless", "--convert-to", "doc",
-         "--outdir", str(tmp_path), str(source)],
+        [binary, f"-env:UserInstallation={profile_url}", "--headless",
+         "--convert-to", "doc", "--outdir", str(tmp_path), str(source)],
         capture_output=True, timeout=180, check=False,
     )
     produced = tmp_path / "leeds.doc"
@@ -245,7 +270,7 @@ def test_the_document_points_at_the_original_not_the_temporary_file(real_doc):
 
     assert documents
     assert documents[0].path == real_doc
-    assert documents[0].meta["converted_by"] in ("soffice", "soffice.bin")
+    assert documents[0].meta["converted_by"] in ("soffice", "soffice.bin", "soffice.exe")
 
 
 def test_an_unknown_target_extractor_fails_precisely(tmp_path):

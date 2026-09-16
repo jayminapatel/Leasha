@@ -21,7 +21,8 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 __all__ = ["RECENT_LIMIT", "SAVED_LIMIT", "SAVED_HEADING", "RECENT_HEADING",
-           "recent", "rows_for", "greeting", "saved_rows", "sections"]
+           "SUGGESTIONS", "recent", "rows_for", "greeting", "saved_rows",
+           "sections"]
 
 #: **No placeholder is defined here, and that is a decision.**
 #:
@@ -32,6 +33,18 @@ __all__ = ["RECENT_LIMIT", "SAVED_LIMIT", "SAVED_HEADING", "RECENT_HEADING",
 #: order's principle 4 - *existing labels and descriptions never change* - to
 #: satisfy a later item of the same order. The principle wins; the note in the
 #: order records it.
+
+#: **Four ways to ask, in the person's own words** (UI Redesign 202626160950
+#: §3a). Shown as pills under the box on the opening page. A fixed list,
+#: never derived from the person's history - privacy defaults
+#: (202626270257) - and written the way an eight-year-old would ask.
+#: `(shown, typed)`: what the pill says and what lands in the box.
+SUGGESTIONS: tuple[tuple[str, str], ...] = (
+    ("the pdf Dave sent about the boiler", "boiler /from dave /type pdf"),
+    ("photos from the Lake District", "Lake District /type image"),
+    ("the spreadsheet with last year's rent", "rent /type xlsx"),
+    ("where I used retry_backoff", "retry_backoff /type code"),
+)
 
 #: How many past searches an empty box offers.
 #:

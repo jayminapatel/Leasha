@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QRect, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from dataclasses import dataclass
+
+from PyQt6.QtCore import QRect, QRectF, QSize, Qt
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
+from app.ui.kind_badge import badge_token, badge_word
 from app.ui.presenter import (
     ResultGroup, Terminator, group_subtitle, is_code_kind, offline_volume_note,
     why,
@@ -33,7 +36,25 @@ from app.ui.presenter import (
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
-__all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED"]
+__all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED", "Skeleton",
+           "BADGE_SIZE", "ROW_RADIUS"]
+
+
+@dataclass(frozen=True)
+class Skeleton:
+    """UI Redesign (202626160950 §6d): a placeholder row painted as three
+    grey bars while a search is still out past 300ms. Same geometry as a
+    group row with a one-line snippet, so the list does not jump when the
+    real rows replace it."""
+
+    seq: int = 0
+
+
+#: UI Redesign §4a: the kind badge's side. Clamped to the name+meta block so
+#: the row's geometry - the size hint - is unchanged by it.
+BADGE_SIZE = 36
+#: §4b: hover and selection are tinted fills with this radius, no border.
+ROW_RADIUS = 8
 
 #: The row's `ResultGroup` or `ResultRow`.
 ROLE_PAYLOAD = int(Qt.ItemDataRole.UserRole)
@@ -139,6 +160,10 @@ class ResultDelegate(QStyledItemDelegate):
         if isinstance(payload, Terminator):
             # Item 5c: one plain line, not the group/chunk geometry below.
             return QSize(width, QFontMetrics(meta_font).height() + 2 * metrics.pad_y)
+        if isinstance(payload, Skeleton):
+            rows = [QFontMetrics(name_font).height(), QFontMetrics(meta_font).height(),
+                    QFontMetrics(body_font).height()]
+            return QSize(width, sum(rows) + metrics.gap * 2 + 2 * metrics.pad_y)
 
         rows = [QFontMetrics(meta_font).height()]
         if isinstance(payload, ResultGroup):
@@ -172,6 +197,9 @@ class ResultDelegate(QStyledItemDelegate):
         if isinstance(payload, Terminator):
             self._paint_terminator(painter, payload, option)
             return
+        if isinstance(payload, Skeleton):
+            self._paint_skeleton(painter, option)
+            return
 
         painter.save()
         # **Painted from the theme's own tokens, not from the widget palette.**
@@ -186,14 +214,17 @@ class ResultDelegate(QStyledItemDelegate):
         # Reading the same tokens the sheet is built from means the two cannot
         # drift apart again.
         colours = theme_colours()
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor(colours["accent_soft"]))
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        # UI Redesign §4b: tinted, rounded, borderless - the same two tokens
+        # as before, drawn as a pill inset from the row's edge.
+        if selected:
+            _fill_row(painter, option.rect, QColor(colours["accent_soft"]))
         elif option.state & QStyle.StateFlag.State_MouseOver:
             # **Item 5a.** `surface_hover` already exists for the stylesheet's
             # own `QListView::item:hover` rule, and that rule can never reach
             # a row this delegate paints itself - the same reason selection
             # is filled here rather than left to the palette, a few lines up.
-            painter.fillRect(option.rect, QColor(colours["surface_hover"]))
+            _fill_row(painter, option.rect, QColor(colours["surface_hover"]))
         text_colour = QColor(colours["text"])
         faint = QColor(colours["text_faint"])
 
@@ -206,7 +237,8 @@ class ResultDelegate(QStyledItemDelegate):
         if isinstance(payload, ResultGroup):
             y = self._paint_group(painter, payload, left, y, width,
                                   name_font, meta_font, text_colour, faint, metrics,
-                                  expanded=bool(index.data(ROLE_EXPANDED)))
+                                  expanded=bool(index.data(ROLE_EXPANDED)),
+                                  selected=selected, colours=colours)
         else:
             left += metrics.indent
             width -= metrics.indent
@@ -222,11 +254,32 @@ class ResultDelegate(QStyledItemDelegate):
 
     def _paint_group(self, painter, group, left, y, width,
                      name_font, meta_font, colour, faint, metrics,
-                     expanded: bool = False) -> int:
+                     expanded: bool = False, selected: bool = False,
+                     colours: Optional[dict] = None) -> int:
+        colours = colours or theme_colours()
+        if selected:
+            # §4b: the selection also thickens the name, so it survives
+            # greyscale - colour is never the only signal.
+            name_font = QFont(name_font)
+            name_font.setWeight(QFont.Weight.ExtraBold)
         painter.setFont(name_font)
         name_metrics = QFontMetrics(name_font)
         painter.setFont(meta_font)
         date_width = QFontMetrics(meta_font).horizontalAdvance(group.when) + 8
+        meta_h = QFontMetrics(meta_font).height()
+
+        # **UI Redesign §4a: a kind badge spanning the name and meta lines.**
+        # A rounded square in the kind's stripe colour with `kind_tag`'s word
+        # in it, and the shell's own file-type icon small in its corner when
+        # the provider has one. Clamped to the two-line block so `sizeHint`
+        # is untouched by it - one source of geometry, still.
+        badge_side = min(BADGE_SIZE, name_metrics.height() + metrics.gap + meta_h)
+        badge_left = left
+        if group.kind:
+            _paint_badge(painter, QRect(left, y, badge_side, badge_side), group.kind, colours,
+                         icon=_icon_for(group.kind))
+            left += badge_side + 10
+            width -= badge_side + 10
 
         # Date first, right-aligned, so the name is elided against the space
         # actually left rather than overlapping it.
@@ -241,13 +294,7 @@ class ResultDelegate(QStyledItemDelegate):
         # the tooltip and accessible text (`kind_tag`, still used there),
         # which is where it stays useful to someone who cannot see the icon.
         text_left = left
-        if group.kind:
-            icon = _icon_for(group.kind)
-            if not icon.isNull():
-                size = min(ICON_SIZE, name_metrics.height())
-                icon.paint(painter, left, y + (name_metrics.height() - size) // 2,
-                          size, size)
-                text_left = left + size + 6
+        # The badge owns the slot the 16px icon used to; see above.
 
         painter.setFont(name_font)
         painter.setPen(QPen(colour))
@@ -310,6 +357,29 @@ class ResultDelegate(QStyledItemDelegate):
         painter.drawText(option.rect, int(Qt.AlignmentFlag.AlignCenter), payload.text)
         painter.restore()
 
+    def _paint_skeleton(self, painter: QPainter, option: Any) -> None:
+        """§6d: three grey bars where a row will be. Nothing to read, and
+        that is the point - it says "coming" without pretending to be data."""
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        colours = theme_colours()
+        bar = QColor(colours["surface_alt"])
+        metrics = Metrics.for_density(self.prefs.density)
+        name_font, meta_font, body_font = self._fonts(option.font)
+        left = option.rect.left() + metrics.pad_x
+        width = option.rect.width() - 2 * metrics.pad_x
+        y = option.rect.top() + metrics.pad_y
+        side = min(BADGE_SIZE, QFontMetrics(name_font).height() + metrics.gap
+                   + QFontMetrics(meta_font).height())
+        painter.fillPath(_rounded(QRectF(left, y, side, side), ROW_RADIUS), QBrush(bar))
+        x = left + side + 10
+        for font, fraction in ((name_font, 0.55), (meta_font, 0.35), (body_font, 0.8)):
+            h = QFontMetrics(font).height()
+            painter.fillPath(_rounded(QRectF(x, y + 2, (width - side - 10) * fraction, h - 4), 4),
+                             QBrush(bar))
+            y += h + metrics.gap
+        painter.restore()
+
     def subtitle_rect(self, option: Any, payload: Any) -> Optional[QRect]:
         """Item 2a: where the "N matches ▸/▾" line paints, for a multi-match
         group - the chevron's own click target.
@@ -356,6 +426,42 @@ class ResultDelegate(QStyledItemDelegate):
 # Geometry helpers. The *text* decisions live in `presenter.py`, Qt-free, so
 # they can be checked without a display - see `group_subtitle` and `kind_tag`.
 # ---------------------------------------------------------------------------
+
+def _rounded(rect: QRectF, radius: float) -> Any:
+    from PyQt6.QtGui import QPainterPath
+    path = QPainterPath()
+    path.addRoundedRect(rect, radius, radius)
+    return path
+
+
+def _fill_row(painter: QPainter, rect: QRect, colour: QColor) -> None:
+    """§4b: a tinted pill inset 2px from the row's edges, no border."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.fillPath(_rounded(QRectF(rect).adjusted(2, 1, -2, -1), ROW_RADIUS),
+                     QBrush(colour))
+    painter.restore()
+
+
+def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict,
+                 icon: Any = None) -> None:
+    """§4a: the kind badge - stripe colour, white word, provider icon in the
+    corner. The colours are the same in both themes by design."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    fill = QColor(colours.get(badge_token(kind), colours.get("kind_other", "#6b5bd6")))
+    painter.fillPath(_rounded(QRectF(rect), ROW_RADIUS), QBrush(fill))
+    word = badge_word(kind)
+    font = QFont(painter.font())
+    font.setBold(True)
+    font.setPointSizeF(max(6.0, min(9.0, rect.height() / 4.0)))
+    painter.setFont(font)
+    painter.setPen(QPen(QColor("#ffffff")))
+    painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), word)
+    if icon is not None and not icon.isNull() and rect.height() >= 28:
+        side = 12
+        icon.paint(painter, rect.right() - side - 1, rect.bottom() - side - 1, side, side)
+    painter.restore()
 
 def _snippet_payload(payload: Any) -> Any:
     if isinstance(payload, ResultGroup):
@@ -456,7 +562,8 @@ def _snippet_height(font: QFont, text: str, width: int, *, max_lines: int = 1) -
 
 def _draw_run(painter: QPainter, text: str, line_start: int, line_end: int,
              highlights: list, x: int, y: int, limit: int,
-             base: QFont, bold: QFont, plain: QPen, matched: QPen) -> int:
+             base: QFont, bold: QFont, plain: QPen, matched: QPen,
+             mark: Optional[QColor] = None) -> int:
     """One wrapped line's worth of runs, alternating plain/bold at `highlights`.
 
     Runs of bold rather than rich text: a `QTextDocument` per row would put
@@ -480,6 +587,14 @@ def _draw_run(painter: QPainter, text: str, line_start: int, line_end: int,
                 piece = QFontMetrics(font).elidedText(
                     piece, Qt.TextElideMode.ElideRight, limit - x)
                 advance = QFontMetrics(font).horizontalAdvance(piece)
+            if mark is not None and font is bold:
+                # UI Redesign §4c: a tinted ground behind the matched words,
+                # 3px radius, drawn before the glyphs so it sits under them.
+                fm = QFontMetrics(font)
+                painter.fillPath(_rounded(QRectF(x - 1, y - fm.ascent() - 1,
+                                                 advance + 2, fm.height() + 2), 3),
+                                 QBrush(mark))
+                painter.setPen(pen)
             painter.drawText(x, y, piece)
             x += advance
         cursor = end
@@ -502,7 +617,11 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor,
     highlights = sorted(getattr(snippet, "highlights", ()) or ())
 
     plain = QPen(colour)
-    matched = QPen(QColor(theme_colours()["highlight"]))
+    colours = theme_colours()
+    # UI Redesign §4c: the words keep their weight and take `mark_text` on a
+    # `mark` ground; `highlight` stays what the accessible text describes.
+    matched = QPen(QColor(colours.get("mark_text", colours["highlight"])))
+    mark = QColor(colours["mark"]) if "mark" in colours else None
     painter.setPen(plain)
 
     base = QFont(painter.font())
@@ -515,7 +634,7 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor,
     for index, (start, end) in enumerate(ranges):
         y = rect.top() + index * metrics.height() + metrics.ascent()
         x = _draw_run(painter, text, start, end, highlights, rect.left(), y,
-                     rect.right(), base, bold, plain, matched)
+                     rect.right(), base, bold, plain, matched, mark=mark)
         if index == len(ranges) - 1 and truncated and x < rect.right():
             painter.setFont(base)
             painter.setPen(plain)
