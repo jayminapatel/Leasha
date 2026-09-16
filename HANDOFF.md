@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 6.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,35 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-16 — the shell is mid-redesign and the working tree is uncommitted.**
+Work order `202626160950` (UI Redesign — one shell for Windows and macOS) was
+drafted, released and built the same day, in a Linux sandbox that has no PyQt6.
+What that means for whoever picks this up on the Windows machine:
+
+- **Nothing from that session is committed.** `git status` shows ~14 modified
+  files under `app/ui/`, `tests/unit/`, `docs/` and eleven new modules
+  (`widgets/rail.py`, `toast.py`, `chips.py`, `segmented.py`, `search_home.py`,
+  `skeleton.py`, `icons.py`; `rail_state.py`, `chips_logic.py`, `kind_badge.py`,
+  `inspector.py`), `assets/icons/`, `tools/grab_ui.py`, four new test files.
+  Commit by name once the Qt suite is green — the checkpoint rule in
+  `WORKORDER-CONVENTIONS.md` §5a applies before anything that touches the tree.
+- **The Qt half is untested until the Windows venv runs it.** The order's
+  delivery note (top of `docs/WORKORDER-202626160950-ui-redesign.md`) lists the
+  six commands in order; the 34 open items are exactly the ones those runs
+  close. The Qt-free half (42 tests, the verbatim walk, the eight load-bearing
+  tests) is green.
+- **`self.tabs` no longer exists; it is `self.rail`** with the same surface.
+  There is no `QStatusBar`; messages go through `MainWindow.notify(text, ms,
+  level=)` to a toast. `interpret_button` and `rerank_toggle` are `QAction`s in
+  the `⋯` menu, `scope` is a `SegmentedControl` with the combo's surface.
+- **Three `*_view.py` files were over the 250-line guard before this order**
+  (`test_every_qt_view_keeps_its_logic_in_the_presenter` was already red) —
+  not this order's doing and not fixed by it; `search_view.py` is held at 249.
+- `WORKORDER-space-report-and-idle-tune-ui-wiring` (raised by the crash-recovery
+  session the same day) was picked up in the same pass: the Space Report is on
+  the Reports page and the idle-tune scheduler is in the shell, tests in
+  `test_idle_tune_and_space_report_ui.py`, unticked until the Windows run.
 
 **Version 0.3.3. Eight of the nine live layers are code-complete; L8b is deferred by decision
 and L9 has not been started. 6,509 tests collected, 2 deselected (JVM - see below) and 1

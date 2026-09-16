@@ -522,7 +522,19 @@ class SqliteStore:
         #: Every connection handed out, so `close()` can close all of them.
         #: `threading.local` cannot be enumerated, and a connection left open
         #: holds a file handle and its share of the WAL.
-        self._open: dict[int, sqlite3.Connection] = {}
+        #:
+        #: A list, not a dict keyed by `threading.get_ident()` - a QThreadPool
+        #: worker thread can be handed a second task without this code seeing
+        #: a new native thread: the ident is unchanged, but a fresh
+        #: `PyThreadState` for that task means `self._local.conn` no longer
+        #: has anything cached, so `conn` (below) opens a second connection.
+        #: Keyed by ident, that second connection overwrote the first here
+        #: and `close()` never saw it again - a real file handle, leaked
+        #: every time a pooled thread picked up more than one task. A list
+        #: just keeps every connection this store has ever handed out, so
+        #: `close()` closes all of them regardless of how many any one
+        #: thread accumulated.
+        self._open: list[sqlite3.Connection] = []
         self._closed = False
         self._migrated = False
         #: Whether `messages_fts` exists, once asked. None means "not asked".
@@ -570,7 +582,7 @@ class SqliteStore:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
 
-        self._open[threading.get_ident()] = conn
+        self._open.append(conn)
         return conn
 
     def connect(self) -> "SqliteStore":
@@ -625,7 +637,7 @@ class SqliteStore:
         # which makes a relaunch wait unnecessarily.
         with self._write_lock, self._conns_lock:
             self._closed = True
-            for conn in self._open.values():
+            for conn in self._open:
                 try:
                     conn.close()
                 except sqlite3.Error:

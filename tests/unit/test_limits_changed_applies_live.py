@@ -195,7 +195,7 @@ def test_the_status_bar_still_says_saved(tmp_path) -> None:
     app, built, store, vectors, _env = _window(tmp_path)
     try:
         built._limits_changed({"index_workers": 4})
-        assert built.statusBar().currentMessage() == (
+        assert built.toast.current_text() == (
             "Saved. Applies to the next index run."
         )
     finally:

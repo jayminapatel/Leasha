@@ -165,7 +165,7 @@ def test_a_resolved_run_still_reaches_indexing_view_start(tmp_path) -> None:
         # refresh) legitimately posts its own message once startup settles,
         # and this test cares only that the "Checking..." one specifically
         # does not linger past resolution finishing.
-        assert "Checking your hardware" not in built.statusBar().currentMessage(), (
+        assert "Checking your hardware" not in built.toast.current_text(), (
             "the 'Checking your hardware...' message must not linger once "
             "resolution has finished"
         )
@@ -204,7 +204,7 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
         assert not built.indexing_view.start_button.isEnabled(), (
             "Start must be disabled while resolution is in flight"
         )
-        assert built.statusBar().currentMessage() != "", (
+        assert built.toast.current_text() != "", (
             "somebody watching the window during a slow cold detection must "
             "see something other than nothing happening"
         )

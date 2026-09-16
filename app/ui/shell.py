@@ -23,14 +23,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
     QMainWindow,
     QMessageBox,
-    QStatusBar,
-    QTabWidget,
     QWidget,
 )
 
@@ -56,7 +54,13 @@ from app.ui.tray import TrayPresence
 from app.ui.view_options import load_prefs, save_prefs
 from app.ui.window_state import restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
+from app.ui.widgets.rail import Rail
+from app.ui.widgets.search_bar import retint_toolbar
+from app.ui.widgets.toast import DEFAULT_TIMEOUT_MS, Toast
 from app.ui.widgets.scroll import wrap_if_needed
+from app.ui.rail_state import (
+    FAILED, FINISHED, IDLE, RUNNING, pill_fraction, pill_text,
+)
 from app.core.run_lock import GUI
 # **Worker bodies live in the presenter**, not here: `test_ui_never_blocks`
 # reads this file and refuses any store call it cannot prove is inside a
@@ -98,6 +102,25 @@ def _stats(stats: Any) -> dict:
     return {key: payload[key] for key in keep if key in payload}
 
 
+def _on_battery() -> bool:
+    """A confirmed "running unplugged" answer, and only that. `None` - no
+    battery, or a platform where the question does not apply - is False, so
+    an unreadable state never blocks the idle bench (rule 2)."""
+    try:
+        import psutil
+
+        state = psutil.sensors_battery()
+    except Exception:                            # noqa: BLE001 - advisory
+        return False
+    return state is not None and not state.power_plugged
+
+
+#: The keys `_build_shortcuts` binds. A menu action showing one of these
+#: must not bind it a second time (§7a).
+_BOUND_ELSEWHERE = frozenset({"Ctrl+K", "Ctrl+F", "Ctrl+,", "Ctrl+I", "Ctrl+P",
+                              "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5"})
+
+
 class MainWindow(QMainWindow):
     """Search, indexing and settings in one window."""
 
@@ -109,7 +132,7 @@ class MainWindow(QMainWindow):
     #: exactly that safely (`app/ui/workers.py`'s `WorkerSignals`, the same
     #: mechanism `IndexWorker`'s `progress` signal relies on): emitting from
     #: any thread onto a receiver that lives on the GUI thread is queued
-    #: automatically, where a direct `self.statusBar().showMessage(...)` call
+    #: automatically, where a direct `self.notify(...)` call
     #: from that background thread would be an unguarded cross-thread Qt call.
     _clip_download_progress = pyqtSignal(str)
 
@@ -168,7 +191,7 @@ class MainWindow(QMainWindow):
         # window - and therefore anywhere to show a message - does not exist
         # yet when `engine` is constructed there.
         self._clip_download_progress.connect(
-            lambda message: self.statusBar().showMessage(message, 8_000))
+            lambda message: self.notify(message, 8_000))
         try:
             engine.status_callback = self._clip_download_progress.emit
         except Exception as exc:               # noqa: BLE001 - H4: the window must still open
@@ -215,6 +238,10 @@ class MainWindow(QMainWindow):
         # exactly what this session's freeze turned out to be.
         self._theme_preference = self._read_state("ui:theme", "system")
         self._theme_hooked = False
+        #: The index's document count as last painted by the Indexing page's
+        #: totals worker; the rail pill shows it when nothing is running
+        #: (§2d). `None` until somebody has counted.
+        self._last_document_count: Optional[int] = None
 
         # Off unless explicitly asked for, by `--debug` or the switch in
         # Settings. See `debug_recorder.py`: it records the shape of what
@@ -317,6 +344,12 @@ class MainWindow(QMainWindow):
         self._optimize_timer = QTimer(self)
         self._optimize_timer.setInterval(3_600_000)
         self._optimize_timer.timeout.connect(self._run_idle_optimize)
+        # Order 0b §5e, wired by WORKORDER-space-report-and-idle-tune-ui-wiring
+        # §2 (2026-09-16): the same hourly idle tick decides whether the
+        # machine should be timed once, quietly. See `_maybe_run_idle_bench`.
+        self._optimize_timer.timeout.connect(self._maybe_run_idle_bench)
+        #: True while an idle bench is out on a worker - one at a time.
+        self._idle_bench_running = False
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -449,11 +482,17 @@ class MainWindow(QMainWindow):
         for pane in (self.search_view.preview, self.files_view.preview):
             pane.pop_out_requested.connect(self._pin_document)
 
-        self.tabs = QTabWidget()
+        # **UI Redesign (202626160950 §2): the rail, not a tab strip.** `Rail`
+        # exposes the `QTabWidget` surface this file already used - addTab,
+        # insertTab, currentChanged, currentIndex, indexOf, setCurrentIndex,
+        # tabText - so every call site below changed one attribute name.
+        # Indexing is not a rail entry; it is the pill at the rail's foot
+        # (§2d), fed from `IndexingView.progressed` further down.
+        self.rail = Rail()
         #: view -> the widget actually sitting in its tab (itself, or a
         #: `QScrollArea` wrapping it). Kept so Mail and Code can be inserted
         #: at the right position once they exist without losing track of
-        #: where Indexing and Settings landed - `QTabWidget.indexOf` on the
+        #: where Indexing and Settings landed - `indexOf` on the
         #: exact wrapped widget always answers correctly even after an
         #: insertion has shifted everything after it. See
         #: `_construct_secondary_views`.
@@ -474,17 +513,24 @@ class MainWindow(QMainWindow):
         # built a beat later by `_construct_secondary_views` and inserted at
         # the positions they would have had here - right after Files - once
         # they exist, so the tab order nobody has to relearn never changes.
-        for view, title, scroll in (
-            (self.search_view, "Search", False),
-            (self.files_view, "Files", False),
-            (self.offline_media_view, "Offline Media", False),
-            (self.reports_view, "Reports", False),
-            (self.indexing_view, "Indexing", False),
-            (self.settings_view, "Settings", True),
+        # (view, title, wrap in a scroll area?, rail icon, placement)
+        #
+        # **Titles are the strings they always were** (§2b). The icon is
+        # chosen here, never inferred from the label; "foot" puts Settings
+        # at the rail's bottom and "pill" makes Indexing the pill's page.
+        for view, title, scroll, icon_name, placement in (
+            (self.search_view, "Search", False, "search", ""),
+            (self.files_view, "Files", False, "folder", ""),
+            (self.offline_media_view, "Offline", False, "hard-drive", ""),
+            (self.reports_view, "Reports", False, "chart-column", ""),
+            (self.indexing_view, "Indexing", False, "database", "pill"),
+            (self.settings_view, "Settings", True, "settings", "foot"),
         ):
             wrapped = wrap_if_needed(view, scroll=scroll)
             self._tab_wrapped[view] = wrapped
-            self._tab_index[view] = self.tabs.addTab(wrapped, title)
+            self._tab_index[view] = self.rail.addTab(
+                wrapped, title, icon=icon_name,
+                foot=placement == "foot", pill=placement == "pill")
         # Refresh a panel when it comes forward rather than on a timer: an
         # index run between visits changes what it should show, and polling a
         # table nobody is looking at is work for nothing. Safe to connect
@@ -492,8 +538,17 @@ class MainWindow(QMainWindow):
         # switch, and there is nothing to switch to yet for either of them -
         # it also guards both references regardless, for the same reason
         # `_focus_mail`/`_focus_code` do.
-        self.tabs.currentChanged.connect(self._tab_changed)
-        self.setCentralWidget(self.tabs)
+        self.rail.currentChanged.connect(self._tab_changed)
+        # §2f: the last-open page is remembered under `ui:page`, the same
+        # keyed-state pattern as `ui:theme`; read back post-construction in
+        # `_start_background_work`, never here (M13).
+        self.rail.currentChanged.connect(self._remember_page)
+        # §2d / §2g: the pill paints from plain data the Indexing page already
+        # emits. Nothing here touches the store.
+        self.indexing_view.progressed.connect(self._paint_pill)
+        self.indexing_view.totals_shown.connect(self._totals_for_pill)
+        self.rail.show_pill(pill_text(IDLE), None)
+        self.setCentralWidget(self.rail)
 
         # **Every scroll-sensitive control in the window, in one call.**
         # Qt lets the wheel change a combo box or spin box that does not have
@@ -526,9 +581,12 @@ class MainWindow(QMainWindow):
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
         self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
+        self._motion = self._read_state("ui:motion", "") == "on"
         self.settings_view.window_box.load(
             self.tray.minimise_to_tray, self.tray.close_to_tray,
-            theme=self._theme_preference)
+            theme=self._theme_preference, motion=self._motion)
+        self.settings_view.window_box.motion_changed.connect(self._motion_changed)
+        self._apply_motion()
         self.settings_view.tray_changed.connect(self._tray_changed)
         if self.tray.minimise_to_tray or self.tray.close_to_tray:
             if not self.tray.install():
@@ -540,8 +598,12 @@ class MainWindow(QMainWindow):
             lambda stats: self.tray.set_status(
                 f"{getattr(stats, 'indexed', 0):,} indexed"))
 
-        self.setStatusBar(QStatusBar())
+        # **UI Redesign §6 ([FINALISE 1]): no status bar.** Every message
+        # that went to the status bar's `showMessage` now goes through `notify`
+        # to a toast over the content, verbatim, and is announced (§6c).
+        self.toast = Toast(self.rail)
         self._build_shortcuts()
+        self._build_menu_bar()
         self._wire_recorder()
 
         self._apply_theme()
@@ -631,13 +693,13 @@ class MainWindow(QMainWindow):
         # regardless of how many tabs an insertion has shifted.
         after_files = self._tab_index[self.files_view]
         mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
-        self.tabs.insertTab(after_files + 1, mail_wrapped, "Mail")
+        self.rail.insertTab(after_files + 1, mail_wrapped, "Mail", icon="mail")
         self._tab_wrapped[self.mail_view] = mail_wrapped
         code_wrapped = wrap_if_needed(self.code_view, scroll=False)
-        self.tabs.insertTab(after_files + 2, code_wrapped, "Code")
+        self.rail.insertTab(after_files + 2, code_wrapped, "Code", icon="code")
         self._tab_wrapped[self.code_view] = code_wrapped
         for view, wrapped in self._tab_wrapped.items():
-            self._tab_index[view] = self.tabs.indexOf(wrapped)
+            self._tab_index[view] = self.rail.indexOf(wrapped)
 
         # `protect_all` already ran once in `__init__` for every control that
         # existed by then; Mail's and Code's controls did not, so it runs
@@ -645,6 +707,7 @@ class MainWindow(QMainWindow):
         # guarded a second time is guarded harmlessly, see `protect`.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
+        self._apply_motion()                     # §5c: the two new panes too
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.
@@ -664,6 +727,8 @@ class MainWindow(QMainWindow):
             # `MainWindow.__init__` - a COUNT(*) and a module import on the UI
             # thread before the first frame.
             self.settings_view.refresh_slow_labels()
+            # §2f: after construction, like `_restore_last_category` (M13).
+            self._restore_last_page()
             self._refresh_status()
             self._start_scheduler()
             # **Detection shells out to PowerShell**, so it happens here for
@@ -718,12 +783,12 @@ class MainWindow(QMainWindow):
 
         record = self.recorder.event
         _log.info("recording this session to {}", self.recorder.path)
-        self.statusBar().showMessage(
+        self.notify(
             f"Recording this session to {self.recorder.path.name}", 10_000
         )
 
-        self.tabs.currentChanged.connect(
-            lambda i: record("tab", name=self.tabs.tabText(i))
+        self.rail.currentChanged.connect(
+            lambda i: record("tab", name=self.rail.tabText(i))
         )
 
         self.search_view.error.connect(lambda e: record("error", where="search", **_err(e)))
@@ -789,6 +854,94 @@ class MainWindow(QMainWindow):
         # first time anyone presses F5 - which nothing would catch until then.
         bind("F5", lambda _checked=False: self._start_indexing())
 
+    def _build_menu_bar(self) -> None:
+        r"""§7a: a menu bar built from the shortcuts `_build_shortcuts` binds.
+
+        macOS requires one - Qt moves it into the system bar unaided - and the
+        owner chose to show it on Windows too ([FINALISE 2]): one line, and
+        it is where people look for "where is the log". Every action here is
+        an existing shortcut with its existing effect; the menu text is the
+        control's own label or tooltip wording wherever one exists, so nothing
+        is phrased two ways. `MenuRole`s file Quit and Preferences under the
+        application menu on macOS. Icons per §0.3; tinted in `_apply_theme`.
+        """
+        from PyQt6.QtWidgets import QMenuBar
+
+        bar = QMenuBar(self)
+        bar.setNativeMenuBar(True)
+        self._menu_actions: list = []
+
+        def add(menu: Any, text: str, slot: Any, keys: str = "", *,
+                icon: str = "", role: Any = None, tip: str = "") -> QAction:
+            action = QAction(text, self)
+            if keys:
+                action.setShortcut(QKeySequence(keys))
+                if keys in _BOUND_ELSEWHERE:
+                    # The QAction in `_build_shortcuts` already owns the key;
+                    # this one only *shows* it, or both would fire.
+                    action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+            if tip:
+                action.setStatusTip(tip)
+                action.setToolTip(tip)
+            if role is not None:
+                action.setMenuRole(role)
+            action.triggered.connect(lambda _c=False: slot())
+            action.icon_name = icon
+            menu.addAction(action)
+            self._menu_actions.append(action)
+            return action
+
+        file = bar.addMenu("&File")
+        add(file, "Start indexing", self._start_indexing, "F5", icon="play",
+            tip="Start an index run now")
+        add(file, "Show the log", self._pop_out_log, icon="file-text",
+            tip="Open the log as its own window")
+        file.addSeparator()
+        add(file, "Settings", lambda: self._show(self.settings_view), "Ctrl+,",
+            icon="settings", role=QAction.MenuRole.PreferencesRole)
+        add(file, "Quit", self.close, "Ctrl+Q", icon="x-circle",
+            role=QAction.MenuRole.QuitRole)
+
+        edit = bar.addMenu("&Edit")
+        add(edit, "Search", self._focus_search, "Ctrl+K", icon="search",
+            tip="Put the cursor in the search box")
+        add(edit, "Clear the search", self._clear_search, "Esc", icon="x")
+
+        view = bar.addMenu("&View")
+        add(view, "Preview pane", self._toggle_preview, "Ctrl+Shift+P",
+            icon="panel-right", tip="Show or hide the preview pane beside the results")
+
+        go = bar.addMenu("&Go")
+        add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
+        add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
+        add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
+        add(go, "Offline", lambda: self._show(self.offline_media_view), icon="hard-drive")
+        add(go, "Reports", lambda: self._show(self.reports_view), icon="chart-column")
+        add(go, "Indexing", lambda: self._show(self.indexing_view), "Ctrl+I", icon="database")
+
+        help_menu = bar.addMenu("&Help")
+        add(help_menu, "Keyboard shortcuts", self._show_shortcuts, icon="keyboard",
+            tip="Every shortcut, in one list")
+        self.setMenuBar(bar)
+
+    def _show_shortcuts(self) -> None:
+        """Help → Keyboard shortcuts: the bindings, read from the menu itself."""
+        lines = []
+        for action in getattr(self, "_menu_actions", ()):
+            keys = action.shortcut().toString()
+            if keys:
+                lines.append(f"{keys:<14} {action.text().replace('&', '')}")
+        lines.append(f"{'Ctrl+Enter':<14} Interpret")
+        lines.append(f"{'Ctrl+F':<14} Search (also Ctrl+K)")
+        QMessageBox.information(self, "Keyboard shortcuts", "\n".join(lines))
+
+    def _tint_menu_icons(self, colours: dict) -> None:
+        from app.ui.widgets.icons import icon
+        for action in getattr(self, "_menu_actions", ()):
+            name = getattr(action, "icon_name", "")
+            if name:
+                action.setIcon(icon(name, colours.get("text_dim", "#888888")))
+
     # -- the schedule -------------------------------------------------------
 
     def _start_scheduler(self) -> None:
@@ -808,7 +961,7 @@ class MainWindow(QMainWindow):
         )
         self.scheduler.due.connect(lambda: self._start_indexing())
         self.scheduler.state_changed.connect(
-            lambda text: self.statusBar().showMessage(f"Indexing: {text}", 8_000)
+            lambda text: self.notify(f"Indexing: {text}", 8_000)
         )
         # **"Next run" was permanently blank.** `set_next_run` existed, said what
         # it was for, and nothing ever called it - so the one line answering "is
@@ -883,7 +1036,7 @@ class MainWindow(QMainWindow):
         from app.ui.widgets.index_flows import ADOPT, FRESH, IndexLocationDialog
 
         if self.indexing_view.is_running():
-            self.statusBar().showMessage(
+            self.notify(
                 "An index run is in progress. Stop it before moving the index.",
                 8_000)
             return
@@ -917,7 +1070,7 @@ class MainWindow(QMainWindow):
             what = "will start a new, empty index there"
         else:
             what = "will move the index there, which can take a while"
-        self.statusBar().showMessage(
+        self.notify(
             f"Saved: the app {what} when you restart it. Nothing has moved yet, "
             "and this index keeps working until then.", 12_000)
 
@@ -926,7 +1079,7 @@ class MainWindow(QMainWindow):
         from app.ui.widgets.index_flows import RebuildVectorsDialog
 
         if self.indexing_view.is_running():
-            self.statusBar().showMessage(
+            self.notify(
                 "An index run is in progress. Stop it before changing the model.",
                 8_000)
             return
@@ -961,13 +1114,13 @@ class MainWindow(QMainWindow):
 
         self._store.set_state("index:rebuild_vectors", "pending")
         if dialog.chosen_dim() != current_dim:
-            self.statusBar().showMessage(
+            self.notify(
                 f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
                 "dimensions. The vector store is rebuilt from empty on the next "
                 "index run, so meaning-based search returns nothing until it "
                 "finishes. Keyword search is unaffected.", 20_000)
         else:
-            self.statusBar().showMessage(
+            self.notify(
                 "Saved. Restart, then run an index to re-embed everything - search "
                 "keeps working on the old vectors until it finishes.", 12_000)
 
@@ -1044,7 +1197,7 @@ class MainWindow(QMainWindow):
                         _log.debug("could not apply {} live: {}", key, exc)
 
         if "RERANK_MODEL" in values:
-            self.statusBar().showMessage(
+            self.notify(
                 "Saved. The rerank model is loaded at startup, so it changes "
                 "the next time the app opens.", 8_000)
 
@@ -1066,7 +1219,7 @@ class MainWindow(QMainWindow):
             self.tray.minimise_to_tray = self.tray.close_to_tray = False
             self.settings_view.minimise_to_tray.setChecked(False)
             self.settings_view.close_to_tray.setChecked(False)
-            self.statusBar().showMessage(
+            self.notify(
                 "This desktop has no notification area, so the window will "
                 "minimise normally.", 8_000)
 
@@ -1123,7 +1276,7 @@ class MainWindow(QMainWindow):
         # changed, and one replacement of the whole batch is what a frozen
         # model allows - there is no field-by-field mutation to fall back to.
         self._settings = self._settings.model_copy(update=values)
-        self.statusBar().showMessage("Saved. Applies to the next index run.", 5_000)
+        self.notify("Saved. Applies to the next index run.", 5_000)
 
     def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
         """Apply a model choice immediately, and persist it.
@@ -1149,7 +1302,7 @@ class MainWindow(QMainWindow):
         # is a permanent question with no answer on screen.
         self.search_view.set_interpret_enabled(enabled)
         self._warm_translator()
-        self.statusBar().showMessage(
+        self.notify(
             f"Interpret will use {model}, with up to {timeout_s}s." if enabled
             else "Query interpretation is off. Search is unaffected.", 8_000)
 
@@ -1274,7 +1427,7 @@ class MainWindow(QMainWindow):
         """
         if str(getattr(self._settings, "index_ocr_pass", "")) != "after-run":
             return
-        self.statusBar().showMessage(
+        self.notify(
             "Text is indexed. Images and scans are still to read - press Start "
             "again to do those.", 30_000)
 
@@ -1437,7 +1590,7 @@ class MainWindow(QMainWindow):
             if found.applied:
                 self._limits_changed({key.lower(): value
                                       for key, value in found.values.items()})
-            self.statusBar().showMessage(found.message, 20_000)
+            self.notify(found.message, 20_000, level="warning")
         except Exception as exc:                 # noqa: BLE001
             _log.debug("nothing was learned from this run: {}", exc)
 
@@ -1469,7 +1622,7 @@ class MainWindow(QMainWindow):
                 remember(self._store, found.as_measured(profile.fingerprint()))
             return found
 
-        self.statusBar().showMessage(
+        self.notify(
             "Timing this computer on a fixed workload - about a minute…",
             120_000)
         worker = CallableWorker(measure, component="ui.tuning")
@@ -1500,7 +1653,7 @@ class MainWindow(QMainWindow):
         three side by side are what say which.
         """
         if getattr(result, "error", ""):
-            self.statusBar().showMessage(
+            self.notify(
                 f"The benchmark could not run: {result.error}", 15_000)
             return
 
@@ -1516,7 +1669,7 @@ class MainWindow(QMainWindow):
         # for a year.
         said = "; ".join(parts) + ("  " + " ".join(result.notes)
                                    if result.notes else "")
-        self.statusBar().showMessage(f"This computer: {said}", 40_000)
+        self.notify(f"This computer: {said}", 40_000)
         self._refresh_tuning_status()
 
     def _focus_files(self) -> None:
@@ -1591,6 +1744,28 @@ class MainWindow(QMainWindow):
         for target in (self.settings_view.debug_pane, self._log_window):
             if target is not None:
                 target.set_palette(colours)
+        # The rail's and toolbar's icons are pixmaps and never see the sheet
+        # (§1c), so the palette is pushed to them the way the log pane's is.
+        self.rail.retint(colours)
+        retint_toolbar(self.search_view, colours)
+        self._tint_menu_icons(colours)
+        for pane in self._preview_panes():
+            pane.retint(colours)
+        # §0.3: the Indexing page's three controls carry icons too. Done here
+        # rather than in `indexing_view.py`, which is past its line guard.
+        from app.ui.widgets.icons import icon as _icon
+        for name, glyph in (("start_button", "play"), ("stop_button", "square"),
+                            ("scan_button", "scan-search")):
+            button = getattr(self.indexing_view, name, None)
+            if button is not None and hasattr(button, "setIcon"):
+                button.setIcon(_icon(glyph, colours.get("text_dim", "#888888")))
+        for view in (self.files_view, getattr(self, "mail_view", None),
+                     getattr(self, "code_view", None),
+                     self.indexing_view, self.settings_view):
+            for target in (view, getattr(view, "_nav", None)):
+                retint = getattr(target, "retint", None)
+                if callable(retint):
+                    retint(colours)
 
         # Qt 6.5+ emits this when the system switch is flipped, so the window
         # follows without a restart.
@@ -1704,7 +1879,7 @@ class MainWindow(QMainWindow):
         """
         index = self._tab_index.get(view)
         if index is not None:
-            self.tabs.setCurrentIndex(index)
+            self.rail.setCurrentIndex(index)
 
     def _current_view(self) -> Any:
         """The view whose tab is in front, or None.
@@ -1713,7 +1888,7 @@ class MainWindow(QMainWindow):
         is not the tab's widget - the scroll area is - which is the same trap
         `_show` exists to avoid, and it returns the wrong object silently.
         """
-        index = self.tabs.currentIndex()
+        index = self.rail.currentIndex()
         for view, at in self._tab_index.items():
             if at == index:
                 return view
@@ -1761,6 +1936,69 @@ class MainWindow(QMainWindow):
                 break
 
 
+    def notify(self, text: str, timeout_ms: Optional[int] = None, *,
+               level: str = "info") -> None:
+        """§6b: what the status bar's `showMessage(text, ms)` used to do.
+
+        Same positional shape, so the 39 call sites changed one name. A
+        message with no timeout showed until replaced; here it shows for the
+        default and is queued rather than overwritten.
+        """
+        self.toast.show_message(text, level, timeout_ms or DEFAULT_TIMEOUT_MS)
+
+    def _paint_pill(self, state: str, indexed: int, value: int, total: int,
+                    paused: bool, stopped_early: bool, error: str) -> None:
+        """§2d: the rail's indexing pill, from plain data. UI thread, no I/O."""
+        kind = {"running": RUNNING, "finished": FINISHED,
+                "failed": FAILED}.get(state, IDLE)
+        documents = self._last_document_count if kind in (FINISHED, IDLE) else None
+        self.rail.show_pill(
+            pill_text(kind, indexed=indexed, documents=documents, paused=paused,
+                      stopped_early=stopped_early, error=error),
+            pill_fraction(value, total) if kind == RUNNING else None)
+
+    def _motion_changed(self, on: bool) -> None:
+        """§5c: one keyed upsert, then every preview pane hears about it."""
+        self._motion = bool(on)
+        self._store.set_state("ui:motion", "on" if on else "off")
+        self._apply_motion()
+
+    def _preview_panes(self) -> list:
+        panes = []
+        for view in (self.search_view, self.files_view,
+                     getattr(self, "mail_view", None),
+                     getattr(self, "code_view", None)):
+            pane = getattr(view, "preview", None) or getattr(
+                getattr(view, "results", None), "preview", None)
+            if pane is not None:
+                panes.append(pane)
+        return panes
+
+    def _apply_motion(self) -> None:
+        for pane in self._preview_panes():
+            pane.motion = self._motion
+
+    def _totals_for_pill(self, documents: int) -> None:
+        """The Indexing page counted; the pill shows the figure when idle."""
+        self._last_document_count = int(documents)
+        self.search_view.home.set_count(int(documents))     # §3a greeting
+        if not self.indexing_view.is_running():
+            self.rail.show_pill(pill_text(IDLE, documents=documents), None)
+
+    def _remember_page(self, index: int) -> None:
+        """§2f: one keyed upsert, the same path `ui:theme` takes."""
+        title = self.rail.tabText(index)
+        if title:
+            self._store.set_state("ui:page", title)
+
+    def _restore_last_page(self) -> None:
+        """§2f: read post-construction (M13), and only if the page exists."""
+        wanted = self._read_state("ui:page", "")
+        for index in range(self.rail.count()):
+            if wanted and self.rail.tabText(index) == wanted:
+                self.rail.setCurrentIndex(index)
+                return
+
     def _focus_search(self) -> None:
         self._show(self.search_view)
         self.search_view.focus()
@@ -1774,7 +2012,7 @@ class MainWindow(QMainWindow):
         """Load the models off the first search's critical path."""
         worker = CallableWorker(self._engine.warm_up, component="ui.warmup")
         worker.signals.failed.connect(
-            lambda error: self.statusBar().showMessage(error.message, 10_000)
+            lambda error: self.notify(error.message, 10_000, level="warning")
         )
         run(QThreadPool.globalInstance(), worker)
 
@@ -1796,7 +2034,7 @@ class MainWindow(QMainWindow):
     def _show_status_counts(self, counts: Any) -> None:
         """UI thread. `counts` is the sentence the presenter built."""
         if counts:
-            self.statusBar().showMessage(str(counts))
+            self.notify(str(counts))
 
     # -- actions ------------------------------------------------------------
 
@@ -1882,7 +2120,7 @@ class MainWindow(QMainWindow):
             self._store.set_state(STATE_KEY, dump_choice(preset, groups))
         except Exception as exc:                 # noqa: BLE001
             _log.warning("code file types not saved: {}", exc)
-            self.statusBar().showMessage(
+            self.notify(
                 "That Code file-type choice was not saved.", 8_000)
             return
         # The Code tab reads this per search, so it takes effect on the next
@@ -1917,7 +2155,7 @@ class MainWindow(QMainWindow):
             # it worked until the next run walks 1.5TB anyway, and by then
             # nobody connects the two.
             _log.warning("index root modes not saved: {}", exc)
-            self.statusBar().showMessage(
+            self.notify(
                 "That folder's Live/Archive setting was not saved.", 8_000)
 
     def _rescan_archives(self) -> None:
@@ -1974,7 +2212,7 @@ class MainWindow(QMainWindow):
         """
         worker = CallableWorker(self._store.bump_generation, component="ui.file_types")
         run(QThreadPool.globalInstance(), worker)
-        self.statusBar().showMessage(
+        self.notify(
             f"File types saved - {len(changes)} differ from the defaults. "
             "They apply to the next index run.", 12_000)
 
@@ -1996,6 +2234,65 @@ class MainWindow(QMainWindow):
         self.showNormal()
         self.raise_()
         self.activateWindow()
+
+    def _maybe_run_idle_bench(self) -> None:
+        r"""Work order 0b §5e: "the first bench runs at the first idle
+        moment and upgrades Defaults to Auto-tune quietly."
+
+        The five rules of WORKORDER-space-report-and-idle-tune-ui-wiring §2,
+        in order: never mid-run; never on confirmed battery (an unreadable
+        battery must not block it); ask `should_bench` for a reason; run the
+        bench off the UI thread with the same call "Benchmark now" makes;
+        remember the result. The reason itself is asked on the worker too -
+        `cached_profile` and `should_bench` both read the store, and this
+        window never does that on its own thread (non-negotiable 5).
+        """
+        if self.indexing_view.is_running() or self._idle_bench_running:
+            return
+        if _on_battery():
+            return
+        settings, store = self._settings, self._store
+        devices = ("cpu", "gpu") if self._can_use_gpu() else None
+
+        def measure() -> Any:
+            from app.core.compute_profile import cached_profile
+            from app.core.measured import remember
+            from app.index.autotune import should_bench
+            from app.index.index_bench import run_index_bench
+
+            profile = cached_profile(store, settings.data_path)
+            reason = should_bench(store, profile)
+            if not reason:
+                return None
+            _log.info("idle-moment bench starting: {}", reason)
+            found = run_index_bench(settings, devices=devices)
+            if not getattr(found, "error", ""):
+                remember(store, found.as_measured(profile.fingerprint()))
+            return found
+
+        self._idle_bench_running = True
+        worker = CallableWorker(measure, component="ui.tuning.idle")
+        worker.signals.finished.connect(self._idle_bench_finished)
+        worker.signals.failed.connect(
+            lambda error: _log.debug("idle-moment bench failed quietly: {}", error))
+        worker.signals.done.connect(lambda: setattr(self, "_idle_bench_running", False))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _idle_bench_finished(self, result: Any) -> None:
+        r"""§5e's own words: "upgrades Defaults to Auto-tune quietly" -
+        never a dialog, never a question. **Only from Defaults**: a person
+        who has since chosen Manual or Auto keeps that choice.
+        """
+        if result is None or getattr(result, "error", ""):
+            return
+        if self._settings.index_tuning_mode != "defaults":
+            return
+        self._settings_changed({"INDEX_TUNING_MODE": "auto"})
+        self._settings = self._settings.model_copy(update={"index_tuning_mode": "auto"})
+        self.indexing_view.tuning.load(self._settings)
+        self._refresh_tuning_status()
+        self.notify("Timed this computer while it was idle - tuned automatically "
+                    "from now on. Change it any time in Index Tuning.", 10_000)
 
     def _run_idle_optimize(self) -> None:
         r"""§3c: refresh the query planner's statistics, off the UI thread.
@@ -2078,12 +2375,12 @@ class MainWindow(QMainWindow):
         chosen = self.settings_view.current_roots()
         if not chosen:
             self._show(self.settings_view)
-            self.statusBar().showMessage(
+            self.notify(
                 "Add at least one folder to index in Settings.", 8_000)
             return
 
         self.indexing_view.scan_button.setEnabled(False)
-        self.statusBar().showMessage("Counting files… the bar will show a real "
+        self.notify("Counting files… the bar will show a real "
                                      "percentage once this finishes.", 0)
 
         worker = CallableWorker(_scan_and_save, self._store, chosen,
@@ -2096,7 +2393,7 @@ class MainWindow(QMainWindow):
 
     def _scan_finished(self, payload: dict) -> None:
         files = int(payload.get("files", 0) or 0)
-        self.statusBar().showMessage(
+        self.notify(
             f"{files:,} files to index. The progress bar can show a percentage "
             f"now.", 10_000)
 
@@ -2124,7 +2421,7 @@ class MainWindow(QMainWindow):
         from app.extract import pst_libpff
 
         target = Path(destination) / Path(archive).stem
-        self.statusBar().showMessage(f"Converting {Path(archive).name}…")
+        self.notify(f"Converting {Path(archive).name}…")
 
         worker = CallableWorker(
             pst_libpff.export_to_eml, Path(archive), target, component="ui.convert",
@@ -2136,7 +2433,7 @@ class MainWindow(QMainWindow):
         run(QThreadPool.globalInstance(), worker)
 
     def _conversion_done(self, count: int, target: Path) -> None:
-        self.statusBar().showMessage(f"Wrote {count:,} messages to {target}", 15_000)
+        self.notify(f"Wrote {count:,} messages to {target}", 15_000)
         roots = self.settings_view.current_roots()
         if str(target) not in roots:
             # Offer it as an index root immediately - converting and then having
@@ -2175,13 +2472,13 @@ class MainWindow(QMainWindow):
         # cost. Saying so is also better than appearing to ignore the button.
         if self.indexing_view.is_running():
             self._show(self.indexing_view)
-            self.statusBar().showMessage("An index run is already in progress.", 5_000)
+            self.notify("An index run is already in progress.", 5_000)
             return
 
         chosen = roots or self.settings_view.current_roots()
         if not chosen:
             self._show(self.settings_view)
-            self.statusBar().showMessage(
+            self.notify(
                 "Add at least one folder to index in Settings.", 8_000
             )
             return
@@ -2197,7 +2494,7 @@ class MainWindow(QMainWindow):
             return
         self._resolving_index = True
         self.indexing_view.start_button.setEnabled(False)
-        self.statusBar().showMessage("Checking your hardware…", 30_000)
+        self.notify("Checking your hardware…", 30_000)
 
         # **The same resolution the tuning screen shows.** One function, so a
         # run started from the window and one started from the command line
@@ -2227,7 +2524,7 @@ class MainWindow(QMainWindow):
         from app.index.walker import WalkConfig
 
         self._resolving_index = False
-        self.statusBar().clearMessage()
+        self.toast.clear()
         # A second Start click cannot get in *ahead* of this while the resolve
         # was in flight (the flag above stops it), but a run started from
         # elsewhere - the CLI, taking the run lock this window will also wait
@@ -2311,7 +2608,7 @@ class MainWindow(QMainWindow):
         so this is defence in depth, not the expected path. Restores the button
         and surfaces the error exactly as a synchronous failure would have."""
         self._resolving_index = False
-        self.statusBar().clearMessage()
+        self.toast.clear()
         self.indexing_view.start_button.setEnabled(True)
         self._show_error(error)
 
@@ -2350,7 +2647,7 @@ class MainWindow(QMainWindow):
         self._show(self.search_view)
         self.search_view.input.setText(f'path:"{name}" ')
         self.search_view.input.setFocus()
-        self.statusBar().showMessage(
+        self.notify(
             f"Searching inside {name} - type what you are looking for.", 8_000)
 
     def _search_repo(self, name: str) -> None:
@@ -2373,7 +2670,7 @@ class MainWindow(QMainWindow):
         self.search_view.set_scope("code")
         self.search_view.input.setText(f'repo:"{name}" ')
         self.search_view.input.setFocus()
-        self.statusBar().showMessage(
+        self.notify(
             f"Searching {name} - type what you are looking for.", 8_000)
 
     def _reset_index(self) -> None:
@@ -2386,7 +2683,7 @@ class MainWindow(QMainWindow):
         folders again. The only real cost is the time to do that.
         """
         if self.indexing_view.is_running():
-            self.statusBar().showMessage(
+            self.notify(
                 "Stop the index run before resetting.", 6_000)
             return
 
@@ -2408,7 +2705,7 @@ class MainWindow(QMainWindow):
             return
 
         self.recorder.event("click", what="reset_index")
-        self.statusBar().showMessage("Clearing the index…")
+        self.notify("Clearing the index…")
 
         def clear() -> dict:
             # **Measured, because "it did nothing" was the report.** The size on
@@ -2429,7 +2726,7 @@ class MainWindow(QMainWindow):
         run(QThreadPool.globalInstance(), worker)
 
     def _index_cleared(self, outcome: Any) -> None:
-        self.statusBar().showMessage(cleared_message(outcome), 20_000)
+        self.notify(cleared_message(outcome), 20_000)
         self.indexing_view.refresh_totals(self._store, self._settings)
         self.files_view.refresh_summary()
         self._refresh_status()
@@ -2531,7 +2828,7 @@ class MainWindow(QMainWindow):
         self.offline_media_view.set_busy("")
         self.offline_media_view.refresh()
         self.files_view.refresh_summary()
-        self.statusBar().showMessage(offline_media_run_summary(result), 20_000)
+        self.notify(offline_media_run_summary(result), 20_000)
 
     def _offline_media_run_failed(self, error: Any) -> None:
         self.offline_media_view.set_busy("")

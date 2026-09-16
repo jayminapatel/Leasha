@@ -161,10 +161,11 @@ def test_every_tab_can_be_selected(window):
     first layout and any timer it starts, which is where three of this
     application's UI bugs have actually lived.
     """
-    from PyQt6.QtWidgets import QTabWidget
-
     app, built = window
-    tabs = built.findChild(QTabWidget)
+    # UI Redesign 202626160950 replaced the QTabWidget navigation strip with
+    # Rail; Rail keeps the same shape (count/setCurrentIndex) on purpose, so
+    # this drives the same pages through the same seam.
+    tabs = built.rail
     assert tabs is not None and tabs.count() > 0, "no tabs were built"
 
     for index in range(tabs.count()):
@@ -550,12 +551,13 @@ def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_p
     bar has to carry the message instead.
 
     Exercises the wiring from the shell's own point of view:
-    `MainWindow.__init__` connects a signal to `self.statusBar().
-    showMessage(...)` and hands the signal's `emit` to `engine.
+    `MainWindow.__init__` connects a signal to `self.notify(...)` (the
+    toast that replaced the status bar, UI Redesign 202626160950 §6) and
+    hands the signal's `emit` to `engine.
     status_callback` - see `app/search/engine.py::SearchEngine.
     _clip_download_progress` for what actually calls it during a real
     search. Calling that same seam directly here, exactly the way the engine
-    would, must make the message show up on the status bar.
+    would, must make the message show up on the toast.
 
     **No `SplashScreen` is constructed anywhere in this test** - `app/ui/
     splash.py` is never imported. The whole point of this item is that this
@@ -594,9 +596,18 @@ def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_p
         # startup work (e.g. the background file-count query) land its own
         # message on top of the one this test is checking.
         message = "Downloading the picture-search model - 42%"
+        # A fresh window's own scheduler fires an initial state_changed
+        # notice synchronously during __init__ (see the schedule wiring in
+        # shell.py's _start_scheduler), which reaches the toast before this
+        # test runs - Toast queues rather than overwrites (see toast.py's
+        # own docstring), so that unrelated notice would otherwise still be
+        # showing when this asserts. Clear it first, the same way
+        # test_rules_5_and_6_remember_then_upgrade_defaults_to_auto_quietly
+        # does in test_idle_tune_and_space_report_ui.py.
+        window.toast.clear()
         engine.status_callback(message)
 
-        assert window.statusBar().currentMessage() == message
+        assert window.toast.current_text() == message
     finally:
         store.close()
         vectors.close()
@@ -625,7 +636,7 @@ def test_a_leasha_link_arriving_while_the_window_is_open_runs_it(window):
 
     _app, built = window
     built.search_view.input.clear()
-    built.tabs.setCurrentIndex(built.tabs.count() - 1)
+    built.rail.setCurrentIndex(built.rail.count() - 1)
 
     with patch.object(built.search_view, "search_now") as ran, \
             patch.object(built, "showNormal"), patch.object(built, "raise_"), \
@@ -635,7 +646,7 @@ def test_a_leasha_link_arriving_while_the_window_is_open_runs_it(window):
              "link": Request("search", "pump station")})
 
     assert built.search_view.input.text() == "pump station"
-    assert built.tabs.currentIndex() == built._tab_index[built.search_view], (
+    assert built.rail.currentIndex() == built._tab_index[built.search_view], (
         "a link has to bring the Search tab forward - somebody clicking one "
         "is asking a question, not opening whichever tab was last used")
     ran.assert_called_once()
@@ -710,7 +721,7 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
             "same reason as mail_view above")
         # Search is what first paint shows, so it must be built already.
         assert built.search_view is not None
-        assert built.tabs.count() == 6, (
+        assert built.rail.count() == 6, (
             "only Search, Files, Offline Media, Reports, Indexing and "
             "Settings exist before the event loop turns - Mail and Code are "
             "inserted a beat later. Order 202626270513 added Offline Media "
@@ -722,7 +733,7 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
 
         assert hasattr(built, "mail_view") and built.mail_view is not None
         assert hasattr(built, "code_view") and built.code_view is not None
-        assert built.tabs.count() == 8, "Mail and Code must both be inserted"
+        assert built.rail.count() == 8, "Mail and Code must both be inserted"
     finally:
         store.close()
         vectors.close()
@@ -759,8 +770,8 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         for _ in range(5):
             app.processEvents()
 
-        assert [built.tabs.tabText(i) for i in range(built.tabs.count())] == [
-            "Search", "Files", "Mail", "Code", "Offline Media", "Reports",
+        assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
+            "Search", "Files", "Mail", "Code", "Offline", "Reports",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -769,12 +780,12 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         for view, title in (
             (built.search_view, "Search"), (built.files_view, "Files"),
             (built.mail_view, "Mail"), (built.code_view, "Code"),
-            (built.offline_media_view, "Offline Media"),
+            (built.offline_media_view, "Offline"),
             (built.reports_view, "Reports"),
             (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
         ):
             index = built._tab_index[view]
-            assert built.tabs.tabText(index) == title, (
+            assert built.rail.tabText(index) == title, (
                 f"_tab_index says {title} is at {index}, but the tab bar "
                 f"disagrees - insertTab must have shifted something the "
                 f"index refresh in _construct_secondary_views missed")
@@ -864,8 +875,8 @@ def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
         # through all of them, which is the only switching a user could
         # actually perform in this gap (there is nothing to click for Mail
         # or Code, since their tabs do not exist either).
-        for index in range(built.tabs.count()):
-            built.tabs.setCurrentIndex(index)
+        for index in range(built.rail.count()):
+            built.rail.setCurrentIndex(index)
             built._tab_changed(index)
 
         for _ in range(5):

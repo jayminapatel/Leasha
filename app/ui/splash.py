@@ -140,6 +140,30 @@ class StatusReporter(Callable[[str], None]):
             self.splash.report_progress(message, progress)
 
 
+
+def _splash_font(points_at_default: float) -> "QFont":
+    """The application's own face at a size relative to the system font.
+
+    UI Redesign (202626160950 §1d). This file was the one place the window
+    still hardcoded `QFont("Segoe UI", n)` - correct on Windows and wrong
+    everywhere else, including the macOS build the shell is now designed for.
+    The sizes are expressed as they always were at a 9pt base (11, 9, 8) and
+    scale with "Make text bigger" exactly as `theme.SCALE` does. Imported
+    lazily, like every Qt symbol in this module, so the splash stays fast.
+    """
+    from PyQt6.QtGui import QFont            # noqa: PLC0415 - startup speed
+    from PyQt6.QtWidgets import QApplication  # noqa: PLC0415
+
+    from app.ui.theme import DEFAULT_POINT_SIZE, base_point_size
+
+    app = QApplication.instance()
+    font = QFont(app.font()) if app is not None else QFont()
+    font.setPointSizeF(round(base_point_size() * points_at_default
+                             / DEFAULT_POINT_SIZE, 1))
+    font.setWeight(QFont.Weight.Normal)
+    return font
+
+
 class SplashScreen:
     """The branded splash screen, shown during startup.
 
@@ -432,7 +456,7 @@ class SplashScreen:
                 )
 
             # 4. Tagline
-            painter.setFont(QFont("Segoe UI", 11, QFont.Weight.Normal))
+            painter.setFont(_splash_font(11))
             painter.setPen(QColor("white"))
             tagline_y = stripe_height + (h // 4) + (h // 6)
             painter.drawText(
@@ -448,7 +472,7 @@ class SplashScreen:
 
             # 6. Status line
             status_y = case_y + (h // 10)
-            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Normal))
+            painter.setFont(_splash_font(9))
             painter.setPen(QColor(BRAND_TEXT_FAINT))
             painter.drawText(
                 0, status_y, w, h // 12,
@@ -463,7 +487,7 @@ class SplashScreen:
 
             # 8. Footer
             footer_y = h - (h // 20)
-            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Normal))
+            painter.setFont(_splash_font(8))
             painter.setPen(QColor(BRAND_TEXT_FAINT))
             painter.drawText(
                 h // 20, footer_y, (w // 2) - (h // 20), h // 20,
@@ -505,7 +529,7 @@ class SplashScreen:
         self._paint_icon(painter, icon_name, icon_x, y, h_icon)
 
         # Paint the text
-        painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Normal))
+        painter.setFont(_splash_font(9))
         painter.setPen(QColor("white"))
         text_x = group_x + h_icon + icon_gap
         painter.drawText(

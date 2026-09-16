@@ -43,6 +43,8 @@ class WindowBox(QGroupBox):
     changed = pyqtSignal(bool, bool)
     #: system | light | dark
     theme_changed = pyqtSignal(str)
+    #: UI Redesign (202626160950 §5c): animate panels, off by default.
+    motion_changed = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Window", parent)
@@ -79,13 +81,28 @@ class WindowBox(QGroupBox):
         appearance = QFormLayout()
         appearance.addRow("Appearance", self.theme)
 
+        # §5c. **Off by default**, and the only perceivable motion the redesign
+        # adds (the preview pane sliding open) is gated on it - the standing
+        # rule that every new behaviour is off-able, applied before it ships.
+        # Stored as `ui:motion` keyed state beside `ui:theme`, the same home
+        # every other Appearance switch has; the registry is for `.env` keys.
+        self.motion = QCheckBox("Animate panels when they open and close")
+        self.motion.setObjectName("UI_MOTION")
+        self.motion.setToolTip(
+            "Slide the preview pane open and closed instead of showing it at "
+            "once. Off by default; leave it off if motion bothers you."
+        )
+        self.motion.setChecked(False)
+        self.motion.toggled.connect(self.motion_changed.emit)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.minimise_to_tray)
         layout.addWidget(self.close_to_tray)
         layout.addLayout(appearance)
+        layout.addWidget(self.motion)
 
     def load(self, minimise: bool, close: bool,
-             theme: Optional[Any] = None) -> None:
+             theme: Optional[Any] = None, motion: Optional[bool] = None) -> None:
         """Show the stored preferences without emitting on the way in."""
         for box, value in ((self.minimise_to_tray, minimise),
                            (self.close_to_tray, close)):
@@ -94,6 +111,10 @@ class WindowBox(QGroupBox):
             box.blockSignals(False)
         if theme is not None:
             self.set_theme(theme)
+        if motion is not None:
+            self.motion.blockSignals(True)
+            self.motion.setChecked(bool(motion))
+            self.motion.blockSignals(False)
 
     def set_theme(self, preference: Any) -> None:
         """Show a stored theme choice without emitting."""

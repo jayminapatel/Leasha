@@ -25,7 +25,7 @@ from typing import Optional
 
 __all__ = [
     "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
-    "theme_colours",
+    "theme_colours", "RADIUS",
 ]
 
 SCHEMES = ("system", "light", "dark")
@@ -56,12 +56,46 @@ PALETTES: dict[str, dict[str, str]] = {
         "text": "#e4e6e8",
         "text_dim": "#a0a6ac",
         "text_faint": "#71777e",
-        "accent": "#4b8fd4",
-        "accent_soft": "#1e3349",
-        "accent_text": "#9cc7f0",
-        "accent_bar": "#4b8fd4",
-        "focus_ring": "#5f9fdd",
+        # **The accent is the brand navy, lifted for a dark ground.** The old
+        # blue read as "any Qt app"; the UI Redesign order (202626160950 §0.1)
+        # made the splash's navy the one colour the shell owns. On black the
+        # navy itself vanishes, so the dark accent is the same hue raised to a
+        # lavender that still reads as the same family beside the rail.
+        "accent": "#9d8cf0",
+        "accent_soft": "#2a2150",
+        "accent_text": "#c3b7ff",
+        "accent_bar": "#9d8cf0",
+        "focus_ring": "#ab9cf5",
         "highlight": "#ffd479",
+        # **The rail is a neutral grey, not the brand navy** (owner direction,
+        # 2026-09-16: the rail should read as a Windows-style side pane that
+        # follows the theme, not a fixed-colour brand strip). Built from the
+        # same surface tokens as everything else so it stays aligned with the
+        # rest of the window rather than drifting as its own palette; the
+        # selected item keeps a soft accent tint so it still reads as chosen.
+        "rail": "#26282b",             # == surface_alt
+        "rail_text": "#a0a6ac",        # == text_dim
+        "rail_on": "#ffffff",
+        "rail_on_text": "#ffffff",     # text on the rail's own hover/selected fill
+        "rail_on_bg": "#2a2150",       # == accent_soft
+        "rail_hover": "#2d2f33",       # == surface_hover
+        # **Kind badges carry the brand stripes** (§0.1-5): the three splash
+        # colours, identical in both palettes by design - a badge is a label,
+        # and a label that changes hue with the theme is two labels.
+        "kind_doc": "#0778d9",
+        "kind_mail": "#ff9933",
+        "kind_code": "#a1b000",
+        "kind_other": "#6b5bd6",
+        # A chip is a removable filter drawn on the accent's soft ground.
+        "chip_bg": "#2a2150",
+        "chip_text": "#c3b7ff",
+        # A toast inverts the ground so it is seen without being loud.
+        "toast_bg": "#e8e5f2",
+        "toast_text": "#15131f",
+        # Matched words get a tinted ground behind them (§4c) rather than bold
+        # alone; `highlight` stays for the accessible text and older callers.
+        "mark": "#4a3a00",
+        "mark_text": "#ffe08a",
         "warning": "#d98b5b",
         # **A third state, added for the log.** `warning` was the only
         # not-fine colour, and a log that paints an error the same as a
@@ -88,11 +122,35 @@ PALETTES: dict[str, dict[str, str]] = {
         "text": "#1b1d20",
         "text_dim": "#585e66",
         "text_faint": "#858b93",
-        "accent": "#1f6fb2",
-        "accent_soft": "#e4eefa",
-        "accent_text": "#155a94",
-        "accent_bar": "#2f80c9",
-        "focus_ring": "#2f80c9",
+        # Navy-derived (202626160950 §1a). Dark enough to be text on white;
+        # the soft ground is the same hue at a whisper.
+        "accent": "#2b1a7a",
+        "accent_soft": "#e9e4fb",
+        "accent_text": "#2b1a7a",
+        "accent_bar": "#2b1a7a",
+        "focus_ring": "#4a37b0",
+        # See the dark palette's comment: a neutral grey rail, aligned with
+        # the rest of the window's own surface tokens rather than a fixed
+        # navy. `rail_on` stays white - it is also used elsewhere (chip
+        # removal) for text on a dark accent fill - so the rail's own
+        # hover/selected text uses `rail_on_text` instead, dark enough to
+        # read on this theme's light grey/light accent fills.
+        "rail": "#f0f1f3",             # == surface_alt
+        "rail_text": "#585e66",        # == text_dim
+        "rail_on": "#ffffff",
+        "rail_on_text": "#2b1a7a",     # == accent_text
+        "rail_on_bg": "#e9e4fb",       # == accent_soft
+        "rail_hover": "#e8eaed",       # == surface_hover
+        "kind_doc": "#0778d9",
+        "kind_mail": "#ff9933",
+        "kind_code": "#a1b000",
+        "kind_other": "#6b5bd6",
+        "chip_bg": "#e9e4fb",
+        "chip_text": "#2b1a7a",
+        "toast_bg": "#1b1826",
+        "toast_text": "#f6f5f9",
+        "mark": "#fff0c2",
+        "mark_text": "#4a3400",
         "scroll": "#c9ccd1",
         "scroll_hover": "#adb1b8",
         # Darker than the dark theme's, because yellow highlight on white is
@@ -121,11 +179,24 @@ QWidget {{ background: {window}; color: {text}; font-size: {body}; }}
    else tightens; this stays roomy because it is where every session starts and
    because a cramped input invites cramped queries. */
 QLineEdit {{
-    background: {surface}; border: 1px solid {border}; border-radius: 5px;
+    background: {surface}; border: 1px solid {border}; border-radius: {radius_input};
     padding: 7px 10px; font-size: {large}; selection-background-color: {accent};
     selection-color: {selection_text};
 }}
 QLineEdit:hover {{ border-color: {border_strong}; }}
+/* **The one box that is the app** (202626160950 §3). Larger radius, a
+   stronger edge, and a shadow-less lift by contrast alone - Qt stylesheets
+   have no box-shadow, so the surface colour against the window does the
+   lifting. `#searchBox` is the Search page's input; every other QLineEdit
+   keeps the rule above. */
+#searchBox {{
+    border: 1px solid {border_strong}; border-radius: {radius_box};
+    padding: 9px 14px;
+}}
+#searchBox:focus {{ border: 2px solid {focus_ring}; padding: 8px 13px; }}
+/* The same box in its opening state, centred and roomy. */
+#searchBox[empty_state="true"] {{ padding: 13px 18px; font-size: {large}; }}
+#searchBox[empty_state="true"]:focus {{ padding: 12px 17px; }}
 /* **Two pixels of accent, not one.** A focus ring that only changes hue is
    invisible to somebody who cannot separate those hues, and hard to spot for
    everybody else on a dense screen. Width carries it as well as colour - the
@@ -138,11 +209,18 @@ QLineEdit:disabled {{ background: {surface_alt}; color: {text_faint}; }}
    not updated - so the one list people look at most had no surface, no
    border and no radius, while every other list did. */
 QListWidget, QListView, QTableWidget, QPlainTextEdit, QTreeWidget, QTreeView {{
-    background: {surface}; border: 1px solid {border}; border-radius: 5px;
+    background: {surface}; border: 1px solid {border}; border-radius: {radius_control};
     /* Rows own their own separation; a grid of lines is the single most dated
        thing a Qt table does. */
     gridline-color: {divider};
     alternate-background-color: {surface};
+}}
+/* **Borderless rows** (202626160950 §1b): the painted results list and the
+   thumbnail grid sit directly on the window with no frame - the rows are the
+   surface. Tables and trees keep their frame because a grid without an edge
+   loses its columns. */
+#resultsList, #thumbnailGrid, #pinnedList, #recentList {{
+    border: none; background: transparent;
 }}
 /* **Hover before selection.** A dense list with no hover state gives no
    feedback that a row is a target at all, which is most of why a table feels
@@ -156,7 +234,7 @@ QTableWidget::item:selected, QTreeWidget::item:selected {{
     background: {accent_soft}; color: {text};
 }}
 QListWidget::item, QListView::item, QTreeWidget::item {{
-    padding: 3px 4px; border-radius: 3px;
+    padding: 3px 4px; border-radius: {radius_control};
 }}
 /* A header that reads as a label rather than as a button: no border box, one
    hairline under it, and the small-caps weight tables use to say "this names
@@ -172,8 +250,13 @@ QTableWidget {{ selection-background-color: {accent_soft}; }}
 
 QPushButton {{
     background: {surface_alt}; border: 1px solid {border};
-    border-radius: 4px; padding: 5px 11px; color: {text};
+    border-radius: {radius_control}; padding: 5px 11px; color: {text};
 }}
+/* The one filled button on a surface - "Open" in the inspector. */
+QPushButton[primary="true"] {{
+    background: {accent}; border-color: {accent}; color: {rail_on};
+}}
+QPushButton[primary="true"]:hover {{ background: {accent_bar}; }}
 QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
 QPushButton:pressed {{ background: {surface}; }}
 QPushButton:focus {{ border: 1px solid {focus_ring}; }}
@@ -189,19 +272,26 @@ QPushButton:disabled {{
    screen and the one nobody mentions because it is everywhere. Thin, no
    steppers, and the handle only gains contrast under the pointer. */
 QScrollBar:vertical {{
-    background: transparent; width: 11px; margin: 0;
+    background: transparent; width: 10px; margin: 0;
 }}
 QScrollBar:horizontal {{
-    background: transparent; height: 11px; margin: 0;
+    background: transparent; height: 10px; margin: 0;
 }}
+/* **As close to an overlay scrollbar as a stylesheet gets** (202626160950
+   §1b): the bar keeps a 10px lane so nothing under it reflows, but the handle
+   paints 4px wide inside it and fills the lane only under the pointer. It is
+   not a true overlay - Qt Widgets would need a custom widget for that - and
+   the order says so rather than claiming otherwise. */
 QScrollBar::handle:vertical {{
-    background: {scroll}; border-radius: 5px; min-height: 28px;
+    background: {scroll}; border-radius: 2px; min-height: 28px;
     margin: 2px 3px 2px 3px;
 }}
 QScrollBar::handle:horizontal {{
-    background: {scroll}; border-radius: 5px; min-width: 28px;
+    background: {scroll}; border-radius: 2px; min-width: 28px;
     margin: 3px 2px 3px 2px;
 }}
+QScrollBar::handle:vertical:hover {{ margin: 2px 1px 2px 1px; border-radius: 4px; }}
+QScrollBar::handle:horizontal:hover {{ margin: 1px 2px 1px 2px; border-radius: 4px; }}
 QScrollBar::handle:hover {{ background: {scroll_hover}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{
     height: 0; width: 0; border: none; background: none;
@@ -227,13 +317,113 @@ QToolTip {{
 
 QToolButton {{
     background: transparent; border: 1px solid transparent;
-    border-radius: 4px; padding: 4px 8px; color: {text_dim};
+    border-radius: {radius_control}; padding: 4px 8px; color: {text_dim};
 }}
 QToolButton:hover {{ background: {surface_hover}; color: {text}; }}
 QToolButton:pressed, QToolButton:checked {{
     background: {accent_soft}; color: {accent_text};
 }}
 QToolButton:focus {{ border-color: {focus_ring}; }}
+/* Icon-only toggles on the Search toolbar (202626160950 §3e): a 28px square
+   that fills when on. The label lives in the tooltip and accessible name. */
+QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18px; }}
+
+/* **The segmented control** (§3c): one flat strip, the chosen segment lifted
+   to the surface colour. A QButtonGroup of checkable QToolButtons, so keyboard
+   and screen readers get the radio semantics without a custom class. */
+#segmented {{ background: {surface_alt}; border-radius: {radius_control}; }}
+#segmented QToolButton {{
+    border: none; border-radius: 6px; padding: 4px 11px; margin: 2px 1px;
+    color: {text_dim}; font-size: {small};
+}}
+#segmented QToolButton:checked {{
+    background: {surface}; color: {text}; font-weight: 600;
+}}
+#segmented QToolButton:focus {{ border: 1px solid {focus_ring}; }}
+
+/* **Chips** (§3d): each typed operator drawn as a removable pill. The remove
+   button is part of the chip, not a separate control, so one tab stop per
+   filter. */
+#chip {{
+    background: {chip_bg}; color: {chip_text};
+    border: none; border-radius: {radius_pill};
+    padding: 3px 4px 3px 10px; font-size: {small};
+}}
+#chip:hover {{ background: {accent_soft}; }}
+#chip:focus {{ border: 1px solid {focus_ring}; }}
+#chipRemove {{
+    background: transparent; border: none; border-radius: {radius_pill};
+    color: {chip_text}; padding: 0 5px; font-weight: 600;
+}}
+#chipRemove:hover {{ background: {accent}; color: {rail_on}; }}
+
+/* **The rail** (§2): navy down the left, one entry per page. Selection is a
+   filled pill AND a heavier label, so it survives greyscale. */
+#rail {{ background: {rail}; border: none; }}
+#rail QToolButton {{
+    color: {rail_text}; background: transparent; border: 1px solid transparent;
+    border-radius: {radius_control}; padding: 7px 0 5px 0; font-size: {small};
+}}
+#rail QToolButton:hover {{ background: {rail_hover}; color: {rail_on_text}; }}
+#rail QToolButton:checked {{
+    background: {rail_on_bg}; color: {rail_on_text}; font-weight: 600;
+}}
+#rail QToolButton:focus {{ border-color: {rail_text}; }}
+#railPill {{
+    background: {rail_hover}; color: {rail_text}; border: none;
+    border-radius: {radius_control}; padding: 6px 4px; font-size: {small};
+}}
+#railPill:hover, #railPill[selected="true"] {{ background: {rail_on_bg}; color: {rail_on_text}; }}
+#railPill:focus {{ border: 1px solid {rail_text}; }}
+#railPillHeadline {{ color: {rail_on_text}; font-weight: 600; font-size: {small}; }}
+#railPillDetail {{ color: {rail_text}; font-size: {small}; }}
+#railPill QProgressBar {{
+    background: {rail_on_bg}; border: none; border-radius: 2px;
+    max-height: 3px; min-height: 3px;
+}}
+#railPill QProgressBar::chunk {{
+    background: {kind_code}; border-radius: 2px; width: 6px; margin: 0;
+}}
+
+/* **The empty Search page** (§3a): the headline is the one use of the
+   display size; everything under it is quiet. */
+#emptyHeadline {{ font-size: {display}; font-weight: 600; color: {text}; }}
+#emptyGreeting {{ color: {text_dim}; font-size: {body}; }}
+#suggestion {{
+    background: {surface}; color: {text_dim}; border: 1px solid {border};
+    border-radius: {radius_pill}; padding: 5px 12px; font-size: {small};
+}}
+#suggestion:hover {{ color: {text}; border-color: {border_strong}; }}
+#suggestion:focus {{ border-color: {focus_ring}; }}
+#recentHeading {{
+    color: {text_faint}; font-size: {small}; font-weight: 600;
+    letter-spacing: 1px;
+}}
+
+/* **The inspector** (§5): the preview pane's facts header. Labels faint,
+   values plain; a hairline under the block. */
+#inspectorFacts {{ border-bottom: 1px solid {divider}; }}
+#factLabel {{ color: {text_faint}; font-size: {small}; }}
+#factValue {{ color: {text}; font-size: {small}; }}
+
+/* **Toasts** (§6): inverted ground, one line, bottom-centre. The dot carries
+   the level alongside the text, never instead of it. */
+#toast {{
+    background: {toast_bg}; color: {toast_text};
+    border: none; border-radius: {radius_control}; padding: 8px 14px;
+    font-size: {small};
+}}
+#toastDot {{ border-radius: 4px; min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px; }}
+#toastDot[level="info"] {{ background: {accent}; }}
+#toastDot[level="warning"] {{ background: {warning}; }}
+#toastDot[level="danger"] {{ background: {danger}; }}
+
+/* The menu bar (§7a): flat, in the window colour, so on Windows it reads as
+   part of the title area rather than as a grey strip from 2009. On macOS Qt
+   moves it to the system bar and this rule never paints. */
+QMenuBar {{ background: {window}; color: {text_dim}; border: none; padding: 2px 6px; }}
+QMenuBar::item {{ padding: 4px 8px; border-radius: 6px; }}
+QMenuBar::item:selected {{ background: {surface_hover}; color: {text}; }}
 
 /* **Colour only: a geometry property here stops the height following the font.**
 
@@ -270,12 +460,9 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 QSplitter::handle:vertical {{ height: 1px; }}
 QSplitter::handle:hover {{ background: {accent}; }}
 
-QStatusBar {{ color: {text_dim}; border-top: 1px solid {divider}; }}
-QStatusBar::item {{ border: none; }}
-
 QProgressBar {{
     background: {surface_alt}; border: 1px solid {border};
-    border-radius: 5px; text-align: center; color: {text};
+    border-radius: {radius_input}; text-align: center; color: {text};
 }}
 /* **A styled chunk with no width renders busy mode as a dead full bar.**
    `setRange(0, 0)` is Qt's indeterminate mode, and it is what an index run
@@ -290,16 +477,19 @@ QProgressBar::chunk {{
     width: 18px; margin: 1px;
 }}
 
-/* A group's title does the separating, so the box around it can be almost
-   nothing. Settings was a page of heavy rectangles; it is a page of sections
-   now. */
+/* **A group is a card** (202626160950 §1b, §8a). The title sits inside the
+   card's top edge rather than breaking its border, which is what turns a
+   "section" into a "card" without moving a single control - the whole of
+   the Settings and Indexing restyle is this rule and the tokens. */
 QGroupBox {{
-    border: 1px solid {divider}; border-radius: 6px;
-    margin-top: 12px; padding-top: 12px; background: {surface};
+    border: 1px solid {border}; border-radius: {radius_box};
+    margin-top: 6px; padding-top: 22px; background: {surface};
 }}
 QGroupBox::title {{
-    subcontrol-origin: margin; left: 10px; padding: 0 4px;
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 12px; top: 12px; padding: 0 2px;
     color: {text_dim}; font-size: {small}; font-weight: 600;
+    background: {surface};
 }}
 
 /* Tabs drawn as tabs.
@@ -360,7 +550,7 @@ QTabBar::tab:focus {{ border-color: {accent}; border-top-color: {accent}; }}
 
 QComboBox, QSpinBox, QTimeEdit {{
     background: {surface}; border: 1px solid {border};
-    border-radius: 4px; padding: 4px 8px; color: {text};
+    border-radius: {radius_control}; padding: 4px 8px; color: {text};
 }}
 QComboBox:hover, QSpinBox:hover, QTimeEdit:hover {{ border-color: {border_strong}; }}
 QComboBox:focus, QSpinBox:focus, QTimeEdit:focus {{ border-color: {focus_ring}; }}
@@ -410,8 +600,16 @@ QComboBox QAbstractItemView {{
    information the application is volunteering, rather than as a failure. */
 #noticeBar {{
     background: {accent_soft}; color: {text};
-    border: 1px solid {border}; border-radius: 4px;
+    border: 1px solid {border}; border-radius: {radius_control};
     padding: 6px 10px; font-size: {small};
+}}
+
+/* **CategoryNav** (§8b) takes the rail's selection language - a filled pill
+   and a heavier label - so the two navigations read as one family. */
+#categorySidebar {{ border: none; background: transparent; }}
+#categorySidebar::item {{ padding: 6px 10px; border-radius: {radius_control}; }}
+#categorySidebar::item:selected {{
+    background: {accent_soft}; color: {accent_text}; font-weight: 600;
 }}
 
 /* `index_stats` sets one of these two on every value it shows, and only
@@ -487,7 +685,23 @@ def theme_colours() -> dict[str, str]:
 #: scale of 12/13/15px is therefore 1.0, 1.083 and 1.25 times the system font
 #: - so on a default machine these reproduce today's window exactly, and on a
 #: machine with larger text they grow with it.
-SCALE: dict = {"small": 1.0, "body": 13.0 / 12.0, "large": 15.0 / 12.0}
+SCALE: dict = {"small": 1.0, "body": 13.0 / 12.0, "large": 15.0 / 12.0,
+               # One more step (202626160950 §1e), for the single headline
+               # on the empty Search page and nothing else. 26px at the
+               # default machine; it follows "Make text bigger" like the rest.
+               "display": 26.0 / 12.0}
+
+#: **Corner radii, as a scale rather than a number per rule.** The redesign
+#: (202626160950 §1a) uses four: inputs keep the 5px they had, controls and
+#: rows take 8, the search box and cards take 10, chips are pills. Named so
+#: the sheet says which it means; kept out of `PALETTES` because those are
+#: colours and a test says so.
+RADIUS: dict[str, str] = {
+    "radius_input": "5px",
+    "radius_control": "8px",
+    "radius_box": "10px",
+    "radius_pill": "999px",
+}
 
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built
 #: before the app exists. 9pt is the Windows default.
@@ -535,4 +749,4 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt))
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS)

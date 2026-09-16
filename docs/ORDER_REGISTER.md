@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.19 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.22 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -48,7 +48,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 |---|---|---|---|---|---|
 | 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 55 / 3 | The remaining three are the structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
-| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **36 / 4** | Item 6c closed 2026-09-15; 5e, 6d, 6h, 6i remain open, each re-verified and blocked on a decision outside this thread — see the order's own 2026-09-15 notes |
+| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **38 / 2** | Recounted 2026-09-16 from the order's own checkboxes (§5e closed by the idle-tune wiring, see `WORKORDER-space-report-and-idle-tune-ui-wiring` §2; 6h/6i remain, see the order's own notes) |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
 | 0d | `202626270257` | Privacy defaults | **SHIPPED** | **9 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |
@@ -59,9 +59,9 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0j | `202626270512` | The Photo Tagger — naming people | **SHIPPED** | **13 / 0** | Closed 2026-09-16 — 2c's suggestion-chip UI was the one real gap; see the order's own dated note |
 | 0k | `202626270513` | Offline Media I — drives in drawers | **SHIPPED** | **17 / 0** | Closed 2026-09-15 — §3 (search/browse decoration) finished the same day; see the order's own dated note |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **12 / 5** | 0k (SHIPPED). 1a/1d/3d/3b-3 closed 2026-09-16 (see the order's own dated note) — the tab dialog, the help line, the online-only results badge. Open: 2a/2b (real, substantial, deliberately not attempted partially — see the order's 2026-09-16 assessment), 2c (DEFERRED INDEFINITELY, do not build), 3b-2's on-tape ordering and one §4 test (both need hardware not present on this machine) |
-| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 5 / 10 | After 0l, before 0m. §1/§2 (Reports page, Digital Inheritance) built and verified 2026-09-16; §3 (Space Report) and §4 (Life Timeline) not started; §5's tests only partly cover what's built so far |
+| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 6 / 9 | Recounted 2026-09-16 from the order's own checkboxes. §1/§2 built; §3 (Space Report) backend built and on the Reports page via `WORKORDER-space-report-and-idle-tune-ui-wiring` §1 — its own 3a/3b stay open as written there; §4 (Life Timeline) not started |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
-| 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
+| 0q | `202626271510` | The results, world class | RELEASED | **24 / 1** | 4a and 3c settled by the owner 2026-09-16 (see the order's dated notes: `elide_path_left` deleted, the line-number clause dropped); one §8 item open (the pytest-qt scenario sweep) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 24** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
@@ -272,7 +272,9 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `202626082213` | Install and distribution | DRAFT | 0 / 0 | **Five `[FINALISE]` decisions open.** See §5 |
 | `202626270238` | Migrate PyQt6 → PySide6 | DRAFT | 0 / 10 | Structural — deferred behind the working version |
 | `202626270515` | Video and audio | DRAFT | 0 / 4 | The epoch after pictures |
-| `202626271328` | The pages reorg | DRAFT | 0 / 13 | Promotion condition: 0114 + 0157 fully ticked |
+| `202626160950` | UI Redesign — one shell for Windows and macOS | **ACTIVE** | **16 / 34** | Released by the owner 2026-09-16, same day; every section built in the Linux sandbox session; the 34 open are the Qt-drawn items awaiting their run on the Windows venv — the exact commands are in the order's delivery note. Folds in 0m §0/§4a (grab script, goldens) and settled 0q's 3c/4a |
+| `space-report-and-idle-tune-ui-wiring` | Wire the Space Report and the idle-tune scheduler into the redesigned shell | **SHIPPED** | **7 / 0** | Raised 2026-09-16 by the crash-recovery session; both wirings built the same day in the redesign session (`reports_view.py`, `shell.py`); ticked 2026-09-16 by the same session's Windows run (`pytest tests/unit/test_idle_tune_and_space_report_ui.py -v`, 10 passed) — see the order's own dated note |
+| `202626271328` | The pages reorg | **SHIPPED** | **13 / 0** | Row corrected 2026-09-16: the order's own file has said RELEASED and delivered 2026-09-05, every item ticked, since that date; this row still read DRAFT 0/13 — the "finished or lying" case §4 names, found while registering the UI Redesign draft |
 | `202626081052` | OCR where it pays | PARKED *(inferred)* | 10 / 7 | Largely superseded by `202626270508`'s ladder |
 | `202626081149` | The Code tab | PARKED *(inferred)* | 0 / 0 | — |
 | `202626081801` | Git sharpness and mail preview | PARKED *(inferred)* | 0 / 0 | — |

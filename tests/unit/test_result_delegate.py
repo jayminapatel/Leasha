@@ -838,7 +838,12 @@ def test_hover_paints_a_different_background_from_the_ordinary_row():
         painter = QPainter(image)
         ResultDelegate().paint(painter, Option(state), Index())
         painter.end()
-        return image.pixelColor(2, 2)
+        # UI Redesign Sec4b: hover/selection now fill a pill inset 2px from
+        # the row with an 8px corner radius (_fill_row), not the full
+        # rectangle - (2, 2) sits in the rounded corner's own cutout and is
+        # never painted by either state. Sample the row's centre instead,
+        # safely inside the pill.
+        return image.pixelColor(100, 20)
 
     plain = pixel_at(QStyle.StateFlag.State_Enabled)
     hovered = pixel_at(QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_MouseOver)

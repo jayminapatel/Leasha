@@ -126,6 +126,12 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
     row.addStretch(1)
     holder = QWidget()
     holder.setLayout(row)
+    # UI Redesign (202626160950 §3e): the toolbar mirrors these into icon
+    # toggles and `⋯` menu items and hides this row. The boxes stay the
+    # owners of label, tooltip, persisted flag and wiring - see
+    # `search_bar._mirror_switches`.
+    holder.boxes = {"timeline": timeline_box, "pinned": pinned_box,
+                    "drag": drag_box, "grid": grid_box, "drawings": drawings_box}
     return holder
 
 
@@ -323,13 +329,15 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     left = QWidget()
     left_layout = QVBoxLayout(left)
     left_layout.setContentsMargins(0, 0, 0, 0)
-    left_layout.addWidget(_switches(
+    switches = _switches(
         results=results, pinned=pinned, timeline=timeline,
-        stack=stack, split=split, grid=grid, store=store))
+        stack=stack, split=split, grid=grid, store=store)
+    left_layout.addWidget(switches)
     left_layout.addWidget(timeline)
     left_layout.addWidget(stack, stretch=1)
 
     outer = QSplitter()
+    outer.switches = switches                 # for the toolbar's mirrors (§3e)
     outer.addWidget(left)
     outer.addWidget(pinned)
     outer.setStretchFactor(0, 4)
