@@ -34,7 +34,15 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+if TYPE_CHECKING:
+    # `_splash_font`'s return type only - every Qt import in this module is
+    # lazy at runtime, so the splash stays fast, but a string annotation
+    # still needs the name resolvable somewhere for a type checker (and for
+    # test_no_undefined_names_anywhere_in_app) without paying for a real
+    # import here.
+    from PyQt6.QtGui import QFont
 
 __all__ = [
     "SplashScreen", "StatusReporter", "get_splash_status_text",

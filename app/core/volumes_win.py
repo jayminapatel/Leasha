@@ -32,7 +32,13 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # `_probe_pool`/`_pool`'s annotations only - the real import stays
+    # inside `_pool()`, imported once and reused rather than paying for it
+    # at module load on every process that imports this file.
+    from concurrent.futures import ThreadPoolExecutor
 
 __all__ = [
     "VolumeIdentity",
