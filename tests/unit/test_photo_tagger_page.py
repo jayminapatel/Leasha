@@ -48,8 +48,19 @@ def _photo(store, name="a.jpg"):
 
 
 def _settle(qapp):
-    QThreadPool.globalInstance().waitForDone(5_000)
-    for _ in range(3):
+    r"""Drains a chain of workers, not just one round of them.
+
+    `_on_suggestion_decided` now schedules its own `CallableWorker`
+    (non-negotiable #5, closing `test_ui_never_blocks.py`'s guard for this
+    file) whose `finished` signal calls `reload()`, which schedules two
+    more. A single `waitForDone()` + `processEvents()` only drains the
+    first level - `waitForDone()` returns before the second-level workers
+    even exist, since `reload()` only runs once `processEvents()` delivers
+    the first worker's queued signal. Interleaving the two, repeatedly,
+    drains however many levels deep the chain goes.
+    """
+    for _ in range(5):
+        QThreadPool.globalInstance().waitForDone(5_000)
         qapp.processEvents()
 
 
