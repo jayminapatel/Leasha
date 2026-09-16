@@ -212,6 +212,105 @@ def test_idle_optimize_timer_actually_calls_the_store(window):
         built._store.optimize_query_planner = real
 
 
+def test_idle_bench_never_asks_should_bench_while_a_run_is_in_progress(
+    window, monkeypatch,
+):
+    r"""Work order 0b §5e: "never mid-run" is the first of the three guards,
+    and it must hold before `should_bench` is even consulted - a bench is
+    real CPU/GPU work, and starting one alongside an index run is exactly
+    the collision §5e exists to avoid."""
+    import app.index.autotune as autotune_module
+
+    app, built = window
+
+    asked: list[bool] = []
+    monkeypatch.setattr(built.indexing_view, "is_running", lambda: True)
+    monkeypatch.setattr(
+        autotune_module, "should_bench",
+        lambda store, profile: asked.append(True) or "unused")
+
+    built._maybe_run_idle_bench()
+
+    assert not asked, "should_bench must not run while indexing is in progress"
+
+
+def test_idle_bench_skips_while_unplugged(window, monkeypatch):
+    r"""The second guard: "never on battery." A `None` reading (no battery,
+    or the question does not apply) must not hold the bench back - only a
+    genuine "running on battery" answer does."""
+    import app.index.autotune as autotune_module
+
+    app, built = window
+
+    class _Unplugged:
+        power_plugged = False
+
+    asked: list[bool] = []
+    monkeypatch.setattr(built.indexing_view, "is_running", lambda: False)
+    monkeypatch.setattr("psutil.sensors_battery", lambda: _Unplugged())
+    monkeypatch.setattr(
+        autotune_module, "should_bench",
+        lambda store, profile: asked.append(True) or "unused")
+
+    built._maybe_run_idle_bench()
+
+    assert not asked, "should_bench must not run while unplugged"
+
+
+def test_idle_bench_runs_and_quietly_upgrades_defaults_to_auto(window, monkeypatch):
+    r"""The whole promise in one test: idle, plugged in, nothing running -
+    the bench runs unattended and Defaults becomes Auto-tune with no dialog,
+    no question, just the status bar saying what happened afterwards."""
+    from PyQt6.QtCore import QThreadPool
+
+    import app.index.autotune as autotune_module
+    import app.index.index_bench as index_bench_module
+
+    app, built = window
+    original_mode = built._settings.index_tuning_mode
+    assert original_mode == "defaults", "the fixture's own .env sets no mode"
+
+    from app.index.index_bench import IndexBench
+
+    fake_result = IndexBench(
+        documents=3, chunks=9, extract_per_second=12.0, write_per_second=40.0,
+        embed_per_second={"cpu": 8.0}, seconds=1.2, error="",
+    )
+    remembered = []
+
+    monkeypatch.setattr(built.indexing_view, "is_running", lambda: False)
+    monkeypatch.setattr(
+        "psutil.sensors_battery",
+        lambda: type("Plugged", (), {"power_plugged": True})())
+    monkeypatch.setattr(
+        autotune_module, "should_bench",
+        lambda store, profile: "this machine has not been timed yet")
+    monkeypatch.setattr(
+        index_bench_module, "run_index_bench",
+        lambda settings, devices=None: fake_result)
+    monkeypatch.setattr(
+        "app.core.measured.remember",
+        lambda store, measured: remembered.append(measured))
+
+    try:
+        built._maybe_run_idle_bench()
+        QThreadPool.globalInstance().waitForDone(10_000)
+        for _ in range(3):
+            app.processEvents()
+
+        assert remembered, "a successful bench must be remembered"
+        assert built._settings.index_tuning_mode == "auto", (
+            "Defaults must become Auto-tune, quietly, after the first "
+            "successful idle bench")
+        assert built.indexing_view.tuning.current_mode() == "auto", (
+            "the mode control must reflect the upgrade too, not just Settings")
+    finally:
+        built._settings_changed({"INDEX_TUNING_MODE": original_mode})
+        built._settings = built._settings.model_copy(
+            update={"index_tuning_mode": original_mode})
+        built.indexing_view.tuning.load(built._settings)
+
+
 # --- §4: Window state (save/restore geometry) ----------------------------------
 
 

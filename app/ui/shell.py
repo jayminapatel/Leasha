@@ -317,6 +317,11 @@ class MainWindow(QMainWindow):
         self._optimize_timer = QTimer(self)
         self._optimize_timer.setInterval(3_600_000)
         self._optimize_timer.timeout.connect(self._run_idle_optimize)
+        # Work order 0b §5e. The same hourly "idle moment" `_run_idle_optimize`
+        # already uses - `should_bench()` answers "" forever after the first
+        # successful bench for this machine, so every tick after the first is
+        # a cheap read and nothing else, not a second question.
+        self._optimize_timer.timeout.connect(self._maybe_run_idle_bench)
         # Connected once, here. Connecting inside _start_indexing would add a
         # slot per run, so the tenth index would refresh the status bar ten times.
         self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
@@ -2011,6 +2016,77 @@ class MainWindow(QMainWindow):
         worker = CallableWorker(self._store.optimize_query_planner,
                                  component="ui.optimize")
         run(QThreadPool.globalInstance(), worker)
+
+    def _maybe_run_idle_bench(self) -> None:
+        r"""Work order 0b §5e: "the first bench runs at the first idle
+        moment and upgrades Defaults to Auto-tune quietly."
+
+        `app.index.autotune.should_bench()` already answers *why* a bench
+        should run; this is the missing *when* - idle (the same hourly tick
+        `_run_idle_optimize` uses), never mid-run, never on battery, never a
+        question. A kids'-machine install is exactly this: run the
+        installer, walk away, and within the hour Defaults has quietly
+        become Auto-tune with nobody asked anything.
+        """
+        if self.indexing_view.is_running():
+            return
+        try:
+            import psutil
+
+            state = psutil.sensors_battery()
+            # `None` means no battery API answered - a desktop, or a
+            # platform where the question does not apply - and "unknown"
+            # must not block the one thing this item exists to do. Only a
+            # real "unplugged" answer holds it back.
+            if state is not None and not state.power_plugged:
+                return
+        except Exception:                        # noqa: BLE001 - never on battery is advisory
+            pass
+
+        from app.core.compute_profile import cached_profile
+        from app.index.autotune import should_bench
+
+        profile = cached_profile(self._store, self._settings.data_path)
+        reason = should_bench(self._store, profile)
+        if not reason:
+            return
+
+        _log.info("idle-moment bench starting: {}", reason)
+        devices = ("cpu", "gpu") if self._can_use_gpu() else None
+
+        def measure() -> Any:
+            from app.core.measured import remember
+            from app.index.index_bench import run_index_bench
+
+            found = run_index_bench(self._settings, devices=devices)
+            if not found.error:
+                remember(self._store, found.as_measured(profile.fingerprint()))
+            return found
+
+        worker = CallableWorker(measure, component="ui.tuning.idle")
+        worker.signals.finished.connect(self._idle_bench_finished)
+        worker.signals.failed.connect(
+            lambda error: _log.debug("idle-moment bench failed quietly: {}", error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _idle_bench_finished(self, result: Any) -> None:
+        r"""§5e's own words: "upgrades Defaults to Auto-tune quietly" -
+        never a dialog, never a question. Only upgrades from Defaults - a
+        person who has since chosen Manual keeps that choice; this never
+        overrides a decision somebody has actually made.
+        """
+        if getattr(result, "error", ""):
+            _log.debug("idle-moment bench produced no measurement: {}", result.error)
+            return
+        if self._settings.index_tuning_mode != "defaults":
+            return
+        self._settings_changed({"INDEX_TUNING_MODE": "auto"})
+        self._settings = self._settings.model_copy(update={"index_tuning_mode": "auto"})
+        self.indexing_view.tuning.load(self._settings)
+        self._refresh_tuning_status()
+        self.statusBar().showMessage(
+            "Timed this computer while it was idle - tuned automatically "
+            "from now on. Change it any time in Index Tuning.", 10_000)
 
     def _run_link(self, request: Any) -> None:
         r"""A `leasha://` link arrived while this window was open. §7a.
