@@ -283,6 +283,7 @@ class OllamaClient:
         timeout: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stop: Optional[list[str]] = None,
+        images: Optional[list[str]] = None,
     ) -> OllamaResponse:
         """One completion. Raises `AppErrorException(ERR_OLLAMA_DOWN)` on anything.
 
@@ -290,6 +291,16 @@ class OllamaClient:
         extraction rather than writing. Extraction that varies between runs makes
         a graph that changes when nothing changed, and nothing downstream can
         tell that apart from the corpus having changed.
+
+        `images`, when given, is a list of base64-encoded image bytes (no data
+        URI prefix - Ollama's own `/api/generate` shape). Work order 0i section
+        3: the "Describe" button and the caption trickle both need a vision
+        model (llava/qwen-vl class) to look at a photo, not just read text: a
+        model with no vision head accepts the field and answers as if it were
+        never sent, so the caller (`app.extract.vision_caption`) is what
+        decides whether the configured model is vision-capable, not this
+        client - this stays a thin, model-agnostic transport exactly as the
+        module docstring promises.
         """
         if not self.health():
             raise AppErrorException(self.down_error("Ollama is not responding at " + self.url))
@@ -327,6 +338,8 @@ class OllamaClient:
             payload["options"]["stop"] = list(stop)
         if json_mode:
             payload["format"] = "json"
+        if images:
+            payload["images"] = list(images)
 
         # Imported here, not in the `except` clause below: `requests` is loaded
         # lazily by `_post`, so naming `requests.exceptions.Timeout` in a handler

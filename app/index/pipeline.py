@@ -542,6 +542,23 @@ class PipelineConfig:
     #: envelope is `resolve.py`'s job, the same as every other tunable here -
     #: `Pipeline` only ever spends what it is given.
     worker_ceiling: int = 0
+    #: Work order 0i section 3b. OFF by default - see `app.core.
+    #: settings_registry.CAPTION_TRICKLE_ENABLED` for the reasoning. Read by
+    #: `_drain_caption_trickle`, which the pipeline has no `Settings` object
+    #: to consult directly - the same reason `sidecar_dir` above is passed
+    #: rather than derived.
+    caption_trickle_enabled: bool = False
+    #: Where and which model `_drain_caption_trickle` asks, when the switch
+    #: above is on. Defaults match `app.llm.ollama.OllamaClient`'s own and
+    #: `app.extract.vision_caption.DEFAULT_VISION_MODEL`.
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_vision_model: str = "llava"
+    #: Work order 0j, the whole order. OFF by default - see `app.core.
+    #: settings_registry.PEOPLE_RECOGNITION_ENABLED`. Read by `_write_one`
+    #: (the images-pass face step, section 1a) and `_drain_face_backfill`
+    #: (the enrichment-backlog kind for already-indexed photos, section
+    #: 1a's own "backfill... runs as an enrichment-backlog job kind").
+    people_recognition_enabled: bool = False
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -2772,6 +2789,15 @@ class Pipeline:
     KIND_UNEMBEDDED_CHUNK = "unembedded_chunk"
     KIND_OCR_PENDING = "ocr_pending"      # counted in _candidates, not drained here
     KIND_UNTAGGED_IMAGE = "image_tag"     # declared, not yet drained - see above
+    #: Work order 0i section 3b - the fourth kind this order actually builds
+    #: a real drain for. See `_drain_caption_trickle` below.
+    KIND_CAPTION_TRICKLE = "caption_trickle"
+    #: Work order 0j section 1a. Two kinds, not one: "has this photo been
+    #: scanned for faces at all" and "does every detected face have a
+    #: verdict yet" are different questions with different queues - see
+    #: `_drain_face_backfill`/`_drain_face_cluster`.
+    KIND_FACE_BACKFILL = "face_backfill"
+    KIND_FACE_CLUSTER = "face_cluster"
 
     def _run_enrichment_drains(self, stats: IndexStats) -> None:
         """Run every registered enrichment-backlog kind, once, at run start.
@@ -2780,7 +2806,12 @@ class Pipeline:
         matching `_drain_unembedded`'s own existing promise ("bounded and
         never fatal") rather than adding a new failure mode on top of it.
         """
-        for kind, drain in ((self.KIND_UNEMBEDDED_CHUNK, self._drain_unembedded),):
+        for kind, drain in (
+            (self.KIND_UNEMBEDDED_CHUNK, self._drain_unembedded),
+            (self.KIND_CAPTION_TRICKLE, self._drain_caption_trickle),
+            (self.KIND_FACE_BACKFILL, self._drain_face_backfill),
+            (self.KIND_FACE_CLUSTER, self._drain_face_cluster),
+        ):
             try:
                 drain(stats)
             except Exception as exc:              # noqa: BLE001 - a repair, not the job
@@ -2864,6 +2895,241 @@ class Pipeline:
             self._log.info(
                 "filled in {} chunk(s) that an earlier run left without vectors - "
                 "they were searchable by keyword but not by meaning", filled)
+
+    def _drain_caption_trickle(self, stats: IndexStats) -> None:
+        r"""Corpus-wide "Describe" for every photo that does not have one yet.
+
+        Work order 0i section 3b. OFF by default
+        (`PipelineConfig.caption_trickle_enabled`) - see `app.core.
+        settings_registry.CAPTION_TRICKLE_ENABLED` for why. When on, this is
+        section 3a's on-demand Describe button run against the whole backlog
+        instead of one photo: same model, same label
+        (`app.extract.vision_caption.AI_CAPTION_LABEL`), same
+        `store.add_caption_chunk`. A model that never answers (Ollama not
+        running, or running without a vision-capable model installed) costs
+        one `available()` check and nothing more - this never blocks a run
+        the way a hung network call would.
+
+        Bounded and never fatal, the same promise `_drain_unembedded` makes:
+        a corpus with thousands of undescribed photos must not turn "index
+        my new files" into "wait for every old photo to be described first".
+        """
+        if not self.config.caption_trickle_enabled:
+            stats.enrichment_counts[self.KIND_CAPTION_TRICKLE] = 0
+            return
+
+        from app.extract.ocr import OcrExtractor
+        from app.extract.vision_caption import available, describe_image
+        from app.llm.ollama import OllamaClient
+
+        client = OllamaClient(
+            url=self.config.ollama_url, model=self.config.ollama_vision_model)
+        if not available(client):
+            # Declared even when skipped, same reasoning as `_drain_unembedded`'s
+            # own "ran and found nothing" vs "did not run" distinction - a
+            # switch left on with no model pulled must be visible as zero,
+            # not silently absent from the summary.
+            stats.enrichment_counts[self.KIND_CAPTION_TRICKLE] = 0
+            return
+
+        described = 0
+        try:
+            for batch in self.store.iter_uncaptioned_images(
+                    OcrExtractor.extensions, batch_size=8):
+                if self._stop.is_set():
+                    break
+                # Same per-batch governor pacing `_drain_unembedded` already
+                # uses (0i section 2b): a description costs real CPU/network
+                # time per photo, so "your index gets smarter while you
+                # sleep" must never make a laptop hot in a lap here either.
+                verdict = self.governor.wait_while_throttled(
+                    should_stop=self._stop.is_set)
+                stats.paused_seconds = self.governor.paused_seconds
+                stats.pauses = self.governor.pauses
+                stats.paused = self.governor.paused
+                stats.pause_reason = self.governor.pause_reason
+                if verdict.action == "stop":
+                    break
+                for file_id, path in batch:
+                    if self._stop.is_set():
+                        break
+                    result = describe_image(Path(path), client)
+                    if result is not None:
+                        self.store.add_caption_chunk(file_id, result.caption)
+                        described += 1
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning(
+                "could not finish the caption trickle: {}. Indexing continues.", exc)
+
+        stats.enrichment_counts[self.KIND_CAPTION_TRICKLE] = described
+        if described:
+            self._log.info(
+                "described {} photo(s) that had no AI description yet", described)
+
+    def _drain_face_backfill(self, stats: IndexStats) -> None:
+        r"""Face-scan every already-indexed photo the switch was off for.
+
+        Work order 0j section 1a's own "Backfill for already-indexed images
+        runs as an enrichment-backlog job kind". Switch-gated exactly like
+        `_maybe_detect_faces` - the same "off means the import never
+        happens" shape, checked first, before `face_detect` is even named.
+        """
+        if not self.config.people_recognition_enabled:
+            stats.enrichment_counts[self.KIND_FACE_BACKFILL] = 0
+            return
+
+        from app.extract.face_detect import available, detect_faces
+        from app.extract.ocr import OcrExtractor
+
+        if not available():
+            stats.enrichment_counts[self.KIND_FACE_BACKFILL] = 0
+            return
+
+        scanned = 0
+        try:
+            for batch in self.store.iter_photos_without_face_scan(
+                    OcrExtractor.extensions, batch_size=8):
+                if self._stop.is_set():
+                    break
+                verdict = self.governor.wait_while_throttled(
+                    should_stop=self._stop.is_set)
+                stats.paused_seconds = self.governor.paused_seconds
+                stats.pauses = self.governor.pauses
+                stats.paused = self.governor.paused
+                stats.pause_reason = self.governor.pause_reason
+                if verdict.action == "stop":
+                    break
+                for file_id, path in batch:
+                    if self._stop.is_set():
+                        break
+                    try:
+                        detections = detect_faces(Path(path))
+                    except Exception as exc:      # noqa: BLE001 - H4: one photo, not the run
+                        self._log.debug("face backfill skipped {}: {}", path, exc)
+                        continue
+                    for detection in detections:
+                        self.store.add_face(
+                            file_id, detection.bbox, detection.embedding)
+                    self.store.mark_face_scanned(file_id)
+                    scanned += 1
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning(
+                "could not finish the face-detection backfill: {}. "
+                "Indexing continues.", exc)
+
+        stats.enrichment_counts[self.KIND_FACE_BACKFILL] = scanned
+        if scanned:
+            self._log.info(
+                "face-scanned {} photo(s) indexed before Recognise people "
+                "was switched on", scanned)
+
+    def _drain_face_cluster(self, stats: IndexStats) -> None:
+        r"""Give every unclustered face a verdict: assign, suggest, or a
+        fresh pile. Work order 0j sections 1b and 2c.
+
+        Switch-gated like its siblings above - a face row can only exist if
+        the switch was on when it was detected, so this is defence in depth
+        rather than the only thing standing between "off" and real work,
+        but it is asked anyway: turning the switch off mid-session must stop
+        *every* face-shaped thing this pipeline does, immediately, not just
+        the ones that create new rows.
+        """
+        if not self.config.people_recognition_enabled:
+            stats.enrichment_counts[self.KIND_FACE_CLUSTER] = 0
+            return
+
+        from app.index.face_clustering import centroid_of, cluster_batch
+
+        resolved = 0
+        try:
+            raw_centroids = self.store.pile_centroids()
+            centroids = {
+                pile_id: centroid_of(embeddings)
+                for pile_id, embeddings in raw_centroids.items()
+            }
+            for batch in self.store.iter_unclustered_faces(batch_size=32):
+                if self._stop.is_set():
+                    break
+                verdict = self.governor.wait_while_throttled(
+                    should_stop=self._stop.is_set)
+                stats.paused_seconds = self.governor.paused_seconds
+                stats.pauses = self.governor.pauses
+                stats.paused = self.governor.paused
+                stats.pause_reason = self.governor.pause_reason
+                if verdict.action == "stop":
+                    break
+
+                plan = cluster_batch(
+                    [(face.id, face.embedding) for face in batch], centroids)
+                for face_id, pile_id, confidence in plan.assign:
+                    self.store.assign_face(face_id, pile_id, confidence=confidence)
+                    resolved += 1
+                for face_id, pile_id, confidence in plan.suggest:
+                    self.store.suggest_face(face_id, pile_id)
+                    resolved += 1
+                for group in plan.new_piles:
+                    new_id = self.store.split_pile(group)
+                    if new_id is not None:
+                        resolved += len(group)
+                        # A fresh pile joins the centroid pool immediately -
+                        # the next batch in this same drain, and the next
+                        # face in this one, can match against it too,
+                        # rather than waiting for another whole run.
+                        by_face = dict(
+                            (f.id, f.embedding) for f in batch)
+                        embeddings = [by_face[fid] for fid in group if fid in by_face]
+                        if embeddings:
+                            centroids[new_id] = centroid_of(embeddings)
+                # `plan.unresolved` faces stay exactly as they were -
+                # unassigned, unsuggested - for a later batch to give them
+                # company. Nothing to do for them here.
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning(
+                "could not finish face clustering: {}. Indexing continues.", exc)
+
+        stats.enrichment_counts[self.KIND_FACE_CLUSTER] = resolved
+        if resolved:
+            self._log.info("sorted {} face(s) into piles or suggestions", resolved)
+
+    def _maybe_detect_faces(self, candidate: Candidate, file_id: int) -> None:
+        r"""Section 1a's own images-pass face step. Switch-gated, always.
+
+        **Off means off, all the way down** - the order's own test list
+        asserts "no face code runs" when `people_recognition_enabled` is
+        False, and this is the one place in the whole images pass that
+        could import `app.extract.face_detect` without the caller having
+        checked first. The guard is the first line, and `face_detect` is
+        imported only after it passes - so switching the setting off costs
+        this function nothing, not even the import.
+
+        Detection only, never clustering - `_drain_face_cluster` (the
+        enrichment backlog) is what turns a fresh embedding into an
+        assignment, a suggestion, or a new pile, the same "written now,
+        processed a batch later" shape `_embed_pending` already uses for
+        vectors. Splitting them keeps this step as cheap and as bounded as
+        `_maybe_compute_phash` beside it.
+        """
+        if not self.config.people_recognition_enabled:
+            return
+
+        from app.extract.base import reads_by_ocr
+        from app.extract.face_detect import detect_faces
+
+        path = candidate.path
+        if not reads_by_ocr(path):
+            return
+
+        try:
+            detections = detect_faces(path)
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
+            self._log.warning(
+                "no face scan for {}: {}. It stays searchable as usual - "
+                "only people-search misses this photo.", path, exc)
+            return
+
+        for detection in detections:
+            self.store.add_face(file_id, detection.bbox, detection.embedding)
+        self.store.mark_face_scanned(file_id)
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
@@ -3053,6 +3319,12 @@ class Pipeline:
         # `_maybe_compute_phash`'s docstring for why a pHash is computed and
         # gated on its own rather than folded into `_maybe_embed_image`.
         self._maybe_compute_phash(candidate, file_id)
+        # Work order 0j section 1a. Independent of both calls above, same
+        # reasoning `_maybe_compute_phash` already gives for its own
+        # independence from `_maybe_embed_image`: face detection, CLIP and
+        # pHash are three unrelated capabilities and a failure in one must
+        # never cost either of the others.
+        self._maybe_detect_faces(candidate, file_id)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355

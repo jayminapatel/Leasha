@@ -35,7 +35,7 @@ from typing import Any, Optional
 from app.core.logging import logger
 
 __all__ = ["IMAGE_RESULT_EXTS", "is_image_result", "decode_thumbnail",
-           "THUMBNAIL_EDGE"]
+           "decode_face_crop", "THUMBNAIL_EDGE"]
 
 _log = logger.bind(component="ui.thumbnail")
 
@@ -137,4 +137,51 @@ def decode_thumbnail(path: str, *, edge: int = THUMBNAIL_EDGE) -> Optional[Any]:
         return _scaled_to_edge(image, edge)
     except Exception as exc:                      # noqa: BLE001 - see docstring
         _log.debug("could not decode a thumbnail for {}: {}", path, exc)
+        return None
+
+
+def decode_face_crop(
+    path: str, bbox: "tuple[float, float, float, float]", *,
+    edge: int = THUMBNAIL_EDGE, margin: float = 0.35,
+) -> Optional[Any]:
+    r"""A small, upright `QImage` cropped to one face. **Worker thread only.**
+
+    Work order 0j section 2a's "sample crops" - the Photo Tagger grid shows
+    a face, not the whole photo it came from, the same way Google Photos'
+    own People grid does. `bbox` is `(x, y, w, h)` in pixels, exactly as
+    `app.extract.face_detect.FaceDetection.bbox` and `faces.bbox_*` store it.
+
+    `margin` pads the box by this fraction of its own size on every side
+    before cropping - a face detector's box is tight to eyes/nose/mouth, and
+    a tight crop reads as a mugshot rather than a recognisable photo of a
+    person, which matters for a feature an eight-year-old is meant to use
+    unassisted (section 2a's own "designed for an 8-year-old").
+
+    Same H4 contract as `decode_thumbnail`: `None` on any failure - a
+    corrupted photo or an out-of-range box (the photo was replaced since
+    the face was detected) is a placeholder tile, never a crash.
+    """
+    try:
+        from PyQt6.QtCore import QRect
+
+        from app.ui.preview_loader import decode_image
+
+        image = decode_image(path)
+        if image is None or image.isNull():
+            return None
+
+        x, y, w, h = bbox
+        pad_x, pad_y = w * margin, h * margin
+        left = max(0, int(x - pad_x))
+        top = max(0, int(y - pad_y))
+        right = min(image.width(), int(x + w + pad_x))
+        bottom = min(image.height(), int(y + h + pad_y))
+        if right <= left or bottom <= top:
+            return _scaled_to_edge(image, edge)      # a bad box - the whole photo beats nothing
+        cropped = image.copy(QRect(left, top, right - left, bottom - top))
+        if cropped.isNull():
+            return None
+        return _scaled_to_edge(cropped, edge)
+    except Exception as exc:                      # noqa: BLE001 - see docstring
+        _log.debug("could not decode a face crop for {}: {}", path, exc)
         return None

@@ -225,6 +225,19 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append(f"({conditions})")
         params.extend(parsed.place)
 
+    # Work order 0j section 3a. Same subquery shape as `shows` just above -
+    # a file can show several named people, so this is `IN (...)` over a
+    # join, not a column. `piles.name IS NOT NULL` is implicit: an unnamed
+    # pile has no name for `= ?` to match, so it can never appear here -
+    # exactly the guardrail that identity only ever comes from a name a
+    # person typed.
+    if getattr(parsed, "who", ()):
+        conditions = " OR ".join("p.name = ? COLLATE NOCASE" for _ in parsed.who)
+        clauses.append(
+            "f.id IN (SELECT fc.file_id FROM faces fc "
+            f"JOIN piles p ON p.id = fc.pile_id WHERE {conditions})")
+        params.extend(parsed.who)
+
     for name in parsed.names:
         # The **basename**, not the whole path - `path:` already answers "which
         # folder", and matching the full path here would make `name:leeds` hit
@@ -280,6 +293,13 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         clauses.append(
             f"f.id NOT IN (SELECT file_id FROM file_tags WHERE {conditions})")
         params.extend(parsed.not_shows)
+
+    if getattr(parsed, "not_who", ()):
+        conditions = " OR ".join("p.name = ? COLLATE NOCASE" for _ in parsed.not_who)
+        clauses.append(
+            "f.id NOT IN (SELECT fc.file_id FROM faces fc "
+            f"JOIN piles p ON p.id = fc.pile_id WHERE {conditions})")
+        params.extend(parsed.not_who)
 
     if getattr(parsed, "not_volumes", ()):
         # `OR f.volume_id IS NULL` for the same reason `not_repos` needs it:
