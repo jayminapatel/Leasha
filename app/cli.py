@@ -1877,8 +1877,9 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
     """
     from app.reports.inheritance import report_generated_at
     from app.reports.space import (
-        find_duplicate_groups, find_source_uniqueness, render_space_document,
-        total_reclaimable_bytes,
+        find_duplicate_groups, find_near_duplicate_photo_groups,
+        find_source_duplicate_share, find_source_uniqueness,
+        render_space_document, total_reclaimable_bytes,
     )
     from app.storage.sqlite_store import SqliteStore
 
@@ -1886,6 +1887,8 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
         groups = find_duplicate_groups(store)
         reclaimable = total_reclaimable_bytes(store)
         uniqueness = find_source_uniqueness(store)
+        near_duplicates = find_near_duplicate_photo_groups(store)
+        duplicate_share = find_source_duplicate_share(store)
         generated_at = report_generated_at(store)
 
     if args.json:
@@ -1898,6 +1901,18 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
                 for g in groups
             ],
             "total_reclaimable_bytes": reclaimable,
+            "near_duplicate_photo_groups": [
+                {"representative_phash": g.representative_phash,
+                 "copies": [{"path": c.path, "source_name": c.source_name,
+                            "source_kind": c.source_kind} for c in g.copies],
+                 "sizes_bytes": list(g.sizes_bytes)}
+                for g in near_duplicates
+            ],
+            "source_duplicate_share": [
+                {"name": s.name, "kind": s.kind, "status": s.status,
+                 "duplicate_count": s.duplicate_count, "total_count": s.total_count,
+                 "share": s.share} for s in duplicate_share
+            ],
             "source_uniqueness": [
                 {"name": u.name, "kind": u.kind, "status": u.status,
                  "file_count": u.file_count} for u in uniqueness
@@ -1907,7 +1922,8 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
         return EXIT_OK
 
     document = render_space_document(
-        groups, uniqueness, total_reclaimable=reclaimable, generated_at=generated_at)
+        groups, uniqueness, total_reclaimable=reclaimable, generated_at=generated_at,
+        near_duplicates=near_duplicates, duplicate_share=duplicate_share)
 
     if args.out:
         Path(args.out).write_text(document, encoding="utf-8")

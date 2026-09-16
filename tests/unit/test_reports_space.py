@@ -15,8 +15,12 @@ import pytest
 from app.reports.space import (
     DUPLICATE_GROUPS_SHOWN,
     DuplicateGroup,
+    NearDuplicatePhotoGroup,
+    SourceDuplicateShare,
     SourceUniqueness,
     find_duplicate_groups,
+    find_near_duplicate_photo_groups,
+    find_source_duplicate_share,
     find_source_uniqueness,
     render_space_document,
     total_reclaimable_bytes,
@@ -247,3 +251,183 @@ def test_the_document_never_shows_file_contents():
                               source_kind="local"),))]
     doc = render_space_document(groups, [], total_reclaimable=0)
     assert "SECRET-DOCUMENT-BODY-TEXT" not in doc
+
+
+# ---------------------------------------------------------------------------
+# find_near_duplicate_photo_groups - 3a, same picture different bytes
+# ---------------------------------------------------------------------------
+
+def _photo(store, path, *, phash, content_hash, size_bytes=1000):
+    file_id = _local(store, path, content_hash=content_hash, size_bytes=size_bytes)
+    store.set_phashes({file_id: phash})
+    return file_id
+
+
+#: `imagehash.phash`'s default is a 64-bit (16 hex char) fingerprint;
+#: differing in one hex digit's low bit is a small Hamming distance, well
+#: inside `PHASH_NEAR_THRESHOLD` - two "different bytes, same picture" hashes
+#: for tests that need a near match without importing imagehash.
+_PHASH_A = "0000000000000000"
+_PHASH_A_NEAR = "0000000000000001"          # 1 bit different from A
+_PHASH_B_FAR = "ffffffffffffffff"           # every bit different from A
+
+
+def test_two_different_byte_versions_of_one_photo_are_grouped(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        _photo(store, r"D:\Photos\a.jpg", phash=_PHASH_A, content_hash="H1")
+        _photo(store, r"D:\Photos\a-resized.jpg", phash=_PHASH_A_NEAR, content_hash="H2")
+
+        groups = find_near_duplicate_photo_groups(store)
+
+    assert len(groups) == 1
+    assert len(groups[0].copies) == 2
+
+
+def test_unrelated_photos_are_not_grouped(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        _photo(store, r"D:\Photos\a.jpg", phash=_PHASH_A, content_hash="H1")
+        _photo(store, r"D:\Photos\b.jpg", phash=_PHASH_B_FAR, content_hash="H2")
+
+        groups = find_near_duplicate_photo_groups(store)
+
+    assert groups == []
+
+
+def test_a_single_photo_with_no_near_match_is_not_a_group(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        _photo(store, r"D:\Photos\a.jpg", phash=_PHASH_A, content_hash="H1")
+
+        assert find_near_duplicate_photo_groups(store) == []
+
+
+def test_exact_byte_duplicates_of_the_same_content_hash_count_once(tmp_path):
+    r"""Three byte-identical copies of the same photo must not appear as a
+    3-way near-duplicate group here - they are `find_duplicate_groups`' own
+    finding, already fully reported there."""
+    with SqliteStore(tmp_path / "i.db") as store:
+        file_id = store.upsert_file(
+            r"D:\Photos\a.jpg", size_bytes=1000, mtime_ns=1, ext="jpg",
+            parent_dir=r"D:\Photos", source_kind="file", status="INDEXED",
+            content_hash="H1")
+        store.set_phashes({file_id: _PHASH_A})
+        second_id = store.upsert_file(
+            r"D:\Photos\a-copy.jpg", size_bytes=1000, mtime_ns=1, ext="jpg",
+            parent_dir=r"D:\Photos", source_kind="file", status="INDEXED",
+            content_hash="H1")
+        store.set_phashes({second_id: _PHASH_A})
+        # A genuinely different version, near (not identical) to the above.
+        _photo(store, r"D:\Photos\a-resized.jpg", phash=_PHASH_A_NEAR, content_hash="H2")
+
+        groups = find_near_duplicate_photo_groups(store)
+
+    assert len(groups) == 1
+    assert len(groups[0].copies) == 2, (
+        "the exact-duplicate pair collapses to one representative, leaving "
+        "a two-member near-duplicate group, not three"
+    )
+
+
+def test_a_near_duplicate_group_carries_no_reclaimable_bytes_property():
+    group = NearDuplicatePhotoGroup(
+        representative_phash=_PHASH_A, copies=(), sizes_bytes=())
+    assert not hasattr(group, "reclaimable_bytes")
+
+
+def test_photos_without_a_phash_are_ignored(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        _local(store, r"D:\Docs\not-a-photo.txt", content_hash="H1")
+
+        assert find_near_duplicate_photo_groups(store) == []
+
+
+# ---------------------------------------------------------------------------
+# find_source_duplicate_share - 3a, how much of a source is redundant
+# ---------------------------------------------------------------------------
+
+def test_a_source_with_no_duplicates_has_zero_share(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        volume_id = store.upsert_volume("GUID-1", kind="drive", name="Old WD")
+        _on_volume(store, volume_id, "a.txt", content_hash="UNIQUE-A")
+        _on_volume(store, volume_id, "b.txt", content_hash="UNIQUE-B")
+
+        results = find_source_duplicate_share(store)
+
+    assert len(results) == 1
+    assert results[0].name == "Old WD"
+    assert results[0].duplicate_count == 0
+    assert results[0].total_count == 2
+    assert results[0].share == 0.0
+
+
+def test_a_fully_duplicated_source_has_a_share_of_one(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        volume_id = store.upsert_volume("GUID-1", kind="drive", name="Old WD")
+        _on_volume(store, volume_id, "a.txt", content_hash="H1")
+        _local(store, r"D:\Docs\a.txt", content_hash="H1")   # the other copy
+
+        results = find_source_duplicate_share(store)
+
+    old_wd = next(r for r in results if r.name == "Old WD")
+    assert old_wd.duplicate_count == 1
+    assert old_wd.total_count == 1
+    assert old_wd.share == 1.0
+
+
+def test_local_files_are_reported_as_one_bucket(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        _local(store, r"D:\Docs\a.txt", content_hash="H1")
+        _local(store, r"D:\Docs\b.txt", content_hash="H1")   # duplicates each other
+        _local(store, r"D:\Docs\c.txt", content_hash="UNIQUE-C")
+
+        results = find_source_duplicate_share(store)
+
+    assert len(results) == 1
+    local = results[0]
+    assert local.name == "This computer"
+    assert local.duplicate_count == 2
+    assert local.total_count == 3
+
+
+def test_an_empty_index_reports_no_sources(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        assert find_source_duplicate_share(store) == []
+
+
+def test_share_is_a_property_not_stored_directly():
+    share = SourceDuplicateShare(name="X", kind="local", duplicate_count=3, total_count=4)
+    assert share.share == 0.75
+
+
+def test_share_on_an_empty_source_is_zero_not_a_division_error():
+    share = SourceDuplicateShare(name="X", kind="local", duplicate_count=0, total_count=0)
+    assert share.share == 0.0
+
+
+# ---------------------------------------------------------------------------
+# render_space_document - the two new sections
+# ---------------------------------------------------------------------------
+
+def test_similar_photos_section_appears_only_when_there_are_any():
+    from app.reports.space import DuplicateCopy
+
+    doc_without = render_space_document([], [], near_duplicates=())
+    assert "Similar photos" not in doc_without
+
+    group = NearDuplicatePhotoGroup(
+        representative_phash=_PHASH_A,
+        copies=(DuplicateCopy(path="/a.jpg", source_name="This computer", source_kind="local"),
+               DuplicateCopy(path="/a2.jpg", source_name="This computer", source_kind="local")),
+        sizes_bytes=(1000, 1200),
+    )
+    doc_with = render_space_document([], [], near_duplicates=(group,))
+    assert "Similar photos" in doc_with
+    assert "2 versions" in doc_with
+
+
+def test_duplication_by_source_section_shows_the_percentage():
+    doc = render_space_document([], [], duplicate_share=(
+        SourceDuplicateShare(name="Old WD", kind="drive", duplicate_count=1, total_count=2),
+    ))
+    assert "Duplication by source" in doc
+    assert "Old WD" in doc
+    assert "50%" in doc

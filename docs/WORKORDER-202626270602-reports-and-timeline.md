@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -71,15 +71,34 @@ against a real `SqliteStore`.
   **Built: exact-content duplicates by `content_hash`, across local roots
   and catalogued volumes alike** — total reclaimable bytes, the
   `DUPLICATE_GROUPS_SHOWN` largest groups biggest-reclaim-first, every
-  copy named with its source. **Not built**: pHash near-duplicate
-  matching for photos (two visually-identical but not byte-identical
-  images), per-source duplicate share as its own number, and the
-  interactive sortable/row-expands-to-reveal-copies table the item asks
-  for — this ships as a rendered document instead, the same shape the
-  Digital Inheritance report already uses, with every copy already
-  named in the group's own paragraph rather than behind a click. Left
-  unticked because three real sub-asks are missing, not because the
-  built half is wrong.
+  copy named with its source.
+
+  > **2026-09-16, later the same day — two more of the three built, by
+  > the crash-recovery session.** `find_near_duplicate_photo_groups`
+  > (`app/reports/space.py`) clusters photos by pHash, reusing
+  > `app.search.folding.phash_distance`/`PHASH_NEAR_THRESHOLD` rather
+  > than a second near-duplicate rule - one representative row per
+  > distinct `content_hash`, so a photo already reported as an exact
+  > duplicate is not counted a second time as a near one. Carries no
+  > `reclaimable_bytes`: these are not byte-identical, so deleting all
+  > but one is not automatically safe the way it is for exact
+  > duplicates, and the report says what was found rather than
+  > asserting a saving it cannot guarantee. `find_source_duplicate_share`
+  > answers "how much of what source X holds also exists elsewhere",
+  > the companion question to 3b's own `find_source_uniqueness`. Both
+  > reach the document (`## Similar photos`, `## Duplication by
+  > source`) and the Reports page (`app/ui/reports_view.py`, staged as
+  > two more progress steps in the worker built for 3c) and
+  > `app.cli report space --json`. 30 new tests in
+  > `test_reports_space.py`.
+  >
+  > **Still not built, and this stays unticked for it**: the
+  > interactive sortable/row-expands-to-reveal-copies table - this
+  > still ships as a rendered document. A genuinely new Qt widget for
+  > the Space Report specifically, deliberately not attempted in the
+  > same pass as the query work above given the size of what else was
+  > still queued this session; the two finished sub-asks are not a
+  > reason to tick a box that also promises the third.
 - [x] **3b THE UNIQUENESS WARNING (the backup conscience)**: files that
   exist on exactly ONE source — counted and listed per source, headline
   first: "372 files exist nowhere else but 'Old WD' (last seen 14 Aug)."

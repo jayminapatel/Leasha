@@ -40,10 +40,14 @@ from app.core.logging import logger
 __all__ = [
     "DuplicateCopy",
     "DuplicateGroup",
+    "NearDuplicatePhotoGroup",
     "SourceUniqueness",
+    "SourceDuplicateShare",
     "find_duplicate_groups",
     "total_reclaimable_bytes",
+    "find_near_duplicate_photo_groups",
     "find_source_uniqueness",
+    "find_source_duplicate_share",
     "render_space_document",
     "DUPLICATE_GROUPS_SHOWN",
 ]
@@ -82,6 +86,52 @@ class DuplicateGroup:
     def reclaimable_bytes(self) -> int:
         """Keeping one copy reclaims every other one."""
         return max(0, len(self.copies) - 1) * self.size_bytes
+
+
+@dataclass(frozen=True)
+class NearDuplicatePhotoGroup:
+    """Photos that look like the same picture without being the same bytes
+    - a recompression, a resize, a re-save by a different program.
+
+    **Deliberately carries no `reclaimable_bytes`.** Unlike `DuplicateGroup`,
+    these are not byte-identical: deleting all but one can lose real
+    information (a higher resolution, a different crop), so this report
+    states what was found and leaves the choice to the person rather than
+    asserting a space saving it cannot guarantee.
+    """
+
+    representative_phash: str
+    copies: tuple[DuplicateCopy, ...]
+    #: One size per copy, same order as `copies` - shown, not summed, for
+    #: the reason `reclaimable_bytes` does not exist on this class.
+    sizes_bytes: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SourceDuplicateShare:
+    """One source, and how much of what it holds also exists elsewhere.
+
+    The companion question to `SourceUniqueness`: that one finds what is
+    irreplaceable, this one finds what is redundant - "40% of what's on
+    this drive is duplicated somewhere else" is the number that tells
+    somebody a source is safe to retire, the way `SourceUniqueness` tells
+    them a source is not.
+    """
+
+    name: str
+    kind: str
+    status: str = ""
+    #: Files on this source whose content exists on at least one other
+    #: source or elsewhere on this one - i.e. genuinely duplicated, not
+    #: merely present.
+    duplicate_count: int = 0
+    total_count: int = 0
+
+    @property
+    def share(self) -> float:
+        """0.0-1.0. 0.0 on a source with nothing indexed, not a division
+        error - an empty source is not a duplicated one."""
+        return (self.duplicate_count / self.total_count) if self.total_count else 0.0
 
 
 @dataclass(frozen=True)
@@ -189,6 +239,132 @@ def total_reclaimable_bytes(store: Any) -> int:
     return int(row["reclaimable"] or 0) if row else 0
 
 
+def find_near_duplicate_photo_groups(
+    store: Any, *, limit: int = DUPLICATE_GROUPS_SHOWN,
+) -> list[NearDuplicatePhotoGroup]:
+    r"""§3a: photos that are the same picture without being the same bytes.
+
+    Reuses `app.search.folding.phash_distance` and `PHASH_NEAR_THRESHOLD`
+    rather than a second near-duplicate rule - the same threshold that
+    decides two search results are "the same photo" decides it here.
+
+    **One representative row per distinct `content_hash`.** A photo with
+    three byte-identical copies is one entry in the clustering, not three -
+    those three are already `find_duplicate_groups`' own finding, and
+    counting them again here would double-report the same bytes as two
+    different kinds of duplicate. This groups distinct *versions* of a
+    picture, which is the gap `find_duplicate_groups` cannot see at all.
+
+    **O(n²) against the number of distinct photo hashes**, not yet measured
+    against the scale fixture - see order 0n §3c, still open for exactly
+    this reason.
+    """
+    try:
+        rows = store.conn.execute(
+            "SELECT MIN(id) AS id, phash, MIN(path) AS path, "
+            "MAX(size_bytes) AS size_bytes, MIN(volume_id) AS volume_id "
+            "FROM files WHERE phash IS NOT NULL AND phash != '' "
+            "AND content_hash IS NOT NULL "
+            "GROUP BY content_hash"
+        ).fetchall()
+    except Exception as exc:                      # noqa: BLE001
+        _log.debug("could not read photo hashes for near-duplicate matching: {}", exc)
+        return []
+
+    from app.search.folding import PHASH_NEAR_THRESHOLD, phash_distance
+
+    clusters: list[list[Any]] = []
+    for row in rows:
+        phash = str(row["phash"])
+        match = next(
+            (c for c in clusters if phash_distance(phash, str(c[0]["phash"])) <= PHASH_NEAR_THRESHOLD),
+            None,
+        )
+        if match is not None:
+            match.append(row)
+        else:
+            clusters.append([row])
+
+    volumes = _volume_lookup(store)
+    groups: list[NearDuplicatePhotoGroup] = []
+    for cluster in clusters:
+        if len(cluster) < 2:
+            continue
+        copies = []
+        sizes = []
+        for member in cluster:
+            volume_id = member["volume_id"]
+            size = int(member["size_bytes"] or 0)
+            sizes.append(size)
+            if volume_id is not None and int(volume_id) in volumes:
+                volume = volumes[int(volume_id)]
+                copies.append(DuplicateCopy(
+                    path=member["path"], source_name=str(volume.get("name") or ""),
+                    source_kind=str(volume.get("kind") or ""),
+                    source_status=str(volume.get("status") or "").lower(),
+                ))
+            else:
+                copies.append(DuplicateCopy(
+                    path=member["path"], source_name=_local_source_name(member["path"]),
+                    source_kind="local",
+                ))
+        groups.append(NearDuplicatePhotoGroup(
+            representative_phash=str(cluster[0]["phash"]),
+            copies=tuple(copies), sizes_bytes=tuple(sizes),
+        ))
+    groups.sort(key=lambda g: -sum(g.sizes_bytes))
+    return groups[:limit]
+
+
+def find_source_duplicate_share(store: Any) -> list[SourceDuplicateShare]:
+    r"""§3a: per source, how much of what it holds is duplicated elsewhere -
+    the companion question to `find_source_uniqueness`.
+
+    A file counts as duplicated when its `content_hash` appears more than
+    once anywhere in the index, whichever source each copy is on - the same
+    "genuinely duplicated, not merely present" definition
+    `find_duplicate_groups` already uses.
+    """
+    try:
+        totals = store.conn.execute(
+            "SELECT volume_id, COUNT(*) AS n FROM files GROUP BY volume_id"
+        ).fetchall()
+        duplicated = store.conn.execute(
+            "SELECT f.volume_id AS volume_id, COUNT(*) AS n "
+            "FROM files f JOIN ("
+            "  SELECT content_hash FROM files WHERE content_hash IS NOT NULL "
+            "  GROUP BY content_hash HAVING COUNT(*) > 1"
+            ") d ON d.content_hash = f.content_hash "
+            "GROUP BY f.volume_id"
+        ).fetchall()
+    except Exception as exc:                      # noqa: BLE001
+        _log.debug("could not compute source duplicate share: {}", exc)
+        return []
+
+    total_by_volume = {row["volume_id"]: int(row["n"] or 0) for row in totals}
+    dup_by_volume = {row["volume_id"]: int(row["n"] or 0) for row in duplicated}
+
+    volumes = _volume_lookup(store)
+    results: list[SourceDuplicateShare] = []
+    local_total = total_by_volume.pop(None, 0)
+    local_dup = dup_by_volume.pop(None, 0)
+    for volume_id, total_count in total_by_volume.items():
+        if volume_id is None or int(volume_id) not in volumes:
+            continue
+        volume = volumes[int(volume_id)]
+        results.append(SourceDuplicateShare(
+            name=str(volume.get("name") or ""), kind=str(volume.get("kind") or ""),
+            status=str(volume.get("status") or "").lower(),
+            duplicate_count=dup_by_volume.get(volume_id, 0), total_count=total_count,
+        ))
+    results.sort(key=lambda s: -s.share)
+    if local_total:
+        results.append(SourceDuplicateShare(
+            name="This computer", kind="local",
+            duplicate_count=local_dup, total_count=local_total))
+    return results
+
+
 def find_source_uniqueness(store: Any) -> list[SourceUniqueness]:
     r"""§3b, "the backup conscience": content that exists on exactly one
     source, counted per source - volumes first, since those are the ones
@@ -267,11 +443,18 @@ def _copy_line(copy: DuplicateCopy) -> str:
 def render_space_document(
     groups: Sequence[DuplicateGroup], uniqueness: Sequence[SourceUniqueness],
     *, total_reclaimable: int = 0, generated_at: Optional[int] = None,
+    near_duplicates: Sequence[NearDuplicatePhotoGroup] = (),
+    duplicate_share: Sequence[SourceDuplicateShare] = (),
 ) -> str:
     r"""§3a and §3b, as one document - the whole-corpus headline first,
-    then the largest duplicate groups, then the uniqueness warning last
-    (read last, acted on first - the order does not change which finding
-    matters more).
+    then the largest duplicate groups, then similar photos and the
+    per-source share, then the uniqueness warning last (read last, acted
+    on first - the order does not change which finding matters more).
+
+    `near_duplicates` and `duplicate_share` default to empty rather than
+    being required, so every existing caller (`app.cli report space`
+    among them, built before this pass) keeps producing the document it
+    always did until it is updated to pass the new findings too.
     """
     generated = time.strftime("%d %B %Y", time.localtime(time.time()))
     lines = [f"# The Space Report", f"Generated {generated}", ""]
@@ -302,6 +485,37 @@ def render_space_document(
             for copy in group.copies:
                 lines.append(_copy_line(copy))
             lines.append("")
+
+    if near_duplicates:
+        lines.append("## Similar photos")
+        lines.append("")
+        lines.append(
+            "The same picture, saved more than once with different bytes - a "
+            "resize, a recompression, a re-save by a different program. "
+            "Deleting all but one is not automatically safe here the way it "
+            "is above: a different version may be a different resolution or "
+            "crop, so nothing is totalled as reclaimable."
+        )
+        lines.append("")
+        for group in near_duplicates:
+            lines.append(f"**{len(group.copies)} versions of the same picture:**")
+            for copy, size in zip(group.copies, group.sizes_bytes):
+                lines.append(_copy_line(copy) + f" ({_size_words(size)})")
+            lines.append("")
+
+    if duplicate_share:
+        lines.append("## Duplication by source")
+        lines.append("")
+        lines.append("How much of what each source holds also exists elsewhere.")
+        lines.append("")
+        for source in duplicate_share:
+            status = (f", currently {source.status}"
+                      if source.status and source.status not in ("", "online") else "")
+            lines.append(
+                f"- **{source.name!r}{status}**: {source.duplicate_count:,} of "
+                f"{source.total_count:,} files ({source.share:.0%}) are "
+                f"duplicated elsewhere")
+        lines.append("")
 
     lines.append("## The only copy")
     lines.append("")
