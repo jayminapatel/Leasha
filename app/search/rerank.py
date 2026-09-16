@@ -107,7 +107,7 @@ class Reranker:
         """
         fields: dict = dict(
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
-            enabled=bool(getattr(settings, "rerank_enabled", True)),
+            enabled=bool(getattr(settings, "rerank_enabled", False)),
             top_n=int(getattr(settings, "rerank_top_n", RERANK_TOP_N)),
             window_chars=int(getattr(settings, "rerank_window_chars",
                                      RERANK_WINDOW_CHARS)),

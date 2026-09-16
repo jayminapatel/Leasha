@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.8 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 5.9 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1249,6 +1249,22 @@ pytest process to the CPU unless the autouse fixture is in scope; and `clip_embe
 the CPU fallback for free through `choose()` but has no retry of its own - a driver failure
 mid-CLIP-batch still raises out of `ClipImageEmbedder.embed` as before (decide whether it needs
 the same one-retry treatment; not done here because no log shows it happening).
+
+**2026-09-15: a single bare-word query silently ignores `/newest` and
+`/oldest`.** Found while testing work order 0's "Relevance" item, not caused
+by it. `definitions.looks_like_symbol` fires on any lone word that looks like
+an identifier - which is most single words, including plain ones like
+"pump" - and `definitions.boost` then runs *after* the date-sort branch in
+`engine.py::_retrieve`, unconditionally, re-sorting the whole list by
+`rrf_score` regardless of whether anything actually declares the symbol. A
+search for `pump /oldest` comes back in relevance order, not date order, with
+no notice that the sort was dropped - the same "degraded result
+indistinguishable from a good one" failure §6's standing rule exists to
+catch, just not one this session's scope covered. Two or more words are
+unaffected; `looks_like_symbol` requires exactly one. Not fixed here -
+`app/search/filename_match.py` and its engine.py wiring were kept scoped to
+the "Relevance" item alone, and this is a pre-existing fault in
+`definitions.boost`'s own placement, not in anything this order touched.
 
 ## 7. Open questions
 

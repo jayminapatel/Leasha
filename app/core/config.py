@@ -227,7 +227,30 @@ class Settings(BaseModel):
     #: costs nothing visible on the measurement available. `RERANK_MODEL` in
     #: `.env` puts the old one back, and `--rerank-model` compares without one.
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
-    rerank_enabled: bool = True
+    #: **Off by default - work order 0 section 6's P8, closed on the latency
+    #: half of the evidence.** The owner's own rerank-bench run
+    #: (2026-08-27) measured 0.46s per search against a 300ms warm budget
+    #: for the *whole* search - already over budget before this line was
+    #: touched, on the smallest of the four models measured. A second run
+    #: here (2026-09-15, this same model) came back at 8.03s, UNSTABLE - a
+    #: shared build machine under heavy concurrent load, not a clean number,
+    #: but it is not a number that argues the other way either.
+    #:
+    #: The quality half was never settled - it needs `evaluate --builtin`
+    #: against a real index, which needs the owner's machine - so this is
+    #: not a claim that reranking is worthless, only that a stage nobody has
+    #: measured belongs off the critical path until it is proven to earn a
+    #: multiple of the search budget, or made asynchronous (fused results
+    #: paint first, the reorder arrives after and is shown, not silent) -
+    #: which the P8 note in the work order names as the other way to close
+    #: this. That is a results-surface change and belongs with the
+    #: search-experience order, not here.
+    #:
+    #: The toggle stays exactly where M12 already put it - one state, in the
+    #: toolbar - so turning it back on is one click, not a rebuild.
+    #: `RERANK_ENABLED=true` in `.env` restores the old default for anybody
+    #: who has measured their own corpus and wants it.
+    rerank_enabled: bool = False
     #: Candidates scored, and characters of each shown to the cross-encoder.
     #: Both multiply into the rerank time, which was 93% of one 9-second search.
     rerank_top_n: int = 30
@@ -504,7 +527,7 @@ def load_settings(
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
             embed_device=(values.get("EMBED_DEVICE") or "auto").strip().lower(),
             rerank_model=values.get("RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2",
-            rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "true")),
+            rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "false")),
             rerank_top_n=_as_int(
                 "RERANK_TOP_N", values.get("RERANK_TOP_N") or "30"),
             rerank_window_chars=_as_int(
