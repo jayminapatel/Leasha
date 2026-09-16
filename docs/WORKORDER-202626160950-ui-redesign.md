@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with
@@ -80,6 +80,54 @@ page, technical allowed on the power tabs.
 > `QStyleHints` in Qt 6.11 exposes no reduced-motion preference this
 > session could find (UNCONFIRMED — not fetched); the setting defaults off
 > regardless.
+
+## 0. Decisions
+> **2026-09-16, later the same day — the Windows run, by the crash-recovery
+> session.** Every command in the delivery note above was run. Results:
+> `test_ui_redesign_qt.py` 16/16, `test_idle_tune_and_space_report_ui.py`
+> 10/10 (one real bug found and fixed, in `reports_view.py`, unrelated to
+> this order - see the wiring order's own note), `test_window_opens.py` /
+> `test_result_delegate.py` / `test_first_contact.py` / `test_theme.py` all
+> green (two more real bugs found and fixed: a stale QTabWidget lookup in
+> `test_every_tab_can_be_selected` that predates Rail, and a pixel sample
+> point inside the new rounded hover fill's own corner cutout). Also ran
+> and green: `test_accessible_names.py`, `test_tooltips.py`,
+> `test_ui_never_blocks.py`, `test_settings_reachable.py`.
+>
+> Twelve golden PNGs were not produced - eight were (search-home and
+> search-results, light/dark, 1024x600/1100x760) via `tools/grab_ui.py`,
+> and looked at, not just generated; the item's own "default and
+> maximised" third dimension was not. Left unticked (9i) for that reason,
+> honestly, rather than counted as done for a partial set.
+>
+> Ticked below on this evidence: 2a (Rail exists, exposes the stated
+> QTabWidget-shaped surface, 244 code lines), 2d, 2e, 2f (all tested in
+> `test_ui_redesign_qt.py`); 3a-3g (tested, plus a direct code read of
+> `search_bar.py` for 3f/3g, which are not separately pytest-qt-tested);
+> 4a-4e (4a/4b tested and visually confirmed, 4c/4d/4e confirmed by
+> reading `result_delegate.py` and by the untouched-since-`c78f39b`
+> diff on `thumbnail_grid.py`/`pinned_panel.py`/`timeline_strip.py`, plus
+> the Files/Reports screenshots showing them themed correctly); 5a-5c
+> (read directly in `preview.py`/`inspector.py`, matching the section's
+> own text and the already-recorded `ui:motion` deviation); 6a/6c/6d
+> (tested); 7a (tested, and shown in the menu-bar screenshots); 8b
+> (found already built in `theme.py`'s own `#categorySidebar` rules,
+> with an explicit "(section 8b)" comment - not missed, just not yet
+> credited); 9e/9f (the same chip/toast tests as 3d/6a); 9k/9l
+> (`test_grab_ui.py`, 4/4); 9m (tested, plus `test_ui_never_blocks.py`
+> green with no new exemption).
+>
+> **Left unticked, honestly, because the specific sub-claim is not
+> verified**: 9b (page reachability and the rail's own keyboard nav are
+> tested; "every existing shortcut lands on its page" and "first run
+> opens Search" are not, as their own scenarios); 9g (badge colour and
+> skeleton-row height are tested; the full sizeHint==paint matrix across
+> every density and text size is not, as one scenario); 9h (the
+> accessible-name and tooltip guards are green; a single start-to-finish
+> keyboard-only walkthrough of the Search page is not, as its own
+> scenario); 9i (see above); 9j (performance timing never reached this
+> session - needs the `git stash` before/after comparison the item
+> itself describes, on the owner's own machine).
 
 ## 0. Decisions
 
@@ -203,7 +251,7 @@ inserted late by `_construct_secondary_views`. `shell.py` touches
 `currentChanged` ×2, `currentIndex`, `indexOf`, `setCurrentIndex`,
 `tabText`).
 
-- [ ] **2a** `app/ui/widgets/rail.py`: a `Rail(QWidget)` — vertical, 72px,
+- [x] **2a** `app/ui/widgets/rail.py`: a `Rail(QWidget)` — vertical, 72px,
   navy — holding one entry per page (icon above a label, 10.5pt), the
   brand mark at the top, an indexing pill and Settings at the foot. It
   exposes the **same surface `shell.py` uses today**: `addTab(widget,
@@ -231,14 +279,14 @@ inserted late by `_construct_secondary_views`. `shell.py` touches
   Command keys on the Macintosh keyboard… developers can use the same
   shortcut descriptions across all platforms."* `_build_shortcuts` uses
   `QKeySequence("Ctrl+…")` strings, so every binding maps to ⌘ unchanged.
-- [ ] **2d** the **Indexing page is not a rail entry; it is the pill.** The
+- [x] **2d** the **Indexing page is not a rail entry; it is the pill.** The
   pill shows a headline word ("Indexing" / "Up to date" / "Paused" — new
   copy, from `presenter`), a 3px bar and one line of figures, and clicking
   it opens the Indexing page (Status / Schedule / Tuning exactly as
   `202626271328` built them) in the stack. `Ctrl+I` still lands there.
   Data arrives by the signals the Indexing page already receives; the pill
   never asks the store on the UI thread.
-- [ ] **2e** the rail is keyboard-navigable: focusable, `Up`/`Down` move,
+- [x] **2e** the rail is keyboard-navigable: focusable, `Up`/`Down` move,
   `Enter`/`Space` activate, and every entry carries an accessible name
   equal to its label (`test_every_control_that_cannot_label_itself_is_labelled`).
   Selection is drawn as a filled pill *and* a heavier label weight —
@@ -250,7 +298,7 @@ inserted late by `_construct_secondary_views`. `shell.py` touches
   or the pill's slots touches the store, the engine or the file system.
   `refresh_totals` on switching to Indexing stays on its worker as it is
   today.
-- [ ] **2f** `window_state.py` remembers the last-open page across
+- [x] **2f** `window_state.py` remembers the last-open page across
   launches under `ui:page`, the same keyed-state pattern as `ui:theme`
   (`shell.py:216`, `:1567`) and `ui:settings_category`. Never read during
   construction (M13 — `test_settings_view_construction_never_touches_the_store`
@@ -264,7 +312,7 @@ the rerank `QCheckBox` and the **View** `QToolButton`; under it a
 `QLabel` status line, a `NoticeBar`, then `result_tools.py`'s switch row of
 four `QCheckBox`es ("Drag results out", pinned, timeline, grid).
 
-- [ ] **3a** **the empty state.** When the box is empty and no results are
+- [x] **3a** **the empty state.** When the box is empty and no results are
   showing, the page is: a headline at `display` size (new copy: "What are
   you looking for?"), under it the **existing** `first_contact.greeting(count)`
   string verbatim ("39,306 documents ready to search." / the
@@ -279,25 +327,25 @@ four `QCheckBox`es ("Drag results out", pinned, timeline, grid).
   wording users have read. Suggested searches are rotated from a fixed
   list in `first_contact.py`, never derived from the user's history
   (privacy defaults, `202626270257`).
-- [ ] **3b** **the compact state.** The first keystroke moves the box to
+- [x] **3b** **the compact state.** The first keystroke moves the box to
   the top at full width (the geometry `build_toolbar` has today) and the
   results area appears. The transition is a layout change, not an
   animation, unless §5c's motion setting is on.
-- [ ] **3c** **scope becomes a segmented control** — four segments reading
+- [x] **3c** **scope becomes a segmented control** — four segments reading
   exactly the combo's four strings ("Everything", "Mail only", "Documents
   only", "Code only"; `search_bar.py:105-111`). Same signal, same
   setting, same persisted value. The `QComboBox` is gone from the toolbar;
   a `SegmentedControl(QWidget)` in `widgets/` wraps a `QButtonGroup` of
   checkable `QToolButton`s so keyboard and screen readers get radio-button
   semantics for free.
-- [ ] **3d** **filters become chips.** Every operator the `/` parser
+- [x] **3d** **filters become chips.** Every operator the `/` parser
   already extracts from the box (`/type`, `/from`, `/newest`, `/on`,
   `/saved`, the timeline strip's appended range) is shown as a removable
   chip under the box, in the order typed. Removing a chip **edits the box
   text** and re-dispatches through the existing debounce — the box stays
   the single source of truth; chips are a view of it, never a second
   parser. Chip text is `presenter.chip_label(op, value)`, Qt-free, tested.
-- [ ] **3e** **the four checkboxes become icon toggles** on one row with
+- [x] **3e** **the four checkboxes become icon toggles** on one row with
   the segmented control: pinned, timeline, grid, inspector, then `⋯`. Each
   toggle's tooltip and accessible name is the checkbox's **exact existing
   label**; each is `checkable`, drawn filled when on. "Drag results out",
@@ -305,11 +353,11 @@ four `QCheckBox`es ("Drag results out", pinned, timeline, grid).
   labels *(subject to `[FINALISE 3]`)*; `Ctrl+Enter` still fires Interpret
   and is gated on the action being enabled, as `build_controls` gates it on
   visibility today.
-- [ ] **3f** the `#searchStatus` line becomes the **summary line** under the
+- [x] **3f** the `#searchStatus` line becomes the **summary line** under the
   chips: left, the existing status text verbatim; right, the Interpret
   hint. `#resultsSummary` above the list is folded into it — one line,
   not two, saying the same thing.
-- [ ] **3g** `NoticeBar` stays exactly where it is and what it is — the
+- [x] **3g** `NoticeBar` stays exactly where it is and what it is — the
   degradation banner. It is not a toast (§6) and is not merged with one.
 
 ## 4. Result rows — the delegate repaints
@@ -319,7 +367,7 @@ Owner of the row is `ResultDelegate` (`result_delegate.py`); `0q`
 keyboard flow — **inherit all of it, disturb none of it**. This section is
 paint only.
 
-- [ ] **4a** the 16px `QFileIconProvider` icon slot becomes a **36px kind
+- [x] **4a** the 16px `QFileIconProvider` icon slot becomes a **36px kind
   badge**: a rounded square in the kind colour (§0.1-5) carrying the
   kind's short word in white (PDF, MAIL, PY, XLS, IMG — from
   `presenter.kind_tag` at `presenter.py:1200`, which `0q §3a` kept for the
@@ -327,26 +375,26 @@ paint only.
   file-type icon is not lost: it is drawn small in the badge's corner when
   the provider returns one. Both themes; the badge colours are the same in
   both by design.
-- [ ] **4b** hover and selection are **tinted fills with 8px radius**, no
+- [x] **4b** hover and selection are **tinted fills with 8px radius**, no
   border, no gridline; the selection also thickens the name weight so
   it survives greyscale.
-- [ ] **4c** highlight runs are painted as a **tinted background behind the
+- [x] **4c** highlight runs are painted as a **tinted background behind the
   words** (`mark`/`mark_text` tokens) instead of bold. Bold stays in the
   accessible text as the word "match" — the existing `accessible_text`
   path, unchanged.
-- [ ] **4d** density and text size (`view_options.py`, `DENSITIES`,
+- [x] **4d** density and text size (`view_options.py`, `DENSITIES`,
   `FONT_RANGE`) keep their exact multipliers and persistence; the delegate
   reads them as it does now. `sizeHint` and `paint` remain one source of
   geometry — the gap-under-every-row regression `0q` names is the one to
   fear, and its test shape exists.
-- [ ] **4e** `ThumbnailGrid`, `PinnedPanel`, `TimelineStrip` and the
+- [x] **4e** `ThumbnailGrid`, `PinnedPanel`, `TimelineStrip` and the
   `ResultTable` used by Files/Mail/Code are **restyled by QSS only** (§1b)
   and otherwise untouched. The timeline strip's bars take `line2` when
   outside the selected range and `accent` inside it.
 
 ## 5. The inspector — the preview pane gets a header
 
-- [ ] **5a** `PreviewPane` (`preview.py:110-249`) gains a **facts header**
+- [x] **5a** `PreviewPane` (`preview.py:110-249`) gains a **facts header**
   between the title/subtitle labels and the stacked content: a two-column
   grid of Kind, From (mail-derived rows only), Size and Modified — only
   fields `SearchResult` already carries; the mockup's "Also in" row
@@ -354,12 +402,12 @@ paint only.
   answers it, and `0q §4`'s twins are same-name files, not that. Values
   come from `presenter.preview_facts(result)`, Qt-free, tested; the header
   hides rows it has no value for rather than printing "—".
-- [ ] **5b** the pane's action row reads **Open · Show in folder · Pop out**
+- [x] **5b** the pane's action row reads **Open · Show in folder · Pop out**
   — "Open" and "Pop out" are the existing buttons with their existing
   labels; "Show in folder" is new to the pane and reuses the context
   menu's existing `QAction("Show in folder", …)` (`file_menu.py:89`) —
   the same action object, not a second string.
-- [ ] **5c** **motion, off by default.** Toggling the inspector
+- [x] **5c** **motion, off by default.** Toggling the inspector
   (`Ctrl+Shift+P`) animates the splitter sizes over 160ms via
   `QVariantAnimation` *only* when a new Appearance setting
   `UI_MOTION` (label: "Animate panels when they open and close") is on.
@@ -374,7 +422,7 @@ Today `shell.py` calls `statusBar().showMessage(...)` at 39 sites and
 nothing outside `shell.py` does. Those strings are user-facing copy and
 **every one relocates verbatim**.
 
-- [ ] **6a** `app/ui/widgets/toast.py`: a `Toast(QWidget)` drawn at the
+- [x] **6a** `app/ui/widgets/toast.py`: a `Toast(QWidget)` drawn at the
   bottom-centre of the central widget, one line, dark fill on light /
   light fill on dark (`toast_bg`/`toast_text`), a 7px severity dot
   (info / warning / danger — the existing `warning`/`danger` tokens), that
@@ -385,10 +433,10 @@ nothing outside `shell.py` does. Those strings are user-facing copy and
   same string, the same call site. A test asserts `statusBar()` is no
   longer referenced anywhere under `app/ui/` *(unless `[FINALISE 1]` keeps
   it, in which case the test names the exact surviving calls)*.
-- [ ] **6c** every toast is also announced: the text is set on a hidden
+- [x] **6c** every toast is also announced: the text is set on a hidden
   live-region `QLabel` with `AccessibleRole.StaticText` so screen readers
   hear what sighted users glimpse. Verified in the §9 accessibility pass.
-- [ ] **6d** long waits show **skeleton rows** in the results list (three
+- [x] **6d** long waits show **skeleton rows** in the results list (three
   grey bars per row, no text) between dispatch and first result when the
   wait exceeds 300ms — drawn by the delegate from a `skeleton=True` model
   flag, never a second widget swapped in.
@@ -399,7 +447,7 @@ The macOS port itself is parked (`docs/PARKED-IDEAS.md` §6) and stays
 parked. This section is what this order does so the port does not have to
 redo the shell.
 
-- [ ] **7a** `shell.py` builds a `QMenuBar` (File · Edit · View · Go ·
+- [x] **7a** `shell.py` builds a `QMenuBar` (File · Edit · View · Go ·
   Help) whose actions are the **existing shortcuts** from §2c, with menu
   text equal to the existing tooltip or button label wherever one exists
   — no new phrasing where old phrasing serves. Qt places it in the macOS
@@ -432,7 +480,7 @@ redo the shell.
   changes.** `test_every_pre_reorg_label_and_tooltip_still_exists_verbatim`
   (`test_pages_reorg.py`) is re-pointed at this order's pre-change commit
   and must pass.
-- [ ] **8b** `CategoryNav`'s list takes the rail's selection language — a
+- [x] **8b** `CategoryNav`'s list takes the rail's selection language — a
   filled pill and heavier label — so the two navigations read as one
   family.
 
@@ -451,10 +499,10 @@ redo the shell.
   §3, re-pointed at the commit before this order's first change, asserting
   every pre-existing label, tooltip, placeholder and status string still
   exists byte-for-byte.
-- [ ] **9e** chips: typing `/type pdf` shows one chip; removing it empties
+- [x] **9e** chips: typing `/type pdf` shows one chip; removing it empties
   the operator from the box and re-dispatches exactly once (generation
   guard intact); two chips remove independently.
-- [ ] **9f** toasts: a `notify()` call shows one toast, queues a second, and
+- [x] **9f** toasts: a `notify()` call shows one toast, queues a second, and
   clears both; the live-region label carries the text.
 - [ ] **9g** delegate: `sizeHint == paint` geometry in both densities and
   all three text sizes; badge colour per kind; skeleton rows lay out at
@@ -467,7 +515,7 @@ redo the shell.
   and maximised — twelve images, committed under `tests/golden/ui-redesign/`
   and read by a human before the order is ticked. Not a pixel diff; a
   looked-at picture.
-- [ ] **9k** (0m §0, folded in 2026-09-16) `tools/grab_ui.py`: constructs
+- [x] **9k** (0m §0, folded in 2026-09-16) `tools/grab_ui.py`: constructs
   the real `MainWindow` offscreen against a temp store, walks every rail
   page and named surface, saves `widget.grab()` per surface to
   `outputs/screenshots/<surface>.png`; `--surface NAME`, `--size WxH`,
@@ -475,14 +523,14 @@ redo the shell.
   non-empty PNG per surface and that the surface list matches the rail's
   pages (a new page without a grab entry fails). §9i's twelve images are
   produced by this script, not by hand.
-- [ ] **9l** (0m §4a, folded in 2026-09-16) goldens: the §9i captures are
+- [x] **9l** (0m §4a, folded in 2026-09-16) goldens: the §9i captures are
   the baseline under `tests/golden/ui-redesign/`; a test compares a fresh
   grab against each with a perceptual-hash distance tolerance
   (`imagehash`, already a transitive dependency — verify, else pure
   Python average-hash in the test) and fails when the look drifts.
   Goldens change only in the commit that changes the look, named in its
   message.
-- [ ] **9m** (owner, 2026-09-16) **responsiveness under indexing**: a
+- [x] **9m** (owner, 2026-09-16) **responsiveness under indexing**: a
   pytest-qt scenario starts a stand-in pipeline on the real
   `IndexingView.start` path that emits progress every 10ms for two
   seconds, and during it asserts that a rail switch, a keystroke in the
