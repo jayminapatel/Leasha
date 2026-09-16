@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.28 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.29 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -61,7 +61,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **13 / 4** | 0k (SHIPPED). 1a/1d/3d/3b-3 and now 2b closed (2b: per-folder cloud-content opt-in with a shared session-wide download cap, built 2026-09-16 by the crash-recovery session — see the order's own dated note). Open: 2a (a new cataloguable cloud volume kind — out of scope by owner decision 2026-09-16, not attempted), 2c (DEFERRED INDEFINITELY, do not build), 3b-2's on-tape ordering and one §4 test (both need hardware not present on this machine) |
 | 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 6 / 9 | §1/§2 built; §3 (Space Report) backend built and on the Reports page. 3c's caching/progress and, later the same day, two of 3a's three sub-asks (pHash near-duplicates, per-source duplicate share) all built 2026-09-16 by the crash-recovery session - checkbox count unchanged both times, each item stays open on its one remaining sub-ask (3a: the interactive table; 3c: the scale-fixture measurement). Open: 3a's interactive table, 3c's measurement, and all of §4 (Life Timeline, held by owner decision 2026-09-16, not started) |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
-| 0q | `202626271510` | The results, world class | RELEASED | **24 / 1** | 4a and 3c settled by the owner 2026-09-16 (see the order's dated notes: `elide_path_left` deleted, the line-number clause dropped); one §8 item open (the pytest-qt scenario sweep) |
+| 0q | `202626271510` | The results, world class | **SHIPPED** | **25 / 0** | Closed 2026-09-16 - the last §8 item (the pytest-qt scenario sweep) was waiting on 0m's harness, which now exists; `test_gui_scenarios_results.py` closes it and found a real bug along the way (see the order's own dated note: an interim-to-full tier swap never actually kept the selected row, only the isolated widget test did - fixed in `search_view.py`) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 24** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |

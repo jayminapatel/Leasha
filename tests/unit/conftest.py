@@ -92,6 +92,9 @@ class _FakeReranker:
     def __init__(self) -> None:
         self.enabled = False
 
+    def warm_up(self) -> None:
+        pass
+
 
 @pytest.fixture(scope="module")
 def gui_mainwindow(tmp_path_factory):

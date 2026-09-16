@@ -1,6 +1,6 @@
 # Work order (One thread): the results, world class — every row earns its trust
 
-**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (ResultsView/ResultDelegate/presenter — the painted
 list and the Qt-free text decisions behind it)
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable**
@@ -355,7 +355,7 @@ job.
   > (row-form assertions); `test_the_delegate_scales_with_the_system_font`
   > is parametrised over 100/125/150/200%, so the 150% fixture this bullet
   > asks for is one of its four cases (all `test_result_delegate.py`).
-- [ ] pytest-qt scenario per item (0m convention); all new strings pass
+- [x] pytest-qt scenario per item (0m convention); all new strings pass
   plain-words/tooltip rules.
 
   > **2026-09-05 (session 4).** Left unticked for the same reason order 0s
@@ -371,6 +371,33 @@ job.
   > in the same plain, jargon-free voice as this order's already-shipped
   > strings, and `test_tooltips.py`'s AST guard already covers every module
   > under `app/ui/`, this order's four files included.
+
+  > **2026-09-16.** Order 0m's harness now exists (`tests/unit/conftest.py`'s
+  > `gui_mainwindow` fixture: a real `SqliteStore`, a real keyword-only
+  > `SearchEngine`, a real `MainWindow`, driven by `qtbot`) - the blocker this
+  > bullet's own note named is gone, so this closes rather than staying held
+  > against 0m. `tests/unit/test_gui_scenarios_results.py`, three real
+  > scenarios against the assembled window: a document matched twice paints
+  > a chevron and expands on a real click at the chevron's own hit-rect (not
+  > the whole row); a mail result decorates to sender-first ("chris@example.com
+  > — Widget delivery") once `decorate_results_async` lands, not before; and
+  > the selected document survives an interim-to-full tier swap of the same
+  > typed query.
+  >
+  > **The third scenario found a real bug, not just proved the claim.**
+  > `test_the_current_row_survives_a_rebuild_that_adds_rows`
+  > (`test_results_view.py`) calls `ResultsView.show_results(keep_scroll=True)`
+  > directly and passes - but `search_view.py`'s own `_on_results`, the only
+  > place that method is ever actually called from a running search, never
+  > passed `keep_scroll` at all, so every real render - interim, full, or a
+  > brand new query - started at the top and dropped the selection. The
+  > isolated widget test had verified an API the real dispatch path never
+  > used. Fixed in `search_view.py`: a new `self._shown_query` tracks the
+  > text of the last displayed result, and `keep_scroll` is true exactly
+  > when the incoming response's `parsed.raw` matches it - a tier swap of
+  > the same query keeps the anchor; a changed query still starts at the
+  > top, unchanged from before. `search_view.py` is now at 249/250 code
+  > lines.
 
 ## Done means
 

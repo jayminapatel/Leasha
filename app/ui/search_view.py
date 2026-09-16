@@ -79,6 +79,7 @@ class SearchView(QWidget):
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._shown_generation = -1
+        self._shown_query = ""          # order 0q S8: the stable-update anchor
         #: Whether this session has ever drawn a result. Until it has, an empty
         #: answer is genuinely empty and should say so; afterwards, blanking a
         #: list somebody is reading is the worse of the two mistakes.
@@ -346,7 +347,15 @@ class SearchView(QWidget):
         self._index_count = len(response.results)
         self._last_terms = terms
         register = notice_register_for("search", self._search_preferences)
-        self.results.show_results(response.results, terms, summary=summary, register=register)
+        # Order 0q S8: an interim->full swap of the SAME typed query keeps the
+        # anchor (the M9-adjacent bug order 0m's real-window scenario found -
+        # every render used to start at the top, tier swap or not); a change
+        # of query text still starts at the top, unchanged from before.
+        raw = response.parsed.raw if response.parsed else ""
+        keep_scroll = bool(raw) and raw == self._shown_query
+        self.results.show_results(response.results, terms, summary=summary,
+                                  register=register, keep_scroll=keep_scroll)
+        self._shown_query = raw
 
         generation = self._shown_generation
         decorate_results_async(
