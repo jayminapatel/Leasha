@@ -387,7 +387,11 @@ def test_a_graphics_card_that_fails_mid_run_does_not_end_the_run() -> None:
 
     with pytest.raises(AppErrorException):
         embedder.embed(["a"])                    # reported, never swallowed
-    assert embedder.embed(["a"]), "and the next call still works"
+    # `embed()` returns a `numpy.ndarray` since order 0b section 6c - bare
+    # truthiness on a multi-element array raises, so the recovery is
+    # asserted by shape (one row back for one input) instead.
+    recovered = embedder.embed(["a"])
+    assert len(recovered) == 1, "and the next call still works"
 
 
 # --- 7f: the timers are themselves under test -------------------------------
