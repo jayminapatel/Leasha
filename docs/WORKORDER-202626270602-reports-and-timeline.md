@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -58,19 +58,57 @@ green. §3 and §4 below are genuinely not started - do not read this note as co
 
 ## 3. Report: the Space Report — duplicates and uniqueness
 
+**2026-09-16 — built and added to the Reports page (`app/reports/space.py`,
+`app.cli report space`), honestly partial rather than asserted whole.** 16
+new tests in `test_reports_space.py`, 3 more in `test_cli_wiring.py`, all
+against a real `SqliteStore`.
+
 - [ ] **3a** across ALL sources, from content hashes + pHash (photos):
   total duplicate bytes reclaimable, largest duplicate groups (what, where,
   each copy's source), per-source duplicate share. Table + a few plain
   numbers; sortable; row → reveals the copies with their sources.
-- [ ] **3b THE UNIQUENESS WARNING (the backup conscience)**: files that
+
+  **Built: exact-content duplicates by `content_hash`, across local roots
+  and catalogued volumes alike** — total reclaimable bytes, the
+  `DUPLICATE_GROUPS_SHOWN` largest groups biggest-reclaim-first, every
+  copy named with its source. **Not built**: pHash near-duplicate
+  matching for photos (two visually-identical but not byte-identical
+  images), per-source duplicate share as its own number, and the
+  interactive sortable/row-expands-to-reveal-copies table the item asks
+  for — this ships as a rendered document instead, the same shape the
+  Digital Inheritance report already uses, with every copy already
+  named in the group's own paragraph rather than behind a click. Left
+  unticked because three real sub-asks are missing, not because the
+  built half is wrong.
+- [x] **3b THE UNIQUENESS WARNING (the backup conscience)**: files that
   exist on exactly ONE source — counted and listed per source, headline
   first: "372 files exist nowhere else but 'Old WD' (last seen 14 Aug)."
   Offline-only uniqueness ranks above all (the drawer holding the only
   copy). No nagging machinery — the report states facts; the user acts.
+
+  Built exactly to the example's own wording. **Scope note**: local-root
+  uniqueness is one "This computer" bucket, not split per individual
+  root — a local root is not at risk of disappearing the way a drive in
+  a drawer is, which is this item's own stated reason volumes rank
+  first, and splitting it would cost a per-row path-prefix match this
+  item's own priority does not need. Catalogued volumes are reported
+  individually and rank first, exactly as asked.
 - [ ] **3c** performance: report queries are prepared/indexed (hash and
   pHash columns get the indexes these GROUP BYs need — measured on the
   scale fixture, the H2-lesson applied in advance), generated on a worker
   with progress, cached until the next index run.
+
+  **Built**: `content_hash` now has a partial index (schema v24,
+  `idx_files_content_hash`) — `pHash` already had one (schema v17). Both
+  report queries run through `CallableWorker`, the same off-the-UI-thread
+  pattern every other report and page uses. **Not built**: no measurement
+  against the scale fixture (H2's own lesson was applied in advance by
+  indexing the column, but never proven with a number the way H2 itself
+  was), no progress reporting beyond "a worker is running" (no percentage
+  or stage), and no caching between index runs - the query re-runs on
+  every tab switch, the same as the Digital Inheritance report already
+  does. Left unticked for the same reason as 3a: real sub-asks open, not
+  a wrong foundation.
 
 ## 4. The Life Timeline — a browsing surface
 

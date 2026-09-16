@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.18 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 4.21 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,42 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A new report shows what's taking up space twice, and what only exists once
+
+- The Space Report, next to the Digital Inheritance map, tells you two
+  things about your files: how much room you'd get back by keeping one
+  copy of everything that's duplicated across your drives, with the
+  biggest duplicates named - and which files exist on only one source,
+  headline first: "372 files exist nowhere else but 'Old WD'."
+- The second half is the one worth reading even if you never read
+  another report: if that one drive is lost, so is that content, and now
+  you know before it happens rather than after.
+
+### A new install tunes itself, quietly, the first time the computer is idle
+
+- You never have to find the tuning screen for Leasha to run well on your
+  machine. The first time it's idle - not while you're indexing, not on
+  battery - Leasha times itself once and switches from its cautious
+  defaults to settings tuned for your computer specifically. No question,
+  no dialog - just a line afterwards saying it happened.
+- Choosing Manual yourself is never overridden - this only ever upgrades
+  the starting point, never a choice you've actually made.
+
+### A file you can already search by word now says so while it's still learning what it means
+
+- Between a file being read and Leasha finishing work out what it's about
+  (a step that runs a little behind extraction), it used to be listed as
+  "not indexed yet" - which was never true; it was already findable by
+  word. It now says, plainly, that it's findable by word and still
+  learning what it means.
+
+### When meaning-based search comes up empty, it now says whether that's temporary
+
+- If a search finds word matches but nothing by meaning, and your index
+  is still partway through learning what your files mean, Leasha now says
+  so - "still embedding, 60% done" - instead of leaving you to wonder
+  whether something is broken.
 
 ### Leasha can now write out a plain map of everything it knows about, for someone who isn't you
 

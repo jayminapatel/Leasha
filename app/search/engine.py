@@ -951,12 +951,38 @@ class SearchEngine:
             # from a console and to nobody else. A degraded search that looks
             # identical to a working one is the worst failure this application
             # has, because it is the one nobody reports.
-            notices.append(Notice(
-                NOTICE_NO_VECTORS,
+            #
+            # Work order 0b §6d: "the existing NOTICE_NO_VECTORS wording
+            # extends to '...still embedding, N% done'." A corpus that is
+            # genuinely still catching up (the M6 repair drains it in the
+            # background, see `Pipeline._drain_unembedded`) is a different
+            # story from one whose vector store is actually broken, and the
+            # two want different next actions - "wait" versus "run reembed".
+            # `vector_coverage` is the same number `app.cli stats` already
+            # reports; this just says it here too, so nobody has to leave
+            # the search box to find out which story they are in.
+            message = (
                 "Meaning-based search returned nothing, so these are "
                 "keyword matches only. Run `app.cli stats` to check the "
-                "vector store, and `app.cli reembed` to rebuild it.",
-            ))
+                "vector store, and `app.cli reembed` to rebuild it.")
+            try:
+                coverage = self.store.vector_coverage(self.vectors.count())
+            except Exception:                     # noqa: BLE001 - a notice, not the search
+                coverage = None
+            # **Genuine progress only, not a blank store.** `coverage == 0`
+            # says nothing was ever embedded, which is the "check the store,
+            # then reembed" story the message above already tells; "still
+            # embedding, N% done" is a different, more reassuring story that
+            # is only true once there is a real number to report.
+            if (coverage is not None and not coverage["vectors_ready"]
+                    and coverage["coverage"] > 0):
+                percent = round(coverage["coverage"] * 100)
+                message = (
+                    f"Meaning-based search returned nothing - still "
+                    f"embedding, {percent}% done. It will cover more of "
+                    f"the index as that finishes; `app.cli stats` shows "
+                    f"the exact numbers.")
+            notices.append(Notice(NOTICE_NO_VECTORS, message))
         elif keyword_hits and not vector_hits:
             # The ordinary cases, at DEBUG. Recorded rather than dropped so the
             # log can still answer "why were there no vector hits" - it simply
