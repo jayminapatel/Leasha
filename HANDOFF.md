@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 5.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 5.8 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -272,6 +272,40 @@ gets lost by accident.
 > stays open and 0r stays `RELEASED`. Full account, including the measured numbers
 > and the two pre-existing test failures ruled out as regressions, is in
 > `docs/ORDER_REGISTER.md`'s own 2026-09-07 second-pass note.
+>
+> **Corrected again, 2026-09-15 — both stale in the direction this section
+> keeps finding itself wrong in.** `202626270510` (0h)'s "12/1 deliberately"
+> two paragraphs up is no longer true: run from this session, on the real
+> machine rather than the build sandbox its last item was gated on, `0h`
+> closed at 13/0 the same day. And `202626270513` (0k,
+> offline media drives) is now SHIPPED at 17/0 too: §3 (search/browse
+> decoration) was the one section this document's queue list below still
+> describes as future work, and it closed the same session — the inline
+> offline-volume badge on a result row, preview from the index working
+> offline (a real, pre-existing bug fixed along the way: opening a file
+> found by browsing to a catalogued volume in the Files tab tried its
+> letter-free synthetic path directly, exactly the bug 1b/3a had already
+> fixed once for search results), and the Files tab's volume picker. Full
+> account in `docs/ORDER_REGISTER.md`'s own 2026-09-15 notes and the order
+> files' own dated entries.
+>
+> **Corrected a further time, 2026-09-16 — `202626270514` (0l, offline
+> media network/cloud) moves from 8/9 to 12/5.** The queue list below still
+> reads as if 0k's tab, which 0l's own §1a/1d/3d/3b-3 were waiting on, had
+> not shipped - it has (see the correction just above), and all four closed
+> the same day it did: 1a's interactive rename-suggestion dialog, the tab's
+> own help line (1d and 3b-3 share it), and the online-only results badge
+> (3d), riding 0k's own badge machinery exactly as the order asks. **2a and
+> 2b were assessed, not attempted** - both are real, substantial features
+> (a cataloguable cloud volume kind with a browser-routed Open action; a
+> folder-scoped download opt-in with a size cap) and neither shares much
+> beyond the read-guard 0l's own §3 already proved, so building either
+> partially and calling it done would have been the confidently-wrong kind
+> of state this document warns about elsewhere. 3b-2's on-tape ordering and
+> one §4 test stay open for the reason they always have: no LTFS tape or
+> mapped network drive exists on this machine to check real behaviour
+> against. Full account in `docs/ORDER_REGISTER.md`'s own 2026-09-16 note
+> and the order file's own dated entries.
 
 In order, and grouped by what is actually blocking.
 

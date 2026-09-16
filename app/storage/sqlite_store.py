@@ -269,6 +269,26 @@ def _scope_sql(within: Any) -> tuple[str, list[Any]]:
         return "", []
 
 
+def _bucket_top_level(root: str, parent_dir_counts: list) -> list:
+    r"""Reduce (deep parent_dir, count) pairs to (immediate child of root,
+    total count) - the Digital Inheritance report's own "top-level folder
+    summary," since `parent_dir` is often several levels below `root` and
+    only the first segment past it is what a source-level summary wants.
+    """
+    root_norm = root.replace("\\", "/").rstrip("/")
+    buckets: dict = {}
+    for parent_dir, n in parent_dir_counts:
+        rel = str(parent_dir or "").replace("\\", "/")
+        if rel == root_norm:
+            key = "(top level)"
+        elif rel.startswith(root_norm + "/"):
+            key = rel[len(root_norm) + 1:].split("/", 1)[0]
+        else:
+            key = "(other)"
+        buckets[key] = buckets.get(key, 0) + int(n)
+    return sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+
+
 class FileStatus:
     PENDING = "PENDING"
     INDEXED = "INDEXED"
@@ -1539,7 +1559,8 @@ class SqliteStore:
             # full sort of every row, 0.011ms vs 39.5ms at 200,000 files.
             columns = """f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
                            f.taken_at_ns, f.status, f.skip_code,
-                           f.source_kind, 0.0 AS score"""
+                           f.source_kind, f.volume_id, f.relative_path,
+                           0.0 AS score"""
             no_shot_date = self.conn.execute(
                 f"""SELECT {columns}
                     FROM files f
@@ -1578,13 +1599,16 @@ class SqliteStore:
         # fallback is now narrow enough that it cannot hide this again.
         sql = f"""
             SELECT id, path, ext, size_bytes, mtime_ns, taken_at_ns, status,
-                   skip_code, source_kind, MIN(score) AS score
+                   skip_code, source_kind, volume_id, relative_path,
+                   MIN(score) AS score
             FROM (
                 SELECT f.id AS id, f.path AS path, f.ext AS ext,
                        f.size_bytes AS size_bytes, f.mtime_ns AS mtime_ns,
                        f.taken_at_ns AS taken_at_ns,
                        f.status AS status, f.skip_code AS skip_code,
                        f.source_kind AS source_kind,
+                       f.volume_id AS volume_id,
+                       f.relative_path AS relative_path,
                        bm25(files_fts, 10.0, 1.0) AS score
                 FROM files_fts
                 JOIN files f ON f.id = files_fts.rowid
@@ -1595,6 +1619,7 @@ class SqliteStore:
                 SELECT f.id, f.path, f.ext, f.size_bytes, f.mtime_ns,
                        f.taken_at_ns,
                        f.status, f.skip_code, f.source_kind,
+                       f.volume_id, f.relative_path,
                        bm25(chunks_fts) AS score
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid
@@ -2905,6 +2930,70 @@ class SqliteStore:
             ORDER BY v.last_seen DESC
         """).fetchall()
         return [dict(row) for row in rows]
+
+    def local_root_summary(self, root: str) -> dict[str, Any]:
+        r"""Count, total size and date span of ordinary (non-volume) indexed
+        files under one local root. Order 202626270602 (0n) section 2a: a
+        local root predates Offline Media and has no catalogue row of its
+        own, so the Digital Inheritance report builds its numbers straight
+        from `files` rather than from a `volumes` row that does not exist.
+
+        Read-only, like every report query - this never writes.
+        """
+        cleaned = str(root or "").rstrip("\\/")
+        escaped = like_escape(cleaned)
+        pattern = f"{escaped}%"
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total_bytes, "
+            "MAX(mtime_ns) AS newest, MIN(mtime_ns) AS oldest "
+            "FROM files WHERE volume_id IS NULL AND source_kind = 'file' "
+            "AND (path = ? OR path LIKE ? ESCAPE '\\')",
+            (cleaned, pattern),
+        ).fetchone()
+        if row is None:
+            return {"n": 0, "total_bytes": 0, "newest": None, "oldest": None}
+        return dict(row)
+
+    def local_root_folder_counts(self, root: str) -> list[tuple[str, int]]:
+        r"""One `(top-level subfolder, file count)` pair per subfolder
+        directly under `root` - the Digital Inheritance report's own
+        "top-level folder summary per source, derived from the index."
+        Commonest first.
+
+        Grouped by `parent_dir` in SQL (bounded by folder count, not file
+        count) and bucketed to the root's immediate children in Python -
+        `parent_dir` is often several levels deeper than `root` and only
+        the first segment past it is what a source-level summary wants.
+        """
+        cleaned = str(root or "").rstrip("\\/")
+        escaped = like_escape(cleaned)
+        pattern = f"{escaped}%"
+        rows = self.conn.execute(
+            "SELECT parent_dir, COUNT(*) AS n FROM files "
+            "WHERE volume_id IS NULL AND source_kind = 'file' "
+            "AND (parent_dir = ? OR parent_dir LIKE ? ESCAPE '\\') "
+            "GROUP BY parent_dir",
+            (cleaned, pattern),
+        ).fetchall()
+        return _bucket_top_level(cleaned, [(r["parent_dir"], int(r["n"])) for r in rows])
+
+    def volume_folder_counts(self, volume_id: int) -> list[tuple[str, int]]:
+        r"""Same shape as `local_root_folder_counts`, for a catalogued
+        Offline Media volume - `relative_path`'s own first segment is
+        already root-relative, unlike an ordinary file's `parent_dir`.
+        """
+        rows = self.conn.execute(
+            "SELECT relative_path, COUNT(*) AS n FROM files "
+            "WHERE volume_id = ? AND source_kind = 'file' "
+            "GROUP BY relative_path",
+            (int(volume_id),),
+        ).fetchall()
+        counts: dict[str, int] = {}
+        for row in rows:
+            rel = str(row["relative_path"] or "").replace("\\", "/")
+            top = rel.split("/", 1)[0] if rel else "(top level)"
+            counts[top] = counts.get(top, 0) + int(row["n"])
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
 
     def move_volume_file(self, volume_id: int, old_relative_path: str,
                          new_relative_path: str, *, size_bytes: int,

@@ -268,7 +268,7 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     results.opened.connect(on_opened)
     results.reveal_requested.connect(on_reveal)
     results.reindex_requested.connect(on_reindex)
-    preview, split = attach_preview(results, on_opened, on_error)
+    preview, split = attach_preview(results, on_opened, on_error, store=store)
 
     def remember(values: dict) -> None:
         if store is not None:

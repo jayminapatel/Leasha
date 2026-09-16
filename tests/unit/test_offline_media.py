@@ -521,8 +521,10 @@ def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
 
 # ---------------------------------------------------------------------------
 # 202626270514 1a - the structure-match offer, and the acceptance half
-# (`rename_volume_identity`). The interactive dialog is 0k §2's tab, not
-# built; this is the backend + CLI half that can be proven without it.
+# (`rename_volume_identity`). 0k §2's tab is built (2026-09-15) and 1a's
+# own interactive dialog now rides it - see `check_renamed_source` and
+# `scan_new_source`'s `same_as` below for the tab's half; the CLI's own
+# `--same-as` predates both and is unchanged.
 # ---------------------------------------------------------------------------
 
 def test_suggest_renamed_source_finds_a_structurally_similar_offline_share(tmp_path):
@@ -575,6 +577,150 @@ def test_suggest_renamed_source_stays_quiet_for_unrelated_shares(tmp_path):
         suggestion = suggest_renamed_source(store, "network", new_mount)
 
     assert suggestion is None
+
+
+def test_check_renamed_source_offers_the_tab_the_same_suggestion(tmp_path, monkeypatch):
+    r"""The Offline Media tab's own worker step (1a): a folder alone, no
+    `kind`/`identity_key` resolution required from the caller - it wraps
+    `identify_source` itself, the same way `scan_new_source` does.
+
+    `identify_source` is faked for `new_mount` - a plain tmp_path folder
+    has no real UNC or drive identity of its own to resolve, the same
+    reason `test_scan_new_source_catalogues_and_indexes_a_real_folder`
+    fakes it rather than the folder.
+    """
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import check_renamed_source
+
+    mount = tmp_path / "old_mount"
+    _write(mount / "Invoices" / "2019.txt", "x")
+    _write(mount / "Minutes" / "q3.txt", "x")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        old_id = store.upsert_volume(
+            r"\old-nas\projects", kind="network", name="Old NAS",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\/").lower(): old_id})
+
+        new_mount = tmp_path / "renamed_mount"
+        _write(new_mount / "Invoices" / "placeholder.txt", "x")
+        (new_mount / "Minutes").mkdir(parents=True, exist_ok=True)
+
+        monkeypatch.setattr(
+            offline_media_module, "identify_source",
+            lambda path: ("network", {"identity_key": r"\new-nas\projects"}),
+        )
+        suggestion = check_renamed_source(store, new_mount)
+
+    assert suggestion is not None
+    assert suggestion["name"] == "Old NAS"
+
+
+def test_check_renamed_source_is_quiet_for_an_identity_already_catalogued(tmp_path):
+    r"""An ordinary rescan of a known source must never be offered as a
+    possible rename of itself - `scan_new_source`'s own `existing is None`
+    guard, mirrored here so the tab's pre-Scan check agrees with it."""
+    from app.index.offline_media import check_renamed_source
+
+    mount = tmp_path / "mount"
+    _write(mount / "notes.txt", "x")
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        volume_id = store.upsert_volume(
+            r"\\old-nas\projects", kind="network", name="Old NAS",
+        )
+        _run(store, [mount],
+             volume_roots={str(mount).rstrip("\\/").lower(): volume_id})
+
+        suggestion = check_renamed_source(store, mount)
+
+    assert suggestion is None
+
+
+def test_check_renamed_source_never_raises_for_an_unreadable_path(tmp_path):
+    """A Scan a person pressed the button for must not be blocked by this
+    check itself failing."""
+    from app.index.offline_media import check_renamed_source
+
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        suggestion = check_renamed_source(store, tmp_path / "does_not_exist")
+
+    assert suggestion is None
+
+
+def test_scan_new_source_with_same_as_reattaches_instead_of_duplicating(tmp_path, monkeypatch):
+    r"""1a's offer, accepted through the tab's dialog: `same_as` reattaches
+    to the existing catalogue rather than cataloguing a second, duplicate
+    source - `scan_new_source`'s own new parameter, mirroring the CLI's
+    inline `--same-as` logic. Follows `test_scan_new_source_catalogues_
+    and_indexes_a_real_folder`'s own established pattern exactly (faked
+    identity, faked run lock, `_fake_settings`) rather than inventing a
+    second one."""
+    from app.core.run_lock import COMMAND_LINE
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import scan_new_source
+
+    root = tmp_path / "drive"
+    _write(root / "reports" / "q3.txt", "Barnsley Dairy commissioning notes.")
+    monkeypatch.setattr(
+        offline_media_module, "identify_source",
+        lambda path: ("drive", {"identity_key": "TEST-GUID-SAME-AS",
+                                "volume_guid": "TEST-GUID-SAME-AS",
+                                "fs_label": "TESTDRIVE"}),
+    )
+    monkeypatch.setattr("app.core.run_lock.IndexRunLock", _NullRunLock)
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        old_id = store.upsert_volume(
+            "TEST-GUID-ORIGINAL", kind="drive", name="Old NAS",
+        )
+
+        result = scan_new_source(
+            settings, store, root, name="ignored - same_as wins",
+            run_lock_owner=COMMAND_LINE, same_as="Old NAS",
+        )
+
+        assert result["volume_id"] == old_id
+        record = store.get_volume(old_id)
+        assert record.name == "Old NAS", "same_as must never rename the target"
+        assert record.identity_key == "TEST-GUID-SAME-AS", (
+            "the new identity must be attached to the old row")
+        # No second row was created for the new identity.
+        assert store.get_volume_by_identity("TEST-GUID-ORIGINAL") is None
+
+
+def test_scan_new_source_same_as_an_unknown_name_is_a_clean_error(tmp_path, monkeypatch):
+    r"""Reaches the `same_as` validation specifically - a real, identified
+    root, so the failure is about the name, not about the path."""
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import scan_new_source
+
+    root = tmp_path / "drive"
+    root.mkdir()
+    monkeypatch.setattr(
+        offline_media_module, "identify_source",
+        lambda path: ("drive", {"identity_key": "TEST-GUID-SAME-AS-UNKNOWN",
+                                "volume_guid": "TEST-GUID-SAME-AS-UNKNOWN",
+                                "fs_label": "TESTDRIVE"}),
+    )
+
+    settings = _fake_settings(tmp_path)
+    db = tmp_path / "index.db"
+    with SqliteStore(db) as store:
+        with pytest.raises(AppErrorException) as excinfo:
+            scan_new_source(
+                settings, store, root, name="x", run_lock_owner=COMMAND_LINE,
+                same_as="Nothing Catalogued By This Name",
+            )
+    assert excinfo.value.error.code == "ERR_CONFIG_INVALID"
 
 
 def test_rename_volume_identity_keeps_every_file_row(tmp_path):
@@ -860,6 +1006,87 @@ def test_3a_mixed_folder_hydrated_and_placeholder_get_different_treatment(tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# 202626270514 3d: the results badge - "online-only - opening will
+# download" - riding 0513 §3a's decoration path. presenter.placeholder_marks
+# is the per-file cousin of offline_volume_marks, for an ordinary indexed
+# file rather than a catalogued volume.
+# ---------------------------------------------------------------------------
+
+def test_placeholder_marks_finds_a_real_cloud_placeholder(tmp_path):
+    r"""A real `FILE_ATTRIBUTE_OFFLINE` round-trip, the same standing
+    convention `_set_offline`/`_clear_offline` already give every other
+    placeholder test in this file - never a mock for the one attribute
+    this whole feature is about reading correctly."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    from types import SimpleNamespace
+
+    from app.ui.presenter import placeholder_marks
+
+    target = _write(tmp_path / "cloud.txt", "would-be-cloud content")
+    _set_offline(target)
+    try:
+        row = SimpleNamespace(path=str(target), volume_id=None)
+        marks = placeholder_marks([row])
+    finally:
+        _clear_offline(target)
+
+    assert marks == {str(target)}
+
+
+def test_placeholder_marks_is_quiet_for_an_ordinary_local_file(tmp_path):
+    from types import SimpleNamespace
+
+    from app.ui.presenter import placeholder_marks
+
+    target = _write(tmp_path / "local.txt", "an ordinary file")
+    row = SimpleNamespace(path=str(target), volume_id=None)
+
+    assert placeholder_marks([row]) == set()
+
+
+def test_placeholder_marks_never_checks_a_volume_backed_row(tmp_path):
+    r"""A catalogued-volume row's `path` is the letter-free synthetic key
+    (1b) - never a real filesystem path to `Path()` into, and it has its
+    own decoration (`offline_volume_marks`) already. Proven by monkeypatch
+    rather than a real drive: if this ever checked, the synthetic key would
+    not resolve to a real placeholder either way, but the point is that it
+    must not even try."""
+    from types import SimpleNamespace
+
+    from app.ui.presenter import placeholder_marks
+
+    checked = []
+    row = SimpleNamespace(path="leasha-volume://1/reports/q3.txt", volume_id=1)
+
+    import app.core.winfs as winfs_module
+    original = winfs_module.is_cloud_placeholder
+    winfs_module.is_cloud_placeholder = lambda *a, **k: (checked.append(a) or False)
+    try:
+        placeholder_marks([row])
+    finally:
+        winfs_module.is_cloud_placeholder = original
+
+    assert checked == []
+
+
+def test_placeholder_marks_never_raises_for_an_unreadable_row():
+    from types import SimpleNamespace
+
+    from app.ui.presenter import placeholder_marks
+
+    row = SimpleNamespace(path=r"Z:\does\not\exist.txt", volume_id=None)
+    assert placeholder_marks([row]) == set()
+
+
+def test_online_only_note_names_the_exact_words():
+    from app.ui.presenter import online_only_note
+
+    assert online_only_note(True) == "online-only - opening will download"
+    assert online_only_note(False) == ""
+
+
+# ---------------------------------------------------------------------------
 # 202626270514 §4 - share-offline immunity, network's own copy of 0513's
 # ---------------------------------------------------------------------------
 
@@ -1141,3 +1368,51 @@ def test_on_is_offered_and_honoured_everywhere_repo_is():
     names = {command.name for command in COMMANDS}
     assert "on" in names
     assert _FIELD_ALIASES.get("on") == "volume"
+
+
+def test_browse_files_carries_volume_identity_through_for_the_files_tab(tmp_path):
+    r"""§3c's remaining half: the Files tab picker is only useful if what
+    it finds can then be opened. Before this, `browse_files` (what `/on`
+    actually queries in the Files tab) never selected `volume_id`/
+    `relative_path` at all, so `presenter.file_rows` had nothing to carry and
+    opening a browsed-to volume row tried the synthetic key directly - the
+    exact bug 1b/3a already fixed once for search results. Covers both
+    `browse_files` branches: the empty-box "browse everything" merge and the
+    text-matched search, since they are two different SELECTs.
+    """
+    from app.search.query import parse_query
+    from app.ui.presenter import file_rows
+
+    with SqliteStore(tmp_path / "i.db") as store:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-BROWSE-FILES", kind="drive", name="Projects 2019",
+        )
+        on_volume = store.upsert_file(
+            volume_synthetic_path(volume_id, "reports/q3.txt"), size_bytes=10,
+            mtime_ns=1, ext="txt", parent_dir=volume_synthetic_path(volume_id, "reports"),
+            volume_id=volume_id, relative_path="reports/q3.txt",
+        )
+        store.upsert_file(
+            r"D:\work\notes.txt", size_bytes=10, mtime_ns=1, ext="txt",
+            parent_dir=r"D:\work",
+        )
+
+        # Branch 1: an empty box - "browse everything".
+        browsed = store.browse_files(parse_query(""), limit=200)
+        by_id = {row["id"]: row for row in browsed}
+        assert by_id[on_volume]["volume_id"] == volume_id
+        assert by_id[on_volume]["relative_path"] == "reports/q3.txt"
+
+        rows = file_rows(browsed)
+        volume_row = next(r for r in rows if r.file_id == on_volume)
+        assert volume_row.volume_id == volume_id
+        assert volume_row.relative_path == "reports/q3.txt"
+        ordinary_row = next(r for r in rows if r.file_id != on_volume)
+        assert ordinary_row.volume_id is None
+
+        # Branch 2: a text search that matches by name.
+        searched = store.browse_files(parse_query("q3.txt"), limit=200)
+        matched = {row["id"]: row for row in searched}
+        assert on_volume in matched
+        assert matched[on_volume]["volume_id"] == volume_id
+        assert matched[on_volume]["relative_path"] == "reports/q3.txt"

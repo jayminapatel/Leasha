@@ -89,6 +89,10 @@ class ResultsView(QWidget):
         #: as `_missing`. Absent entirely for an online volume or an ordinary
         #: file; see `presenter.offline_volume_marks`.
         self._volumes: dict[int, Any] = {}
+        #: Paths that are cloud placeholders right now - 202626270514 §3d,
+        #: decided on the same worker as `_missing`/`_volumes`. See
+        #: `presenter.placeholder_marks`.
+        self._placeholders: set = set()
         #: "plain" or "technical" - item 4b's date register, from the tab.
         self._register = "plain"
 
@@ -150,6 +154,7 @@ class ResultsView(QWidget):
     def show_results(self, results: Sequence[Any], terms: Sequence[str], summary: str = "",
                      details: Optional[dict[int, Any]] = None, missing: Optional[set[str]] = None,
                      volumes: Optional[dict[int, Any]] = None,
+                     placeholders: Optional[set] = None,
                      keep_scroll: bool = False, register: Optional[str] = None) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
@@ -179,6 +184,16 @@ class ResultsView(QWidget):
             # results always carries this, but nothing else does, and a
             # missing argument must not be read as "nothing is offline".
             self._volumes = dict(volumes)
+            # §3a's remaining half: the delegate paints the same note inline,
+            # on the group's subtitle line - see `ResultDelegate.volumes`.
+            # Kept in step here rather than read by the delegate from this
+            # view directly, the same split `prefs` already draws.
+            self._delegate.volumes = self._volumes
+        if placeholders is not None:
+            # Same rule as `volumes` just above - only when told, and kept
+            # in step with the delegate the identical way.
+            self._placeholders = set(placeholders)
+            self._delegate.placeholders = self._placeholders
         if register is not None:
             # **Only when told.** `redraw_with_details`'s follow-up paint of
             # the same results omits this - item 4b's register must not reset
@@ -251,9 +266,10 @@ class ResultsView(QWidget):
         item.setData(payload, ROLE_PAYLOAD)
         item.setData(expanded, ROLE_EXPANDED)
         note = offline_volume_note(self._volumes.get(int(getattr(payload, "file_id", 0) or 0)))
+        is_placeholder = (not note) and str(getattr(payload, "path", "") or "") in self._placeholders
         item.setData(
             result_tooltip(payload, missing=getattr(payload, "path", "") in self._missing,
-                           volume_note=note),
+                           volume_note=note, placeholder=is_placeholder),
             int(Qt.ItemDataRole.ToolTipRole))
         # **Both roles, or the list is empty to a screen reader.** The delegate
         # paints from `ROLE_PAYLOAD`, so the item carried no text of its own -

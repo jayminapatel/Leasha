@@ -31,6 +31,7 @@ __all__ = [
     "ReconcileResult",
     "identify_source",
     "suggest_renamed_source",
+    "check_renamed_source",
     "archive_volume",
     "volume_location_label",
     "find_volume",
@@ -140,6 +141,31 @@ def suggest_renamed_source(store: Any, kind: str, new_root: Path,
             best_overlap = overlap
             best = row
     return best
+
+
+def check_renamed_source(store: Any, root: Path) -> Any:
+    r"""1a's offer, from a folder alone - the Offline Media tab's own worker
+    step before a first Scan. `identify_source` plus `suggest_renamed_
+    source`, with the one guard the CLI's inline version already applies:
+    an identity already catalogued gets no suggestion at all, because that
+    is an ordinary rescan, not a possible rename. Never raises - a Scan a
+    person pressed the button for must not be blocked by this check
+    failing; `None` (no suggestion) is what a genuine failure and a genuine
+    "nothing matches" both look like to the caller, and both mean "catalogue
+    as new" is the right next step.
+    """
+    try:
+        found = identify_source(root)
+        if found is None:
+            return None
+        kind, fields = found
+        if store.get_volume_by_identity(fields["identity_key"]) is not None:
+            return None
+        return suggest_renamed_source(store, kind, root,
+                                      exclude_identity_key=fields["identity_key"])
+    except Exception as exc:                      # noqa: BLE001 - see docstring
+        _log.debug("could not check for a renamed source at {}: {}", root, exc)
+        return None
 
 
 def volume_location_label(record: Any) -> str:
@@ -526,16 +552,25 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
 
 def scan_new_source(settings: Any, store: Any, root: Path, *, name: str,
                     description: Optional[str] = None, run_lock_owner: str,
-                    on_progress: Optional[Any] = None) -> dict[str, Any]:
+                    on_progress: Optional[Any] = None,
+                    same_as: Optional[str] = None) -> dict[str, Any]:
     r"""Catalogue `root` as a new Offline Media source and run its first
     Scan. The shared core of `app.cli offline-media --scan` and 2a/2b's
     Scan button - one place that identifies, validates, catalogues and
     walks, so a name typed into the CLI and a name typed into the dialog
     are caught by exactly the same checks.
 
+    `same_as` is 202626270514 1a's offer, accepted: the caller (the tab's
+    own `RenameSuggestionDialog`, or the CLI's `--same-as`) has confirmed
+    this identity IS a catalogued source, renamed or moved - the same
+    `store.rename_volume_identity` reattachment `app.cli`'s own
+    `_offline_media_scan` already does inline, lifted here so the tab does
+    not have to duplicate it a second time.
+
     Raises `AppErrorException` for anything the caller must show - a
-    missing name, an unreadable path, an unreachable share. Never prints
-    or shows anything itself; that is the caller's job on both sides.
+    missing name, an unreadable path, an unreachable share, or (`same_as`)
+    a name that matches no catalogued source. Never prints or shows
+    anything itself; that is the caller's job on both sides.
     """
     from app.core.errors import raise_error
     from app.core.volumes_win import hardware_serial_for_root
@@ -573,10 +608,28 @@ def scan_new_source(settings: Any, store: Any, root: Path, *, name: str,
                           "then scan again.",
             )
 
-    volume_id = store.upsert_volume(
-        fields["identity_key"], kind=kind, name=name, description=description,
-        **{k: v for k, v in fields.items() if k != "identity_key"},
-    )
+    if same_as is not None:
+        target = find_volume(store, same_as)
+        if target is None:
+            raise_error(
+                "ERR_CONFIG_INVALID", "index.offline_media",
+                key="same_as", reason=f"no catalogued source matches {same_as!r}",
+            )
+        existing = store.get_volume_by_identity(fields["identity_key"])
+        if existing is not None and existing.id != target.id:
+            raise_error(
+                "ERR_CONFIG_INVALID", "index.offline_media",
+                key="same_as",
+                reason=f"{fields['identity_key']!r} is already catalogued as "
+                       f"{existing.name!r}, not {target.name!r}",
+            )
+        store.rename_volume_identity(target.id, fields["identity_key"])
+        volume_id = target.id
+    else:
+        volume_id = store.upsert_volume(
+            fields["identity_key"], kind=kind, name=name, description=description,
+            **{k: v for k, v in fields.items() if k != "identity_key"},
+        )
     if kind == "drive":
         serial = hardware_serial_for_root(root)
         if serial:

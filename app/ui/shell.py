@@ -46,6 +46,7 @@ from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
 from app.ui.offline_media_view import OfflineMediaView
+from app.ui.reports_view import ReportsView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.scheduler import IndexScheduler
@@ -421,6 +422,13 @@ class MainWindow(QMainWindow):
         self.offline_media_view.rescan_requested.connect(self._offline_media_rescan)
         self.offline_media_view.delete_requested.connect(self._offline_media_delete)
 
+        # Order 202626270602 (0n) §1. Read-only, like every report -
+        # `ReportsView.refresh` is the only thing it ever asks the store
+        # for, and `_export_to` writes a PDF the person chose the location
+        # for, never a user's own file.
+        self.reports_view = ReportsView(store)
+        self.reports_view.error.connect(self._show_error)
+
         # **Order 0r item 2b.** Mail and Code are not what first paint shows
         # (Search is), and building both here was real, measured constructor
         # cost - two more `ResultTable`s, two more preview panes, two more
@@ -470,6 +478,7 @@ class MainWindow(QMainWindow):
             (self.search_view, "Search", False),
             (self.files_view, "Files", False),
             (self.offline_media_view, "Offline Media", False),
+            (self.reports_view, "Reports", False),
             (self.indexing_view, "Indexing", False),
             (self.settings_view, "Settings", True),
         ):
@@ -1729,6 +1738,8 @@ class MainWindow(QMainWindow):
             self.files_view.refresh_summary()
         elif index == self._tab_index.get(self.offline_media_view):
             self.offline_media_view.refresh()
+        elif index == self._tab_index.get(self.reports_view):
+            self.reports_view.refresh()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
@@ -2415,16 +2426,56 @@ class MainWindow(QMainWindow):
     # lock waits for it, on the worker thread, never on this one.
 
     def _offline_media_scan(self, root: str, name: str, description: str) -> None:
-        """2b: the first Scan of a chosen folder - catalogues it, then runs a
-        `Pipeline` scoped to it. `scan_new_source` does both, off this worker.
+        r"""2b: the first Scan of a chosen folder.
+
+        1a's offer runs first, on its own worker - `offline_media.check_
+        renamed_source` is a directory listing and a store query, never the full
+        walk `scan_new_source` itself pays for - so a renamed source can be
+        offered *before* anything is catalogued a second time as a
+        duplicate. Only when nothing matches (or the check itself fails,
+        never fatal for a Scan) does this fall straight through to
+        cataloguing as new, exactly as it did before this existed.
         """
+        from app.index.offline_media import check_renamed_source
+
+        self.offline_media_view.set_busy(f"Checking {root}\u2026")
+        worker = CallableWorker(
+            check_renamed_source, self._store, Path(root),
+            component="ui.offline_media",
+        )
+        worker.signals.finished.connect(
+            lambda suggestion: self._offline_media_scan_after_check(
+                root, name, description, suggestion))
+        worker.signals.failed.connect(
+            lambda _error: self._offline_media_scan_confirmed(
+                root, name, description, None))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _offline_media_scan_after_check(self, root: str, name: str, description: str,
+                                        suggestion: Any) -> None:
+        """UI thread: 1a's dialog, only when the worker above found a
+        structure match against a *different* catalogued source."""
+        same_as = None
+        if suggestion is not None:
+            from app.ui.widgets.offline_media_dialogs import RenameSuggestionDialog
+
+            dialog = RenameSuggestionDialog(suggestion["name"], self)
+            if dialog.exec() == RenameSuggestionDialog.DialogCode.Accepted:
+                same_as = suggestion["name"]
+        self._offline_media_scan_confirmed(root, name, description, same_as)
+
+    def _offline_media_scan_confirmed(self, root: str, name: str, description: str,
+                                      same_as: Optional[str]) -> None:
+        """Catalogues `root`, then runs a `Pipeline` scoped to it -
+        `scan_new_source` does both, off this worker. `same_as` reattaches
+        to an existing source instead (1a, accepted)."""
         from app.index.offline_media import scan_new_source
 
         self.offline_media_view.set_busy(f"Scanning {root}\u2026")
         worker = CallableWorker(
             scan_new_source, self._settings, self._store, Path(root),
             name=name, description=(description or None), run_lock_owner=GUI,
-            component="ui.offline_media",
+            same_as=same_as, component="ui.offline_media",
         )
         worker.signals.finished.connect(self._offline_media_run_done)
         worker.signals.failed.connect(self._offline_media_run_failed)

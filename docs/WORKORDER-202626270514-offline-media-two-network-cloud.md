@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media II — network shares, cloud mounts, and the placeholder rules
 
-**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage + Index + Offline Media tab)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0513 (the tab and the
 identity seam). **Phones (kind 4, MTP) are decided as removable drives but
@@ -129,10 +129,35 @@ anything changed here; confirmed by reproducing the identical hang against
 unmodified files (`test_name_only.py`, `test_index_freshness.py`) and by the
 stack trace pointing at `resources.py`'s probe, never at this order's code.
 
-- [ ] **1a** identity = normalised UNC path; a mapped `Z:` is resolved to UNC
+- [x] **1a** identity = normalised UNC path; a mapped `Z:` is resolved to UNC
   at add-time and **never stored** (the drive-letter rule's network twin).
   Renamed server = new source, softened by structure-match offer ("is this
   *Old NAS* at a new address?" — assist, never assume).
+
+  **2026-09-16.** The offer's backend and CLI half was built 2026-09-15
+  (`suggest_renamed_source`, `--same-as`); the interactive dialog named
+  above as the only missing piece is built now that 0k §2's tab exists.
+  `app.index.offline_media.check_renamed_source` is the tab's own
+  worker-side pre-Scan check (identify, then offer only when the identity
+  is genuinely new - an ordinary rescan of a known source is never
+  offered). `scan_new_source` gained `same_as`, mirroring the CLI's own
+  inline `--same-as` logic exactly rather than duplicating it a third
+  time. `app/ui/widgets/offline_media_dialogs.RenameSuggestionDialog`
+  ("Is this 'Old NAS' at a new address?", Yes/No, wording in
+  `presenter.rename_suggestion_text`) is wired into
+  `shell.MainWindow._offline_media_scan`, now a two-phase flow: a cheap
+  worker check before the Scan dialog's answer is acted on, the dialog
+  only when a structure match is found, then the real Scan. Nothing here
+  changes the identity resolution itself, which was already complete.
+  Verified: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py
+  tests/unit/test_offline_media_view.py -v` → all green (see the item's
+  own test names: `test_check_renamed_source_*`,
+  `test_scan_new_source_with_same_as_*`,
+  `test_rename_suggestion_dialog_*`). The two-phase flow inside
+  `shell.py` itself is verified by import/construction only - no test in
+  this tree drives a full `MainWindow` through this exact click path (none
+  did before this either; every other Offline Media shell handler is in
+  the same position) - flagged honestly rather than claimed proven.
 - [x] **1b** credentials NEVER: user connects via Windows as they always do;
   unreachable/denied → "offline — not signed in or not reachable", plain
   words, no prompt from Leasha ever (safety invariant).
@@ -140,12 +165,33 @@ stack trace pointing at `resources.py`'s probe, never at this order's code.
   settling — SMB hashing is prohibitive); availability probes hard-timeout
   on workers; nothing network-touching ever runs on the UI thread (extend
   the scanner test to the new modules).
-- [ ] **1d** the decommission case documented in the tab's help line: scan a
+- [x] **1d** the decommission case documented in the tab's help line: scan a
   share before a server is switched off or access is lost — searchable
   forever. One honest sentence: the catalogue holds what *this account*
   could read on scan day.
 
+  **2026-09-16.** `presenter.offline_media_help_text` (two sentences - 1d
+  and 3b-3 below share one function, since both are "the tab's help
+  line" and a person reads them together), wired into
+  `OfflineMediaView.help_line`, a word-wrapped label under the tree.
+  Verified: `test_the_tab_shows_its_own_help_line`,
+  `test_help_text_names_the_decommission_case`.
+
 ## 2. Cloud mounts (kind 3 — Google Drive first, via Drive for Desktop)
+
+**2026-09-16 — assessed, not built this session.** Real and substantial:
+2a needs a new volume kind (`cloud`) actually cataloguable from the tab and
+CLI, identity resolution for a vendor mount that carries no drive GUID and
+no UNC path, and an Open action that goes to a browser URL instead of
+Explorer for exactly that kind. 2b needs a folder-scoped opt-in store, a
+size cap enforced before a read, and a CLI/UI surface for both - the
+existing `WalkConfig.include_cloud` is a whole-run boolean and covers
+neither. Both are real features, not small extensions of what §3 already
+proved (§3's placeholder *read* guard is the mechanism 2b's trap needs, but
+2b is the opt-in and the cap around it, which do not exist yet in any
+form). Deliberately left open rather than attempted partially and left in
+a state nobody could trust - see `HANDOFF.md`'s own rule about a claim
+that sounds finished being worse than an honest gap.
 
 - [ ] **2a** V1 is ONLY through the vendor's own streaming mount (G:):
   **names-only catalogue by default** — placeholder metadata reads with zero
@@ -235,19 +281,41 @@ OneDrive Files On-Demand etc.)
   source and 3d's for a search result; `status` staying `INDEXED` is what
   keeps the content itself alive, which is what this item is actually
   about.
-- [ ] **3d** results badge "online-only — opening will download", riding the
+- [x] **3d** results badge "online-only — opening will download", riding the
   0513 §3a decoration path.
 
-  **2026-09-15**: still not built, and still cannot ride anything - 0513's
-  own §3a (the results-row decoration "on <name> (offline, scanned <date>)")
-  is itself unchecked; confirmed by reading that order and grepping
-  `app/search`/`app/ui` for any such decoration, finding none. Added
-  `app.index.offline_media.volume_location_label` (unit-tested,
-  `test_volume_location_label_for_archived_and_offline_sources`) as the
-  wording both this item and 3b-1 will need, so that whenever 0513 §3a's
-  decoration path is built, the online-only and archived wording does not
-  have to be invented from scratch alongside it - but there is nothing here
-  to wire it into yet, so the item stays open.
+  **2026-09-16.** 0513 §3a's decoration path closed 2026-09-15 (the row
+  badge and the tooltip both now exist) and this rides it exactly as named:
+  `presenter.placeholder_marks` is 3d's own worker-computed set - which of
+  a results page's rows are a live cloud placeholder right now
+  (`winfs.is_cloud_placeholder`, one stat per row, the same cost class
+  `missing_paths` already pays) - and `online_only_note` is the exact
+  sentence. Wired into the same places §3a's badge already reaches:
+  `decorate_results` (a fourth key, `"placeholders"`), `results_view.py`
+  (`_placeholders`, kept in step with `ResultDelegate.placeholders`), the
+  tooltip (`result_tooltip`'s new `placeholder` flag), and the inline
+  subtitle (`group_subtitle`'s new `online_only` flag, painted in the same
+  slot the offline-volume note uses - the two can never both apply to one
+  row in practice, and the volume note wins if they somehow did, since it
+  is the more specific fact).
+
+  **Not `volume_location_label`.** That function's own docstring offered
+  itself as "the wording ... whenever 0513 §3a's decoration path is
+  built" - read again before writing this, and it does not quite fit:
+  it formats a `VolumeRecord` (a catalogued *source*), and a cloud
+  placeholder here is an ordinary indexed *file* under a normal root,
+  with no volume row at all. Reusing it would have meant inventing a fake
+  record just to satisfy its signature. `online_only_note` is a one-line
+  sibling instead; 3b-1's own still-unwired "Results say 'on tape ...'"
+  half is the one `volume_location_label` was actually written for, and
+  remains open exactly as its own note already said.
+
+  Verified: `venv\Scripts\python.exe -m pytest tests/unit/test_offline_media.py
+  tests/unit/test_result_delegate.py -v` → all green, including a real
+  `FILE_ATTRIBUTE_OFFLINE` round-trip for `placeholder_marks` itself
+  (`test_placeholder_marks_finds_a_real_cloud_placeholder`) and a real
+  paint pass proving the delegate wiring
+  (`test_the_delegate_paints_the_online_only_badge_from_the_placeholders_set`).
 
 ## 3b. ADDED by owner 2026-08-28 — tape and the archived-source kind
 
@@ -294,7 +362,7 @@ OneDrive Files On-Demand etc.)
   unaffected (unchanged code path) and stays instant.
   `test_scan_records_sequential_medium_for_a_tape_volume` proves the flag's
   storage; the ordering half is undone and unverifiable from here.
-- [ ] **3b-3** proprietary backup formats (Veeam/NetBackup/tar-on-tape)
+- [x] **3b-3** proprietary backup formats (Veeam/NetBackup/tar-on-tape)
   are OUT by doctrine — the backup product is the generating system; the
   supported path is cataloguing the staging folder before the tape write,
   which 3b-1 completes. One sentence in the tab's help says exactly this.
@@ -303,6 +371,10 @@ OneDrive Files On-Demand etc.)
   the supported path. What remains is purely the tab's help-line sentence,
   which does not exist because the tab does not (same as 1d, 3b-3's
   sibling). Left open.
+
+  **2026-09-16.** The tab exists (0k §2, shipped) and now has a help
+  line - see 1d's own note, same function (`presenter.
+  offline_media_help_text`), same verification.
 
 ## 4. Tests (beyond those inline)
 

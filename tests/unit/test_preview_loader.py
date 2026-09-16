@@ -29,7 +29,11 @@ from app.ui.preview_loader import (
     KIND_TEXT,
     kind_for,
     load_preview,
+    load_preview_for,
+    offline_volume_subtitle,
+    volume_preview,
 )
+from app.storage.sqlite_store import SqliteStore, volume_synthetic_path
 
 
 # --- choosing a renderer ----------------------------------------------------
@@ -266,3 +270,152 @@ def test_a_directory_is_not_mistaken_for_a_file(tmp_path: Path):
 def test_nonsense_input_does_not_raise():
     for path in ("", "   ", "\x00", "con", "//?/bad"):
         assert load_preview(path) is not None
+
+
+# ---------------------------------------------------------------------------
+# Offline Media §3b: preview from the index works offline - the mail
+# synthetic-path pattern, applied to a row on a catalogued volume.
+# ---------------------------------------------------------------------------
+
+class _VolumeRow:
+    """Just enough of a `ResultRow`/`FileRow` for `volume_preview` - a plain
+    stand-in rather than the real dataclass, the same style
+    `test_offline_media.py` already uses for its own row-shaped fixtures."""
+
+    def __init__(self, *, volume_id, relative_path, file_id, name):
+        self.volume_id = volume_id
+        self.relative_path = relative_path
+        self.file_id = file_id
+        self.name = name
+        self.path = f"leasha-volume://{volume_id}/{relative_path}"
+        self.page = 0
+
+
+def _store_with_offline_volume(tmp_path: Path):
+    r"""A catalogued volume that is never connected on this machine - the
+    same `TEST-GUID-...` trick `test_offline_media.py` uses, so no real
+    Windows volume check has to be mocked to prove the offline path."""
+    store = SqliteStore(tmp_path / "index.db").connect()
+    volume_id = store.upsert_volume(
+        "TEST-GUID-PREVIEW-0001", kind="drive", name="Projects 2019",
+        volume_guid=r"\\?\Volume{00000000-0000-0000-0000-0000000000aa}",
+        seen_at=1_700_000_000,
+    )
+    file_id = store.upsert_file(
+        volume_synthetic_path(volume_id, "reports/q3.txt"),
+        size_bytes=100, mtime_ns=1_700_000_000_000_000_000,
+        volume_id=volume_id, relative_path="reports/q3.txt",
+    )
+    store.replace_chunks(file_id, [{"text": "Northern pump station report."}])
+    return store, volume_id, file_id
+
+
+def test_an_offline_volume_row_previews_from_the_stored_text(tmp_path: Path):
+    r"""§3b's own wording: "the mail synthetic-path pattern: stored text +
+    segments" - a row whose drive is not plugged in shows what the index
+    already holds, not a "file missing" error for a file sitting in a
+    drawer."""
+    store, volume_id, file_id = _store_with_offline_volume(tmp_path)
+    try:
+        row = _VolumeRow(volume_id=volume_id, relative_path="reports/q3.txt",
+                         file_id=file_id, name="q3.txt")
+        preview = volume_preview(row, store)
+    finally:
+        store.close()
+
+    assert preview.kind == KIND_TEXT
+    assert "Northern pump station" in preview.body
+    assert preview.error is None
+    assert "Projects 2019" in preview.subtitle
+    assert "offline" in preview.subtitle.lower()
+
+
+def test_an_offline_volume_row_with_no_stored_text_says_so_honestly(tmp_path: Path):
+    r"""A photo with no OCR text, say. Never "missing" - that claim is false
+    of a file sitting in a drawer - always "the drive is not connected"."""
+    store = SqliteStore(tmp_path / "index.db").connect()
+    try:
+        volume_id = store.upsert_volume(
+            "TEST-GUID-PREVIEW-0002", kind="drive", name="Old WD",
+            volume_guid=r"\\?\Volume{00000000-0000-0000-0000-0000000000bb}",
+        )
+        file_id = store.upsert_file(
+            volume_synthetic_path(volume_id, "photo.jpg"),
+            size_bytes=100, mtime_ns=1_700_000_000_000_000_000,
+            volume_id=volume_id, relative_path="photo.jpg",
+        )
+        row = _VolumeRow(volume_id=volume_id, relative_path="photo.jpg",
+                         file_id=file_id, name="photo.jpg")
+        preview = volume_preview(row, store)
+    finally:
+        store.close()
+
+    assert preview.kind == KIND_NONE
+    assert preview.error is not None
+    assert "plug" in preview.error.suggestion.lower()
+    assert "missing" not in (preview.error.message or "").lower()
+
+
+def test_an_online_volume_row_previews_exactly_like_an_ordinary_file(
+    tmp_path: Path, monkeypatch,
+):
+    r"""Online: resolved through the current mount point (1b) and previewed
+    exactly like any other file - the pre-existing bug this closes tried
+    the synthetic key directly, which reported every volume-backed row as
+    missing regardless of whether the drive was actually plugged in."""
+    mount = tmp_path / "mount_e"
+    (mount / "reports").mkdir(parents=True)
+    real_file = mount / "reports" / "q3.txt"
+    real_file.write_text("Live text straight off the drive.", encoding="utf-8")
+
+    store, volume_id, file_id = _store_with_offline_volume(tmp_path)
+    try:
+        monkeypatch.setattr(
+            "app.index.offline_media.resolve_file_path",
+            lambda store, row, connected=None: real_file,
+        )
+        row = _VolumeRow(volume_id=volume_id, relative_path="reports/q3.txt",
+                         file_id=file_id, name="q3.txt")
+        preview = volume_preview(row, store)
+    finally:
+        store.close()
+
+    assert preview.kind == KIND_TEXT
+    assert "Live text straight off the drive" in preview.body
+
+
+def test_load_preview_for_routes_a_volume_row_through_volume_preview(tmp_path: Path):
+    """The wiring `load_preview_for` needs: a `store` and a `volume_id` on
+    the row together must reach `volume_preview`, not the ordinary path-read
+    below it - proven end to end through the public entry point every pane
+    actually calls."""
+    store, volume_id, file_id = _store_with_offline_volume(tmp_path)
+    try:
+        row = _VolumeRow(volume_id=volume_id, relative_path="reports/q3.txt",
+                         file_id=file_id, name="q3.txt")
+        preview = load_preview_for(row, store=store)
+    finally:
+        store.close()
+
+    assert "Northern pump station" in preview.body
+
+
+def test_load_preview_for_without_a_store_leaves_a_volume_row_unresolved(tmp_path: Path):
+    """Additive, never a new failure mode: a caller that predates §3b (no
+    `store` argument) gets exactly the old behaviour back."""
+    row = _VolumeRow(volume_id=1, relative_path="reports/q3.txt",
+                     file_id=1, name="q3.txt")
+    preview = load_preview_for(row)
+
+    assert preview.kind == KIND_NONE
+    assert preview.error is not None
+
+
+def test_offline_volume_subtitle_reads_nothing_for_an_ordinary_row(tmp_path: Path):
+    store = SqliteStore(tmp_path / "index.db").connect()
+    try:
+        row = _VolumeRow.__new__(_VolumeRow)
+        row.volume_id = None
+        assert offline_volume_subtitle(store, row) == ""
+    finally:
+        store.close()

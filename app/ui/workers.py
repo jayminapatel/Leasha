@@ -27,6 +27,7 @@ from app.core.logging import logger
 __all__ = [
     "CallableWorker",
     "open_async",
+    "open_row_async",
     "IndexWorker",
     "SearchWorker",
     "WorkerSignals",
@@ -221,6 +222,39 @@ def open_async(path: str, *, reveal: bool = False,
         return
     worker = CallableWorker(open_in_explorer, path, select=reveal,
                             component=component)
+    if on_error is not None:
+        worker.signals.finished.connect(
+            lambda error: on_error(error) if error is not None else None)
+        worker.signals.failed.connect(on_error)
+    run(QThreadPool.globalInstance(), worker)
+
+
+def open_row_async(store: Any, row: Any, *, reveal: bool = False,
+                   on_error: Any = None, component: str = "ui.open") -> None:
+    r"""`open_async`, for a result row rather than a bare path.
+
+    Offline Media §1b/3a/3c: `row.path` for one on a catalogued volume
+    (`row.volume_id is not None`) is never a real filesystem path - it is the
+    letter-free key `volume_synthetic_path` builds - and needs resolving
+    through the volume's *current* mount point first, which is a live
+    Windows volume check and so never the interface thread. An ordinary row
+    goes straight to `open_async`, unchanged. One function so a third caller
+    (`files_view`, after `shell._open_volume_result`) cannot get it wrong.
+    """
+    if row is None:
+        return
+    if getattr(row, "volume_id", None) is None:
+        open_async(str(getattr(row, "path", "") or ""), reveal=reveal,
+                  on_error=on_error, component=component)
+        return
+
+    from PyQt6.QtCore import QThreadPool
+    from app.ui.presenter import resolve_open_path
+
+    def _resolve_and_open() -> Any:
+        return open_in_explorer(resolve_open_path(store, row), select=reveal)
+
+    worker = CallableWorker(_resolve_and_open, component=component)
     if on_error is not None:
         worker.signals.finished.connect(
             lambda error: on_error(error) if error is not None else None)

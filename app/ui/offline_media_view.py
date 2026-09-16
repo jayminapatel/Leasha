@@ -36,7 +36,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.presenter import VolumeRow, offline_media_empty_state, volume_rows
+from app.ui.presenter import (
+    VolumeRow, offline_media_empty_state, offline_media_help_text, volume_rows,
+)
 from app.ui.widgets.offline_media_dialogs import DeleteVolumeDialog, ScanNameDialog
 from app.ui.widgets.result_table import align_headers
 from app.ui.workers import CallableWorker, run
@@ -136,12 +138,19 @@ class OfflineMediaView(QWidget):
         self.status_line = QLabel("")
         self.status_line.setWordWrap(True)
 
+        # 202626270514 1d + 3b-3: the tab's own help line - network shares
+        # and backup formats, neither obvious from the three buttons alone.
+        self.help_line = QLabel(offline_media_help_text())
+        self.help_line.setWordWrap(True)
+        self.help_line.setObjectName("offlineMediaHelp")
+
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
         layout.addLayout(buttons)
         layout.addWidget(self.empty)
         layout.addWidget(self.tree)
         layout.addWidget(self.status_line)
+        layout.addWidget(self.help_line)
 
         self._sync_buttons()
 

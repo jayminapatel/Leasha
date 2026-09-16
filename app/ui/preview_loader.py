@@ -33,7 +33,8 @@ __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
            "ensure_office_pdf", "OFFICE_CONVERTER_MISSING_NOTE",
            "DWG_BINARY", "DWG_PREVIEW_NOTE", "DWG_CONVERTER_MISSING_NOTE",
            "DWG_PIN_TO_SEE_NOTE", "dwg_preview_available",
-           "dwg_svg_cache_path", "ensure_dwg_svg"]
+           "dwg_svg_cache_path", "ensure_dwg_svg",
+           "offline_volume_subtitle", "volume_preview"]
 
 _log = logger.bind(component="ui.preview")
 
@@ -830,8 +831,106 @@ def mail_body(store: Any, row: Any) -> str:
     return f"{header}\n\n{'-' * 40}\n\n{body}" if body else header
 
 
+def offline_volume_subtitle(store: Any, row: Any) -> str:
+    r"""Offline Media §3a's own sentence for one row's volume, reused rather
+    than recomputed - see `presenter.offline_volume_note`. `""` when the
+    volume record cannot be read (a deleted source, a store error): a preview
+    that cannot name the drive still owes the person a preview.
+    """
+    volume_id = getattr(row, "volume_id", None)
+    if volume_id is None:
+        return ""
+    try:
+        record = store.get_volume(int(volume_id))
+    except Exception as exc:                      # noqa: BLE001 - a subtitle
+        _log.debug("could not read volume {} for a preview subtitle: {}",
+                   volume_id, exc)
+        return ""
+    if record is None:
+        return ""
+    from app.ui.presenter import offline_volume_note
+
+    scanned_at = int(getattr(record, "last_scanned_at", 0) or 0)
+    mark = {
+        "name": record.name,
+        "scanned": _when(scanned_at) if scanned_at else "",
+    }
+    return offline_volume_note(mark)
+
+
+def _when(seconds: int) -> str:
+    """`format_when` wants nanoseconds; every timestamp this module reads off
+    a `VolumeRecord` is Unix seconds - one place to do the conversion rather
+    than three call sites each getting the multiplier right or wrong."""
+    from app.ui.presenter import format_when
+
+    return format_when(seconds * 1_000_000_000)
+
+
+def volume_preview(row: Any, store: Any) -> Preview:
+    r"""A row on a catalogued Offline Media volume, online or not. **Worker
+    thread. Never raises.**
+
+    **Online**: resolved through the volume's current mount point - the same
+    `app.index.offline_media.resolve_file_path` that Open/Reveal already use
+    (1b) - and previewed exactly like an ordinary file. Nothing about the
+    rest of this module changes: a photo still decodes, a PDF still pages, a
+    spreadsheet still grids.
+
+    **Offline**: the drive is not here to read, so this shows what the index
+    already holds - §3b's own wording, "the mail synthetic-path pattern:
+    stored text + segments". A row with no stored text (a photograph with no
+    OCR text, most of them) says plainly that the drive is not connected,
+    which is true, rather than reporting the file "missing", which is not -
+    it is sitting in a drawer, not gone.
+
+    **Not built here**: §3b's "images show cached thumbnail when 0510's
+    thumbnails exist" clause. Checked against the code rather than assumed -
+    `app.ui.thumbnail_loader.decode_thumbnail` decodes straight from the
+    original file path on every call; nothing in this tree persists a
+    thumbnail anywhere a offline row's bytes could still be read from. There
+    is no cache to reach for, so an offline photo gets the same honest
+    subtitle as anything else with no stored text, not an invented cache.
+    """
+    from app.index.offline_media import resolve_file_path
+
+    title = str(getattr(row, "name", "") or "").strip()
+    if not title:
+        relative = str(getattr(row, "relative_path", "") or getattr(row, "path", ""))
+        title = Path(relative).name or relative
+
+    try:
+        resolved = resolve_file_path(store, row)
+    except Exception as exc:                      # noqa: BLE001 - never raise
+        _log.debug("could not resolve a volume-backed preview path: {}", exc)
+        resolved = None
+
+    if resolved is not None:
+        return load_preview(str(resolved), page=int(getattr(row, "page", 0) or 0))
+
+    subtitle = offline_volume_subtitle(store, row) or \
+        "This drive is not plugged in right now."
+    body = stored_text(store, getattr(row, "file_id", 0))
+    if body:
+        return Preview(
+            kind=KIND_TEXT, body=body, title=title, subtitle=subtitle,
+            notice="Shown from the index - the drive itself is not "
+                  "connected right now. This is the text Leasha already "
+                  "read from it.",
+        )
+    return Preview(
+        kind=KIND_NONE, title=title, subtitle=subtitle,
+        error=make_error(
+            "ERR_FILE_CORRUPT", "ui.preview",
+            suggestion="Plug the drive in to see this file.",
+            details="Volume not currently connected, and nothing was "
+                    "stored from it to preview from the index.",
+        ),
+    )
+
+
 def load_preview_for(row: Any, *, body_provider: Any = None,
-                     notice_provider: Any = None) -> Preview:
+                     notice_provider: Any = None, store: Any = None) -> Preview:
     """`load_preview` for a result row, whatever kind of row it is.
 
     **Which fields of a row become which arguments is a decision, so it is
@@ -846,7 +945,23 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
     the same reason nothing else in this module is called anywhere else - a
     store read on the interface thread between two presses of the down arrow is
     the freeze this application has a standing rule against.
+
+    **Offline Media §3b, before anything else.** `row.path` for a row on a
+    catalogued volume (`row.volume_id is not None`) is never a real filesystem
+    path - it is the letter-free key `volume_synthetic_path` builds, the same
+    fact `presenter.resolve_open_path` already handles for Open/Reveal. A
+    volume-backed row is resolved and handed to `volume_preview` before any of
+    the ordinary, path-based logic below ever sees it: online, that means the
+    file's *current* mount point; offline, it means what the index already
+    holds - the mail synthetic-path pattern this item names. `store` is
+    optional so every existing caller (and every test that built a row by
+    hand) keeps working exactly as before; without one a volume-backed row
+    falls through unresolved, which is the pre-existing behaviour rather than
+    a new failure mode.
     """
+    if store is not None and getattr(row, "volume_id", None) is not None:
+        return volume_preview(row, store)
+
     body = str(getattr(row, "preview_text", "") or "")
     if not body and body_provider is not None:
         try:

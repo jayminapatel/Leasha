@@ -66,7 +66,7 @@ from app.ui.workers import CallableWorker, run
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
 
 
-def attach_preview(results: Any, on_open: Any, on_error: Any):
+def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = None):
     """Build a pane for `results`, wire it, and return `(pane, splitter)`.
 
     Here rather than in the view because the pane's own docstring is where
@@ -77,10 +77,17 @@ def attach_preview(results: Any, on_open: Any, on_error: Any):
     visibility is then a repaint rather than a relayout, which is what makes
     `Ctrl+P` feel instant - and the divider somebody dragged is still where they
     left it when the pane comes back.
+
+    `store` is Offline Media §3b: a row on a catalogued volume previews from
+    the index when its drive is not connected, and resolving that needs the
+    store. `None` (every caller that predates this, and any test's bare
+    stand-in) leaves a volume-backed row unresolved exactly as before -
+    additive, never a new failure mode for an existing caller.
     """
     pane = PreviewPane()
     pane.open_requested.connect(on_open)
     pane.error.connect(on_error)
+    pane.store = store
     results.selected.connect(pane.show_row)
 
     split = QSplitter(Qt.Orientation.Horizontal)
@@ -128,6 +135,11 @@ class PreviewPane(QWidget):
         #: index time, which is otherwise invisible and makes a reply read as a
         #: message sent with no context. Called on the worker, like the body.
         self.notice_provider: Any = None
+        #: Optional, set by `attach_preview`. Offline Media §3b: resolving a
+        #: catalogued-volume row - online, through its current mount point;
+        #: offline, to the stored text in the index - needs the store, and
+        #: nothing else in this pane otherwise touches one.
+        self.store: Any = None
 
         self.title = QLabel("")
         self.title.setObjectName("resultName")
@@ -335,6 +347,7 @@ class PreviewPane(QWidget):
             load_preview_for, self._row,
             body_provider=self.body_provider,
             notice_provider=self.notice_provider,
+            store=self.store,
             component="ui.preview",
         )
         worker.signals.finished.connect(

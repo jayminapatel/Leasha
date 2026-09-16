@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -36,7 +37,10 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.ui.presenter import FILES_COMMANDS, file_query, file_rows, file_summary
+from app.ui.presenter import (
+    ALL_LOCATIONS, FILES_COMMANDS, file_query, file_rows, file_summary,
+    set_volume_filter, volume_picker_options,
+)
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -45,7 +49,7 @@ from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
-from app.ui.workers import CallableWorker, open_async, run, stop_timers
+from app.ui.workers import CallableWorker, open_row_async, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -171,10 +175,19 @@ class FilesView(QWidget):
         # shortcut and same behaviour as the search tab: the owner's rule is
         # that a feature helping one search area is applied to the others.
         self.preview, self.split = attach_preview(
-            self.results, lambda _row: self._open_selected(), self.error.emit)
+            self.results, lambda _row: self._open_selected(), self.error.emit,
+            store=store)
+
+        # §3c: the volume picker - names with counts, the slash-menu's
+        # own `on` catalogue reused rather than a second list.
+        self.volume_picker = QComboBox()
+        self.volume_picker.setToolTip("Show files from one catalogued source only.")
+        self.volume_picker.addItem(ALL_LOCATIONS, "")
+        self.volume_picker.activated.connect(self._on_volume_picked)
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
+        top.addWidget(self.volume_picker)
         top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
@@ -215,20 +228,26 @@ class FilesView(QWidget):
         self.input.selectAll()
 
     def refresh_summary(self) -> None:
-        """Count the indexed filenames, on a worker.
-
-        `COUNT(*)` over `files_fts` is instant on a test corpus and is not on a
-        real one - and this runs on every tab switch and after every index run.
-        A label is never worth blocking the window for.
-        """
-        worker = CallableWorker(
-            self._store.count_named_files, component="ui.files.count")
-        worker.signals.finished.connect(self._show_summary)
+        """Count the indexed filenames and repopulate the volume picker (§3c),
+        on one worker - every tab switch and after every index run."""
+        worker = CallableWorker(self._header_data, component="ui.files.count")
+        worker.signals.finished.connect(self._show_header_data)
         worker.signals.failed.connect(lambda _e: None)   # a label, not a search
         run(QThreadPool.globalInstance(), worker)
 
-    def _show_summary(self, total: int) -> None:
+    def _header_data(self) -> tuple:
+        return self._store.count_named_files(), self._store.distinct_value_counts("on", limit=40)
+
+    def _show_header_data(self, result: tuple) -> None:
+        total, values = result
         self.summary.setText(file_summary(total))
+        self.volume_picker.clear()          # addItem never fires `activated`
+        for label, value in volume_picker_options(values):
+            self.volume_picker.addItem(label, value)
+
+    def _on_volume_picked(self, index: int) -> None:
+        value = str(self.volume_picker.itemData(index) or "")
+        self.input.setText(set_volume_filter(self.input.text(), value))
 
     # -- searching -----------------------------------------------------------
 
@@ -360,23 +379,15 @@ class FilesView(QWidget):
         return path or None
 
     def _open_selected(self) -> None:
-        """Open the file itself.
-
-        This used to *reveal* it in Explorer instead, on the reasoning that a
-        filename search is usually the first half of doing something in the
-        folder. That is sometimes true and always surprising: everywhere else,
-        double-clicking a file opens it. Both are available from the right-click
-        menu, and the unsurprising one is now the default.
-        """
-        self._open(self.selected_path(), reveal=False)
+        self._open(self.results.current_row(), reveal=False)
 
     def _reveal_selected(self) -> None:
-        self._open(self.selected_path(), reveal=True)
+        self._open(self.results.current_row(), reveal=True)
 
-    def _open(self, path: Optional[str], *, reveal: bool) -> None:
-        """See `workers.open_async` - never on the UI thread."""
-        open_async(path or "", reveal=reveal, on_error=self.error.emit,
-                   component="ui.files.open")
+    def _open(self, row: Any, *, reveal: bool) -> None:
+        # §3c: resolves a catalogued-volume row first - `workers.open_row_async`.
+        open_row_async(self._store, row, reveal=reveal,
+                       on_error=self.error.emit, component="ui.files.open")
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu the search results use - see widgets/file_menu.py."""
