@@ -44,6 +44,7 @@ __all__ = [
     "GpuAdapter",
     "detect",
     "cached_profile",
+    "stored_profile",
     "OVERRIDE_ENV",
     "PROFILE_STATE_KEY",
 ]
@@ -508,6 +509,23 @@ def _dxgi_adapters(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], str]:
 # --- the cache ---------------------------------------------------------------
 
 
+def stored_profile(store: Any) -> Optional[ComputeProfile]:
+    """The profile last cached in `store`, read-only, or None.
+
+    Factored out of `cached_profile` so a caller that needs to compare
+    "what was true last time" against a fresh, uncached detect() call -
+    work order 202626130120 (0t)'s section 6 - can read the old value without
+    triggering (or racing) the write `cached_profile` makes when it decides
+    the machine has changed. Never raises: a missing or unparseable state
+    value reads as "nothing cached yet", the same as a fresh machine.
+    """
+    try:
+        return ComputeProfile.from_dict(
+            json.loads(store.get_state(PROFILE_STATE_KEY, "") or "null"))
+    except Exception:                            # noqa: BLE001
+        return None
+
+
 def cached_profile(store: Any, index_path: Any = None) -> ComputeProfile:
     """The stored profile if this is still the same machine, else a fresh one.
 
@@ -520,11 +538,7 @@ def cached_profile(store: Any, index_path: Any = None) -> ComputeProfile:
     if fresh.overridden:
         return fresh                             # an override is never cached
 
-    try:
-        stored = ComputeProfile.from_dict(
-            json.loads(store.get_state(PROFILE_STATE_KEY, "") or "null"))
-    except Exception:                            # noqa: BLE001
-        stored = None
+    stored = stored_profile(store)
 
     if (
         stored is not None

@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.18 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.19 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -64,7 +64,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | RELEASED | 20 / 5 | Gap-schedulable; 4a and 3c's line number await an owner decision (see the order's own dated notes) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
-| 0t | `202626130120` | One onnxruntime, and it says which one it is | RELEASED | 0 / 24 | Gap-schedulable. §2/§3 (pins, installer) are independent of §5/§6 (doctor, notice) |
+| 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 24** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
@@ -230,6 +230,36 @@ an unvetted external model repo, neither of which fastembed's catalogue offers
 today; §6i's own condition (§6a shows conversion matters) is not met. 0b
 moves from 35/5 to **36/4**. Full detail in the order's own dated notes, one under
 each item.
+
+**2026-09-15 — 0t closed, 24/24.** Built on the same real Windows venv this
+register already runs on. `onnxruntime==1.24.4` is now pinned directly in
+`requirements.txt`, matched by a documented `onnxruntime-directml==1.24.4`
+pin — confirmed against PyPI as the newest version publishing both a plain
+and a DirectML `cp312-win_amd64` wheel, closing the order's one
+UNCONFIRMED item. `install.ps1` installs the DirectML wheel unconditionally
+and last on any Windows machine with a display adapter
+(`--force-reinstall --no-deps`, no more `[y/N]` prompt), verifies
+`DmlExecutionProvider` immediately and fails loudly if it is absent, and
+checks for a Leasha process holding the venv and stray `~*` stash
+directories before touching packages at all. `doctor.py` gained two checks:
+`check_onnxruntime_integrity` (required — fails on a version mismatch
+between the two distributions or a stash remnant, but treats a
+matching-version pair as the healthy, intended state, since section 3's own
+fix means a correctly configured DirectML machine always carries both) and
+`check_gpu_provider_intent` (optional — warns when an adapter has no
+provider, silent when there never was an adapter or the probe failed to
+run). `Pipeline.run()` now reports a lost-provider notice through the
+existing `IndexStats.notices` mechanism — the same one
+`_report_root_problems` already uses — so the Indexing tab shows it with no
+new UI code. Verified end-to-end on this session's own real venv, which has
+a genuine Intel Iris Xe adapter: reproduced the original fault (a plain
+`pip install -r requirements.txt` against the pre-fix file pulled
+`onnxruntime` 1.30.0), then fixed it and confirmed
+`onnxruntime.get_available_providers()` returns
+`['DmlExecutionProvider', 'CPUExecutionProvider']` and `doctor.py` prints
+READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
+`test_doctor_onnxruntime.py`, `test_gpu_regression_notice.py`,
+`test_resolve_gpu_regression.py`, `test_pipeline_gpu_regression.py`).
 
 ---
 

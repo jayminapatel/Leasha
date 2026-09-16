@@ -31,9 +31,11 @@ __all__ = [
     "AUTO",
     "CPU",
     "DEVICES",
+    "DIRECTML_PIN",
     "GPU",
     "Choice",
     "choose",
+    "gpu_regression_notice",
     "providers_for",
     "record_provider",
     "why_unavailable",
@@ -53,6 +55,13 @@ DEVICES = (AUTO, CPU, GPU)
 #: onnxruntime's name for the DirectML provider.
 DML_PROVIDER = "DmlExecutionProvider"
 CPU_PROVIDER = "CPUExecutionProvider"
+
+#: The onnxruntime-directml version install.ps1 force-reinstalls, and the one
+#: named in every "run this to fix it" sentence below. Matched, on purpose,
+#: to requirements.txt's own onnxruntime pin - tests/unit/test_onnxruntime_pins.py
+#: holds all three (this constant, and the two requirements.txt lines) to
+#: each other, so a version bump in one place cannot go unnoticed in another.
+DIRECTML_PIN = "1.24.4"
 
 
 @dataclass(frozen=True)
@@ -225,3 +234,52 @@ def with_fallback(build: Any, choice: Choice, *,
                 pass
         fallback = Choice(CPU, providers_for(CPU), message, fell_back_from=GPU)
         return build(fallback.providers), fallback
+
+
+# --- work order 202626130120 (0t), section 6: the three-way regression -----
+
+
+def gpu_regression_notice(stored: Optional[Any], fresh: Optional[Any]) -> str:
+    """Empty string unless a DirectML provider that worked last time is
+    genuinely gone.
+
+    Three machines that must stay silent, and one that must not:
+
+    * **Never had it.** `stored` is None (nothing cached yet) or the stored
+      profile never had `directml_available` - there is nothing to lose, so
+      this is not "the graphics card check could not run", it is the
+      ordinary shape of a CPU-only machine.
+    * **Still has it.** `fresh.directml_available` is true - the common case
+      on a working install, checked first among the "has something changed"
+      questions so it short-circuits before anything else is read.
+    * **The probe did not run.** `fresh.gpu_probe_failed` - the PowerShell
+      adapter probe timed out or errored this time, which is a fact about
+      this process, not about the machine. `backends.why_unavailable` already
+      draws this line for the same reason: "could not look" is not "it is
+      gone", and reporting it as a loss would be a false alarm on every busy
+      machine.
+    * **Had it, and does not now** - probe ran, provider absent, and it was
+      present last time. The one case this function speaks for.
+
+    Never raises: `stored`/`fresh` are read with `getattr` so a stub, a test
+    double, or an older cached profile without every field still works.
+    """
+    if stored is None or fresh is None:
+        return ""
+    if not getattr(stored, "directml_available", False):
+        return ""
+    if getattr(fresh, "gpu_probe_failed", False):
+        return ""
+    if getattr(fresh, "directml_available", False):
+        return ""
+
+    names = [gpu.name for gpu in getattr(stored, "gpus", ()) if getattr(gpu, "name", "")]
+    card = names[0] if names else "the graphics card"
+    return (
+        f"This machine indexed and searched on {card} before, and cannot now: "
+        f"this installation of onnxruntime has no DirectML provider, so "
+        f"everything is running on the processor instead - about five times "
+        f"slower, measured on the machine this order was raised from. Fix it "
+        rf"with: venv\Scripts\python.exe -m pip install --force-reinstall "
+        f"--no-deps onnxruntime-directml=={DIRECTML_PIN}"
+    )

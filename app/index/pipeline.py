@@ -559,6 +559,13 @@ class PipelineConfig:
     #: (the enrichment-backlog kind for already-indexed photos, section
     #: 1a's own "backfill... runs as an enrichment-backlog job kind").
     people_recognition_enabled: bool = False
+    #: Work order 202626130120 (0t) section 6: "" unless `resolve_for_run`
+    #: found that this machine had a working DirectML provider last time and
+    #: genuinely does not have one now. Carried through unchanged rather than
+    #: recomputed here - `Pipeline` has no `Settings` and no store-independent
+    #: way to know "last time" (see `resolve._gpu_regression`'s own docstring
+    #: for why the cached profile cannot be trusted for this one question).
+    gpu_regression_notice: str = ""
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -888,6 +895,13 @@ class Pipeline:
     ) -> IndexStats:
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
         self._stats_ref = stats          # workers announce the file they are on
+        # Work order 202626130120 (0t) section 6. First thing, before a
+        # single file is read or the embedder loads - "before the run
+        # starts" means before either of those, not after them. Persisted on
+        # `stats.notices` (not printed and forgotten) so every progress tick
+        # and the finished panel keep showing it for the run's whole length,
+        # through the exact mechanism `_report_root_problems` already uses.
+        self._report_gpu_regression(stats)
         # A fresh clock per run: a Pipeline reused for a second run would
         # otherwise report the first one's stages added to the second's, and
         # the number nobody can act on is a total over two different corpora.
@@ -1111,6 +1125,25 @@ class Pipeline:
         self._write_completions()
         self._log.info("index run: {}", stats.as_dict())
         return stats
+
+    def _report_gpu_regression(self, stats: IndexStats) -> None:
+        r"""Work order 202626130120 (0t) section 6, the one case that fires.
+
+        `self.config.gpu_regression_notice` is computed once, off the UI
+        thread, by `resolve.resolve_for_run` before this Pipeline was even
+        built - see that module for the three-way had/has/probe-failed
+        decision. This method only has to carry the answer onto the run
+        somebody is actually watching, exactly like `_report_root_problems`
+        beside it. Never raises: a notice is not worth a run.
+        """
+        try:
+            notice = getattr(self.config, "gpu_regression_notice", "") or ""
+            if not notice:
+                return
+            stats.notices.append(notice)
+            self._log.warning("{}", notice)
+        except Exception as exc:                    # noqa: BLE001 - a notice
+            self._log.debug("could not report the lost graphics-card provider: {}", exc)
 
     def _report_root_problems(self, stats: IndexStats) -> None:
         r"""A folder that could not be walked is named. Never raises.

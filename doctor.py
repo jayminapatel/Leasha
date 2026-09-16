@@ -20,15 +20,18 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.metadata
 import json
 import os
 import re
 import shutil
 import sqlite3
 import sys
+import sysconfig
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 # Output encoding: when stdout is redirected (as it is under the installer's
 # transcript) Python falls back to the ANSI codepage, and any non-ASCII byte
@@ -231,6 +234,148 @@ def check_sqlite_wal() -> Check:
     except Exception as exc:
         return Check("SQLite WAL mode", False, f"{type(exc).__name__}: {exc}",
                      fix="Check that %TEMP% points at a writable local drive.")
+
+
+# ---------------------------------------------------------------------------
+# Work order 202626130120 (0t): the onnxruntime install must be exactly one
+# thing, and this installation's DirectML provider must match intent.
+# ---------------------------------------------------------------------------
+
+_ONNXRUNTIME_DIST_RE = re.compile(
+    r"^(onnxruntime|onnxruntime_directml)-([^-]+)\.dist-info$", re.IGNORECASE
+)
+
+
+def _onnxruntime_state(
+    site_packages: Path,
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """([(dist-info name, version)], stray "~" stash names).
+
+    Pure and read-only: no import, no network, nothing but a directory
+    listing - so a test can fabricate site_packages with tmp_path and never
+    touch a real venv. site_packages is a parameter for exactly that reason.
+    """
+    found: list[tuple[str, str]] = []
+    stashes: list[str] = []
+    if not site_packages.is_dir():
+        return found, stashes
+    for entry in sorted(site_packages.iterdir()):
+        if not entry.is_dir():
+            continue
+        lname = entry.name.lower()
+        if lname.startswith("~") and "nnxruntime" in lname:
+            # pip's own stash prefix for a package it could not finish
+            # removing - see the module docstring's WinError 5 story.
+            stashes.append(entry.name)
+            continue
+        match = _ONNXRUNTIME_DIST_RE.match(entry.name)
+        if match:
+            found.append((entry.name, match.group(2)))
+    return found, stashes
+
+
+def check_onnxruntime_integrity(site_packages: Optional[Path] = None) -> Check:
+    """One coherent onnxruntime install, or this is a required failure.
+
+    Work order 202626130120 (0t) section 5's first item, and the whole reason
+    it says "fails, not merely narrates": onnxruntime and
+    onnxruntime-directml unpack into the same directory and silently
+    overwrite each other, and pip list cannot tell you which one actually
+    won.
+
+    **Two distributions are not automatically a fault.** Section 3's own fix
+    installs onnxruntime-directml unconditionally, forever, alongside the
+    plain wheel on any machine with a display adapter - so a healthy,
+    correctly-pinned DirectML machine always carries two dist-info folders,
+    and a check that failed on that would mean doctor could never report
+    READY on the very hardware this order exists for. What actually signals
+    the fault from the work order's own section 0 evidence is a **version
+    mismatch** between them (1.30.0 next to 1.24.4) - that is pip having
+    resolved the two wheels independently rather than as the matched pair
+    install.ps1 now guarantees. Matching versions is the sanctioned state;
+    differing versions, or a stash directory a failed uninstall left behind,
+    is the fault - not a warning - because the binaries on disk cannot be
+    trusted to match either .dist-info until it is repaired.
+    """
+    if site_packages is None:
+        site_packages = Path(sysconfig.get_paths()["purelib"])
+    found, stashes = _onnxruntime_state(site_packages)
+    names = [name for name, _version in found]
+    versions = {version for _name, version in found}
+
+    repair_fix = (
+        rf'Close Leasha first - a running process holding onnxruntime.dll is '
+        rf'why this happens (WinError 5). Then delete the stray "~" '
+        rf'directories under {site_packages} by hand, and run: '
+        rf'"{sys.executable}" -m pip install --force-reinstall --no-deps '
+        rf'onnxruntime-directml==1.24.4'
+    )
+
+    if stashes:
+        return Check(
+            "onnxruntime install is coherent", False,
+            f"a failed uninstall left stash directories behind: {', '.join(stashes)}",
+            fix=repair_fix,
+        )
+    if len(names) > 1 and len(versions) > 1:
+        return Check(
+            "onnxruntime install is coherent", False,
+            f"two onnxruntime distributions at different versions are "
+            f"installed at once: {', '.join(names)}",
+            fix=repair_fix,
+        )
+    return Check(
+        "onnxruntime install is coherent", True,
+        ", ".join(names) if names else "not installed",
+    )
+
+
+def check_gpu_provider_intent(profile: Any = None) -> Check:
+    """An adapter is present but this installation cannot use it for DirectML.
+
+    Work order 202626130120 (0t) section 5's second item: `doctor` already
+    prints the same facts as profile text under "Machine", which "cannot fail
+    a run" - this is the same comparison as a proper Check that can WARN.
+    Distinguished from *no adapter* (nothing to compare - not this
+    installation's fault) and from a failed probe (`gpu_probe_failed` -
+    "could not look" is not "it is gone"), the same distinction
+    `app.index.backends.why_unavailable` draws for the identical reason.
+
+    `profile` is injectable so a test can supply an invented machine; real
+    callers leave it to detect() - itself read-only and quick, so this check
+    keeps doctor's "never imports the models, never runs an index" promise.
+    """
+    try:
+        if profile is None:
+            from app.core.compute_profile import detect
+
+            profile = detect(env_path("DATA_PATH") or None)
+    except Exception as exc:
+        return Check("GPU provider matches this machine", True,
+                     f"could not be checked: {exc}", optional=True)
+
+    if getattr(profile, "gpu_probe_failed", False):
+        return Check("GPU provider matches this machine", True,
+                     "the graphics card check did not run this time - not "
+                     "reported as a loss", optional=True)
+    if not getattr(profile, "gpus", ()):
+        return Check("GPU provider matches this machine", True,
+                     "no display adapter - nothing to compare", optional=True)
+    if getattr(profile, "directml_available", False):
+        return Check("GPU provider matches this machine", True,
+                     "an adapter is present and DirectML is available",
+                     optional=True)
+
+    name = profile.gpus[0].name if profile.gpus else "the graphics card"
+    return Check(
+        "GPU provider matches this machine", False,
+        f"a display adapter is present ({name}) but this installation has "
+        f"no DirectML provider",
+        fix=(rf'OPTIONAL - CPU is used instead and search still works. To '
+             rf'use the graphics card: "{sys.executable}" -m pip install '
+             rf'--force-reinstall --no-deps onnxruntime-directml==1.24.4'),
+        optional=True,
+    )
 
 
 def index_privacy(data_path: str) -> str:
@@ -794,6 +939,11 @@ def run_all(quick: bool = False) -> list[Check]:
     checks += [
         check_fts5(),
         check_sqlite_wal(),
+        # Work order 202626130120 (0t) section 5: required, because two
+        # onnxruntime distributions (or a failed-uninstall stash) mean the
+        # binaries on disk cannot be trusted, whether or not this machine has
+        # a graphics card at all.
+        check_onnxruntime_integrity(),
     ]
     # The machine, before the checks that depend on it - so a wrong detection
     # is read first rather than inferred from a surprising result below.
@@ -801,6 +951,10 @@ def run_all(quick: bool = False) -> list[Check]:
     print("Machine")
     for line in compute_profile_lines():
         print(line)
+    # Optional: an adapter present with no DirectML provider is a WARN, not a
+    # print-only line under "Machine" above that "cannot fail a run" - see
+    # the function's own docstring for the three-way distinction.
+    checks.append(check_gpu_provider_intent())
     checks.append(check_index_location())
     checks += check_data_paths()
     checks += [

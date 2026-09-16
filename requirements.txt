@@ -13,6 +13,35 @@ diskcache==5.6.3
 # SQLite + FTS5 ship inside Python's stdlib (sqlite3) — nothing to install
 
 # --- Embeddings + rerank (in-process ONNX, CPU-friendly) -------------------
+#
+# Work order 202626130120 (0t): onnxruntime and onnxruntime-directml are
+# two different wheels that unpack into the SAME venv\Lib\site-packages\
+# onnxruntime\ directory - whichever installs second silently overwrites the
+# other's .dll/.pyd, while both .dist-info folders survive, so pip list
+# shows two packages over one set of binaries. This file never pinned its own
+# copy, so an unpinned transitive requirement from fastembed
+# (>=1.17.0,!=1.20.0,!=1.24.0,!=1.24.1) and from rapidocr-onnxruntime
+# (>=1.7.0) fetched whatever was newest - 1.30.0 on 2026-09-12 - over a venv
+# whose GPU wheel was 1.24.4, and the machine fell back to the CPU with
+# nothing saying so. Pinned below so a plain pip install -r requirements.txt
+# is deterministic instead.
+#
+# onnxruntime-directml==1.24.4 must match the pin below. It is not
+# installed by this file - a DirectML wheel has no use on a machine with no
+# display adapter, and no Windows wheel exists for this project's Linux test
+# sandboxes at all, so it cannot be an unconditional requirement here.
+# install.ps1 installs it, unconditionally and last, on a Windows machine
+# that has an adapter (--force-reinstall --no-deps, so it always wins the
+# directory regardless of install order) - see its own comment. The version
+# below is the one it installs; tests/unit/test_onnxruntime_pins.py holds
+# the two pins to each other so they cannot drift apart again.
+#
+# Checked against PyPI 2026-09-15: 1.24.4 is the newest version for which
+# BOTH onnxruntime and onnxruntime-directml publish a cp312 win_amd64
+# wheel (DirectML lags the plain wheel - 1.30.0 has no DirectML build at
+# all), and 1.24.4 is not one of fastembed's excluded versions above.
+#   onnxruntime-directml==1.24.4
+onnxruntime==1.24.4
 fastembed==0.8.0
 # embed  : BAAI/bge-small-en-v1.5  (384-dim, ~130MB)
 # rerank : BAAI/bge-reranker-base  (~1.1GB, optional)
