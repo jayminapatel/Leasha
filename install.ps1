@@ -97,7 +97,7 @@ function Write-SharedComputerNotice {
     Write-Host "  matters in your home, give each person their own Windows account" -ForegroundColor Gray
     Write-Host "  before installing, or choose the folders Leasha indexes so shared" -ForegroundColor Gray
     Write-Host "  spaces stay shared and private ones stay out." -ForegroundColor Gray
-    Write-Host "  Leasha's index contains copies of text from your files — treat the index as being as" -ForegroundColor Gray
+    Write-Host "  Leasha's index contains copies of text from your files - treat the index as being as" -ForegroundColor Gray
     Write-Host "  sensitive as the most sensitive thing you index." -ForegroundColor Gray
 }
 
@@ -535,6 +535,44 @@ REQUIRED_FREE_GB=$RequiredFreeGB
         Write-Utf8NoBom -Path (Join-Path $ProjectPath ".env") -Content $envText
     }
 
+# ---------------------------------------------------------------------------
+# Work order 202626130120 (0t) section 4: repair, not just install.
+#
+# The owner's venv on 2026-09-12 hit WinError 5 mid-uninstall because a
+# running Leasha process held onnxruntime.dll open. That left stash
+# directories pip could not finish removing (site-packages\~nnxruntime\
+# and similar) and an onnxruntime package with no __init__.py - which still
+# IMPORTS, as an empty namespace package, so the failure was invisible until
+# something tried to call it. Both are checked and cleared before a single
+# package is touched, so a repair run does not repeat the same failure.
+# ---------------------------------------------------------------------------
+
+Invoke-Step -Name "Check no Leasha process is holding the venv" `
+    -Fix "Close Leasha - the window, and any 'python.exe -m app.cli' or 'python.exe -m app.main' command using this venv - then re-run this script." `
+    -Action {
+        if (Test-Path -LiteralPath $Python) {
+            $holding = Get-Process -Name "python" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and ($_.Path -eq $Python) }
+            if ($holding) {
+                throw ("{0} process(es) are running from this venv's python.exe and " +
+                       "would block a package reinstall (WinError 5)." -f @($holding).Count)
+            }
+        }
+    }
+
+Invoke-Step -Name "Clear stash directories left by a failed uninstall" `
+    -Fix "Delete venv\Lib\site-packages\~* by hand, then re-run this script." `
+    -Action {
+        $siteDir = Join-Path $ProjectPath "venv\Lib\site-packages"
+        if (Test-Path -LiteralPath $siteDir) {
+            $stashes = Get-ChildItem -LiteralPath $siteDir -Filter "~*" -ErrorAction SilentlyContinue
+            foreach ($stash in $stashes) {
+                Write-Host ("    Removing stale stash: {0}" -f $stash.Name) -ForegroundColor DarkGray
+                Remove-Item -LiteralPath $stash.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
 Invoke-Step -Name "Install Python packages" `
     -Fix "Run it verbosely to see which package failed: `"$Python`" -m pip install -r `"$ReqFile`" --verbose   - every pin ships a Windows wheel, so no compiler is needed." `
     -Action {
@@ -585,80 +623,68 @@ print('rerank scores:', list(m.rerank('warmup query', ['warmup document'])))
 # Optional: DirectML GPU acceleration (CPU fallback always available)
 # ---------------------------------------------------------------------------
 #
-# DirectML offloads embedding to compatible GPUs when available. Detection
-# matches app/core/compute_profile.py: check if this Windows machine has a
-# video controller and whether onnxruntime has DirectML available. Ask the
-# user to install the optional provider wheel only when both are true.
+# Work order 202626130120 (0t) section 3. This used to ask [y/N] before
+# installing the DirectML wheel, which meant GPU support only ever worked
+# because that answer happened to be given, and a later 'no' left the
+# machine five times slower with nothing reminding anyone. There is no
+# prompt any more: on a Windows machine with a display adapter, the pinned
+# onnxruntime-directml wheel is installed unconditionally, last, with
+# --force-reinstall --no-deps so it always wins the site-packages
+# directory regardless of what the plain requirements.txt install did -
+# see requirements.txt's own comment for why the two pins must match.
+# The provider is verified immediately afterwards and the step fails
+# loudly (not silently) if it is still absent.
 
-$directmlAvailable = $false
+$hasAdapter = $false
 
-# First, check if onnxruntime-cpu already has DirectML built in. Only ask if
-# there's no DirectML available yet.
 $code = @"
 try:
     import sys
-    # Not Windows, or PowerShell not available? Skip the question.
     if sys.platform != 'win32':
         print('False')
         sys.exit(0)
-
-    # Can onnxruntime already access DirectML?
-    import onnxruntime
-    has_dml = 'DmlExecutionProvider' in onnxruntime.get_available_providers()
-
-    # Ask only if DirectML is NOT already available.
-    if not has_dml:
-        # Check if there's a video controller on this machine.
-        import subprocess
-        result = subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command',
-             'Get-CimInstance Win32_VideoController -ErrorAction Stop'],
-            capture_output=True, text=True, timeout=5)
-        # If the PowerShell command succeeded, there's video hardware.
-        print('True' if result.returncode == 0 and result.stdout else 'False')
-    else:
-        print('False')  # DirectML already available, no need to ask
+    import subprocess
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+         'Get-CimInstance Win32_VideoController -ErrorAction Stop'],
+        capture_output=True, text=True, timeout=5)
+    print('True' if result.returncode == 0 and result.stdout else 'False')
 except Exception:
     print('False')
 "@
 
-$tmp = Join-Path $env:TEMP ("dml_check_" + [guid]::NewGuid().ToString("N") + ".py")
+$tmp = Join-Path $env:TEMP ("adapter_check_" + [guid]::NewGuid().ToString("N") + ".py")
 try {
     Write-Utf8NoBom -Path $tmp -Content $code
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
         $output = & $Python $tmp 2>&1 | Out-String
-        $directmlAvailable = $output.Trim() -eq "True"
+        $hasAdapter = $output.Trim() -eq "True"
     } finally {
         $ErrorActionPreference = $previous
     }
 } catch {
-    $directmlAvailable = $false
+    $hasAdapter = $false
 } finally {
     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 }
 
-# Ask only if DirectML is potentially available and not already installed.
-if ($directmlAvailable -and -not $SkipOptional -and -not $Preflight) {
-    Write-Title "GPU Acceleration (optional)"
-    Write-Host "  This computer has a DirectML-capable GPU that can speed up text" -ForegroundColor Gray
-    Write-Host "  embedding. The CPU will still work perfectly without it, falling" -ForegroundColor Gray
-    Write-Host "  back automatically if anything goes wrong." -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Install the GPU support? [y/N]" -ForegroundColor Gray
-    $answer = Read-Host ""
-    if ($answer -match '^(y|yes)$') {
-        Invoke-Step -Name "Install onnxruntime-directml (optional GPU acceleration)" -Optional `
-            -Fix "You can install it later: venv\Scripts\python.exe -m pip install onnxruntime-directml --upgrade-strategy only-if-needed" `
-            -Action {
-                & $Python -m pip install onnxruntime-directml --upgrade-strategy only-if-needed
-                if ($LASTEXITCODE -ne 0) { throw "pip install onnxruntime-directml exited with code $LASTEXITCODE" }
+if ($hasAdapter -and -not $SkipOptional -and -not $Preflight) {
+    Invoke-Step -Name "Install onnxruntime-directml (GPU acceleration)" -Optional `
+        -Fix "Close Leasha first - a running process holding onnxruntime.dll is why this fails (WinError 5). Then: venv\Scripts\python.exe -m pip install --force-reinstall --no-deps onnxruntime-directml==1.24.4" `
+        -Action {
+            & $Python -m pip install --force-reinstall --no-deps onnxruntime-directml==1.24.4
+            if ($LASTEXITCODE -ne 0) { throw "pip install onnxruntime-directml exited with code $LASTEXITCODE" }
+
+            $providerCheck = & $Python -c "import onnxruntime; print('DmlExecutionProvider' in onnxruntime.get_available_providers())"
+            if ($LASTEXITCODE -ne 0) { throw "onnxruntime could not be imported after installing the DirectML wheel" }
+            if ($providerCheck.Trim() -ne "True") {
+                throw "onnxruntime-directml installed, but DmlExecutionProvider is still not available - the wheel did not take effect"
             }
-    } else {
-        Write-Host "  Skipped. Install it later with:" -ForegroundColor DarkGray
-        Write-Host "    venv\Scripts\python.exe -m pip install onnxruntime-directml" -ForegroundColor DarkGray
-    }
+        }
+} elseif (-not $Preflight) {
+    Write-Host "  No display adapter detected - onnxruntime-directml is not installed; the processor is used." -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------------------
@@ -772,7 +798,7 @@ if (-not $SkipOptional -and -not $Preflight) {
 }
 
 # ---------------------------------------------------------------------------
-# leasha:// links - the second optional question. Adoptions §7a.
+# leasha:// links - the second optional question. Adoptions section 7a.
 # ---------------------------------------------------------------------------
 #
 # **Asked, never assumed**, for the same reason tab completion is: registering
