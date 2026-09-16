@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -101,14 +101,25 @@ against a real `SqliteStore`.
   **Built**: `content_hash` now has a partial index (schema v24,
   `idx_files_content_hash`) — `pHash` already had one (schema v17). Both
   report queries run through `CallableWorker`, the same off-the-UI-thread
-  pattern every other report and page uses. **Not built**: no measurement
-  against the scale fixture (H2's own lesson was applied in advance by
-  indexing the column, but never proven with a number the way H2 itself
-  was), no progress reporting beyond "a worker is running" (no percentage
-  or stage), and no caching between index runs - the query re-runs on
-  every tab switch, the same as the Digital Inheritance report already
-  does. Left unticked for the same reason as 3a: real sub-asks open, not
-  a wrong foundation.
+  pattern every other report and page uses. **Not built at the time of the note above; built 2026-09-16, later the
+  same day**: `_report_snapshot` (`app/ui/reports_view.py`) now checks
+  `report_generated_at` (`MAX(files.indexed_at)`, the same "data as of"
+  timestamp 1b already shows) before doing anything else, and returns
+  immediately when it has not moved since the last load - the duplicate
+  and uniqueness queries do not run at all on a tab switch that changes
+  nothing, which is "cached until the next index run" read literally.
+  When it has moved, `CallableWorker` (`app/ui/workers.py`, a new opt-in
+  `report_progress=True`) hands the query function an `on_progress(stage)`
+  callback; `_report_snapshot` calls it four times ("Reading sources...",
+  "Finding duplicates...", "Checking what exists nowhere else...",
+  "Writing the report...") and `ReportsView` shows the current stage in a
+  label beside the report, cleared the instant the worker finishes. Five
+  new tests in `test_space_report_caching_and_progress.py` prove the
+  cache hit skips every stage call and the cache miss reports them in
+  order. **Still not built, and this stays unticked for it**: no
+  measurement against the scale fixture - H2's own lesson was applied in
+  advance (the indexes already existed) but never proven with a number
+  the way H2 itself was.
 
 ## 4. The Life Timeline — a browsing surface
 
