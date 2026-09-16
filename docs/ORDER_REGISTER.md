@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.27 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.28 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -267,7 +267,7 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 
 | Ref | Order | Status | Done/Open | Note |
 |---|---|---|---|---|
-| `202626270547` | Test automation — the GUI clicked for real | HELD | 0 / 18 | Queue letter **0m**, referenced by 0n's sequencing. §0 is the `widget.grab()` utility, first item on release |
+| `202626270547` | Test automation — the GUI clicked for real | RELEASED | **13 / 5** | Queue letter **0m**. Owner authorized starting directly 2026-09-16 (was HELD). §0/§1(mostly)/§2/§4 built and verified by the crash-recovery session - a real `gui_mainwindow` pytest-qt harness plus nine passing scenarios, hypothesis properties across four modules, and two real bugs found and fixed along the way (a stale surface name in `grab_ui.py`, a never-wired Escape key). `tools/nightly.py` (§5a) runs and was verified live but is left open - no pinned perf floors yet, only recall. §3 (pywinauto) is written but needs the owner's own interactive desktop to verify. See the order's own 2026-09-16 dated note for the full breakdown. |
 | `202626270611` | The Chat tab — answers with receipts | HELD | 0 / 26 | Deliberately after the finder is finished |
 | `202626082213` | Install and distribution | DRAFT | 0 / 0 | **Five `[FINALISE]` decisions open.** See §5 |
 | `202626270238` | Migrate PyQt6 → PySide6 | DRAFT | 0 / 10 | Structural — deferred behind the working version |

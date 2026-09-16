@@ -24,15 +24,8 @@ from PyQt6.QtCore import QEvent, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from app.ui.presenter import (
-    IDLE_DEBOUNCE_MS,
-    TYPING_DEBOUNCE_MS,
-    Tier,
-    federated_summary,
-    notice_register_for,
-    result_view_state,
-    search_options,
-    search_shape,
-    tier_for,
+    IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, federated_summary, notice_register_for,
+    result_view_state, search_options, search_shape, tier_for,
 )
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
@@ -164,6 +157,14 @@ class SearchView(QWidget):
             self.results.forward_key(event); return True
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.results.current_row():
             self.results.open_current(reveal=bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)); return True
+        if event.key() == Qt.Key.Key_Escape and self.input.text():
+            # order 0m Section1 item b: the M9 fix (`_on_text_changed`'s empty
+            # branch, below) has always cleared results and status once the
+            # box goes empty - "or pressing Esc" in that comment named the
+            # intent, but nothing ever actually emptied the box on Escape.
+            # `clear()` fires `textChanged`, the same path clearing the box
+            # by hand already takes.
+            self.input.clear(); return True
         return False
 
     # -- dispatch -----------------------------------------------------------

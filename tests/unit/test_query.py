@@ -17,6 +17,8 @@ import sqlite3
 from datetime import date
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.search.query import (
     MAX_QUERY_CHARS,
@@ -245,6 +247,78 @@ def test_intra_word_punctuation_survives() -> None:
 def test_parse_is_deterministic() -> None:
     raw = 'type:pdf after:2024 "site survey" -draft northern'
     assert parse_query(raw, today=TODAY) == parse_query(raw, today=TODAY)
+
+
+# ---------------------------------------------------------------------------
+# hypothesis (order 0m §2a) - properties over generated queries rather than
+# hand-picked examples. `parse_query` has no renderer to round-trip a
+# `ParsedQuery` back through, so the round-trip property here is driven the
+# other way: build a query string from a known filter and confirm the exact
+# same filter comes back out, for every shape hypothesis can generate.
+# ---------------------------------------------------------------------------
+
+#: Lower-case ASCII words only - `parse_query`'s tokeniser has its own rules
+#: for punctuation and whitespace (`test_intra_word_punctuation_survives`
+#: above), which is a separate, already-covered concern from what these
+#: properties are checking.
+_SAFE_WORD = st.text(
+    alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+    min_size=1, max_size=12)
+
+
+@given(st.text(max_size=500))
+def test_any_generated_string_parses_without_raising(raw: str) -> None:
+    """The acceptance line at the top of this file: malformed input returns
+    a `ParsedQuery` or a clean `AppError` upstream - never a crash here."""
+    parse_query(raw, today=TODAY)
+
+
+@given(st.text(min_size=0, max_size=MAX_QUERY_CHARS + 200))
+def test_arbitrarily_long_input_still_does_not_raise(raw: str) -> None:
+    """Past `MAX_QUERY_CHARS` the parser truncates or caps rather than
+    raising - covered at one example above; this is the same property
+    fuzzed across the boundary itself."""
+    parse_query(raw, today=TODAY)
+
+
+@given(_SAFE_WORD)
+def test_a_bare_negated_word_is_excluded_not_a_term(word: str) -> None:
+    """`-word` -> `excluded`, never `terms` - for any word, not just the one
+    example already in this file."""
+    parsed = parse_query(f"-{word}", today=TODAY)
+    assert word not in parsed.terms
+    assert word in parsed.excluded
+
+
+@given(_SAFE_WORD, _SAFE_WORD)
+def test_a_quoted_phrase_survives_as_one_phrase_not_two_terms(a: str, b: str) -> None:
+    parsed = parse_query(f'"{a} {b}"', today=TODAY)
+    assert f"{a} {b}" in parsed.phrases
+    assert parsed.terms == ()
+
+
+@given(st.sampled_from(["pdf", "docx", "jpg", "png", "txt", "xlsx"]))
+def test_a_type_filter_round_trips_into_ext(ext: str) -> None:
+    assert parse_query(f"type:{ext}", today=TODAY).ext == (ext,)
+
+
+@given(st.sampled_from(["pdf", "docx", "jpg", "png", "txt", "xlsx"]))
+def test_a_negated_type_filter_round_trips_into_not_ext_only(ext: str) -> None:
+    """The M4 family: a negated operator used to be read as its opposite -
+    the minus dropped as punctuation before the operator was matched, so
+    `-type:pdf` returned only PDFs. Fuzzed here across every extension this
+    test file already trusts, not just the one regression example."""
+    parsed = parse_query(f"-type:{ext}", today=TODAY)
+    assert parsed.not_ext == (ext,)
+    assert parsed.ext == ()
+
+
+@given(_SAFE_WORD)
+def test_a_bare_word_and_its_quoted_form_land_in_the_matching_field(word: str) -> None:
+    bare = parse_query(word, today=TODAY)
+    quoted = parse_query(f'"{word}"', today=TODAY)
+    assert word in bare.terms
+    assert word in quoted.phrases
 
 
 # ---------------------------------------------------------------------------

@@ -921,6 +921,33 @@ def check_ollama() -> Check:
         )
 
 
+def check_nightly_status() -> Check:
+    """Order 0m section 5b: "`doctor` shows when the nightly last passed."
+
+    Reads `logs/nightly.log`'s last line rather than re-running anything -
+    `tools/nightly.py` is the owner's own opt-in scheduled task, and this
+    only ever reports what it already found. Optional, because a machine
+    that has never opted into the nightly task has never had a chance to
+    produce this file at all - that is a normal state, not a failure.
+    """
+    log_path = PROJECT_ROOT / "logs" / "nightly.log"
+    if not log_path.is_file():
+        return Check(
+            "Nightly system loop", False, "never run on this machine",
+            fix="OPTIONAL - opt in with the installer's nightly-task step, or run by hand: "
+                r"venv\Scripts\python.exe tools\nightly.py",
+            optional=True,
+        )
+    try:
+        last_line = log_path.read_text(encoding="utf-8").strip().splitlines()[-1]
+    except (OSError, IndexError) as exc:
+        return Check("Nightly system loop", False, f"log unreadable ({exc})", optional=True)
+
+    passed = " PASS " in last_line
+    return Check(f"Nightly system loop last {'passed' if passed else 'failed'}",
+                passed, last_line, optional=True)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -967,6 +994,7 @@ def run_all(quick: bool = False) -> list[Check]:
         check_pst_direct(),
         check_outlook(),
         check_ollama(),
+        check_nightly_status(),
     ]
     return checks
 

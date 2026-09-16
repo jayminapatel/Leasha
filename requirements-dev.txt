@@ -1,5 +1,7 @@
 # Development-only dependencies. Not needed to run the app.
-# Verified against PyPI 2026-08-24.
+# Verified against PyPI 2026-08-24; pytest-qt/pywinauto/hypothesis/
+# pytest-timeout added 2026-09-16 (order 0m) - already installed in the
+# project venv by the owner, and pinned here now so a fresh venv matches it.
 #
 # Install into the project venv:
 #   venv\Scripts\python.exe -m pip install -r requirements-dev.txt
@@ -10,3 +12,9 @@ pytest==9.1.1
 pytest-cov==7.1.0
 ruff==0.16.4
 mypy==2.3.1
+
+# order 0m - test automation
+pytest-qt==4.5.0
+pytest-timeout==2.4.0
+hypothesis==6.165.10
+pywinauto==0.6.9

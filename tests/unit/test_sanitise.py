@@ -17,6 +17,8 @@ practice is a shape nobody thought to check.
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.ui.sanitise import sanitise_email_html, strip_to_text
 
@@ -202,3 +204,75 @@ def test_strip_to_text_removes_script_bodies_not_just_tags():
 
     assert "keep" in text
     assert "secret" not in text
+
+
+# ---------------------------------------------------------------------------
+# hypothesis (order 0m §2b) - the allow-list under fuzz, not just the hand
+# -picked tags and schemes above. The property is the same one the module's
+# own docstring states: it is an allow-list rebuild, so anything the
+# generator invents that was never named must not survive.
+# ---------------------------------------------------------------------------
+
+#: A mix of allowed and disallowed tags, dangerous attribute names, and
+#: remote/dangerous attribute values - built rather than `st.text()` alone,
+#: because pure noise almost never happens to look like an `<img src=...>`
+#: and the interesting failures live in exactly that shape.
+_TAGS = st.sampled_from(
+    ["p", "b", "script", "style", "iframe", "svg", "object", "unknowntag"])
+_DANGEROUS_ATTRS = st.sampled_from(
+    ["onclick", "onerror", "onload", "style", "src", "href"])
+_DANGEROUS_VALUES = st.sampled_from([
+    "http://tracker.example/x", "https://tracker.example/x",
+    "//tracker.example/x", "javascript:alert(1)",
+    "JAVASCRIPT:alert(1)", "ftp://x", "mailto:a@b.example", "cid:1",
+])
+
+
+@st.composite
+def _html_snippet(draw) -> str:
+    parts = []
+    for _ in range(draw(st.integers(min_value=0, max_value=6))):
+        tag = draw(_TAGS)
+        attr = draw(_DANGEROUS_ATTRS)
+        value = draw(_DANGEROUS_VALUES)
+        text = draw(st.text(alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+                             max_size=8))
+        parts.append(f'<{tag} {attr}="{value}">{text}</{tag}>')
+    return "".join(parts)
+
+
+@given(st.text(max_size=300))
+def test_arbitrary_text_never_raises(markup: str) -> None:
+    sanitise_email_html(markup)
+
+
+@given(_html_snippet())
+def test_no_remote_reference_ever_survives_under_fuzz(markup: str) -> None:
+    result = sanitise_email_html(markup)
+    assert_nothing_remote(result.html)
+
+
+@given(_html_snippet())
+def test_no_javascript_scheme_ever_survives_under_fuzz(markup: str) -> None:
+    assert "javascript:" not in sanitise_email_html(markup).html.lower()
+
+
+@given(_html_snippet())
+def test_no_event_handler_attribute_ever_survives_under_fuzz(markup: str) -> None:
+    html = sanitise_email_html(markup).html
+    for attr in ("onclick", "onerror", "onload"):
+        assert f"{attr}=" not in html.lower()
+
+
+@given(_html_snippet())
+def test_dropped_tags_never_survive_under_fuzz(markup: str) -> None:
+    html = sanitise_email_html(markup).html.lower()
+    for tag in ("script", "style", "iframe", "object"):
+        assert f"<{tag}" not in html
+
+
+@given(_html_snippet())
+def test_blocked_counts_are_never_negative(markup: str) -> None:
+    result = sanitise_email_html(markup)
+    assert result.blocked_images >= 0
+    assert result.blocked_links >= 0

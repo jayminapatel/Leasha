@@ -262,6 +262,7 @@ class RootsBox(QGroupBox):
             "Settings - this is which folders, that is whether any are "
             "included at all.")
         cloud_box.setChecked(cloud_content)
+        cloud_box.setAccessibleName(f"Download this folder's cloud content: {root}")
         cloud_box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         cloud_box.stateChanged.connect(lambda _s: self._cloud_content_changed())
         cell = QWidget()

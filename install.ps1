@@ -835,6 +835,54 @@ if (-not $SkipOptional -and -not $Preflight) {
 }
 
 # ---------------------------------------------------------------------------
+# Nightly system loop - the third optional question. Order 0m section 5b.
+# ---------------------------------------------------------------------------
+#
+# **Never silently, the work order's own words.** A daily task that indexes a
+# scale fixture and runs the built-in evaluation is a real, if small, cost
+# every night - CPU, a few minutes, a log file growing by one line - and
+# deciding that for somebody is exactly what tab completion and leasha://
+# links above both ask first.
+#
+# **Per-user, no administrator rights.** `schtasks /create` without `/ru`
+# registers under the account running this installer, the same boundary the
+# tab-completion and leasha:// steps both keep - `Get-ScheduledTask` and
+# `Unregister-ScheduledTask` both see it without elevation because it is not
+# a machine-wide task.
+#
+# `/sc daily /st 02:00`: two in the morning, so it runs unattended rather
+# than fighting the owner for CPU during the day; `pythonw.exe` so no console
+# window flashes open once a day for no reason - the exact fix `leasha.cmd`
+# already applies to the GUI launch, for the same reason.
+
+if (-not $SkipOptional -and -not $Preflight) {
+    Write-Title "Nightly system loop (optional)"
+    Write-Host "  Once a day, indexes a small fixture corpus and runs the built-in" -ForegroundColor Gray
+    Write-Host "  evaluation, so a regression shows up within a day instead of at the" -ForegroundColor Gray
+    Write-Host "  next release. Appends one line to logs\nightly.log; 'leasha doctor'" -ForegroundColor Gray
+    Write-Host "  shows when it last passed. Runs under your own account, no admin" -ForegroundColor Gray
+    Write-Host "  rights needed. Remove it later with:" -ForegroundColor Gray
+    Write-Host "    schtasks /delete /tn `"Leasha nightly system loop`" /f" -ForegroundColor Gray
+    Write-Host ""
+    $answer = Read-Host "  Set it up? [y/N]"
+    if ($answer -match '^(y|yes)$') {
+        Invoke-Step -Name "Register the nightly scheduled task" -Optional `
+            -Fix ("Run it by hand later: schtasks /create /tn `"Leasha nightly system loop`" " +
+                  "/tr `"$ProjectPath\venv\Scripts\pythonw.exe $ProjectPath\tools\nightly.py`" " +
+                  "/sc daily /st 02:00 /f") `
+            -Action {
+                $taskCommand = "`"$ProjectPath\venv\Scripts\pythonw.exe`" `"$ProjectPath\tools\nightly.py`""
+                & schtasks /create /tn "Leasha nightly system loop" /tr $taskCommand `
+                    /sc daily /st 02:00 /f
+                if ($LASTEXITCODE -ne 0) { throw "schtasks /create exited $LASTEXITCODE" }
+            }
+    } else {
+        Write-Host "  Skipped. Set it up by hand later:" -ForegroundColor DarkGray
+        Write-Host "    schtasks /create /tn `"Leasha nightly system loop`" /tr `"$ProjectPath\venv\Scripts\pythonw.exe $ProjectPath\tools\nightly.py`" /sc daily /st 02:00 /f" -ForegroundColor DarkGray
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
