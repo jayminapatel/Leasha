@@ -47,6 +47,14 @@ ROLE_PILE_ID = int(Qt.ItemDataRole.UserRole)
 ROLE_MIME = "application/x-leasha-pile-id"
 
 
+def _warn_write_failed(widget: QWidget, title: str, error: Any) -> None:
+    """The shared failure path for every store write on this page and its
+    dialog - logs, then tells the person plainly rather than leaving the
+    click looking like it did nothing."""
+    _log.warning("{}: {}", title, error)
+    QMessageBox.warning(widget, title, str(error))
+
+
 def _pile_label(pile: Any, rank: int) -> str:
     """Section 2a: "Person 1 — 47 photos" for an unnamed pile, the name
     itself for a named one. `rank` is 1-based position in the biggest-first
@@ -350,13 +358,15 @@ class PhotoTaggerPage(QWidget):
         """The chip's Yes/No. Declining does not delete anything - see
         `SqliteStore.confirm_suggestion`'s own docstring: the face just
         returns to the unclustered pool."""
-        try:
-            self._store.confirm_suggestion(face_id, accept)
-        except Exception as exc:                     # noqa: BLE001 - one action, not a crash
-            _log.warning("could not confirm suggestion for face {}: {}", face_id, exc)
-            QMessageBox.warning(self, "Could not record that", str(exc))
-            return
-        self.reload()
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(
+            self._store.confirm_suggestion, face_id, accept,
+            component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _r: self.reload())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not record that", error))
+        run(self._pool, worker)
 
     # -- naming -------------------------------------------------------------
 
@@ -373,13 +383,14 @@ class PhotoTaggerPage(QWidget):
             text=current_name)
         if not ok:
             return
-        try:
-            self._store.rename_pile(pile_id, name)
-        except Exception as exc:                     # noqa: BLE001 - one action, not a crash
-            _log.warning("could not rename pile {}: {}", pile_id, exc)
-            QMessageBox.warning(self, "Could not rename", str(exc))
-            return
-        self.reload()
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(
+            self._store.rename_pile, pile_id, name, component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _r: self.reload())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not rename", error))
+        run(self._pool, worker)
 
     def _combine(self, source_id: int, target_id: int) -> None:
         """Section 2b. Confirmed - a merge cannot be undone by dragging back,
@@ -395,14 +406,15 @@ class PhotoTaggerPage(QWidget):
         )
         if confirmed != QMessageBox.StandardButton.Yes:
             return
-        try:
-            self._store.combine_piles(source_id, target_id)
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("could not combine piles {} -> {}: {}",
-                         source_id, target_id, exc)
-            QMessageBox.warning(self, "Could not combine", str(exc))
-            return
-        self.reload()
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(
+            self._store.combine_piles, source_id, target_id,
+            component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _r: self.reload())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not combine", error))
+        run(self._pool, worker)
 
     # -- context menu: forget, manage faces ----------------------------------
 
@@ -444,13 +456,15 @@ class PhotoTaggerPage(QWidget):
         clicked = box.clickedButton()
         if clicked not in (keep_button, delete_button):
             return
-        try:
-            self._store.forget_person(pile_id, delete_faces=(clicked is delete_button))
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("could not forget pile {}: {}", pile_id, exc)
-            QMessageBox.warning(self, "Could not forget", str(exc))
-            return
-        self.reload()
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(
+            self._store.forget_person, pile_id,
+            delete_faces=(clicked is delete_button), component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _r: self.reload())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not forget", error))
+        run(self._pool, worker)
 
     def _manage_faces(self, pile_id: int) -> None:
         """Section 2b's remove-from-pile and split, together - a small
@@ -474,17 +488,21 @@ class PhotoTaggerPage(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         year = dialog.chosen_year()
-        try:
-            from app.extract.era_hints import year_to_epoch_ns
+        from app.extract.era_hints import year_to_epoch_ns
+        from app.ui.workers import CallableWorker, run
 
-            changed = self._store.apply_batch_era(folder, year_to_epoch_ns(year))
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("could not apply batch era to {}: {}", folder, exc)
-            QMessageBox.warning(self, "Could not set the date", str(exc))
-            return
-        QMessageBox.information(
-            self, "Dates set",
-            f"{changed} photo(s) in that folder now show as roughly {year}.")
+        def _dated(changed: int) -> None:
+            QMessageBox.information(
+                self, "Dates set",
+                f"{changed} photo(s) in that folder now show as roughly {year}.")
+
+        worker = CallableWorker(
+            self._store.apply_batch_era, folder, year_to_epoch_ns(year),
+            component="ui.photo_tagger")
+        worker.signals.finished.connect(_dated)
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not set the date", error))
+        run(self._pool, worker)
 
 
 class _BatchEraDialog(QDialog):
@@ -623,19 +641,36 @@ class _ManageFacesDialog(QDialog):
         return [int(box.property("face_id")) for box in self._checks if box.isChecked()]
 
     def _remove_selected(self) -> None:
-        for face_id in self._selected_face_ids():
-            try:
-                self._store.remove_face_from_pile(face_id)
-            except Exception as exc:                 # noqa: BLE001
-                _log.warning("could not remove face {}: {}", face_id, exc)
-        self.accept()
+        from app.ui.workers import CallableWorker, run
+
+        face_ids = self._selected_face_ids()
+
+        def _remove_all() -> None:
+            # One worker for the whole selection, not one per face - a
+            # dialog's worth of ticked boxes is a handful of rows, and this
+            # keeps the same one-bad-item-does-not-lose-the-rest tolerance
+            # the direct-call version had.
+            for face_id in face_ids:
+                try:
+                    self._store.remove_face_from_pile(face_id)
+                except Exception as exc:              # noqa: BLE001
+                    _log.warning("could not remove face {}: {}", face_id, exc)
+
+        worker = CallableWorker(_remove_all, component="ui.photo_tagger.manage")
+        worker.signals.finished.connect(lambda _r: self.accept())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not remove", error))
+        run(QThreadPool.globalInstance(), worker)
 
     def _split_selected(self) -> None:
         selected = self._selected_face_ids()
         if not selected:
             return
-        try:
-            self._store.split_pile(selected)
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("could not split faces {}: {}", selected, exc)
-        self.accept()
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(
+            self._store.split_pile, selected, component="ui.photo_tagger.manage")
+        worker.signals.finished.connect(lambda _r: self.accept())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not split", error))
+        run(QThreadPool.globalInstance(), worker)
