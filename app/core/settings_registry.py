@@ -307,6 +307,16 @@ SETTINGS: tuple[Setting, ...] = (
              "on a graphics card, so it is unavailable when one is in use.",
     ),
     Setting(
+        key="CLOUD_CONTENT_CAP_MB", label="Cloud content download limit",
+        kind="int", default=1024, group="Storage", surface="settings.storage",
+        minimum=1, maximum=1_000_000, unit="MB",
+        help="The most this application will download in one run from "
+             "cloud-only files in folders you have opted in to (Settings, "
+             "each folder's own \"Cloud content\" box). Shared across every "
+             "opted-in folder, not one budget each - the guard against a "
+             "synced library filling a small disk.",
+    ),
+    Setting(
         key="INDEX_MEMORY_MB", label="Memory ceiling", kind="int", default=4000,
         group="Tuning", surface="indexing.tuning", minimum=256, maximum=16384,
         unit="MB",

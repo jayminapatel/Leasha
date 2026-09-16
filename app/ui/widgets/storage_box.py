@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -109,11 +110,34 @@ class StorageBox(QGroupBox):
         )
         note.setWordWrap(True)
 
+        # 202626270514 §2b: the shared budget every opted-in folder draws
+        # from together - the folders themselves are chosen in "Folders to
+        # index", each with its own "Cloud content" box; this is only how
+        # much, in total, one run may download for all of them combined.
+        self.cloud_content_cap = QSpinBox()
+        self.cloud_content_cap.setObjectName("CLOUD_CONTENT_CAP_MB")
+        self.cloud_content_cap.setAccessibleName("Cloud content download limit")
+        self.cloud_content_cap.setRange(1, 1_000_000)
+        self.cloud_content_cap.setSuffix(" MB")
+        self.cloud_content_cap.setValue(
+            int(getattr(settings, "cloud_content_cap_mb", 1024) or 1024))
+        self.cloud_content_cap.setToolTip(
+            "The most this application will download in one run from "
+            "cloud-only files in folders you have opted in to (their own "
+            "\"Cloud content\" box in Folders to index).\n\n"
+            "Shared across every opted-in folder together, not one budget "
+            "each - once spent, the rest of that run's cloud-only files "
+            "stay names-only, whichever folder they are in."
+        )
+        self.cloud_content_cap.valueChanged.connect(
+            lambda value: self.changed.emit({"CLOUD_CONTENT_CAP_MB": value}))
+
         form = QFormLayout()
         form.addRow("Index location", self.data_path)
         form.addRow("", self.move_index)
         form.addRow("Meaning model", self.embed_model)
         form.addRow("", self.rebuild_vectors)
+        form.addRow("Cloud content download limit", self.cloud_content_cap)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)

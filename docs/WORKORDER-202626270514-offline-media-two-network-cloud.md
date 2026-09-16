@@ -1,6 +1,6 @@
 # Work order (One thread): Offline Media II — network shares, cloud mounts, and the placeholder rules
 
-**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (Storage + Index + Offline Media tab)
 **Status:** RELEASED by the owner 2026-08-28. Requires 0513 (the tab and the
 identity seam). **Phones (kind 4, MTP) are decided as removable drives but
@@ -198,11 +198,51 @@ that sounds finished being worse than an honest gap.
   downloads (this is NAME_ONLY's shape exactly). Identity = the account as
   the mount exposes it. Open action may go to the browser (the source whose
   files open from anywhere).
-- [ ] **2b THE TRAP, enforced**: reading placeholder content HYDRATES
+- [x] **2b THE TRAP, enforced**: reading placeholder content HYDRATES
   (downloads). A scan must never silently pull 500GB onto a 512GB laptop —
   `cloudstub`'s placeholder detection is the guard; content indexing is an
   explicit per-folder opt-in with a plain-words download warning and a size
-  cap. Test: names-only scan of a placeholder fixture performs zero content
+  cap.
+
+  > **2026-09-16, later the same day — the opt-in and the cap built, by
+  > the crash-recovery session.** `WalkConfig` (`app/index/walker.py`) gains
+  > `cloud_content_roots` (`{normalised root}`, opted in) and
+  > `cloud_content_cap_bytes` - a single **session-wide** budget, checked
+  > and incremented (`cloud_bytes_spent`) at the exact stat already
+  > performed, right where the guard already lived. Two opted-in folders
+  > share the budget rather than each drawing their own - the order's own
+  > words, "never silently pull 500GB onto a 512GB laptop", are a
+  > statement about the machine, not about any one folder.
+  > `include_cloud` (the old whole-run boolean) still works, folded into
+  > the new fields once at construction rather than checked separately -
+  > every existing caller and test kept its exact behaviour.
+  >
+  > **Storage**: `ui:cloud_content_roots`, JSON, the same shape and the
+  > same home `ui:root_modes` (`app/index/archives.py`) already uses for
+  > a per-root preference.
+  >
+  > **UI**: `RootsBox` (`app/ui/widgets/roots_box.py`) gains a third
+  > column, one checkbox per folder, tooltip stating plainly what it
+  > does and that it needs the existing "Index cloud-only files" switch
+  > on too - that switch is now the master gate (off means names-only
+  > everywhere, whatever any row says), the per-row box is which
+  > folders. The shared cap itself is a new Storage setting,
+  > `CLOUD_CONTENT_CAP_MB` (default 1024, a `QSpinBox` in
+  > `storage_box.py`), since it is one number for the whole run, not a
+  > per-folder value.
+  >
+  > **CLI**: `--allow-cloud-content PATH` (repeatable) and
+  > `--cloud-content-cap-mb N` added to `app.cli index`, alongside the
+  > existing `--include-cloud`.
+  >
+  > Tests: 7 new in `test_walker.py` (opt-in, the cap, the cap shared
+  > across two folders, `cloud_bytes_spent`, the `include_cloud`
+  > backward-compatibility shim both ways) and 5 in the new
+  > `test_cloud_content_cli.py` (the CLI flags, captured at the
+  > `PipelineConfig` a stubbed `Pipeline` receives). The pre-existing
+  > `test_2b_names_only_scan_of_a_placeholder_performs_zero_content_reads`
+  > still passes unchanged - the default (nothing opted in) is still
+  > names-only, proven at the file-open level as it always was. Test: names-only scan of a placeholder fixture performs zero content
   reads (asserted at the file-open level).
 
   **2026-09-15 — the guard half is built and proven for real; the opt-in

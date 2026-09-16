@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass, field, replace
@@ -96,6 +97,15 @@ HASH_CHUNK_BYTES = 1024 * 1024
 #: granularity as well, and the cost is hashing only files touched in the last
 #: two seconds - which during an index run is approximately none of them.
 RECENT_EDIT_WINDOW_S = 2.0
+
+#: 202626270514 (0l) §2b: the whole run's cloud-content download budget, when
+#: nothing else has been configured. 1GB - big enough that a handful of
+#: opted-in documents clears it without a second thought, small enough that
+#: forgetting to change it never quietly pulls down a whole synced library.
+#: A number to override, not a promise about what is reasonable for every
+#: machine - `Settings.cloud_content_cap_mb` is where a person actually
+#: changes it.
+DEFAULT_CLOUD_CONTENT_CAP_BYTES = 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -181,7 +191,36 @@ class WalkConfig:
     max_file_bytes: int = 2 * 1024 * 1024 * 1024
     #: Off by default: reading a placeholder downloads it, and pointing this at
     #: a synced library would quietly pull down the entire thing.
+    #:
+    #: **Superseded by the three fields below (202626270514 §2b) - kept only
+    #: so a caller that still sets it gets the old, whole-run behaviour**:
+    #: every root opted in, at the default cap. New callers should set
+    #: `cloud_content_roots` directly; `__post_init__` folds this in once,
+    #: at construction, never checked again during the walk itself.
     include_cloud: bool = False
+    #: `{root, normalised: opted in}` - a root not present here is names-only
+    #: for cloud placeholders under it, whatever `include_cloud` says. The
+    #: opt-in half of the trap `is_cloud_placeholder` guards: a folder is
+    #: never included in the download budget just because the *run* included
+    #: cloud content somewhere else in it.
+    cloud_content_roots: frozenset[str] = field(default_factory=frozenset)
+    #: The whole run's cumulative byte budget for content actually hydrated
+    #: from a cloud placeholder - **never per folder**. "A scan must never
+    #: silently pull 500GB onto a 512GB laptop" is a statement about the
+    #: machine, not about any one folder, so the cap has to be a session
+    #: total: two opted-in folders must not each get their own full budget.
+    cloud_content_cap_bytes: int = DEFAULT_CLOUD_CONTENT_CAP_BYTES
+    #: **Output, like `stat_failures`.** Bytes actually spent hydrating
+    #: cloud placeholders so far this run - `walk()` increments it in place;
+    #: nothing else writes to it. Read after the run to report what was
+    #: actually pulled, and checked during the run so the cap is enforced
+    #: against real cumulative spend, not estimated up front.
+    cloud_bytes_spent: int = 0
+
+    def __post_init__(self) -> None:
+        if self.include_cloud and not self.cloud_content_roots:
+            self.cloud_content_roots = frozenset(
+                str(root).rstrip("\\/").lower() for root in self.roots)
     follow_symlinks: bool = False
     #: Excluded directories still descended into, by absolute path. Lets a user
     #: index one folder that happens to live under an excluded name.
@@ -488,6 +527,39 @@ def _record_stat_failure(config: WalkConfig, path: Path, exc: OSError) -> None:
     config.stat_failures[reason] = config.stat_failures.get(reason, 0) + 1
 
 
+#: `{root, normalised: True}` - which folders the owner has explicitly opted
+#: in to cloud-content indexing. The same home `ui:root_modes`
+#: (`app/index/archives.py`) uses for a per-root preference: read once at
+#: startup, written back whenever the folders panel changes, never touched
+#: mid-walk.
+CLOUD_CONTENT_STATE_KEY = "ui:cloud_content_roots"
+
+
+def load_cloud_content_roots(raw: str) -> frozenset[str]:
+    """`{normalised root}` from the stored JSON. Never raises.
+
+    An unreadable record means "nothing is opted in", which is the safe
+    answer - the same reasoning `archives.load_modes` gives for defaulting
+    to Live rather than failing the run.
+    """
+    if not raw:
+        return frozenset()
+    try:
+        record = json.loads(raw)
+    except Exception:                              # noqa: BLE001
+        return frozenset()
+    if not isinstance(record, list):
+        return frozenset()
+    return frozenset(str(root).rstrip("\\/").lower() for root in record)
+
+
+def dump_cloud_content_roots(roots: Iterable[str]) -> str:
+    """Only the opted-in roots are stored, sorted for a stable diff - the
+    same shape `archives.dump_modes` writes for archive-mode roots."""
+    return json.dumps(
+        sorted({str(root).rstrip("\\/").lower() for root in roots}))
+
+
 def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candidate]:
     """Yield every indexable file under `config.roots`.
 
@@ -638,24 +710,40 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     relative_path=relative_path,
                 )
 
-                if candidate.is_cloud_placeholder and not config.include_cloud:
-                    # **202626270514 3a: never read placeholder bytes, but
-                    # never make the file invisible either.** `continue` here
-                    # used to drop the candidate entirely - no row, no skip
-                    # code, no count, the exact "invisible is the worst of the
-                    # three possible answers" bug `name_only` was built to
-                    # eliminate (see `WalkConfig.name_only`'s own docstring),
-                    # arriving through a different door: a name-only OneDrive
-                    # or Google Drive library indexed as if it were empty.
-                    # `LOCAL_KNOWLEDGE_GRAPH_V2.md`'s own architecture section
-                    # already documented the intended shape - SKIPPED with
-                    # `ERR_CLOUD_ONLY`, findable by name, reported and
-                    # actionable - `app.cli extract` already raises it; the
-                    # real walk never did. Forcing `readable=False` here is
-                    # what makes `Pipeline._extract_worker` take that branch
-                    # (see there) without opening the file - the check stays
-                    # exactly where it was, on the stat already performed.
-                    candidate = replace(candidate, readable=False)
+                if candidate.is_cloud_placeholder:
+                    # **202626270514 §2b: opted in AND inside the budget, or
+                    # names-only - never one without the other.** A root not
+                    # in `cloud_content_roots` is names-only regardless of
+                    # the cap; an opted-in root is names-only too, the
+                    # moment the *run's* cumulative spend would cross
+                    # `cloud_content_cap_bytes` - the trap this item names:
+                    # two opted-in folders sharing one budget, not each
+                    # getting their own.
+                    root_key = str(root).rstrip("\\/").lower()
+                    opted_in = root_key in config.cloud_content_roots
+                    within_cap = (config.cloud_bytes_spent + candidate.size_bytes
+                                 <= config.cloud_content_cap_bytes)
+                    if opted_in and within_cap:
+                        config.cloud_bytes_spent += candidate.size_bytes
+                    else:
+                        # **202626270514 3a: never read placeholder bytes, but
+                        # never make the file invisible either.** `continue`
+                        # here used to drop the candidate entirely - no row, no
+                        # skip code, no count, the exact "invisible is the
+                        # worst of the three possible answers" bug `name_only`
+                        # was built to eliminate (see `WalkConfig.name_only`'s
+                        # own docstring), arriving through a different door: a
+                        # name-only OneDrive or Google Drive library indexed as
+                        # if it were empty. `LOCAL_KNOWLEDGE_GRAPH_V2.md`'s own
+                        # architecture section already documented the intended
+                        # shape - SKIPPED with `ERR_CLOUD_ONLY`, findable by
+                        # name, reported and actionable - `app.cli extract`
+                        # already raises it; the real walk never did. Forcing
+                        # `readable=False` here is what makes `Pipeline.
+                        # _extract_worker` take that branch (see there) without
+                        # opening the file - the check stays exactly where it
+                        # was, on the stat already performed.
+                        candidate = replace(candidate, readable=False)
 
                 seen.add(key)
                 yield candidate

@@ -21,6 +21,7 @@ import pytest
 
 from app.core.winfs import FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
 from app.index.walker import (
+    DEFAULT_CLOUD_CONTENT_CAP_BYTES,
     DEFAULT_EXCLUDE_DIRS,
     DEFAULT_EXCLUDE_GLOBS,
     Candidate,
@@ -260,6 +261,132 @@ def test_include_cloud_reads_placeholders_when_opted_in(tmp_path: Path) -> None:
         ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)
 
     assert readable(found) == {"report.txt"}
+
+
+# --- §2b: per-folder opt-in and the shared session cap -----------------------
+
+def _offline(path: Path, text: str = "would-be-cloud content") -> Path:
+    import ctypes
+
+    path.write_text(text, encoding="utf-8")
+    ok = ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x1000)  # OFFLINE
+    assert ok, "could not set a real FILE_ATTRIBUTE_OFFLINE bit for this test"
+    return path
+
+
+def _clear(path: Path) -> None:
+    import ctypes
+
+    ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x80)  # NORMAL
+
+
+def test_a_root_not_opted_in_stays_names_only_even_with_room_in_the_cap(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    target = _offline(tmp_path / "report.txt")
+    try:
+        found = list(walk(WalkConfig(
+            roots=[tmp_path], extensions=TEXT,
+            cloud_content_roots=frozenset(),  # deliberately empty: not opted in
+            cloud_content_cap_bytes=10_000_000,
+        )))
+    finally:
+        _clear(target)
+    assert readable(found) == set()
+
+
+def test_an_opted_in_root_within_the_cap_is_read(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    target = _offline(tmp_path / "report.txt")
+    root_key = str(tmp_path).rstrip("\\/").lower()
+    try:
+        found = list(walk(WalkConfig(
+            roots=[tmp_path], extensions=TEXT,
+            cloud_content_roots=frozenset({root_key}),
+            cloud_content_cap_bytes=10_000_000,
+        )))
+    finally:
+        _clear(target)
+    assert readable(found) == {"report.txt"}
+
+
+def test_an_opted_in_root_over_the_cap_falls_back_to_names_only(tmp_path: Path) -> None:
+    """The trap itself: opted in is not enough once the budget is spent."""
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    target = _offline(tmp_path / "report.txt", text="x" * 1000)
+    root_key = str(tmp_path).rstrip("\\/").lower()
+    try:
+        found = list(walk(WalkConfig(
+            roots=[tmp_path], extensions=TEXT,
+            cloud_content_roots=frozenset({root_key}),
+            cloud_content_cap_bytes=1,  # far smaller than the file
+        )))
+    finally:
+        _clear(target)
+    assert readable(found) == set()
+    assert names(found) == {"report.txt"}, "still findable by name, never invisible"
+
+
+def test_the_cap_is_shared_across_two_opted_in_folders_not_doubled(tmp_path: Path) -> None:
+    r"""**The order's own words**: "a scan must never silently pull 500GB
+    onto a 512GB laptop" is about the machine, not any one folder - two
+    opted-in folders must draw from the same budget, not one each."""
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    first_dir, second_dir = tmp_path / "first", tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first = _offline(first_dir / "a.txt", text="x" * 600)
+    second = _offline(second_dir / "b.txt", text="y" * 600)
+    roots = frozenset({
+        str(first_dir).rstrip("\\/").lower(), str(second_dir).rstrip("\\/").lower(),
+    })
+    try:
+        found = list(walk(WalkConfig(
+            roots=[first_dir, second_dir], extensions=TEXT,
+            cloud_content_roots=roots,
+            cloud_content_cap_bytes=1000,  # room for one 600-byte file, not both
+        )))
+    finally:
+        _clear(first)
+        _clear(second)
+    assert len(readable(found)) == 1, "the second file must not get its own fresh budget"
+    assert names(found) == {"a.txt", "b.txt"}, "the one over budget stays findable by name"
+
+
+def test_cloud_bytes_spent_reports_what_was_actually_read(tmp_path: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-only: real file attribute round-trip")
+    target = _offline(tmp_path / "report.txt", text="x" * 250)
+    root_key = str(tmp_path).rstrip("\\/").lower()
+    config = WalkConfig(
+        roots=[tmp_path], extensions=TEXT,
+        cloud_content_roots=frozenset({root_key}),
+        cloud_content_cap_bytes=10_000_000,
+    )
+    try:
+        list(walk(config))
+    finally:
+        _clear(target)
+    assert config.cloud_bytes_spent == 250
+
+
+def test_include_cloud_true_opts_every_root_in_at_the_default_cap() -> None:
+    """The backward-compatibility shim, unit-tested directly against
+    `__post_init__` rather than a real walk - what matters is that the old
+    flag still produces a real opt-in set, not a no-op."""
+    config = WalkConfig(roots=[Path("C:/Docs"), Path("D:/Photos")], include_cloud=True)
+    assert config.cloud_content_roots == {
+        str(root).rstrip("\\/").lower() for root in (Path("C:/Docs"), Path("D:/Photos"))
+    }
+    assert config.cloud_content_cap_bytes == DEFAULT_CLOUD_CONTENT_CAP_BYTES
+
+
+def test_include_cloud_false_opts_nothing_in() -> None:
+    config = WalkConfig(roots=[Path("C:/Docs")])
+    assert config.cloud_content_roots == frozenset()
 
 
 # --- prioritisation ---------------------------------------------------------

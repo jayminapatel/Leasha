@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -36,6 +37,7 @@ from PyQt6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from app.index.archives import ARCHIVE, LIVE, normalise
@@ -58,26 +60,32 @@ class RootsBox(QGroupBox):
 
     roots_changed = pyqtSignal(list)
     modes_changed = pyqtSignal(dict)
+    #: 202626270514 §2b: `{normalised root}` currently opted in for cloud
+    #: content. Only fires the way `modes_changed` does - user action, never
+    #: `set_roots`'s own load.
+    cloud_content_changed = pyqtSignal(set)
     rescan_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Folders to index", parent)
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels(["Folder", "How it is indexed"])
+        self.tree.setColumnCount(3)
+        self.tree.setHeaderLabels(["Folder", "How it is indexed", "Cloud content"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         # §2b. **Not sortable**, and the reason is that the order is the
         # person's: `current_roots` serialises what is on screen, so a header
-        # click would silently rewrite the saved list - and column 1 is a
-        # `QComboBox` per row through `setItemWidget`, which Qt does not move
-        # when it sorts. The heading still points the way its column reads.
+        # click would silently rewrite the saved list - and columns 1 and 2
+        # are a `QComboBox`/`QCheckBox` per row through `setItemWidget`,
+        # which Qt does not move when it sorts. The heading still points the
+        # way its column reads.
         align_headers(self.tree)
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
 
         add = QPushButton("Add folder…")
         add.setToolTip(
@@ -192,7 +200,10 @@ class RootsBox(QGroupBox):
 
     # -- filling it in ------------------------------------------------------
 
-    def set_roots(self, roots: list[str], modes: Optional[dict[str, str]] = None) -> None:
+    def set_roots(
+        self, roots: list[str], modes: Optional[dict[str, str]] = None,
+        cloud_content: Optional[set[str]] = None,
+    ) -> None:
         """Replace the list, without emitting on the way in.
 
         Loading nine folders would otherwise fire nine change notifications
@@ -201,18 +212,20 @@ class RootsBox(QGroupBox):
         signals for.
         """
         modes = modes or {}
+        cloud_content = cloud_content or set()
         self.tree.blockSignals(True)
         try:
             self.tree.clear()
             for root in roots:
-                self._append(root, modes.get(normalise(root), LIVE))
+                self._append(root, modes.get(normalise(root), LIVE),
+                            normalise(root) in cloud_content)
         finally:
             self.tree.blockSignals(False)
         self._sync_empty()
         self._sync_rescan()
 
-    def _append(self, root: str, mode: str = LIVE) -> QTreeWidgetItem:
-        item = QTreeWidgetItem([str(root), ""])
+    def _append(self, root: str, mode: str = LIVE, cloud_content: bool = False) -> QTreeWidgetItem:
+        item = QTreeWidgetItem([str(root), "", ""])
         item.setToolTip(0, str(root))
         self.tree.addTopLevelItem(item)
 
@@ -233,6 +246,30 @@ class RootsBox(QGroupBox):
         combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         combo.currentIndexChanged.connect(lambda _i: self._modes_changed())
         self.tree.setItemWidget(item, 1, combo)
+
+        # §2b THE TRAP: reading a cloud placeholder downloads it, so this
+        # stays off unless both this box's own master switch (Settings) and
+        # this specific row say yes - a folder is never pulled into the
+        # download budget just because indexing is turned on for it.
+        cloud_box = QCheckBox()
+        cloud_box.setToolTip(
+            "Download and index this folder's cloud-only files (OneDrive, "
+            "Google Drive placeholders and the like), up to the shared cap "
+            "in Settings.\n\n"
+            "Off by default: reading a cloud-only file downloads it, and a "
+            "whole synced library can be far bigger than this computer's "
+            "free space. Also needs \"Index cloud-only files\" on in "
+            "Settings - this is which folders, that is whether any are "
+            "included at all.")
+        cloud_box.setChecked(cloud_content)
+        cloud_box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        cloud_box.stateChanged.connect(lambda _s: self._cloud_content_changed())
+        cell = QWidget()
+        cell_layout = QHBoxLayout(cell)
+        cell_layout.setContentsMargins(0, 0, 0, 0)
+        cell_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cell_layout.addWidget(cloud_box)
+        self.tree.setItemWidget(item, 2, cell)
         return item
 
     # -- what the shell reads -----------------------------------------------
@@ -256,6 +293,19 @@ class RootsBox(QGroupBox):
             combo = self.tree.itemWidget(item, 1)
             mode = str(combo.currentData()) if combo is not None else LIVE
             found[normalise(item.text(0))] = mode
+        return found
+
+    def current_cloud_content_roots(self) -> set[str]:
+        """`{normalised root}` for every row whose cloud-content box is
+        checked - only the opted-in ones, the same shape `dump_modes`
+        writes (only the non-default entries), not every row."""
+        found: set[str] = set()
+        for row in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(row)
+            cell = self.tree.itemWidget(item, 2)
+            box = cell.findChild(QCheckBox) if cell is not None else None
+            if box is not None and box.isChecked():
+                found.add(normalise(item.text(0)))
         return found
 
     def add_root(self, folder: str) -> bool:
@@ -284,11 +334,15 @@ class RootsBox(QGroupBox):
         self.modes_changed.emit(self.current_modes())
         self._sync_rescan()
 
+    def _cloud_content_changed(self) -> None:
+        self.cloud_content_changed.emit(self.current_cloud_content_roots())
+
     def _emit(self) -> None:
         # Roots first: a mode for a folder that is not in the list yet would be
         # written and then have nothing to attach to.
         self.roots_changed.emit(self.current_roots())
         self.modes_changed.emit(self.current_modes())
+        self.cloud_content_changed.emit(self.current_cloud_content_roots())
         self._sync_rescan()
 
     def _sync_rescan(self) -> None:

@@ -384,9 +384,11 @@ class MainWindow(QMainWindow):
         self._hotkey: Any = None
         self.settings_view.debug_pane.file_chosen.connect(self._open_path)
         self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
-        self.settings_view.set_roots(self._load_roots(), self._load_root_modes())
+        self.settings_view.set_roots(
+            self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots())
         self.settings_view.roots_changed.connect(self._save_roots)
         self.settings_view.root_modes_changed.connect(self._save_root_modes)
+        self.settings_view.cloud_content_roots_changed.connect(self._save_cloud_content_roots)
         self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
         self.settings_view.code_types_changed.connect(self._save_code_types)
         self.settings_view.code_types.load(*self._load_code_types())
@@ -2155,6 +2157,26 @@ class MainWindow(QMainWindow):
             # it worked until the next run walks 1.5TB anyway, and by then
             # nobody connects the two.
             _log.warning("index root modes not saved: {}", exc)
+
+    def _load_cloud_content_roots(self) -> set:
+        """202626270514 §2b: which folders may hydrate cloud placeholders.
+        See `index/walker.py`."""
+        from app.index.walker import CLOUD_CONTENT_STATE_KEY, load_cloud_content_roots
+
+        try:
+            return set(load_cloud_content_roots(
+                self._store.get_state(CLOUD_CONTENT_STATE_KEY, "") or ""))
+        except Exception as exc:                     # noqa: BLE001
+            _log.debug("cloud content roots not read: {}", exc)
+            return set()
+
+    def _save_cloud_content_roots(self, roots: set) -> None:
+        from app.index.walker import CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots
+
+        try:
+            self._store.set_state(CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots(roots))
+        except Exception as exc:                     # noqa: BLE001
+            _log.warning("cloud content roots not saved: {}", exc)
             self.notify(
                 "That folder's Live/Archive setting was not saved.", 8_000)
 
@@ -2557,7 +2579,16 @@ class MainWindow(QMainWindow):
             PipelineConfig(
                 walk=WalkConfig(
                     roots=[Path(root) for root in chosen],
-                    include_cloud=self.settings_view.cloud.isChecked(),
+                    # §2b: the master switch gates whether ANY folder's
+                    # cloud content is eligible at all; the per-folder set
+                    # says which ones, when it is. Off (the default) means
+                    # names-only everywhere, whatever any row says.
+                    cloud_content_roots=(
+                        frozenset(self.settings_view.current_cloud_content_roots())
+                        if self.settings_view.cloud.isChecked() else frozenset()
+                    ),
+                    cloud_content_cap_bytes=int(getattr(
+                        self._settings, "cloud_content_cap_mb", 1024)) * 1024 * 1024,
                     name_only=bool(getattr(
                         self._settings, "index_name_only", True)),
                 ),
