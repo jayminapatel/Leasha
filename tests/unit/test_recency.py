@@ -212,7 +212,20 @@ def test_the_shipped_weight_still_earns_its_place():
     finally:
         engine.close()
 
-    assert (without, total) == (14, 20), "the baseline moved - re-measure"
+    # **14/20 until work order 0's "Relevance" item shipped
+    # `app.search.filename_match`.** That bonus composes with this one on
+    # purpose - it persists its own adjusted score into `rrf_score` so a
+    # step that runs afterwards, this one included, builds on it rather
+    # than discarding it (see that module's docstring) - so it is active in
+    # both arms of this sweep, exactly as it is in production. Its own gain
+    # here (14 -> 16) turns out to cover the same two sentences recency's
+    # own +1 already reached, so both arms read 16/20 and `with_blend >=
+    # without` is the only claim left this test can still make honestly -
+    # recency's marginal gain in isolation is what
+    # test_filename_match.py::test_the_shipped_weight_still_earns_its_place
+    # measures instead (15/20 -> 16/20, with the bonus held at its default
+    # and recency swept).
+    assert (without, total) == (16, 20), "the baseline moved - re-measure"
     assert with_blend >= without, (
         f"the recency blend now costs recall ({with_blend}/{total} against "
         f"{without}/{total}). Re-run the weight sweep before shipping it; "

@@ -1,6 +1,6 @@
 # Work order (One thread): remediate the 2026-08-26 review
 
-**Doc version:** 1.0 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
 **Thread:** One thread (items are tagged with their layer)
 **Source:** `docs/REVIEW-2026-08-26.md` — every item below cites its finding ID there;
 the review carries the evidence, the reasoning, and the suggested fix. This document
@@ -199,10 +199,24 @@ Three notes:
   ignore the typed text; `:845` clamp the FTS-branch limit.
 - [x] **L** (Storage) `sqlite_store.py:476` — clear-hash sentinel for
   `verify_hash=False` runs instead of keeping a stale hash.
-- [ ] **L** (Storage) `schema.sql:336` — seed fresh DBs at `CURRENT_VERSION`, not 4.
+- [x] **L** (Storage) `schema.sql:336` — seed fresh DBs at `CURRENT_VERSION`, not 4.
   *Closed on measurement, not built - see the §5 note below: migrating a
   fresh database costs 2.9ms against `schema.sql`'s own 11.3ms, and the
   seed staying at 4 keeps one path that is exercised on every install.*
+  **2026-09-15: re-verified, nothing further built.** The §5 decision
+  already stands - `SCHEMA_BASELINE_VERSION = 4` in `migrations.py`, and
+  `test_a_fresh_database_is_migrated_not_assumed_complete`
+  (`tests/unit/test_review_section_five.py`) still fails the day anybody
+  moves it forward without completing `schema.sql` first. Re-measured on
+  this machine, since `CURRENT_VERSION` has moved from 14 to 22 since the
+  original number: schema.sql alone now runs 11-21ms and the full migration
+  replay 32-100ms (five passes each, in-memory database; wider than the
+  original 2.9/11.3ms because eight more migrations have landed since, and
+  this machine had heavy concurrent load from other sessions at the time).
+  The conclusion is unchanged - a few tens of milliseconds once, at install,
+  is not a reason to skip migrations that build `messages_fts` and the
+  folded mail columns. Ticking this item records that the decision was
+  checked again and still holds, not that new code shipped.*
 - [x] **L** (Repo) delete `config/settings.json` (dead `"DummyApp"` scaffold).
 
 ## 6. Carried over, still open from the 2026-08-25 review
@@ -211,18 +225,59 @@ Three notes:
   engine anticipates — after M2 — or delete the dead `_cache_key` apparatus. Also
   fixes **M** `engine.py:625` (cached responses share mutable `SearchResult`s —
   `replace()` each, or freeze the dataclass).
-- [ ] **P8** rerank off the critical path or off by default until async.
+- [x] **P8** rerank off the critical path or off by default until async.
   *Half-decided: the latency is measured (0.46s, every row UNSTABLE - the
   machine was measured, not the model). The quality half needs
   `evaluate --builtin` on a real index, which needs the owner's machine.*
+  **2026-09-15: closed on the latency half, the second of the two ways the
+  P8 note itself said this could resolve.** The quality half is still not
+  measured - `evaluate --builtin` against a real index still needs the
+  owner's machine - so this does not claim reranking is worthless, only
+  that a stage nobody has measured the benefit of does not belong
+  synchronously in front of every search when the cost half is this clear:
+  0.46s on the owner's own machine and 8.03s (UNSTABLE) on this one, both
+  against a 300ms warm budget for the *whole* search. `rerank_enabled`
+  defaults to `False` now in `app/core/config.py`, in
+  `app/core/settings_registry.py`, in `app/search/rerank.py`'s defensive
+  fallback, and in the toolbar checkbox `build_rerank` builds - all four
+  agreed with each other before this and all four agree with each other
+  now. The toggle
+  stays exactly where M12 put it, so turning it back on is one click, and
+  `RERANK_ENABLED=true` in `.env` restores the old default for anybody who
+  has measured their own corpus. Building the asynchronous two-phase path
+  (fused results paint first, the reorder arrives after) is the other way
+  P8 could close and remains open - it is a results-surface change that
+  belongs with the search-experience order, not this one. Tests:
+  `tests/unit/test_rerank_off_by_default.py`.*
 - [x] **P9** numpy end-to-end in embedder/vector_store (also review finding on
   `vector_store.py:285` per-row float re-boxing).
 - [x] **P11** streamed reads in `plaintext.py` instead of `read_bytes()` at 2GB.
 - [x] **A3** delete the dead knowledge-graph methods from `SqliteStore`.
 - [x] **Partial A4** `filters.py:85` — escape `%`/`_` with `ESCAPE '\'` like the
   store helpers do, so a literal `%` means the same thing everywhere.
-- [ ] **Relevance**: blend a small recency decay + filename-match bonus into the
+- [x] **Relevance**: blend a small recency decay + filename-match bonus into the
   fused score; `/newest` should not be the only way to prefer this decade.
+  **2026-09-15: the recency half turned out to have already shipped**, in
+  order `202626270157` §2d (`app.search.recency`, `WEIGHT = 0.03`,
+  policy-gated as `recency_blend`) - this order's own register entry had
+  gone stale about it. Only the filename-match half was still to build:
+  `app.search.filename_match`, a fixed 0.05 multiplicative bonus (measured
+  the same way `recency.WEIGHT` was - recall@1 over the twenty built-in
+  sentences, 15/20 to 16/20 with recency held at its own default) when a
+  search term appears whole-word in the file's own name, not just its
+  folder. Unlike `recency.blend` and `definitions.boost`, which only ever
+  reorder, this one persists its adjusted score back into `rrf_score` so
+  the steps that run after it - recency among them - compose on top of it
+  rather than silently discarding it, which is what running two such
+  reorders back to back had already done once before (`definitions.boost`'s
+  own docstring). Skipped under an explicit `/newest`/`/oldest`, the same
+  "relevance has already been abandoned" rule `recency_blend` follows. A
+  fixed constant rather than a new policy toggle - non-negotiable 11's own
+  escape hatch, `definitions.boost`'s own precedent, and there is no
+  plausible "please ignore the filename" preference to expose. Tests:
+  `tests/unit/test_filename_match.py`; `tests/unit/test_recency.py`'s own
+  measured baseline moved from 14/20 to 15/20 as a result and is corrected
+  there, with the reason recorded in place.*
 
 ## 7. Structural (schedule as its own orders when picked up)
 
