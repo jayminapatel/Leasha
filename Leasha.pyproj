@@ -39,6 +39,8 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Folder Include=".github" />
+    <Folder Include=".github\workflows" />
     <Folder Include=".vscode" />
     <Folder Include="_Knowledge" />
     <Folder Include="_Knowledge\prompt_log" />
@@ -330,6 +332,7 @@
     <Compile Include="tests\integration\test_repos_acceptance.py" />
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
     <Compile Include="tests\unit\__init__.py" />
+    <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />
@@ -376,6 +379,7 @@
     <Compile Include="tests\unit\test_drag_out.py" />
     <Compile Include="tests\unit\test_dwg_preview.py" />
     <Compile Include="tests\unit\test_dynamic_workers.py" />
+    <Compile Include="tests\unit\test_e2e_pywinauto.py" />
     <Compile Include="tests\unit\test_editors.py" />
     <Compile Include="tests\unit\test_eight_year_old.py" />
     <Compile Include="tests\unit\test_email_mbox.py" />
@@ -404,6 +408,7 @@
     <Compile Include="tests\unit\test_file_types_editor.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
+    <Compile Include="tests\unit\test_filters_properties.py" />
     <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_first_contact_box.py" />
     <Compile Include="tests\unit\test_florence_tagger.py" />
@@ -423,6 +428,7 @@
     <Compile Include="tests\unit\test_gpu_serialize.py" />
     <Compile Include="tests\unit\test_grab_ui.py" />
     <Compile Include="tests\unit\test_grammars.py" />
+    <Compile Include="tests\unit\test_gui_scenarios.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
     <Compile Include="tests\unit\test_heif_preview.py" />
@@ -452,6 +458,7 @@
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
+    <Compile Include="tests\unit\test_nightly.py" />
     <Compile Include="tests\unit\test_no_scroll.py" />
     <Compile Include="tests\unit\test_no_stray_paths.py" />
     <Compile Include="tests\unit\test_no_undefined_names.py" />
@@ -601,9 +608,11 @@
     <Compile Include="tests\unit\test_write_batching.py" />
     <Compile Include="tools\__init__.py" />
     <Compile Include="tools\grab_ui.py" />
+    <Compile Include="tools\nightly.py" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env.example" />
+    <Content Include=".github\workflows\ci.yml" />
     <Content Include=".vscode\extensions.json" />
     <Content Include=".vscode\launch.json" />
     <Content Include=".vscode\settings.json" />
