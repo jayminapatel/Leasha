@@ -59,6 +59,12 @@ class ReportsView(QWidget):
         self._store = store
         self._sources: list = []
         self._generated_at: Optional[int] = None
+        #: Section 3c's cache: `_report_snapshot` skips the expensive Space
+        #: Report queries entirely when the store's own data timestamp has
+        #: not moved since this value - the same signal `1b` already shows
+        #: the user, so no separate "am I stale" marker to invent or forget
+        #: to update.
+        self._space_cached_at: Optional[int] = None
         #: The Space Report, rendered on the worker with the rest of the
         #: snapshot - it touches the store, so never on this thread.
         self._space_document: str = ""
@@ -81,6 +87,11 @@ class ReportsView(QWidget):
         self.timestamp = QLabel("")
         self.timestamp.setObjectName("resultsSummary")
 
+        #: Order 0n section 3c: a worker stage, not a spinner - cleared the
+        #: instant the worker finishes or is skipped as unchanged.
+        self.progress_label = QLabel("")
+        self.progress_label.setObjectName("resultsSummary")
+
         self.body = QTextBrowser()
         self.body.setAccessibleName("Report contents")
         self.body.setOpenExternalLinks(False)
@@ -94,6 +105,7 @@ class ReportsView(QWidget):
 
         right = QVBoxLayout()
         right.addWidget(self.timestamp)
+        right.addWidget(self.progress_label)
         right.addWidget(self.body, 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -123,13 +135,26 @@ class ReportsView(QWidget):
         already follow."""
         if self._store is None:
             return
-        worker = CallableWorker(_report_snapshot, self._store, component="ui.reports")
+        worker = CallableWorker(
+            _report_snapshot, self._store, self._space_cached_at,
+            component="ui.reports", report_progress=True)
+        worker.signals.progress.connect(self._on_progress)
         worker.signals.finished.connect(self._loaded)
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
+    def _on_progress(self, stage: Any) -> None:
+        self.progress_label.setText(str(stage))
+
     def _loaded(self, snapshot: Any) -> None:
+        self.progress_label.setText("")
+        if snapshot is None:
+            # Section 3c: the store's data timestamp had not moved since
+            # the last load, so the worker skipped the Space Report's own
+            # queries entirely - what is already on screen is still current.
+            return
         self._sources, self._generated_at, self._space_document = snapshot
+        self._space_cached_at = self._generated_at
         self.export.setEnabled(bool(self._sources) or bool(self._space_document))
         self._show_selected(self.list.currentRow())
 
@@ -192,21 +217,45 @@ class ReportsView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
 
-def _report_snapshot(store: Any) -> tuple:
+def _report_snapshot(
+    store: Any, last_known_generated_at: Optional[int] = None,
+    on_progress: Any = None,
+) -> Optional[tuple]:
     """The read-only half of a refresh, off the worker thread - the same
-    split `_offline_media_snapshot` already draws."""
+    split `_offline_media_snapshot` already draws.
+
+    Section 3c, performance: `report_generated_at` (`MAX(files.indexed_at)`)
+    is the same "data as of" timestamp `1b` already shows the user, and it
+    only moves when an index run actually adds or touches a file - exactly
+    "the next index run" the item asks to cache until. Checking it first,
+    cheaply, and returning `None` when it has not moved skips the expensive
+    duplicate/uniqueness queries on every tab switch that changes nothing.
+    """
     from app.reports.inheritance import catalogue_sources, report_generated_at
     from app.reports.space import (
         find_duplicate_groups, find_source_uniqueness, render_space_document,
         total_reclaimable_bytes,
     )
 
+    generated_at = report_generated_at(store)
+    if last_known_generated_at is not None and generated_at == last_known_generated_at:
+        return None
+
+    def stage(text: str) -> None:
+        if on_progress is not None:
+            on_progress(text)
+
+    stage("Reading sources...")
     roots = _local_roots(store)
     sources = catalogue_sources(store, roots=roots)
-    generated_at = report_generated_at(store)
+    stage("Finding duplicates...")
+    groups = find_duplicate_groups(store)
+    stage("Checking what exists nowhere else...")
+    uniqueness = find_source_uniqueness(store)
+    stage("Writing the report...")
     # The Space Report, exactly as `app.cli report space` builds it.
     space = render_space_document(
-        find_duplicate_groups(store), find_source_uniqueness(store),
+        groups, uniqueness,
         total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at)
     return sources, generated_at, space
 

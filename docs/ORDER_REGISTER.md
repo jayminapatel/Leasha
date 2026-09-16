@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.23 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.24 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -59,7 +59,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0j | `202626270512` | The Photo Tagger — naming people | **SHIPPED** | **13 / 0** | Closed 2026-09-16 — 2c's suggestion-chip UI was the one real gap; see the order's own dated note |
 | 0k | `202626270513` | Offline Media I — drives in drawers | **SHIPPED** | **17 / 0** | Closed 2026-09-15 — §3 (search/browse decoration) finished the same day; see the order's own dated note |
 | 0l | `202626270514` | Offline Media II — network, cloud, placeholders | RELEASED | **12 / 5** | 0k (SHIPPED). 1a/1d/3d/3b-3 closed 2026-09-16 (see the order's own dated note) — the tab dialog, the help line, the online-only results badge. Open: 2a/2b (real, substantial, deliberately not attempted partially — see the order's 2026-09-16 assessment), 2c (DEFERRED INDEFINITELY, do not build), 3b-2's on-tape ordering and one §4 test (both need hardware not present on this machine) |
-| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 6 / 9 | Recounted 2026-09-16 from the order's own checkboxes. §1/§2 built; §3 (Space Report) backend built and on the Reports page via `WORKORDER-space-report-and-idle-tune-ui-wiring` §1 — its own 3a/3b stay open as written there; §4 (Life Timeline) not started |
+| 0n | `202626270602` | Reports, and the Life Timeline | RELEASED | 6 / 9 | §1/§2 built; §3 (Space Report) backend built and on the Reports page via `WORKORDER-space-report-and-idle-tune-ui-wiring` §1; 3c's caching and progress built 2026-09-16 by the crash-recovery session (checkbox count unchanged - 3c stays open on its one remaining sub-ask, the scale-fixture measurement). Open: 3a (pHash near-duplicates, per-source share, interactive table), 3c's measurement, and all of §4 (Life Timeline, held by owner decision 2026-09-16, not started) |
 | 0p | `202626271317` | Every table sorts, every header sits over its column | **SHIPPED** | **17 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0q | `202626271510` | The results, world class | RELEASED | **24 / 1** | 4a and 3c settled by the owner 2026-09-16 (see the order's dated notes: `elide_path_left` deleted, the line-number clause dropped); one §8 item open (the pytest-qt scenario sweep) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |

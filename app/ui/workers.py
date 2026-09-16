@@ -263,18 +263,30 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False,
 
 
 class CallableWorker(QRunnable):
-    """Run any callable off the UI thread and emit the result."""
+    """Run any callable off the UI thread and emit the result.
 
-    def __init__(self, work: Callable[..., Any], *args: Any, component: str = "ui", **kwargs: Any):
+    `report_progress=True` hands the work function an `on_progress(stage)`
+    keyword it can call zero or more times before returning - each call
+    re-emits `signals.progress` on this worker. Off by default: most
+    callables here are one query and have nothing worth staging, and adding
+    the keyword unconditionally would break every existing call site that
+    does not expect it.
+    """
+
+    def __init__(self, work: Callable[..., Any], *args: Any, component: str = "ui",
+                report_progress: bool = False, **kwargs: Any):
         super().__init__()
         self._work = work
         self._args = args
         self._kwargs = kwargs
         self._component = component
+        self._report_progress = report_progress
         self.signals = WorkerSignals()
 
     def run(self) -> None:
         try:
+            if self._report_progress:
+                self._kwargs["on_progress"] = lambda stage: _emit(self.signals, "progress", stage)
             _emit(self.signals, "finished", self._work(*self._args, **self._kwargs))
         except Exception as exc:
             error = to_app_error(exc, self._component)
