@@ -470,3 +470,92 @@ def test_navigating_re_reads_that_sibling_own_remembered_rotation(qapp, files):
 
     QTest.keyClick(window, Qt.Key.Key_Right)
     assert window._view.turn == 90                 # picked up txt's own turn
+
+
+# ---------------------------------------------------------------------------
+# Describe - work order 0i section 3a. The order's own test list: "absent
+# Ollama -> button greyed with reason (never an error); present -> caption
+# cached, second click instant."
+# ---------------------------------------------------------------------------
+
+class _FakeStoreForDescribe:
+    """`has_ai_caption`/`add_caption_chunk` only - the two calls the
+    Describe button actually makes."""
+
+    def __init__(self, *, already_described=False):
+        self._described = already_described
+        self.added = []
+
+    def has_ai_caption(self, file_id, **_kwargs):
+        return self._described
+
+    def add_caption_chunk(self, file_id, caption, **_kwargs):
+        self._described = True
+        self.added.append((file_id, caption))
+
+
+def test_describe_button_greys_with_a_reason_when_ollama_is_unreachable(qapp, files):
+    r"""Never an error - a disabled button with a plain-words tooltip."""
+    png, _txt = files
+    row = Row(png)
+    row.file_id = 42
+    store = _FakeStoreForDescribe()
+    window = PreviewWindow(
+        row, state={}, store=store,
+        ollama_url="http://127.0.0.1:1",   # nothing listens here - fast refusal
+        ollama_vision_model="llava")
+
+    _settle(qapp, lambda: "not running" in window.describe_button.toolTip(), tries=200)
+
+    assert not window.describe_button.isEnabled()
+    assert "not running" in window.describe_button.toolTip()
+
+
+def test_describe_button_is_disabled_when_already_described(qapp, files):
+    """Second click instant: the button already knows and never re-asks."""
+    png, _txt = files
+    row = Row(png)
+    row.file_id = 43
+    store = _FakeStoreForDescribe(already_described=True)
+    window = PreviewWindow(
+        row, state={}, store=store,
+        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava")
+
+    _settle(qapp,
+            lambda: "Already described" in window.describe_button.toolTip(),
+            tries=200)
+
+    assert not window.describe_button.isEnabled()
+    assert "Already described" in window.describe_button.toolTip()
+
+
+def test_describe_click_caches_the_caption_and_disables_the_button(qapp, files, monkeypatch):
+    """A successful Describe writes the caption once and does not ask again."""
+    from app.extract import vision_caption
+
+    png, _txt = files
+    row = Row(png)
+    row.file_id = 44
+    store = _FakeStoreForDescribe()
+
+    monkeypatch.setattr(vision_caption, "available", lambda client: True)
+    monkeypatch.setattr(
+        vision_caption, "describe_image",
+        lambda path, client, **_kw: vision_caption.VisionCaptionResult(
+            caption="A dog on a beach.", model=client.model, elapsed_s=0.01))
+
+    window = PreviewWindow(
+        row, state={}, store=store,
+        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava")
+    _settle(qapp, lambda: window.describe_button.isEnabled(), tries=200)
+    assert window.describe_button.isEnabled()      # available, not yet described
+
+    window._describe()
+    _settle(qapp, lambda: bool(store.added), tries=200)
+
+    assert store.added == [(44, "A dog on a beach.")]
+    _settle(qapp,
+            lambda: "Already described" in window.describe_button.toolTip(),
+            tries=200)
+    assert not window.describe_button.isEnabled()
+    assert "Already described" in window.describe_button.toolTip()

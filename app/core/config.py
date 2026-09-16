@@ -236,6 +236,20 @@ class Settings(BaseModel):
     # --- optional Ollama ----------------------------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "mistral"
+    #: Work order 0i section 3. A separate model from `ollama_model`: query
+    #: translation wants a small, fast text model; Describe and the caption
+    #: trickle need a vision-capable one (llava/qwen-vl class).
+    ollama_vision_model: str = "llava"
+    #: Work order 0i section 3b. OFF by default - see settings_registry.py's
+    #: CAPTION_TRICKLE_ENABLED for the full reasoning.
+    caption_trickle_enabled: bool = False
+    #: Work order 0j, the whole order's own guardrails. OFF by default - see
+    #: settings_registry.py's PEOPLE_RECOGNITION_ENABLED for the full
+    #: reasoning. Face embeddings are biometric-adjacent, so this switch is
+    #: read in more places than most: the images pass (section 1a), the
+    #: face-backfill drain, and every test asserting "switch off means no
+    #: face code runs, no face rows exist" (the order's own test list).
+    people_recognition_enabled: bool = False
 
     # --- indexing: how hard this is allowed to work ------------------------
     #
@@ -382,6 +396,9 @@ SETTING_KEYS: tuple[str, ...] = (
     "CODE_EDITOR_COMMAND",
     "OLLAMA_URL",
     "OLLAMA_MODEL",
+    "OLLAMA_VISION_MODEL",
+    "CAPTION_TRICKLE_ENABLED",
+    "PEOPLE_RECOGNITION_ENABLED",
     "INDEX_TUNING_MODE",
     "INDEX_WORKERS",
     "ONNX_INTRA_OP_THREADS",
@@ -524,6 +541,12 @@ def load_settings(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
+            ollama_vision_model=values.get("OLLAMA_VISION_MODEL") or "llava",
+            caption_trickle_enabled=_as_bool(
+                "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
+            people_recognition_enabled=_as_bool(
+                "PEOPLE_RECOGNITION_ENABLED",
+                values.get("PEOPLE_RECOGNITION_ENABLED", "false")),
             index_tuning_mode=(
                 values.get("INDEX_TUNING_MODE") or "defaults").strip().lower(),
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),

@@ -30,6 +30,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Nothing here is ever written back to the index or to your files - a
   report only ever reads.
 
+### The Photo Tagger now asks, instead of only ever guessing silently or not at all
+
+- When Leasha isn't quite sure a new photo is someone you've already named,
+  it now asks - a small "Is this Daddy?" chip with the photo, right there
+  on the Photo Tagger page. Say yes and it joins that person; say no and
+  it goes back to being unsorted, and Leasha won't guess that one again.
+- A confident match still joins automatically, exactly as before - this is
+  only for the ones in between.
+
 ### A file stored online-only by OneDrive or Google Drive is now findable, never silently missing or silently downloaded
 
 - Indexing a folder synced by OneDrive Files On-Demand or Google Drive for

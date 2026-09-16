@@ -25,6 +25,8 @@ window only ever wraps one in a `QPixmap` and draws it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 from PyQt6.QtCore import QRect, Qt, QThreadPool, pyqtSignal
@@ -82,7 +84,9 @@ class PreviewWindow(QWidget):
 
     def __init__(self, row: Any, *, state: Any = None,
                  body_provider: Any = None, siblings: Any = (),
-                 index: int = 0) -> None:
+                 index: int = 0, store: Any = None,
+                 ollama_url: str = "http://127.0.0.1:11434",
+                 ollama_vision_model: str = "llava") -> None:
         # No parent: a parented widget with a window flag still minimises with
         # its owner, and a pinned document that vanishes with the main window
         # is not pinned. The same reasoning `log_window` records.
@@ -113,6 +117,17 @@ class PreviewWindow(QWidget):
         #: with - the same snapshot `_restore` reads geometry and the pin from.
         self._drawings_enabled = _flag(state, DWG_PREVIEW_ENABLED_KEY,
                                        default=True)
+        # Work order 0i section 3a. `store` is None for any caller that has
+        # not been updated to pass one (the test `Row`/harness included) -
+        # the Describe button simply stays hidden then, the same "inert
+        # until wired" shape `body_provider` already has. Never a required
+        # parameter: a pop-out that cannot reach the database must still
+        # open, view-only, exactly as it always has.
+        self._store = store
+        self._ollama_url = ollama_url
+        self._ollama_vision_model = ollama_vision_model
+        self._describe_file_id = getattr(row, "file_id", None)
+        self._describe_generation = 0
 
         self._view = View(turn=read_turn(state, self._path),
                           page=int(getattr(row, "page", 0) or 0))
@@ -205,6 +220,20 @@ class PreviewWindow(QWidget):
             self._show_simplified)
         self.simplified_button.setVisible(False)
 
+        # Work order 0i section 3a. Hidden until this preview turns out to be
+        # a photo *and* a store was given to write the result into - see
+        # `_loaded`. Its tooltip is replaced once the availability check
+        # comes back, the same deferred-tooltip shape §6's rule already
+        # tolerates for full_layout_button/simplified_button above.
+        self.describe_button = self._button(
+            "Describe",
+            "Asks a local AI vision model to describe this photo in a "
+            "sentence or two - a few seconds, and only for this one photo. "
+            "Cached afterwards: opening it again shows the same words "
+            "instantly, with no AI model asked twice.",
+            self._describe)
+        self.describe_button.setVisible(False)
+
         self.on_top = QCheckBox("Keep on top")
         self.on_top.setToolTip(
             "Keeps this window in front of everything else, so it stays "
@@ -251,6 +280,7 @@ class PreviewWindow(QWidget):
         # Beside §4e's, never with it: one is offered for a document shown as
         # text, the other for a drawing, and no file is both.
         note_row.addWidget(self.simplified_button)
+        note_row.addWidget(self.describe_button)
 
         layout = QVBoxLayout(self)
         layout.addLayout(bar)
@@ -340,6 +370,13 @@ class PreviewWindow(QWidget):
             notice = "" if can_draw else str(getattr(preview, "notice", "") or "")
             self.note.setText(notice)
             self.note.setVisible(bool(notice))
+
+        # Work order 0i section 3a. Only for a photo, and only where a store
+        # was given to persist the result into - see `__init__`'s note.
+        self.describe_button.setVisible(
+            self._kind == KIND_IMAGE and self._store is not None)
+        if self._kind == KIND_IMAGE and self._store is not None:
+            self._check_describe()
 
         if self._kind in (KIND_IMAGE, KIND_PDF):
             self._render()
@@ -458,6 +495,87 @@ class PreviewWindow(QWidget):
         self._display_path = str(getattr(preview, "path", "") or self._display_path)
         self.simplified_button.setVisible(False)
         self._render()
+
+    # -- Describe (work order 0i section 3a) ----------------------------------
+
+    def _check_describe(self) -> None:
+        """Is Describe usable right now? Worker, always - `health()` is a
+        network call, and non-negotiable #5 is the UI thread never does I/O.
+
+        Re-run on every load, not cached on the window: Ollama can be started
+        or a model pulled while a pop-out sits open, and a greyed button that
+        never re-checks is a worse failure than the extra request.
+        """
+        from app.ui.workers import CallableWorker, run
+
+        if self._store is None or self._describe_file_id is None:
+            return
+        self._describe_generation += 1
+        generation = self._describe_generation
+        worker = CallableWorker(
+            _describe_status, self._store, self._describe_file_id,
+            self._ollama_url, self._ollama_vision_model,
+            component="ui.preview.describe")
+        worker.signals.finished.connect(
+            lambda status, g=generation: self._describe_status_ready(status, g))
+        # A failed check leaves the button as `_loaded` set it - visible,
+        # disabled reads as broken; visible and clickable at least offers a
+        # retry, and `_describe` itself never raises into the UI either way.
+        run(QThreadPool.globalInstance(), worker)
+
+    def _describe_status_ready(self, status: "_DescribeStatus", generation: int) -> None:
+        if generation != self._describe_generation:
+            return                               # a later check won
+        if status.already_described:
+            self.describe_button.setEnabled(False)
+            self.describe_button.setToolTip(
+                "Already described - the words are in the text above.")
+            return
+        self.describe_button.setEnabled(status.available)
+        if not status.available:
+            self.describe_button.setToolTip(status.reason)
+
+    def _describe(self) -> None:
+        """Ask the vision model, once, and cache the answer. Worker, always."""
+        from app.ui.workers import CallableWorker, run
+
+        if self._store is None or self._describe_file_id is None:
+            return
+        self.describe_button.setEnabled(False)
+        self.describe_button.setToolTip("Asking the AI model to describe this photo...")
+        self._describe_generation += 1
+        generation = self._describe_generation
+        worker = CallableWorker(
+            _describe_and_store, self._store, self._describe_file_id,
+            self._display_path, self._ollama_url, self._ollama_vision_model,
+            component="ui.preview.describe")
+        worker.signals.finished.connect(
+            lambda caption, g=generation: self._describe_done(caption, g))
+        worker.signals.failed.connect(
+            lambda _error, g=generation: self._describe_failed(g))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _describe_done(self, caption: Optional[str], generation: int) -> None:
+        if generation != self._describe_generation:
+            return
+        if caption is None:
+            self._describe_failed(generation)
+            return
+        self.describe_button.setEnabled(False)
+        self.describe_button.setToolTip(
+            "Already described - the words are in the text above.")
+        # The new chunk is part of this file's stored text now - a fresh
+        # load shows it exactly the way any other labelled segment shows,
+        # with no bespoke rendering path to keep in step.
+        self.reload()
+
+    def _describe_failed(self, generation: int) -> None:
+        if generation != self._describe_generation:
+            return
+        self.describe_button.setEnabled(True)
+        self.describe_button.setToolTip(
+            "That did not work - the photo may be unreadable, or Ollama "
+            "stopped answering. Try again.")
 
     def _render(self) -> None:
         """Ask for the page at this rotation and zoom. Worker, always."""
@@ -704,6 +822,62 @@ def _flag(state: Any, key: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() not in ("off", "0", "false", "no")
+
+
+@dataclass(frozen=True, slots=True)
+class _DescribeStatus:
+    """What `_check_describe`'s worker found. Plain data, so it crosses the
+    worker/UI-thread boundary the same way every other `CallableWorker`
+    result does - no Qt object touched off the UI thread."""
+
+    available: bool
+    reason: str
+    already_described: bool
+
+
+def _describe_status(store: Any, file_id: int, ollama_url: str,
+                      ollama_model: str) -> "_DescribeStatus":
+    """Work order 0i section 3a. Runs off the UI thread - see `_check_describe`.
+
+    Module-level, not a method: `CallableWorker` runs it in a thread pool
+    thread, and a bound method would still work, but a plain function makes
+    it obvious nothing here reaches back into the widget.
+    """
+    from app.extract.vision_caption import available, unavailable_reason
+    from app.llm.ollama import OllamaClient
+
+    try:
+        already = bool(store.has_ai_caption(int(file_id)))
+    except Exception:                             # noqa: BLE001 - a check, never a crash
+        already = False
+    client = OllamaClient(url=ollama_url, model=ollama_model)
+    ok = available(client)
+    return _DescribeStatus(
+        available=ok, reason="" if ok else unavailable_reason(client),
+        already_described=already)
+
+
+def _describe_and_store(store: Any, file_id: int, path: str, ollama_url: str,
+                         ollama_model: str) -> Optional[str]:
+    """Work order 0i section 3a. Runs off the UI thread - see `_describe`.
+
+    Returns the caption on success, `None` on anything else - a bad photo,
+    Ollama going down mid-request, or the model refusing. `describe_image`
+    already never raises; this stays defensive anyway because a worker
+    result reaching `_describe_failed` must never be a traceback.
+    """
+    from app.extract.vision_caption import describe_image
+    from app.llm.ollama import OllamaClient
+
+    client = OllamaClient(url=ollama_url, model=ollama_model)
+    try:
+        result = describe_image(Path(path), client)
+        if result is None:
+            return None
+        store.add_caption_chunk(int(file_id), result.caption)
+        return result.caption
+    except Exception:                             # noqa: BLE001 - one click, not a crash
+        return None
 
 
 def enabled_checkbox(store: Any, *, on_toggle: Any) -> QCheckBox:

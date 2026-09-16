@@ -283,6 +283,19 @@ COMMANDS: tuple[Command, ...] = (
         icon="⚑",
         source="place",
     ),
+    Command(
+        name="who",
+        aliases=(),
+        # Work order 0j section 3a. Named piles only - see `_VALUE_SHAPES
+        # ["who"]`'s own guard. A person who has never named anyone offers
+        # no values here, exactly as `/shows` offers nothing before the
+        # first photo is tagged - not an error, just nothing named yet.
+        summary="Only photos with this person in them",
+        example="/who Daddy",
+        value_hint="a name you have given a pile on the Photo Tagger page - or several: Daddy,Mum",
+        icon="☺",
+        source="who",
+    ),
 )
 
 #: Things the search box understands that are **not filters**. Adoptions §3.

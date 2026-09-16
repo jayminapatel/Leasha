@@ -1309,6 +1309,13 @@ def _fake_settings(tmp_path):
         embed_dedup=False,
         index_name_only=False,
         fts_db=tmp_path / "index.db",
+        # 0i/0j's own additions to `PipelineConfig` - `run_scoped_pipeline`
+        # reads these too now, and this stub went stale the moment they
+        # landed. Real `config.py` defaults, not invented ones.
+        ollama_url="http://127.0.0.1:11434",
+        ollama_vision_model="llava",
+        caption_trickle_enabled=False,
+        people_recognition_enabled=False,
     )
 
 

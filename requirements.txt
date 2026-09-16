@@ -208,3 +208,28 @@ prompt_toolkit==3.0.53
 # Optional at runtime - app/extract/places.py::available() checks for the
 # package only; degrades to "no place" for every photo when absent, the
 # same H4 shape as every other optional capability here.
+
+# --- Optional: face detection for the Photo Tagger (work order 0j section 1a) --
+# Install, then switch on "Recognise people in photos on this computer" in
+# Settings (OFF by default - see the order's own guardrails), to detect and
+# cluster faces into piles a person can name.
+#     venv\Scripts\pip install insightface==0.7.3 opencv-python==4.11.0.86 onnxruntime
+#
+# Verified 2026-09-15 against insightface 2.0 and opencv-python 5.0.0.93,
+# already present in this shared venv - onnxruntime 1.30.0 was already a
+# dependency of rapidocr-onnxruntime above, and insightface's own detection
+# and recognition models (buffalo_l) run on it directly, so no second ONNX
+# runtime is pulled in. The `insightface==0.7.3` pin above is the version
+# PyPI serves under that name as of this check; the 2.0 installed on this
+# machine came from a source that predates that pin and is not itself
+# re-verified against a fresh install this session - re-check before
+# shipping an installer that runs `pip install -r requirements.txt` cold.
+#
+# `buffalo_l` (~275MB) downloads once to `~/.insightface` on first use, then
+# never touches the network again - the same "optional, one-time fetch"
+# shape Florence-2's model and every embedding model already have.
+#
+# Optional at runtime - app/extract/face_detect.py::available() checks for
+# the package only; degrades to "no faces found" for every photo when
+# absent or switched off, never a hang and never a failed search
+# (non-negotiable #1).
