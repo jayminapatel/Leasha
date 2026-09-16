@@ -381,8 +381,11 @@ class Embedder:
 
     # -- embedding ----------------------------------------------------------
 
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed one batch. Returns one unit vector per input, in order."""
+    def embed(self, texts: Sequence[str]) -> "np.ndarray":
+        """Embed one batch. Returns a float32 `(len(texts), dim)` array, one
+        unit vector per input row, in order - see order 0b section 6c. An
+        empty `texts` still returns a plain `[]`, not an empty array: a file
+        with no chunks must not touch the model to say so."""
         if not texts:
             return []
 
@@ -445,22 +448,36 @@ class Embedder:
         # **One numpy block, not 98,304 Python floats.** A batch of 256 vectors
         # at 384 dimensions was converted element by element and then normalised
         # with a Python `sum()` over each one. Measured on a batch of 256:
-        # **10.05ms before, 0.88ms after, 11.4x**, and the two agree to 1e-12.
-        # Over a million chunks that is 41 seconds against 4.3.
+        # **10.05ms before, 0.88ms after, 11.4x**, and the two agree to 1e-12
+        # under the float64 path this comment used to describe.
         #
-        # `.tolist()` at the end is deliberate: `list[float]` is what the store,
-        # the tests and every caller expect, and keeping the array would save a
-        # further 0.4ms per batch in exchange for a type change across four
-        # modules. The win is in the arithmetic, not in the container.
-        # **float64, not float32.** The old path did `float(x)` on each value,
-        # which widens the model's float32 to a Python double - so the norm was
-        # computed in double and an already-unit vector came back bit-identical.
-        # float32 here was 39x rather than 16x and broke both of those: unit
-        # length came out at 1.0000000015 against a 1e-9 tolerance, and a vector
-        # the code promises to leave alone came back altered in the eighth
-        # decimal. Two tests said so, which is the only reason this line is not
-        # float32 today.
-        block = np.asarray(raw, dtype=np.float64)
+        # **float32 out, end to end - order 0b, index tuning, section 6c.**
+        # This used to widen to float64 (a Python `float` *is* a C double, so
+        # `.tolist()` on a float64 block produced one) because an earlier
+        # float32 attempt changed two answers - unit length came back
+        # 1.0000000015 against a 1e-9 tolerance, and a vector the code
+        # promises to leave alone came back altered in the eighth decimal
+        # (both pinned in tests/unit/test_embedder.py, tolerances now sized
+        # for float32). That was the right call while every caller still
+        # wanted list[float].
+        #
+        # It stopped being the right call once VectorStore.add started
+        # building its Arrow table straight from this array
+        # (app/storage/vector_store.py, _arrow_table): LanceDB's own schema
+        # already declares vector: list_(float32(), dim), so returning
+        # float64 here meant every batch was widened from the model's native
+        # float32, normalised, and narrowed straight back to float32 by Arrow
+        # on the way into the table - a round trip that bought nothing and
+        # cost a second full copy of every batch. float32 in, float32
+        # arithmetic, float32 out matches the model's own precision and the
+        # column's, so nothing is widened only to be thrown away a batch
+        # later.
+        #
+        # No .tolist(): the array itself is the return value now. A caller
+        # wanting a plain list still gets one row at a time from embed_all,
+        # each of which is list()-able exactly as before; VectorStore.add
+        # takes the block directly.
+        block = np.asarray(raw, dtype=np.float32)
         if block.ndim != 2:
             raise AppErrorException(make_error(
                 "ERR_MODEL_LOAD", "index.embedder",
@@ -479,7 +496,7 @@ class Embedder:
         divide = adrift & (magnitudes != 0.0)
         if divide.any():
             np.divide(block, magnitudes, out=block, where=divide)
-        return block.tolist()
+        return block
 
     def _run(self, encoder: Encoder, texts: Sequence[str]) -> list:
         """One inference call, behind the cross-subsystem gate. Raises
@@ -555,12 +572,14 @@ class Embedder:
                 ),
             )) from exc
 
-    def embed_all(self, texts: Sequence[str]) -> Iterator[list[float]]:
+    def embed_all(self, texts: Sequence[str]) -> "Iterator[np.ndarray]":
         """Embed any number of texts, `batch_size` at a time, lazily.
 
         Lazy so the caller can write each batch to the store as it arrives; on a
         million chunks, materialising every vector first would be several GB of
-        list before a single row was persisted.
+        list before a single row was persisted. Yields one float32 1D array per
+        text - each row of the block `embed()` returns - not a `list[float]`;
+        `.tolist()` it if a plain list is what's wanted.
         """
         for start in range(0, len(texts), self.batch_size):
             yield from self.embed(texts[start:start + self.batch_size])
