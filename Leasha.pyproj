@@ -151,6 +151,7 @@
     <Compile Include="app\main.py" />
     <Compile Include="app\reports\__init__.py" />
     <Compile Include="app\reports\inheritance.py" />
+    <Compile Include="app\reports\space.py" />
     <Compile Include="app\search\__init__.py" />
     <Compile Include="app\search\commands.py" />
     <Compile Include="app\search\completions.py" />
@@ -439,6 +440,7 @@
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
+    <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
@@ -476,6 +478,7 @@
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
     <Compile Include="tests\unit\test_reports_inheritance.py" />
+    <Compile Include="tests\unit\test_reports_space.py" />
     <Compile Include="tests\unit\test_rerank.py" />
     <Compile Include="tests\unit\test_rerank_off_by_default.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />

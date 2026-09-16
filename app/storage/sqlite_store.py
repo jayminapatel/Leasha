@@ -315,8 +315,28 @@ class FileStatus:
     #: carries an error code. Nothing went wrong here. There is no reader for
     #: a `.mp4`, and there was never going to be.
     NAME_ONLY = "NAME_ONLY"
+    #: Chunks are written and keyword-searchable now; embedding has not
+    #: caught up yet. Work order 202626270114 (0b) section 6d.
+    #:
+    #: **Never `PENDING`, which now means "genuinely untouched" and nothing
+    #: more.** Before this status existed, a file between `_write_one`
+    #: writing its chunks and `_embed_pending` writing their vectors sat as
+    #: `PENDING` - indistinguishable from a file the walker has not reached
+    #: yet, even though it already has real, keyword-searchable content. The
+    #: M6 repair (`Pipeline._drain_unembedded`) already promotes any status
+    #: to `INDEXED` once every one of a file's chunks is embedded, so
+    #: nothing about that machinery changes - this only makes the interval
+    #: before that honest.
+    #:
+    #: **Never `INDEXED`.** `INDEXED` keeps meaning "chunks exist and this
+    #: run believes every one of them is embedded" - the M6 repair's own
+    #: crash-recovery reasoning (a file can still legitimately drift back
+    #: out of full coverage after a crash, self-healed asynchronously by
+    #: the drain) is unaffected by this status existing; it was already
+    #: tolerating exactly that gap without a name for it.
+    PARTIAL = "PARTIAL"
 
-    ALL = (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY)
+    ALL = (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY, PARTIAL)
 
 
 @dataclass(frozen=True)

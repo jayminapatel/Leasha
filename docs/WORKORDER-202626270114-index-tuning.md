@@ -1,6 +1,6 @@
 # Work order (One thread): Index Tuning — one screen, three modes, any machine
 
-**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (Core profile + Index pipeline + Storage + UI panel)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626082352` §2 leftovers (H5/H6) and
@@ -580,21 +580,28 @@ there is real partial progress (not for a wholly empty store, which is a
 different, already-correctly-worded story — see the two new tests in
 `test_search_notices.py`).
 
-**The schema half — an actual `FileStatus.PARTIAL` — was deliberately not
-built.** Not because it is unwanted, but because building it well touches
-the exact crash-recovery invariant `_drain_unembedded`'s own docstring
-spends several paragraphs getting right (a file can already sit
-`INDEXED` with chunks mid-catch-up, by design, so the file's status
-column is not actually the source of truth the item's original text
-assumed it was) — and a live `CHECK` constraint rebuild against
-`files`, a table with six other tables cascading from it and a real,
-populated production index behind it, is not something to rush once that
-assumption turns out to be wrong. If a genuine need for the status
-itself (not merely its two consequences, both of which are done) shows
-up later, it is a fresh, smaller, better-scoped decision — not this one,
-re-litigated.
+**The schema half was deliberately not built at first** — see the
+paragraph above, written the same day — **and then built after all**,
+same day, once the owner removed the actual blocker: *"the migration
+dont worry over write it i will recreate the index"* — the live-database
+risk this section's own reasoning was about does not apply to an index
+being rebuilt from nothing regardless. `FileStatus.PARTIAL` exists now
+(schema v25, `app/storage/migrations.py::_v25_partial_status`, the same
+twelve-step rebuild `_v10_name_only_status` established, checked column
+for column and index for index against a real v24 database in
+`test_partial_status_migration.py` rather than retyped from memory), and
+`Pipeline._write_one` marks a file `PARTIAL` rather than `PENDING` the
+moment it has real chunks and nothing yet embedded - one line, guarded
+so a file with no chunks at all is unaffected. The M6 repair's own
+promotion path (`_drain_unembedded` → `_embed_pending` → `mark_indexed_
+many`) needed no change at all: it already promotes *any* status to
+`INDEXED` once every chunk is embedded, which is exactly how `PARTIAL`
+gets closed out. The owner's own real index was cleared the same session
+(not migrated) rather than carried forward, so the rebuild's real-world
+correctness is unproven against a populated database in practice, though
+`test_partial_status_migration.py` proves it against one built to match.
 
-- [ ] **6d Two-phase indexing**: phase 1 extract+SQLite only (keyword
+- [x] **6d Two-phase indexing**: phase 1 extract+SQLite only (keyword
   searchable at parse speed), phase 2 drains `embedded=0` (machinery exists
   since the M6 repair). Index stats show semantic coverage %; the existing
   `NOTICE_NO_VECTORS` wording extends to "…still embedding, N% done".

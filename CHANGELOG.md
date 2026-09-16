@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.20 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 4.21 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -37,6 +37,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   no dialog - just a line afterwards saying it happened.
 - Choosing Manual yourself is never overridden - this only ever upgrades
   the starting point, never a choice you've actually made.
+
+### A file you can already search by word now says so while it's still learning what it means
+
+- Between a file being read and Leasha finishing work out what it's about
+  (a step that runs a little behind extraction), it used to be listed as
+  "not indexed yet" - which was never true; it was already findable by
+  word. It now says, plainly, that it's findable by word and still
+  learning what it means.
 
 ### When meaning-based search comes up empty, it now says whether that's temporary
 

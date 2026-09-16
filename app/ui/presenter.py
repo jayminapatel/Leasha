@@ -1089,6 +1089,7 @@ _STATUS_NOTES = {
     "SKIPPED": "indexed by name only - contents could not be read",
     "FAILED": "could not be read",
     "PENDING": "not indexed yet",
+    "PARTIAL": "findable by word - still learning what it means",
 }
 
 
