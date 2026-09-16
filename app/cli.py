@@ -1063,6 +1063,13 @@ def cmd_index(args: argparse.Namespace) -> int:
             roots=roots,
             priority_roots=[Path(p).expanduser() for p in (args.first or [])],
             include_cloud=args.include_cloud,
+            cloud_content_roots=frozenset(
+                str(Path(p).expanduser()).rstrip("\\/").lower()
+                for p in (args.allow_cloud_content or [])
+            ),
+            cloud_content_cap_bytes=(
+                args.cloud_content_cap_mb or settings.cloud_content_cap_mb
+            ) * 1024 * 1024,
             # Never index our own index, logs, cache or models. Indexing the
             # project folder had the run reading the log file it was writing.
             exclude_paths=own_paths(settings),
@@ -3830,7 +3837,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument("--no-prune", action="store_true",
                          help="keep rows for files that have disappeared")
     p_index.add_argument("--include-cloud", action="store_true",
-                         help="index OneDrive placeholders too, downloading them")
+                         help="index OneDrive placeholders too, downloading them - "
+                              "every root in this run, at the default cap; for one "
+                              "folder at a time use --allow-cloud-content instead")
+    p_index.add_argument("--allow-cloud-content", action="append", metavar="PATH",
+                         default=[],
+                         help="download and index cloud-only files under this folder "
+                              "(202626270514 §2b), up to --cloud-content-cap-mb; "
+                              "repeatable, one per folder")
+    p_index.add_argument("--cloud-content-cap-mb", type=int, metavar="MB",
+                         help="cloud content download budget for this run, shared "
+                              "across every --allow-cloud-content folder together, "
+                              "not one each (default from .env, 1024)")
     p_index.add_argument("--memory-mb", type=int, metavar="MB",
                          help="pause above this much memory (default from .env, 1500)")
     p_index.add_argument("--cpu-percent", type=int, metavar="PCT",

@@ -92,6 +92,9 @@ class SettingsView(QWidget):
     #: See `app/index/archives.py`; the saving this buys on a settled corpus is
     #: hours per incremental run.
     root_modes_changed = pyqtSignal(dict)
+    #: `{normalised root}` opted in to cloud content indexing (202626270514
+    #: §2b). See `RootsBox.cloud_content_changed` - this only relays it.
+    cloud_content_roots_changed = pyqtSignal(set)
     #: "Rescan archived folders now" - one full walk, not a change of policy.
     rescan_archives_requested = pyqtSignal()
     #: `(preset, groups)` for the Code tab's file-type filter. A view
@@ -136,6 +139,7 @@ class SettingsView(QWidget):
         self.roots_box = RootsBox()
         self.roots_box.roots_changed.connect(self.roots_changed)
         self.roots_box.modes_changed.connect(self.root_modes_changed)
+        self.roots_box.cloud_content_changed.connect(self.cloud_content_roots_changed)
         self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
 
         # Directly under Folders to index, as asked. It answers a different
@@ -393,14 +397,20 @@ class SettingsView(QWidget):
 
     # -- roots --------------------------------------------------------------
 
-    def set_roots(self, roots: list[str], modes: Optional[dict] = None) -> None:
-        self.roots_box.set_roots(roots, modes)
+    def set_roots(
+        self, roots: list[str], modes: Optional[dict] = None,
+        cloud_content: Optional[set] = None,
+    ) -> None:
+        self.roots_box.set_roots(roots, modes, cloud_content)
 
     def add_root(self, folder: str) -> bool:
         return self.roots_box.add_root(folder)
 
     def current_modes(self) -> dict:
         return self.roots_box.current_modes()
+
+    def current_cloud_content_roots(self) -> set:
+        return self.roots_box.current_cloud_content_roots()
 
     def _make_client(self):
         """A fresh OllamaClient against whatever URL is currently in the box.

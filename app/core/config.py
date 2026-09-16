@@ -309,6 +309,10 @@ class Settings(BaseModel):
     #: Prefer the quantised model file: smaller and faster on a processor, no
     #: gain on a graphics card, a small cost in ranking quality.
     embed_quantised: bool = False
+    #: 202626270514 (0l) §2b: the whole run's shared cloud-content download
+    #: budget, across every opted-in folder together - never per folder. See
+    #: `app/index/walker.py::DEFAULT_CLOUD_CONTENT_CAP_BYTES` for why 1GB.
+    cloud_content_cap_mb: int = 1024
     #: Words searchable as soon as a file is read, meaning catching up behind.
     index_two_phase: bool = True
     #: `auto | on | off`. Build the word index once at the end of a big run.
@@ -447,6 +451,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "OCR_WHITE_PAGE_PERCENT",
     "MIN_FREE_GB",
     "REQUIRED_FREE_GB",
+    "CLOUD_CONTENT_CAP_MB",
 )
 """Every key `load_settings` reads, whether or not .env mentions it.
 
@@ -578,6 +583,8 @@ def load_settings(
             embed_batch=_as_int("EMBED_BATCH", values.get("EMBED_BATCH", "0")),
             embed_quantised=_as_bool(
                 "EMBED_QUANTISED", values.get("EMBED_QUANTISED", "false")),
+            cloud_content_cap_mb=_as_int(
+                "CLOUD_CONTENT_CAP_MB", values.get("CLOUD_CONTENT_CAP_MB", "1024")),
             index_two_phase=_as_bool(
                 "INDEX_TWO_PHASE", values.get("INDEX_TWO_PHASE", "true")),
             index_bulk_fts=(values.get("INDEX_BULK_FTS") or "auto").strip().lower(),
