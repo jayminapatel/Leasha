@@ -276,6 +276,7 @@ class Embedder:
                 )) from exc
 
             wanted = backends.choose(self._resolved_profile(), self.device)
+            quantised_path: Optional[str] = None
             if self.quantised and wanted.is_gpu:
                 # **Refused where it buys nothing, and said out loud.**
                 # Quantisation is a processor optimisation; on the graphics
@@ -284,6 +285,20 @@ class Embedder:
                 # stored setting met a machine that changed under it.
                 _log.info("the smaller model file was asked for and is not "
                           "used: it gains nothing on the graphics card")
+            elif self.quantised and self.cache_dir:
+                # Order 0b §6h: a local, once-cached int8 copy of the file
+                # fastembed already downloaded and this application already
+                # trusts - never somebody else's quantised build. See
+                # `quantize_model.py`'s own docstring for why this is safe
+                # to do through `specific_model_path` rather than a
+                # hand-rolled inference path.
+                from app.index.quantize_model import quantised_model_dir
+                found = quantised_model_dir(self.model_name, self.cache_dir)
+                if found is not None:
+                    quantised_path = str(found)
+                else:
+                    _log.debug("the smaller model file was asked for but could "
+                              "not be prepared - using the ordinary one")
 
             def build(providers: tuple) -> object:
                 extra: dict = {}
@@ -294,6 +309,8 @@ class Embedder:
                     # extraction workers already hold several and the two
                     # multiply into a machine slower than it started.
                     extra["threads"] = self.threads
+                if quantised_path is not None:
+                    extra["specific_model_path"] = quantised_path
                 if providers == (backends.CPU_PROVIDER,) and not extra:
                     # **The CPU path is byte-for-byte what it was.** Passing a
                     # providers list that means "the default" would still be a

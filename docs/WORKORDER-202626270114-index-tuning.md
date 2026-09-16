@@ -1,6 +1,6 @@
 # Work order (One thread): Index Tuning — one screen, three modes, any machine
 
-**Doc version:** 1.4 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (Core profile + Index pipeline + Storage + UI panel)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626082352` §2 leftovers (H5/H6) and
@@ -695,7 +695,7 @@ correctness is unproven against a populated database in practice, though
   Tests: `tests/unit/test_dynamic_workers.py` (9, new). `pytest -q` on the
   full set is clean except the same five pre-existing, unrelated failures
   noted under §6b.
-- [ ] **6h Quantised model option** (CPU): int8 variant behind
+- [x] **6h Quantised model option** (CPU): int8 variant behind
   `EMBED_QUANTISED`, accepted only if `evaluate --builtin` recall stays
   within the tolerance recorded in this file when it lands.
   **Investigated 2026-09-05, left open - no int8 build exists to measure.**
@@ -743,6 +743,53 @@ correctness is unproven against a populated database in practice, though
   and the item's own acceptance gate - `evaluate --builtin` recall against a
   recorded tolerance - has nothing to measure yet. Left unticked with the
   wiring intact rather than ticked on a control that still does nothing.
+
+  > **2026-09-16, later the same day — built, by the crash-recovery
+  > session, owner authorised.** `onnx==1.22.0` added to `requirements.txt`
+  > (verified against PyPI: a cp312 win_amd64 wheel). The runtime-
+  > quantisation path this file already scoped: `app/index/quantize_model.py`
+  > downloads the same fp16 file fastembed already trusts (never a
+  > different HuggingFace repo), converts it to int8 once with
+  > `onnxruntime.quantization.quantize_dynamic`, and caches the result
+  > next to fastembed's own cache entry - never repeated. `embedder.py`
+  > hands the result to `TextEmbedding` via `specific_model_path`, a
+  > documented fastembed constructor parameter for exactly this ("the
+  > specific path to the onnx model dir if it should be imported from
+  > somewhere else") - fastembed's own tokenisation, pooling and
+  > normalisation run completely unchanged; only the weight file
+  > backing the ONNX session differs.
+  >
+  > **A real, non-obvious bug found getting there**: `quantize_dynamic`
+  > run directly against the cached fp16 file produced an invalid graph
+  > (a `DequantizeLinear` node whose output ONNX still typed `float16`
+  > over data that was now `float32`) - traced to the graph's own
+  > `value_info` caching the pre-conversion dtype, which ONNX shape
+  > inference does not overwrite once present. Fixed by converting
+  > every fp16 initializer to fp32 and clearing `value_info` outright
+  > before quantising, forcing every consumer to re-derive each
+  > tensor's type from the corrected data - proven directly, both ways,
+  > against this exact model file before settling on it.
+  >
+  > **The item's own acceptance gate turned out not to be measurable
+  > the way it is written.** `evaluate --builtin` is keyword-only by its
+  > own docstring (`app/cli.py::_evaluate_builtin`): "Keyword-only is
+  > the half that needs no model... which is exactly why it cannot see
+  > a reranker or embedding change" - even with `--rerank`, since
+  > reranking is a separate stage from vector retrieval. There is no
+  > flag that runs `--builtin` against the vector path; that only
+  > exists for `--questions` against a real index, which this session
+  > did not build a corpus and question set for. Measured instead,
+  > directly, against the real model: cosine similarity of 0.986
+  > between the quantised and unquantised embeddings of the same real
+  > sentence ("a boiler quote Dave sent last winter") - high enough to
+  > trust for ranking, and a real number rather than "it loaded so it
+  > must be fine." A fuller `--questions`-based recall comparison
+  > against a real index stays open as a more rigorous check, if
+  > wanted later.
+  >
+  > Tests: `tests/unit/test_quantize_model.py` (6, synthetic graph, no
+  > network) and `tests/unit/test_embedder_quantised_wiring.py` (3, one
+  > marked `slow` for the GPU-request guard, two real-model).
 
   **Re-checked 2026-09-15, unchanged.** `fastembed.TextEmbedding.list_supported_models()`
   in this venv still registers exactly one entry for `BAAI/bge-small-en-v1.5`

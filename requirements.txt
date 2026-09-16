@@ -47,6 +47,16 @@ fastembed==0.8.0
 # rerank : BAAI/bge-reranker-base  (~1.1GB, optional)
 # Both cached under <DATA_PATH>\models — offline after the first download.
 
+# Order 202626270114 (0b) §6h: fastembed's own catalogue ships one
+# precision for BAAI/bge-small-en-v1.5 (66MB, two bytes a weight — fp16,
+# app/index/embed_bench.py's own measurement). int8 is a real further gain
+# on a processor and onnxruntime.quantization.quantize_dynamic gets it
+# locally from the file already downloaded and trusted — never somebody
+# else's quantised build, which this project's own rules on converters and
+# sources refuse. Verified against PyPI 2026-09-16: 1.22.0 is the newest
+# version publishing a cp312 win_amd64 wheel.
+onnx==1.22.0
+
 # --- Parsing ---------------------------------------------------------------
 pymupdf==1.28.2
 python-docx==1.2.0
