@@ -1,0 +1,44 @@
+name: CI
+
+# Order 0m section 5c - the contributor gate for the open-source future.
+# windows-latest because PyQt6, pywin32 and Outlook COM are Windows-bound -
+# this project has no meaningful Linux CI, and pretending otherwise would
+# just mean 17-22 tests silently skipped on every run (see the `leasha`
+# skill's own section 6 on the Linux-sandbox baseline).
+#
+# unit + pytest-qt (offscreen, the `gui` marker - never excluded, see
+# WORKORDER-CONVENTIONS.md S5b) + hypothesis (the "leasha" profile, the
+# default - `tests/conftest.py` loads it unless HYPOTHESIS_PROFILE says
+# otherwise). Excluded: `e2e` (needs a real interactive desktop and takes
+# the mouse - S3), `jvm` (can hard-crash the host process - see
+# pyproject.toml's own comment), `slow` (model downloads - a contributor's
+# PR should not wait on a 130MB fetch to get a result).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install dependencies
+        run: |
+          python -m venv venv
+          venv\Scripts\python.exe -m pip install --upgrade pip
+          venv\Scripts\python.exe -m pip install -r requirements.txt
+          venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Run the suite (offscreen Qt, excluding e2e/jvm/slow)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e and not slow"

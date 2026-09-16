@@ -51,7 +51,7 @@ SURFACES: dict[str, dict[str, str]] = {
     "files": {"page": "Files"},
     "mail": {"page": "Mail"},
     "code": {"page": "Code"},
-    "offline-media": {"page": "Offline Media"},
+    "offline-media": {"page": "Offline"},
     "reports": {"page": "Reports"},
     "indexing-status": {"page": "Indexing", "category": "Status"},
     "indexing-schedule": {"page": "Indexing", "category": "Schedule"},

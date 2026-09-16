@@ -151,6 +151,7 @@
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\pipeline.py" />
+    <Compile Include="app\index\quantize_model.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
@@ -347,6 +348,7 @@
     <Compile Include="tests\unit\test_clip_embedder.py" />
     <Compile Include="tests\unit\test_clip_lane_pipeline.py" />
     <Compile Include="tests\unit\test_clip_lane_wiring.py" />
+    <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
     <Compile Include="tests\unit\test_code_route.py" />
     <Compile Include="tests\unit\test_code_types.py" />
@@ -380,6 +382,7 @@
     <Compile Include="tests\unit\test_email_pst.py" />
     <Compile Include="tests\unit\test_embed_bench.py" />
     <Compile Include="tests\unit\test_embedder.py" />
+    <Compile Include="tests\unit\test_embedder_quantised_wiring.py" />
     <Compile Include="tests\unit\test_embedding_gap.py" />
     <Compile Include="tests\unit\test_empty_run_says_why.py" />
     <Compile Include="tests\unit\test_engine_image_lane.py" />
@@ -493,6 +496,7 @@
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
+    <Compile Include="tests\unit\test_quantize_model.py" />
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_quoting.py" />
@@ -548,6 +552,7 @@
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
+    <Compile Include="tests\unit\test_space_report_caching_and_progress.py" />
     <Compile Include="tests\unit\test_speed_work.py" />
     <Compile Include="tests\unit\test_spelling.py" />
     <Compile Include="tests\unit\test_splash.py" />

@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Iterator
 
+import os
+
 import pytest
 
 # Tests import `app.*`, so the project root must be importable even when pytest
@@ -16,6 +18,33 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# hypothesis (order 0m §2e)
+# ---------------------------------------------------------------------------
+#
+# The default profile is deliberately cheap: `max_examples=25` keeps every
+# property test in this suite under CI's ordinary budget instead of the
+# hundreds hypothesis tries by default, which is how a fuzz test becomes the
+# one that flakes on a slow runner and gets skipped rather than trusted.
+# `deadline=None` for the same reason from the other direction - the *count*
+# of examples is the knob that matters, not a per-example wall clock this
+# machine's own variance would trip on its own. A test that wants to fuzz
+# harder opts in explicitly with its own `@settings(...)`, which hypothesis
+# always prefers over the loaded profile.
+try:
+    from hypothesis import HealthCheck, settings
+
+    settings.register_profile(
+        "leasha", max_examples=25, deadline=None,
+        suppress_health_check=[HealthCheck.too_slow])
+    settings.register_profile(
+        "leasha-thorough", max_examples=300, deadline=None,
+        suppress_health_check=[HealthCheck.too_slow])
+    settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "leasha"))
+except ImportError:                                   # pragma: no cover
+    pass
 
 
 ENV_TEMPLATE = """\

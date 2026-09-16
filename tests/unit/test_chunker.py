@@ -23,6 +23,8 @@ import re
 from itertools import pairwise
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.extract.chunker import (
     OVERLAP_TOKENS,
@@ -239,3 +241,50 @@ def test_chunk_is_hashable_and_comparable() -> None:
     chunk = Chunk(text="a", ordinal=0, char_start=0, char_end=1)
     assert chunk == Chunk(text="a", ordinal=0, char_start=0, char_end=1)
     assert len({chunk, chunk}) == 1
+
+
+# ---------------------------------------------------------------------------
+# hypothesis (order 0m §2c) - the offset invariant over generated documents
+# of arbitrary paragraph shape, not just `PROSE`'s one fixed shape above.
+# ---------------------------------------------------------------------------
+
+#: A word: letters, sometimes with the intra-word punctuation the tokeniser
+#: already has its own dedicated example test for above - digits and a stray
+#: apostrophe or hyphen, never whitespace (that would just be two words).
+_WORD = st.text(
+    alphabet=st.characters(min_codepoint=97, max_codepoint=122) | st.just("'") | st.just("-"),
+    min_size=1, max_size=10,
+).filter(lambda w: w.strip("'-"))
+
+_SENTENCE = st.lists(_WORD, min_size=1, max_size=20).map(lambda ws: " ".join(ws) + ".")
+
+#: Paragraphs of sentences, joined by single newlines; paragraphs themselves
+#: joined by the double-newline this module treats as a stronger break
+#: (`test_paragraph_breaks_are_preferred_when_they_are_near`, above).
+_DOCUMENT = st.lists(
+    st.lists(_SENTENCE, min_size=1, max_size=8).map(lambda ss: "\n".join(ss)),
+    min_size=0, max_size=8,
+).map(lambda paras: "\n\n".join(paras))
+
+
+@given(_DOCUMENT, st.sampled_from([(512, 64), (128, 16), (64, 8), (32, 0)]))
+def test_offsets_are_exact_for_generated_documents(document: str, budget) -> None:
+    target, overlap = budget
+    for chunk in chunk_text(document, target_tokens=target, overlap_tokens=overlap):
+        assert document[chunk.char_start:chunk.char_end] == chunk.text
+
+
+@given(_DOCUMENT, st.sampled_from([(512, 64), (128, 16), (64, 8), (32, 0)]))
+def test_no_word_is_lost_for_generated_documents(document: str, budget) -> None:
+    target, overlap = budget
+    chunks = chunk_text(document, target_tokens=target, overlap_tokens=overlap)
+    spans = [(c.char_start, c.char_end) for c in chunks]
+    for match in WORD.finditer(document):
+        assert any(start <= match.start() and match.end() <= end for start, end in spans), (
+            f"{match.group()!r} at {match.span()} fell outside every chunk"
+        )
+
+
+@given(_DOCUMENT)
+def test_chunking_arbitrary_documents_never_raises(document: str) -> None:
+    chunk_text(document)

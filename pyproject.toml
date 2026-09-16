@@ -34,7 +34,7 @@ pythonpath = ["."]
 # whole suite's result with it. A crash in one optional integration must not
 # cost the report for everything else. Run them deliberately, in their own
 # process: `pytest -m jvm`.
-addopts = "-q --strict-markers --basetemp=.pytest_tmp -m \"not jvm\""
+addopts = "-q --strict-markers --basetemp=.pytest_tmp -m \"not jvm and not e2e\""
 # Keep the last few runs' temp trees for inspection, then discard them.
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed"
@@ -42,6 +42,8 @@ markers = [
     "slow: takes more than a second (model loading, large fixtures)",
     "windows: requires Windows (Outlook MAPI, named mutex)",
     "jvm: starts a JVM in-process via JPype/mpxj; excluded by default, run with `pytest -m jvm`",
+    "gui: a pytest-qt scenario driving the real MainWindow with keystrokes - offscreen, in the default run (order 0m S1a: this subset must count as RUN, never skipped - the vacuous-skip lesson from the PySide6 draft)",
+    "e2e: pywinauto against the packaged, launched app on a real desktop; excluded by default, run with `pytest -m e2e` before a release (order 0m S3a)",
     "qt: constructs a real Qt widget; needs a display (or offscreen platform plugin)",
 ]
 filterwarnings = ["error::DeprecationWarning:app.*"]

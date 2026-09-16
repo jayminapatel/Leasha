@@ -25,6 +25,11 @@ logs/**/*
 !logs/README.txt
 *.log
 
+# tools/grab_ui.py's default --out, and test_e2e_pywinauto.py's flake
+# screenshots (order 0m S3b) - generated, and a screenshot is not a diff
+# anybody should be asked to review.
+outputs/
+
 # --- Index data ------------------------------------------------------------
 # The real index lives at DATA_PATH (a different drive) and is never committed.
 # These guard against an index accidentally created inside the project folder.

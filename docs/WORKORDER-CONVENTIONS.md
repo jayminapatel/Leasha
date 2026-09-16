@@ -1,6 +1,6 @@
 # How work orders work now
 
-**Doc version:** 2.1 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 2.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 ## One thread, from 2026-08-25
 
@@ -191,6 +191,28 @@ it is refusing to be unrecoverable. **"Not finished" is not a reason to be unrec
 that was the actual failure, not the reset.
 
 A rule quietly broken every day is worse than one that was changed on purpose.
+
+### 5b. Every acceptance sentence gets its own pytest-qt scenario, from now on
+
+Added 2026-09-16, order 0m section 1c. `tests/unit/conftest.py`'s `gui_mainwindow`
+fixture builds the real `MainWindow` - real `SqliteStore`, real `SearchEngine`,
+only the embedding model stubbed so nothing downloads - and `qtbot` (pytest-qt)
+drives it with real keystrokes and clicks. `tests/unit/test_gui_scenarios.py` is
+the backlog this seeded: type-to-results, Escape clearing the box, the `/` popup,
+the rerank checkbox actually flipping the engine, and the pop-out's stay-on-top.
+
+**From here on, a work order that promises the user something typeable or
+clickable is not done until a pytest-qt scenario presses the keys.** A wiring
+test that only asserts a signal is connected, or that one function's source text
+mentions another's, proves the wire exists - not that turning the switch moves
+anything. The rerank checkbox bounced for exactly that reason once already
+(`test_review_section_four.py`'s M12 tests, source-text assertions, still
+correct and still kept - S1d never deletes a passing guard to replace it, only
+adds the interaction alongside it).
+
+Marked `gui` (`pytest -m gui` selects the subset), but **never excluded from the
+default run** - `pyproject.toml`'s `addopts` only excludes `jvm` and `e2e`. A
+`gui` test that cannot run offscreen is a test that needs fixing, not skipping.
 
 ## 6. When the other thread is mid-flight
 
