@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.22 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.23 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -272,7 +272,7 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `202626082213` | Install and distribution | DRAFT | 0 / 0 | **Five `[FINALISE]` decisions open.** See §5 |
 | `202626270238` | Migrate PyQt6 → PySide6 | DRAFT | 0 / 10 | Structural — deferred behind the working version |
 | `202626270515` | Video and audio | DRAFT | 0 / 4 | The epoch after pictures |
-| `202626160950` | UI Redesign — one shell for Windows and macOS | **ACTIVE** | **16 / 34** | Released by the owner 2026-09-16, same day; every section built in the Linux sandbox session; the 34 open are the Qt-drawn items awaiting their run on the Windows venv — the exact commands are in the order's delivery note. Folds in 0m §0/§4a (grab script, goldens) and settled 0q's 3c/4a |
+| `202626160950` | UI Redesign — one shell for Windows and macOS | **ACTIVE** | **45 / 5** | Windows-venv verification run 2026-09-16 by the crash-recovery session: 29 of 34 open items ticked against passing tests and direct code reads (see the order's own dated note). Five stay open, honestly: 9b (shortcut-to-page and first-run-opens-Search scenarios untested), 9g (the full density/text-size sizeHint matrix), 9h (a single start-to-finish keyboard-only walkthrough), 9i (twelve golden PNGs — only eight of the described set exist and were looked at), 9j (performance timing — never reached, needs the owner's own machine) |
 | `space-report-and-idle-tune-ui-wiring` | Wire the Space Report and the idle-tune scheduler into the redesigned shell | **SHIPPED** | **7 / 0** | Raised 2026-09-16 by the crash-recovery session; both wirings built the same day in the redesign session (`reports_view.py`, `shell.py`); ticked 2026-09-16 by the same session's Windows run (`pytest tests/unit/test_idle_tune_and_space_report_ui.py -v`, 10 passed) — see the order's own dated note |
 | `202626271328` | The pages reorg | **SHIPPED** | **13 / 0** | Row corrected 2026-09-16: the order's own file has said RELEASED and delivered 2026-09-05, every item ticked, since that date; this row still read DRAFT 0/13 — the "finished or lying" case §4 names, found while registering the UI Redesign draft |
 | `202626081052` | OCR where it pays | PARKED *(inferred)* | 10 / 7 | Largely superseded by `202626270508`'s ladder |
