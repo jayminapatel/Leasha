@@ -356,8 +356,19 @@ def test_on_windows_a_doc_really_converts(tmp_path):
     source = tmp_path / "leeds.txt"
     source.write_text("Leeds site safety report, annual inspection.",
                       encoding="utf-8")
+    # **Its own LibreOffice profile, isolated in `tmp_path`.** Without
+    # `-env:UserInstallation=`, this raw invocation shares the default
+    # profile (and its lock file) with every other soffice call on the
+    # machine - the real converter path in `app/extract/converter.py`
+    # gained exactly this isolation for exactly this reason: a collision
+    # does not fail quietly, it can pop a real, visible LibreOffice window
+    # on whoever's desktop happens to be running it.
+    profile_dir = tmp_path / "lo-profile"
+    profile_dir.mkdir()
+    profile_url = "file:///" + str(profile_dir.resolve()).replace("\\", "/")
     subprocess.run(
-        [RESOLVED_SOFFICE, "--headless", "--convert-to", "doc",
+        [RESOLVED_SOFFICE, f"-env:UserInstallation={profile_url}",
+         "--headless", "--convert-to", "doc",
          "--outdir", str(tmp_path), str(source)],
         capture_output=True, timeout=300, check=False,
     )
