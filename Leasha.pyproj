@@ -6,7 +6,7 @@
   after adding or removing files rather than editing this by hand; see the
   script's docstring for why the list is generated at all.
 -->
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
@@ -40,11 +40,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Folder Include=".vscode" />
+    <Folder Include="_Knowledge" />
+    <Folder Include="_Knowledge\prompt_log" />
     <Folder Include="app" />
     <Folder Include="app\core" />
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
+    <Folder Include="app\reports" />
     <Folder Include="app\search" />
     <Folder Include="app\shell" />
     <Folder Include="app\storage" />
@@ -105,18 +108,23 @@
     <Compile Include="app\extract\email_files.py" />
     <Compile Include="app\extract\email_mbox.py" />
     <Compile Include="app\extract\email_pst.py" />
+    <Compile Include="app\extract\era_hints.py" />
     <Compile Include="app\extract\exif.py" />
+    <Compile Include="app\extract\face_detect.py" />
+    <Compile Include="app\extract\florence_tagger.py" />
     <Compile Include="app\extract\ocr.py" />
     <Compile Include="app\extract\ocr_ladder.py" />
     <Compile Include="app\extract\odf.py" />
     <Compile Include="app\extract\office.py" />
     <Compile Include="app\extract\pdf.py" />
+    <Compile Include="app\extract\places.py" />
     <Compile Include="app\extract\plaintext.py" />
     <Compile Include="app\extract\pst_libpff.py" />
     <Compile Include="app\extract\quoting.py" />
     <Compile Include="app\extract\raw.py" />
     <Compile Include="app\extract\rtf.py" />
     <Compile Include="app\extract\source_types.py" />
+    <Compile Include="app\extract\vision_caption.py" />
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
     <Compile Include="app\index\archives.py" />
@@ -125,6 +133,7 @@
     <Compile Include="app\index\clip_embedder.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
+    <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
@@ -140,6 +149,8 @@
     <Compile Include="app\llm\models.py" />
     <Compile Include="app\llm\ollama.py" />
     <Compile Include="app\main.py" />
+    <Compile Include="app\reports\__init__.py" />
+    <Compile Include="app\reports\inheritance.py" />
     <Compile Include="app\search\__init__.py" />
     <Compile Include="app\search\commands.py" />
     <Compile Include="app\search\completions.py" />
@@ -147,6 +158,7 @@
     <Compile Include="app\search\engine.py" />
     <Compile Include="app\search\evaluate.py" />
     <Compile Include="app\search\federate.py" />
+    <Compile Include="app\search\filename_match.py" />
     <Compile Include="app\search\folding.py" />
     <Compile Include="app\search\fusion.py" />
     <Compile Include="app\search\gitquery.py" />
@@ -196,6 +208,7 @@
     <Compile Include="app\ui\presenter.py" />
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\render_page.py" />
+    <Compile Include="app\ui\reports_view.py" />
     <Compile Include="app\ui\result_delegate.py" />
     <Compile Include="app\ui\results_view.py" />
     <Compile Include="app\ui\sanitise.py" />
@@ -248,9 +261,11 @@
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
+    <Compile Include="app\ui\widgets\photo_tagger_page.py" />
     <Compile Include="app\ui\widgets\pinned_panel.py" />
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
+    <Compile Include="app\ui\widgets\report_export_dialog.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
     <Compile Include="app\ui\widgets\result_tools.py" />
@@ -330,6 +345,7 @@
     <Compile Include="tests\unit\test_distinct_values.py" />
     <Compile Include="tests\unit\test_docs_versioned.py" />
     <Compile Include="tests\unit\test_doctor.py" />
+    <Compile Include="tests\unit\test_doctor_onnxruntime.py" />
     <Compile Include="tests\unit\test_drag_out.py" />
     <Compile Include="tests\unit\test_dwg_preview.py" />
     <Compile Include="tests\unit\test_dynamic_workers.py" />
@@ -343,21 +359,26 @@
     <Compile Include="tests\unit\test_empty_run_says_why.py" />
     <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
+    <Compile Include="tests\unit\test_enrichment_backlog.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
     <Compile Include="tests\unit\test_epub_preview.py" />
+    <Compile Include="tests\unit\test_era_hints.py" />
     <Compile Include="tests\unit\test_errors.py" />
     <Compile Include="tests\unit\test_exif.py" />
     <Compile Include="tests\unit\test_exif_date_wiring.py" />
     <Compile Include="tests\unit\test_exit_placement.py" />
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
+    <Compile Include="tests\unit\test_face_clustering.py" />
     <Compile Include="tests\unit\test_federated_search.py" />
     <Compile Include="tests\unit\test_feeder_thread.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
+    <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
     <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_first_contact_box.py" />
+    <Compile Include="tests\unit\test_florence_tagger.py" />
     <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
@@ -370,6 +391,7 @@
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
     <Compile Include="tests\unit\test_gpu_lock_wiring.py" />
+    <Compile Include="tests\unit\test_gpu_regression_notice.py" />
     <Compile Include="tests\unit\test_gpu_serialize.py" />
     <Compile Include="tests\unit\test_grammars.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
@@ -405,6 +427,7 @@
     <Compile Include="tests\unit\test_no_undefined_names.py" />
     <Compile Include="tests\unit\test_notice_line.py" />
     <Compile Include="tests\unit\test_numbers.py" />
+    <Compile Include="tests\unit\test_numpy_pyarrow_hotpath.py" />
     <Compile Include="tests\unit\test_ocr.py" />
     <Compile Include="tests\unit\test_ocr_ladder.py" />
     <Compile Include="tests\unit\test_ocr_passes.py" />
@@ -413,6 +436,8 @@
     <Compile Include="tests\unit\test_office_full_layout.py" />
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
+    <Compile Include="tests\unit\test_onnxruntime_pins.py" />
+    <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
@@ -421,8 +446,14 @@
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
+    <Compile Include="tests\unit\test_photo_tagger.py" />
+    <Compile Include="tests\unit\test_photo_tagger_page.py" />
+    <Compile Include="tests\unit\test_photo_tagger_wording.py" />
+    <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />
+    <Compile Include="tests\unit\test_pipeline_gpu_regression.py" />
+    <Compile Include="tests\unit\test_places.py" />
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
@@ -444,9 +475,12 @@
     <Compile Include="tests\unit\test_repo_attribution.py" />
     <Compile Include="tests\unit\test_repo_rows.py" />
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
+    <Compile Include="tests\unit\test_reports_inheritance.py" />
     <Compile Include="tests\unit\test_rerank.py" />
+    <Compile Include="tests\unit\test_rerank_off_by_default.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
     <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
+    <Compile Include="tests\unit\test_resolve_gpu_regression.py" />
     <Compile Include="tests\unit\test_resources.py" />
     <Compile Include="tests\unit\test_result_delegate.py" />
     <Compile Include="tests\unit\test_result_drag_model.py" />
@@ -517,6 +551,8 @@
     <Compile Include="tests\unit\test_vector_filters.py" />
     <Compile Include="tests\unit\test_view_options.py" />
     <Compile Include="tests\unit\test_viewer_suffixes.py" />
+    <Compile Include="tests\unit\test_vision_caption.py" />
+    <Compile Include="tests\unit\test_volume_picker.py" />
     <Compile Include="tests\unit\test_vs_project.py" />
     <Compile Include="tests\unit\test_walker.py" />
     <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
@@ -579,6 +615,7 @@
     <Content Include="docs\WORKORDER-202626081801-git-sharpness-and-mail-preview.md" />
     <Content Include="docs\WORKORDER-202626082213-install-and-distribution.md" />
     <Content Include="docs\WORKORDER-202626082352-review-remediation.md" />
+    <Content Include="docs\WORKORDER-202626130120-gpu-provider-integrity.md" />
     <Content Include="docs\WORKORDER-202626270046-slash-menu-context-and-metadata.md" />
     <Content Include="docs\WORKORDER-202626270114-index-tuning.md" />
     <Content Include="docs\WORKORDER-202626270157-search-experience.md" />
