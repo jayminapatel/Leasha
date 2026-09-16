@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 23
+CURRENT_VERSION = 24
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1211,6 +1211,29 @@ def _v23_people(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v24_content_hash_index(conn: sqlite3.Connection) -> None:
+    r"""Work order 202626270602 (0n) §3c: the Space Report's own performance
+    box - "hash and pHash columns get the indexes these GROUP BYs need."
+
+    `content_hash` has carried duplicate-detection data since it was added
+    to `files`, and nothing ever indexed it. The Space Report's whole first
+    half (§3a: total duplicate bytes, the largest duplicate groups) is a
+    `GROUP BY content_hash HAVING COUNT(*) > 1` over the full table - the
+    exact shape H2's own lesson (`docs/REVIEW-2026-08-26.md`) warns against
+    running unindexed at scale. `idx_files_phash` already exists (schema
+    v17) for the photo half of the same report; this is its missing
+    sibling for the general-file half.
+
+    Partial, same reasoning `idx_files_phash`/`idx_files_skip` already use:
+    most rows outside the exact-duplicate set share their hash with
+    nothing, and an index entry for a hash nothing will ever `GROUP BY`
+    into a group of one is write cost with no reader.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files(content_hash) "
+        "WHERE content_hash IS NOT NULL")
+
+
 def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     """Whether `files.status` already permits `value`. Never raises."""
     try:
@@ -1245,6 +1268,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     21: _v21_taken_at_is_hint,
     22: _v22_places,
     23: _v23_people,
+    24: _v24_content_hash_index,
 }
 
 

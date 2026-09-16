@@ -39,6 +39,9 @@ REPORTS: tuple[tuple[str, str, str], ...] = (
     ("inheritance", "Digital Inheritance",
      "A map of every source Leasha knows about - names, locations and "
      "what's in each - for someone who isn't you."),
+    ("space", "The Space Report",
+     "Duplicate files and how much space reclaiming them would free, "
+     "plus which files exist on only one drive - the backup conscience."),
 )
 
 
@@ -52,6 +55,9 @@ class ReportsView(QWidget):
         self._store = store
         self._sources: list = []
         self._generated_at: Optional[int] = None
+        self._space_groups: list = []
+        self._space_reclaimable: int = 0
+        self._space_uniqueness: list = []
 
         intro = QLabel(
             "What Leasha has catalogued, read out as a document rather "
@@ -119,25 +125,50 @@ class ReportsView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _loaded(self, snapshot: Any) -> None:
-        self._sources, self._generated_at = snapshot
-        self.export.setEnabled(bool(self._sources))
+        (self._sources, self._generated_at, self._space_groups,
+         self._space_reclaimable, self._space_uniqueness) = snapshot
+        self.export.setEnabled(
+            bool(self._sources) or bool(self._space_groups)
+            or bool(self._space_uniqueness))
         self._show_selected(self.list.currentRow())
 
     def _show_selected(self, row: int) -> None:
         from app.reports.inheritance import data_timestamp_sentence, render_inheritance_document
+        from app.reports.space import render_space_document
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
-        if row < 0 or not self._sources:
+        if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return
         key = self.list.item(row).data(1)
         if key == "inheritance":
+            if not self._sources:
+                self.body.setMarkdown("Nothing indexed yet.")
+                return
             self.body.setMarkdown(
                 render_inheritance_document(self._sources, generated_at=self._generated_at))
+        elif key == "space":
+            self.body.setMarkdown(render_space_document(
+                self._space_groups, self._space_uniqueness,
+                total_reclaimable=self._space_reclaimable,
+                generated_at=self._generated_at))
 
     # -- export -----------------------------------------------------------
 
     def _start_export(self) -> None:
+        row = self.list.currentRow()
+        key = self.list.item(row).data(1) if row >= 0 else None
+        if key == "space":
+            # No per-source opt-out for this report - 2c was the Digital
+            # Inheritance report's own ask; a duplicate-and-uniqueness
+            # report has no equivalent "leave this source off the map"
+            # request behind it, so nothing here invents one.
+            path, _filter = QFileDialog.getSaveFileName(
+                self, "Export report", "space-report.pdf", "PDF files (*.pdf)")
+            if not path:
+                return
+            self._export_space_to(path)
+            return
         if not self._sources:
             return
         dialog = SourceSelectionDialog(self._sources, self)
@@ -160,15 +191,35 @@ class ReportsView(QWidget):
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
+    def _export_space_to(self, path: str) -> None:
+        from app.reports.space import render_space_document
+
+        document = render_space_document(
+            self._space_groups, self._space_uniqueness,
+            total_reclaimable=self._space_reclaimable, generated_at=self._generated_at)
+        worker = CallableWorker(_write_pdf, document, path, component="ui.reports.export")
+        worker.signals.failed.connect(self.error.emit)
+        run(QThreadPool.globalInstance(), worker)
+
 
 def _report_snapshot(store: Any) -> tuple:
     """The read-only half of a refresh, off the worker thread - the same
-    split `_offline_media_snapshot` already draws."""
+    split `_offline_media_snapshot` already draws. Both reports' data is
+    gathered here in one worker call rather than one per report: neither
+    query is expensive enough to earn its own round trip, and the list on
+    the left must show a timestamp for whichever one is selected first."""
     from app.reports.inheritance import catalogue_sources, report_generated_at
+    from app.reports.space import (
+        find_duplicate_groups, find_source_uniqueness, total_reclaimable_bytes,
+    )
 
     roots = _local_roots(store)
     sources = catalogue_sources(store, roots=roots)
-    return sources, report_generated_at(store)
+    generated_at = report_generated_at(store)
+    groups = find_duplicate_groups(store)
+    reclaimable = total_reclaimable_bytes(store)
+    uniqueness = find_source_uniqueness(store)
+    return sources, generated_at, groups, reclaimable, uniqueness
 
 
 def _local_roots(store: Any) -> list:

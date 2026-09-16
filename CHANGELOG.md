@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.19 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 4.20 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A new report shows what's taking up space twice, and what only exists once
+
+- The Space Report, next to the Digital Inheritance map, tells you two
+  things about your files: how much room you'd get back by keeping one
+  copy of everything that's duplicated across your drives, with the
+  biggest duplicates named - and which files exist on only one source,
+  headline first: "372 files exist nowhere else but 'Old WD'."
+- The second half is the one worth reading even if you never read
+  another report: if that one drive is lost, so is that content, and now
+  you know before it happens rather than after.
 
 ### A new install tunes itself, quietly, the first time the computer is idle
 

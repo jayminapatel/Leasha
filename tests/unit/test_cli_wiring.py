@@ -878,3 +878,48 @@ def test_report_out_writes_to_a_file(tmp_path, capsys):
                    "--out", str(out_file)])) == cli.EXIT_OK
     assert out_file.is_file()
     assert "map of" in out_file.read_text(encoding="utf-8").lower()
+
+
+# --- report space - order 202626270602 (0n) section 3 ----------------------
+
+def test_report_space_runs_on_an_empty_index(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_report(
+        parser_for(["report", "space", "--env", env])) == cli.EXIT_OK
+    out = capsys.readouterr().out.lower()
+    assert "space report" in out
+    assert "no duplicate" in out
+
+
+def test_report_space_json_is_machine_readable(tmp_path, capsys):
+    import json as _json
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    assert cli.cmd_report(
+        parser_for(["report", "space", "--env", env, "--json"])) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert out.lstrip().startswith("{"), f"a human preamble came first: {out[:80]!r}"
+    payload = _json.loads(out)
+    assert payload == {
+        "duplicate_groups": [], "total_reclaimable_bytes": 0,
+        "source_uniqueness": [], "generated_at": None,
+    }
+
+
+def test_report_space_out_writes_to_a_file(tmp_path, capsys):
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+
+    out_file = tmp_path / "space.md"
+    assert cli.cmd_report(
+        parser_for(["report", "space", "--env", env,
+                   "--out", str(out_file)])) == cli.EXIT_OK
+    assert out_file.is_file()
+    assert "space report" in out_file.read_text(encoding="utf-8").lower()
