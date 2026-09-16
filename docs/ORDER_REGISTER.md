@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.19 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.20 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -48,7 +48,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 |---|---|---|---|---|---|
 | 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 55 / 3 | The remaining three are the structural splits, deferred by "working version first" |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
-| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **36 / 4** | Item 6c closed 2026-09-15; 5e, 6d, 6h, 6i remain open, each re-verified and blocked on a decision outside this thread — see the order's own 2026-09-15 notes |
+| 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **37 / 3** | 6c (2026-09-15) and 5e (2026-09-16, the idle-moment bench) closed. 6d's owner decision landed (`PARTIAL` semantics approved) and its safe half (NOTICE_NO_VECTORS's coverage %) is built; the schema half was deliberately not — see the order's own 2026-09-16 note for why. 6h, 6i remain open, each blocked on a decision outside this thread |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |
 | 0d | `202626270257` | Privacy defaults | **SHIPPED** | **9 / 0** | Was already complete; status corrected 2026-09-07 |
 | 0e | `202626270326` | Workspace features — pop-outs, viewers, tools | **SHIPPED** | **30 / 0** | Closed 2026-09-07 by §5c |

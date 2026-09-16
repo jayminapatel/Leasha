@@ -192,6 +192,44 @@ def test_unmatched_terms_are_explained(engine):
     assert "petrrabigh" in message
 
 
+def test_the_notice_names_the_coverage_percent_while_still_embedding(engine):
+    r"""Work order 0b §6d: "the existing NOTICE_NO_VECTORS wording extends
+    to '...still embedding, N% done'" - the reassuring story, distinct from
+    "the vector store looks broken, run reembed."
+
+    `vector_coverage` reads its row count from `self.vectors.count()`
+    rather than from the table it searched, so monkeypatching just that one
+    number reports genuine partial progress without needing the ANN search
+    itself to find anything - it stays a real, empty-table `[]`, exactly
+    the precondition this notice already requires.
+    """
+    from app.search.policy import CODE, for_surface
+
+    engine.vectors.count = lambda: 4              # 4 of 8 fixture chunks
+
+    response = engine.search("pump station", policy=for_surface(CODE))
+
+    message = next(n.message for n in response.notices
+                   if n.code == NOTICE_NO_VECTORS)
+    assert "50%" in message, "it must name the coverage percentage"
+    assert "still embedding" in message.lower()
+
+
+def test_the_notice_does_not_claim_progress_from_a_wholly_empty_store(engine):
+    r"""0% is not "still embedding" - it is the other story this same
+    notice already tells, and the two must not collide. A blank vector
+    store reads as broken, not as in-progress, and saying "0% done" would
+    be a worse message than the one it replaced."""
+    from app.search.policy import CODE, for_surface
+
+    response = engine.search("pump station", policy=for_surface(CODE))
+
+    message = next(n.message for n in response.notices
+                   if n.code == NOTICE_NO_VECTORS)
+    assert "still embedding" not in message.lower()
+    assert "reembed" in message
+
+
 def test_every_notice_code_is_distinct_and_prefixed():
     """A renamed code is a silently-dropped notice - this file's own failure
     mode, one level up."""

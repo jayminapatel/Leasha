@@ -1,6 +1,6 @@
 # Work order (One thread): Index Tuning — one screen, three modes, any machine
 
-**Doc version:** 1.2 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
 **Thread:** One thread (Core profile + Index pipeline + Storage + UI panel)
 **Status:** RELEASED by the owner 2026-08-27 (registered in HANDOFF.md §"What
 is Next") — sequenced after `WORKORDER-202626082352` §2 leftovers (H5/H6) and
@@ -261,7 +261,22 @@ asked, not two).
   Each schedules the §5a bench for the next idle moment — never mid-run,
   never on battery, never as a question. The Index Tuning status line reads
   "Tuned for this computer · last checked <date>" in every mode.
-- [ ] **5e First run on any machine** — the installer asks nothing new.
+**2026-09-16 — closed.** The missing "when" half is built:
+`MainWindow._maybe_run_idle_bench`, wired to the same hourly
+`_optimize_timer` `_run_idle_optimize` already uses. Never mid-run
+(`indexing_view.is_running()`), never on battery
+(`psutil.sensors_battery()`, advisory — an unknown reading never blocks
+it), and `should_bench()` answers "" forever once a machine has a real
+measurement, so every tick after the first costs one cheap read. A
+successful bench upgrades `INDEX_TUNING_MODE` from `defaults` to `auto`
+only while still in Defaults — a real Manual/Auto choice is never
+overridden — through the same `_settings_changed` path every other
+setting write uses, reloads the tuning widget so the mode control itself
+shows the change, and reports it in the status bar afterwards, past
+tense. Four new tests against the real `MainWindow` fixture in
+`test_window_opens.py`.
+
+- [x] **5e First run on any machine** — the installer asks nothing new.
   Defaults from detection alone are good enough to start immediately; the
   first bench runs at the first idle moment and upgrades Defaults to
   Auto-tune quietly. A kids'-machine install is: run installer, done.
@@ -539,6 +554,46 @@ Ordered; each lands with its measurement gate. **6a is first and gates all.**
   `test_dynamic_workers.py`) - all green except the one pre-existing failure
   named above. Full-suite count is in `HANDOFF.md` and this session's own
   report.
+**2026-09-16 — the owner decided the schema question; investigation found
+less of the item needs it than assumed, and only the safe part is built.**
+Decision: a third status (proposed name `PARTIAL` — chunks written and
+keyword-searchable now, vectors pending) would mean keyword search treats
+it exactly like `INDEXED`, semantic search silently skips it, and
+`NOTICE_NO_VECTORS` names the percentage still embedding.
+
+Investigating what that actually needs turned up something the note below
+had not accounted for: **`_drain_unembedded` (the M6 repair) already
+promotes a file with catching-up chunks without any new status at all**,
+and **keyword search never filters on `files.status`** — a file with real
+chunks is keyword-searchable the moment they are written, regardless of
+its status column, today, already. The functional half of this item —
+"phase 1 keyword-searchable at parse speed, phase 2 drains
+`embedded=0`" — is true now, for the reason the item's own text
+half-suspected ("machinery exists since the M6 repair").
+
+What was genuinely missing, and is now built: the coverage percentage in
+`NOTICE_NO_VECTORS` itself, rather than only in `app.cli stats` a person
+has to go find separately — `SearchEngine.search()` reads
+`store.vector_coverage(vectors.count())`, the same numbers `stats()`
+already reports, and says "...still embedding, N% done" precisely when
+there is real partial progress (not for a wholly empty store, which is a
+different, already-correctly-worded story — see the two new tests in
+`test_search_notices.py`).
+
+**The schema half — an actual `FileStatus.PARTIAL` — was deliberately not
+built.** Not because it is unwanted, but because building it well touches
+the exact crash-recovery invariant `_drain_unembedded`'s own docstring
+spends several paragraphs getting right (a file can already sit
+`INDEXED` with chunks mid-catch-up, by design, so the file's status
+column is not actually the source of truth the item's original text
+assumed it was) — and a live `CHECK` constraint rebuild against
+`files`, a table with six other tables cascading from it and a real,
+populated production index behind it, is not something to rush once that
+assumption turns out to be wrong. If a genuine need for the status
+itself (not merely its two consequences, both of which are done) shows
+up later, it is a fresh, smaller, better-scoped decision — not this one,
+re-litigated.
+
 - [ ] **6d Two-phase indexing**: phase 1 extract+SQLite only (keyword
   searchable at parse speed), phase 2 drains `embedded=0` (machinery exists
   since the M6 repair). Index stats show semantic coverage %; the existing
