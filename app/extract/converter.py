@@ -385,6 +385,21 @@ def convert(
     holder = tempfile.TemporaryDirectory(prefix="leasha-convert-")
     outdir = Path(holder.name)
     command = _build_command(tuple(rule.command), binary_path, source, outdir)
+    if binary_name in ("soffice", "libreoffice"):
+        # **Each conversion gets its own LibreOffice profile.** `--headless`
+        # alone is not isolation: every invocation still opens the same
+        # default user profile and fights over its lock file. Two
+        # conversions running at once - two files indexed together, a test
+        # suite alongside a real index, several worktrees on one machine -
+        # collide on that lock, and LibreOffice does not fail quietly when
+        # it loses: it can pop a real, visible window (a recovery prompt, a
+        # first-run dialog) instead of converting headlessly, on whichever
+        # desktop happens to be running it. A profile scoped to this call's
+        # own temporary directory removes the thing being fought over.
+        profile_dir = outdir / ".leasha-lo-profile"
+        profile_dir.mkdir(exist_ok=True)
+        profile_url = "file:///" + str(profile_dir.resolve()).replace("\\", "/")
+        command.insert(1, f"-env:UserInstallation={profile_url}")
     limit = min(int(timeout_s or getattr(rule, "timeout_s", 180)), MAX_TIMEOUT_S)
 
     started = time.monotonic()
