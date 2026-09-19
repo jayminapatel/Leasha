@@ -30,7 +30,7 @@ from app.ui.presenter import (
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.result_table import offer_filters, redraw_with_details
-from app.ui.widgets.skeleton import arm as arm_skeleton
+from app.ui.widgets.skeleton import arm as arm_skeleton, gone as results_gone
 from app.ui.widgets.result_tools import build_results_pane
 from app.ui.widgets.search_bar import (
     build_controls, build_input, build_toolbar, scope_value, select_scope,
@@ -369,7 +369,7 @@ class SearchView(QWidget):
                    summary: str, response: Any) -> None:
         # Painting moved to `widgets/result_table.redraw_with_details`; what is
         # left here is the staleness check, which is this view's business.
-        if generation == self._shown_generation:
+        if generation == self._shown_generation and not results_gone(self.results):
             redraw_with_details(self.results, response, terms, summary, extra)
 
     def interpret(self) -> None:

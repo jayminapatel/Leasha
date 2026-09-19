@@ -23,14 +23,35 @@ from PyQt6.QtGui import QStandardItem
 
 from app.ui.result_delegate import ROLE_PAYLOAD, Skeleton
 
-__all__ = ["arm", "disarm", "showing", "SKELETON_DELAY_MS", "SKELETON_ROWS"]
+__all__ = ["arm", "disarm", "gone", "showing", "SKELETON_DELAY_MS", "SKELETON_ROWS"]
 
 SKELETON_DELAY_MS = 300
 SKELETON_ROWS = 4
 
 
-def _timer(view: Any) -> QTimer:
+def _live_timer(view: Any) -> Any:
+    """The cached timer, or None when there is none or its C++ side is gone.
+
+    The timer is a child of the view and is cached on it, so anything that
+    deletes the view's children - a rebuild, a re-parent - leaves a Python
+    wrapper pointing at nothing. A late search answer then reached `disarm`
+    and raised `RuntimeError: wrapped C/C++ object of type QTimer has been
+    deleted` inside a Qt slot (found by test_adoption_scenarios.py). Probing
+    with `isActive()` is the cheapest call that raises when it is gone.
+    """
     timer = getattr(view, "_skeleton_timer", None)
+    if timer is None:
+        return None
+    try:
+        timer.isActive()
+    except RuntimeError:
+        view._skeleton_timer = None
+        return None
+    return timer
+
+
+def _timer(view: Any) -> QTimer:
+    timer = _live_timer(view)
     if timer is None:
         timer = QTimer(view)
         timer.setSingleShot(True)
@@ -49,11 +70,29 @@ def arm(view: Any, *, delay_ms: int = SKELETON_DELAY_MS) -> None:
 
 def disarm(view: Any) -> None:
     """Called when rows (or an empty message) arrive."""
-    timer = getattr(view, "_skeleton_timer", None)
+    timer = _live_timer(view)
     if timer is not None:
         timer.stop()
     if showing(view):
         view._model.clear()
+
+
+def gone(view: Any) -> bool:
+    """True when the results view, or the model it paints into, no longer exists.
+
+    A search answer that arrives after the window (or the page's rows) were torn
+    down has nowhere to go, and painting into the wreck raised `RuntimeError:
+    wrapped C/C++ object ... has been deleted` inside a Qt slot. PyQt6 treats an
+    unhandled exception in a slot as fatal unless a hook is installed, so this is
+    asked first and the late answer is dropped (found by
+    test_adoption_scenarios.py).
+    """
+    from PyQt6 import sip
+
+    try:
+        return bool(sip.isdeleted(view) or sip.isdeleted(getattr(view, "_model", view)))
+    except TypeError:
+        return False
 
 
 def showing(view: Any) -> bool:

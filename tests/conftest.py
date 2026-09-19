@@ -70,6 +70,39 @@ REQUIRED_FREE_GB=150
 """
 
 
+# ---------------------------------------------------------------------------
+# The suite runs on the processor, not the graphics card (2026-09-19)
+# ---------------------------------------------------------------------------
+#
+# `EMBED_DEVICE` defaults to `auto`, and on a machine with DirectML `auto` means
+# the graphics card. So the real-model tests (embedder, CLIP, reranker, OCR)
+# quietly built DirectML ONNX sessions inside the pytest process. After roughly
+# a thousand tests had loaded torch, pyarrow and more ONNX sessions alongside
+# them, a later DirectML run - RapidOCR's text detector, `InferenceSession.run` -
+# raised a native access violation: exit code 0xC0000005, no Python traceback,
+# no Windows event, and every test after it silently never reported. It killed
+# three full runs in a row before being found (`onnxruntime` fault stack in the
+# probe log, then a run pinned to the processor completing normally).
+#
+# It also meant the suite competed with the running application for the same
+# card. Nothing here tests the card - the device *choice* is tested with fake
+# profiles in `test_backends.py` - so the suite does not need it.
+#
+# Set to `auto` (or `gpu`) in the environment to run the suite against the card
+# on purpose: `EMBED_DEVICE=auto python -m pytest tests/unit/test_embedder.py`.
+os.environ.setdefault("EMBED_DEVICE", "cpu")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _pin_ocr_to_the_processor() -> Iterator[None]:
+    """`ocr._device` is a module default that only the entry points set, so the
+    environment variable above never reaches it in a test process."""
+    from app.extract import ocr
+
+    ocr.configure_device(os.environ.get("EMBED_DEVICE", "cpu"))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _clear_gpu_unreliable_latch() -> Iterator[None]:
     """`app.core.gpu_serialize.mark_gpu_unreliable` is a process-wide latch

@@ -145,7 +145,8 @@ COMMANDS: tuple[Command, ...] = (
         # here that the parser does not expand matches nothing, and a value the
         # parser knows that is missing here stays invisible.
         values=("word", "excel", "sheet", "slides", "powerpoint",
-                "mail", "email", "text", "code", "doc", "xls", "ppt"),
+                "mail", "email", "text", "code", "doc", "xls", "ppt",
+                "video", "movie", "audio", "recording"),
     ),
     Command(
         name="from",

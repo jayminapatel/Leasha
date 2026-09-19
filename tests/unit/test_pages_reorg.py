@@ -353,7 +353,11 @@ def test_a_filter_with_no_matches_says_so_in_plain_words(settings_and_store):
     view = _settings_view(settings, store)
     app = _qt()
 
-    view.filter_box.setText("memory")
+    # 2026-09-19: "memory" stopped being a no-match word when the video and
+    # audio panel arrived - its model help says "and more memory", so the
+    # filter now (correctly) finds it. A word no setting could ever contain
+    # keeps this test about the empty state and not about the wording of help.
+    view.filter_box.setText("zqxjvw")
     _process(app)
 
     assert view.filter_empty.isVisibleTo(view)

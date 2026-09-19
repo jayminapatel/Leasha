@@ -62,14 +62,26 @@ def test_the_central_widget_is_the_rail_and_there_is_no_status_bar(window):
     from PyQt6.QtWidgets import QStatusBar, QTabWidget
 
     from app.ui.widgets.rail import Rail
+    from app.ui.widgets.space_table import SpaceTables
     from app.ui.widgets.spreadsheet_view import SpreadsheetView
     app, built, _ = window
     assert isinstance(built.centralWidget(), Rail)
     # SpreadsheetView (Workspace §4b) legitimately subclasses QTabWidget for
     # its own sheet tabs - only a QTabWidget acting as page navigation (what
     # the redesign replaced with Rail) should trip this check.
+    # The Space Report's tables (order 0n 3a) are the same kind of exception:
+    # one tab per question the report answers, inside the Reports page.
+    def _inside_space_tables(widget) -> bool:
+        parent = widget.parentWidget()
+        while parent is not None:
+            if isinstance(parent, SpaceTables):
+                return True
+            parent = parent.parentWidget()
+        return False
+
     nav_tab_widgets = [w for w in built.findChildren(QTabWidget)
-                       if not isinstance(w, SpreadsheetView)]
+                       if not isinstance(w, SpreadsheetView)
+                       and not _inside_space_tables(w)]
     assert nav_tab_widgets == []
     assert built.findChild(QStatusBar) is None
 
