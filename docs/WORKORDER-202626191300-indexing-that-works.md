@@ -1,6 +1,6 @@
 # Work order (One thread): indexing that works
 
-**Doc version:** 1.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (`app/core/measured.py` + `app/index/index_bench.py` +
 `app/core/envelope.py` + `app/index/embedder.py` + `config/extractors.toml` +
 the close path in `app/ui/shell.py` and `app/main.py`)
@@ -317,8 +317,15 @@ choice, and this order leaves it alone.
   > warning, not a block (the run stops cleanly at the 5GB floor), and it is the
   > registry default; the index is expected to be a small fraction of the
   > corpus's 249GB, so lowering it is reasonable and was not done unasked.
-- [ ] **Decide `EMBED_QUANTISED` before the first index run.**
-  > Measured 2026-09-19, 81 real passages, 4 threads, interleaved: the int8 model
+- [x] **Decide `EMBED_QUANTISED` before the first index run.**
+  > **Decided 2026-09-19: ON**, at the owner's instruction ("do embed now"), with
+  > the index empty. Set through `env_writer.apply_values` (one line changed in
+  > `.env`; a copy is at `.env.before-int8-20260919`). Verified by building the
+  > embedder from the real `.env` and reading the ONNX session's model path:
+  > `models\BAAI--bge-small-en-v1.5-int8-local\model_optimized.onnx`, CPU, 384
+  > dimensions, unit norm. **To go back costs a full rebuild** - vectors from the
+  > two models must not be mixed. The measurements behind the choice:
+  > measured 2026-09-19, 81 real passages, 4 threads, interleaved: the int8 model
   > ran **1.85x faster** (4.4-5.3 against 2.5-2.8 passages a second). It also
   > **changes results**: mean cosine to the fp16 vector 0.974 (worst 0.950),
   > top-5 neighbours overlap 76%, and the #1 neighbour differs for 16 of 81
