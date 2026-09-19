@@ -125,6 +125,8 @@ class SettingsView(QWidget):
     settings_changed = pyqtSignal(dict)
     history_cleared = pyqtSignal(int)
     debug_recording_toggled = pyqtSignal(bool)
+    #: Order 0j section 2: the doorway to the Photo Tagger window.
+    open_photo_tagger_requested = pyqtSignal()
     error = pyqtSignal(object)
 
     def __init__(self, settings: Any, store: Any = None, parent: Optional[QWidget] = None) -> None:
@@ -332,6 +334,15 @@ class SettingsView(QWidget):
 
         photo_people_form = QFormLayout(self.photo_people_box)
         photo_people_form.addRow(self.people_recognition)
+        self.name_people_button = QPushButton("Name the people in your photos…")
+        self.name_people_button.setToolTip(
+            "Opens the window where Leasha shows the groups of similar faces "
+            "it has found, so you can give each one a name. Nothing is named "
+            "until you name it, and names never leave this computer. Empty "
+            "until the setting above is on and your photos have been indexed.")
+        self.name_people_button.clicked.connect(
+            lambda _c=False: self.open_photo_tagger_requested.emit())
+        photo_people_form.addRow(self.name_people_button)
         photo_people_form.addRow(self.caption_trickle)
         photo_people_form.addRow("Photo description model", self.vision_model)
 

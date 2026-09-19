@@ -371,6 +371,8 @@ class MainWindow(QMainWindow):
         #: to re-wire. Declared here because `_apply_theme` pushes the palette
         #: to whichever of the two exist, and it runs before anybody opens one.
         self._log_window: Any = None
+        #: Order 0j section 2: the Photo Tagger window, built on first open.
+        self._photo_tagger: Any = None
         #: Workspace §2. **Multiples are allowed and expected** - comparing
         #: two versions of a drawing falls out for free, and pinning the mail
         #: you are answering while you search for what it mentions is the
@@ -413,6 +415,7 @@ class MainWindow(QMainWindow):
         self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
         self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
         self.settings_view.theme_changed.connect(self._theme_changed)
+        self.settings_view.open_photo_tagger_requested.connect(self._open_photo_tagger)
         # §1a. **What this surface may do on the person's behalf**, resolved
         # once and pushed to the view - `Settings` belongs to the window, and a
         # view that reaches for one has to be given one in every test.
@@ -920,6 +923,8 @@ class MainWindow(QMainWindow):
         add(go, "Offline", lambda: self._show(self.offline_media_view), icon="hard-drive")
         add(go, "Reports", lambda: self._show(self.reports_view), icon="chart-column")
         add(go, "Indexing", lambda: self._show(self.indexing_view), "Ctrl+I", icon="database")
+        add(go, "People in photos", self._open_photo_tagger, icon="image",
+            tip="Name the groups of faces Leasha has found in your photos")
 
         help_menu = bar.addMenu("&Help")
         add(help_menu, "Keyboard shortcuts", self._show_shortcuts, icon="keyboard",
@@ -1849,6 +1854,29 @@ class MainWindow(QMainWindow):
             self._log_window.activateWindow()
         except Exception as exc:             # noqa: BLE001 - see docstring
             _log.warning("could not open the log window: {}", exc)
+
+    def _open_photo_tagger(self) -> None:
+        r"""Open the window for naming the people in photos, or bring it back.
+
+        Order 0j section 2. `PhotoTaggerPage` was finished and tested and
+        nothing ever created it. **Built here, on first use**, so a person who
+        never turns face recognition on never pays for it. One window, like
+        the log's. Never raises: a convenience must not take the window it was
+        opened from with it.
+        """
+        try:
+            if self._photo_tagger is None:
+                from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
+
+                window = PhotoTaggerWindow(self._store, self)
+                window.opened.connect(self._open_path)
+                self._photo_tagger = window
+                self._apply_theme()
+            self._photo_tagger.show()
+            self._photo_tagger.raise_()
+            self._photo_tagger.activateWindow()
+        except Exception as exc:             # noqa: BLE001 - see docstring
+            _log.warning("could not open the Photo Tagger: {}", exc)
 
     def _log_window_state(self) -> dict:
         """What the log window remembered last time. **Never raises.**"""
@@ -3072,6 +3100,9 @@ class MainWindow(QMainWindow):
         scheduler = getattr(self, "scheduler", None)
         if scheduler is not None:
             stage("scheduler", scheduler.stop)
+        photo_tagger = getattr(self, "_photo_tagger", None)
+        if photo_tagger is not None:
+            stage("photo tagger", photo_tagger.close)
         stage("workers", self._drain_workers)
         stage("recorder", self.recorder.close)
         stage("engine", self._engine.close)

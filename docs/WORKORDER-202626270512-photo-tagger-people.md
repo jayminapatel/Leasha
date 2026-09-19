@@ -1,6 +1,6 @@
 # Work order (One thread): the Photo Tagger — naming people, the Google Photos way, fully local
 
-**Doc version:** 1.1 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Storage + new page UI + Search)
 
 **2026-09-16 — all 13 items closed.** A session working this order crashed with
@@ -83,3 +83,20 @@ Change + tests + suite green + committed by name; CHANGELOG. Acceptance
 sentence (the README screenshot, eventually): a child names a pile "Daddy",
 types "daddy and me", and the right photos appear — with every byte of that
 knowledge living in the house.
+
+---
+
+> **2026-09-19 - the page was built, tested, ticked, and never reachable.**
+> A wiring audit (every public class or function under `app/` with no caller
+> outside its own file, checked against the order that promised it) found
+> `PhotoTaggerPage` created by nothing: no rail entry, no button, no CLI
+> route. Every item above was true of the widget and false of the product -
+> nobody could name a pile. Wired now: `PhotoTaggerWindow`
+> (`app/ui/widgets/photo_tagger_window.py`) wraps the page, built on first use
+> and reloaded on every show; **Settings > People and photo descriptions >
+> "Name the people in your photos..."** and **Go > People in photos** open it;
+> `MainWindow._open_photo_tagger` owns the one instance and closes it with the
+> window. A window rather than a rail page on purpose - a chore done in bursts
+> by people who have the feature on should not take a permanent rail slot from
+> everybody else. Tests: `tests/unit/test_wired_features.py`, which presses the
+> real controls on the real `MainWindow`.
