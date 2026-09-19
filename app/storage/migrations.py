@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 25
+CURRENT_VERSION = 26
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1349,6 +1349,38 @@ def _status_allows(conn: sqlite3.Connection, value: str) -> bool:
     return bool(row) and value in str(row[0] or "")
 
 
+def _v26_chat_sessions(conn: sqlite3.Connection) -> None:
+    r"""One table for saved Chat conversations. Work order 202626270611, 3d.
+
+    **A conversation, not a result set.** A row holds the turns as the tab
+    displayed them (JSON: text, receipts, the kind of answer) and the context
+    shelf as it stood, so reopening a session shows what was shown and follows
+    up from the same documents. The receipts carry `file_id`s and the quoted
+    words themselves, so a session whose documents have since been re-indexed
+    still reads correctly - the quote is the evidence at the time.
+
+    Additive, and nothing else in the schema refers to it: a database that
+    fails to gain this table loses saved conversations and keeps every
+    document. **The index-sensitivity sentence extends to this table**: the
+    quotes in a session are the contents of indexed files.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id          INTEGER PRIMARY KEY,
+            title       TEXT    NOT NULL,
+            model       TEXT    NOT NULL DEFAULT '',
+            turns_json  TEXT    NOT NULL DEFAULT '[]',
+            shelf_json  TEXT    NOT NULL DEFAULT '[]',
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        );
+
+        -- The sidebar lists the most recently used first.
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated
+            ON chat_sessions(updated_at DESC);
+    """)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1374,6 +1406,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     23: _v23_people,
     24: _v24_content_hash_index,
     25: _v25_partial_status,
+    26: _v26_chat_sessions,
 }
 
 

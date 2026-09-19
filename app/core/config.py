@@ -263,6 +263,14 @@ class Settings(BaseModel):
     #: translation wants a small, fast text model; Describe and the caption
     #: trickle need a vision-capable one (llava/qwen-vl class).
     ollama_vision_model: str = "llava"
+    #: Work order 202626270611 sections 3e/4d: the Chat tab's model roles and
+    #: two tunables, read by `app.chat.config.ChatSettings`. Empty roles inherit
+    #: `ollama_model` - one model everywhere is the default.
+    chat_model: str = ""
+    chat_router_model: str = ""
+    chat_planner_model: str = ""
+    chat_max_rounds: int = 3
+    chat_verify_strictness: int = 70
     #: Work order 0i section 3b. OFF by default - see settings_registry.py's
     #: CAPTION_TRICKLE_ENABLED for the full reasoning.
     caption_trickle_enabled: bool = False
@@ -437,6 +445,11 @@ SETTING_KEYS: tuple[str, ...] = (
     "OLLAMA_URL",
     "OLLAMA_MODEL",
     "OLLAMA_VISION_MODEL",
+    "CHAT_MODEL",
+    "CHAT_ROUTER_MODEL",
+    "CHAT_PLANNER_MODEL",
+    "CHAT_MAX_ROUNDS",
+    "CHAT_VERIFY_STRICTNESS",
     "CAPTION_TRICKLE_ENABLED",
     "PEOPLE_RECOGNITION_ENABLED",
     "VIDEO_INDEXING_ENABLED",
@@ -588,6 +601,12 @@ def load_settings(
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
             ollama_model=values.get("OLLAMA_MODEL") or "mistral",
             ollama_vision_model=values.get("OLLAMA_VISION_MODEL") or "llava",
+            chat_model=(values.get("CHAT_MODEL") or "").strip(),
+            chat_router_model=(values.get("CHAT_ROUTER_MODEL") or "").strip(),
+            chat_planner_model=(values.get("CHAT_PLANNER_MODEL") or "").strip(),
+            chat_max_rounds=_as_int("CHAT_MAX_ROUNDS", values.get("CHAT_MAX_ROUNDS", "3")),
+            chat_verify_strictness=_as_int(
+                "CHAT_VERIFY_STRICTNESS", values.get("CHAT_VERIFY_STRICTNESS", "70")),
             caption_trickle_enabled=_as_bool(
                 "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
             people_recognition_enabled=_as_bool(
