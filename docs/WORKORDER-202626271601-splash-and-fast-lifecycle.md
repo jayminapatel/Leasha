@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.2 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -862,6 +862,24 @@ The owner chose this on a live mock; implement it faithfully.
 > order test, the latter finding and fixing a real pre-existing bug (heavy
 > first-party imports running before splash-show). See those two items'
 > own 2026-09-07 notes for the detail.
+
+> **2026-09-19 status: 2b's deferral is built; its item stays unticked.** The
+> item's own words are a target - *window visible <1.5s warm on the owner's
+> machine, recorded, not promised* - and that number has not been measured
+> there, so the box stays open rather than being ticked on the strength of
+> construction alone. What exists: `MainWindow._construct_deferred_pages` in
+> `app/ui/shell.py` builds Indexing and Settings after the first paint, joining
+> Mail and Code (deferred on 2026-09-07); the `_wire_recorder()`,
+> `_start_background_work()` and `_apply_theme()` reaches into those pages are
+> guarded, and the work that needs them is chained to run once they exist. It
+> shipped in `9836255` with nine new tests in `test_window_opens.py` (32 pass
+> in that file today). **Files and Search are not deferred** - they stay
+> synchronous, and `test_files_and_search_are_not_deferred` pins that. Known
+> costs, found while building it and not fixed: `_apply_theme` runs twice at
+> startup, and an F5 or a file drop that arrives before the deferred build has
+> finished is skipped. **To close 2b:** launch three times on the owner's
+> machine, record the window-visible figure from the run log's `startup:
+> timings` line, and tick if it is under 1.5s.
 
 ## Done means
 
