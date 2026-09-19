@@ -1017,7 +1017,7 @@ def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path
         _pump(app)
 
         assert built.indexing_view is not None and built.settings_view is not None
-        assert built.rail.count() == 8
+        assert built.rail.count() == 9
 
 
 def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
@@ -1030,7 +1030,7 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
         _pump(app)
 
         titles = [built.rail.tabText(i) for i in range(built.rail.count())]
-        assert titles == ["Search", "Files", "Mail", "Code", "Offline",
+        assert titles == ["Search", "Files", "Mail", "Code", "Chat", "Offline",
                           "Reports", "Indexing", "Settings"]
         assert built.rail._pill_index == titles.index("Indexing"), (
             "the pill must open the Indexing page")
