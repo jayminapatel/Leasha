@@ -29,7 +29,7 @@ from app.ui.presenter import (
 )
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
-from app.ui.widgets.result_table import redraw_with_details
+from app.ui.widgets.result_table import offer_filters, redraw_with_details
 from app.ui.widgets.skeleton import arm as arm_skeleton
 from app.ui.widgets.result_tools import build_results_pane
 from app.ui.widgets.search_bar import (
@@ -317,6 +317,9 @@ class SearchView(QWidget):
             response, self.input.text(),
             interpret_enabled=self.interpret_button.isVisible())
         self.notices.show_notices(notices)
+        # Offers for the filters the sentence contains arrive from a worker and
+        # join the bar - see `presenter.filter_offers`. Only if still current.
+        offer_filters(self, notices, generation)
         self._shown_anything = self._shown_anything or bool(response.results)
         self.status.setText(status)
         # The shape of the search, never its text - see `debug_recorder.py`.

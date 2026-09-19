@@ -373,6 +373,7 @@ def interpret_hint(raw: str, *, enabled: bool) -> str:
 #: Codes for the two notices the *window* raises, as opposed to the engine.
 NOTICE_KIND_SUGGESTION = "NOTICE_KIND_SUGGESTION"
 NOTICE_INTERPRET_HINT = "NOTICE_INTERPRET_HINT"
+NOTICE_FILTER_OFFER = "NOTICE_FILTER_OFFER"
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,6 +402,35 @@ def result_view_state(response: Any, raw: str, *,
     terms = (list(parsed.terms) + list(parsed.phrases)) if parsed else []
     summary, status = results_message(response)
     return notices, terms, summary, (status or summary)
+
+
+def filter_offers(chips: Any, raw: str) -> list[Any]:
+    r"""The recognised filters (`chips_for`) as offers on the notice bar.
+
+    **Order 0m section 1b's scenario found these were never shown.** `chips_for`
+    was built, tested at the presenter and ticked (search-experience 3b), and
+    nothing in the window ever called it - a child typing "the email Dave sent"
+    saw no offer at all. The notice bar is the surface that already carries
+    click-to-apply suggestions (`apply:` links, `SearchView._apply_suggestion`),
+    so an offer is the same shape: **the typed words stay exactly as typed**,
+    and one click appends the filter, which then shows as a removable chip.
+
+    A filter the person has already typed is not offered again.
+    """
+    import html
+
+    typed = str(raw or "").lower()
+    offers: list[Any] = []
+    for chip in chips or ():
+        operator = chip.as_filter()
+        if f"{chip.field}:" in typed:
+            continue
+        shown = html.escape(chip.label())
+        offers.append(_Hint(
+            NOTICE_FILTER_OFFER,
+            f'Only show results <a href="apply:{html.escape(operator, quote=True)}">'
+            f"{shown}</a>?"))
+    return offers
 
 
 def window_notices(raw: str, parsed: Any = None, *,

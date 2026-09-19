@@ -367,6 +367,25 @@ def align_headers(view: Any, aligns: Optional[Sequence[str]] = None) -> None:
         return
 
 
+def offer_filters(view: Any, notices: Any, generation: int) -> None:
+    """Add the filters the typed sentence contains to the notice bar, as offers.
+
+    The read is a store query, so it runs on a worker (`filter_offers_async`)
+    and lands here later; it is dropped if another search has landed since.
+    Here, beside `redraw_with_details`, because it is the same kind of thing -
+    a second paint of a page that was drawn a moment ago - and `search_view.py`
+    is at its line guard.
+    """
+    from app.ui.workers import filter_offers_async
+
+    def landed(offers: Any) -> None:
+        if offers and generation == view._shown_generation:
+            view.notices.show_notices([*notices, *offers])
+
+    filter_offers_async(getattr(view._engine, "store", None), view.input.text(),
+                        view._search_preferences, landed)
+
+
 def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,
                         extra: Any) -> None:
     """Draw the same results again, now carrying their mail subtitles and

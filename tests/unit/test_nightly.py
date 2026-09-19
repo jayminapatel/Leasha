@@ -118,3 +118,79 @@ def test_a_failing_report_still_gets_a_log_line(tmp_path, monkeypatch, capsys):
     assert line.startswith("2026-09-16T02:00:00+00:00 FAIL")
     # Loud only on failure - the module docstring's own promise.
     assert "FAIL" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Order 0m 5a: the measured floors and the probe that feeds them
+# ---------------------------------------------------------------------------
+
+#: The worst of the six real runs recorded around pinning the floors
+#: (2026-09-19, owner's machine, busy). Not a target - see `PERF_FLOORS`.
+_WORST_OBSERVED = {
+    "index_files_per_second": 0.62,
+    "chunker_chunks_per_second": 757.0,
+    "embed_chunks_per_second": 6.9,
+    "search_p95_ms": 396.0,
+    "recall_at_10": 0.7,
+}
+_LOWER_IS_BETTER = {"search_p95_ms"}
+
+
+def test_every_measured_metric_has_a_pinned_floor_or_says_none():
+    assert set(nightly.PERF_FLOORS) == set(_WORST_OBSERVED)
+    for name, floor in nightly.PERF_FLOORS.items():
+        assert floor is None or floor > 0, name
+
+
+def test_the_worst_run_ever_observed_does_not_trip_its_own_floor():
+    """A floor that the measurements it was set from would breach is a
+    tripwire wired to the wrong wall."""
+    for name, value in _WORST_OBSERVED.items():
+        assert nightly._check_floor(
+            name, value, higher_is_better=name not in _LOWER_IS_BETTER) is None, name
+
+
+def test_a_several_fold_regression_does_trip_every_pinned_floor():
+    for name, value in _WORST_OBSERVED.items():
+        if nightly.PERF_FLOORS[name] is None:
+            continue
+        worse = value * 4 if name in _LOWER_IS_BETTER else value / 4
+        assert nightly._check_floor(
+            name, worse, higher_is_better=name not in _LOWER_IS_BETTER) is not None, name
+
+
+def test_the_log_line_carries_every_measurement_after_the_fields_doctor_reads(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(nightly, "LOG_PATH", tmp_path / "nightly.log")
+    nightly._append_log_line({
+        "ok": True, "finished_at": "2026-09-19T02:00:00+00:00",
+        "evaluate": {"recall": 0.7},
+        "index": {"seconds": 40.0, "files_per_second": 0.875},
+        "probe": {"chunker_chunks_per_second": 1000.1, "embed_chunks_per_second": 7.5,
+                  "search_p95_ms": 250.0, "search_p50_ms": 190.0},
+        "breaches": [],
+    })
+    line = (tmp_path / "nightly.log").read_text(encoding="utf-8").strip()
+    # doctor.py reads the head of the line; the new fields ride after it.
+    assert line.startswith("2026-09-19T02:00:00+00:00 PASS index=40.0s recall=0.7 breaches=0")
+    for field in ("files_per_s=0.88", "chunker_per_s=1000.1", "embed_per_s=7.5",
+                  "search_p95_ms=250.0", "search_p50_ms=190.0"):
+        assert field in line
+
+
+def test_leasha_python_overrides_the_venv_path(monkeypatch, tmp_path):
+    """A git worktree has no `venv/` of its own."""
+    monkeypatch.setenv("LEASHA_PYTHON", str(tmp_path / "python.exe"))
+    assert nightly._find_python() == tmp_path / "python.exe"
+    monkeypatch.delenv("LEASHA_PYTHON")
+    assert nightly._find_python().parts[-3:] == ("venv", "Scripts", "python.exe")
+
+
+def test_the_probe_measures_the_chunker_without_a_model():
+    from tools import nightly_probe
+
+    out = nightly_probe.measure_chunker()
+    assert out["chunker_chunks_per_second"] > 0
+    assert out["chunker_chars_per_second"] > 0
+    assert len(out["_chunks"]) > nightly_probe.DOCUMENTS   # several chunks per document
+
