@@ -733,7 +733,8 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
 
         assert hasattr(built, "mail_view") and built.mail_view is not None
         assert hasattr(built, "code_view") and built.code_view is not None
-        assert built.rail.count() == 8, "Mail and Code must both be inserted"
+        assert built.rail.count() == 9, (
+                "Mail, Code and Chat must all be inserted")
     finally:
         store.close()
         vectors.close()
@@ -771,7 +772,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
             app.processEvents()
 
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Mail", "Code", "Offline", "Reports",
+            "Search", "Files", "Mail", "Code", "Chat", "Offline", "Reports",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -780,6 +781,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         for view, title in (
             (built.search_view, "Search"), (built.files_view, "Files"),
             (built.mail_view, "Mail"), (built.code_view, "Code"),
+            (built.chat_view, "Chat"),
             (built.offline_media_view, "Offline"),
             (built.reports_view, "Reports"),
             (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
