@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.32 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.33 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -46,7 +46,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 
 | # | Ref | Order | Status | Done/Open | Blocked by |
 |---|---|---|---|---|---|
-| 0 | `202626082352` | Remediate the 2026-08-26 review | RELEASED *(inferred)* | 55 / 3 | The remaining three are the structural splits, deferred by "working version first" |
+| 0 | `202626082352` | Remediate the 2026-08-26 review | **SHIPPED** | **58 / 0** | The three structural splits (cli, presenter, shell controllers) closed 2026-09-19 - see the order's own dated note |
 | 0a | `202626270046` | Context-aware `/` menu, GUI and CLI | SHIPPED | 25 / 0 | Was queued behind review §2 (H5, H6, H11) |
 | 0b | `202626270114` | Index Tuning — one screen, three modes | RELEASED | **39 / 1** | §5e closed by the idle-tune wiring (see `WORKORDER-space-report-and-idle-tune-ui-wiring` §2); 6h closed 2026-09-16 by the crash-recovery session (local int8 quantisation via `onnx`/`onnxruntime.quantization`, never a different source - see the order's own dated note). Open: 6i, still unmet on its own condition (§6a shows conversion does not cost enough to justify a persistent soffice session) |
 | 0c | `202626270157` | The search experience — one box for an 8-year-old | **SHIPPED** | **26 / 0** | Closed 2026-09-07 |

@@ -45,6 +45,7 @@
     <Folder Include="_Knowledge" />
     <Folder Include="_Knowledge\prompt_log" />
     <Folder Include="app" />
+    <Folder Include="app\cli" />
     <Folder Include="app\core" />
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
@@ -54,6 +55,8 @@
     <Folder Include="app\shell" />
     <Folder Include="app\storage" />
     <Folder Include="app\ui" />
+    <Folder Include="app\ui\controllers" />
+    <Folder Include="app\ui\presenter" />
     <Folder Include="app\ui\widgets" />
     <Folder Include="assets" />
     <Folder Include="assets\icons" />
@@ -84,7 +87,23 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="app\__init__.py" />
-    <Compile Include="app\cli.py" />
+    <Compile Include="app\cli\__init__.py" />
+    <Compile Include="app\cli\__main__.py" />
+    <Compile Include="app\cli\_common.py" />
+    <Compile Include="app\cli\_progress.py" />
+    <Compile Include="app\cli\bench.py" />
+    <Compile Include="app\cli\desktop.py" />
+    <Compile Include="app\cli\evaluate.py" />
+    <Compile Include="app\cli\extract.py" />
+    <Compile Include="app\cli\formats.py" />
+    <Compile Include="app\cli\index.py" />
+    <Compile Include="app\cli\maintenance.py" />
+    <Compile Include="app\cli\offline_media.py" />
+    <Compile Include="app\cli\ollama.py" />
+    <Compile Include="app\cli\report.py" />
+    <Compile Include="app\cli\repos.py" />
+    <Compile Include="app\cli\scan.py" />
+    <Compile Include="app\cli\search.py" />
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
     <Compile Include="app\core\code_types.py" />
@@ -210,6 +229,9 @@
     <Compile Include="app\ui\__init__.py" />
     <Compile Include="app\ui\chips_logic.py" />
     <Compile Include="app\ui\code_view.py" />
+    <Compile Include="app\ui\controllers\__init__.py" />
+    <Compile Include="app\ui\controllers\index_controller.py" />
+    <Compile Include="app\ui\controllers\settings_controller.py" />
     <Compile Include="app\ui\debug_recorder.py" />
     <Compile Include="app\ui\drag_out.py" />
     <Compile Include="app\ui\editors.py" />
@@ -226,7 +248,19 @@
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
-    <Compile Include="app\ui\presenter.py" />
+    <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\code.py" />
+    <Compile Include="app\ui\presenter\commands.py" />
+    <Compile Include="app\ui\presenter\explain.py" />
+    <Compile Include="app\ui\presenter\formatting.py" />
+    <Compile Include="app\ui\presenter\indexing.py" />
+    <Compile Include="app\ui\presenter\offline.py" />
+    <Compile Include="app\ui\presenter\repos.py" />
+    <Compile Include="app\ui\presenter\results.py" />
+    <Compile Include="app\ui\presenter\rows.py" />
+    <Compile Include="app\ui\presenter\search.py" />
+    <Compile Include="app\ui\presenter\settings.py" />
+    <Compile Include="app\ui\presenter\snippets.py" />
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
@@ -242,6 +276,7 @@
     <Compile Include="app\ui\shell.py" />
     <Compile Include="app\ui\splash.py" />
     <Compile Include="app\ui\startup_timing.py" />
+    <Compile Include="app\ui\tasks.py" />
     <Compile Include="app\ui\theme.py" />
     <Compile Include="app\ui\thumbnail_loader.py" />
     <Compile Include="app\ui\timeline.py" />
