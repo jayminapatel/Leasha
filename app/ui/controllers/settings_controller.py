@@ -88,7 +88,9 @@ class SettingsController(QObject):
         # on the way in, or setting one would emit back into this handler and
         # the two would bounce off each other.
         self._w._set_toolbar_rerank(bool(enabled))
-        settings_box = getattr(self._w.settings_view, "rerank", None)
+        # `getattr` on the window too: the toolbar's box can be toggled in the
+        # beat before the Settings page is built (`_construct_deferred_pages`).
+        settings_box = getattr(getattr(self._w, "settings_view", None), "rerank", None)
         if settings_box is not None and settings_box.isChecked() != bool(enabled):
             settings_box.blockSignals(True)
             settings_box.setChecked(bool(enabled))
