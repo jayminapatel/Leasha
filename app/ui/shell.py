@@ -35,6 +35,7 @@ from app.core.logging import logger
 from app.llm.ollama import OllamaClient
 from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
 from app.ui.code_view import CodeView
+from app.ui.controllers.chat_controller import ChatController
 from app.ui.controllers.index_controller import IndexController
 from app.ui.controllers.settings_controller import SettingsController
 from app.ui.files_view import FilesView
@@ -706,6 +707,13 @@ class MainWindow(QMainWindow):
         code_wrapped = wrap_if_needed(self.code_view, scroll=False)
         self.rail.insertTab(after_files + 2, code_wrapped, "Code", icon="code")
         self._tab_wrapped[self.code_view] = code_wrapped
+        # Chat (order 202626270611): a real tab, after Code. Everything but
+        # the page itself - engine, worker, saving - is `ChatController`.
+        self.chat_ctl = ChatController(self)
+        self.chat_view = self.chat_ctl.build()
+        chat_wrapped = wrap_if_needed(self.chat_view, scroll=False)
+        self.rail.insertTab(after_files + 3, chat_wrapped, "Chat", icon="message-square")
+        self._tab_wrapped[self.chat_view] = chat_wrapped
         for view, wrapped in self._tab_wrapped.items():
             self._tab_index[view] = self.rail.indexOf(wrapped)
 
@@ -1985,7 +1993,8 @@ class MainWindow(QMainWindow):
         # worker by then.
         for view in (self.search_view, self.files_view,
                      getattr(self, "mail_view", None),
-                     getattr(self, "code_view", None)):
+                     getattr(self, "code_view", None),
+                     getattr(self, "chat_view", None)):
             if view is None:
                 continue
             stage(type(view).__name__, view.shutdown)

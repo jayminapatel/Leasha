@@ -54,6 +54,8 @@ ICON_NAMES = (
     "palette", "cpu", "clock", "play", "square", "scan-search", "refresh-cw",
     "trash-2", "circle-help", "keyboard", "eye", "image", "list", "bookmark",
     "info", "x-circle", "copy", "sun-moon",
+    # The Chat tab (order 202626270611).
+    "message-square",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

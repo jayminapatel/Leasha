@@ -51,6 +51,7 @@ from app.ui.presenter import (
     history_label_text, pst_status_text, settings_labels,
 )
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.chat_box import ChatBox
 from app.ui.widgets.debug_pane import DebugPane
 from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.environment_box import EnvironmentBox
@@ -174,6 +175,11 @@ class SettingsView(QWidget):
         # by a button whose tooltip says what it will not touch.
         self.editor_box = EditorBox(settings)
         self.editor_box.changed.connect(self.settings_changed)
+
+        # Work order 202626270611 3e: the few chat settings, built from the
+        # registry - see `widgets/chat_box.py`. Hidden while there are none.
+        self.chat_box = ChatBox(settings)
+        self.chat_box.changed.connect(self.settings_changed)
         self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
@@ -493,6 +499,7 @@ class SettingsView(QWidget):
         models_layout.setContentsMargins(0, 0, 0, 0)
         models_layout.addWidget(self.models)
         models_layout.addWidget(self.photo_people_box)
+        models_layout.addWidget(self.chat_box)
         models_layout.addStretch(1)
 
         # §0 settled decision #2, honoured here: theme relocates to
