@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 6.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1062,6 +1062,57 @@ plain `pip install -r requirements.txt` against the pre-fix file pulled
 confirmed `onnxruntime.get_available_providers()` returns
 `['DmlExecutionProvider', 'CPUExecutionProvider']` and `doctor.py` prints
 READY.
+
+**2026-09-19 — the 0t guard was defeated four days later, by a documented
+command, and the ETA of "55 days" was mostly not about that.** Three separate
+findings from one session; keep them apart.
+
+*The guard.* The venv was found with `onnxruntime` 1.30.0 (CPU) over the
+DirectML files, providers `['AzureExecutionProvider', 'CPUExecutionProvider']`.
+Cause: `requirements.txt` documented the optional face-detection install as
+`pip install insightface==0.7.3 opencv-python==4.11.0.86 onnxruntime` with the
+last name **unpinned**. With only `onnxruntime-directml` present, pip does not
+count `onnxruntime` as satisfied, so it fetched the newest CPU wheel. Both
+`.dist-info` folders were dated 2026-09-15 17:52. The line is now pinned to
+`==1.24.4`. Repaired in place: plain 1.24.4, then DirectML 1.24.4 last, both
+`--force-reinstall --no-deps`; `DmlExecutionProvider` is listed again. **Any
+manual `pip` in this venv can do this again — check the providers after it.**
+
+*The ETA is honest; the rate was the fault, and it is now explained.*
+`format_eta` is remaining / recent rate and was right: 114,614 files in the saved
+scan at about 1.4 files/minute is about 55 days. The last run's stage timing put
+87% of its time in `embed` (85,162 s of 97,444 s; 0.57 vectors/s). Restoring
+DirectML did **not** speed that up - measured with the real `Embedder`, CPU 12
+threads about 8/s, DirectML on the Intel Iris Xe about 7/s. The causes, found by
+running the indexer on 90 real documents in a scratch index and changing one
+setting at a time: `threads 1` (the envelope charged each of four extraction
+workers a whole core; they were busy 6% of the time) - and, much less, a
+256-passage model call (fastembed's own default; 32 is about 10% faster and a
+third of the memory, measured interleaved). 1 thread: 1,055 s; four 4-thread
+runs: 222-587 s. **This laptop (15 W i7-1365U) varies about 2.5x run to run with
+the owner's other applications, so the size of the gain is a range, roughly
+1.8x-4.8x, not a number.** `resolved batch 512` came from a
+stored `embed_per_second` of 106,666,662, produced by `index_bench` timing a
+generator it never iterated. All fixed - work order `202626191300` (0u), which
+carries the numbers. `.env` has `EMBED_DEVICE=cpu`; only the Compute box on the
+Tuning screen writes it, so it was chosen as "Processor", and it is left alone.
+Also fixed: every `.ppt` (79 of 79) was `ERR_CONVERTER_FAILED` because the rule
+used `txt:Text`, a Writer filter. **Those 79 rows stay `SKIPPED` until one
+`app.cli index --retry-skipped`**, because a settled skip is never re-attempted.
+
+*Closing the window did not stop the run.* `IndexingView` runs its worker in its
+own `QThreadPool`; `MainWindow._drain_workers` waited only on the global pool,
+saw nothing, and the log read `closing: took 0.0s` while conversions carried on
+for three minutes. Separately `Pipeline._extract_worker` checked the stop flag
+only when its queue was empty, and the queue is bounded and kept full. Both
+fixed, with `tests/unit/test_close_waits_for_index_run.py`. The same defect is in
+the run log of 2026-09-17: `closing` at 11:27:20, the event loop returning at
+20:19:29. **Not found: why the event loop stays alive after `closeEvent` while a
+run is in the pool.** No stack could be taken before the process was stopped, so
+`app/ui/exit_watchdog.py` now logs every thread's stack 30 s after a close and
+ends a surviving process at 300 s - armed only by `main()`. **Read the stacks
+before reasoning about it.** Also open: a stop that arrives mid-batch still waits
+for the batch, because vectors are written before an archive's completion marker.
 
 **A throughput number without its conditions is not a number.** Embedding was measured at
 1.53 passages/second and called "twenty times too slow", on the assumption that a small model

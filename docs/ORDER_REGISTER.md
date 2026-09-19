@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.29 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.30 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -65,6 +65,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b partially closed 2026-09-07 (Mail/Code deferred; Files/Indexing/Settings still up-front) — one item open |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 24** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
+| 0u | `202626191300` | Indexing that works - the measured causes of "55 days" | RELEASED | **16 / 5** | Built 2026-09-19 in the session that wrote it. Open: 5b needs the owner's one-off `--retry-skipped` (79 `.ppt` rows are already recorded as skipped); 6d needs the next hang's stack dump; 6e needs the M6 vectors-before-marker ordering redesigned; the real-corpus ETA needs the owner's run |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
