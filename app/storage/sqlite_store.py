@@ -2880,6 +2880,74 @@ class SqliteStore:
         except sqlite3.Error as exc:
             _log.debug("could not record a saved-search run: {}", exc)
 
+    # -- chat sessions (work order 202626270611, 3d) ---------------------------
+
+    def save_session(self, session_id: Optional[int], title: str,
+                     turns: Sequence[dict[str, Any]], shelf: Sequence[dict[str, Any]] = (),
+                     model: str = "") -> int:
+        r"""Insert or update one Chat conversation. Returns its id.
+
+        `turns` and `shelf` are lists of plain JSON-able dicts - `app.chat.
+        sessions` converts to and from `ChatTurn`/`Receipt`, so this layer knows
+        nothing about chat. `session_id=None` makes a new one; an id that no
+        longer exists (deleted in another window) also makes a new one rather
+        than raising, because losing a conversation to a stale id is worse than
+        keeping a duplicate.
+        """
+        import json
+
+        now = int(time.time())
+        cleaned = " ".join(str(title or "").split())[:120] or "New conversation"
+        payload = (cleaned, str(model or ""), json.dumps(list(turns), ensure_ascii=False),
+                   json.dumps(list(shelf), ensure_ascii=False))
+        with self.write() as conn:
+            if session_id is not None:
+                cursor = conn.execute(
+                    "UPDATE chat_sessions SET title = ?, model = ?, turns_json = ?, "
+                    "shelf_json = ?, updated_at = ? WHERE id = ?",
+                    (*payload, now, int(session_id)))
+                if cursor.rowcount:
+                    return int(session_id)
+            cursor = conn.execute(
+                "INSERT INTO chat_sessions "
+                "  (title, model, turns_json, shelf_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)", (*payload, now, now))
+            return int(cursor.lastrowid)
+
+    def load_sessions(self, *, with_turns: bool = True) -> list[dict[str, Any]]:
+        """Every saved conversation, most recently used first.
+
+        `with_turns=False` leaves `turns` and `shelf` empty - for a sidebar that
+        lists titles and dates and should not parse every conversation ever had.
+        A row whose JSON is damaged comes back with empty turns rather than
+        raising: one bad session never hides the others.
+        """
+        import json
+
+        out: list[dict[str, Any]] = []
+        for row in self.conn.execute(
+                "SELECT id, title, model, turns_json, shelf_json, created_at, updated_at "
+                "FROM chat_sessions ORDER BY updated_at DESC, id DESC"):
+            turns: list = []
+            shelf: list = []
+            if with_turns:
+                try:
+                    turns = json.loads(row["turns_json"] or "[]")
+                    shelf = json.loads(row["shelf_json"] or "[]")
+                except ValueError:
+                    turns, shelf = [], []
+            out.append({"id": int(row["id"]), "title": row["title"], "model": row["model"],
+                        "turns": turns, "shelf": shelf,
+                        "created_at": int(row["created_at"]),
+                        "updated_at": int(row["updated_at"])})
+        return out
+
+    def delete_session(self, session_id: int) -> bool:
+        """Delete one conversation. False when there was none by that id."""
+        with self.write() as conn:
+            cursor = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (int(session_id),))
+        return bool(cursor.rowcount)
+
     @staticmethod
     def _suspend_content_triggers(conn: sqlite3.Connection) -> list[str]:
         """Drop the FTS content triggers, returning the SQL that recreates them.
