@@ -18,7 +18,6 @@ the one paying the one-to-two second ONNX load.
 from __future__ import annotations
 
 import time
-from dataclasses import replace
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -26,20 +25,18 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
-    QDialog,
     QMainWindow,
     QMessageBox,
     QWidget,
 )
 
 from app.core.branding import window_title
-from app.core.errors import to_app_error
 from app.core.logging import logger
-from app.index.resources import limits_from_settings
 from app.llm.ollama import OllamaClient
 from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
-from app.index.schedule import SchedulePolicy
 from app.ui.code_view import CodeView
+from app.ui.controllers.index_controller import IndexController
+from app.ui.controllers.settings_controller import SettingsController
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
@@ -47,7 +44,6 @@ from app.ui.offline_media_view import OfflineMediaView
 from app.ui.reports_view import ReportsView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
-from app.ui.scheduler import IndexScheduler
 from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
 from app.ui.tray import TrayPresence
@@ -61,14 +57,10 @@ from app.ui.widgets.scroll import wrap_if_needed
 from app.ui.rail_state import (
     FAILED, FINISHED, IDLE, RUNNING, pill_fraction, pill_text,
 )
-from app.core.run_lock import GUI
 # **Worker bodies live in the presenter**, not here: `test_ui_never_blocks`
 # reads this file and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
-from app.ui.presenter import (
-    _read_external_run, _scan_and_save, cleared_message, index_bytes, index_counts,
-    offline_media_run_summary,
-)
+from app.ui.presenter import index_counts
 from app.ui.workers import CallableWorker, open_async, open_in_explorer, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -179,6 +171,14 @@ class MainWindow(QMainWindow):
         #: behaviour (no image lane) rather than raising, exactly like
         #: `SearchEngine`'s own `image_vectors=`/`clip_text_embedder=`.
         self._image_vectors = image_vectors
+        #: The handlers moved out of this class (work order 202626082352 §7).
+        #: **Built before anything below runs**, because `__init__` itself calls
+        #: `_load_roots`, `_read_state` consumers and the `_apply_*` methods, and
+        #: each of those is a same-named method here that forwards to one of
+        #: these. Held as attributes so nothing collects them - a signal
+        #: connected to a controller's bound method outlives no reference.
+        self.settings_ctl = SettingsController(self)
+        self.index_ctl = IndexController(self)
 
         # Work order 0r item 1c, second clause: if the CLIP text-tower
         # embedder's model cache is emptied mid-life (a moved index, a
@@ -750,27 +750,212 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001
             _log.warning("background start-up work failed: {}", exc)
 
-    # -- the debug recorder --------------------------------------------------
+    # -- handlers that live in the controllers -------------------------------
+    #
+    # `SettingsController` and `IndexController` (app/ui/controllers/) own
+    # these; the window keeps a same-named method for each so that signal
+    # wiring in `__init__` and every outside caller reach the same behaviour
+    # they always did. The bodies, and the reasons for them, are over there.
+
+    # settings: persistence and applying a changed setting
 
     def _debug_recording_toggled(self, on: bool) -> None:
-        """Remember the choice; it takes effect at the next start.
+        self.settings_ctl._debug_recording_toggled(on)
 
-        Deliberately not applied to the running window. Turning recording on
-        mid-session would produce a file that begins in the middle of whatever
-        went wrong, missing the startup context that makes the rest readable -
-        and the whole point of the feature is a file somebody else can follow
-        from the top.
-        """
-        self._store.set_state("ui:debug_recording", "on" if on else "off")
-        if on and not self.recorder.enabled:
-            self.settings_view.environment.set_recording_status(
-                "Recording starts the next time you open the app. "
-                "The file goes in logs\\sessions\\."
-            )
-        elif not on and self.recorder.enabled:
-            self.settings_view.environment.set_recording_status(
-                f"Still recording to {self.recorder.path.name} until you close the app."
-            )
+    def _rerank_toggled(self, enabled: bool) -> None:
+        self.settings_ctl._rerank_toggled(enabled)
+
+    def _set_toolbar_rerank(self, enabled: bool) -> None:
+        self.settings_ctl._set_toolbar_rerank(enabled)
+
+    def _change_index_location(self) -> None:
+        self.settings_ctl._change_index_location()
+
+    def _change_meaning_model(self) -> None:
+        self.settings_ctl._change_meaning_model()
+
+    def _chunk_count(self) -> int:
+        return self.settings_ctl._chunk_count()
+
+    def _settings_changed(self, values: dict) -> None:
+        self.settings_ctl._settings_changed(values)
+
+    def _tray_changed(self, minimise: bool, close: bool) -> None:
+        self.settings_ctl._tray_changed(minimise, close)
+
+    def _cloud_toggled(self, enabled: bool) -> None:
+        self.settings_ctl._cloud_toggled(enabled)
+
+    def _limits_changed(self, values: dict) -> None:
+        self.settings_ctl._limits_changed(values)
+
+    def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
+        self.settings_ctl._ollama_model_changed(enabled, model, timeout_s)
+
+    def _apply_search_preferences(self) -> None:
+        self.settings_ctl._apply_search_preferences()
+
+    def _apply_hotkey(self) -> None:
+        self.settings_ctl._apply_hotkey()
+
+    def _theme_changed(self, preference: str) -> None:
+        self.settings_ctl._theme_changed(preference)
+
+    def _refresh_link_scheme(self) -> None:
+        self.settings_ctl._refresh_link_scheme()
+
+    def _links_toggled(self, wanted: bool) -> None:
+        self.settings_ctl._links_toggled(wanted)
+
+    def _load_roots(self) -> list[str]:
+        return self.settings_ctl._load_roots()
+
+    def _load_code_types(self) -> tuple:
+        return self.settings_ctl._load_code_types()
+
+    def _save_code_types(self, preset: str, groups: list) -> None:
+        self.settings_ctl._save_code_types(preset, groups)
+
+    def _load_root_modes(self) -> dict:
+        return self.settings_ctl._load_root_modes()
+
+    def _save_root_modes(self, modes: dict) -> None:
+        self.settings_ctl._save_root_modes(modes)
+
+    def _load_cloud_content_roots(self) -> set:
+        return self.settings_ctl._load_cloud_content_roots()
+
+    def _save_cloud_content_roots(self, roots: set) -> None:
+        self.settings_ctl._save_cloud_content_roots(roots)
+
+    def _file_types_saved(self, changes: dict) -> None:
+        self.settings_ctl._file_types_saved(changes)
+
+    def _save_pst_backend(self, backend: str) -> None:
+        self.settings_ctl._save_pst_backend(backend)
+
+    def _apply_pst_backend(self, backend: str) -> None:
+        self.settings_ctl._apply_pst_backend(backend)
+
+    def _save_roots(self, roots: list[str]) -> None:
+        self.settings_ctl._save_roots(roots)
+
+    # the index run: its lifecycle, schedule, tuning and offline-media runs
+
+    def _start_scheduler(self) -> None:
+        self.index_ctl._start_scheduler()
+
+    def _schedule_changed(self, policy: Any) -> None:
+        self.index_ctl._schedule_changed(policy)
+
+    def _load_last_index_time(self) -> Optional[datetime]:
+        return self.index_ctl._load_last_index_time()
+
+    def _save_last_index_time(self, when: datetime) -> None:
+        self.index_ctl._save_last_index_time(when)
+
+    def _last_run_record(self) -> Optional[dict]:
+        return self.index_ctl._last_run_record()
+
+    def _ocr_mode_for_run(self) -> str:
+        return self.index_ctl._ocr_mode_for_run()
+
+    def _offer_images_pass(self, _stats: Any) -> None:
+        self.index_ctl._offer_images_pass(_stats)
+
+    def _refresh_tuning_status(self) -> None:
+        self.index_ctl._refresh_tuning_status()
+
+    def _learn_from_run(self, stats: Any) -> None:
+        self.index_ctl._learn_from_run(stats)
+
+    def _benchmark_models(self) -> None:
+        self.index_ctl._benchmark_models()
+
+    def _can_use_gpu(self) -> bool:
+        return self.index_ctl._can_use_gpu()
+
+    def _benchmarked(self, result: Any) -> None:
+        self.index_ctl._benchmarked(result)
+
+    def _rescan_archives(self) -> None:
+        self.index_ctl._rescan_archives()
+
+    def _poll_external_run(self) -> None:
+        self.index_ctl._poll_external_run()
+
+    def _show_external_run(self, payload: dict) -> None:
+        self.index_ctl._show_external_run(payload)
+
+    def _stop_external_run(self) -> None:
+        self.index_ctl._stop_external_run()
+
+    def _maybe_run_idle_bench(self) -> None:
+        self.index_ctl._maybe_run_idle_bench()
+
+    def _idle_bench_finished(self, result: Any) -> None:
+        self.index_ctl._idle_bench_finished(result)
+
+    def _run_idle_optimize(self) -> None:
+        self.index_ctl._run_idle_optimize()
+
+    def _scan_corpus(self) -> None:
+        self.index_ctl._scan_corpus()
+
+    def _scan_finished(self, payload: dict) -> None:
+        self.index_ctl._scan_finished(payload)
+
+    def _scan_total(self, roots: list[str]) -> int:
+        return self.index_ctl._scan_total(roots)
+
+    def _convert_pst(self, archive: str, destination: str) -> None:
+        self.index_ctl._convert_pst(archive, destination)
+
+    def _conversion_done(self, count: int, target: Path) -> None:
+        self.index_ctl._conversion_done(count, target)
+
+    def _start_indexing(self, *, roots: Optional[list[str]] = None,
+                        recheck_archives: bool = False) -> None:
+        self.index_ctl._start_indexing(roots=roots, recheck_archives=recheck_archives)
+
+    def _index_resolved(self, tuned: Any, chosen: list[str],
+                        roots: Optional[list[str]], recheck_archives: bool) -> None:
+        self.index_ctl._index_resolved(tuned, chosen, roots, recheck_archives)
+
+    def _index_resolve_failed(self, error: Any) -> None:
+        self.index_ctl._index_resolve_failed(error)
+
+    def _reset_index(self) -> None:
+        self.index_ctl._reset_index()
+
+    def _index_cleared(self, outcome: Any) -> None:
+        self.index_ctl._index_cleared(outcome)
+
+    def _offline_media_scan(self, root: str, name: str, description: str) -> None:
+        self.index_ctl._offline_media_scan(root, name, description)
+
+    def _offline_media_scan_after_check(self, root: str, name: str, description: str,
+                                        suggestion: Any) -> None:
+        self.index_ctl._offline_media_scan_after_check(root, name, description, suggestion)
+
+    def _offline_media_scan_confirmed(self, root: str, name: str, description: str,
+                                      same_as: Optional[str]) -> None:
+        self.index_ctl._offline_media_scan_confirmed(root, name, description, same_as)
+
+    def _offline_media_rescan(self, volume_id: int) -> None:
+        self.index_ctl._offline_media_rescan(volume_id)
+
+    def _offline_media_delete(self, volume_id: int) -> None:
+        self.index_ctl._offline_media_delete(volume_id)
+
+    def _offline_media_run_done(self, result: Any) -> None:
+        self.index_ctl._offline_media_run_done(result)
+
+    def _offline_media_run_failed(self, error: Any) -> None:
+        self.index_ctl._offline_media_run_failed(error)
+
+    # -- the debug recorder --------------------------------------------------
+
 
     def _wire_recorder(self) -> None:
         """Attach the recorder to signals that already exist.
@@ -951,369 +1136,6 @@ class MainWindow(QMainWindow):
             if name:
                 action.setIcon(icon(name, colours.get("text_dim", "#888888")))
 
-    # -- the schedule -------------------------------------------------------
-
-    def _start_scheduler(self) -> None:
-        """Wire the clock to the indexer.
-
-        `is_running` is the guard that matters. The single-instance lock stops a
-        second *process* touching the database; nothing stops this application
-        starting a scheduled run on top of one already in progress, and that is
-        the mistake a timer makes at 02:00 with nobody watching.
-        """
-        self.scheduler = IndexScheduler(
-            SchedulePolicy.from_settings(self._settings),
-            is_running=lambda: self.indexing_view.is_running(),
-            load_last_run=self._load_last_index_time,
-            save_last_run=self._save_last_index_time,
-            parent=self,
-        )
-        self.scheduler.due.connect(lambda: self._start_indexing())
-        self.scheduler.state_changed.connect(
-            lambda text: self.notify(f"Indexing: {text}", 8_000)
-        )
-        # **"Next run" was permanently blank.** `set_next_run` existed, said what
-        # it was for, and nothing ever called it - so the one line answering "is
-        # this thing going to run on its own, and when" showed nothing at all,
-        # on a page whose whole job is to answer that.
-        self.scheduler.state_changed.connect(self.indexing_view.set_next_run)
-        self.indexing_view.finished.connect(lambda _stats: self.scheduler.notify_finished())
-        self.scheduler.start()
-        self.indexing_view.set_next_run(self.scheduler.status())
-
-    def _schedule_changed(self, policy: Any) -> None:
-        """Apply a schedule change immediately, and persist it.
-
-        Persisted in `index_state` rather than rewritten into `.env`: the app
-        must never edit a file the user maintains by hand, and a settings panel
-        that silently rewrites configuration is how hand-written comments and
-        overrides disappear. `.env` remains the default; this is the override.
-        """
-        self._store.set_states({
-            "ui:index_schedule": policy.mode,
-            "ui:index_interval_hours": str(policy.interval_hours),
-            "ui:index_daily_at": f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}",
-        })
-        self.scheduler.set_policy(policy)
-        self.indexing_view.schedule_box.set_schedule_status(self.scheduler.status())
-
-    def _rerank_toggled(self, enabled: bool) -> None:
-        """Apply the rerank switch now, and remember it.
-
-        Live where it can be: the engine holds the reranker, and a quality
-        setting that needs a restart to take effect is one people conclude does
-        nothing. Persisted alongside, so the next launch agrees with the box.
-        """
-        reranker = getattr(self._engine, "reranker", None)
-        if reranker is not None:
-            try:
-                reranker.enabled = bool(enabled)
-            except Exception as exc:             # noqa: BLE001 - never fatal
-                _log.warning("could not apply the rerank setting live: {}", exc)
-        # **Whichever control was used, the other follows.** Signals are blocked
-        # on the way in, or setting one would emit back into this handler and
-        # the two would bounce off each other.
-        self._set_toolbar_rerank(bool(enabled))
-        settings_box = getattr(self.settings_view, "rerank", None)
-        if settings_box is not None and settings_box.isChecked() != bool(enabled):
-            settings_box.blockSignals(True)
-            settings_box.setChecked(bool(enabled))
-            settings_box.blockSignals(False)
-        self._store.set_state("ui:rerank_enabled", "on" if enabled else "off")
-
-    def _set_toolbar_rerank(self, enabled: bool) -> None:
-        """Show `enabled` on the search bar's box without re-emitting."""
-        toggle = getattr(self.search_view, "rerank_toggle", None)
-        if toggle is None or toggle.isChecked() == enabled:
-            return
-        toggle.blockSignals(True)
-        toggle.setChecked(enabled)
-        toggle.blockSignals(False)
-
-    def _change_index_location(self) -> None:
-        """Ask what to do about the index location, then record the decision.
-
-        **Nothing is moved from here, and nothing is moved while the app is
-        running.** The stores are open; copying a database out from underneath
-        an open connection is how a half-copied index becomes the only index.
-        So the decision is written down and applied by the installer path on the
-        next start, which is the one moment nothing is holding the files.
-
-        `.env` is written by `env_writer`, never by hand - that is the rule the
-        settings work established, and this is the setting most able to do harm.
-        """
-        from app.ui.widgets.index_flows import ADOPT, FRESH, IndexLocationDialog
-
-        if self.indexing_view.is_running():
-            self.notify(
-                "An index run is in progress. Stop it before moving the index.",
-                8_000)
-            return
-
-        dialog = IndexLocationDialog(Path(self._settings.data_path), self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        choice = dialog.choice()
-
-        # **`.env` is NOT written here, and that is a correction.** It used to
-        # be written immediately while the files stayed put - so the next start
-        # opened an empty folder and an intact index became unreferenced. The
-        # write and the move are one operation, performed together at startup by
-        # `app.core.index_move`, before any store opens. Until then nothing has
-        # changed and the application keeps working exactly as it did.
-        try:
-            from app.core.index_move import plan_move, write_pending
-
-            plan_move(Path(self._settings.data_path), choice.destination, choice.action)
-            write_pending(Path(self._settings.project_path), choice.action, choice.destination)
-        except Exception as exc:                 # noqa: BLE001
-            self._show_error(to_app_error(exc, "ui.settings"))
-            return
-
-        self.settings_view.data_path.setText(str(choice.destination))
-
-        if choice.action == ADOPT:
-            what = "will use the index already there"
-        elif choice.action == FRESH:
-            what = "will start a new, empty index there"
-        else:
-            what = "will move the index there, which can take a while"
-        self.notify(
-            f"Saved: the app {what} when you restart it. Nothing has moved yet, "
-            "and this index keeps working until then.", 12_000)
-
-    def _change_meaning_model(self) -> None:
-        """Confirm the cost of changing the embedding model, then record it."""
-        from app.ui.widgets.index_flows import RebuildVectorsDialog
-
-        if self.indexing_view.is_running():
-            self.notify(
-                "An index run is in progress. Stop it before changing the model.",
-                8_000)
-            return
-
-        current_dim = int(getattr(self._settings, "embed_dim", 384) or 384)
-        dialog = RebuildVectorsDialog(
-            str(getattr(self._settings, "embed_model", "")),
-            self._chunk_count(),
-            self,
-            current_dim=current_dim,
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        try:
-            from app.core.env_writer import apply_values
-
-            # **Both keys, in one write.** Writing `EMBED_MODEL` alone left
-            # `EMBED_DIM` describing the previous model, which is not a
-            # settings inconsistency but a broken index: the store refuses
-            # vectors of the wrong width, and the refusal arrives on the first
-            # batch after the new model has been downloaded, naming a setting
-            # the person never edited. `env_writer` writes the file atomically,
-            # so the two cannot land apart.
-            apply_values(Path(self._settings.env_file), {
-                "EMBED_MODEL": dialog.chosen_model(),
-                "EMBED_DIM": str(dialog.chosen_dim()),
-            })
-        except Exception as exc:                 # noqa: BLE001
-            self._show_error(to_app_error(exc, "ui.settings"))
-            return
-
-        self._store.set_state("index:rebuild_vectors", "pending")
-        if dialog.chosen_dim() != current_dim:
-            self.notify(
-                f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
-                "dimensions. The vector store is rebuilt from empty on the next "
-                "index run, so meaning-based search returns nothing until it "
-                "finishes. Keyword search is unaffected.", 20_000)
-        else:
-            self.notify(
-                "Saved. Restart, then run an index to re-embed everything - search "
-                "keeps working on the old vectors until it finishes.", 12_000)
-
-    def _chunk_count(self) -> int:
-        """How many chunks would have to be re-embedded. Never raises.
-
-        A count over `chunks` is one indexed aggregate and runs once, in
-        response to a deliberate click, to put a real number in front of a
-        decision that costs hours. Zero if it cannot be read - the dialog then
-        says "a few minutes", which is the honest thing to say when the size is
-        unknown rather than a number that was guessed.
-        """
-        try:
-            return int(self._store.stats().get("chunks_total", 0))
-        except Exception as exc:                 # noqa: BLE001
-            _log.debug("could not count chunks: {}", exc)
-            return 0
-
-    def _settings_changed(self, values: dict) -> None:
-        """Write `.env` settings a panel has changed, and apply what applies now.
-
-        **The application writes `.env`; the user never does.** That is the rule
-        the settings work established, and the reason `env_writer` exists - it
-        preserves comments and keys this build has never heard of, so a newer
-        installer's settings survive an older window saving one number.
-
-        Debounced upstream, so this runs once when somebody stops adjusting a
-        control rather than once per notch.
-        """
-        if not values:
-            return
-        try:
-            from app.core.env_writer import apply_values
-
-            apply_values(Path(self._settings.env_file), values)
-        except Exception as exc:                 # noqa: BLE001
-            self._show_error(to_app_error(exc, "ui.settings"))
-            return
-
-        # §1a. **The search behaviours take effect on the very next search**,
-        # not at the next launch. For a switch somebody has just turned off,
-        # the difference is between a working control and one they conclude is
-        # broken - and they would be right to.
-        if any(key.startswith("SEARCH_") for key in values):
-            for key, value in values.items():
-                if key.startswith("SEARCH_"):
-                    # `Settings` is frozen, so the live object cannot be
-                    # updated - the preferences dictionary is built from these
-                    # values instead, which is the same answer by a route that
-                    # works. See task #238 for the frozen-Settings question.
-                    self._settings_overrides[key.lower()] = value
-            self._apply_search_preferences()
-
-        # §3a: the shortcut is re-taken on the spot, because a combination
-        # somebody has just typed and cannot try until the next launch is a
-        # control they will conclude does not work.
-        if any(key.startswith("MINI_SEARCH") for key in values):
-            for key, value in values.items():
-                if key.startswith("MINI_SEARCH"):
-                    self._settings_overrides[key.lower()] = value
-            self._apply_hotkey()
-
-        # Reranking is the one that can take effect without a restart, and the
-        # one people most want to see change - the rest are read when the thing
-        # that uses them next starts.
-        reranker = getattr(self._engine, "reranker", None)
-        if reranker is not None:
-            for key, attribute in (("RERANK_TOP_N", "top_n"),
-                                   ("RERANK_WINDOW_CHARS", "window_chars")):
-                if key in values:
-                    try:
-                        setattr(reranker, attribute, int(values[key]))
-                    except Exception as exc:     # noqa: BLE001 - never fatal
-                        _log.debug("could not apply {} live: {}", key, exc)
-
-        if "RERANK_MODEL" in values:
-            self.notify(
-                "Saved. The rerank model is loaded at startup, so it changes "
-                "the next time the app opens.", 8_000)
-
-    def _tray_changed(self, minimise: bool, close: bool) -> None:
-        """Apply and persist the tray preferences.
-
-        Installs the icon the moment either is switched on, and says so if the
-        desktop has no tray - a preference that silently does nothing is worse
-        than one that is not offered, and this one was previously both.
-        """
-        self.tray.minimise_to_tray = bool(minimise)
-        self.tray.close_to_tray = bool(close)
-        self._store.set_states({
-            "ui:tray_minimise": "on" if minimise else "off",
-            "ui:tray_close": "on" if close else "off",
-        })
-
-        if (minimise or close) and not self.tray.installed and not self.tray.install():
-            self.tray.minimise_to_tray = self.tray.close_to_tray = False
-            self.settings_view.minimise_to_tray.setChecked(False)
-            self.settings_view.close_to_tray.setChecked(False)
-            self.notify(
-                "This desktop has no notification area, so the window will "
-                "minimise normally.", 8_000)
-
-    def _cloud_toggled(self, enabled: bool) -> None:
-        """Remember whether to index cloud-only files.
-
-        Read live when a run starts, so it always worked *for that run* - and
-        reset to off at every launch, which looks exactly like a setting being
-        ignored. In `index_state` rather than `.env`: it is a decision about how
-        this window starts a run, and the walker takes it as a parameter.
-        """
-        self._store.set_state("ui:index_cloud", "on" if enabled else "off")
-
-    def _limits_changed(self, values: dict) -> None:
-        r"""Persist the resource ceilings. They take effect on the next run.
-
-        Not on the run in flight: changing the worker count mid-run would mean
-        stopping and restarting threads that are holding files open, and the
-        gain is a few minutes on a job measured in hours.
-
-        **These were written to the wrong place, and so they did nothing.**
-        Every ceiling here landed in `index_state` under `ui:index_memory_mb`
-        and friends - and nothing anywhere read those keys. `limits_from_
-        settings` reads `Settings`, which is built from `.env`, so the memory
-        ceiling, the worker count, the CPU cap and the free-space floor were all
-        adjustable, saved, reported as saved, and inert. Six controls with real
-        consequences, none of which had any.
-
-        It matters more at a terabyte than it did at 100GB: raising the memory
-        ceiling is the difference between a run that pauses constantly and one
-        that does not, and somebody who raised it and saw no change would
-        reasonably conclude the governor is broken rather than that the setting
-        never arrived.
-
-        So it goes through `.env` like every other setting - non-negotiable 11 -
-        and the in-memory `Settings` is updated too, so the *next run in this
-        session* uses it rather than requiring a restart.
-        """
-        if not values:
-            return
-        # `current_limits` keys are `Settings` field names, and the `.env` key
-        # is the same name upper-cased - which is not a coincidence, it is how
-        # `config.load_settings` reads them. Asserted by `test_settings_registry`.
-        self._settings_changed({key.upper(): value for key, value in values.items()})
-        # **`Settings` is frozen** (see ~line 128 and the module docstring), so
-        # `setattr(self._settings, key, value)` always raised - every time,
-        # for every key - and the `except` above caught it at DEBUG, where
-        # nobody would ever see it. `.env` was written correctly; the live
-        # object never changed, so the "next run in this session" this
-        # function's own docstring promises never arrived without a restart.
-        # `model_copy(update=...)` is this codebase's actual answer for a
-        # frozen `Settings` (see `app.cli`'s `cmd_index`, which does the same
-        # for `--rerank-model`): it produces a new instance with these fields
-        # changed, and one replacement of the whole batch is what a frozen
-        # model allows - there is no field-by-field mutation to fall back to.
-        self._settings = self._settings.model_copy(update=values)
-        self.notify("Saved. Applies to the next index run.", 5_000)
-
-    def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
-        """Apply a model choice immediately, and persist it.
-
-        **Live, not on restart.** The client and the translator are mutated in
-        place rather than rebuilt, so the choice takes effect on the very next
-        press of Interpret - which matters because the natural next thing to do
-        after choosing a model is to try it.
-
-        The health cache is cleared: it was answered about the *old* model, and
-        a stale "yes" would let a generate call proceed against a model that is
-        not installed, failing several seconds later for no visible reason.
-        """
-        self._translator.reconfigure(
-            model=model or None, timeout_s=float(timeout_s), enabled=enabled)
-        self._store.set_states({
-            "ui:ollama_enabled": "on" if enabled else "off",
-            "ui:ollama_model": model,
-            "ui:ollama_timeout_s": str(int(timeout_s)),
-        })
-        # The button appears and disappears with the setting, rather than
-        # sitting there greyed out - an Interpret button that cannot interpret
-        # is a permanent question with no answer on screen.
-        self.search_view.set_interpret_enabled(enabled)
-        self._warm_translator()
-        self.notify(
-            f"Interpret will use {model}, with up to {timeout_s}s." if enabled
-            else "Query interpretation is off. Search is unaffected.", 8_000)
 
     def _warm_translator(self) -> None:
         """Load the model, once, at the moment somebody asks for the feature.
@@ -1352,143 +1174,9 @@ class MainWindow(QMainWindow):
             _log.warning("could not read {}: {}", key, exc)
             return default
 
-    def _load_last_index_time(self) -> Optional[datetime]:
-        raw = self._store.get_state("index:last_run")
-        if not raw:
-            return None
-        try:
-            return datetime.fromisoformat(raw)
-        except ValueError:
-            # A corrupt timestamp must not stop the app opening. Treating it as
-            # "never ran" schedules one run, which is the safe direction.
-            return None
-
-    def _save_last_index_time(self, when: datetime) -> None:
-        self._store.set_state("index:last_run", when.isoformat(timespec="seconds"))
-
-    # -- the tuning screen's evidence ---------------------------------------
-
-    def _last_run_record(self) -> Optional[dict]:
-        r"""What the last run measured, for the tuning footer.
-
-        **Read from what the run itself wrote**, so the footer cannot disagree
-        with the run log about what happened. `stats` are stored as a `repr`
-        of a plain dict of numbers and strings, which `literal_eval` reads
-        without executing anything - a `pickle` here would be a file on disk
-        that runs code, for a progress figure.
-
-        Stage timings are not recorded yet; the footer says so rather than
-        inventing a split. §6a is where they start being measured.
-        """
-        raw = self._read_state("last_run_stats", "")
-        if not raw:
-            return None
-        try:
-            import ast
-
-            stats = ast.literal_eval(raw)
-            if not isinstance(stats, dict):
-                return None
-        except (ValueError, SyntaxError) as exc:
-            _log.debug("the last run's stats could not be read: {}", exc)
-            return None
-
-        elapsed = float(stats.get("elapsed_s") or 0.0)
-        chunks = float(stats.get("chunks") or 0.0)
-        return {
-            "stages": stats.get("stages") or {},
-            "chunks_per_minute": (chunks / elapsed * 60) if elapsed > 0 else 0,
-            # **What the run recorded, not what the settings say now.** The
-            # settings are a fallback for records written before §5c existed;
-            # reading them for a recent run would describe this moment rather
-            # than that one, which is the difference between a measurement and
-            # an anecdote.
-            "resolved": stats.get("resolved") or {
-                "workers": self._settings.index_workers,
-                "batch": self._settings.embed_batch,
-                "device": self._settings.embed_device,
-            },
-        }
-
-    def _ocr_mode_for_run(self) -> str:
-        r"""Which pass this run is, given *what* to read and *when*.
-
-        `INDEX_OCR_MODE` says what; `INDEX_OCR_PASS` says when. They meet here
-        because a run is only ever one pass: choosing to do the images after
-        the run means *this* run is the text one, and the images are a second
-        run. Neither setting can express that alone, which is why the schedule
-        is its own control rather than a fourth value crammed into the mode.
-        """
-        schedule = str(getattr(self._settings, "index_ocr_pass", "with-run")
-                       or "with-run")
-        if schedule in ("after-run", "manual"):
-            return "text"
-        return str(getattr(self._settings, "index_ocr_mode", "both"))
-
-    def _offer_images_pass(self, _stats: Any) -> None:
-        """After a text-only run, say the images are still to do.
-
-        **Offered, never started.** A second pass over a scanned corpus is
-        hours; launching it because a text run finished - possibly while
-        somebody has gone home - is the kind of surprise that gets an
-        application uninstalled. `manual` says nothing at all, which is what
-        the word means.
-        """
-        if str(getattr(self._settings, "index_ocr_pass", "")) != "after-run":
-            return
-        self.notify(
-            "Text is indexed. Images and scans are still to read - press Start "
-            "again to do those.", 30_000)
-
-    def _apply_search_preferences(self) -> None:
-        """Push the search behaviours to the surfaces that read them.
-
-        Called at start-up and again whenever one is changed, so a switch takes
-        effect on the very next search rather than at the next launch - which
-        for a behaviour somebody has just switched off is the difference
-        between a working control and one they believe is broken.
-        """
-        try:
-            from app.search.policy import preferences
-
-            # What was changed in this session wins over what was loaded at
-            # start-up, which is the whole reason the overrides exist.
-            self.search_view.set_search_preferences(
-                preferences(self._settings, self._settings_overrides))
-        except Exception as exc:                 # noqa: BLE001 - never fatal
-            _log.debug("the search behaviours could not be applied: {}", exc)
 
     # -- §3a: search from anywhere --------------------------------------------
 
-    def _apply_hotkey(self) -> None:
-        r"""Take, or give back, the global shortcut. **Never raises.**
-
-        Called at start-up and whenever the setting changes. The result is
-        pushed back into Settings as a sentence, because a shortcut the
-        operating system refused is otherwise indistinguishable from one that
-        works - and this is the feature the product is demonstrated with.
-        """
-        try:
-            from app.ui.hotkey import HotkeyListener
-
-            overrides = self._settings_overrides
-            wanted = overrides.get(
-                "mini_search_enabled",
-                getattr(self._settings, "mini_search_enabled", True))
-            text = str(overrides.get(
-                "mini_search_hotkey",
-                getattr(self._settings, "mini_search_hotkey", "")) or "")
-
-            if self._hotkey is None:
-                self._hotkey = HotkeyListener()
-            self._hotkey.stop()
-            taken = (self._hotkey.start(text, self._summon_mini)
-                     if wanted else False)
-            box = getattr(self.settings_view, "search_behaviour", None)
-            if box is not None and hasattr(box, "say_hotkey"):
-                box.say_hotkey(text, registered=taken or not wanted)
-        except Exception as exc:                 # noqa: BLE001 - see docstring
-            _log.debug("could not set the global shortcut: {}", exc)
 
     def _summon_mini(self) -> None:
         """The shortcut was pressed. **Never raises**: this runs from a native
@@ -1553,133 +1241,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("could not expand the mini search: {}", exc)
 
-    def _refresh_tuning_status(self) -> None:
-        """§5d's status line, and the rates Auto-tune resolves against.
-
-        Both read the store, so both happen here rather than in the widget -
-        the panel is built inside `MainWindow.__init__`, where nothing may
-        touch a database.
-        """
-        try:
-            from app.core.compute_profile import cached_profile
-            from app.core.measured import for_profile
-            from app.index.autotune import status_line
-
-            profile = cached_profile(self._store, self._settings.data_path)
-            self.indexing_view.tuning.set_tuned_status(
-                status_line(self._store, profile))
-            self.indexing_view.tuning.set_measured(
-                {"rates": for_profile(self._store, profile)})
-        except Exception as exc:                 # noqa: BLE001 - a status line
-            _log.debug("the tuning status could not be refreshed: {}", exc)
-
-    def _learn_from_run(self, stats: Any) -> None:
-        r"""§5c: what the run just measured, and what it argues for.
-
-        **In Auto the change applies itself and the notice is past tense.** The
-        product rule is explicit: a non-technical person must never be handed a
-        decision in order to get the benefit. In Manual it is a proposal, and
-        the status bar says so.
-
-        Wrapped whole, because none of this may cost somebody the end of an
-        index run that otherwise succeeded.
-        """
-        try:
-            from app.core.compute_profile import cached_profile
-            from app.index.autotune import learn
-
-            profile = cached_profile(self._store, self._settings.data_path)
-            found = learn(self._store, profile, stats,
-                          mode=self.indexing_view.tuning.current_mode(),
-                          device=self._settings.embed_device)
-            self._refresh_tuning_status()
-            self.indexing_view.tuning.set_last_run(self._last_run_record())
-            if not found:
-                return
-            if found.applied:
-                self._limits_changed({key.lower(): value
-                                      for key, value in found.values.items()})
-            self.notify(found.message, 20_000, level="warning")
-        except Exception as exc:                 # noqa: BLE001
-            _log.debug("nothing was learned from this run: {}", exc)
-
-    def _benchmark_models(self) -> None:
-        """Time the embedding model on this machine, off the UI thread.
-
-        **The one question the specification sheet cannot answer.** Whether 96
-        Iris Xe execution units beat this particular processor on a small embed
-        model is not knowable from the numbers on the box, and §0 of the
-        index-tuning order says so; this is how somebody finds out.
-        """
-        from app.core.compute_profile import cached_profile
-        from app.core.measured import remember
-        from app.index.index_bench import run_index_bench
-
-        # **The whole pipeline, not only the model.** This button used to run
-        # `embed_bench`, which answers "how fast is the model here" - the
-        # smaller half. A machine whose model is quick and whose disk is slow
-        # is bounded by the disk, and a screen holding only the model number
-        # will confidently recommend a graphics card to somebody who needs a
-        # different drive. `bench-index` on the command line does the same
-        # work; this is the same function, so the two cannot disagree.
-        devices = ("cpu", "gpu") if self._can_use_gpu() else None
-
-        def measure() -> Any:
-            found = run_index_bench(self._settings, devices=devices)
-            if not found.error:
-                profile = cached_profile(self._store, self._settings.data_path)
-                remember(self._store, found.as_measured(profile.fingerprint()))
-            return found
-
-        self.notify(
-            "Timing this computer on a fixed workload - about a minute…",
-            120_000)
-        worker = CallableWorker(measure, component="ui.tuning")
-        worker.signals.finished.connect(self._benchmarked)
-        worker.signals.failed.connect(self._show_error)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _can_use_gpu(self) -> bool:
-        """Is there a graphics card worth timing against the processor?
-
-        The one question §0 says the specification sheet cannot answer, so it
-        is only worth the extra minute when there is something to compare.
-        """
-        try:
-            from app.core.compute_profile import cached_profile
-            from app.index.backends import why_unavailable
-
-            return not why_unavailable(
-                cached_profile(self._store, self._settings.data_path))
-        except Exception:                        # noqa: BLE001
-            return False
-
-    def _benchmarked(self, result: Any) -> None:
-        """Report a benchmark in the numbers somebody can act on.
-
-        **Reading, writing and the model, not only the model.** A run whose
-        model is quick and whose disk is slow is bounded by the disk, and the
-        three side by side are what say which.
-        """
-        if getattr(result, "error", ""):
-            self.notify(
-                f"The benchmark could not run: {result.error}", 15_000)
-            return
-
-        rates = dict(getattr(result, "embed_per_second", {}) or {})
-        parts = [f"reading {result.extract_per_second:,.0f} files a second",
-                 f"writing {result.write_per_second:,.0f} chunks a second"]
-        parts += [f"meaning {rate:,.0f} a second on the "
-                  f"{'graphics card' if device == 'gpu' else 'processor'}"
-                  for device, rate in rates.items()]
-        # Notes carry the things that make a number untrustworthy - a model
-        # that would not load, a graphics card that declined. Saying the
-        # number without them is how a figure nobody should act on gets quoted
-        # for a year.
-        said = "; ".join(parts) + ("  " + " ".join(result.notes)
-                                   if result.notes else "")
-        self.notify(f"This computer: {said}", 40_000)
-        self._refresh_tuning_status()
 
     def _focus_files(self) -> None:
         """Ctrl+P, the shortcut every editor uses for "go to file"."""
@@ -1724,10 +1285,6 @@ class MainWindow(QMainWindow):
         self._show(code_view)
         code_view.focus()
 
-    def _theme_changed(self, preference: str) -> None:
-        self._theme_preference = preference
-        self._store.set_state("ui:theme", preference)
-        self._apply_theme()
 
     def _apply_theme(self) -> None:
         """Follow the operating system unless told otherwise.
@@ -1857,42 +1414,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:             # noqa: BLE001 - see docstring
             _log.warning("could not open the log window: {}", exc)
 
-    def _refresh_link_scheme(self) -> None:
-        r"""Read whether `leasha://` is registered, off the UI thread.
-
-        Adoptions 7a wrote `register`/`unregister` and gave the window no way
-        to show or change either. A registry read is I/O, so it is a worker,
-        and the checkbox stays disabled until it answers. Off Windows there is
-        nothing to read: the box says so by staying disabled.
-        """
-        import os
-
-        box = self.settings_view.environment
-        if os.name != "nt":
-            box.set_links_state(None)
-            return
-        from app.core.deeplink import is_registered
-
-        worker = CallableWorker(is_registered, component="ui.links.read")
-        worker.signals.finished.connect(box.set_links_state)
-        worker.signals.failed.connect(lambda _e: box.set_links_state(None))
-        run(QThreadPool.globalInstance(), worker)
-
-    def _links_toggled(self, wanted: bool) -> None:
-        r"""The Settings box was ticked or unticked: write the registry, then
-        show what it now says - so a write that failed is not left looking done."""
-        from app.core.deeplink import is_registered, set_registered
-
-        box = self.settings_view.environment
-
-        def change() -> bool:
-            set_registered(bool(wanted))
-            return is_registered()
-
-        worker = CallableWorker(change, component="ui.links.write")
-        worker.signals.finished.connect(box.set_links_state)
-        worker.signals.failed.connect(lambda _e: self._refresh_link_scheme())
-        run(QThreadPool.globalInstance(), worker)
 
     def _open_photo_tagger(self) -> None:
         r"""Open the window for naming the people in photos, or bring it back.
@@ -2163,154 +1684,6 @@ class MainWindow(QMainWindow):
         self._show(self.indexing_view)
         self._start_indexing(roots=[folder])
 
-    def _load_roots(self) -> list[str]:
-        """Index roots persist in `index_state`, alongside the index they build.
-
-        Settings that vanish on restart are not settings. They live with the
-        index rather than in .env because they describe *this* index, and .env is
-        written by the installer and would be overwritten by a repair run.
-        """
-        try:
-            stored = self._store.get_state("ui:roots", "")
-        except Exception:                        # noqa: BLE001
-            return []
-        return [root for root in (stored or "").split("|") if root]
-
-    def _load_code_types(self) -> tuple:
-        """Which file types the Code tab lists. See `app/core/code_types.py`."""
-        from app.core.code_types import choice_from
-
-        return choice_from(self._store)
-
-    def _save_code_types(self, preset: str, groups: list) -> None:
-        from app.core.code_types import STATE_KEY, dump_choice
-
-        try:
-            self._store.set_state(STATE_KEY, dump_choice(preset, groups))
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("code file types not saved: {}", exc)
-            self.notify(
-                "That Code file-type choice was not saved.", 8_000)
-            return
-        # The Code tab reads this per search, so it takes effect on the next
-        # keystroke - but it is already on screen, so redraw it now.
-        #
-        # Guarded: Order 0r item 2b builds Code a beat after the window
-        # appears, and changing this Settings control in that gap would
-        # otherwise raise on an attribute that does not exist yet. Nothing
-        # is lost - Code reads this from the store on its own next search
-        # regardless of whether it is redrawn immediately here.
-        code_view = getattr(self, "code_view", None)
-        if code_view is not None:
-            code_view.refresh()
-
-    def _load_root_modes(self) -> dict:
-        """Which folders the owner has declared static. See `index/archives.py`."""
-        from app.index.archives import MODE_STATE_KEY, load_modes
-
-        try:
-            return load_modes(self._store.get_state(MODE_STATE_KEY, "") or "")
-        except Exception as exc:                     # noqa: BLE001
-            _log.debug("index root modes not read: {}", exc)
-            return {}
-
-    def _save_root_modes(self, modes: dict) -> None:
-        from app.index.archives import MODE_STATE_KEY, dump_modes
-
-        try:
-            self._store.set_state(MODE_STATE_KEY, dump_modes(modes))
-        except Exception as exc:                     # noqa: BLE001
-            # **Said out loud.** A mode that silently failed to save looks like
-            # it worked until the next run walks 1.5TB anyway, and by then
-            # nobody connects the two.
-            _log.warning("index root modes not saved: {}", exc)
-
-    def _load_cloud_content_roots(self) -> set:
-        """202626270514 §2b: which folders may hydrate cloud placeholders.
-        See `index/walker.py`."""
-        from app.index.walker import CLOUD_CONTENT_STATE_KEY, load_cloud_content_roots
-
-        try:
-            return set(load_cloud_content_roots(
-                self._store.get_state(CLOUD_CONTENT_STATE_KEY, "") or ""))
-        except Exception as exc:                     # noqa: BLE001
-            _log.debug("cloud content roots not read: {}", exc)
-            return set()
-
-    def _save_cloud_content_roots(self, roots: set) -> None:
-        from app.index.walker import CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots
-
-        try:
-            self._store.set_state(CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots(roots))
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("cloud content roots not saved: {}", exc)
-            self.notify(
-                "That folder's Live/Archive setting was not saved.", 8_000)
-
-    def _rescan_archives(self) -> None:
-        """One full walk of every archival folder, now. Not a policy change."""
-        self._start_indexing(recheck_archives=True)
-
-    # -- a run belonging to another process ---------------------------------
-
-    def _poll_external_run(self) -> None:
-        r"""Is something else indexing, and how far has it got?
-
-        **Two questions, and only one of them is authoritative.** `is_indexing`
-        asks the mutex, which the operating system releases when a process dies;
-        `active_run` reads the description that process last wrote. A record
-        without a lock is a crash, not a run, and must never refuse Start.
-
-        Off the UI thread, because both touch the store and this runs on a timer
-        for as long as the window is open. Cheap - one mutex probe and one row -
-        but "cheap" on the UI thread is how a window develops a stutter nobody
-        can attribute.
-        """
-        if self.indexing_view.is_running() and self.indexing_view._worker is not None:
-            return                       # our own run; the live signal is better
-
-        worker = CallableWorker(_read_external_run, self._store,
-                                component="ui.index.watch")
-        worker.signals.finished.connect(self._show_external_run)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _file_types_saved(self, changes: dict) -> None:
-        """A file-type mapping changed - bump the generation, then say so.
-
-        Every other write that bumps the generation happens inside a
-        `write()` block already, because it just changed rows the search
-        cache is keyed on. This one is different: `FileTypesEditor.save()`
-        writes a config file on disk, not a table, and a mapping change
-        (a format switched on/off, a converter route added, a size cap
-        changed) invalidates cached search results exactly the same way a
-        document write does - stale results from before the change must
-        not linger. `bump_generation()` is the entry point for exactly
-        this: a cache-invalidating event with no natural write() to
-        piggy-back on.
-
-        **Off the UI thread**, same reasoning and the same `CallableWorker`
-        shape as `_run_idle_optimize` just below: `bump_generation()` opens
-        a real `write()` transaction, and this method runs on a signal
-        straight from the settings page, so "cheap" here is still a stutter
-        the person clicking Save would feel. The status message is not
-        conditioned on the bump succeeding - it reports that the mapping
-        itself saved, which already happened by the time this signal fires;
-        a failed bump only means the *next* search, not this save, might
-        briefly serve a stale cache, and `bump_generation()` already logs
-        its own failures.
-        """
-        worker = CallableWorker(self._store.bump_generation, component="ui.file_types")
-        run(QThreadPool.globalInstance(), worker)
-        self.notify(
-            f"File types saved - {len(changes)} differ from the defaults. "
-            "They apply to the next index run.", 12_000)
-
-    def _show_external_run(self, payload: dict) -> None:
-        self.indexing_view.show_external(
-            payload.get("record"), locked=bool(payload.get("locked")))
-        self._run_link(payload.get("link"))
-        if payload.get("front_requested"):
-            self._front_self()
 
     def _front_self(self) -> None:
         r"""Bring this window forward. A second launch asked for it
@@ -2324,79 +1697,6 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def _maybe_run_idle_bench(self) -> None:
-        r"""Work order 0b §5e: "the first bench runs at the first idle
-        moment and upgrades Defaults to Auto-tune quietly."
-
-        The five rules of WORKORDER-space-report-and-idle-tune-ui-wiring §2,
-        in order: never mid-run; never on confirmed battery (an unreadable
-        battery must not block it); ask `should_bench` for a reason; run the
-        bench off the UI thread with the same call "Benchmark now" makes;
-        remember the result. The reason itself is asked on the worker too -
-        `cached_profile` and `should_bench` both read the store, and this
-        window never does that on its own thread (non-negotiable 5).
-        """
-        if self.indexing_view.is_running() or self._idle_bench_running:
-            return
-        if _on_battery():
-            return
-        settings, store = self._settings, self._store
-        devices = ("cpu", "gpu") if self._can_use_gpu() else None
-
-        def measure() -> Any:
-            from app.core.compute_profile import cached_profile
-            from app.core.measured import remember
-            from app.index.autotune import should_bench
-            from app.index.index_bench import run_index_bench
-
-            profile = cached_profile(store, settings.data_path)
-            reason = should_bench(store, profile)
-            if not reason:
-                return None
-            _log.info("idle-moment bench starting: {}", reason)
-            found = run_index_bench(settings, devices=devices)
-            if not getattr(found, "error", ""):
-                remember(store, found.as_measured(profile.fingerprint()))
-            return found
-
-        self._idle_bench_running = True
-        worker = CallableWorker(measure, component="ui.tuning.idle")
-        worker.signals.finished.connect(self._idle_bench_finished)
-        worker.signals.failed.connect(
-            lambda error: _log.debug("idle-moment bench failed quietly: {}", error))
-        worker.signals.done.connect(lambda: setattr(self, "_idle_bench_running", False))
-        run(QThreadPool.globalInstance(), worker)
-
-    def _idle_bench_finished(self, result: Any) -> None:
-        r"""§5e's own words: "upgrades Defaults to Auto-tune quietly" -
-        never a dialog, never a question. **Only from Defaults**: a person
-        who has since chosen Manual or Auto keeps that choice.
-        """
-        if result is None or getattr(result, "error", ""):
-            return
-        if self._settings.index_tuning_mode != "defaults":
-            return
-        self._settings_changed({"INDEX_TUNING_MODE": "auto"})
-        self._settings = self._settings.model_copy(update={"index_tuning_mode": "auto"})
-        self.indexing_view.tuning.load(self._settings)
-        self._refresh_tuning_status()
-        self.notify("Timed this computer while it was idle - tuned automatically "
-                    "from now on. Change it any time in Index Tuning.", 10_000)
-
-    def _run_idle_optimize(self) -> None:
-        r"""§3c: refresh the query planner's statistics, off the UI thread.
-
-        Fires once an hour for as long as the window is open (see
-        `_optimize_timer` in `__init__`). Off the UI thread for the same
-        reason `_poll_external_run` is: this touches the store, and "cheap"
-        on the UI thread is still a stutter nobody can attribute. No signal
-        connected to the result - there is nothing to show for a query-planner
-        refresh succeeding, and `optimize_query_planner` already logs a
-        warning on the way it can fail.
-        """
-        worker = CallableWorker(self._store.optimize_query_planner,
-                                 component="ui.optimize")
-        run(QThreadPool.globalInstance(), worker)
 
     def _run_link(self, request: Any) -> None:
         r"""A `leasha://` link arrived while this window was open. §7a.
@@ -2434,301 +1734,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.warning("could not run a leasha:// link: {}", exc)
 
-    def _stop_external_run(self) -> None:
-        """Ask the other process to stop. A request, not a kill.
-
-        Terminating it would leave the vector store mid-write, which is the one
-        thing the run lock exists to prevent - so this writes the flag and the
-        runner honours it at its next checkpoint, keeping everything read so far.
-        """
-        from app.core.run_lock import request_stop
-
-        try:
-            request_stop(self._store)
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("could not ask the other run to stop: {}", exc)
-
-    def _scan_corpus(self) -> None:
-        r"""Count the corpus so the progress bar has a real denominator.
-
-        Answers the complaint behind the Scan button. `app.cli scan` was the
-        only thing that had ever written a total, and nothing in the window
-        could run one - so a GUI-started index always had `total_estimate == 0`
-        and the bar was a busy indicator for its entire length. Correct by its
-        own rules, and indistinguishable from broken.
-
-        **Reads no file contents**, so it takes no run lock: it walks folders,
-        adds up sizes, and opens only the tail of a sampled archive and a
-        sampled PDF. Two of these at once would waste effort and nothing worse.
-        """
-        chosen = self.settings_view.current_roots()
-        if not chosen:
-            self._show(self.settings_view)
-            self.notify(
-                "Add at least one folder to index in Settings.", 8_000)
-            return
-
-        self.indexing_view.scan_button.setEnabled(False)
-        self.notify("Counting files… the bar will show a real "
-                                     "percentage once this finishes.", 0)
-
-        worker = CallableWorker(_scan_and_save, self._store, chosen,
-                                component="ui.index.scan")
-        worker.signals.finished.connect(self._scan_finished)
-        worker.signals.failed.connect(self._show_error)
-        worker.signals.done.connect(
-            lambda: self.indexing_view.scan_button.setEnabled(True))
-        run(QThreadPool.globalInstance(), worker)
-
-    def _scan_finished(self, payload: dict) -> None:
-        files = int(payload.get("files", 0) or 0)
-        self.notify(
-            f"{files:,} files to index. The progress bar can show a percentage "
-            f"now.", 10_000)
-
-    def _save_pst_backend(self, backend: str) -> None:
-        try:
-            self._store.set_state("ui:pst_backend", backend)
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("PST backend choice not saved: {}", exc)
-        self._apply_pst_backend(backend)
-
-    def _apply_pst_backend(self, backend: str) -> None:
-        from app.extract.base import extractor_for
-
-        extractor = extractor_for(Path("x.pst"))
-        if extractor is not None:
-            extractor.backend = backend
-
-    def _convert_pst(self, archive: str, destination: str) -> None:
-        """Export an archive to .eml, off the UI thread.
-
-        Long-running and worth doing once: afterwards the mail is ordinary files
-        that need neither Outlook nor libpff, and the folder can simply be added
-        as an index root.
-        """
-        from app.extract import pst_libpff
-
-        target = Path(destination) / Path(archive).stem
-        self.notify(f"Converting {Path(archive).name}…")
-
-        worker = CallableWorker(
-            pst_libpff.export_to_eml, Path(archive), target, component="ui.convert",
-        )
-        worker.signals.finished.connect(
-            lambda count: self._conversion_done(count, target)
-        )
-        worker.signals.failed.connect(self._show_error)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _conversion_done(self, count: int, target: Path) -> None:
-        self.notify(f"Wrote {count:,} messages to {target}", 15_000)
-        roots = self.settings_view.current_roots()
-        if str(target) not in roots:
-            # Offer it as an index root immediately - converting and then having
-            # to remember to add the folder is a step nobody should have to take.
-            self.settings_view.add_root(str(target))
-
-    def _save_roots(self, roots: list[str]) -> None:
-        try:
-            # The key `app.cli index` reads when it is given no folders, so
-            # the command line and the window index the same thing. Named
-            # rather than spelled out twice - see `cli.ROOTS_STATE_KEY`.
-            from app.cli import ROOTS_STATE_KEY
-
-            self._store.set_state(ROOTS_STATE_KEY, "|".join(roots))
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("index roots not saved: {}", exc)
-
-    def _start_indexing(self, *, roots: Optional[list[str]] = None,
-                        recheck_archives: bool = False) -> None:
-        r"""Resolve the tuning numbers off-thread, then hand off to `IndexingView`.
-
-        **`resolve_for_run` used to run right here, inline.** On a warm compute-
-        profile cache that is imperceptible - but `_profile` falls through to
-        `compute_profile.detect()` on a cold or invalidated cache (a first run on
-        this machine, a driver or hardware change, a cache write that failed
-        last time), and `detect()` shells out to PowerShell for the disk kind and
-        the display adapters with 10s and 15s timeouts. Both calls sat on the UI
-        thread, at the exact moment somebody clicked Start - non-negotiable #5,
-        broken by the one button people click to begin.
-        """
-        # Checked *before* anything is built. `IndexingView.start` already
-        # refuses a second run, but it refused silently and only after this
-        # method had constructed a Pipeline and an Embedder - which loads the
-        # ONNX model - purely to throw them away. Six starts in seven seconds
-        # appeared in the log from ordinary clicking, and each one paid that
-        # cost. Saying so is also better than appearing to ignore the button.
-        if self.indexing_view.is_running():
-            self._show(self.indexing_view)
-            self.notify("An index run is already in progress.", 5_000)
-            return
-
-        chosen = roots or self.settings_view.current_roots()
-        if not chosen:
-            self._show(self.settings_view)
-            self.notify(
-                "Add at least one folder to index in Settings.", 8_000
-            )
-            return
-
-        # A second click, or `F5`, or the scheduler firing while the first
-        # resolve is still out on its worker - none of them go through the
-        # disabled button (the scheduler and F5 do not touch it at all), and
-        # `is_running()` above stays false until the Pipeline this resolve
-        # will build actually exists. Without this flag, a burst of clicks
-        # during a slow cold-cache detection would queue several resolves and
-        # could hand `IndexingView.start` more than one Pipeline.
-        if self._resolving_index:
-            return
-        self._resolving_index = True
-        self.indexing_view.start_button.setEnabled(False)
-        self.notify("Checking your hardware…", 30_000)
-
-        # **The same resolution the tuning screen shows.** One function, so a
-        # run started from the window and one started from the command line
-        # cannot disagree about what `Auto (4)` means. Dispatched to a worker -
-        # see the docstring above - with the result handed back to
-        # `_index_resolved` by signal, on the GUI thread, exactly as if this
-        # had returned in place.
-        from app.index.resolve import resolve_for_run
-
-        worker = CallableWorker(resolve_for_run, self._settings, self._store,
-                                component="ui.index.resolve")
-        worker.signals.finished.connect(
-            lambda tuned: self._index_resolved(tuned, chosen, roots, recheck_archives))
-        worker.signals.failed.connect(self._index_resolve_failed)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _index_resolved(self, tuned: Any, chosen: list[str],
-                        roots: Optional[list[str]], recheck_archives: bool) -> None:
-        """Build the Pipeline and hand it to `IndexingView`. Back on the GUI thread.
-
-        Everything `_start_indexing` did after calling `resolve_for_run`, moved
-        here unchanged - only *when* it runs changed, not what it does.
-        """
-        from app.index.clip_embedder import ClipImageEmbedder
-        from app.index.embedder import Embedder
-        from app.index.pipeline import Pipeline, PipelineConfig
-        from app.index.walker import WalkConfig
-
-        self._resolving_index = False
-        self.toast.clear()
-        # A second Start click cannot get in *ahead* of this while the resolve
-        # was in flight (the flag above stops it), but a run started from
-        # elsewhere - the CLI, taking the run lock this window will also wait
-        # on - could have begun in the meantime. IndexWorker still surfaces
-        # that as a failure if it happens, but there is no reason to build a
-        # second Pipeline and throw it away.
-        if self.indexing_view.is_running():
-            self.indexing_view.start_button.setEnabled(True)
-            return
-
-        limits = replace(limits_from_settings(self._settings),
-                         workers=tuned.workers)
-
-        # Work order 0h §1c's flagged gap, closed: the only real Pipeline(
-        # construction site that had never been given image_embedder=/
-        # image_vectors= (app.cli's cmd_index was fixed earlier this
-        # session; grep -n "Pipeline(" app/ui/shell.py confirmed this is
-        # the window's only one). H4: self._image_vectors is None on a
-        # window built without one (an older caller, or a test stub), and
-        # ClipImageEmbedder is lazy - nothing loads until the first image
-        # is actually embedded, so building it unconditionally here costs
-        # nothing on a run that never reaches an image file.
-        image_embedder = (
-            ClipImageEmbedder.from_settings(self._settings)
-            if self._image_vectors is not None else None
-        )
-        pipeline = Pipeline(
-            self._store, self._vectors,
-            Embedder.from_settings(self._settings, threads=tuned.onnx_threads),
-            PipelineConfig(
-                walk=WalkConfig(
-                    roots=[Path(root) for root in chosen],
-                    # §2b: the master switch gates whether ANY folder's
-                    # cloud content is eligible at all; the per-folder set
-                    # says which ones, when it is. Off (the default) means
-                    # names-only everywhere, whatever any row says.
-                    cloud_content_roots=(
-                        frozenset(self.settings_view.current_cloud_content_roots())
-                        if self.settings_view.cloud.isChecked() else frozenset()
-                    ),
-                    cloud_content_cap_bytes=int(getattr(
-                        self._settings, "cloud_content_cap_mb", 1024)) * 1024 * 1024,
-                    name_only=bool(getattr(
-                        self._settings, "index_name_only", True)),
-                ),
-                # Memory, CPU, battery and disk ceilings, from .env. Without
-                # these an index run competes with whatever the person is
-                # actually doing, and gets switched off for good.
-                limits=limits,
-                min_free_gb=self._settings.min_free_gb,
-                required_free_gb=int(getattr(self._settings, "required_free_gb", 0)),
-                ocr_mode=self._ocr_mode_for_run(),
-                embed_batch=tuned.embed_batch,
-                dedup_chunks=bool(getattr(self._settings, "embed_dedup", True)),
-                two_phase=bool(getattr(self._settings, "index_two_phase", True)),
-                bulk_fts=str(getattr(self._settings, "index_bulk_fts", "auto")),
-                prune_missing=roots is None,     # a folder-scoped run must not prune the rest
-                # A folder marked as an archive is walked once and then checked
-                # with one `stat` - the largest single saving available on a
-                # settled corpus. `recheck_archives` is the "Rescan archived
-                # folders now" button, which walks them all in full this once.
-                recheck_archives=recheck_archives,
-                recheck_days=int(getattr(self._settings, "archive_recheck_days", 30)),
-                caption_trickle_enabled=bool(
-                    getattr(self._settings, "caption_trickle_enabled", False)),
-                ollama_url=str(getattr(
-                    self._settings, "ollama_url", "http://127.0.0.1:11434")),
-                ollama_vision_model=str(
-                    getattr(self._settings, "ollama_vision_model", "llava")),
-                people_recognition_enabled=bool(getattr(
-                    self._settings, "people_recognition_enabled", False)),
-                # Work order 202626130120 (0t) section 6: resolved above, off
-                # this thread, by the same resolve_for_run call that decided
-                # tuned.workers - see its own docstring for why the notice
-                # cannot be computed from the Pipeline's cached profile alone.
-                gpu_regression_notice=tuned.gpu_regression_notice,
-            ),
-            image_embedder=image_embedder, image_vectors=self._image_vectors,
-        )
-        # **The window's run is a writer like any other**, so it names itself
-        # on the published record and holds the same lock the CLI takes. The
-        # lock itself is acquired by `IndexWorker`, on the worker thread, for
-        # exactly as long as the run - taking it here would hold it across the
-        # whole life of the window again, which is the bug being fixed.
-        pipeline.run_owner = GUI
-        self.indexing_view.start(pipeline, total_estimate=self._scan_total(chosen))
-
-    def _index_resolve_failed(self, error: Any) -> None:
-        """`resolve_for_run` does not raise by contract - see its own docstring -
-        so this is defence in depth, not the expected path. Restores the button
-        and surfaces the error exactly as a synchronous failure would have."""
-        self._resolving_index = False
-        self.toast.clear()
-        self.indexing_view.start_button.setEnabled(True)
-        self._show_error(error)
-
-    def _scan_total(self, roots: list[str]) -> int:
-        """How many files `app.cli scan` counted, if it counted these folders.
-
-        **Without it a week-long run has no percentage at all.** The bar grows
-        its own denominator from what the walker has found so far, which is
-        honest but reads as 97% within the first minute - the work queue is
-        bounded, so `seen` is never far ahead of `done`. A scan is the only
-        thing that knows the real total, and this is where it gets used.
-
-        Zero for no scan or a scan of different folders, which `progress_for`
-        already reads as "no estimate".
-        """
-        from app.index.scan import SCAN_STATE_KEY, saved_total
-
-        try:
-            return saved_total(self._store.get_state(SCAN_STATE_KEY, "") or "", roots)
-        except Exception as exc:                     # noqa: BLE001 - a bar, not a run
-            _log.debug("no scan total available: {}", exc)
-            return 0
 
     def _search_inside(self, path: str) -> None:
         """Found it by name; now find what is in it.
@@ -2771,166 +1776,6 @@ class MainWindow(QMainWindow):
         self.notify(
             f"Searching {name} - type what you are looking for.", 8_000)
 
-    def _reset_index(self) -> None:
-        """Delete everything indexed, after asking, and never the documents.
-
-        **The confirmation says what is and is not at risk**, because "reset"
-        is a word people have learned to fear from applications that mean
-        something else by it. Nothing here touches a single document: the index
-        is derived from them and is rebuilt by pointing the indexer at the same
-        folders again. The only real cost is the time to do that.
-        """
-        if self.indexing_view.is_running():
-            self.notify(
-                "Stop the index run before resetting.", 6_000)
-            return
-
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Reset the index?")
-        box.setText("Delete everything that has been indexed and start over?")
-        box.setInformativeText(
-            "Your documents and emails are NOT touched - the index is built from "
-            "them and can always be rebuilt.\n\n"
-            "What it costs is the time to index again, and your saved folders, "
-            "schedule and settings are kept."
-        )
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Reset
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Reset:
-            return
-
-        self.recorder.event("click", what="reset_index")
-        self.notify("Clearing the index…")
-
-        def clear() -> dict:
-            # **Measured, because "it did nothing" was the report.** The size on
-            # the Indexing page is the whole of DATA_PATH, which includes the
-            # 130MB model cache and deliberately survives a reset - so on a
-            # small index the number barely moves and there is nothing saying
-            # why. Weighing the two things a reset actually removes, before and
-            # after, turns that into a sentence.
-            before = index_bytes(self._store, self._settings)
-            removed = self._store.clear_index()
-            self._vectors.drop()
-            return {"removed": removed,
-                    "freed": max(0, before - index_bytes(self._store, self._settings))}
-
-        worker = CallableWorker(clear, component="ui.reset")
-        worker.signals.finished.connect(self._index_cleared)
-        worker.signals.failed.connect(self._show_error)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _index_cleared(self, outcome: Any) -> None:
-        self.notify(cleared_message(outcome), 20_000)
-        self.indexing_view.refresh_totals(self._store, self._settings)
-        self.files_view.refresh_summary()
-        self._refresh_status()
-
-    # -- Offline Media: order 202626270513 -----------------------------------
-    #
-    # 2a has no progress bar - a status line on the tab itself and a plain
-    # `statusBar` sentence when it finishes, the same weight the order gives
-    # the whole feature. Scan and Rescan both run a real `Pipeline`, so both
-    # take the window's own run lock (`GUI`) exactly as `_start_indexing`
-    # does - a Scan started while an ordinary index run is already using the
-    # lock waits for it, on the worker thread, never on this one.
-
-    def _offline_media_scan(self, root: str, name: str, description: str) -> None:
-        r"""2b: the first Scan of a chosen folder.
-
-        1a's offer runs first, on its own worker - `offline_media.check_
-        renamed_source` is a directory listing and a store query, never the full
-        walk `scan_new_source` itself pays for - so a renamed source can be
-        offered *before* anything is catalogued a second time as a
-        duplicate. Only when nothing matches (or the check itself fails,
-        never fatal for a Scan) does this fall straight through to
-        cataloguing as new, exactly as it did before this existed.
-        """
-        from app.index.offline_media import check_renamed_source
-
-        self.offline_media_view.set_busy(f"Checking {root}\u2026")
-        worker = CallableWorker(
-            check_renamed_source, self._store, Path(root),
-            component="ui.offline_media",
-        )
-        worker.signals.finished.connect(
-            lambda suggestion: self._offline_media_scan_after_check(
-                root, name, description, suggestion))
-        worker.signals.failed.connect(
-            lambda _error: self._offline_media_scan_confirmed(
-                root, name, description, None))
-        run(QThreadPool.globalInstance(), worker)
-
-    def _offline_media_scan_after_check(self, root: str, name: str, description: str,
-                                        suggestion: Any) -> None:
-        """UI thread: 1a's dialog, only when the worker above found a
-        structure match against a *different* catalogued source."""
-        same_as = None
-        if suggestion is not None:
-            from app.ui.widgets.offline_media_dialogs import RenameSuggestionDialog
-
-            dialog = RenameSuggestionDialog(suggestion["name"], self)
-            if dialog.exec() == RenameSuggestionDialog.DialogCode.Accepted:
-                same_as = suggestion["name"]
-        self._offline_media_scan_confirmed(root, name, description, same_as)
-
-    def _offline_media_scan_confirmed(self, root: str, name: str, description: str,
-                                      same_as: Optional[str]) -> None:
-        """Catalogues `root`, then runs a `Pipeline` scoped to it -
-        `scan_new_source` does both, off this worker. `same_as` reattaches
-        to an existing source instead (1a, accepted)."""
-        from app.index.offline_media import scan_new_source
-
-        self.offline_media_view.set_busy(f"Scanning {root}\u2026")
-        worker = CallableWorker(
-            scan_new_source, self._settings, self._store, Path(root),
-            name=name, description=(description or None), run_lock_owner=GUI,
-            same_as=same_as, component="ui.offline_media",
-        )
-        worker.signals.finished.connect(self._offline_media_run_done)
-        worker.signals.failed.connect(self._offline_media_run_failed)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _offline_media_rescan(self, volume_id: int) -> None:
-        """2a's Rescan: 1e's move-repair pass, then a `Pipeline` for what
-        actually changed."""
-        from app.index.offline_media import rescan_source
-
-        self.offline_media_view.set_busy("Rescanning\u2026")
-        worker = CallableWorker(
-            rescan_source, self._settings, self._store, volume_id,
-            run_lock_owner=GUI, component="ui.offline_media",
-        )
-        worker.signals.finished.connect(self._offline_media_run_done)
-        worker.signals.failed.connect(self._offline_media_run_failed)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _offline_media_delete(self, volume_id: int) -> None:
-        """2c: the product's one deliberate deletion - the full cascade,
-        never the drive itself."""
-        from app.index.offline_media import delete_volume
-
-        self.offline_media_view.set_busy("Removing from the index\u2026")
-        worker = CallableWorker(
-            delete_volume, self._store, self._vectors, volume_id,
-            component="ui.offline_media",
-        )
-        worker.signals.finished.connect(self._offline_media_run_done)
-        worker.signals.failed.connect(self._offline_media_run_failed)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _offline_media_run_done(self, result: Any) -> None:
-        self.offline_media_view.set_busy("")
-        self.offline_media_view.refresh()
-        self.files_view.refresh_summary()
-        self.notify(offline_media_run_summary(result), 20_000)
-
-    def _offline_media_run_failed(self, error: Any) -> None:
-        self.offline_media_view.set_busy("")
-        self._show_error(error)
 
     def _show_error(self, error: Any) -> None:
         """Every error shows what happened, the fix, and a working button."""

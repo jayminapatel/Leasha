@@ -1,0 +1,620 @@
+"""The settings controller: what happens when a control in Settings changes.
+
+Layer: L5
+
+Extracted from `app/ui/shell.py` (work order 202626082352 section 7,
+"Structural"). Everything here was a `MainWindow` method: persisting a choice
+to `index_state` or `.env`, applying it to the live engine, translator, tray or
+view, and the small loaders that read those choices back at start-up.
+
+**The window still owns the state.** The controller holds no settings of its
+own - it reads and writes `window._settings`, `window._store` and the views
+through `self._w`, exactly as the methods did through `self`. That is what
+lets `_limits_changed` replace the frozen `Settings` in one place and every
+other reader see it, and it is why `MainWindow` keeps a same-named method for
+each handler below: signal wiring, tests and any other caller reach the same
+behaviour by the same name, and a test that replaces `window._settings_changed`
+still intercepts the calls made from in here, because they go back out
+through the window rather than to a sibling method.
+
+**Threading is unchanged.** A handler that starts a worker still does, with the
+same `CallableWorker` and `run`; nothing here may touch the store or the disk
+on the UI thread that the method did not already, and
+`test_ui_never_blocks` scans this module with the same rules as the rest of
+`app/ui`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from PyQt6.QtCore import QObject, QThreadPool
+from PyQt6.QtWidgets import QDialog
+
+from app.core.errors import to_app_error
+from app.core.logging import logger
+from app.ui.workers import CallableWorker, run
+
+_log = logger.bind(component="ui.shell")
+
+
+class SettingsController(QObject):
+    """Settings persistence and application for one `MainWindow`.
+
+    A `QObject` parented to the window, not a plain class: a signal connected
+    to one of its bound methods is delivered on the GUI thread by the same
+    rule that applied when the receiver was the window itself.
+    """
+
+    def __init__(self, window: Any) -> None:
+        super().__init__(window)
+        self._w = window
+
+    def _debug_recording_toggled(self, on: bool) -> None:
+        """Remember the choice; it takes effect at the next start.
+
+        Deliberately not applied to the running window. Turning recording on
+        mid-session would produce a file that begins in the middle of whatever
+        went wrong, missing the startup context that makes the rest readable -
+        and the whole point of the feature is a file somebody else can follow
+        from the top.
+        """
+        self._w._store.set_state("ui:debug_recording", "on" if on else "off")
+        if on and not self._w.recorder.enabled:
+            self._w.settings_view.environment.set_recording_status(
+                "Recording starts the next time you open the app. "
+                "The file goes in logs\\sessions\\."
+            )
+        elif not on and self._w.recorder.enabled:
+            self._w.settings_view.environment.set_recording_status(
+                f"Still recording to {self._w.recorder.path.name} until you close the app."
+            )
+
+    def _rerank_toggled(self, enabled: bool) -> None:
+        """Apply the rerank switch now, and remember it.
+
+        Live where it can be: the engine holds the reranker, and a quality
+        setting that needs a restart to take effect is one people conclude does
+        nothing. Persisted alongside, so the next launch agrees with the box.
+        """
+        reranker = getattr(self._w._engine, "reranker", None)
+        if reranker is not None:
+            try:
+                reranker.enabled = bool(enabled)
+            except Exception as exc:             # noqa: BLE001 - never fatal
+                _log.warning("could not apply the rerank setting live: {}", exc)
+        # **Whichever control was used, the other follows.** Signals are blocked
+        # on the way in, or setting one would emit back into this handler and
+        # the two would bounce off each other.
+        self._w._set_toolbar_rerank(bool(enabled))
+        settings_box = getattr(self._w.settings_view, "rerank", None)
+        if settings_box is not None and settings_box.isChecked() != bool(enabled):
+            settings_box.blockSignals(True)
+            settings_box.setChecked(bool(enabled))
+            settings_box.blockSignals(False)
+        self._w._store.set_state("ui:rerank_enabled", "on" if enabled else "off")
+
+    def _set_toolbar_rerank(self, enabled: bool) -> None:
+        """Show `enabled` on the search bar's box without re-emitting."""
+        toggle = getattr(self._w.search_view, "rerank_toggle", None)
+        if toggle is None or toggle.isChecked() == enabled:
+            return
+        toggle.blockSignals(True)
+        toggle.setChecked(enabled)
+        toggle.blockSignals(False)
+
+    def _change_index_location(self) -> None:
+        """Ask what to do about the index location, then record the decision.
+
+        **Nothing is moved from here, and nothing is moved while the app is
+        running.** The stores are open; copying a database out from underneath
+        an open connection is how a half-copied index becomes the only index.
+        So the decision is written down and applied by the installer path on the
+        next start, which is the one moment nothing is holding the files.
+
+        `.env` is written by `env_writer`, never by hand - that is the rule the
+        settings work established, and this is the setting most able to do harm.
+        """
+        from app.ui.widgets.index_flows import ADOPT, FRESH, IndexLocationDialog
+
+        if self._w.indexing_view.is_running():
+            self._w.notify(
+                "An index run is in progress. Stop it before moving the index.",
+                8_000)
+            return
+
+        dialog = IndexLocationDialog(Path(self._w._settings.data_path), self._w)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        choice = dialog.choice()
+
+        # **`.env` is NOT written here, and that is a correction.** It used to
+        # be written immediately while the files stayed put - so the next start
+        # opened an empty folder and an intact index became unreferenced. The
+        # write and the move are one operation, performed together at startup by
+        # `app.core.index_move`, before any store opens. Until then nothing has
+        # changed and the application keeps working exactly as it did.
+        try:
+            from app.core.index_move import plan_move, write_pending
+
+            plan_move(Path(self._w._settings.data_path), choice.destination, choice.action)
+            write_pending(Path(self._w._settings.project_path), choice.action, choice.destination)
+        except Exception as exc:                 # noqa: BLE001
+            self._w._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        self._w.settings_view.data_path.setText(str(choice.destination))
+
+        if choice.action == ADOPT:
+            what = "will use the index already there"
+        elif choice.action == FRESH:
+            what = "will start a new, empty index there"
+        else:
+            what = "will move the index there, which can take a while"
+        self._w.notify(
+            f"Saved: the app {what} when you restart it. Nothing has moved yet, "
+            "and this index keeps working until then.", 12_000)
+
+    def _change_meaning_model(self) -> None:
+        """Confirm the cost of changing the embedding model, then record it."""
+        from app.ui.widgets.index_flows import RebuildVectorsDialog
+
+        if self._w.indexing_view.is_running():
+            self._w.notify(
+                "An index run is in progress. Stop it before changing the model.",
+                8_000)
+            return
+
+        current_dim = int(getattr(self._w._settings, "embed_dim", 384) or 384)
+        dialog = RebuildVectorsDialog(
+            str(getattr(self._w._settings, "embed_model", "")),
+            self._w._chunk_count(),
+            self._w,
+            current_dim=current_dim,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            from app.core.env_writer import apply_values
+
+            # **Both keys, in one write.** Writing `EMBED_MODEL` alone left
+            # `EMBED_DIM` describing the previous model, which is not a
+            # settings inconsistency but a broken index: the store refuses
+            # vectors of the wrong width, and the refusal arrives on the first
+            # batch after the new model has been downloaded, naming a setting
+            # the person never edited. `env_writer` writes the file atomically,
+            # so the two cannot land apart.
+            apply_values(Path(self._w._settings.env_file), {
+                "EMBED_MODEL": dialog.chosen_model(),
+                "EMBED_DIM": str(dialog.chosen_dim()),
+            })
+        except Exception as exc:                 # noqa: BLE001
+            self._w._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        self._w._store.set_state("index:rebuild_vectors", "pending")
+        if dialog.chosen_dim() != current_dim:
+            self._w.notify(
+                f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
+                "dimensions. The vector store is rebuilt from empty on the next "
+                "index run, so meaning-based search returns nothing until it "
+                "finishes. Keyword search is unaffected.", 20_000)
+        else:
+            self._w.notify(
+                "Saved. Restart, then run an index to re-embed everything - search "
+                "keeps working on the old vectors until it finishes.", 12_000)
+
+    def _chunk_count(self) -> int:
+        """How many chunks would have to be re-embedded. Never raises.
+
+        A count over `chunks` is one indexed aggregate and runs once, in
+        response to a deliberate click, to put a real number in front of a
+        decision that costs hours. Zero if it cannot be read - the dialog then
+        says "a few minutes", which is the honest thing to say when the size is
+        unknown rather than a number that was guessed.
+        """
+        try:
+            return int(self._w._store.stats().get("chunks_total", 0))
+        except Exception as exc:                 # noqa: BLE001
+            _log.debug("could not count chunks: {}", exc)
+            return 0
+
+    def _settings_changed(self, values: dict) -> None:
+        """Write `.env` settings a panel has changed, and apply what applies now.
+
+        **The application writes `.env`; the user never does.** That is the rule
+        the settings work established, and the reason `env_writer` exists - it
+        preserves comments and keys this build has never heard of, so a newer
+        installer's settings survive an older window saving one number.
+
+        Debounced upstream, so this runs once when somebody stops adjusting a
+        control rather than once per notch.
+        """
+        if not values:
+            return
+        try:
+            from app.core.env_writer import apply_values
+
+            apply_values(Path(self._w._settings.env_file), values)
+        except Exception as exc:                 # noqa: BLE001
+            self._w._show_error(to_app_error(exc, "ui.settings"))
+            return
+
+        # §1a. **The search behaviours take effect on the very next search**,
+        # not at the next launch. For a switch somebody has just turned off,
+        # the difference is between a working control and one they conclude is
+        # broken - and they would be right to.
+        if any(key.startswith("SEARCH_") for key in values):
+            for key, value in values.items():
+                if key.startswith("SEARCH_"):
+                    # `Settings` is frozen, so the live object cannot be
+                    # updated - the preferences dictionary is built from these
+                    # values instead, which is the same answer by a route that
+                    # works. See task #238 for the frozen-Settings question.
+                    self._w._settings_overrides[key.lower()] = value
+            self._w._apply_search_preferences()
+
+        # §3a: the shortcut is re-taken on the spot, because a combination
+        # somebody has just typed and cannot try until the next launch is a
+        # control they will conclude does not work.
+        if any(key.startswith("MINI_SEARCH") for key in values):
+            for key, value in values.items():
+                if key.startswith("MINI_SEARCH"):
+                    self._w._settings_overrides[key.lower()] = value
+            self._w._apply_hotkey()
+
+        # Reranking is the one that can take effect without a restart, and the
+        # one people most want to see change - the rest are read when the thing
+        # that uses them next starts.
+        reranker = getattr(self._w._engine, "reranker", None)
+        if reranker is not None:
+            for key, attribute in (("RERANK_TOP_N", "top_n"),
+                                   ("RERANK_WINDOW_CHARS", "window_chars")):
+                if key in values:
+                    try:
+                        setattr(reranker, attribute, int(values[key]))
+                    except Exception as exc:     # noqa: BLE001 - never fatal
+                        _log.debug("could not apply {} live: {}", key, exc)
+
+        if "RERANK_MODEL" in values:
+            self._w.notify(
+                "Saved. The rerank model is loaded at startup, so it changes "
+                "the next time the app opens.", 8_000)
+
+    def _tray_changed(self, minimise: bool, close: bool) -> None:
+        """Apply and persist the tray preferences.
+
+        Installs the icon the moment either is switched on, and says so if the
+        desktop has no tray - a preference that silently does nothing is worse
+        than one that is not offered, and this one was previously both.
+        """
+        self._w.tray.minimise_to_tray = bool(minimise)
+        self._w.tray.close_to_tray = bool(close)
+        self._w._store.set_states({
+            "ui:tray_minimise": "on" if minimise else "off",
+            "ui:tray_close": "on" if close else "off",
+        })
+
+        if (minimise or close) and not self._w.tray.installed and not self._w.tray.install():
+            self._w.tray.minimise_to_tray = self._w.tray.close_to_tray = False
+            self._w.settings_view.minimise_to_tray.setChecked(False)
+            self._w.settings_view.close_to_tray.setChecked(False)
+            self._w.notify(
+                "This desktop has no notification area, so the window will "
+                "minimise normally.", 8_000)
+
+    def _cloud_toggled(self, enabled: bool) -> None:
+        """Remember whether to index cloud-only files.
+
+        Read live when a run starts, so it always worked *for that run* - and
+        reset to off at every launch, which looks exactly like a setting being
+        ignored. In `index_state` rather than `.env`: it is a decision about how
+        this window starts a run, and the walker takes it as a parameter.
+        """
+        self._w._store.set_state("ui:index_cloud", "on" if enabled else "off")
+
+    def _limits_changed(self, values: dict) -> None:
+        r"""Persist the resource ceilings. They take effect on the next run.
+
+        Not on the run in flight: changing the worker count mid-run would mean
+        stopping and restarting threads that are holding files open, and the
+        gain is a few minutes on a job measured in hours.
+
+        **These were written to the wrong place, and so they did nothing.**
+        Every ceiling here landed in `index_state` under `ui:index_memory_mb`
+        and friends - and nothing anywhere read those keys. `limits_from_
+        settings` reads `Settings`, which is built from `.env`, so the memory
+        ceiling, the worker count, the CPU cap and the free-space floor were all
+        adjustable, saved, reported as saved, and inert. Six controls with real
+        consequences, none of which had any.
+
+        It matters more at a terabyte than it did at 100GB: raising the memory
+        ceiling is the difference between a run that pauses constantly and one
+        that does not, and somebody who raised it and saw no change would
+        reasonably conclude the governor is broken rather than that the setting
+        never arrived.
+
+        So it goes through `.env` like every other setting - non-negotiable 11 -
+        and the in-memory `Settings` is updated too, so the *next run in this
+        session* uses it rather than requiring a restart.
+        """
+        if not values:
+            return
+        # `current_limits` keys are `Settings` field names, and the `.env` key
+        # is the same name upper-cased - which is not a coincidence, it is how
+        # `config.load_settings` reads them. Asserted by `test_settings_registry`.
+        self._w._settings_changed({key.upper(): value for key, value in values.items()})
+        # **`Settings` is frozen** (see ~line 128 and the module docstring), so
+        # `setattr(self._settings, key, value)` always raised - every time,
+        # for every key - and the `except` above caught it at DEBUG, where
+        # nobody would ever see it. `.env` was written correctly; the live
+        # object never changed, so the "next run in this session" this
+        # function's own docstring promises never arrived without a restart.
+        # `model_copy(update=...)` is this codebase's actual answer for a
+        # frozen `Settings` (see `app.cli`'s `cmd_index`, which does the same
+        # for `--rerank-model`): it produces a new instance with these fields
+        # changed, and one replacement of the whole batch is what a frozen
+        # model allows - there is no field-by-field mutation to fall back to.
+        self._w._settings = self._w._settings.model_copy(update=values)
+        self._w.notify("Saved. Applies to the next index run.", 5_000)
+
+    def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
+        """Apply a model choice immediately, and persist it.
+
+        **Live, not on restart.** The client and the translator are mutated in
+        place rather than rebuilt, so the choice takes effect on the very next
+        press of Interpret - which matters because the natural next thing to do
+        after choosing a model is to try it.
+
+        The health cache is cleared: it was answered about the *old* model, and
+        a stale "yes" would let a generate call proceed against a model that is
+        not installed, failing several seconds later for no visible reason.
+        """
+        self._w._translator.reconfigure(
+            model=model or None, timeout_s=float(timeout_s), enabled=enabled)
+        self._w._store.set_states({
+            "ui:ollama_enabled": "on" if enabled else "off",
+            "ui:ollama_model": model,
+            "ui:ollama_timeout_s": str(int(timeout_s)),
+        })
+        # The button appears and disappears with the setting, rather than
+        # sitting there greyed out - an Interpret button that cannot interpret
+        # is a permanent question with no answer on screen.
+        self._w.search_view.set_interpret_enabled(enabled)
+        self._w._warm_translator()
+        self._w.notify(
+            f"Interpret will use {model}, with up to {timeout_s}s." if enabled
+            else "Query interpretation is off. Search is unaffected.", 8_000)
+
+    def _apply_search_preferences(self) -> None:
+        """Push the search behaviours to the surfaces that read them.
+
+        Called at start-up and again whenever one is changed, so a switch takes
+        effect on the very next search rather than at the next launch - which
+        for a behaviour somebody has just switched off is the difference
+        between a working control and one they believe is broken.
+        """
+        try:
+            from app.search.policy import preferences
+
+            # What was changed in this session wins over what was loaded at
+            # start-up, which is the whole reason the overrides exist.
+            self._w.search_view.set_search_preferences(
+                preferences(self._w._settings, self._w._settings_overrides))
+        except Exception as exc:                 # noqa: BLE001 - never fatal
+            _log.debug("the search behaviours could not be applied: {}", exc)
+
+    def _apply_hotkey(self) -> None:
+        r"""Take, or give back, the global shortcut. **Never raises.**
+
+        Called at start-up and whenever the setting changes. The result is
+        pushed back into Settings as a sentence, because a shortcut the
+        operating system refused is otherwise indistinguishable from one that
+        works - and this is the feature the product is demonstrated with.
+        """
+        try:
+            from app.ui.hotkey import HotkeyListener
+
+            overrides = self._w._settings_overrides
+            wanted = overrides.get(
+                "mini_search_enabled",
+                getattr(self._w._settings, "mini_search_enabled", True))
+            text = str(overrides.get(
+                "mini_search_hotkey",
+                getattr(self._w._settings, "mini_search_hotkey", "")) or "")
+
+            if self._w._hotkey is None:
+                self._w._hotkey = HotkeyListener()
+            self._w._hotkey.stop()
+            taken = (self._w._hotkey.start(text, self._w._summon_mini)
+                     if wanted else False)
+            box = getattr(self._w.settings_view, "search_behaviour", None)
+            if box is not None and hasattr(box, "say_hotkey"):
+                box.say_hotkey(text, registered=taken or not wanted)
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            _log.debug("could not set the global shortcut: {}", exc)
+
+    def _theme_changed(self, preference: str) -> None:
+        self._w._theme_preference = preference
+        self._w._store.set_state("ui:theme", preference)
+        self._w._apply_theme()
+
+    def _refresh_link_scheme(self) -> None:
+        r"""Read whether `leasha://` is registered, off the UI thread.
+
+        Adoptions 7a wrote `register`/`unregister` and gave the window no way
+        to show or change either. A registry read is I/O, so it is a worker,
+        and the checkbox stays disabled until it answers. Off Windows there is
+        nothing to read: the box says so by staying disabled.
+        """
+        import os
+
+        box = self._w.settings_view.environment
+        if os.name != "nt":
+            box.set_links_state(None)
+            return
+        from app.core.deeplink import is_registered
+
+        worker = CallableWorker(is_registered, component="ui.links.read")
+        worker.signals.finished.connect(box.set_links_state)
+        worker.signals.failed.connect(lambda _e: box.set_links_state(None))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _links_toggled(self, wanted: bool) -> None:
+        r"""The Settings box was ticked or unticked: write the registry, then
+        show what it now says - so a write that failed is not left looking done."""
+        from app.core.deeplink import is_registered, set_registered
+
+        box = self._w.settings_view.environment
+
+        def change() -> bool:
+            set_registered(bool(wanted))
+            return is_registered()
+
+        worker = CallableWorker(change, component="ui.links.write")
+        worker.signals.finished.connect(box.set_links_state)
+        worker.signals.failed.connect(lambda _e: self._w._refresh_link_scheme())
+        run(QThreadPool.globalInstance(), worker)
+
+    def _load_roots(self) -> list[str]:
+        """Index roots persist in `index_state`, alongside the index they build.
+
+        Settings that vanish on restart are not settings. They live with the
+        index rather than in .env because they describe *this* index, and .env is
+        written by the installer and would be overwritten by a repair run.
+        """
+        try:
+            stored = self._w._store.get_state("ui:roots", "")
+        except Exception:                        # noqa: BLE001
+            return []
+        return [root for root in (stored or "").split("|") if root]
+
+    def _load_code_types(self) -> tuple:
+        """Which file types the Code tab lists. See `app/core/code_types.py`."""
+        from app.core.code_types import choice_from
+
+        return choice_from(self._w._store)
+
+    def _save_code_types(self, preset: str, groups: list) -> None:
+        from app.core.code_types import STATE_KEY, dump_choice
+
+        try:
+            self._w._store.set_state(STATE_KEY, dump_choice(preset, groups))
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("code file types not saved: {}", exc)
+            self._w.notify(
+                "That Code file-type choice was not saved.", 8_000)
+            return
+        # The Code tab reads this per search, so it takes effect on the next
+        # keystroke - but it is already on screen, so redraw it now.
+        #
+        # Guarded: Order 0r item 2b builds Code a beat after the window
+        # appears, and changing this Settings control in that gap would
+        # otherwise raise on an attribute that does not exist yet. Nothing
+        # is lost - Code reads this from the store on its own next search
+        # regardless of whether it is redrawn immediately here.
+        code_view = getattr(self._w, "code_view", None)
+        if code_view is not None:
+            code_view.refresh()
+
+    def _load_root_modes(self) -> dict:
+        """Which folders the owner has declared static. See `index/archives.py`."""
+        from app.index.archives import MODE_STATE_KEY, load_modes
+
+        try:
+            return load_modes(self._w._store.get_state(MODE_STATE_KEY, "") or "")
+        except Exception as exc:                     # noqa: BLE001
+            _log.debug("index root modes not read: {}", exc)
+            return {}
+
+    def _save_root_modes(self, modes: dict) -> None:
+        from app.index.archives import MODE_STATE_KEY, dump_modes
+
+        try:
+            self._w._store.set_state(MODE_STATE_KEY, dump_modes(modes))
+        except Exception as exc:                     # noqa: BLE001
+            # **Said out loud.** A mode that silently failed to save looks like
+            # it worked until the next run walks 1.5TB anyway, and by then
+            # nobody connects the two.
+            _log.warning("index root modes not saved: {}", exc)
+
+    def _load_cloud_content_roots(self) -> set:
+        """202626270514 §2b: which folders may hydrate cloud placeholders.
+        See `index/walker.py`."""
+        from app.index.walker import CLOUD_CONTENT_STATE_KEY, load_cloud_content_roots
+
+        try:
+            return set(load_cloud_content_roots(
+                self._w._store.get_state(CLOUD_CONTENT_STATE_KEY, "") or ""))
+        except Exception as exc:                     # noqa: BLE001
+            _log.debug("cloud content roots not read: {}", exc)
+            return set()
+
+    def _save_cloud_content_roots(self, roots: set) -> None:
+        from app.index.walker import CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots
+
+        try:
+            self._w._store.set_state(CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots(roots))
+        except Exception as exc:                     # noqa: BLE001
+            _log.warning("cloud content roots not saved: {}", exc)
+            self._w.notify(
+                "That folder's Live/Archive setting was not saved.", 8_000)
+
+    def _file_types_saved(self, changes: dict) -> None:
+        """A file-type mapping changed - bump the generation, then say so.
+
+        Every other write that bumps the generation happens inside a
+        `write()` block already, because it just changed rows the search
+        cache is keyed on. This one is different: `FileTypesEditor.save()`
+        writes a config file on disk, not a table, and a mapping change
+        (a format switched on/off, a converter route added, a size cap
+        changed) invalidates cached search results exactly the same way a
+        document write does - stale results from before the change must
+        not linger. `bump_generation()` is the entry point for exactly
+        this: a cache-invalidating event with no natural write() to
+        piggy-back on.
+
+        **Off the UI thread**, same reasoning and the same `CallableWorker`
+        shape as `_run_idle_optimize` just below: `bump_generation()` opens
+        a real `write()` transaction, and this method runs on a signal
+        straight from the settings page, so "cheap" here is still a stutter
+        the person clicking Save would feel. The status message is not
+        conditioned on the bump succeeding - it reports that the mapping
+        itself saved, which already happened by the time this signal fires;
+        a failed bump only means the *next* search, not this save, might
+        briefly serve a stale cache, and `bump_generation()` already logs
+        its own failures.
+        """
+        worker = CallableWorker(self._w._store.bump_generation, component="ui.file_types")
+        run(QThreadPool.globalInstance(), worker)
+        self._w.notify(
+            f"File types saved - {len(changes)} differ from the defaults. "
+            "They apply to the next index run.", 12_000)
+
+    def _save_pst_backend(self, backend: str) -> None:
+        try:
+            self._w._store.set_state("ui:pst_backend", backend)
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("PST backend choice not saved: {}", exc)
+        self._w._apply_pst_backend(backend)
+
+    def _apply_pst_backend(self, backend: str) -> None:
+        from app.extract.base import extractor_for
+
+        extractor = extractor_for(Path("x.pst"))
+        if extractor is not None:
+            extractor.backend = backend
+
+    def _save_roots(self, roots: list[str]) -> None:
+        try:
+            # The key `app.cli index` reads when it is given no folders, so
+            # the command line and the window index the same thing. Named
+            # rather than spelled out twice - see `cli.ROOTS_STATE_KEY`.
+            from app.cli import ROOTS_STATE_KEY
+
+            self._w._store.set_state(ROOTS_STATE_KEY, "|".join(roots))
+        except Exception as exc:                 # noqa: BLE001
+            _log.warning("index roots not saved: {}", exc)

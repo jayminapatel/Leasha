@@ -217,6 +217,9 @@ def test_the_application_name_has_a_single_definition():
 
 @pytest.mark.parametrize("module", [
     "app/main.py", "app/cli.py", "app/ui/shell.py", "app/core/diagnostics.py",
+    # Carved out of `app/ui/shell.py` (work order 202626082352 section 7).
+    "app/ui/controllers/settings_controller.py",
+    "app/ui/controllers/index_controller.py",
 ])
 def test_no_module_hardcodes_the_old_name(module: str):
     text = (Path(__file__).resolve().parents[2] / module).read_text(encoding="utf-8")

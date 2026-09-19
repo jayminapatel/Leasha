@@ -283,7 +283,8 @@ def test_a_second_index_run_is_refused_before_anything_is_built() -> None:
     must check again before it builds anything, since a run could have begun
     elsewhere while the resolve was in flight.
     """
-    module = tree("shell.py")
+    # Both moved to `IndexController` (work order 202626082352 section 7).
+    module = tree("controllers/index_controller.py")
     start = next(
         node for node in ast.walk(module)
         if isinstance(node, ast.FunctionDef) and node.name == "_start_indexing"

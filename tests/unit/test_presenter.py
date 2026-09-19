@@ -606,7 +606,9 @@ def test_every_view_starts_workers_through_run() -> None:
     from pathlib import Path
 
     ui = Path(__file__).resolve().parents[2] / "app" / "ui"
-    for source in ui.glob("*.py"):
+    # `controllers/` is where `MainWindow`'s worker-starting handlers live now
+    # (work order 202626082352 section 7).
+    for source in [*ui.glob("*.py"), *(ui / "controllers").glob("*.py")]:
         if source.name == "workers.py":
             continue
         text = source.read_text(encoding="utf-8")
