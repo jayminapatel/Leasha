@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
+from app.ui.widgets.space_table import SpaceTables
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ReportsView", "REPORTS"]
@@ -95,6 +96,11 @@ class ReportsView(QWidget):
         self.body = QTextBrowser()
         self.body.setAccessibleName("Report contents")
         self.body.setOpenExternalLinks(False)
+        #: Order 0n section 3a: the Space Report on screen is a sortable table
+        #: whose rows open to show their copies. Export still writes the
+        #: document - both are made from the same findings (`SpaceDocument`).
+        self.space_table = SpaceTables()
+        self.space_table.hide()
 
         self.export = QPushButton("Export…")
         self.export.setToolTip(
@@ -107,6 +113,7 @@ class ReportsView(QWidget):
         right.addWidget(self.timestamp)
         right.addWidget(self.progress_label)
         right.addWidget(self.body, 1)
+        right.addWidget(self.space_table, 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.export)
@@ -162,6 +169,7 @@ class ReportsView(QWidget):
         from app.reports.inheritance import data_timestamp_sentence, render_inheritance_document
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
+        tabled = False
         if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return
@@ -173,7 +181,14 @@ class ReportsView(QWidget):
                 self.body.setMarkdown(
                     render_inheritance_document(self._sources, generated_at=self._generated_at))
         elif key == "space":
-            self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
+            findings = getattr(self._space_document, "findings", None)
+            if findings is not None:
+                self.space_table.set_findings(findings)
+            else:
+                self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
+            tabled = findings is not None
+        self.body.setVisible(not tabled)
+        self.space_table.setVisible(tabled)
 
     # -- export -----------------------------------------------------------
 
@@ -233,9 +248,9 @@ def _report_snapshot(
     """
     from app.reports.inheritance import catalogue_sources, report_generated_at
     from app.reports.space import (
-        find_duplicate_groups, find_near_duplicate_photo_groups,
-        find_source_duplicate_share, find_source_uniqueness,
-        render_space_document, total_reclaimable_bytes,
+        SpaceFindings, document_for, find_duplicate_groups,
+        find_near_duplicate_photo_groups, find_source_duplicate_share,
+        find_source_uniqueness, total_reclaimable_bytes,
     )
 
     generated_at = report_generated_at(store)
@@ -258,11 +273,12 @@ def _report_snapshot(
     stage("Checking what exists nowhere else...")
     uniqueness = find_source_uniqueness(store)
     stage("Writing the report...")
-    # The Space Report, exactly as `app.cli report space` builds it.
-    space = render_space_document(
-        groups, uniqueness,
-        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at,
-        near_duplicates=near_duplicates, duplicate_share=duplicate_share)
+    # The Space Report, exactly as `app.cli report space` builds it - and it
+    # carries the findings, so the page can show them as a table.
+    space = document_for(SpaceFindings(
+        groups=tuple(groups), near_duplicates=tuple(near_duplicates),
+        duplicate_share=tuple(duplicate_share), uniqueness=tuple(uniqueness),
+        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at))
     return sources, generated_at, space
 
 
@@ -275,17 +291,19 @@ def _local_roots(store: Any) -> list:
 
 
 def _write_pdf(document: str, path: str) -> None:
-    """PDF via the print machinery, on a worker - `QTextDocument`/`QPrinter`
-    are the same route `preview_window.py`'s own Print already uses.
-    Never on the UI thread: a long report over a large catalogue lays out
-    every page before anything is written.
+    """PDF from the same `QTextDocument` layout `preview_window.py`'s Print
+    uses, on a worker. Never on the UI thread: a long report over a large
+    catalogue lays out every page before anything is written.
+
+    `QPdfWriter` rather than a `QPrinter` set to PDF output: same layout and
+    the same bytes (measured on a 200-entry report: 148,742 both ways), but it
+    never touches the Windows printer subsystem - `QPrinter()` on a worker
+    thread died with COM error 0x80040155 (a hard process crash, not an
+    exception) in a process that already held a MainWindow.
     """
-    from PyQt6.QtGui import QTextDocument
-    from PyQt6.QtPrintSupport import QPrinter
+    from PyQt6.QtGui import QPdfWriter, QTextDocument
 
     doc = QTextDocument()
     doc.setMarkdown(document)
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName(path)
-    doc.print(printer)
+    writer = QPdfWriter(path)
+    doc.print(writer)

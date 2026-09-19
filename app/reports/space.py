@@ -43,6 +43,11 @@ __all__ = [
     "NearDuplicatePhotoGroup",
     "SourceUniqueness",
     "SourceDuplicateShare",
+    "SpaceFindings",
+    "SpaceDocument",
+    "document_for",
+    "size_words",
+    "formatted_date",
     "find_duplicate_groups",
     "total_reclaimable_bytes",
     "find_near_duplicate_photo_groups",
@@ -145,6 +150,42 @@ class SourceUniqueness:
     #: answerable for a source that is not currently connected.
     last_seen: Optional[int] = None
     file_count: int = 0
+
+
+@dataclass(frozen=True)
+class SpaceFindings:
+    """Everything the Space Report found, before any of it is worded.
+
+    The document (`render_space_document`) and the interactive table on the
+    Reports page (`app/ui/widgets/space_table.py`) are two ways of showing
+    this one object - so they cannot disagree about what was found.
+    """
+
+    groups: tuple[DuplicateGroup, ...] = ()
+    near_duplicates: tuple[NearDuplicatePhotoGroup, ...] = ()
+    duplicate_share: tuple[SourceDuplicateShare, ...] = ()
+    uniqueness: tuple[SourceUniqueness, ...] = ()
+    total_reclaimable: int = 0
+    generated_at: Optional[int] = None
+
+
+class SpaceDocument(str):
+    """The rendered Markdown document, which also remembers the findings it
+    was rendered from.
+
+    A plain `str` to everything that only wants the document - Export writes
+    it to a PDF, `app.cli report space` prints it, the tests compare it - and
+    it carries `findings` for the one caller that wants the same facts as a
+    sortable table. One object, so what is exported and what is on screen
+    come from the same query run.
+    """
+
+    findings: SpaceFindings
+
+    def __new__(cls, text: str, findings: SpaceFindings) -> "SpaceDocument":
+        obj = super().__new__(cls, text)
+        obj.findings = findings
+        return obj
 
 
 def _volume_lookup(store: Any) -> dict[int, dict[str, Any]]:
@@ -585,3 +626,20 @@ def render_space_document(
             "is lost, so is the content.")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+#: Public names for the two formatters the Reports table shares with the
+#: document, so the words cannot drift apart.
+size_words = _size_words
+formatted_date = _formatted_date
+
+
+def document_for(findings: SpaceFindings) -> SpaceDocument:
+    """`render_space_document` over `findings`, keeping them attached."""
+    text = render_space_document(
+        findings.groups, findings.uniqueness,
+        total_reclaimable=findings.total_reclaimable,
+        generated_at=findings.generated_at,
+        near_duplicates=findings.near_duplicates,
+        duplicate_share=findings.duplicate_share)
+    return SpaceDocument(text, findings)
