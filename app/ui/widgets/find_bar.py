@@ -69,6 +69,9 @@ class FindBar(QWidget):
 
     #: Somebody pressed Escape or Close. The host hides it and takes focus back.
     dismissed = pyqtSignal()
+    #: Shown or hidden, including by an ancestor - `attach_find` keeps its
+    #: Escape shortcut enabled exactly while this is True.
+    visibilityChanged = pyqtSignal(bool)                     # noqa: N815
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -223,6 +226,14 @@ class FindBar(QWidget):
 
     # -- Qt -------------------------------------------------------------------
 
+    def showEvent(self, event: Any) -> None:                # noqa: N802 - Qt's name
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event: Any) -> None:                # noqa: N802 - Qt's name
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
+
     def keyPressEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
         if event.key() == Qt.Key.Key_Escape:
             self.dismissed.emit()
@@ -260,6 +271,13 @@ def attach_find(host: Any, view: Any) -> FindBar:
     # Escape from the *document* closes it too, which is what everybody
     # expects and what makes the bar feel like part of the window rather than
     # a widget parked in it.
+    #
+    # **Only while the bar is showing.** A window-context Escape that is always
+    # armed collides with the window's own Escape (clear the search box), and
+    # Qt answers two identical shortcuts by firing neither - so with the
+    # preview pane open, Escape did nothing anywhere in the window.
     away = QShortcut(QKeySequence(Qt.Key.Key_Escape), host)
+    away.setEnabled(False)
+    bar.visibilityChanged.connect(away.setEnabled)
     away.activated.connect(dismiss)
     return bar
