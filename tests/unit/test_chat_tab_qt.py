@@ -635,7 +635,9 @@ def test_the_chat_settings_group_builds_one_control_per_declared_setting(qtbot, 
                     default=True, group="Models", surface="settings.models",
                     help="Show the running commentary while it works."),
     )
-    monkeypatch.setattr(reg, "SETTINGS", tuple(reg.SETTINGS) + declared)
+    # Replace, not add: the engine now declares real CHAT_ keys of its own.
+    kept = tuple(s for s in reg.SETTINGS if not s.key.startswith("CHAT_"))
+    monkeypatch.setattr(reg, "SETTINGS", kept + declared)
     box = ChatBox(SimpleNamespace(chat_max_rounds=2, chat_model="qwen", chat_show_steps=False))
     qtbot.addWidget(box)
     for setting in declared:

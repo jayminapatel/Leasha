@@ -72,7 +72,8 @@ SURFACE_MODULES = {
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.
     "settings.models": ("settings_view.py", "widgets/model_box.py",
-                        "widgets/storage_box.py", "widgets/media_box.py"),
+                        "widgets/storage_box.py", "widgets/media_box.py",
+                        "widgets/chat_box.py"),
     "settings.storage": ("settings_view.py", "widgets/storage_box.py"),
 }
 
@@ -85,11 +86,27 @@ SURFACE_MODULES = {
 FLOWS = {setting.key: setting.flow for setting in reg.SETTINGS if setting.flow}
 
 
+def _registry_driven_keys(path: Path) -> set[str]:
+    """Keys of a widget that builds one control per registry entry.
+
+    `widgets/chat_box.py` does (its docstring says so): it calls
+    `setObjectName(setting.key)` and writes `{setting.key: value}`, so a scan
+    for string literals cannot see either. What proves the controls exist is
+    `test_chat_tab_qt.py::test_the_chat_settings_group_builds_one_control_per_
+    declared_setting`, which builds the box and looks each one up by name.
+    """
+    if path.name == "chat_box.py":
+        from app.ui.widgets.chat_box import chat_settings
+
+        return {setting.key for setting in chat_settings()}
+    return set()
+
+
 def _object_names_in(path: Path) -> set[str]:
     """Every string passed to `setObjectName(...)` in one module."""
     if not path.is_file():
         return set()
-    found: set[str] = set()
+    found: set[str] = set(_registry_driven_keys(path))
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if not isinstance(node, ast.Call):
             continue
@@ -278,6 +295,7 @@ def _stored_names() -> set[str]:
     """
     found: set[str] = set()
     for path in sorted(UI.rglob("*.py")):
+        found |= _registry_driven_keys(path)
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Dict):
