@@ -112,6 +112,26 @@ _log = logger.bind(component="ui.preview")
 PREVIEW_DEBOUNCE_MS = 200
 
 
+def _theme_palette(widget: QWidget) -> Any:
+    """The palette the code colours are mixed from: the *theme's* ground and ink.
+
+    `widget.palette()` is the operating system's - nothing here sets one, the
+    window is themed by stylesheet - so with the theme forced to dark on a
+    light-mode machine the highlighter chose dark ink for a dark page and the
+    numbers and keywords all but vanished (seen in the dark golden). The same
+    trap `ResultDelegate.paint` documents; the same cure, the sheet's tokens.
+    """
+    from PyQt6.QtGui import QColor, QPalette
+
+    from app.ui.theme import theme_colours
+
+    colours = theme_colours()
+    palette = QPalette(widget.palette())
+    palette.setColor(QPalette.ColorRole.Base, QColor(colours["surface"]))
+    palette.setColor(QPalette.ColorRole.Text, QColor(colours["text"]))
+    return palette
+
+
 class PreviewPane(QWidget):
     """Shows the selected result. Draws only; the reading happens elsewhere."""
 
@@ -187,7 +207,7 @@ class PreviewPane(QWidget):
         # **One highlighter, re-pointed per file.** Building one per selection
         # would leak a rule set for every row arrowed past; `setLanguage` is the
         # whole of what changes between one file and the next.
-        self._highlighter = CodeHighlighter(self.text.document(), self.palette())
+        self._highlighter = CodeHighlighter(self.text.document(), _theme_palette(self))
 
         self.image = QLabel("")
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -334,7 +354,11 @@ class PreviewPane(QWidget):
         rather than as nothing having been selected since it appeared.
         """
         wanted = bool(getattr(prefs, "preview", False))
-        if wanted == self.isVisible():
+        # The pane's own flag, not `isVisible()`: on the Search home state the
+        # whole results pane is out of sight, `isVisible()` is False for a pane
+        # that was asked to show, and switching it off again then returned
+        # early - leaving it to reappear the moment results arrived.
+        if wanted == (not self.isHidden()):
             return
 
         if self.motion and self._animate(wanted):
@@ -445,6 +469,7 @@ class PreviewPane(QWidget):
     def retint(self, colours: dict) -> None:
         """§0.3: icons on the three buttons, in the palette's text colour."""
         from app.ui.widgets.icons import icon
+        self._highlighter.setPalette(_theme_palette(self))
         self.open_button.setIcon(icon("external-link", colours.get("rail_on", "#ffffff")))
         self.reveal_button.setIcon(icon("folder-open", colours.get("text_dim", "#888888")))
         self.pop_button.setIcon(icon("bookmark", colours.get("text_dim", "#888888")))

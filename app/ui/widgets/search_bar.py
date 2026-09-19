@@ -500,9 +500,22 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
     # could only fail, from a feature the person had switched off or never had.
     # `interpret.isVisible()` is the same condition the button is drawn by, so
     # the two cannot drift apart.
+    # **And disabled, not just inert, while it is hidden**: a shortcut that
+    # fires and does nothing still consumes the key, and Ctrl+Enter is also
+    # "reveal this result" in the box (`SearchView.eventFilter`, item 6a),
+    # which therefore never worked on a machine without Interpret.
+    chords = []
     for keys in ("Ctrl+Return", "Ctrl+Enter"):
-        QShortcut(QKeySequence(keys), view,
-                  activated=lambda: on_interpret() if interpret.isVisible() else None)
+        chords.append(QShortcut(
+            QKeySequence(keys), view,
+            activated=lambda: on_interpret() if interpret.isVisible() else None))
+
+    def _follow_interpret() -> None:
+        for chord in chords:
+            chord.setEnabled(interpret.isVisible())
+
+    interpret.changed.connect(_follow_interpret)
+    _follow_interpret()
 
     chooser = view_button(view, None, "", on_change=on_view, grouping=True)
     status = QLabel("")
