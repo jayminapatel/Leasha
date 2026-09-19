@@ -14,6 +14,14 @@ with a reproduction rather than documented behaviour.
 These are source-level checks. Qt widgets cannot be built without a display, so
 a test cannot watch the event loop stall - but it can catch the four patterns
 that cause it, which is where every instance in this project came from.
+
+**Where the worker bodies live.** `app/ui/tasks.py` holds every function that
+reads a store, the disk or a subprocess on the presenter's behalf. It is the one
+module in `app/ui` allowed to (`WORKER_ONLY`). `app/ui/presenter/` holds
+decisions only and is scanned like any view. A view reaches a worker body only
+through a worker: it hands the function to a `CallableWorker`, or calls it from
+a function that is one. `test_a_worker_body_is_only_called_through_a_worker` is
+that rule.
 """
 
 from __future__ import annotations
@@ -419,6 +427,172 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
 
 
 # ---------------------------------------------------------------------------
+# The worker bodies are in `tasks.py`, and a view reaches them through a worker
+#
+# **Why a module rather than a comment.** `presenter.py` was one file that was
+# exempt from the blocking and store-call checks *as a whole*, because it held
+# `doctor_report` and friends. That exempted every formatter beside them too, and
+# nothing said which function was which. The bodies are their own module now, so
+# the exemption is the size of the thing it is for, and the presenter package is
+# held to the same rules as a view.
+# ---------------------------------------------------------------------------
+
+PRESENTER = UI / "presenter"
+TASKS = UI / "tasks.py"
+
+
+def _task_functions() -> frozenset[str]:
+    """Every function `tasks.py` defines at module level, read off the file."""
+    return frozenset(
+        node.name for node in ast.parse(source(TASKS)).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+
+
+#: Read off `tasks.py` rather than listed, for the reason `STORE_CALLS` is: a
+#: worker body added tomorrow is covered the day it is written.
+TASK_FUNCTIONS = _task_functions()
+
+#: Modules through which a worker body can be reached. The presenter package
+#: re-exports them, so `from app.ui.presenter import missing_paths` is the same
+#: function as `from app.ui.tasks import missing_paths`.
+TASK_SOURCES = ("app.ui.tasks", "app.ui.presenter")
+
+
+def _task_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """`(names bound to a worker body, names bound to tasks or presenter)`."""
+    functions: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module in TASK_SOURCES:
+                functions |= {alias.asname or alias.name for alias in node.names
+                              if alias.name in TASK_FUNCTIONS}
+            elif node.module == "app.ui":
+                modules |= {alias.asname or alias.name for alias in node.names
+                            if alias.name in ("tasks", "presenter")}
+        elif isinstance(node, ast.Import):
+            modules |= {alias.asname for alias in node.names
+                        if alias.asname and alias.name in TASK_SOURCES}
+    return functions, modules
+
+
+def _inline_task_calls(path: Path) -> list[str]:
+    """Worker-body calls this module makes outside a worker. The check, as data.
+
+    **Matched on where the name came from, not on its spelling.** `clear_logs`
+    is a worker body and also the name of a method on the environment box; a
+    call to `self.clear_logs()` is the second and must not be flagged. So a call
+    counts only if the name was imported from `tasks` or the presenter, or is
+    reached through one of those modules.
+    """
+    tree = ast.parse(source(path))
+    functions, modules = _task_bindings(tree)
+    if not functions and not modules:
+        return []
+    off_thread = OFF_THREAD | worker_bodies(path)
+    found: list[str] = []
+    scopes: list[tuple[str, ast.AST]] = [("<module>", tree)]
+    scopes += [(node.name, node) for node in ast.walk(tree)
+               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and node.name not in off_thread]
+    for where, scope in scopes:
+        for call in _calls_directly_in(scope):
+            func = call.func
+            if isinstance(func, ast.Name) and func.id in functions:
+                name = func.id
+            elif (isinstance(func, ast.Attribute) and func.attr in TASK_FUNCTIONS
+                  and isinstance(func.value, ast.Name) and func.value.id in modules):
+                name = func.attr
+            else:
+                continue
+            # A call passed *to* CallableWorker is being scheduled, not made.
+            scheduled = any(
+                isinstance(outer, ast.Call)
+                and getattr(outer.func, "id", "") == "CallableWorker"
+                and call in ast.walk(outer)
+                for outer in ast.walk(scope)
+                if isinstance(outer, ast.Call)
+            )
+            if not scheduled:
+                found.append(f"{where}:{name}")
+    return found
+
+
+def test_the_worker_bodies_are_where_the_rule_says():
+    """`tasks.py` is real, is the exempt module, and holds what the presenter's
+    own docstrings called worker-only."""
+    assert TASKS.is_file()
+    assert "tasks.py" in WORKER_ONLY
+    for name in ("missing_paths", "mail_details", "decorate_results",
+                 "record_open", "doctor_report", "install_package",
+                 "read_index_summary", "resolve_open_path", "settings_labels"):
+        assert name in TASK_FUNCTIONS, f"{name} is no longer a worker body in tasks.py"
+
+
+def test_the_presenter_package_is_scanned_like_any_view():
+    """It must not inherit `tasks.py`'s exemption by sharing a file name, and
+    every one of its modules must be in the set the other checks parametrize."""
+    modules = sorted(p for p in PRESENTER.glob("*.py") if p.name != "__init__.py")
+    assert len(modules) > 5, "the presenter package has gone missing"
+    assert not {p.name for p in modules} & WORKER_ONLY
+    assert set(modules) <= set(MODULES)
+
+
+def test_no_presenter_module_defines_a_worker_body():
+    """A function `tasks.py` owns must not be defined a second time in the
+    package, where the exemption would not reach it and a copy could drift."""
+    for path in PRESENTER.glob("*.py"):
+        defined = {node.name for node in ast.parse(source(path)).body
+                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        assert not defined & TASK_FUNCTIONS, (
+            f"{path.name} defines {sorted(defined & TASK_FUNCTIONS)}, which tasks.py owns")
+
+
+def test_the_presenter_package_never_imports_the_worker_bodies():
+    """`tasks.py` imports the package, so the package importing `tasks` would be
+    a cycle. Only `__init__.py` reaches it, lazily, to keep the old import path
+    alive."""
+    for path in PRESENTER.glob("*.py"):
+        if path.name == "__init__.py":
+            continue
+        for node in ast.walk(ast.parse(source(path))):
+            if isinstance(node, ast.ImportFrom):
+                reached = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+            elif isinstance(node, ast.Import):
+                reached = [alias.name for alias in node.names]
+            else:
+                continue
+            assert "app.ui.tasks" not in reached, (
+                f"{path.name}:{node.lineno} imports app.ui.tasks - the package "
+                f"holds decisions and tasks.py depends on it, not the reverse")
+
+
+def test_every_worker_body_is_still_importable_from_the_presenter():
+    """The move must not break `from app.ui.presenter import missing_paths` in
+    the forty-odd places that say it."""
+    import app.ui.presenter as presenter
+    import app.ui.tasks as tasks
+
+    for name in sorted(TASK_FUNCTIONS):
+        assert getattr(presenter, name) is getattr(tasks, name), name
+        assert name in dir(presenter), name
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_a_worker_body_is_only_called_through_a_worker(path):
+    """A view calls `missing_paths` and its siblings from a function it has
+    handed to a `CallableWorker` - never inline, where they would be one more
+    thing on the interface thread."""
+    if path.name == "tasks.py":
+        pytest.skip("tasks.py bodies call each other on the same worker")
+    offenders = _inline_task_calls(path)
+    assert not offenders, (
+        f"{path.name} calls worker bodies on the UI thread: {offenders} - "
+        "hand the function to a CallableWorker")
+
+
+# ---------------------------------------------------------------------------
 # Long operations start a worker rather than running inline
 # ---------------------------------------------------------------------------
 
@@ -689,6 +863,58 @@ def test_the_guard_does_not_flag_a_same_named_method_on_something_else(
                              "        self.close()\n"
                              "        self.timer.stats()\n")
     assert _offenders(path) == []
+
+
+def test_the_guard_catches_a_view_calling_a_worker_body_inline(tmp_path) -> None:
+    """The boundary, broken: a slot that calls `missing_paths` itself."""
+    path = _module(tmp_path, "from app.ui.presenter import missing_paths\n"
+                             "class V:\n"
+                             "    def _paint(self, rows):\n"
+                             "        return missing_paths(rows)\n")
+    assert _inline_task_calls(path) == ["_paint:missing_paths"]
+
+
+def test_the_guard_catches_it_through_the_tasks_module_too(tmp_path) -> None:
+    path = _module(tmp_path, "from app.ui import tasks\n"
+                             "class V:\n"
+                             "    def _go(self):\n"
+                             "        return tasks.doctor_report()\n")
+    assert _inline_task_calls(path) == ["_go:doctor_report"]
+
+
+def test_the_guard_allows_a_worker_body_run_by_a_worker(tmp_path) -> None:
+    """Handed over by name, called inside a nested function that is handed over,
+    and called inside the arguments of the `CallableWorker` itself."""
+    path = _module(tmp_path, "from app.ui.tasks import missing_paths, mail_details\n"
+                             "class V:\n"
+                             "    def _go(self, store, rows):\n"
+                             "        run(pool, CallableWorker(missing_paths, rows))\n"
+                             "        def work():\n"
+                             "            return mail_details(store, rows)\n"
+                             "        run(pool, CallableWorker(work))\n")
+    assert _inline_task_calls(path) == []
+
+
+def test_the_guard_does_not_flag_a_method_that_shares_a_worker_bodys_name(
+    tmp_path
+) -> None:
+    """`EnvironmentBox.clear_logs` starts a worker for `tasks.clear_logs`. The
+    method and the function are two things with one name."""
+    path = _module(tmp_path, "from app.ui.presenter import clear_logs\n"
+                             "class V:\n"
+                             "    def _button(self):\n"
+                             "        self.clear_logs()\n"
+                             "    def clear_logs(self):\n"
+                             "        run(pool, CallableWorker(clear_logs, self.folder))\n")
+    assert _inline_task_calls(path) == []
+
+
+def test_the_guard_ignores_a_name_that_never_came_from_tasks(tmp_path) -> None:
+    path = _module(tmp_path, "def missing_paths(rows):\n"
+                             "    return rows\n"
+                             "def _go(rows):\n"
+                             "    return missing_paths(rows)\n")
+    assert _inline_task_calls(path) == []
 
 
 def test_an_image_is_never_decoded_from_a_path_in_a_view():
