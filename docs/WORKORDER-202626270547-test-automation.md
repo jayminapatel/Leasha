@@ -1,6 +1,6 @@
 # Work order (One thread): test automation — the GUI clicked for real, the system proven nightly
 
-**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (tests + tooling; app code changes only where a test
 exposes a bug)
 **Status: IN PROGRESS 2026-09-16** - the owner authorized starting this order
@@ -115,6 +115,45 @@ closes the gap in layers, cheapest and most valuable first.
 - [x] **5c** GitHub Actions `windows-latest`: unit + pytest-qt(offscreen) +
   hypothesis(default profile) on every push; the `e2e`/`jvm`/`slow` markers
   excluded. This is the contributor gate for the open-source future.
+
+> **2026-09-19 - nothing new is ticked; here is why, and what the suite learned
+> about itself.** **1b stays open**: the Offline Media Scan half is out of scope
+> (the `test_gui_scenarios_journeys.py` docstring says so), and the
+> Rescan/Delete test only asserts `rescan.isEnabled() or delete.isEnabled()`,
+> which is weaker than pressing the control. Everything else in 1b has a
+> scenario. **5a stays open**: `tools/nightly.py` pins floors for index rate,
+> chunker, embed rate, search p95 and recall, but the item also names a ladder
+> floor and the script says outright that it is not measured or pinned.
+> **3a, 3b and 5b remain the owner's** - they need the owner's interactive
+> desktop and a scheduled task, and neither exists in the build session.
+>
+> **The full suite died silently three times in one process on 2026-09-19**:
+> pytest exited with `0xC0000005` (a native access violation) a thousand-odd
+> tests in, with no traceback, no Windows event and empty stderr, so every
+> later test simply never reported. `-q` output looks the same whether a run
+> finished or vanished. Cause: `EMBED_DEVICE` defaults to `auto`, which on a
+> machine with DirectML means the graphics card, so the real-model tests
+> (embedder, CLIP, reranker, OCR) were building DirectML ONNX sessions inside
+> the pytest process; after enough earlier tests had loaded torch, pyarrow and
+> more ONNX sessions, a later DirectML run - RapidOCR's text detector, inside
+> `InferenceSession.run` - crashed. Shown by a fault stack written to a file,
+> and by the same tests completing normally with the process pinned to the
+> processor. **`tests/conftest.py` now pins the suite to the processor**
+> (`EMBED_DEVICE=auto` in the environment opts back in on purpose); nothing
+> tests the card - the device *choice* is tested with fake profiles. It also
+> stops the suite competing with the running application for the same card.
+> **`scripts/run_suite.py`** splits the files across several processes and
+> reports a process that died as CRASHED, with the last file it started, and
+> counts it as a failure; `python scripts/run_suite.py -j 4`.
+>
+> **A second crash is open and unfixed.** One run also died with an access
+> violation in `app/ui/view_options.py` (`look`, the column-width watcher's
+> timer) during a Qt event pump between tests. Its cause is not established
+> (UNCONFIRMED) and there is no reproduction, so nothing was changed there; the
+> code has a four-attempt history of column-width bugs and editing it blind
+> risks undoing that. A related, smaller bug of the same family was found and
+> fixed the same day: a late search answer painted into a results view that had
+> been destroyed (`RuntimeError` inside a Qt slot).
 
 ## 6. Done means
 

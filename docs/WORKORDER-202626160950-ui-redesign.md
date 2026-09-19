@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with
@@ -486,10 +486,58 @@ redo the shell.
 
 ## 9. Tests (0m convention where pytest-qt can reach; the rest honest)
 
+> **2026-09-19 - 9b, 9g, 9h and 9i are ticked; 9j stays open.** Each is
+> ticked against passing tests on the Windows venv, run today.
+> **9b:** `test_ui_redesign_scenarios.py` presses the real rail on the real
+> `MainWindow` - `test_a_click_on_every_rail_button_switches_once_and_only_once`,
+> `test_each_shortcut_lands_on_its_page`,
+> `test_the_pill_opens_indexing_when_clicked_with_the_mouse`,
+> `test_the_last_page_survives_a_relaunch`,
+> `test_the_first_run_opens_on_search_with_the_box_ready`, and the arrow-key
+> and Tab walks. The `test_rail.py` the item names was never created; these
+> scenarios are where its assertions live. **9g:**
+> `test_paint_stays_inside_size_hint_and_leaves_no_gap`,
+> `test_each_kind_badge_is_filled_with_its_own_token_in_both_themes`,
+> `test_a_skeleton_row_is_as_tall_as_the_real_row_it_stands_in_for`.
+> **9h:** `test_accessible_names.py`, `test_tooltips.py` and
+> `test_the_search_page_start_to_finish_with_the_keyboard_alone`.
+> **9i:** `test_grab_ui.py::test_the_goldens_are_the_twelve_9i_describes` and
+> `::test_fresh_grabs_match_the_goldens_within_tolerance`.
+>
+> **What 9i's tick does and does not claim.** Before `49e9dae` the golden
+> comparison read a path that did not exist, so it could not fail; the twelve
+> images were regenerated and read in that commit, and one (light, 1100x760,
+> results) was read again today and looks right. The item says "read by a
+> human before the order is ticked": whether the session reading them counts is
+> the owner's call (UNCONFIRMED). The goldens show no Chat rail entry - Chat
+> arrived afterwards and they were not regenerated.
+>
+> **What the scenarios found.** The nine real bugs in `2281ce0`: text size never
+> reached the Search results list; a skeleton row was a line taller than a real
+> row in compact density; Down on the rail dropped focus into the page;
+> Ctrl+Enter reveal was swallowed by the Interpret shortcut; Escape did nothing
+> while the preview was open; Ctrl+Shift+P twice on home left the pane to
+> reappear; a search still out when the box was cleared answered into the empty
+> page; dark-theme code colours came from the OS palette; and the home box got a
+> third of the page (316px at 1100). A tenth came from the full-suite run on
+> 2026-09-19: the Chat page took keyboard focus on every visit, so arrowing down
+> the rail stopped at Chat and Reports, Indexing and Settings were unreachable.
+> It is fixed with the guard the other pages already use.
+>
+> **9j** still needs the owner's own machine (the before/after comparison the
+> item describes).
+>
+> **An owner decision waiting.** `test_ui_redesign.py::test_the_rail_labels_are_the_tab_titles_verbatim`
+> is red: the rail entry reads "Offline" (`app/ui/shell.py`, introduced in
+> `88ba362`) where the order asks for the page's own title verbatim. That is a
+> label, and a label is not reworded without the owner's word, so nothing was
+> changed. Either the shortening stands and the test's expectation is corrected,
+> or the label goes back.
+
 - [x] **9a** `test_theme.py`: both palettes carry the identical, extended
   key set; `stylesheet()` renders for every `SCHEMES` value without a
   missing-token `KeyError`.
-- [ ] **9b** `test_rail.py`: every page reachable by click, by keyboard,
+- [x] **9b** `test_rail.py`: every page reachable by click, by keyboard,
   and by its existing shortcut; `currentChanged` fires once per switch;
   the pill opens Indexing; `ui:page` survives a simulated relaunch; the
   first run opens Search.
@@ -504,13 +552,13 @@ redo the shell.
   guard intact); two chips remove independently.
 - [x] **9f** toasts: a `notify()` call shows one toast, queues a second, and
   clears both; the live-region label carries the text.
-- [ ] **9g** delegate: `sizeHint == paint` geometry in both densities and
+- [x] **9g** delegate: `sizeHint == paint` geometry in both densities and
   all three text sizes; badge colour per kind; skeleton rows lay out at
   the same height as real rows.
-- [ ] **9h** accessibility pass: every icon-only control has an accessible
+- [x] **9h** accessibility pass: every icon-only control has an accessible
   name (`test_accessible_names.py`) and a tooltip (`test_tooltips.py`);
   the whole Search page is driven start to finish with the keyboard alone.
-- [ ] **9i** visual: `widget.grab()` PNGs of the empty state and the
+- [x] **9i** visual: `widget.grab()` PNGs of the empty state and the
   results-with-inspector state, in light and dark, at 1024×600, default
   and maximised — twelve images, committed under `tests/golden/ui-redesign/`
   and read by a human before the order is ticked. Not a pixel diff; a

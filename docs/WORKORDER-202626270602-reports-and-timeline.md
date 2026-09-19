@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.4 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -63,7 +63,25 @@ green. §3 and §4 below are genuinely not started - do not read this note as co
 new tests in `test_reports_space.py`, 3 more in `test_cli_wiring.py`, all
 against a real `SqliteStore`.
 
-- [ ] **3a** across ALL sources, from content hashes + pHash (photos):
+> **2026-09-19 - 3a and 3c are ticked, and here is exactly what that rests on.**
+> **3a's last open sub-ask is built**: the interactive table (`app/ui/widgets/space_table.py`,
+> shipped in `a4baf1c`) - one tab per question the report answers, columns that
+> sort on their real values, and a row that opens to show every copy with its
+> source, plus export. `test_space_report_table.py` and `test_reports_space.py`
+> prove it, and they pass. **3c's last open sub-ask is measured, on synthetic
+> data only**: `test_space_report_scale.py` builds a 200,000-row `files` table
+> (85,160 distinct hashes; 27,037 photos of which 12,732 carry a pHash; three
+> volumes plus this computer) and times the queries, best of three on a loaded
+> machine: duplicate groups 97-325 ms, total reclaimable 95-361 ms, similar
+> photos 565-2,490 ms (about 200 s before the pHash comparison was vectorised),
+> duplication by source 335-1,130 ms, the only copy 164-650 ms, the whole
+> snapshot about 2.5 s. `test_space_report_caching_and_progress.py` proves the
+> cache hit and the staged progress. **Not measured: the owner's real index at
+> `D:\Leasha\Data`.** The numbers above say the queries do not fall over at
+> 200,000 rows, and nothing more. Section 4 (the Life Timeline) is untouched;
+> it stays held.
+
+- [x] **3a** across ALL sources, from content hashes + pHash (photos):
   total duplicate bytes reclaimable, largest duplicate groups (what, where,
   each copy's source), per-source duplicate share. Table + a few plain
   numbers; sortable; row → reveals the copies with their sources.
@@ -112,7 +130,7 @@ against a real `SqliteStore`.
   first, and splitting it would cost a per-row path-prefix match this
   item's own priority does not need. Catalogued volumes are reported
   individually and rank first, exactly as asked.
-- [ ] **3c** performance: report queries are prepared/indexed (hash and
+- [x] **3c** performance: report queries are prepared/indexed (hash and
   pHash columns get the indexes these GROUP BYs need — measured on the
   scale fixture, the H2-lesson applied in advance), generated on a worker
   with progress, cached until the next index run.
