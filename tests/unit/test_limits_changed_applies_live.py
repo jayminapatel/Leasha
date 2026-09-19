@@ -229,6 +229,10 @@ def test_settings_view_holds_its_own_settings_reference_not_the_windows(
     """
     app, built, store, vectors, _env = _window(tmp_path)
     try:
+        # Order 0r item 2b (second pass): Settings is built a beat after the
+        # window, on the first turn of the event loop.
+        for _ in range(5):
+            app.processEvents()
         assert built.settings_view._settings is built._settings, (
             "if this ever starts failing because MainWindow.__init__ was "
             "changed to hand SettingsView a shared, live-updated reference "
