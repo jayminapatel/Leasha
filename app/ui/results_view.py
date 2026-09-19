@@ -47,12 +47,13 @@ from PyQt6.QtWidgets import (
 from app.ui.presenter import (
     KIND_LABELS, ResultGroup, ResultRow, Terminator, accessible_text,
     group_results, offline_volume_note, result_tooltip, results_terminator,
-    row_identity, to_rows, why,
+    explain_switch_on, row_identity, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.result_drag_model import DraggableResultsModel
+from app.ui.widgets.why_dialog import show_why
 
 __all__ = ["ResultsView", "KIND_LABELS"]
 
@@ -97,6 +98,10 @@ class ResultsView(QWidget):
         self._placeholders: set = set()
         #: "plain" or "technical" - item 4b's date register, from the tab.
         self._register = "plain"
+        #: Adoptions section 1: `() -> (typed terms, search preferences)`,
+        #: set by the search tab - read at click time, so the menu always
+        #: reflects the switch as it is now, never as it was when built.
+        self.explain_context: Any = None
 
         self._summary = QLabel("")
         self._summary.setObjectName("resultsSummary")
@@ -390,6 +395,7 @@ class ResultsView(QWidget):
         # **"Why this result?" keeps the explanation reachable.** It came off
         # every row to stop it competing with the name; it must not become
         # unavailable, because being able to ask is where trust comes from.
+        terms, prefs = self.explain_context() if self.explain_context else ((), {})
         show_for(self._list, point, row.path, FileActions(
             open_file=lambda: self.opened.emit(row),
             reveal=lambda: self.reveal_requested.emit(row),
@@ -403,6 +409,8 @@ class ResultsView(QWidget):
             # the image-row caveat: this action is wired to `similar_to`
             # exactly as the engine has it today.
             similar=lambda: self.similar_requested.emit(row),
+            explain=(lambda: show_why(self, row, terms, prefs))
+            if explain_switch_on(prefs) else None,
             copy=[("Why this result?", why(row))],
         ))
 

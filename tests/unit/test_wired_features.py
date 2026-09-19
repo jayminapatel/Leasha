@@ -88,3 +88,82 @@ def test_the_tagger_reloads_each_time_it_is_shown(gui_mainwindow, qtbot, monkeyp
     gui_pump(app)
     assert calls, "a window kept across two index runs must not show old piles"
     tagger.close()
+
+
+# ---------------------------------------------------------------------------
+# Adoptions section 1 - "Why is this here?"
+# ---------------------------------------------------------------------------
+
+def _first_row_point(view):
+    index = view.results._model.index(0, 0)
+    return view.results._list.visualRect(index).center()
+
+
+def _type_and_settle(qtbot, app, view, text):
+    view.input.clear()
+    gui_pump(app)
+    qtbot.keyClicks(view.input, text)
+    qtbot.waitUntil(lambda: view.results._model.rowCount() > 0, timeout=3000)
+    qtbot.wait(700)
+    gui_pump(app)
+
+
+def test_the_result_menu_offers_why_and_it_answers_in_plain_words(gui_mainwindow, qtbot, monkeypatch):
+    import app.ui.results_view as results_module
+
+    app, window, store, engine = gui_mainwindow
+    view = window.search_view
+    _type_and_settle(qtbot, app, view, "barnsley")
+
+    captured = {}
+    monkeypatch.setattr(results_module, "show_for",
+                        lambda widget, point, path, actions: captured.update(actions=actions))
+    shown = []
+    monkeypatch.setattr(results_module, "show_why",
+                        lambda parent, row, terms, prefs: shown.append((row, terms, prefs)))
+
+    view.results._on_context_menu(_first_row_point(view))
+    actions = captured["actions"]
+    assert actions.explain is not None, "the menu must offer Why is this here?"
+
+    actions.explain()
+    row, terms, prefs = shown[0]
+    assert "barnsley" in [t.lower() for t in terms]
+
+    from app.ui.widgets.why_dialog import why_text
+    body = why_text(row, terms, prefs)
+    assert "barnsley" in body.lower(), body
+    assert "score" not in body.lower(), "facts, never scores"
+
+
+def test_switching_explanations_off_removes_the_menu_entry(gui_mainwindow, qtbot, monkeypatch):
+    import app.ui.results_view as results_module
+
+    app, window, store, engine = gui_mainwindow
+    view = window.search_view
+    _type_and_settle(qtbot, app, view, "barnsley")
+    captured = {}
+    monkeypatch.setattr(results_module, "show_for",
+                        lambda widget, point, path, actions: captured.update(actions=actions))
+    monkeypatch.setattr(view, "_search_preferences", {"explain_results": False})
+
+    view.results._on_context_menu(_first_row_point(view))
+    assert captured["actions"].explain is None
+
+
+def test_a_meaning_only_row_says_so(gui_mainwindow):
+    from app.ui.presenter import ResultRow, Snippet, why_lines
+
+    row = ResultRow(rank=0, chunk_id=1, file_id=1, path="C:/a.txt", display_path="a.txt",
+                    snippet=Snippet("x", ()), explain="", sources=(1,), text="unrelated words")
+    assert any("meaning" in line.lower() for line in why_lines(row, ["invoice"]))
+    assert why_lines(row, ["invoice"], {"explain_results": False}) == ()
+
+
+def test_the_dialog_says_when_there_is_nothing_more(gui_mainwindow):
+    from app.ui.presenter import ResultRow, Snippet
+    from app.ui.widgets.why_dialog import NOTHING_MORE, why_text
+
+    row = ResultRow(rank=0, chunk_id=1, file_id=1, path="C:/a.txt", display_path="a.txt",
+                    snippet=Snippet("x", ()), explain="", sources=(), text="")
+    assert why_text(row, [], {}) == NOTHING_MORE

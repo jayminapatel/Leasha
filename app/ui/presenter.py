@@ -540,6 +540,15 @@ class ResultRow:
     #: before it is opened.
     volume_id: Optional[int] = None
     relative_path: str = ""
+    #: Adoptions section 1: what `why_result` reads to say, in plain words,
+    #: why this row is on the page. Carried as data straight from
+    #: `SearchResult`, the same rule `sources` follows - the explanation is
+    #: built from recorded facts, never re-derived from the sentence in
+    #: `explain`.
+    text: str = ""
+    recency: float = 0.0
+    declares: bool = False
+    rerank_score: Optional[float] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -606,6 +615,10 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
                  or int(getattr(result, "mtime_ns", 0) or 0),
         sources=tuple(getattr(result, "sources", ()) or ()),
         label=str(getattr(result, "label", "") or ""),
+        text=str(getattr(result, "text", "") or ""),
+        recency=float(getattr(result, "recency", 0.0) or 0.0),
+        declares=bool(getattr(result, "declares", False)),
+        rerank_score=getattr(result, "rerank_score", None),
     )
 
 
@@ -5232,6 +5245,32 @@ def explain_for(result: Any, parsed: Any = None, policy: Any = None, *,
 #: ring applies here too, and a marker that is only a hue is a marker several
 #: people on any given day cannot see.
 MEANING_MARKER = "meaning match"
+
+
+def why_lines(row: Any, terms: Sequence[str] = (), prefs: Optional[dict] = None,
+              *, opens: int = 0) -> tuple:
+    r"""The plain-words reasons a row is on the page, for the "Why is this here?"
+    menu entry. Adoptions section 1, which built `why_result` and `explain_for`
+    and left nothing in the window to call them.
+
+    `prefs` is the dictionary `SearchView` already holds
+    (`app.search.policy.preferences`): its `explain_results` switch and its
+    `notice_register` decide here, so the off-switch cannot be honoured in the
+    menu and forgotten in the dialog. Returns `()` when the switch is off.
+    """
+    from types import SimpleNamespace
+
+    prefs = prefs or {}
+    policy = SimpleNamespace(
+        explain_results=bool(prefs.get("explain_results", True)),
+        notice_register=str(prefs.get("notice_register", "plain") or "plain"))
+    parsed = SimpleNamespace(terms=tuple(terms or ()))
+    return explain_for(row, parsed, policy, opens=opens)
+
+
+def explain_switch_on(prefs: Optional[dict] = None) -> bool:
+    """Whether "Why is this here?" is offered at all - the same switch."""
+    return bool((prefs or {}).get("explain_results", True))
 
 
 def match_marker(row: Any, policy: Any = None) -> str:
