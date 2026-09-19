@@ -31,6 +31,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     One number cannot distinguish "search is bad" from "search is fine at topics
     and blind to constraints", and those have completely different fixes.
     """
+    if getattr(args, "chat", False):
+        # Work order 202626270611 section 4: the Chat engine's own measurement.
+        from app.chat.evaluate import run_cli
+
+        return run_cli(args)
+
     from app.search.evaluate import evaluate
 
     settings = _load(args)
@@ -270,4 +276,17 @@ def add_evaluate_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     p_eval.add_argument("--k", type=int, default=1, metavar="N",
                         help="count a hit if the document is in the top N (default 1 - "
                              "did it come FIRST? higher numbers flatter the result)")
+    p_eval.add_argument(
+        "--chat", action="store_true",
+        help="measure the Chat engine on the shipped fixture: citation validity, "
+             "extractive correctness, exact counts, honest absence, latency")
+    p_eval.add_argument(
+        "--chat-model", metavar="NAME",
+        help="with --chat: the Ollama model that answers (default: the configured one)")
+    p_eval.add_argument(
+        "--chat-fake", action="store_true",
+        help="with --chat: use the deterministic FakeLLM instead of a real model")
+    p_eval.add_argument(
+        "--chat-ids", metavar="L01,A03",
+        help="with --chat: only these question ids (a real model is slow)")
     p_eval.set_defaults(func=cmd_evaluate)
