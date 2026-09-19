@@ -109,10 +109,13 @@ def test_both_rerank_controls_are_driven_from_the_stored_value():
     r"""The toolbar box was hard-coded checked and never persisted while the
     Settings box was persisted - so they disagreed from the first launch after
     anybody changed it, and the toolbar is the one every search reads."""
-    text = (UI / "shell.py").read_text(encoding="utf-8")
+    # The handlers moved to `SettingsController` (order 202626082352 section
+    # 7): `MainWindow` keeps same-named forwarding methods, so it is the
+    # controller's source that says whether both boxes are really driven.
+    text = (UI / "controllers" / "settings_controller.py").read_text(encoding="utf-8")
 
     assert "_set_toolbar_rerank" in text, "the toolbar box is still not driven"
-    handler = _body("shell.py", "_rerank_toggled")
+    handler = _body("controllers/settings_controller.py", "_rerank_toggled")
     assert "_set_toolbar_rerank" in handler and "settings_view" in handler, (
         "one handler must move both controls, or they drift apart again")
 
@@ -121,8 +124,8 @@ def test_setting_one_control_cannot_bounce_off_the_other():
     """Both report into the same handler, so setting one from it would emit
     back in. Signals are blocked on the way in; without that the two would
     ping-pong."""
-    handler = _body("shell.py", "_rerank_toggled")
-    setter = _body("shell.py", "_set_toolbar_rerank")
+    handler = _body("controllers/settings_controller.py", "_rerank_toggled")
+    setter = _body("controllers/settings_controller.py", "_set_toolbar_rerank")
 
     assert "blockSignals" in handler and "blockSignals" in setter
 

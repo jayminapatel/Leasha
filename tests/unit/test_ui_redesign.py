@@ -315,6 +315,14 @@ def test_every_pre_order_label_tooltip_and_message_still_exists_verbatim(relativ
     """The standing rule, enforced: a superset is fine, a change is not."""
     before = _ui_strings(_pre_order_text(relative))
     after = _ui_strings((ROOT / relative).read_text(encoding="utf-8"))
+    if relative == "app/ui/shell.py":
+        # The settings and index handlers moved out of `MainWindow` into
+        # `app/ui/controllers/` (work order 202626082352 section 7). The
+        # strings did not go anywhere - they are the same strings, in the
+        # files the handlers now live in - so "still exists verbatim" is asked
+        # of the shell and its controllers together, not of the shell alone.
+        for controller in sorted((UI / "controllers").glob("*.py")):
+            after |= _ui_strings(controller.read_text(encoding="utf-8"))
     missing = before - after
     assert not missing, (
         f"{relative}: these pre-order strings are gone or changed:\n  "
@@ -326,9 +334,13 @@ def test_the_status_bar_messages_all_became_toasts():
     before_src = _pre_order_text("app/ui/shell.py")
     before = [n for n in ast.walk(ast.parse(before_src))
               if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "showMessage"]
-    after_src = (UI / "shell.py").read_text(encoding="utf-8")
-    after = [n for n in ast.walk(ast.parse(after_src))
-             if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "notify"]
+    # The shell and the controllers carved out of it (order 202626082352
+    # section 7) together: a `notify` that moved is still a `notify`.
+    after = []
+    for path in [UI / "shell.py", *sorted((UI / "controllers").glob("*.py"))]:
+        after_src = path.read_text(encoding="utf-8")
+        after += [n for n in ast.walk(ast.parse(after_src))
+                  if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "notify"]
     assert len(before) >= 30, "the pre-order shell had dozens of these"
     assert len(after) >= len(before), (len(before), len(after))
 

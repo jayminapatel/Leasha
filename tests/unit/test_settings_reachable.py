@@ -222,9 +222,15 @@ def test_restart_settings_say_so_somewhere_the_user_can_see(setting):
     handler = FLOW_HANDLERS_IN_SHELL.get(setting.flow) if setting.flow else None
 
     if not seen and handler:
-        seen = "restart" in _function_source(UI / "shell.py", handler).lower()
+        # Both flow handlers moved out of `MainWindow` into
+        # `SettingsController` (work order 202626082352 section 7); the
+        # window's same-named method only forwards, so it is the controller's
+        # text that carries the outcome message.
+        seen = "restart" in _function_source(
+            UI / "controllers" / "settings_controller.py", handler).lower()
 
-    where = f"{setting.surface}" + (f" or shell.py's {handler!r}" if handler else "")
+    where = f"{setting.surface}" + (
+        f" or the settings controller's {handler!r}" if handler else "")
     assert seen, (
         f"{setting.key} is flagged restart=True but the word 'restart' "
         f"appears nowhere on {where} - a change needing a restart would look "

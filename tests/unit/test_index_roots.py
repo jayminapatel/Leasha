@@ -58,8 +58,11 @@ def test_the_window_and_the_command_line_use_one_key():
     # on a headless machine - which is where a mismatch would first bite.
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[2] / "app" / "ui" / "shell.py"
-              ).read_text(encoding="utf-8")
+    # `_save_roots` moved out of `MainWindow` into `SettingsController`
+    # (work order 202626082352 section 7); the window's method of that name
+    # only forwards, so the key is named in the controller now.
+    source = (Path(__file__).resolve().parents[2] / "app" / "ui" / "controllers"
+              / "settings_controller.py").read_text(encoding="utf-8")
 
     assert "ROOTS_STATE_KEY" in source, (
         "the window writes its own literal; two literals that must match are "
