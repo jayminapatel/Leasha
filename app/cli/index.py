@@ -72,6 +72,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     """
     from app.index.clip_embedder import ClipImageEmbedder
     from app.index.embedder import Embedder
+    from app.extract.media import MediaConfig
     from app.index.pipeline import Pipeline, PipelineConfig
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
@@ -201,6 +202,9 @@ def cmd_index(args: argparse.Namespace) -> int:
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,
         people_recognition_enabled=settings.people_recognition_enabled,
+        # Work order 202626270515. Off unless VIDEO_INDEXING_ENABLED and/or
+        # AUDIO_TRANSCRIPTION_ENABLED are on in `.env`.
+        media=MediaConfig.from_settings(settings),
         # Work order 202626130120 (0t) section 6: resolved once, above, by
         # the same resolve_for_run call the window uses before it builds a
         # Pipeline.

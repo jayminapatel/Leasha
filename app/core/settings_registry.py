@@ -503,6 +503,64 @@ SETTINGS: tuple[Setting, ...] = (
              "person' on the Photo Tagger page for that, per photo or per "
              "person.",
     ),
+    # Work order 202626270515 (video and audio). All five live in the Models
+    # group beside the photo settings they extend, and are built in
+    # `app/ui/widgets/media_box.py` rather than in `settings_view.py`.
+    Setting(
+        key="VIDEO_INDEXING_ENABLED",
+        label="Read videos on this computer",
+        kind="bool", default=False, group="Models", surface="settings.models",
+        restart=True,
+        help="Makes videos findable by what they are and what is in them: how long "
+             "and how sharp, the date they were filmed (which survives copying, "
+             "unlike the file's own date), where a phone recorded them, and the "
+             "words and scenes at each moment - found with the same picture "
+             "reading that photos get. Off by default: this can take minutes per "
+             "film and hours across a family archive, so it is a choice, not "
+             "something Auto-tune turns on. Needs FFmpeg, which is free but not "
+             "included - the box below says whether it was found and how to "
+             "install it. Nothing is downloaded or sent anywhere.",
+    ),
+    Setting(
+        key="AUDIO_TRANSCRIPTION_ENABLED",
+        label="Write down what is said in recordings",
+        kind="bool", default=False, group="Models", surface="settings.models",
+        restart=True,
+        help="Turns speech into searchable text, with the time it was said, for "
+             "voice memos, recorded calls and the sound of videos - so a search "
+             "can say 'at 12:41'. Off by default: transcribing takes roughly as "
+             "long as a fraction of the recording itself on this computer's "
+             "processor, done slowly in the background, and it can be stopped and "
+             "resumed without starting the recording again. Needs the "
+             "faster-whisper package and a speech model downloaded once; Leasha "
+             "never downloads anything by itself.",
+    ),
+    Setting(
+        key="TRANSCRIBE_MODEL", label="Speech model size",
+        kind="choice", default="base", group="Models", surface="settings.models",
+        choices=("tiny", "base", "small", "medium"), restart=True,
+        help="Larger models hear accented or quiet speech better and take longer "
+             "and more memory: 'tiny' is quickest and roughest, 'base' a sensible "
+             "start, 'small' and 'medium' for recordings that matter. Each is "
+             "downloaded once by a command the box below shows you.",
+    ),
+    Setting(
+        key="VIDEO_KEYFRAME_INTERVAL_S", label="Longest gap between pictures",
+        kind="int", default=60, group="Models", surface="settings.models",
+        minimum=5, maximum=600, unit="seconds", restart=True,
+        help="A picture is taken from a video every time the scene changes, and "
+             "at least this often even when nothing does - so a recorded meeting "
+             "that is one slide for ten minutes still gets read. Shorter finds "
+             "more and costs more.",
+    ),
+    Setting(
+        key="VIDEO_KEYFRAME_CAP", label="Most pictures per video",
+        kind="int", default=200, group="Models", surface="settings.models",
+        minimum=10, maximum=1000, unit="pictures", restart=True,
+        help="The ceiling on how many pictures are read from one video, so a "
+             "three-hour film cannot take a whole day. Reading each picture costs "
+             "about as much as reading a photo.",
+    ),
     Setting(
         key="CAPTION_TRICKLE_ENABLED",
         label="Describe photos in the background",

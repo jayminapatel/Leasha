@@ -145,6 +145,14 @@ _EXT_GROUPS = {
     "email": ("msg", "eml", "pst"),
     "text": ("txt", "md", "log"),
     "code": ("py", "js", "ts", "sql", "ps1", "cs", "java"),
+    # Work order 202626270515. `type:video` is the day-one query for a film
+    # library - findable by name, date and length before anything is read.
+    "video": ("mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg",
+              "3gp", "flv", "m2ts"),
+    "movie": ("mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg",
+              "3gp", "flv", "m2ts"),
+    "audio": ("mp3", "m4a", "wav", "flac", "ogg", "oga", "opus", "aac", "wma"),
+    "recording": ("mp3", "m4a", "wav", "flac", "ogg", "oga", "opus", "aac", "wma"),
 }
 
 _RELATIVE_DAYS = {
