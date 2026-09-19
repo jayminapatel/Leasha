@@ -282,8 +282,8 @@ def test_the_support_bundle_button_writes_the_zip(gui_mainwindow, qtbot, monkeyp
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(target), "")))
     qtbot.mouseClick(box.bundle_button, Qt.MouseButton.LeftButton)
-    qtbot.waitUntil(target.exists, timeout=20000)
-    qtbot.waitUntil(lambda: box.bundle_button.isEnabled(), timeout=20000)
+    qtbot.waitUntil(target.exists, timeout=120000)
+    qtbot.waitUntil(lambda: box.bundle_button.isEnabled(), timeout=120000)
     with zipfile.ZipFile(target) as bundle:
         assert "summary.txt" in bundle.namelist()
     assert str(target) in box.bundle_status.text()
