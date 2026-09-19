@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.5 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 6.6 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,53 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-19 (evening) - everything that can be built without the owner's machine is
+built and merged, and the suite now runs to the end.** For whoever picks this up:
+
+- **Restart the app.** The copy that was running predates all of this.
+- **What landed on `main` today:** the three structural splits of the remediation order
+  (`app/cli/` a package; `app/ui/presenter/` a package with worker bodies in
+  `app/ui/tasks.py`; `SettingsController` and `IndexController` out of `shell.py`); the
+  unreachable features wired in (People in photos window, saved-search dialogs, repo health
+  note, restart-needed notes, the search check, deep-link registration); the **Chat tab**
+  (`app/chat/`, `app/ui/chat_*.py`) and its `evaluate --chat` harness; **video and audio**
+  (`app/cli media`, off by default); the UI Redesign's scenario tests and twelve working
+  goldens; order 0r 2b's deferred page construction; order 0n's interactive Space Report
+  table; and the suite fixes below.
+- **Suite:** the last full run (`python scripts/run_suite.py -j 4`, eleven minutes, on the merged
+  `main`) finished with **8,273 passed, 58 failed and no process crashed.** 57 of the failures are
+  in the known families under "Known red" below; the other is
+  `test_stages.py::test_a_second_run_reports_its_own_time_not_the_first_ones`, a wall-clock timing
+  test that passes on its own and failed once under four-process load (timing tests here are
+  load-sensitive: `test_idle_tune_and_space_report_ui.py`, `test_gui_scenarios.py::test_escape...`
+  and the first-contact box have done the same).
+- **Run it with `python scripts/run_suite.py`, not one long `pytest tests`** - see the
+  2026-09-19 trap in section 6. It splits the files across processes and reports a process
+  that died as CRASHED with the last file it started.
+- **Real bugs the full-suite run found and fixed today:** the Chat page took keyboard focus
+  on every visit, so arrowing down the rail stopped at Chat; `/type` did not offer the new
+  `video`, `movie`, `audio` and `recording` words; a late search answer painted into a
+  destroyed results view (`RuntimeError` inside a Qt slot); and, found by asking why Chat's
+  controls did nothing, **the Chat tab's pins, removals and Fast/Thoughtful never reached the
+  real engine** (its Qt tests ran against a fake). All four have tests against the real thing.
+- **Known red, not regressions:** the git-repository detection tests (`test_repos_acceptance`,
+  five in `test_cli_wiring`); `test_archive_reading` (3); layer 2/3/4 acceptance (4);
+  `test_clip_lane_wiring` (2); `test_converter_discovery` (2); the two `test_deeplink` CLI tests
+  (WinError 10106 on this machine); `test_docs_versioned` on `_Knowledge/prompt_log/views/*.md`;
+  `test_git_view`, `test_match_marker`, `test_prompt_examples`, `test_query_plans`,
+  `test_rerank_off_by_default`, `test_scale_limits`, `test_speed_work`, `test_staging` (2);
+  `test_ui_redesign.py::test_the_rail_labels_are_the_tab_titles_verbatim` (an owner decision -
+  section 7); and `test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter`,
+  because `indexing_view.py` is 292 lines against a 250-line guard, which predates all of this.
+- **Deliberately not built:** pywinauto black-box journeys and the scheduled nightly task
+  (0m 3a/3b/5b - they need the owner's desktop); the Life Timeline (0n section 4, held);
+  the PySide6 migration (held); cloud volumes and cloud connectors (removed from scope);
+  install and distribution (`202626082213`); on-tape ordering and the UNC test (0l - need the
+  hardware); the OCR order's section 3 measurement; terabyte-scale and PST owner runs.
+- **Built but not measured on the owner's machine:** 0r 2b (<1.5 s window-visible), 0n 3c
+  (measured on 200,000 *synthetic* rows only), video/audio (ffmpeg was not found here and no
+  faster-whisper throughput figure exists), Chat 4b/4c (real-model quality and latency).
 
 **2026-09-16 — the shell is mid-redesign and the working tree is uncommitted.**
 Work order `202626160950` (UI Redesign — one shell for Windows and macOS) was
@@ -1011,6 +1058,27 @@ Dated, because several of them supersede an earlier position.
 
 Things that have already caused real failures, or will.
 
+**2026-09-19 - the test suite died silently three times in one process. Run it with
+`scripts/run_suite.py`.** `python -m pytest tests` ended part-way (about test 3,800 of 8,400)
+with exit code `0xC0000005` (-1073741819, a native access violation), **no traceback, no
+Windows event and an empty stderr**, so every later test simply never reported - and `-q`
+output looks the same whether a run finished or the process vanished. Cause, shown by a fault
+stack written to a file and by the same tests completing when the process was kept off the
+card: `EMBED_DEVICE` defaults to `auto`, which on a machine with DirectML is the graphics card,
+so the real-model tests (embedder, CLIP, reranker, OCR) built DirectML ONNX sessions inside the
+pytest process, and after enough earlier tests had loaded torch, pyarrow and more ONNX sessions
+a later run - RapidOCR's text detector, inside `InferenceSession.run` - crashed the process.
+It also meant the suite competed with the running app for the same card. **`tests/conftest.py`
+now pins the suite to the processor** (`EMBED_DEVICE=auto` in the environment opts back in on
+purpose). It may be a relative of the `onnxruntime` / `onnxruntime-directml` overwrite trap
+below (UNCONFIRMED - it was not checked which binaries were installed at the time). **A second
+native crash is open and unfixed:** one run died with an access violation in
+`app/ui/view_options.py` (`look`, the column-width watcher's timer) during a Qt event pump
+between tests. Its cause is not established and it has no reproduction; that code has a
+four-attempt history of column-width bugs, so it was left alone rather than edited blind. If
+the app itself ever vanishes on close, start there. `logs/crash/crash.log` is where the app's
+own fault handler writes; the test process's is written where you point `faulthandler` at it.
+
 **2026-09-13 — `onnxruntime` and `onnxruntime-directml` overwrite each other, and
 the venv is currently half-uninstalled.** The two distributions unpack into the
 same `venv\Lib\site-packages\onnxruntime\` directory; whichever is installed
@@ -1438,6 +1506,27 @@ Not blockers, but decide them deliberately rather than by accident.
    venv plus a shortcut rather than let packaging block a working app.
 5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
    mean anything. The synthetic corpus is a floor, not a substitute.
+6. **Decisions waiting on the owner (2026-09-19).**
+   - **The rail says "Offline"; the redesign order asks for the page's own title verbatim
+     ("Offline Media").** `test_the_rail_labels_are_the_tab_titles_verbatim` is red until the label
+     goes back or the test's expectation is corrected. A label is not reworded without the
+     owner's word, so nothing was changed.
+   - **Chat was built on the owner's instruction, which reopens the "chat over the index is a
+     deliberate refusal" decision.** The record is a dated note on
+     `WORKORDER-scope-change-search-and-chat.md`; the order's own status line still says HELD and
+     the register says RELEASED. Say which stands. Chat 4b (the extractive-answer quality floor)
+     is *missed* with real models - 83.9% / 83.3% against 85%, figures from the build brief and
+     not reproduced here.
+   - **Video and audio is built ahead of its DRAFT status, off by default.** The
+     faster-whisper / PyAV licence decision is the owner's, and none of the four promotion items
+     is ticked (ffmpeg was not found on this machine).
+   - **Whether the twelve UI goldens have been "read by a human"** as 9i asks - the regenerating
+     session read them; the owner has not.
+   - **Small UI questions the redesign scenarios raised:** Enter on a group of two matches opens
+     the best hit; Ctrl+Enter is still Interpret when that is on; the empty "Pinned working set"
+     panel takes a third of the results page; Escape collides with the find bar. The Chat page's
+     Fast/Thoughtful control says so when only one model is installed, but has not been tried
+     against a live Ollama.
 
 ## 8. Where to look
 
