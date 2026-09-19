@@ -1,6 +1,6 @@
 # How work orders work now
 
-**Doc version:** 2.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 2.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 ## One thread, from 2026-08-25
 
@@ -266,3 +266,14 @@ version pin in this repository was checked against PyPI rather than recalled, an
 that started this restructure found five things that were documented, believed, and never
 wired up. A work order asserting something false is worse than no work order, because it gets
 implemented.
+
+### Note, 2026-09-19: three paths in this document no longer name one file
+
+The ownership table and section 0 above say `app/cli.py`, `presenter.py` and
+`shell.py`. After the section-7 splits of the review-remediation order those
+are `app/cli/` (a package, `build_parser` in its `__init__`),
+`app/ui/presenter/` (a package, worker bodies in `app/ui/tasks.py`) and
+`app/ui/shell.py` plus `app/ui/controllers/`. The rows above are left as
+written; every rule attached to them applies to the whole package. The load-
+bearing tests read the packages, not the single files they used to.
+

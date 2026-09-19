@@ -1,6 +1,6 @@
 # Work order (One thread): remediate the 2026-08-26 review
 
-**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (items are tagged with their layer)
 **Source:** `docs/REVIEW-2026-08-26.md` — every item below cites its finding ID there;
 the review carries the evidence, the reasoning, and the suggested fix. This document
@@ -281,12 +281,12 @@ Three notes:
 
 ## 7. Structural (schedule as its own orders when picked up)
 
-- [ ] Split `app/cli.py` (3,160 lines) into a package by subcommand;
+- [x] Split `app/cli.py` (3,160 lines) into a package by subcommand;
   `build_parser` stays the single registry.
-- [ ] Split `presenter.py` (3,738 lines) into `app/ui/presenter/` by domain with
+- [x] Split `presenter.py` (3,738 lines) into `app/ui/presenter/` by domain with
   re-exporting `__init__`; move worker bodies to `app/ui/tasks.py` and teach
   `test_ui_never_blocks` that boundary.
-- [ ] Extract `SettingsController` + `IndexController` from `shell.py`.
+- [x] Extract `SettingsController` + `IndexController` from `shell.py`.
 
 ## 8. The tests that make this stick (the review's closing point)
 
@@ -538,3 +538,42 @@ optimisation; `keeps()` enforces the filter and is asked in both shapes. A test
 asserts a `.txt` cannot survive `type:pdf` on the unlisted path, and another
 holds `ELIGIBLE_CAP` and `MAX_PREFILTER_IDS` to the same number - stated as a
 literal in `keyword` because importing `vector` there would be a cycle.
+
+---
+
+## §7, 2026-09-19 - the three structural splits
+
+The feature orders are done, so the structural items scheduled behind "working
+version first" were picked up. Three engineers worked in parallel, each in a
+git worktree of its own, on disjoint files; the branches merged with one test
+conflict. Every split was checked with an objective test rather than a read-through.
+
+* **`app/cli.py` (4,236 lines) is now the package `app/cli/`**, one module per
+  subcommand family behind an `__init__` that keeps `build_parser` as the single
+  registry and `main`; `__main__` keeps `python -m app.cli` and `leasha.cmd`
+  working. The top-level `--help` and all 27 subcommands' `--help` are
+  byte-identical to before, every definition is AST-identical to the old file,
+  and 14 read-only commands gave identical output old against new. Three tests
+  that read `cli.py` as text or by path were retargeted to the package.
+* **`app/ui/presenter.py` (5,503 lines) is now `app/ui/presenter/`**, twelve
+  domain modules of at most 834 lines behind a re-exporting `__init__`. The
+  functions that read a store, the disk or a subprocess moved to
+  `app/ui/tasks.py` and are re-exported lazily (an eager import would be a
+  cycle). All 220 moved definitions are AST-identical; the presenter still imports no
+  Qt. `test_ui_never_blocks` now treats `tasks.py` as the one worker-only module,
+  scans the presenter package like a view (stricter than the old whole-file
+  exemption, with one named exemption), and refuses any view that calls a worker
+  body outside a worker.
+* **`SettingsController` and `IndexController` extracted from `shell.py`**
+  (`app/ui/controllers/`): 63 handlers, cut out by AST line range with only `self`
+  rewritten to `self._w`; turned back, each is text-identical to the original.
+  `MainWindow` keeps a same-named forwarding method for every moved handler, so
+  `dir(MainWindow)` lost nothing and the `__init__` wiring is untouched.
+  `shell.py` 3,205 -> 2,050 lines. Source-text guards that read `shell.py` now read
+  the controllers too; none was weakened.
+
+**Not part of this and still true:** `indexing_view.py`, `settings_view.py` and
+`results_view.py` are over the 250-line view guard - a different problem from
+these three (logic in views, not oversized modules), and
+`test_every_qt_view_keeps_its_logic_in_the_presenter` still fails on it.
+
