@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.8 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.9 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** SHIPPED — all 17 items ticked; closed 2026-09-07 by the pytest-qt sweep across all seven adoptions. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -629,3 +629,21 @@ machine before this is trusted.
 > the usage log and the fold, which the row does not hold; they read as absent
 > rather than wrong. The older clipboard entry is left exactly as it was.
 > Tests: `tests/unit/test_wired_features.py`.
+
+---
+
+> **2026-09-19 - 7a's registration had no way to be seen or changed from the
+> window, and `diagnose` had no button.** Same wiring audit as the note
+> above. `deeplink.register`/`unregister` were finished (and flagged "not
+> verified on Windows") but the only routes to them were `app.cli open
+> register` and the installer, so a person could not tell whether `leasha://`
+> worked or turn it off. Settings > Environment now has **Let leasha:// links
+> open Leasha**: read on a worker at startup (`deeplink.is_registered`, new),
+> written on a worker when ticked (`deeplink.set_registered`, new), and shown
+> as the registry's answer *afterwards* - a write that failed is not left
+> looking done. Off Windows it stays disabled. The tests never touch the real
+> registry: they run against an in-memory `winreg`. Also in Environment:
+> **Save a support bundle...**, the zip `app.cli diagnose` has always written
+> (logs, settings, environment), built on a worker; its tooltip says it
+> includes folder paths so summary.txt should be read before sharing.
+

@@ -208,6 +208,51 @@ def register(executable: Any) -> bool:
     return True
 
 
+def is_registered() -> bool:
+    r"""True when the per-user scheme is in the registry. False otherwise,
+    including off Windows and when the registry cannot be read.
+
+    Order 0 adoptions 7a wrote `register` and `unregister` and left the window
+    with no way to *see* the state, so a Settings control could only guess.
+    Read-only, and it never raises.
+    """
+    try:
+        import winreg                                        # Windows only
+    except ImportError:
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            rf"{registry_key}\shell\open\command") as key:
+            value, _kind = winreg.QueryValueEx(key, "")
+    except OSError:
+        return False
+    return bool(str(value or "").strip())
+
+
+def set_registered(wanted: bool, executable: Any = None) -> bool:
+    """Make the registry say `wanted`, and report whether it now does.
+
+    One call for the Settings checkbox, so the window never has to know which
+    of `register`/`unregister` to pick or how to read the result: the answer
+    is the state afterwards, not whether a key happened to be there before.
+    """
+    if wanted:
+        register(executable or default_launcher())
+    else:
+        unregister()
+    return is_registered() == bool(wanted)
+
+
+def default_launcher() -> str:
+    """What Windows should run for a link: the installed `leasha.cmd`, else
+    the interpreter. The same rule `app.cli open register` uses."""
+    import sys
+    from pathlib import Path
+
+    found = Path(__file__).resolve().parents[2] / "leasha.cmd"
+    return str(found if found.exists() else Path(sys.executable))
+
+
 def unregister() -> bool:
     r"""Remove the scheme. False if it was not there, or off Windows.
 
