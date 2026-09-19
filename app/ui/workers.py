@@ -478,6 +478,28 @@ def saved_searches_async(store: Any, on_ready: Callable) -> None:
     run(QThreadPool.globalInstance(), worker)
 
 
+def change_saved_search_async(store: Any, action: str, args: tuple, on_done: Callable) -> None:
+    """Rename or delete a saved search, then hand back the refreshed list.
+
+    The same one-worker shape as `save_search_async`, for the same reason: the
+    write and the re-read must not race, or the list somebody is looking at
+    would still show the search they just deleted.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.search.saved import ordered
+
+    method = {"rename": store.rename_saved_search, "delete": store.delete_saved_search}[action]
+
+    def write() -> tuple:
+        method(*args)
+        return ordered(store.saved_searches())
+
+    worker = CallableWorker(write, component="ui.search.saved")
+    worker.signals.finished.connect(on_done)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def save_search_async(store: Any, name: str, query: str, scope: str,
                       on_done: Callable) -> None:
     """Store a named search, then hand back the refreshed list.

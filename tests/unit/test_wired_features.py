@@ -296,3 +296,140 @@ def test_cancelling_the_bundle_dialog_does_nothing(gui_mainwindow, qtbot, monkey
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
     qtbot.mouseClick(box.bundle_button, Qt.MouseButton.LeftButton)
     assert box.bundle_button.isEnabled()
+
+
+# ---------------------------------------------------------------------------
+# Code tab repo health; restart notes; saved-search dialogs; search check
+# ---------------------------------------------------------------------------
+
+def _seed_archive_as_repo(store, name="archive", files=60):
+    repo_id = store.upsert_repo("D:/Archive/" + name, kind="repo", name=name)
+    for index in range(files):
+        file_id = store.upsert_file(
+            f"D:/Archive/{name}/doc{index}.pdf", parent_dir=f"D:/Archive/{name}", ext="pdf",
+            size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="file", repo_id=repo_id)
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": "archive document"}])
+    return repo_id
+
+
+def test_the_store_counts_code_files_per_repository(gui_mainwindow):
+    app, window, store, engine = gui_mainwindow
+    repo_id = _seed_archive_as_repo(store, "counts", files=3)
+    file_id = store.upsert_file(
+        "D:/Archive/counts/main.py", parent_dir="D:/Archive/counts", ext="py", size_bytes=1,
+        mtime_ns=1, status="INDEXED", source_kind="file", repo_id=repo_id)
+    assert store.repo_code_counts(["py", ".PY"])[repo_id] == 1
+    assert store.repo_code_counts([]) == {}
+
+
+def test_an_archive_adopted_as_a_repository_is_warned_about_in_the_code_tab(gui_mainwindow, qtbot):
+    app, window, store, engine = gui_mainwindow
+    _seed_archive_as_repo(store, "hoard", files=60)
+    code = window.code_view
+    code.refresh()
+    qtbot.waitUntil(lambda: not code.health.isHidden(), timeout=5000)
+    text = code.health.text()
+    assert "hoard" in text and "repos --forget" in text
+
+
+def test_a_real_checkout_is_not_warned_about(gui_mainwindow, qtbot):
+    from app.ui.tasks import repo_health_notes
+
+    app, window, store, engine = gui_mainwindow
+    repo_id = store.upsert_repo("D:/Work/real", kind="repo", name="real")
+    for index in range(60):
+        store.upsert_file(f"D:/Work/real/m{index}.py", parent_dir="D:/Work/real", ext="py",
+                          size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="file",
+                          repo_id=repo_id)
+    assert not any("real" in note.split(" was detected")[0] for note in repo_health_notes(store))
+
+
+def test_settings_that_need_a_restart_say_so_on_the_control(gui_mainwindow):
+    from app.core.settings_registry import needs_restart
+    from app.ui.widgets.restart_note import RESTART_NOTE, mark_restart_needed
+    from PyQt6.QtWidgets import QWidget
+
+    app, window, store, engine = gui_mainwindow
+    marked = mark_restart_needed(window)
+    assert marked, "at least one restart setting has a control on the window"
+    for key in marked:
+        assert RESTART_NOTE in window.findChild(QWidget, key).toolTip()
+    again = window.findChild(QWidget, marked[0]).toolTip()
+    mark_restart_needed(window)
+    assert window.findChild(QWidget, marked[0]).toolTip() == again, "idempotent"
+    assert set(marked) <= {s.key for s in needs_restart()}
+
+
+def _saved_names(store):
+    return [row["name"] for row in store.saved_searches()]
+
+
+def test_saving_a_search_from_the_edit_menu(gui_mainwindow, qtbot, monkeypatch):
+    from PyQt6.QtWidgets import QInputDialog
+
+    app, window, store, engine = gui_mainwindow
+    view = window.search_view
+    view.input.clear()
+    view.input.setText("barnsley survey")
+    seen = {}
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(
+        lambda parent, title, label, **k: seen.update(default=k.get("text")) or ("Barnsley", True)))
+    action = [a for a in window._menu_actions if a.text() == "Save this search" + chr(8230)][0]
+    action.trigger()
+    qtbot.waitUntil(lambda: "Barnsley" in _saved_names(store), timeout=3000)
+    assert seen["default"], "the box is pre-filled with a suggested name"
+
+
+def test_an_empty_box_is_not_saved(gui_mainwindow, qtbot, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    app, window, store, engine = gui_mainwindow
+    window.search_view.input.clear()
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: told.append(a[2])))
+    before = _saved_names(store)
+    [a for a in window._menu_actions if a.text() == "Save this search" + chr(8230)][0].trigger()
+    assert told and _saved_names(store) == before
+
+
+def test_renaming_running_and_deleting_a_saved_search(gui_mainwindow, qtbot, monkeypatch):
+    from PyQt6.QtWidgets import QInputDialog
+
+    from app.ui.widgets.saved_dialogs import SavedSearchesDialog
+
+    app, window, store, engine = gui_mainwindow
+    view = window.search_view
+    store.save_search("Leeds notes", "leeds", "all")
+    view.saved.refresh()
+    qtbot.waitUntil(lambda: any(s.name == "Leeds notes" for s in view.saved.all), timeout=3000)
+
+    dialog = SavedSearchesDialog(view.saved, window)
+    qtbot.addWidget(dialog)
+    row = [i for i in range(dialog.list.count()) if dialog.list.item(i).text().startswith("Leeds notes")][0]
+    dialog.list.setCurrentRow(row)
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Leeds files", True)))
+    qtbot.mouseClick(dialog.rename_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: "Leeds files" in _saved_names(store) and "Leeds notes" not in _saved_names(store), timeout=3000)
+
+    row = [i for i in range(dialog.list.count()) if dialog.list.item(i).text().startswith("Leeds files")][0]
+    dialog.list.setCurrentRow(row)
+    ran = []
+    dialog.run_requested.connect(ran.append)
+    qtbot.mouseClick(dialog.run_button, Qt.MouseButton.LeftButton)
+    assert ran and ran[0].startswith("saved:")
+
+    dialog2 = SavedSearchesDialog(view.saved, window)
+    qtbot.addWidget(dialog2)
+    row = [i for i in range(dialog2.list.count()) if dialog2.list.item(i).text().startswith("Leeds files")][0]
+    dialog2.list.setCurrentRow(row)
+    qtbot.mouseClick(dialog2.delete_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: "Leeds files" not in _saved_names(store), timeout=3000)
+
+
+def test_the_search_check_button_shows_a_report(gui_mainwindow, qtbot):
+    box = gui_mainwindow[1].settings_view.environment
+    qtbot.mouseClick(box.check_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: box.check_button.isEnabled(), timeout=60000)
+    text = box.output.toPlainText()
+    assert "Recall at 1" in text or "test fixtures" in text, text

@@ -86,6 +86,17 @@ class EnvironmentBox(QGroupBox):
             "Open the folder holding the session recordings in Explorer.")
         open_folder.clicked.connect(self._open_sessions)
 
+        # -- the built-in search check ---------------------------------------
+        # `app.cli evaluate --builtin`: the installer tells people to run it to
+        # prove search works, and the window had no button for it.
+        self.check_button = QPushButton("Check that search works")
+        self.check_button.setToolTip(
+            "Runs a quick test of the search on a small built-in set of "
+            "documents, in about ten seconds, and shows how many questions "
+            "it answered.\n\nIt never reads your own files or your index, so "
+            "it is always safe to press.")
+        self.check_button.clicked.connect(lambda _checked=False: self.run_search_check())
+
         # -- the support bundle ----------------------------------------------
         # `app.cli diagnose` has always written this zip; a person in the
         # window had no way to ask for it, so a bug report started with "open a
@@ -142,6 +153,7 @@ class EnvironmentBox(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.run_doctor_button)
+        layout.addWidget(self.check_button)
         layout.addWidget(self.bundle_button)
         layout.addWidget(self.bundle_status)
         layout.addWidget(self.links)
@@ -153,6 +165,27 @@ class EnvironmentBox(QGroupBox):
         layout.addWidget(self.output)
 
         self.refresh_logs()
+
+    # -- the built-in search check --------------------------------------------
+
+    def run_search_check(self) -> None:
+        """Run the built-in evaluation on a worker and show its report below."""
+        from app.ui.tasks import search_check_lines
+
+        self.check_button.setEnabled(False)
+        self.output.setPlainText("Checking...")
+        worker = CallableWorker(search_check_lines, component="ui.environment.check")
+        worker.signals.finished.connect(self._check_done)
+        worker.signals.failed.connect(self._check_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _check_done(self, lines: Any) -> None:
+        self.check_button.setEnabled(True)
+        self.output.setPlainText("\n".join(str(line) for line in (lines or ())))
+
+    def _check_failed(self, error: Any) -> None:
+        self.check_button.setEnabled(True)
+        self.output.setPlainText(f"The check could not run: {error}")
 
     # -- the support bundle ---------------------------------------------------
 

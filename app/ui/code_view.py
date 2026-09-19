@@ -31,17 +31,14 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
-)
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import (
-    code_preset,
-    REPO_FILE_LIMIT, GitScope, code_route, code_rows_for, code_summary,
-    code_rows_and_repos,
-    repo_empty_state, repo_file_rows, repo_root_for,
+    REPO_FILE_LIMIT, GitScope, code_preset, code_route, code_rows_and_repos, code_rows_for,
+    code_summary, repo_empty_state, repo_file_rows, repo_root_for,
 )
+from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.view_options import button as view_button
 from app.ui.widgets.code_commands import (
     CODE_CATALOGUE, code_command_for, code_matching, git_values,
@@ -113,6 +110,7 @@ class CodeView(QWidget):
         self.run_button.clicked.connect(self.start)
 
         self.summary = QLabel("", objectName="resultsSummary", wordWrap=True)
+        self.health = RepoHealthNote(store, self)
 
         self.empty = QLabel("", wordWrap=True, openExternalLinks=False,
                             visible=False)
@@ -168,6 +166,7 @@ class CodeView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.summary)
+        layout.addWidget(self.health)
         # Given the list's stretch and pinned to the top, so the explanation
         # sits where the first row would be rather than floating in the middle
         # of the page. Only one of these two is ever visible, so the two stretch
@@ -192,6 +191,7 @@ class CodeView(QWidget):
         worker.signals.finished.connect(self._repos_read)
         worker.signals.failed.connect(lambda _e: None)   # a heading, not a search
         run(QThreadPool.globalInstance(), worker)
+        self.health.refresh()
         self._typed()
 
     def _repos_read(self, rows: Any) -> None:

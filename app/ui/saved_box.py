@@ -114,6 +114,26 @@ class SavedSearches:
 
         save_search_async(self._store, name, query, scope, self._took)
 
+    def rename(self, old: str, new: str, on_done: Any = None) -> None:
+        """Rename one, then refresh. Adoptions 3b - the dialog for this never existed."""
+        self._change("rename", (old, new), on_done)
+
+    def delete(self, name: str, on_done: Any = None) -> None:
+        """Forget one, then refresh. Nothing is deleted except by being asked to."""
+        self._change("delete", (name,), on_done)
+
+    def _change(self, action: str, args: tuple, on_done: Any) -> None:
+        if self._store is None:
+            return
+        from app.ui.workers import change_saved_search_async
+
+        def landed(saved: Any) -> None:
+            self._took(saved)
+            if on_done is not None:
+                on_done()
+
+        change_saved_search_async(self._store, action, args, landed)
+
     def _took(self, saved: Any) -> None:
         """A fetched list has arrived. **Never raises**: it is a convenience."""
         try:

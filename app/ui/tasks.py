@@ -777,6 +777,78 @@ def code_rows_for(store: Any, scope: Any, route: Any,
         extra_ext=None if typed else types))
 
 
+def search_check_lines() -> list[str]:
+    r"""Run the built-in search check and return its report as lines.
+    **Runs on a worker.**
+
+    `app.cli evaluate --builtin` is what the installer tells a person to run to
+    "prove search works, in about ten seconds"; a person in the window had no
+    button for it. Same measurement, same wording (`Report.lines()`): a small
+    corpus with known answers, keyword only, in a throwaway database - it never
+    reads the person's own index, so it is safe to press any time. The numbers
+    are optimistic by design (the report says so) and only answer "does the
+    mechanism work" and "did a change break something".
+    """
+    import tempfile
+
+    from app.search import keyword
+    from app.search.commands import expand_slashes
+    from app.search.evaluate import evaluate
+    from app.search.query import parse_query
+    from app.storage.sqlite_store import SqliteStore
+
+    try:
+        from tests.fixtures.evaluation import CORPUS, QUESTIONS, load_into
+    except ImportError:
+        return ["The built-in check needs the test fixtures, which are not "
+                "installed with this copy of Leasha."]
+
+    with tempfile.TemporaryDirectory(prefix="leasha-check-") as folder:
+        with SqliteStore(Path(folder) / "check.db") as store:
+            load_into(store)
+
+            def search(query: str) -> list[str]:
+                parsed = parse_query(expand_slashes(query))
+                return [hit["path"] for hit in keyword.search(store, parsed, limit=1)]
+
+            report = evaluate(
+                QUESTIONS, search, k=1, mode="built-in corpus, keyword only",
+                note=f"{len(CORPUS)} documents, a small clean corpus - every number "
+                     "here is optimistic. It shows the mechanism works, not how well "
+                     "your own archive is searched.")
+    return list(report.lines())
+
+
+def repo_health_notes(store: Any, *, limit: int = 3) -> list[str]:
+    r"""The sentences the Code tab shows when a "repository" is not a checkout.
+    **Runs on a worker.**
+
+    Order 202626081149 section 3 built `app.index.repo_health` after a copy of
+    this project's own `.git` dragged into a document archive adopted 44% of
+    the corpus, and its own docstring says the warning "has to arrive where
+    somebody meets it". Nothing ever called it, so the only place the warning
+    lived was `app.cli repos`. Judged against the default code extensions, not
+    the tab's current filter - a person who has narrowed the tab to one
+    language has not made the archive a checkout.
+    """
+    from app.core.code_types import DEFAULT_PRESET, extensions_for
+    from app.index.repo_health import describe, suspicion
+
+    extensions = extensions_for(DEFAULT_PRESET) or frozenset()
+    counts = store.repo_code_counts(sorted(extensions))
+    notes: list[str] = []
+    for row in store.repos_list():
+        files = int(row.get("files") or 0)
+        reason = suspicion(files=files, code_files=counts.get(int(row["id"]), 0))
+        sentence = describe(str(row.get("name") or ""), str(row.get("root_path") or ""), reason)
+        if sentence:
+            notes.append(sentence)
+    if len(notes) > limit:
+        extra = len(notes) - limit
+        notes = notes[:limit] + [f"...and {extra} more repositories look the same way."]
+    return notes
+
+
 def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = None,
                         repos: Any = (), limit: int = 500) -> dict:
     r"""The Code list **and** which repositories hold a match, in one worker.
