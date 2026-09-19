@@ -395,7 +395,7 @@ def test_on_progress_reports_a_simulated_download(tmp_path, monkeypatch) -> None
                 (target / f"part{chunk}.bin").write_bytes(b"x" * 4_000_000)
                 time.sleep(0.35)
 
-        def embed(self, texts):
+        def embed(self, texts, **_options):     # fastembed also takes batch_size
             return [[0.0] * 384 for _ in texts]
 
     import app.index.embedder as embedder_module
@@ -514,7 +514,7 @@ class _FlakyTextEmbedding:
         self.seen: list = []
         _FlakyTextEmbedding.instances.append(self)
 
-    def embed(self, texts):
+    def embed(self, texts, **_options):         # fastembed also takes batch_size
         self.seen.append(list(texts))
         _FlakyTextEmbedding.calls += 1
         if _FlakyTextEmbedding.calls <= _FlakyTextEmbedding.fail_calls:
@@ -572,7 +572,7 @@ def test_a_transient_gpu_error_is_retried_once_on_the_processor(flaky) -> None:
 def test_the_real_887a0020_text_is_retried_not_fatal(flaky, monkeypatch) -> None:
     """The exact wording from `run-20260908-055844-window.log` - the one the
     morning's classifier did not recognise."""
-    def driver_internal_error(self, texts):
+    def driver_internal_error(self, texts, **_options):
         _FlakyTextEmbedding.calls += 1
         if _FlakyTextEmbedding.calls == 1:
             raise RuntimeError(_DRIVER_INTERNAL_ERROR)

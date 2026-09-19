@@ -617,6 +617,13 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             window = MainWindow(settings, store, vectors, engine,
                                 image_vectors=image_vectors, debug=debug)
 
+            # **Armed here, and only here.** `closeEvent` runs in the test
+            # suite too, and a 300-second `os._exit` timer started by a test
+            # would end a long pytest session. See `app/ui/exit_watchdog.py`
+            # for why a closed window needs a backstop at all.
+            from app.ui import exit_watchdog
+            window.after_close = exit_watchdog.arm
+
             log.info("startup: showing the window")
             window.show()
             startup_timer.record_window_visible()

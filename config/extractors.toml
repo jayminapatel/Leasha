@@ -221,10 +221,16 @@ then      = "plaintext"
 timeout_s = 180
 enabled   = true
 
+# 2026-09-19: was `txt:Text` -> plaintext, copied from `.doc`. `txt:Text` is a
+# Writer export filter; Impress has none, so LibreOffice exited 1 and wrote
+# nothing for EVERY presentation - 79 of 79 `.ppt` files in the owner's index
+# were skipped ERR_CONVERTER_FAILED, each after 4-19 seconds of LibreOffice
+# start-up. A presentation is converted to the format the `pptx` reader
+# already handles instead.
 [converters.".ppt"]
-command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
+command   = ["soffice", "--headless", "--convert-to", "pptx", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.pptx"
+then      = "pptx"
 timeout_s = 180
 enabled   = true
 

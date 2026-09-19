@@ -252,7 +252,15 @@ prompt_toolkit==3.0.53
 # Install, then switch on "Recognise people in photos on this computer" in
 # Settings (OFF by default - see the order's own guardrails), to detect and
 # cluster faces into piles a person can name.
-#     venv\Scripts\pip install insightface==0.7.3 opencv-python==4.11.0.86 onnxruntime
+#     venv\Scripts\pip install insightface==0.7.3 opencv-python==4.11.0.86 onnxruntime==1.24.4
+#
+# 2026-09-19 note: this line used to end in a bare `onnxruntime`. On a machine
+# whose GPU build is onnxruntime-directml, pip does not count that as
+# satisfying `onnxruntime`, so the bare name fetched the newest CPU wheel
+# (1.30.0) over the DirectML binaries on 2026-09-15 - the same overwrite the
+# 0t pins above exist to prevent. The pin is what keeps it satisfied. After ANY manual pip command in this
+# venv, check: venv\Scripts\python.exe -c "import onnxruntime as o;
+# print(o.get_available_providers())" must list DmlExecutionProvider.
 #
 # Verified 2026-09-15 against insightface 2.0 and opencv-python 5.0.0.93,
 # already present in this shared venv - onnxruntime 1.30.0 was already a
