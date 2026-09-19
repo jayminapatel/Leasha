@@ -43,6 +43,11 @@ __all__ = [
     "NearDuplicatePhotoGroup",
     "SourceUniqueness",
     "SourceDuplicateShare",
+    "SpaceFindings",
+    "SpaceDocument",
+    "document_for",
+    "size_words",
+    "formatted_date",
     "find_duplicate_groups",
     "total_reclaimable_bytes",
     "find_near_duplicate_photo_groups",
@@ -147,6 +152,42 @@ class SourceUniqueness:
     file_count: int = 0
 
 
+@dataclass(frozen=True)
+class SpaceFindings:
+    """Everything the Space Report found, before any of it is worded.
+
+    The document (`render_space_document`) and the interactive table on the
+    Reports page (`app/ui/widgets/space_table.py`) are two ways of showing
+    this one object - so they cannot disagree about what was found.
+    """
+
+    groups: tuple[DuplicateGroup, ...] = ()
+    near_duplicates: tuple[NearDuplicatePhotoGroup, ...] = ()
+    duplicate_share: tuple[SourceDuplicateShare, ...] = ()
+    uniqueness: tuple[SourceUniqueness, ...] = ()
+    total_reclaimable: int = 0
+    generated_at: Optional[int] = None
+
+
+class SpaceDocument(str):
+    """The rendered Markdown document, which also remembers the findings it
+    was rendered from.
+
+    A plain `str` to everything that only wants the document - Export writes
+    it to a PDF, `app.cli report space` prints it, the tests compare it - and
+    it carries `findings` for the one caller that wants the same facts as a
+    sortable table. One object, so what is exported and what is on screen
+    come from the same query run.
+    """
+
+    findings: SpaceFindings
+
+    def __new__(cls, text: str, findings: SpaceFindings) -> "SpaceDocument":
+        obj = super().__new__(cls, text)
+        obj.findings = findings
+        return obj
+
+
 def _volume_lookup(store: Any) -> dict[int, dict[str, Any]]:
     """Every catalogued volume, keyed by id - one query, reused for every
     per-file source lookup below rather than one query per file."""
@@ -239,6 +280,61 @@ def total_reclaimable_bytes(store: Any) -> int:
     return int(row["reclaimable"] or 0) if row else 0
 
 
+def _cluster_by_phash(rows: Sequence[Any], threshold: int) -> list[list[Any]]:
+    r"""Greedy clustering of `rows` by pHash - each row joins the first
+    earlier cluster whose *representative* (its first member) is within
+    `threshold` bits, else starts its own. Exactly the rule
+    `app.search.folding.phash_distance` defines, only faster.
+
+    The rule is unchanged from the version that called `phash_distance` once
+    per pair; what changed is the cost. Hashes are held as 64-bit integers
+    and one photo is compared against every representative in a single
+    NumPy XOR + popcount, instead of parsing two hex strings per pair. A
+    hash that is not 64-bit hex is its own cluster and never matches
+    anything - `phash_distance`'s own answer for a malformed one (999).
+    Falls back to `int.bit_count` per pair where NumPy's `bitwise_count`
+    (NumPy 2) is missing: slower, same clusters.
+    """
+    clusters: list[list[Any]] = []
+    try:
+        import numpy as np
+        popcount = np.bitwise_count
+    except (ImportError, AttributeError):
+        np = None
+        popcount = None
+
+    reps = np.empty(max(1, len(rows)), dtype=np.uint64) if np is not None else None
+    rep_ints: list[int] = []            # the fallback's representatives
+    rep_cluster: list[int] = []         # representative slot -> index in `clusters`
+    for row in rows:
+        try:
+            value = int(str(row["phash"]), 16)
+            if value < 0 or value >= 1 << 64:
+                raise ValueError
+        except ValueError:
+            clusters.append([row])
+            continue
+        slot = -1
+        count = len(rep_cluster)
+        if count:
+            if reps is not None:
+                hits = np.flatnonzero(popcount(reps[:count] ^ np.uint64(value)) <= threshold)
+                slot = int(hits[0]) if hits.size else -1
+            else:
+                slot = next((i for i, r in enumerate(rep_ints)
+                             if (r ^ value).bit_count() <= threshold), -1)
+        if slot >= 0:
+            clusters[rep_cluster[slot]].append(row)
+            continue
+        if reps is not None:
+            reps[count] = value
+        else:
+            rep_ints.append(value)
+        rep_cluster.append(len(clusters))
+        clusters.append([row])
+    return clusters
+
+
 def find_near_duplicate_photo_groups(
     store: Any, *, limit: int = DUPLICATE_GROUPS_SHOWN,
 ) -> list[NearDuplicatePhotoGroup]:
@@ -255,9 +351,12 @@ def find_near_duplicate_photo_groups(
     different kinds of duplicate. This groups distinct *versions* of a
     picture, which is the gap `find_duplicate_groups` cannot see at all.
 
-    **O(n²) against the number of distinct photo hashes**, not yet measured
-    against the scale fixture - see order 0n §3c, still open for exactly
-    this reason.
+    **Still every distinct photo hash against every cluster so far - but as
+    one vectorised XOR-and-popcount per photo (`_cluster_by_phash`), not one
+    Python call per pair.** Measured on the 200,000-file scale fixture
+    (`tests/fixtures/space_scale.py`, ~12,700 distinct photo hashes): the
+    pair-at-a-time version this replaced would have taken minutes, and was
+    already 13 s at a quarter of that scale. See order 0n section 3c's note.
     """
     try:
         rows = store.conn.execute(
@@ -271,19 +370,9 @@ def find_near_duplicate_photo_groups(
         _log.debug("could not read photo hashes for near-duplicate matching: {}", exc)
         return []
 
-    from app.search.folding import PHASH_NEAR_THRESHOLD, phash_distance
+    from app.search.folding import PHASH_NEAR_THRESHOLD
 
-    clusters: list[list[Any]] = []
-    for row in rows:
-        phash = str(row["phash"])
-        match = next(
-            (c for c in clusters if phash_distance(phash, str(c[0]["phash"])) <= PHASH_NEAR_THRESHOLD),
-            None,
-        )
-        if match is not None:
-            match.append(row)
-        else:
-            clusters.append([row])
+    clusters = _cluster_by_phash(rows, PHASH_NEAR_THRESHOLD)
 
     volumes = _volume_lookup(store)
     groups: list[NearDuplicatePhotoGroup] = []
@@ -537,3 +626,20 @@ def render_space_document(
             "is lost, so is the content.")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+#: Public names for the two formatters the Reports table shares with the
+#: document, so the words cannot drift apart.
+size_words = _size_words
+formatted_date = _formatted_date
+
+
+def document_for(findings: SpaceFindings) -> SpaceDocument:
+    """`render_space_document` over `findings`, keeping them attached."""
+    text = render_space_document(
+        findings.groups, findings.uniqueness,
+        total_reclaimable=findings.total_reclaimable,
+        generated_at=findings.generated_at,
+        near_duplicates=findings.near_duplicates,
+        duplicate_share=findings.duplicate_share)
+    return SpaceDocument(text, findings)
