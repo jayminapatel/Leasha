@@ -113,9 +113,9 @@ def test_a_guarded_import_of_the_corpus_says_what_to_do_instead():
     """
     import inspect
 
-    from app import cli
+    from app.cli import evaluate
 
-    source = inspect.getsource(cli)
+    source = inspect.getsource(evaluate)
     guarded = source.split("from tests.fixtures.evaluation")[1][:600]
 
     assert "except ImportError" in guarded
@@ -133,7 +133,7 @@ def test_files_the_application_opens_by_path_are_shipped():
 # --- what the tree contains -------------------------------------------------
 
 def test_the_application_and_its_configuration_are_there(staged):
-    assert (staged / "app" / "cli.py").is_file()
+    assert (staged / "app" / "cli" / "__init__.py").is_file()
     assert (staged / "config" / "extractors.toml").is_file()
     assert (staged / "VERSION").is_file()
     assert (staged / "doctor.py").is_file()

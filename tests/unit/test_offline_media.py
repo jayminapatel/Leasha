@@ -1133,8 +1133,8 @@ def test_nothing_outside_the_cli_command_and_tests_calls_a_scan(tmp_path):
     reaction - there is no device watcher to watch - so this proves the
     weaker, checkable half: no code path exists that *could* fire on its
     own. `upsert_volume` and `identify_source` are the two calls that start
-    a source's life; if anything outside `app/cli.py`'s own offline-media
-    handlers and the test suite calls either, something now scans on
+    a source's life; if anything outside `app/cli/offline_media.py`'s own
+    offline-media handlers and the test suite calls either, something now scans on
     something other than a press of Scan.
 
     The same shape as the order's own "nothing anywhere stored the letter"
@@ -1146,7 +1146,7 @@ def test_nothing_outside_the_cli_command_and_tests_calls_a_scan(tmp_path):
     app_dir = root / "app"
 
     allowed_files = {
-        app_dir / "cli.py",
+        app_dir / "cli" / "offline_media.py",
         app_dir / "index" / "offline_media.py",       # defines both
         app_dir / "storage" / "sqlite_store.py",       # defines upsert_volume
     }
