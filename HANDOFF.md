@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 6.4 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1113,6 +1113,16 @@ run is in the pool.** No stack could be taken before the process was stopped, so
 ends a surviving process at 300 s - armed only by `main()`. **Read the stacks
 before reasoning about it.** Also open: a stop that arrives mid-batch still waits
 for the batch, because vectors are written before an archive's completion marker.
+
+*Applied and reset, 2026-09-19.* Order 0u is merged to `main` (`63e14ed`). **The
+index was cleared** - moved, not deleted, to `D:\Leasha\Data-index-backup-20260919-1435`
+- so it is **empty now**: the first run is a full one, with the saved scan total
+(114,614 files) for its ETA. Folders and UI settings were carried over. Auto
+resolves 4 workers / 4 threads / batch 256. **Open: `EMBED_QUANTISED`.** int8 is
+1.85x faster and changes the neighbours (top-5 overlap 76%), so it needs the
+owner's decision before the first run - afterwards it costs a rebuild. The local
+int8 model is already built. `REQUIRED_FREE_GB=300` will warn on every run
+(217GB free); it does not block.
 
 **A throughput number without its conditions is not a number.** Embedding was measured at
 1.53 passages/second and called "twenty times too slow", on the assumption that a small model
