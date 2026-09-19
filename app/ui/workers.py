@@ -552,6 +552,23 @@ def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
     run(QThreadPool.globalInstance(), worker)
 
 
+def filter_offers_async(store: Any, sentence: str, preferences: Any,
+                        on_done: Callable) -> None:
+    """Read the filters a typed sentence contains, off the interface thread.
+
+    Here for the reason `decorate_results_async` is: it is a store query, and
+    every results handler that wants it is a view held short.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.tasks import filter_offer_notices
+
+    worker = CallableWorker(filter_offer_notices, store, sentence, preferences,
+                            component="ui.search.offers")
+    worker.signals.finished.connect(on_done)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def decorate_results_async(store: Any, results: Any, on_done: Callable) -> None:
     """Fetch mail subtitles and missing-file marks off the interface thread.
 
