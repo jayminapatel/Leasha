@@ -621,7 +621,9 @@ def test_a_worker_body_is_only_called_through_a_worker(path):
     # profile.detect()` on a cold hardware-profile cache, which shells out
     # to PowerShell twice with 10s/15s timeouts - all of it used to run
     # inline, on the UI thread, at the exact moment somebody clicked Start.
-    ("shell.py", "_start_indexing"),
+    # Moved to `IndexController` (work order 202626082352 section 7);
+    # `MainWindow._start_indexing` is a forwarding method with nothing to prove.
+    ("controllers/index_controller.py", "_start_indexing"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
     r"""Asserted on the *worker*, not the result: the point is that the call

@@ -223,6 +223,9 @@ _CLI_MODULES = sorted(
 
 @pytest.mark.parametrize("module", [
     "app/main.py", *_CLI_MODULES, "app/ui/shell.py", "app/core/diagnostics.py",
+    # Carved out of `app/ui/shell.py` (work order 202626082352 section 7).
+    "app/ui/controllers/settings_controller.py",
+    "app/ui/controllers/index_controller.py",
 ])
 def test_no_module_hardcodes_the_old_name(module: str):
     text = (Path(__file__).resolve().parents[2] / module).read_text(encoding="utf-8")
