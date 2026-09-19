@@ -78,7 +78,7 @@ def test_every_page_is_reachable_by_click_and_by_index(window):
     app, built, _ = window
     rail = built.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
-    assert titles == ["Search", "Files", "Mail", "Code", "Offline",
+    assert titles == ["Search", "Files", "Mail", "Code", "Chat", "Offline",
                       "Reports", "Indexing", "Settings"]
     for index in range(rail.count()):
         rail.setCurrentIndex(index)
