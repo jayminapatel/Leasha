@@ -83,7 +83,9 @@ def test_the_window_guards_everything_in_one_place():
 @pytest.mark.parametrize(
     "name",
     sorted(p.name for p in UI.glob("*.py")) + ["widgets/environment_box.py",
-                                               "widgets/file_types.py"],
+                                               "widgets/file_types.py",
+                                               "controllers/settings_controller.py",
+                                               "controllers/index_controller.py"],
 )
 def test_no_module_builds_a_scrollable_control_the_window_cannot_reach(name):
     """`protect_all` walks `findChildren`, which finds anything parented into

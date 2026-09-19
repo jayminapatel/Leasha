@@ -110,8 +110,10 @@ def test_start_indexing_body_dispatches_to_a_worker_rather_than_inline() -> None
     """
     from pathlib import Path
 
-    text = (Path(__file__).resolve().parents[2] / "app" / "ui" / "shell.py"
-           ).read_text(encoding="utf-8")
+    # `_start_indexing` moved to `IndexController` (work order 202626082352
+    # section 7); `MainWindow._start_indexing` only forwards to it.
+    text = (Path(__file__).resolve().parents[2] / "app" / "ui" / "controllers"
+            / "index_controller.py").read_text(encoding="utf-8")
     body = text.split("def _start_indexing(")[1].split("\n    def ")[0]
 
     assert "resolve_for_run(" not in body, (
@@ -129,7 +131,7 @@ def test_a_long_operation_entry_exists_for_start_indexing() -> None:
 
     text = (Path(__file__).resolve().parent / "test_ui_never_blocks.py"
            ).read_text(encoding="utf-8")
-    assert '("shell.py", "_start_indexing")' in text, (
+    assert '("controllers/index_controller.py", "_start_indexing")' in text, (
         "test_ui_never_blocks.test_a_long_operation_starts_a_worker must be "
         "extended to cover _start_indexing, or this fix has no standing guard"
     )
