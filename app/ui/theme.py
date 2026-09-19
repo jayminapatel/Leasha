@@ -620,6 +620,36 @@ QComboBox QAbstractItemView {{
 #statValue {{ color: {text}; font-weight: 600; }}
 #statWarn {{ color: {warning}; font-weight: 700; }}
 #statLabel {{ color: {text_faint}; font-size: {small}; }}
+
+/* **Chat** (order 202626270611 section 3). Bubbles are surfaces, not badges:
+   the person's own question sits on the accent's soft ground, the answer on
+   the ordinary surface, and nothing in either warns about itself. */
+#chatBubbleUser {{
+    background: {accent_soft}; color: {text};
+    border: 1px solid {border}; border-radius: {radius_box};
+}}
+#chatBubbleAnswer {{
+    background: {surface}; color: {text};
+    border: 1px solid {border}; border-radius: {radius_box};
+}}
+#chatNarration, #chatFooter {{ color: {text_faint}; font-size: {small}; }}
+#chatEmpty, #chatShelfEmpty, #chatSourcesEmpty {{ color: {text_faint}; }}
+#chatSourcesHeading {{ font-weight: 600; }}
+#chatNotice {{
+    background: {accent_soft}; color: {text};
+    border: 1px solid {border}; border-radius: {radius_control};
+    padding: 6px 10px;
+}}
+#chatPassage {{
+    background: {surface_alt}; color: {text};
+    border: 1px solid {border}; border-radius: {radius_control};
+    padding: 6px 10px;
+}}
+#chatChip {{
+    background: {chip_bg}; color: {chip_text};
+    border-radius: {radius_pill};
+}}
+#chatChip QToolButton {{ color: {chip_text}; }}
 """
 
 

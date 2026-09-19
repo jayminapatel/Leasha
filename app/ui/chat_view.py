@@ -1,0 +1,204 @@
+"""Chat: ask your archive a question and get an answer with its sources.
+
+Layer: L5 view - thin. Decisions are in `app/ui/presenter/chat.py`; the pieces
+are in `app/ui/widgets/chat_*.py`; the engine, the worker and the saving are in
+`app/ui/controllers/chat_controller.py`. This file only lays them out and
+turns the person's keys and clicks into signals.
+
+Work order 202626270611 section 3. The layout is three columns: your
+conversations, the conversation itself (bubbles, the documents on the shelf,
+the box you type in), and the sources the answer stands on. **No banners:** the
+receipts are the honesty - every source number in the prose opens the passage
+it came from.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QComboBox, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
+)
+
+from app.ui.presenter.chat import NOT_BUILT_LINE, unavailable_text
+from app.ui.widgets.chat_answer_run import AnswerRun
+from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble
+from app.ui.widgets.chat_message_box import MessageBox
+from app.ui.widgets.chat_session_list import SessionList
+from app.ui.widgets.chat_shelf import ShelfBar
+from app.ui.widgets.chat_sources import SourcesPane
+
+__all__ = ["ChatView"]
+
+SPEEDS = (("Fast", "fast"), ("Thoughtful", "thoughtful"))
+
+
+class ChatView(QWidget):
+    question_submitted = pyqtSignal(str)
+    stop_requested = pyqtSignal()
+    recheck_requested = pyqtSignal()
+    speed_changed = pyqtSignal(str)
+    shelf_changed = pyqtSignal()
+    open_requested = pyqtSignal(str)            # a path (a shelf chip)
+    result_opened = pyqtSignal(object)          # a result row (a source, a hit)
+    result_revealed = pyqtSignal(object)
+    error = pyqtSignal(object)
+    #: The window is closing: the controller stops any answer still running.
+    closing = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.sessions = SessionList()
+        self.bubbles = BubbleList()
+        self.shelf = ShelfBar()
+        self.box = MessageBox()
+        self.sources = SourcesPane()
+        self._run: Optional[AnswerRun] = None
+        self._owner: Any = None                  # whose sources the pane shows
+
+        self.notice = QLabel("")
+        self.notice.setObjectName("chatNotice")
+        self.notice.setWordWrap(True)
+        self.notice.setAccessibleName("Why chat is not ready")
+        self.notice.setVisible(False)
+        self.recheck_button = QPushButton("Check again")
+        self.recheck_button.setToolTip(
+            "Look again for the helper program Chat needs. Use this after "
+            "installing or starting it. Searching is not affected either way.")
+        self.recheck_button.setVisible(False)
+        self.recheck_button.clicked.connect(lambda _c=False: self.recheck_requested.emit())
+        self.speed = QComboBox()
+        self.speed.setAccessibleName("How Chat answers")
+        self.speed.setToolTip(
+            "Fast answers sooner; Thoughtful takes longer over harder "
+            "questions. Applies to the next question you ask.")
+        for label, value in SPEEDS:
+            self.speed.addItem(label, value)
+        self.speed.currentIndexChanged.connect(
+            lambda _i: self.speed_changed.emit(str(self.speed.currentData())))
+
+        head = QHBoxLayout()
+        head.addWidget(self.notice, stretch=1)
+        head.addWidget(self.recheck_button)
+        head.addWidget(self.speed)
+        centre = QWidget()
+        column = QVBoxLayout(centre)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addLayout(head)
+        column.addWidget(self.bubbles, stretch=1)
+        column.addWidget(self.shelf)
+        column.addWidget(self.box)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        for part, weight in ((self.sessions, 1), (centre, 4), (self.sources, 2)):
+            split.addWidget(part)
+            split.setStretchFactor(split.indexOf(part), weight)
+        split.setChildrenCollapsible(False)
+        outer = QHBoxLayout(self)
+        outer.addWidget(split)
+
+        self.box.submitted.connect(self.question_submitted)
+        self.box.stop_requested.connect(self.stop_requested)
+        self.box.walk_requested.connect(self.sources.walk)
+        self.box.open_source_requested.connect(self.sources.open_selected)
+        self.box.escaped.connect(self._back_to_conversation)
+        self.shelf.changed.connect(self.shelf_changed)
+        self.shelf.open_requested.connect(self.open_requested)
+        self.sources.opened.connect(self.result_opened)
+        self.sources.revealed.connect(self.result_revealed)
+
+    # -- state the controller sets --------------------------------------------
+    def focus(self) -> None:
+        self.box.focus()
+
+    def shutdown(self) -> None:
+        self.closing.emit()
+
+    def show_available(self, ok: bool, reason: str = "", *, built: bool = True) -> None:
+        text = "" if ok else (unavailable_text(reason) if built else NOT_BUILT_LINE)
+        self.notice.setText(text)
+        self.notice.setVisible(not ok)
+        self.recheck_button.setVisible(not ok and built)
+        self.box.set_unavailable("" if ok else text)
+        self.speed.setEnabled(ok)
+
+    def set_busy(self, busy: bool) -> None:
+        self.box.set_busy(busy)
+        self.sessions.set_enabled_for_work(not busy)
+
+    def set_speed(self, value: str) -> None:
+        index = self.speed.findData(value)
+        if index >= 0:
+            self.speed.blockSignals(True)
+            self.speed.setCurrentIndex(index)
+            self.speed.blockSignals(False)
+
+    # -- the conversation --------------------------------------------------------
+    def add_user(self, text: str) -> None:
+        self.bubbles.add(UserBubble(text))
+        self.bubbles.scroll_to_end()
+
+    def begin_answer(self) -> AnswerRun:
+        """A fresh answer bubble; the Sources pane starts again for it."""
+        bubble = self._answer_bubble()
+        self._owner = bubble
+        self.sources.clear()
+        self.bubbles.add(bubble)
+        self._run = AnswerRun(bubble, self.sources, self.shelf)
+        return self._run
+
+    def _answer_bubble(self) -> AnswerBubble:
+        bubble = AnswerBubble()
+        bubble.receipt_activated.connect(lambda n, b=bubble: self._activate(b, n))
+        bubble.receipt_hovered.connect(self._hovered)
+        bubble.result_opened.connect(self.result_opened)
+        bubble.result_revealed.connect(self.result_revealed)
+        return bubble
+
+    def show_turns(self, turns: list) -> None:
+        """Redraw a stored conversation, without streaming."""
+        self.bubbles.clear()
+        self.sources.clear()
+        self._run, self._owner = None, None
+        last = None
+        for turn in turns:
+            if turn.role == "user":
+                self.bubbles.add(UserBubble(turn.text))
+                continue
+            bubble = self._answer_bubble()
+            run = AnswerRun(bubble, None, _NoShelf())
+            run.finish(turn)
+            self.bubbles.add(bubble)
+            last = bubble
+        if last is not None:
+            self._show_sources_of(last)
+        self.bubbles.scroll_to_end()
+
+    # -- sources -----------------------------------------------------------------
+    def _show_sources_of(self, bubble: AnswerBubble) -> None:
+        if self._owner is bubble:
+            return
+        self._owner = bubble
+        self.sources.clear()
+        for number in sorted(bubble.shown):
+            self.sources.add(number, bubble.shown[number])
+
+    def _activate(self, bubble: AnswerBubble, number: int) -> None:
+        self._show_sources_of(bubble)
+        self.sources.select_number(number)
+
+    def _hovered(self, number: int) -> None:
+        self.sources.hover_number(number)
+
+    def _back_to_conversation(self) -> None:
+        self.sources.deselect()
+        self.bubbles.scroll_to_end()
+        self.box.focus()
+
+
+class _NoShelf:
+    """A shelf that ignores adds: redrawing history must not change the shelf."""
+
+    def add_receipt(self, _receipt: Any) -> None:
+        return None
