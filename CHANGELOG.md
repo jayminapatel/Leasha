@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.22 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 4.23 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,49 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [0.3.3] - 2026-09-19
+
+### Indexing that works - why a full index said "55 days", and what was done about it
+
+The Indexing tab reported about 55 days for 114,614 files. The estimate was honest;
+the speed was not. Found by running the indexer on 90 real documents, not by reading it.
+
+- **The embedding model was given one processor thread instead of four.** The tuning
+  arithmetic charged each of four extraction workers a whole core, though they were busy
+  about 6% of the time, while embedding was 87% of a real run. Automatic now gives the
+  model 4 threads on a machine like this one. Every 4-thread test run beat the 1-thread
+  run (222-587 s against 1,055 s for the same 90 documents); this laptop varies about
+  2.5x run to run, so treat the gain as "roughly 2x to 5x", not a promise.
+- **A benchmark that timed nothing chose a 512-passage batch.** It timed a generator it
+  never ran, stored a rate of 106,666,662 a second, and the tuning code read that as "fast
+  enough to double the batch". An impossible rate is now ignored when read, including the
+  one already stored. One model call on a processor is capped at 32 passages: about 10%
+  faster and a third of the memory (4.4 GB down to 1.25 GB).
+- **Every old `.ppt` presentation was skipped** (79 of 79 in one index). LibreOffice was
+  asked for a plain-text export that only word processors have. Presentations are now
+  converted to `.pptx` and read like any other. **Files already recorded as skipped need
+  one `app.cli index --retry-skipped`** - a settled skip is never retried on its own.
+- **Closing the window left the indexing running.** The window said it had closed in
+  0.0 s and the run carried on with no window - for minutes once, for nine hours another
+  time. Closing now waits for the run, and a stopped run stops at its next file. As a
+  backstop, a process still alive 30 s after a close writes every thread's stack to the
+  log, and one still alive after 300 s is ended.
+- **The graphics-card build of onnxruntime could be replaced by the processor build**
+  by the documented face-detection install command, which left `onnxruntime` unpinned.
+  Pinned. (On this machine's integrated graphics DirectML measured no faster than the
+  processor, so nothing was lost - but it was silent.)
+- **The int8 embedding model is now on** for this install (`EMBED_QUANTISED`): 1.85x
+  faster, and it changes which passages come out nearest, so its vectors must never be
+  mixed with the standard model's - going back means a full rebuild.
+
+Known, not fixed: why the window's event loop stays alive after a close while a run is in
+progress (the next occurrence will log its stacks); a stop that arrives mid-batch still
+waits for that batch; and `main` is **not green** - the whole suite was not run for this
+release (far too slow to finish in a session), and at least 3 archive-path tests, 1 in
+`test_speed_work` and 2 in `test_converter_discovery` fail identically on the commit
+before this work. Work order 0u records all of it.
+
 
 ### The window has a new shape - one box to start, a rail down the side
 
@@ -6718,6 +6761,9 @@ Four failures that Linux hid. Three were real bugs; the platform difference is t
 - `BUILD_SPEC_V2.md` → **2.3** (Layer 2 build notes, the CLI entry point, acceptance boxes
   ticked and the two PST criteria left visibly open), `CHANGELOG.md` → **1.3**,
   `HANDOFF.md` → **1.2**, `README.md` → **1.3**, `tests/fixtures/README.md` → **1.1**.
+- 0.3.3 release: `HANDOFF.md` → **6.5**, `docs/ORDER_REGISTER.md` → **1.32**, the new
+  `docs/WORKORDER-202626191300-indexing-that-works.md` **1.2**, `CHANGELOG.md` → **4.23**.
+
 
 ### Planned
 - Attachment recursion for `.eml` files on disk. PST attachments are extracted; loose `.eml`
