@@ -25,6 +25,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -51,6 +52,9 @@ class EnvironmentBox(QGroupBox):
     """Run doctor; switch session recording on and off; open the folder."""
 
     recording_toggled = pyqtSignal(bool)
+    #: The person ticked or unticked the leasha:// box - user action only, so
+    #: loading the current state never writes to the registry.
+    links_toggled = pyqtSignal(bool)
 
     def __init__(self, settings: Any, parent: Optional[Any] = None) -> None:
         super().__init__("Environment", parent)
@@ -82,6 +86,33 @@ class EnvironmentBox(QGroupBox):
             "Open the folder holding the session recordings in Explorer.")
         open_folder.clicked.connect(self._open_sessions)
 
+        # -- the support bundle ----------------------------------------------
+        # `app.cli diagnose` has always written this zip; a person in the
+        # window had no way to ask for it, so a bug report started with "open a
+        # terminal". Adoptions-era gap found by the wiring audit.
+        self.bundle_status = QLabel("")
+        self.bundle_status.setWordWrap(True)
+        self.bundle_status.setObjectName("settingsHint")
+        self.bundle_button = QPushButton("Save a support bundle…")
+        self.bundle_button.setToolTip(
+            "Collects your logs, your settings file and details about this "
+            "computer into one zip you can send when asking for help.\n\n"
+            "Nothing is sent anywhere - it is only saved where you choose. It "
+            "does include your folder paths, so read summary.txt inside it "
+            "before sharing.")
+        self.bundle_button.clicked.connect(lambda _checked=False: self.save_bundle())
+
+        # -- leasha:// links ---------------------------------------------------
+        self.links = QCheckBox("Let leasha:// links open Leasha")
+        self.links.setToolTip(
+            "Lets a shortcut or a link in another document open Leasha on a "
+            "search, for example leasha://search?q=safety%20report.\n\n"
+            "Adds one key under your own Windows account - no administrator "
+            "needed - and unticking removes it. Nothing else changes. A link "
+            "can only ever run a search you can see.")
+        self.links.setEnabled(False)          # until the state has been read
+        self.links.clicked.connect(lambda checked=False: self.links_toggled.emit(bool(checked)))
+
         # -- the logs ---------------------------------------------------------
         # Asked for directly: *"there needs to be a button to clear logs"*. Every
         # run writes a file and none of them are ever removed, so the folder only
@@ -111,6 +142,9 @@ class EnvironmentBox(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.run_doctor_button)
+        layout.addWidget(self.bundle_button)
+        layout.addWidget(self.bundle_status)
+        layout.addWidget(self.links)
         layout.addWidget(self.recording)
         layout.addWidget(self.recording_status)
         layout.addWidget(open_folder)
@@ -119,6 +153,45 @@ class EnvironmentBox(QGroupBox):
         layout.addWidget(self.output)
 
         self.refresh_logs()
+
+    # -- the support bundle ---------------------------------------------------
+
+    def save_bundle(self) -> None:
+        """Ask where, then build the zip on a worker - it reads every recent log."""
+        from datetime import datetime
+
+        suggested = f"leasha-diagnostics-{datetime.now():%Y%m%d-%H%M%S}.zip"
+        path, _filter = QFileDialog.getSaveFileName(
+            self, "Save a support bundle", suggested, "Zip files (*.zip)")
+        if not path:
+            return
+        self.bundle_button.setEnabled(False)
+        self.bundle_status.setText("Collecting...")
+        worker = CallableWorker(
+            _write_bundle, self._settings, path, component="ui.environment.bundle")
+        worker.signals.finished.connect(self._bundle_saved)
+        worker.signals.failed.connect(self._bundle_failed)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _bundle_saved(self, path: Any) -> None:
+        self.bundle_button.setEnabled(True)
+        self.bundle_status.setText(f"Saved to {path}")
+
+    def _bundle_failed(self, error: Any) -> None:
+        self.bundle_button.setEnabled(True)
+        self.bundle_status.setText("The bundle could not be saved.")
+        QMessageBox.warning(self, "Support bundle", f"Could not save the bundle: {error}")
+
+    # -- leasha:// links ------------------------------------------------------
+
+    def set_links_state(self, registered: Any) -> None:
+        """Show what the registry says. `None` means this cannot apply here
+        (not Windows) - the box stays disabled rather than offering a switch
+        that would do nothing. Never emits: reading is not choosing."""
+        self.links.blockSignals(True)
+        self.links.setChecked(bool(registered))
+        self.links.blockSignals(False)
+        self.links.setEnabled(registered is not None)
 
     # -- doctor --------------------------------------------------------------
 
@@ -257,3 +330,11 @@ class EnvironmentBox(QGroupBox):
             return tuple(open_log_files())
         except Exception:                        # noqa: BLE001 - keep nothing rather than fail
             return ()
+
+
+def _write_bundle(settings: Any, path: str) -> str:
+    """Worker body: the same zip `app.cli diagnose` writes."""
+    from app.core.config import project_root
+    from app.core.diagnostics import build_bundle
+
+    return str(build_bundle(settings, project_root(), out_path=Path(path)))

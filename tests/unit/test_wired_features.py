@@ -167,3 +167,132 @@ def test_the_dialog_says_when_there_is_nothing_more(gui_mainwindow):
     row = ResultRow(rank=0, chunk_id=1, file_id=1, path="C:/a.txt", display_path="a.txt",
                     snippet=Snippet("x", ()), explain="", sources=(), text="")
     assert why_text(row, [], {}) == NOTHING_MORE
+
+
+# ---------------------------------------------------------------------------
+# Adoptions 7a - leasha:// links; and `diagnose` - the support bundle
+# ---------------------------------------------------------------------------
+
+class _FakeWinreg:
+    """An in-memory `winreg`: nothing here may ever touch the real registry."""
+
+    HKEY_CURRENT_USER = "HKCU"
+
+    def __init__(self):
+        self.keys = {}
+
+    class _Key:
+        def __init__(self, owner, path):
+            self.owner, self.path = owner, path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def CreateKey(self, _root, path):
+        self.keys.setdefault(path, {})
+        return self._Key(self, path)
+
+    def OpenKey(self, _root, path):
+        if path not in self.keys:
+            raise OSError("no such key")
+        return self._Key(self, path)
+
+    def SetValueEx(self, key, name, _r, _kind, value):
+        self.keys[key.path][name] = value
+
+    def QueryValueEx(self, key, name):
+        return self.keys[key.path][name], 1
+
+    REG_SZ = 1
+
+    def DeleteKey(self, _root, path):
+        if path not in self.keys:
+            raise OSError("no such key")
+        del self.keys[path]
+
+
+def test_the_scheme_registers_reads_back_and_unregisters(monkeypatch):
+    import sys
+
+    from app.core import deeplink
+
+    fake = _FakeWinreg()
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    assert deeplink.is_registered() is False
+    assert deeplink.set_registered(True, "C:/x/leasha.cmd") is True
+    assert deeplink.is_registered() is True
+    assert deeplink.set_registered(False) is True
+    assert deeplink.is_registered() is False
+    assert not fake.keys, "unregister must leave nothing behind"
+
+
+def test_the_links_box_reads_without_writing(gui_mainwindow, qtbot):
+    box = gui_mainwindow[1].settings_view.environment
+    fired = []
+    box.links_toggled.connect(fired.append)
+    box.set_links_state(True)
+    assert box.links.isChecked() and box.links.isEnabled()
+    box.set_links_state(None)
+    assert not box.links.isEnabled()
+    assert fired == [], "loading the state must never write to the registry"
+
+
+def test_ticking_the_links_box_writes_and_shows_the_result(gui_mainwindow, qtbot, monkeypatch):
+    from app.core import deeplink
+
+    app, window, store, engine = gui_mainwindow
+    box = window.settings_view.environment
+    state = {"on": False}
+    monkeypatch.setattr(deeplink, "set_registered", lambda wanted, exe=None: state.update(on=bool(wanted)) or True)
+    monkeypatch.setattr(deeplink, "is_registered", lambda: state["on"])
+
+    box.set_links_state(False)
+    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: state["on"] is True, timeout=3000)
+    qtbot.waitUntil(lambda: box.links.isChecked(), timeout=3000)
+
+    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: state["on"] is False, timeout=3000)
+    qtbot.waitUntil(lambda: not box.links.isChecked(), timeout=3000)
+
+
+def test_a_failed_write_is_not_left_looking_done(gui_mainwindow, qtbot, monkeypatch):
+    from app.core import deeplink
+
+    app, window, store, engine = gui_mainwindow
+    box = window.settings_view.environment
+    monkeypatch.setattr(deeplink, "set_registered", lambda wanted, exe=None: False)
+    monkeypatch.setattr(deeplink, "is_registered", lambda: False)
+    box.set_links_state(False)
+    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: not box.links.isChecked(), timeout=3000)
+
+
+def test_the_support_bundle_button_writes_the_zip(gui_mainwindow, qtbot, monkeypatch, tmp_path):
+    import zipfile
+
+    from PyQt6.QtWidgets import QFileDialog
+
+    app, window, store, engine = gui_mainwindow
+    box = window.settings_view.environment
+    target = tmp_path / "bundle.zip"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    qtbot.mouseClick(box.bundle_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(target.exists, timeout=20000)
+    qtbot.waitUntil(lambda: box.bundle_button.isEnabled(), timeout=20000)
+    with zipfile.ZipFile(target) as bundle:
+        assert "summary.txt" in bundle.namelist()
+    assert str(target) in box.bundle_status.text()
+
+
+def test_cancelling_the_bundle_dialog_does_nothing(gui_mainwindow, qtbot, monkeypatch):
+    from PyQt6.QtWidgets import QFileDialog
+
+    box = gui_mainwindow[1].settings_view.environment
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
+    qtbot.mouseClick(box.bundle_button, Qt.MouseButton.LeftButton)
+    assert box.bundle_button.isEnabled()

@@ -416,6 +416,7 @@ class MainWindow(QMainWindow):
         self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
         self.settings_view.theme_changed.connect(self._theme_changed)
         self.settings_view.open_photo_tagger_requested.connect(self._open_photo_tagger)
+        self.settings_view.environment.links_toggled.connect(self._links_toggled)
         # §1a. **What this surface may do on the person's behalf**, resolved
         # once and pushed to the view - `Settings` belongs to the window, and a
         # view that reaches for one has to be given one in every test.
@@ -745,6 +746,7 @@ class MainWindow(QMainWindow):
             self._refresh_tuning_status()
             self._warm_translator()
             self._warm_models()
+            self._refresh_link_scheme()
         except Exception as exc:                 # noqa: BLE001
             _log.warning("background start-up work failed: {}", exc)
 
@@ -1854,6 +1856,43 @@ class MainWindow(QMainWindow):
             self._log_window.activateWindow()
         except Exception as exc:             # noqa: BLE001 - see docstring
             _log.warning("could not open the log window: {}", exc)
+
+    def _refresh_link_scheme(self) -> None:
+        r"""Read whether `leasha://` is registered, off the UI thread.
+
+        Adoptions 7a wrote `register`/`unregister` and gave the window no way
+        to show or change either. A registry read is I/O, so it is a worker,
+        and the checkbox stays disabled until it answers. Off Windows there is
+        nothing to read: the box says so by staying disabled.
+        """
+        import os
+
+        box = self.settings_view.environment
+        if os.name != "nt":
+            box.set_links_state(None)
+            return
+        from app.core.deeplink import is_registered
+
+        worker = CallableWorker(is_registered, component="ui.links.read")
+        worker.signals.finished.connect(box.set_links_state)
+        worker.signals.failed.connect(lambda _e: box.set_links_state(None))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _links_toggled(self, wanted: bool) -> None:
+        r"""The Settings box was ticked or unticked: write the registry, then
+        show what it now says - so a write that failed is not left looking done."""
+        from app.core.deeplink import is_registered, set_registered
+
+        box = self.settings_view.environment
+
+        def change() -> bool:
+            set_registered(bool(wanted))
+            return is_registered()
+
+        worker = CallableWorker(change, component="ui.links.write")
+        worker.signals.finished.connect(box.set_links_state)
+        worker.signals.failed.connect(lambda _e: self._refresh_link_scheme())
+        run(QThreadPool.globalInstance(), worker)
 
     def _open_photo_tagger(self) -> None:
         r"""Open the window for naming the people in photos, or bring it back.

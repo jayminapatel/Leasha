@@ -314,6 +314,7 @@
     <Compile Include="app\ui\widgets\toast.py" />
     <Compile Include="app\ui\widgets\tuning_box.py" />
     <Compile Include="app\ui\widgets\tuning_groups.py" />
+    <Compile Include="app\ui\widgets\why_dialog.py" />
     <Compile Include="app\ui\widgets\window_box.py" />
     <Compile Include="app\ui\window_state.py" />
     <Compile Include="app\ui\workers.py" />
