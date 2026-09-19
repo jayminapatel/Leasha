@@ -140,12 +140,19 @@ BLOCKING_ATTRS_ALLOWED_IN = {
 }
 
 
-#: Modules that exist *to be called from a worker*. `presenter.py` - it
-#: holds `doctor_report`, which runs a subprocess deliberately. Blocking is
-#: correct there and the guarantee is enforced at the call site instead, by
-#: `test_a_long_operation_starts_a_worker`.
+#: Modules that exist *to be called from a worker*. `tasks.py` - it holds
+#: `doctor_report`, which runs a subprocess deliberately, and every other worker
+#: body the presenter used to carry. Blocking is correct there and the
+#: guarantee is enforced at the call site instead, by
+#: `test_a_long_operation_starts_a_worker` and
+#: `test_a_worker_body_is_only_called_through_a_worker`.
+#:
+#: **`app/ui/presenter/` is not on this list.** It used to be, as one file, and
+#: that exemption is exactly what let worker bodies and pure formatters share a
+#: module with nothing to tell them apart. The package holds decisions only, so
+#: it is scanned like any view.
 WORKER_ONLY = {
-    "presenter.py",
+    "tasks.py",
     "workers.py",
     # "Every line here runs on a worker, which is why it is a module of its own
     # rather than methods on the pane" - its own opening sentence, and the
@@ -241,6 +248,10 @@ OFF_THREAD = {
     # `SELECT 1 FROM files LIMIT 1`. Added *because* `stats()` was being used
     # for this and is three COUNT(*) - see `has_any_files`.
     "_anything_indexed",
+    # `value_suggestions` is reached from a keystroke and reads `distinct_values`,
+    # which is bounded and index-backed by design - see its docstring. It moved
+    # out of the file that was exempt whole, so the exemption is named here.
+    "_counted_values",
     # **Deliberately allowed, with the number.** This is `stats()`, about 460ms
     # at ten million chunks, so it is not cheap and this is not an oversight.
     # It runs once, when somebody picks "change the meaning model" from a menu,
@@ -387,9 +398,12 @@ def test_no_store_call_outside_a_worker(path):
 def test_the_presenter_still_does_not_import_qt():
     """The whole reason the logic is testable. One import here and half of this
     file's guarantees become unverifiable."""
-    text = source(UI / "presenter.py")
-    assert "PyQt6" not in text
-    assert "from PyQt" not in text
+    files = sorted((UI / "presenter").glob("*.py")) + [UI / "tasks.py"]
+    assert len(files) > 2, "the presenter package has gone missing"
+    for path in files:
+        text = source(path)
+        assert "PyQt6" not in text, path.name
+        assert "from PyQt" not in text, path.name
 
 
 def test_the_model_and_view_option_rules_are_qt_free_too():

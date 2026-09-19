@@ -249,7 +249,7 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False,
         return
 
     from PyQt6.QtCore import QThreadPool
-    from app.ui.presenter import resolve_open_path
+    from app.ui.tasks import resolve_open_path
 
     def _resolve_and_open() -> Any:
         return open_in_explorer(resolve_open_path(store, row), select=reveal)
@@ -523,7 +523,7 @@ def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
     """
     from PyQt6.QtCore import QThreadPool
 
-    from app.ui.presenter import record_open
+    from app.ui.tasks import record_open
 
     worker = CallableWorker(record_open, engine, search_id, chunk_id,
                             component="ui.search.record")
@@ -543,7 +543,7 @@ def decorate_results_async(store: Any, results: Any, on_done: Callable) -> None:
     """
     from PyQt6.QtCore import QThreadPool
 
-    from app.ui.presenter import decorate_results
+    from app.ui.tasks import decorate_results
 
     worker = CallableWorker(decorate_results, store, list(results),
                             component="ui.search.decorate")

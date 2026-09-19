@@ -39,6 +39,11 @@ def tree(name: str) -> ast.Module:
     return ast.parse(source(name))
 
 
+def _presenter_modules() -> list[str]:
+    """The presenter is a package; its modules, relative to `app/ui`."""
+    return sorted(f"presenter/{p.name}" for p in (UI / "presenter").glob("*.py"))
+
+
 # ---------------------------------------------------------------------------
 # Nothing blocking on the UI thread
 # ---------------------------------------------------------------------------
@@ -129,7 +134,7 @@ def test_settings_counts_the_usage_log_without_reading_it() -> None:
     # wrong wherever it is written - so the test follows the rule rather than
     # the file it was first broken in.
     calls = set()
-    for module in ("settings_view.py", "presenter.py"):
+    for module in ("settings_view.py", "tasks.py", *_presenter_modules()):
         calls |= _calls_in(tree(module))
 
     assert not any(call.endswith("recent_searches") for call in calls), (
