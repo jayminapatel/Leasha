@@ -232,8 +232,9 @@ def test_nothing_that_runs_on_a_keystroke_imports_this():
         "app/search/rerank.py", "app/search/fusion.py", "app/search/query.py",
         "app/search/commands.py", "app/search/translate.py",
         "app/ui/search_view.py", "app/ui/files_view.py", "app/ui/mail_view.py",
-        "app/ui/results_view.py", "app/ui/presenter.py",
+        "app/ui/results_view.py", "app/ui/tasks.py",
         "app/ui/preview_loader.py", "app/ui/workers.py",
+        *sorted(pathlib.Path("app/ui/presenter").glob("*.py")),
     ]
 
     offenders = []
@@ -241,6 +242,7 @@ def test_nothing_that_runs_on_a_keystroke_imports_this():
         path = pathlib.Path(name)
         if not path.is_file():
             continue
+        name = str(name).replace("\\", "/")
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)) and \
