@@ -735,6 +735,9 @@ class MainWindow(QMainWindow):
             self.settings_view.rerank_toggled.connect(self._rerank_toggled)
             self.settings_view.cloud_toggled.connect(self._cloud_toggled)
             self.settings_view.settings_changed.connect(self._settings_changed)
+            chat_ctl = getattr(self, "chat_ctl", None)
+            if chat_ctl is not None:
+                chat_ctl.attach_settings()
             self.settings_view.move_index_requested.connect(self._change_index_location)
             self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
             self.settings_view.error.connect(self._show_error)

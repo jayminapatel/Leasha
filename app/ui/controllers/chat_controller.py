@@ -123,8 +123,14 @@ class ChatController(QObject):
         view.sessions.deleted.connect(self._delete)
         view.shelf.set_shelf(self.session.shelf)
         self._w.rail.currentChanged.connect(self._tab_changed)
-        self._w.settings_view.settings_changed.connect(self._settings_changed)
         return view
+
+    def attach_settings(self) -> None:
+        """Listen to Settings once that page exists. Settings is built a beat
+        after first paint (order 0r 2b), so `build` cannot connect to it."""
+        settings_view = getattr(self._w, "settings_view", None)
+        if settings_view is not None:
+            settings_view.settings_changed.connect(self._settings_changed)
 
     def shutdown(self) -> None:
         self._closing = True
