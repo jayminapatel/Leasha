@@ -1,6 +1,6 @@
 # Work order (One thread): indexing that works
 
-**Doc version:** 1.0 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (`app/core/measured.py` + `app/index/index_bench.py` +
 `app/core/envelope.py` + `app/index/embedder.py` + `config/extractors.toml` +
 the close path in `app/ui/shell.py` and `app/main.py`)
@@ -291,3 +291,39 @@ choice, and this order leaves it alone.
 - **The memory ceiling.** The resource governor paused the last run 47 times
   (344 s). With a model call of 32 the footprint drops; whether the default
   ceiling is then right is a measurement, not an assumption.
+
+## 11. Applied, and the index reset
+
+- [x] Merged to `main` (fast-forward, `63e14ed`) and so live in the checkout the
+      application runs from.
+- [x] The existing index was cleared, **by moving it, not deleting it.**
+  > **2026-09-19:** `D:\Leasha\Datats`, `vectors`, `cache` and
+  > `completions.json` moved to `D:\Leasha\Data-index-backup-20260919-1435`
+  > (141 MB; 1,425 files, 30,033 chunks, 13 tag rows, 3 messages, no saved
+  > searches or face piles). `models` was left in place. A fresh database was
+  > created by `SqliteStore` and given back the 39 settings worth keeping: every
+  > `ui:*` key (the five folders, tray behaviour, columns, window geometry) and
+  > `scan:last`, so the first run has its 114,614-file total and a real ETA. The
+  > stored `compute:*` records - including the impossible rate - were not carried
+  > over. `PRAGMA quick_check` on the new file: ok. `doctor.py --quick`: READY,
+  > no failures, onnxruntime install coherent, DirectML available. Delete the
+  > backup folder when satisfied; nothing needs it.
+- [x] The tuning parameters were reviewed against measurement.
+  > **2026-09-19:** Auto on `main` resolves 4 workers, 4 ONNX threads, batch 256
+  > (a call of 32). `EMBED_DEVICE=cpu` stays: DirectML on the Iris Xe measured no
+  > faster. `INDEX_CPU_PERCENT=80`, `INDEX_MEMORY_MB=16000` and the OCR settings
+  > were read and left; nothing measured argues for a change. **One warning will
+  > appear on every run** - `REQUIRED_FREE_GB=300` against 217GB free. It is a
+  > warning, not a block (the run stops cleanly at the 5GB floor), and it is the
+  > registry default; the index is expected to be a small fraction of the
+  > corpus's 249GB, so lowering it is reasonable and was not done unasked.
+- [ ] **Decide `EMBED_QUANTISED` before the first index run.**
+  > Measured 2026-09-19, 81 real passages, 4 threads, interleaved: the int8 model
+  > ran **1.85x faster** (4.4-5.3 against 2.5-2.8 passages a second). It also
+  > **changes results**: mean cosine to the fp16 vector 0.974 (worst 0.950),
+  > top-5 neighbours overlap 76%, and the #1 neighbour differs for 16 of 81
+  > passages. Without ground-truth relevance that means *different*, not *worse*
+  > or *better*. The local int8 copy is already built
+  > (`models\BAAI--bge-small-en-v1.5-int8-local`). Switching later invalidates
+  > every vector, so **now, with an empty index, is the only free moment.** Left
+  > off pending the owner's decision.
