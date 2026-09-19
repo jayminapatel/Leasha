@@ -54,6 +54,8 @@ __all__ = [
     "convert",
     "resolve_binary",
     "available_binaries",
+    "run_media_tool",
+    "MAX_MEDIA_TIMEOUT_S",
 ]
 
 log = logger.bind(component="extract.converter")
@@ -92,6 +94,19 @@ ALLOWED_BINARIES = frozenset({
     # `test_cad.test_no_module_imports_libredwgs_python_bindings` is that rule
     # as code.
     "dwg2SVG",
+    # Video and audio (work order 202626270515). **Two programs, two names, for
+    # the reason `dwg2SVG` is separate from `dwg2dxf`**: the list names programs,
+    # and permitting one does not silently permit the other. ffprobe only reads
+    # (duration, codec, creation date); ffmpeg writes keyframes into a temporary
+    # folder this module owns.
+    #
+    # **Subprocess only, never a Python binding to FFmpeg's libraries** - the
+    # same rule as LibreDWG above. FFmpeg builds are LGPL or GPL depending on how
+    # they were configured; running the program is mere aggregation, linking it
+    # would not be, and the owner has expressly kept this application MIT.
+    # `test_media.test_no_module_imports_an_ffmpeg_binding` is that rule as code.
+    "ffmpeg",
+    "ffprobe",
 })
 
 #: **Why each remaining format still needs an external converter.**
@@ -205,6 +220,12 @@ _WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
     # Same install, second program - so the same folders, and the same three
     # arrangements `_WINDOWS_SUBDIRS` already covers.
     "dwg2SVG": (("libredwg", "LibreDWG"), "dwg2SVG.exe"),
+    # `winget install Gyan.FFmpeg` puts a link in `WinGet\Links` and the real
+    # files under `WinGet\Packages\...\bin`; a hand-extracted zip usually
+    # lands in `ffmpeg\bin`. The link folder is what a fresh install offers
+    # before the terminal has been reopened and PATH has caught up.
+    "ffmpeg": (("ffmpeg", "FFmpeg", "Links"), "ffmpeg.exe"),
+    "ffprobe": (("ffmpeg", "FFmpeg", "Links"), "ffprobe.exe"),
 }
 
 #: Where an executable sits inside its install folder. `""` is the folder
@@ -246,6 +267,9 @@ def _installed_on_windows(name: str) -> Optional[str]:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         roots.append(os.path.join(local, "Programs"))
+        # Where `winget` puts the command-line shims for the package it just
+        # installed (see the `ffmpeg` entry in `_WINDOWS_LOCATIONS`).
+        roots.append(os.path.join(local, "Microsoft", "WinGet"))
 
     for root in roots:
         if not root:
@@ -289,6 +313,84 @@ def available_binaries() -> dict[str, Optional[str]]:
     One lookup, one answer.
     """
     return {name: resolve_binary(name) for name in sorted(ALLOWED_BINARIES)}
+
+
+#: The longest a media tool may run in one call. Well above `MAX_TIMEOUT_S`: a
+#: document converter that is quiet for five minutes is stuck, but taking
+#: keyframes out of a two-hour film legitimately is not. Still a ceiling - a
+#: hung ffmpeg must not hold a worker for ever.
+MAX_MEDIA_TIMEOUT_S = 3600
+
+
+def run_media_tool(
+    name: str,
+    args: list[str],
+    *,
+    timeout_s: int,
+    source: Optional[Path] = None,
+    cwd: Optional[str] = None,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run `ffmpeg` or `ffprobe` - the one way this application does.
+
+    **Same rules as `convert`, for the same reasons**: the name must be on
+    `ALLOWED_BINARIES` (checked before anything is resolved), the path actually
+    invoked comes from `resolve_binary` and is logged, `shell=False` always, and
+    the timeout has a ceiling. It exists as a second function rather than a
+    parameter on `convert` because a media tool has no "output file the rule
+    names" - the answer is on stdout (ffprobe) or a numbered set of frames
+    (ffmpeg) - and forcing that through `ConversionResult` would mean lying
+    about what it produced.
+
+    Raises `AppErrorException`: `ERR_CONVERTER_BLOCKED` for a name off the list,
+    `ERR_MEDIA_TOOLS_MISSING` when it is not installed, and
+    `ERR_MEDIA_PROBE_FAILED` for a timeout or a program that cannot be started.
+    A non-zero exit status is **returned**, not raised - ffmpeg exits non-zero
+    for a truncated file that still yielded frames, and only the caller knows
+    whether what came back is enough.
+    """
+    if name not in ALLOWED_BINARIES:
+        raise AppErrorException(make_error(
+            "ERR_CONVERTER_BLOCKED", "extract.converter",
+            binary=name or "(empty)", path=str(source or ""),
+            details=(
+                f"'{name}' is not on the allow-list, which lives in "
+                f"app/extract/converter.py and not in configuration."
+            ),
+        ))
+    binary_path = resolve_binary(name)
+    if not binary_path:
+        raise AppErrorException(make_error(
+            "ERR_MEDIA_TOOLS_MISSING", "extract.converter",
+            binary=name, path=str(source or ""),
+        ))
+
+    limit = max(1, min(int(timeout_s), MAX_MEDIA_TIMEOUT_S))
+    command = [binary_path, *args]
+    started = time.monotonic()
+    try:
+        # **shell=False, always** - and here the argument list carries a path
+        # from the corpus, which is exactly the input not to trust.
+        finished = subprocess.run(
+            command, capture_output=True, timeout=limit, check=False,
+            shell=False, cwd=cwd,
+            # No console window flashing up per file on Windows.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        raise AppErrorException(make_error(
+            "ERR_MEDIA_PROBE_FAILED", "extract.converter",
+            path=str(source or ""), details=f"{name} did not finish within {limit}s",
+        )) from None
+    except OSError as exc:
+        raise AppErrorException(make_error(
+            "ERR_MEDIA_PROBE_FAILED", "extract.converter",
+            path=str(source or ""), details=str(exc),
+        )) from exc
+
+    log.debug("ran {} in {:.1f}s (exit {}){}", binary_path,
+              time.monotonic() - started, finished.returncode,
+              f" for {source.name}" if source is not None else "")
+    return finished
 
 
 def _build_command(

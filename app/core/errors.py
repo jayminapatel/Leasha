@@ -204,6 +204,85 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.RUN_COMMAND,
         action_payload=r"venv\Scripts\python.exe -m pip install rapidocr-onnxruntime",
     ),
+    # --- video and audio (work order 202626270515) --------------------------
+    # **Four codes, four different fixes.** "ffmpeg missing", "the speech
+    # package missing" and "the speech model not downloaded" are three
+    # separate things to do, and one code that said "media tools unavailable"
+    # would send somebody to install the wrong one. All are SKIP_CONTINUE in
+    # effect: the file is still findable by name, and a run never stops.
+    "ERR_MEDIA_TOOLS_MISSING": _Spec(
+        message="'{binary}' is needed to read video and audio files and was not found.",
+        suggestion=(
+            "Install FFmpeg once and it is picked up automatically - nothing else needs "
+            "changing. Until then video files are findable by name only. After installing, "
+            "run indexing again with 'retry skipped' so these files are looked at again."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload="winget install --id Gyan.FFmpeg -e",
+    ),
+    "ERR_MEDIA_PROBE_FAILED": _Spec(
+        message="FFmpeg could not read '{path}' as a video or audio file.",
+        suggestion=(
+            "The file is skipped and indexing continues. If it happens to every file, "
+            "FFmpeg is probably broken - run 'python -m app.cli media --status'; if it "
+            "is one file, that recording is likely damaged or unfinished."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_TRANSCRIBE_UNAVAILABLE": _Spec(
+        message="Speech-to-text is switched on, but the faster-whisper package is not installed.",
+        suggestion=(
+            "Recordings and the spoken part of videos are findable by name only until it is "
+            "installed. Everything else is unaffected. After installing, run indexing again "
+            "with 'retry skipped'."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload=r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1",
+    ),
+    "ERR_TRANSCRIBE_MODEL_MISSING": _Spec(
+        message="The speech model '{model}' is not downloaded, so '{path}' was not transcribed.",
+        suggestion=(
+            "Leasha never downloads anything while indexing. Download the model once - it "
+            "is about 75MB for 'tiny' and 145MB for 'base' - and it works offline from "
+            "then on. Then run indexing again with 'retry skipped'."
+        ),
+        action_type=ActionType.RUN_COMMAND,
+        action_payload=(
+            'venv\\Scripts\\python.exe -c "from faster_whisper import download_model; '
+            'download_model(\'base\')"'
+        ),
+    ),
+    "ERR_TRANSCRIBE_FAILED": _Spec(
+        message="Transcribing '{path}' did not work.",
+        suggestion=(
+            "This file is skipped and indexing continues. What was already transcribed "
+            "is kept, so trying again carries on from where it stopped. If it happens to "
+            "every recording, the speech model or its package is probably broken."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # **A queue, not a failure** - a text-only pass leaves video and recordings
+    # for the images pass, exactly as it leaves pictures (ERR_OCR_HELD below).
+    "ERR_MEDIA_HELD": _Spec(
+        message="Held for the images pass: '{path}' is a video or recording.",
+        suggestion=(
+            "Nothing is wrong and nothing has been lost - this run was asked to index text "
+            "only, so videos and recordings are queued rather than read. Run the images pass "
+            "to fill them in; they are picked up exactly where this left them."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # **A queue, not a failure** - the same shape as ERR_OCR_HELD, and in
+    # `Pipeline.DEFERRED_SKIP_CODES` for the same reason: a run that was stopped
+    # part-way through a two-hour recording has not settled anything about it.
+    "ERR_MEDIA_INTERRUPTED": _Spec(
+        message="Stopped part-way through '{path}'.",
+        suggestion=(
+            "Nothing is wrong and nothing has been lost - the part already read is kept. "
+            "Run indexing again and it carries on from where it stopped."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     # **A queue, not a failure**, and the wording has to carry that or 40,000
     # of these read as 40,000 broken files.
     #

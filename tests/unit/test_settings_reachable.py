@@ -72,7 +72,7 @@ SURFACE_MODULES = {
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.
     "settings.models": ("settings_view.py", "widgets/model_box.py",
-                        "widgets/storage_box.py"),
+                        "widgets/storage_box.py", "widgets/media_box.py"),
     "settings.storage": ("settings_view.py", "widgets/storage_box.py"),
 }
 

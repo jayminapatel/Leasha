@@ -60,6 +60,7 @@ from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.model_box import ModelBox
 from app.ui.widgets.roots_box import RootsBox
 from app.ui.widgets.editor_box import EditorBox
+from app.ui.widgets.media_box import MediaBox
 from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
 from app.ui.widgets.search_box import SearchBox
 from app.ui.widgets.storage_box import StorageBox
@@ -180,6 +181,9 @@ class SettingsView(QWidget):
         # registry - see `widgets/chat_box.py`. Hidden while there are none.
         self.chat_box = ChatBox(settings)
         self.chat_box.changed.connect(self.settings_changed)
+        # Work order 202626270515: video and audio, in a module of its own.
+        self.media_box = MediaBox(settings)
+        self.media_box.changed.connect(self.settings_changed)
         self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
@@ -500,6 +504,7 @@ class SettingsView(QWidget):
         models_layout.addWidget(self.models)
         models_layout.addWidget(self.photo_people_box)
         models_layout.addWidget(self.chat_box)
+        models_layout.addWidget(self.media_box)
         models_layout.addStretch(1)
 
         # §0 settled decision #2, honoured here: theme relocates to

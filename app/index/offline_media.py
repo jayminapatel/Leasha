@@ -517,6 +517,7 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
     from dataclasses import replace as _replace
 
     from app.index.embedder import Embedder
+    from app.extract.media import MediaConfig
     from app.index.pipeline import Pipeline, PipelineConfig
     from app.index.resources import limits_from_settings
     from app.index.resolve import resolve_for_run
@@ -545,6 +546,7 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,
         people_recognition_enabled=settings.people_recognition_enabled,
+        media=MediaConfig.from_settings(settings),
     )
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 

@@ -38,9 +38,17 @@ def test_config_routed_extensions_are_walked() -> None:
 
 
 def test_the_code_registry_is_still_included() -> None:
-    from app.extract import supported_extensions
+    from app.extract import media, supported_extensions
 
-    assert supported_extensions() <= walkable()
+    # Video and audio are registered but **off by default** (work order
+    # 202626270515): the walker offers them only when their own switch is on,
+    # so they are the one deliberate exception to "registered means walkable".
+    assert supported_extensions() - media.media_extensions() <= walkable()
+    media.configure(media.MediaConfig(video_enabled=True, audio_enabled=True))
+    try:
+        assert supported_extensions() <= walkable()
+    finally:
+        media.configure(None)
 
 
 @pytest.mark.parametrize("extension", [".doc", ".ppt", ".dwg", ".vb", ".tex", ".aspx"])
