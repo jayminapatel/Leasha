@@ -721,11 +721,13 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
             "same reason as mail_view above")
         # Search is what first paint shows, so it must be built already.
         assert built.search_view is not None
-        assert built.rail.count() == 6, (
-            "only Search, Files, Offline Media, Reports, Indexing and "
-            "Settings exist before the event loop turns - Mail and Code are "
-            "inserted a beat later. Order 202626270513 added Offline Media "
-            "and order 202626270602 added Reports to this count.")
+        assert built.rail.count() == 4, (
+            "only Search, Files, Offline Media and Reports exist before the "
+            "event loop turns - Mail and Code are inserted a beat later, and "
+            "so are Indexing and Settings (order 0r item 2b, second pass; "
+            "`test_indexing_and_settings_are_not_built_until_the_event_loop_"
+            "turns` below owns that half). Order 202626270513 added Offline "
+            "Media and order 202626270602 added Reports to this count.")
 
         # Let the singleShot(0, ...) callback run.
         for _ in range(5):
@@ -873,10 +875,10 @@ def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
         built = MainWindow(settings, store, vectors, _Engine(store))
         assert not hasattr(built, "code_view")
 
-        # Only Search, Files, Indexing and Settings exist yet - switch
+        # Only Search, Files, Offline and Reports exist yet - switch
         # through all of them, which is the only switching a user could
-        # actually perform in this gap (there is nothing to click for Mail
-        # or Code, since their tabs do not exist either).
+        # actually perform in this gap (there is nothing to click for Mail,
+        # Code, Indexing or Settings, since their tabs do not exist either).
         for index in range(built.rail.count()):
             built.rail.setCurrentIndex(index)
             built._tab_changed(index)
@@ -946,3 +948,353 @@ def test_files_and_search_are_not_deferred(window):
     assert built._tab_index[built.search_view] == 0, \
         "Search must be tab 0 - the tab shown at first paint"
     assert built._tab_index[built.files_view] == 1
+
+
+# ---------------------------------------------------------------------------
+# Order 0r item 2b, second pass: Indexing and Settings are deferred too.
+#
+# Same template as the Mail/Code tests above: not built until the loop turns,
+# the rail keeps its order, and every way of reaching them in the gap - a
+# shortcut, a menu action, a tab switch, a close - does nothing rather than
+# raising. Each fresh-window test makes ZERO `processEvents()` calls before it
+# probes, which is the exact gap the deferral opens.
+# ---------------------------------------------------------------------------
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _unpumped_window(tmp_path, name, *, states=None):
+    r"""`(app, window, store, settings)` with **no** event-loop turn taken yet.
+
+    `states` are written to `index_state` first, so the restore paths (last
+    page, the two switches, the tray boxes) have something to restore.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import VectorStore
+    from app.ui.shell import MainWindow
+
+    root = tmp_path / name
+    root.mkdir()
+    env = root / ".env"
+    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+
+    app = QApplication.instance() or QApplication([])
+    store = SqliteStore(settings.fts_db).connect()
+    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+    if states:
+        store.set_states(states)
+    try:
+        yield app, MainWindow(settings, store, vectors, _Engine(store)), store, settings
+    finally:
+        store.close()
+        vectors.close()
+
+
+def _pump(app, turns: int = 10) -> None:
+    for _ in range(turns):
+        app.processEvents()
+
+
+def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path):
+    r"""The deferral itself, for the second pair. If `_construct_deferred_pages`
+    were ever folded back into `__init__`, the "not yet built" half of this goes
+    red first.
+    """
+    with _unpumped_window(tmp_path, "deferred_pages") as (app, built, _store, _settings):
+        assert not hasattr(built, "indexing_view"), (
+            "indexing_view must not exist the instant MainWindow() returns")
+        assert not hasattr(built, "settings_view"), (
+            "settings_view must not exist the instant MainWindow() returns")
+        # Search and Files (kept synchronous on purpose) plus Offline and
+        # Reports are all that is in the rail before the loop turns.
+        assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
+            "Search", "Files", "Offline", "Reports"]
+
+        _pump(app)
+
+        assert built.indexing_view is not None and built.settings_view is not None
+        assert built.rail.count() == 8
+
+
+def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
+    r"""Indexing is the pill at the rail's foot and Settings is the foot page;
+    neither moved. The rail's own bookkeeping (`_pill_index`, `_foot`, which
+    entries have buttons) is checked as well as the titles, because the titles
+    alone would pass with the pill pointing at the wrong page.
+    """
+    with _unpumped_window(tmp_path, "pages_order") as (app, built, _store, _settings):
+        _pump(app)
+
+        titles = [built.rail.tabText(i) for i in range(built.rail.count())]
+        assert titles == ["Search", "Files", "Mail", "Code", "Offline",
+                          "Reports", "Indexing", "Settings"]
+        assert built.rail._pill_index == titles.index("Indexing"), (
+            "the pill must open the Indexing page")
+        assert built.rail._foot == {titles.index("Settings")}, (
+            "Settings, and only Settings, sits at the foot of the rail")
+        assert titles.index("Indexing") not in built.rail._buttons, (
+            "Indexing is the pill's page, not a rail button")
+        for view, title in ((built.indexing_view, "Indexing"),
+                            (built.settings_view, "Settings")):
+            at = built._tab_index[view]
+            assert built.rail.tabText(at) == title
+            assert built.rail.indexOf(built._tab_wrapped[view]) == at, (
+                "`_tab_index` must agree with the rail after Mail/Code were "
+                "inserted ahead of these two")
+        # Settings is a stacked form, so it is the one wrapped in a scroll area.
+        assert built._tab_wrapped[built.settings_view] is not built.settings_view
+        assert built._tab_wrapped[built.indexing_view] is built.indexing_view
+
+
+def test_the_last_open_page_can_be_settings_or_indexing(tmp_path):
+    r"""`_restore_last_page` used to run with both pages already in the rail.
+    Chaining it after the deferred build is what keeps "reopen on Settings" true.
+    """
+    for page in ("Settings", "Indexing"):
+        with _unpumped_window(tmp_path, f"last_page_{page}",
+                              states={"ui:page": page}) as (app, built, _s, _c):
+            _pump(app)
+            assert built.rail.tabText(built.rail.currentIndex()) == page
+
+
+def test_the_start_up_work_runs_after_the_pages_and_not_before(tmp_path):
+    r"""The ordering guarantee, observed rather than assumed.
+
+    `_start_background_work` is chained from the end of the deferred build
+    instead of being scheduled beside it, so nothing may have started when
+    `MainWindow()` returns, and everything that reaches into the two pages must
+    have run - and found them - after one turn.
+    """
+    with _unpumped_window(tmp_path, "startup_order") as (app, built, _store, _settings):
+        assert not hasattr(built, "scheduler")
+        assert not built._watch_timer.isActive()
+        assert not built._optimize_timer.isActive()
+
+        _pump(app)
+
+        assert hasattr(built, "scheduler"), "`_start_scheduler` never ran"
+        assert built._watch_timer.isActive()
+        assert built._optimize_timer.isActive()
+        # The store-reading Settings labels are filled by that same work.
+        assert built.settings_view is not None
+
+
+def test_start_up_work_without_the_pages_skips_instead_of_raising(tmp_path):
+    r"""If a page is ever missing, each touch degrades to "skipped".
+
+    The alternative is an `AttributeError` that `_start_background_work`'s own
+    `except` swallows, after which **nothing further in that method runs** -
+    including `_warm_models`. So this checks the later steps still happened.
+    """
+    with _unpumped_window(tmp_path, "startup_degrades") as (app, built, store, settings):
+        assert not hasattr(built, "indexing_view")
+        ran = []
+        built._warm_translator = lambda: ran.append("translator")
+        built._warm_models = lambda: ran.append("models")
+        built._restore_last_page = lambda: ran.append("page")
+
+        built._start_background_work(store, settings)
+
+        assert ran == ["page", "translator", "models"], (
+            "the steps that need no page must still run, in order, when the "
+            "pages are missing - got {}".format(ran))
+        assert not hasattr(built, "scheduler")
+        assert not built._watch_timer.isActive(), (
+            "the watch timer's handler writes to the Indexing page; it must "
+            "not be started without one")
+        # And the real build, still pending, must not have been disturbed.
+        _pump(app)
+        assert hasattr(built, "indexing_view") and hasattr(built, "settings_view")
+
+
+def test_reaching_the_deferred_pages_before_they_exist_does_not_crash(tmp_path):
+    r"""Every way a person or the system can touch Indexing or Settings in the
+    gap: the two shortcuts, the menu actions, F5 / a drop / "Index this folder"
+    (`_start_indexing`), a tab switch, an OS theme change (`_apply_theme`) and
+    the toolbar's rerank box. None of them may raise, and none may pretend the
+    page is there.
+    """
+    from types import SimpleNamespace
+
+    with _unpumped_window(tmp_path, "gap_probe") as (app, built, _store, _settings):
+        assert not hasattr(built, "indexing_view")
+        assert not hasattr(built, "settings_view")
+
+        # The window's own QActions: the shortcuts (`addAction`) and the menus.
+        triggered = 0
+        for action in list(built.actions()) + list(built._menu_actions):
+            label = action.text().replace("&", "")
+            keys = action.shortcut().toString()
+            if keys in ("Ctrl+,", "Ctrl+I") or label in (
+                    "Settings", "Indexing", "Start indexing"):
+                action.trigger()
+                triggered += 1
+        assert triggered >= 4, (
+            "expected both shortcuts and the Settings / Indexing / Start "
+            f"indexing menu actions to be found, got {triggered}")
+
+        built._show(getattr(built, "settings_view", None))
+        built._start_indexing()
+        built._start_indexing(roots=["C:/nowhere"], recheck_archives=True)
+        built._reindex_for(SimpleNamespace(path="C:/nowhere/a.txt"))
+        built._apply_theme()                      # what an OS theme change calls
+        built._rerank_toggled(True)               # the toolbar box, no Settings yet
+        for index in range(built.rail.count()):
+            built.rail.setCurrentIndex(index)
+            built._tab_changed(index)
+
+        assert not hasattr(built, "indexing_view"), (
+            "nothing above may have built the page as a side effect")
+        _pump(app)
+        assert hasattr(built, "indexing_view") and hasattr(built, "settings_view"), (
+            "the deferred build must still run after being raced like this")
+        # And once they exist the same entry points work.
+        built._show(built.settings_view)
+        assert built.rail.currentIndex() == built._tab_index[built.settings_view]
+        built._show(built.indexing_view)
+        assert built.rail.currentIndex() == built._tab_index[built.indexing_view]
+
+
+def test_closing_before_indexing_and_settings_exist_does_not_crash(tmp_path):
+    r"""`closeEvent` flushed and stopped the Indexing page by bare attribute;
+    the arguments to `stage()` are evaluated before its own `try`, so an
+    immediate close would have raised mid-`closeEvent`, before the teardown.
+    """
+    with _unpumped_window(tmp_path, "gap_close") as (_app, built, _store, _settings):
+        assert not hasattr(built, "indexing_view")
+
+        built.close()
+
+        assert not built.isVisible(), "hide-first must still happen in this gap"
+
+
+def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(tmp_path):
+    r"""Everything `__init__` used to do to the whole window once, that has to be
+    done again for the two pages that arrive after it: the theme (the debug pane
+    and the rail are pushed a palette), the wheel guard, and the "takes effect
+    next launch" note on the controls that need one.
+    """
+    from PyQt6.QtWidgets import QWidget
+    from app.core.settings_registry import needs_restart
+    from app.ui.widgets.restart_note import RESTART_NOTE
+
+    with _unpumped_window(tmp_path, "gap_finish") as (app, built, _store, _settings):
+        _pump(app)
+
+        assert built.settings_view.debug_pane._palette, (
+            "`_apply_theme` must have pushed a palette to the Settings log "
+            "pane once it existed")
+        assert built.rail._colours, "the rail's icons were never tinted"
+
+        noted = [s.key for s in needs_restart()
+                 if built.findChild(QWidget, s.key) is not None
+                 and RESTART_NOTE in built.findChild(QWidget, s.key).toolTip()]
+        # Not "every restart-only control": `EMBED_QUANTISED`'s tooltip is
+        # rewritten by `TuningGroups._grey_quantised` when hardware detection
+        # answers, which replaces the note. That is independent of when the
+        # page is built; what this pins is that the call ran over the pages.
+        for key in ("EMBED_MODEL", "RERANK_MODEL", "DATA_PATH"):
+            assert key in noted, (
+                f"{key} does not carry the restart note - `mark_restart_needed` "
+                "ran before its page was in the window (noted: {})".format(noted))
+
+        # The wheel guard: every combo/spin box on the two pages was guarded by
+        # the second `protect_all` (it sets StrongFocus, which Qt does not).
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox
+        unguarded = [
+            c for page in (built.settings_view, built.indexing_view)
+            for c in page.findChildren((QComboBox, QAbstractSpinBox))
+            if c.focusPolicy() != Qt.FocusPolicy.StrongFocus
+        ]
+        assert not unguarded, (
+            "controls on the deferred pages still take focus from the wheel: "
+            f"{[type(c).__name__ for c in unguarded]}")
+
+
+def test_restored_settings_reach_the_deferred_settings_page(tmp_path):
+    r"""The two switches and the tray boxes that `__init__` used to set on the
+    Settings page directly are set by the deferred build from the same stored
+    values. The toolbar's rerank box (the Search page's) must still be right in
+    the gap, before Settings exists.
+    """
+    states = {"ui:index_cloud": "on", "ui:rerank_enabled": "off", "ui:motion": "on"}
+    with _unpumped_window(tmp_path, "restore_switches", states=states) as (app, built, _s, _c):
+        toolbar = getattr(built.search_view, "rerank_toggle", None)
+        if toolbar is not None:
+            assert toolbar.isChecked() is False, (
+                "the toolbar's rerank box is on the Search page and must be "
+                "restored synchronously, before Settings exists")
+        _pump(app)
+        assert built.settings_view.cloud.isChecked() is True
+        assert built.settings_view.rerank.isChecked() is False
+
+
+def test_no_method_reachable_before_the_pages_exist_touches_them_directly():
+    r"""A source-level pin for the runtime tests above.
+
+    A bare `self.indexing_view` / `self.settings_view` (or `self._w.` in a
+    controller) in code that can run before `_construct_deferred_pages` is an
+    `AttributeError` waiting for a fast keypress, and it is invisible until one
+    happens. `getattr(self, "indexing_view", None)` is the accepted form - it is
+    a call, not an attribute node, so this walk does not see it.
+
+    The list is the methods reachable in the gap: construction, the shortcut and
+    menu builders, the theme, tab switches, indexing entry points, the close,
+    and the one controller handler a Search-page control can reach.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[2]
+    pages = {"indexing_view", "settings_view"}
+
+    def direct(function) -> list[int]:
+        hits = []
+        for node in ast.walk(function):
+            if not (isinstance(node, ast.Attribute) and node.attr in pages):
+                continue
+            base = node.value
+            on_self = isinstance(base, ast.Name) and base.id == "self"
+            on_window = (isinstance(base, ast.Attribute) and base.attr == "_w"
+                         and isinstance(base.value, ast.Name) and base.value.id == "self")
+            if on_self or on_window:
+                hits.append(node.lineno)
+        return hits
+
+    def functions(path, cls):
+        tree = ast.parse((root / path).read_text(encoding="utf-8"))
+        node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == cls)
+        return {n.name: n for n in node.body if isinstance(n, ast.FunctionDef)}
+
+    shell = functions("app/ui/shell.py", "MainWindow")
+    reachable_early = (
+        "__init__", "_construct_secondary_views", "_build_shortcuts",
+        "_build_menu_bar", "_apply_theme", "_tab_changed", "_start_indexing",
+        "_reindex_for", "dropEvent", "closeEvent", "_drain_workers",
+        "_start_background_work", "_show", "_current_view", "_preview_panes",
+    )
+    problems = {name: direct(shell[name]) for name in reachable_early if direct(shell[name])}
+    assert not problems, (
+        "these run before Indexing / Settings exist but touch them by bare "
+        f"attribute (name: lines): {problems}")
+
+    controller = functions("app/ui/controllers/settings_controller.py",
+                           "SettingsController")
+    assert not direct(controller["_rerank_toggled"]), (
+        "`_rerank_toggled` is reachable from the toolbar's box before Settings "
+        "exists; it must use getattr")
+
+    # And the other half: the constructor does not build them.
+    built_in_init = {
+        n.func.id for n in ast.walk(shell["__init__"])
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert not built_in_init & {"IndexingView", "SettingsView"}, (
+        "IndexingView / SettingsView are built in `__init__` again - "
+        "they belong to `_construct_deferred_pages`")
+    assert {"IndexingView", "SettingsView"} <= {
+        n.func.id for n in ast.walk(shell["_construct_deferred_pages"])
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}

@@ -303,15 +303,6 @@ class MainWindow(QMainWindow):
         self.search_view.view_preferences_changed.connect(
             lambda prefs: save_prefs(self._store, RESULTS_PREFS_KEY, prefs))
 
-        self.indexing_view = IndexingView()
-        self.indexing_view.error.connect(self._show_error)
-        self.indexing_view.reset_requested.connect(self._reset_index)
-        self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
-        self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
-        self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
-        self.indexing_view.scan_requested.connect(self._scan_corpus)
-        self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
-
         # **The window watches for a run it did not start.** `app.cli index` is
         # a separate process since the run lock was split from the window lock,
         # so an index can be under way with nothing in here knowing - which used
@@ -352,22 +343,7 @@ class MainWindow(QMainWindow):
         self._optimize_timer.timeout.connect(self._maybe_run_idle_bench)
         #: True while an idle bench is out on a worker - one at a time.
         self._idle_bench_running = False
-        # Connected once, here. Connecting inside _start_indexing would add a
-        # slot per run, so the tenth index would refresh the status bar ten times.
-        self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
-        # §5c. A finished run is the only free measurement this application
-        # ever gets: it is a benchmark somebody already paid for.
-        self.indexing_view.finished.connect(self._learn_from_run)
-        self.indexing_view.finished.connect(self._offer_images_pass)
-        self.indexing_view.finished.connect(
-            lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
-        )
-        # A finished index means new filenames, so the Files summary is stale.
-        self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
-        # New mail too, for the same reason.
-        self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
 
-        self.settings_view = SettingsView(settings, store)
         #: The popped-out log, or None. Workspace §1c: a **copy**, not a move -
         #: the pane in Settings never leaves, so closing this returns nothing
         #: to re-wire. Declared here because `_apply_theme` pushes the palette
@@ -386,67 +362,14 @@ class MainWindow(QMainWindow):
         #: it never pays for it.
         self._mini: Any = None
         self._hotkey: Any = None
-        self.settings_view.debug_pane.file_chosen.connect(self._open_path)
-        self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
-        self.settings_view.set_roots(
-            self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots())
-        self.settings_view.roots_changed.connect(self._save_roots)
-        self.settings_view.root_modes_changed.connect(self._save_root_modes)
-        self.settings_view.cloud_content_roots_changed.connect(self._save_cloud_content_roots)
-        self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
-        self.settings_view.code_types_changed.connect(self._save_code_types)
-        self.settings_view.code_types.load(*self._load_code_types())
-        self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
-        self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
-        self.settings_view.models.load(
-            model, int(translator.timeout_s), enabled=interpret_on)
-        self.settings_view.convert_pst_requested.connect(self._convert_pst)
-        # The schedule and the tuning screen both live on the Indexing page
-        # now - one place to watch a run and to change how it goes. See §4 of
-        # the index-tuning order for why they were separated from Settings.
-        self.indexing_view.schedule_box.load_indexing(settings)
-        self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
-        self.indexing_view.tuning.load(settings)
-        # **Both arrive as registry keys**, which `_limits_changed` wants as
-        # `Settings` field names - it upper-cases them for `.env` and applies
-        # them to the live object, and that second half is what makes a change
-        # reach the *next run in this session* rather than the next launch.
-        self.indexing_view.tuning.changed.connect(
-            lambda values: self._limits_changed(
-                {key.lower(): value for key, value in values.items()}))
-        self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
-        self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
-        self.settings_view.theme_changed.connect(self._theme_changed)
-        self.settings_view.open_photo_tagger_requested.connect(self._open_photo_tagger)
-        self.settings_view.environment.links_toggled.connect(self._links_toggled)
         # §1a. **What this surface may do on the person's behalf**, resolved
         # once and pushed to the view - `Settings` belongs to the window, and a
         # view that reaches for one has to be given one in every test.
         self._apply_search_preferences()
-        self._apply_hotkey()
-        self.settings_view.environment.recording.setChecked(self.recorder.enabled)
-        self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
-        # **Both of these were emitted into nothing.** The rerank switch looked
-        # like it worked and changed no behaviour at all; the cloud switch was
-        # read live when a run started, so it worked for that run and silently
-        # reset to off at the next launch - which reads as the setting being
-        # ignored, and is the harder of the two to notice.
-        self.settings_view.rerank_toggled.connect(self._rerank_toggled)
         # The toolbar box is the one every search reads, so it reports here too.
         toolbar_rerank = getattr(self.search_view, "rerank_toggle", None)
         if toolbar_rerank is not None:
             toolbar_rerank.toggled.connect(self._rerank_toggled)
-        self.settings_view.cloud_toggled.connect(self._cloud_toggled)
-        self.settings_view.settings_changed.connect(self._settings_changed)
-        self.settings_view.move_index_requested.connect(self._change_index_location)
-        self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
-        self.settings_view.error.connect(self._show_error)
-        self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
-        mark_restart_needed(self)
-        self.settings_view.environment.set_recording_status(
-            f"Recording to {self.recorder.path.name}" if self.recorder.enabled
-            else "Not recording."
-        )
         self._apply_pst_backend(self._store.get_state("ui:pst_backend", "auto") or "auto")
 
         self.files_view = FilesView(store)
@@ -532,8 +455,6 @@ class MainWindow(QMainWindow):
             (self.files_view, "Files", False, "folder", ""),
             (self.offline_media_view, "Offline", False, "hard-drive", ""),
             (self.reports_view, "Reports", False, "chart-column", ""),
-            (self.indexing_view, "Indexing", False, "database", "pill"),
-            (self.settings_view, "Settings", True, "settings", "foot"),
         ):
             wrapped = wrap_if_needed(view, scroll=scroll)
             self._tab_wrapped[view] = wrapped
@@ -552,10 +473,6 @@ class MainWindow(QMainWindow):
         # keyed-state pattern as `ui:theme`; read back post-construction in
         # `_start_background_work`, never here (M13).
         self.rail.currentChanged.connect(self._remember_page)
-        # §2d / §2g: the pill paints from plain data the Indexing page already
-        # emits. Nothing here touches the store.
-        self.indexing_view.progressed.connect(self._paint_pill)
-        self.indexing_view.totals_shown.connect(self._totals_for_pill)
         self.rail.show_pill(pill_text(IDLE), None)
         self.setCentralWidget(self.rail)
 
@@ -575,37 +492,27 @@ class MainWindow(QMainWindow):
         # signals are live would be simpler, but these are connected in the
         # block above - so the stored value is written back through the same
         # handler, which is harmless and keeps one path rather than two.
-        self.settings_view.cloud.setChecked(
-            self._read_state("ui:index_cloud", "") == "on")
         # **Both controls, from one stored value.** The Settings checkbox was
         # initialised here and the toolbar one was hard-coded True and never
         # saved, so the two disagreed from the first launch after anybody
         # changed it - and the toolbar is the one every search actually reads.
         stored_rerank = self._read_state("ui:rerank_enabled", "")
         if stored_rerank:
-            wanted = stored_rerank == "on"
-            self.settings_view.rerank.setChecked(wanted)
-            self._set_toolbar_rerank(wanted)
+            # The toolbar's box is the Search page's, so it stays here; the
+            # Settings copy of it is set in `_construct_deferred_pages`.
+            self._set_toolbar_rerank(stored_rerank == "on")
 
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
         self.tray.close_to_tray = self._read_state("ui:tray_close", "") == "on"
         self._motion = self._read_state("ui:motion", "") == "on"
-        self.settings_view.window_box.load(
-            self.tray.minimise_to_tray, self.tray.close_to_tray,
-            theme=self._theme_preference, motion=self._motion)
-        self.settings_view.window_box.motion_changed.connect(self._motion_changed)
         self._apply_motion()
-        self.settings_view.tray_changed.connect(self._tray_changed)
         if self.tray.minimise_to_tray or self.tray.close_to_tray:
             if not self.tray.install():
                 # Never silently: a preference that does nothing is worse than
                 # one that is not offered.
                 self.tray.minimise_to_tray = self.tray.close_to_tray = False
                 _log.warning("no system tray available; minimising normally")
-        self.indexing_view.finished.connect(
-            lambda stats: self.tray.set_status(
-                f"{getattr(stats, 'indexed', 0):,} indexed"))
 
         # **UI Redesign §6 ([FINALISE 1]): no status bar.** Every message
         # that went to the status bar's `showMessage` now goes through `notify`
@@ -650,7 +557,8 @@ class MainWindow(QMainWindow):
         # does, though nothing in either method actually depends on that
         # order today.
         QTimer.singleShot(0, lambda: self._construct_secondary_views(store))
-        QTimer.singleShot(0, lambda: self._start_background_work(store, settings))
+        QTimer.singleShot(0, lambda: self._construct_deferred_pages(
+            store, settings, model, translator, interpret_on))
 
     def _construct_secondary_views(self, store: Any) -> None:
         """Build Mail and Code, and insert them where they belong.
@@ -686,7 +594,7 @@ class MainWindow(QMainWindow):
         self.code_view.reveal_requested.connect(
             lambda path: self._open_path(path, reveal=True))
         self.code_view.indexing_requested.connect(
-            lambda: self._show(self.indexing_view))
+            lambda: self._show(getattr(self, "indexing_view", None)))
 
         # **§2, and it goes here rather than beside Settings for a reason.**
         # Every tab that has a preview can pin one, and each pane carries its
@@ -725,38 +633,210 @@ class MainWindow(QMainWindow):
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
         self._apply_motion()                     # §5c: the two new panes too
 
+    def _construct_deferred_pages(self, store: Any, settings: Any, model: str,
+                                  translator: Any, interpret_on: bool) -> None:
+        """Build Indexing and Settings, wire them, and only then start the work.
+
+        Order 0r item 2b, second pass. These two are the heaviest pages the
+        constructor built - Settings alone is six group boxes, a debug pane and
+        a file-type editor - and neither is what first paint shows. They are
+        built here, on the next turn of the event loop, exactly as Mail and
+        Code are by `_construct_secondary_views`. **Files and Search stay
+        synchronous**: Search is the first paint, and Mail's and Code's
+        insertion position is `self._tab_index[self.files_view]`.
+
+        **The order is guaranteed by construction, not by timer order.**
+        `_start_background_work` is called from the end of this method (in a
+        `finally`, so it still runs if a page failed to build) rather than
+        scheduled beside it, and it guards every touch of these two views with
+        `getattr`, so a view that is missing means "skipped", never an
+        `AttributeError` swallowed halfway through the start-up work.
+
+        **Everything that reaches these two before they exist is guarded**:
+        the Ctrl+, / Ctrl+I shortcuts and menu actions, `_start_indexing`
+        (F5, a drop, "Index this folder"), `_tab_changed`, `_apply_theme`
+        (which also runs on an operating-system theme change),
+        `_rerank_toggled`, `closeEvent` and `_drain_workers`.
+
+        The rail keeps its order - Indexing is the pill at the foot of the
+        rail and Settings the foot page - because `Rail.insertTab` places by
+        index and Mail/Code's callback refreshes `_tab_index` from
+        `_tab_wrapped` whichever of the two callbacks runs first.
+        """
+        try:
+            self.indexing_view = IndexingView()
+            self.indexing_view.error.connect(self._show_error)
+            self.indexing_view.reset_requested.connect(self._reset_index)
+            self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
+            self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
+            self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
+            self.indexing_view.scan_requested.connect(self._scan_corpus)
+            self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
+
+            # Connected once, here. Connecting inside _start_indexing would add a
+            # slot per run, so the tenth index would refresh the status bar ten times.
+            self.indexing_view.finished.connect(lambda _stats: self._refresh_status())
+            # §5c. A finished run is the only free measurement this application
+            # ever gets: it is a benchmark somebody already paid for.
+            self.indexing_view.finished.connect(self._learn_from_run)
+            self.indexing_view.finished.connect(self._offer_images_pass)
+            self.indexing_view.finished.connect(
+                lambda _stats: self.indexing_view.refresh_totals(self._store, self._settings)
+            )
+            # A finished index means new filenames, so the Files summary is stale.
+            self.indexing_view.finished.connect(lambda _stats: self.files_view.refresh_summary())
+            # New mail too, for the same reason.
+            self.indexing_view.finished.connect(lambda _stats: self.mail_view.refresh())
+
+            self.settings_view = SettingsView(settings, store)
+            self.settings_view.debug_pane.file_chosen.connect(self._open_path)
+            self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
+            self.settings_view.set_roots(
+                self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots())
+            self.settings_view.roots_changed.connect(self._save_roots)
+            self.settings_view.root_modes_changed.connect(self._save_root_modes)
+            self.settings_view.cloud_content_roots_changed.connect(self._save_cloud_content_roots)
+            self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
+            self.settings_view.code_types_changed.connect(self._save_code_types)
+            self.settings_view.code_types.load(*self._load_code_types())
+            self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
+            self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
+            self.settings_view.models.load(
+                model, int(translator.timeout_s), enabled=interpret_on)
+            self.settings_view.convert_pst_requested.connect(self._convert_pst)
+            # The schedule and the tuning screen both live on the Indexing page
+            # now - one place to watch a run and to change how it goes. See §4 of
+            # the index-tuning order for why they were separated from Settings.
+            self.indexing_view.schedule_box.load_indexing(settings)
+            self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
+            self.indexing_view.tuning.load(settings)
+            # **Both arrive as registry keys**, which `_limits_changed` wants as
+            # `Settings` field names - it upper-cases them for `.env` and applies
+            # them to the live object, and that second half is what makes a change
+            # reach the *next run in this session* rather than the next launch.
+            self.indexing_view.tuning.changed.connect(
+                lambda values: self._limits_changed(
+                    {key.lower(): value for key, value in values.items()}))
+            self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
+            self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
+            self.settings_view.theme_changed.connect(self._theme_changed)
+            self.settings_view.open_photo_tagger_requested.connect(self._open_photo_tagger)
+            self.settings_view.environment.links_toggled.connect(self._links_toggled)
+            # **Moved here with the Settings page it reports to**: the sentence saying
+            # whether the shortcut was taken is pushed into that page.
+            self._apply_hotkey()
+            self.settings_view.environment.recording.setChecked(self.recorder.enabled)
+            self.settings_view.debug_recording_toggled.connect(self._debug_recording_toggled)
+            # **Both of these were emitted into nothing.** The rerank switch looked
+            # like it worked and changed no behaviour at all; the cloud switch was
+            # read live when a run started, so it worked for that run and silently
+            # reset to off at the next launch - which reads as the setting being
+            # ignored, and is the harder of the two to notice.
+            self.settings_view.rerank_toggled.connect(self._rerank_toggled)
+            self.settings_view.cloud_toggled.connect(self._cloud_toggled)
+            self.settings_view.settings_changed.connect(self._settings_changed)
+            self.settings_view.move_index_requested.connect(self._change_index_location)
+            self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
+            self.settings_view.error.connect(self._show_error)
+            self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
+            self.settings_view.environment.set_recording_status(
+                f"Recording to {self.recorder.path.name}" if self.recorder.enabled
+                else "Not recording."
+            )
+            # Restore the switches that persist as window state (they were set here
+            # in `__init__` before this page was deferred).
+            self.settings_view.cloud.setChecked(
+                self._read_state("ui:index_cloud", "") == "on")
+            stored_rerank = self._read_state("ui:rerank_enabled", "")
+            if stored_rerank:
+                self.settings_view.rerank.setChecked(stored_rerank == "on")
+            # Read again rather than taken from `self.tray`: `__init__` may since have
+            # cleared those flags because the desktop has no notification area, and
+            # this box shows what was *chosen*, as it always did.
+            self.settings_view.window_box.load(
+                self._read_state("ui:tray_minimise", "") == "on",
+                self._read_state("ui:tray_close", "") == "on",
+                theme=self._theme_preference, motion=self._motion)
+            self.settings_view.window_box.motion_changed.connect(self._motion_changed)
+            self.settings_view.tray_changed.connect(self._tray_changed)
+            self.indexing_view.finished.connect(
+                lambda stats: self.tray.set_status(
+                    f"{getattr(stats, 'indexed', 0):,} indexed"))
+
+            # The two rail entries, appended in the order they always had. Indexing
+            # has no button - it is the pill's page - and Settings is the foot page.
+            for view, title, scroll, icon_name, placement in (
+                (self.indexing_view, "Indexing", False, "database", "pill"),
+                (self.settings_view, "Settings", True, "settings", "foot"),
+            ):
+                wrapped = wrap_if_needed(view, scroll=scroll)
+                self._tab_wrapped[view] = wrapped
+                self._tab_index[view] = self.rail.addTab(
+                    wrapped, title, icon=icon_name,
+                    foot=placement == "foot", pill=placement == "pill")
+            # §2d / §2g: the pill paints from plain data the Indexing page already
+            # emits. Nothing here touches the store.
+            self.indexing_view.progressed.connect(self._paint_pill)
+            self.indexing_view.totals_shown.connect(self._totals_for_pill)
+
+            # Once, for the controls that did not exist when `__init__` ran it.
+            guarded = protect_all(self)
+            _log.debug("wheel-guarded {} controls (second pass, Indexing + Settings)", guarded)
+            # **After the pages are in the window**: `mark_restart_needed` finds
+            # controls by `findChild` on the window, and a page that has not been
+            # added to the rail yet has no parent to be found under.
+            mark_restart_needed(self)
+            # `_apply_theme` reaches `settings_view.debug_pane` and retints both pages.
+            self._apply_theme()
+            self._wire_recorder_pages()
+        finally:
+            self._start_background_work(store, settings)
+
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.
 
         Guarded as a whole: a window that opens with no file count is a small
         problem, and one that refuses to open is a total one.
         """
+        # Called from the end of `_construct_deferred_pages`, which builds the
+        # two views everything marked below reaches into. `getattr` rather than
+        # a bare attribute for each: if a build failed, or this is ever run
+        # first, the step is skipped, and one missing page cannot raise an
+        # `AttributeError` that the `except` below turns into "nothing after
+        # this line ran" - including the model warm-up.
+        indexing_view = getattr(self, "indexing_view", None)
+        settings_view = getattr(self, "settings_view", None)
         try:
             # The watch for a run another process is doing. Here rather than in
-            # `__init__` for the reason this whole method exists.
-            self._watch_timer.start()
-            self._poll_external_run()
-            self._optimize_timer.start()
-            self.indexing_view.refresh_totals(store, settings)
+            # `__init__` for the reason this whole method exists. Not started
+            # without the Indexing page: both handlers write to it.
+            if indexing_view is not None:
+                self._watch_timer.start()
+                self._poll_external_run()
+                self._optimize_timer.start()
+                indexing_view.refresh_totals(store, settings)
             # The two Settings labels that need the store or an import. They
             # used to be filled during `SettingsView.__init__`, which is inside
             # `MainWindow.__init__` - a COUNT(*) and a module import on the UI
             # thread before the first frame.
-            self.settings_view.refresh_slow_labels()
+            if settings_view is not None:
+                settings_view.refresh_slow_labels()
             # §2f: after construction, like `_restore_last_category` (M13).
             self._restore_last_page()
             self._refresh_status()
-            self._start_scheduler()
-            # **Detection shells out to PowerShell**, so it happens here for
-            # exactly the reason this method exists. Until it answers, the
-            # tuning screen shows the envelope's answers for an unknown
-            # machine, which are the cautious ones.
-            self.indexing_view.tuning.start_detection(settings.data_path)
-            self.indexing_view.tuning.set_last_run(self._last_run_record())
-            self._refresh_tuning_status()
+            if indexing_view is not None:
+                self._start_scheduler()
+                # **Detection shells out to PowerShell**, so it happens here for
+                # exactly the reason this method exists. Until it answers, the
+                # tuning screen shows the envelope's answers for an unknown
+                # machine, which are the cautious ones.
+                indexing_view.tuning.start_detection(settings.data_path)
+                indexing_view.tuning.set_last_run(self._last_run_record())
+                self._refresh_tuning_status()
             self._warm_translator()
             self._warm_models()
-            self._refresh_link_scheme()
+            if settings_view is not None:
+                self._refresh_link_scheme()
         except Exception as exc:                 # noqa: BLE001
             _log.warning("background start-up work failed: {}", exc)
 
@@ -926,6 +1006,12 @@ class MainWindow(QMainWindow):
 
     def _start_indexing(self, *, roots: Optional[list[str]] = None,
                         recheck_archives: bool = False) -> None:
+        # F5, a drop and "Index this folder" can arrive in the beat before
+        # `_construct_deferred_pages` has built the Indexing page; there is
+        # nothing to start into yet, so the request is skipped, not raised.
+        if getattr(self, "indexing_view", None) is None:
+            _log.debug("start indexing ignored: the Indexing page is not built yet")
+            return
         self.index_ctl._start_indexing(roots=roots, recheck_archives=recheck_archives)
 
     def _index_resolved(self, tuned: Any, chosen: list[str],
@@ -994,24 +1080,7 @@ class MainWindow(QMainWindow):
         )
 
         self.search_view.error.connect(lambda e: record("error", where="search", **_err(e)))
-        self.indexing_view.error.connect(lambda e: record("error", where="index", **_err(e)))
         self.files_view.error.connect(lambda e: record("error", where="files", **_err(e)))
-
-        self.indexing_view.start_button.clicked.connect(
-            lambda _c=False: record("click", what="start_indexing")
-        )
-        self.indexing_view.finished.connect(
-            lambda stats: record("index_finished", **_stats(stats))
-        )
-        self.settings_view.environment.run_doctor_button.clicked.connect(
-            lambda _c=False: record("click", what="run_doctor")
-        )
-        self.settings_view.roots_changed.connect(
-            lambda roots: record("roots_changed", count=len(roots))
-        )
-        self.settings_view.theme_changed.connect(
-            lambda pref: record("theme_changed", preference=pref)
-        )
 
         # Searches are recorded by *shape* only - length and result count, never
         # the query. A file full of somebody's actual searches is a liability,
@@ -1029,6 +1098,35 @@ class MainWindow(QMainWindow):
             )
         )
 
+    def _wire_recorder_pages(self) -> None:
+        """The recorder's listeners on Indexing and Settings, once they exist.
+
+        `_wire_recorder` covers everything built in `__init__`; these two
+        pages are built by `_construct_deferred_pages`, which calls this at the
+        end. Same recorder, same events, same rule: shapes only.
+        """
+        if not self.recorder.enabled:
+            return
+
+        record = self.recorder.event
+        self.indexing_view.error.connect(lambda e: record("error", where="index", **_err(e)))
+
+        self.indexing_view.start_button.clicked.connect(
+            lambda _c=False: record("click", what="start_indexing")
+        )
+        self.indexing_view.finished.connect(
+            lambda stats: record("index_finished", **_stats(stats))
+        )
+        self.settings_view.environment.run_doctor_button.clicked.connect(
+            lambda _c=False: record("click", what="run_doctor")
+        )
+        self.settings_view.roots_changed.connect(
+            lambda roots: record("roots_changed", count=len(roots))
+        )
+        self.settings_view.theme_changed.connect(
+            lambda pref: record("theme_changed", preference=pref)
+        )
+
     # -- shortcuts ----------------------------------------------------------
 
     def _build_shortcuts(self) -> None:
@@ -1040,8 +1138,10 @@ class MainWindow(QMainWindow):
 
         bind("Ctrl+K", self._focus_search)
         bind("Ctrl+F", self._focus_search)
-        bind("Ctrl+,", lambda: self._show(self.settings_view))
-        bind("Ctrl+I", lambda: self._show(self.indexing_view))
+        # `getattr`: Indexing and Settings are built a beat after the window
+        # appears (`_construct_deferred_pages`); `_show(None)` does nothing.
+        bind("Ctrl+,", lambda: self._show(getattr(self, "settings_view", None)))
+        bind("Ctrl+I", lambda: self._show(getattr(self, "indexing_view", None)))
         bind("Ctrl+P", self._focus_files)
         bind("Ctrl+Shift+P", self._toggle_preview)
         bind("Ctrl+M", self._focus_mail)
@@ -1099,7 +1199,7 @@ class MainWindow(QMainWindow):
         add(file, "Show the log", self._pop_out_log, icon="file-text",
             tip="Open the log as its own window")
         file.addSeparator()
-        add(file, "Settings", lambda: self._show(self.settings_view), "Ctrl+,",
+        add(file, "Settings", lambda: self._show(getattr(self, "settings_view", None)), "Ctrl+,",
             icon="settings", role=QAction.MenuRole.PreferencesRole)
         add(file, "Quit", self.close, "Ctrl+Q", icon="x-circle",
             role=QAction.MenuRole.QuitRole)
@@ -1123,7 +1223,8 @@ class MainWindow(QMainWindow):
         add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
         add(go, "Offline", lambda: self._show(self.offline_media_view), icon="hard-drive")
         add(go, "Reports", lambda: self._show(self.reports_view), icon="chart-column")
-        add(go, "Indexing", lambda: self._show(self.indexing_view), "Ctrl+I", icon="database")
+        add(go, "Indexing", lambda: self._show(getattr(self, "indexing_view", None)),
+            "Ctrl+I", icon="database")
         add(go, "People in photos", self._open_photo_tagger, icon="image",
             tip="Name the groups of faces Leasha has found in your photos")
 
@@ -1321,7 +1422,12 @@ class MainWindow(QMainWindow):
         from app.ui.theme import palette_for
 
         colours = palette_for(preference, detected=detected)
-        for target in (self.settings_view.debug_pane, self._log_window):
+        # Indexing and Settings are built a beat after the window appears
+        # (`_construct_deferred_pages`, which calls this again once they
+        # exist); this also runs on an operating-system theme change.
+        indexing_view = getattr(self, "indexing_view", None)
+        settings_view = getattr(self, "settings_view", None)
+        for target in (getattr(settings_view, "debug_pane", None), self._log_window):
             if target is not None:
                 target.set_palette(colours)
         # The rail's and toolbar's icons are pixmaps and never see the sheet
@@ -1336,12 +1442,12 @@ class MainWindow(QMainWindow):
         from app.ui.widgets.icons import icon as _icon
         for name, glyph in (("start_button", "play"), ("stop_button", "square"),
                             ("scan_button", "scan-search")):
-            button = getattr(self.indexing_view, name, None)
+            button = getattr(indexing_view, name, None)
             if button is not None and hasattr(button, "setIcon"):
                 button.setIcon(_icon(glyph, colours.get("text_dim", "#888888")))
         for view in (self.files_view, getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
-                     self.indexing_view, self.settings_view):
+                     indexing_view, settings_view):
             for target in (view, getattr(view, "_nav", None)):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
@@ -1516,8 +1622,9 @@ class MainWindow(QMainWindow):
         # appears (`_construct_secondary_views`), and `_tab_index.get(None)`
         # is simply `None` - never equal to a real tab index - so this stays
         # correct in the gap before either exists, with no exception raised.
-        if index == self._tab_index.get(self.indexing_view):
-            self.indexing_view.refresh_totals(self._store, self._settings)
+        indexing_view = getattr(self, "indexing_view", None)
+        if indexing_view is not None and index == self._tab_index.get(indexing_view):
+            indexing_view.refresh_totals(self._store, self._settings)
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
         elif index == self._tab_index.get(self.offline_media_view):
@@ -1716,7 +1823,7 @@ class MainWindow(QMainWindow):
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)
-        self._show(self.indexing_view)
+        self._show(getattr(self, "indexing_view", None))
         self._start_indexing(roots=[folder])
 
 
@@ -1836,7 +1943,7 @@ class MainWindow(QMainWindow):
         ]
         folders = [p if Path(p).is_dir() else str(Path(p).parent) for p in paths]
         if folders:
-            self._show(self.indexing_view)
+            self._show(getattr(self, "indexing_view", None))
             self._start_indexing(roots=sorted(set(folders)))
         event.acceptProposedAction()
 
@@ -2001,9 +2108,14 @@ class MainWindow(QMainWindow):
         # A ceiling changed in the last third of a second is still sitting in a
         # timer. Closing without this loses it - which would be a worse bug than
         # the sluggishness the debounce was added to fix.
-        stage("schedule", self.indexing_view.schedule_box.flush_pending)
-        stage("tuning", self.indexing_view.tuning.flush_pending)
-        stage("indexing", self.indexing_view.stop)
+        # `getattr` for Indexing as for Mail/Code above: a close before
+        # `_construct_deferred_pages` has run has nothing here to flush or
+        # stop, and the arguments are evaluated before `stage()` can guard them.
+        indexing_view = getattr(self, "indexing_view", None)
+        if indexing_view is not None:
+            stage("schedule", indexing_view.schedule_box.flush_pending)
+            stage("tuning", indexing_view.tuning.flush_pending)
+            stage("indexing", indexing_view.stop)
         # **Pre-existing gap, found live by this session's own rapid-close
         # test for item 2b, not introduced by it.** `self.scheduler` is only
         # ever assigned inside `_start_scheduler`, which only ever runs from
