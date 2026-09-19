@@ -102,7 +102,11 @@ class SearchHome(QWidget):
         box.setProperty("empty_state", True)
         box.style().unpolish(box)
         box.style().polish(box)
-        self.slot.insertWidget(1, box, 1)
+        # A stretch far above the two flanks': at equal weights the box got a
+        # third of the page, so on a 1100px window it was 316px wide and its
+        # placeholder was cut off mid-word. `BOX_WIDTH` is a ceiling; below it
+        # the box takes what there is (found by reading the 1100x760 golden).
+        self.slot.insertWidget(1, box, 100)
 
     def refresh(self) -> None:
         """Redraw the recent/saved rows from lists already in memory."""

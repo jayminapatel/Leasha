@@ -161,9 +161,10 @@ class ResultDelegate(QStyledItemDelegate):
             # Item 5c: one plain line, not the group/chunk geometry below.
             return QSize(width, QFontMetrics(meta_font).height() + 2 * metrics.pad_y)
         if isinstance(payload, Skeleton):
-            rows = [QFontMetrics(name_font).height(), QFontMetrics(meta_font).height(),
-                    QFontMetrics(body_font).height()]
-            return QSize(width, sum(rows) + metrics.gap * 2 + 2 * metrics.pad_y)
+            rows = [QFontMetrics(name_font).height(), QFontMetrics(meta_font).height()]
+            if self.prefs.density != Density.COMPACT:     # compact group rows have no third line
+                rows.append(QFontMetrics(body_font).height())
+            return QSize(width, sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y)
 
         rows = [QFontMetrics(meta_font).height()]
         if isinstance(payload, ResultGroup):
@@ -373,7 +374,8 @@ class ResultDelegate(QStyledItemDelegate):
                    + QFontMetrics(meta_font).height())
         painter.fillPath(_rounded(QRectF(left, y, side, side), ROW_RADIUS), QBrush(bar))
         x = left + side + 10
-        for font, fraction in ((name_font, 0.55), (meta_font, 0.35), (body_font, 0.8)):
+        bars = [(name_font, 0.55), (meta_font, 0.35), (body_font, 0.8)]
+        for font, fraction in (bars if self.prefs.density != Density.COMPACT else bars[:2]):
             h = QFontMetrics(font).height()
             painter.fillPath(_rounded(QRectF(x, y + 2, (width - side - 10) * fraction, h - 4), 4),
                              QBrush(bar))
