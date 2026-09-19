@@ -71,6 +71,17 @@ AUTO = "auto"
 #: moment it has run.
 E_CORE_WEIGHT = 0.4
 
+#: The share of a core one extraction worker actually keeps busy.
+#:
+#: **A measurement, with a margin.** A real run on 2026-09-17/18 recorded
+#: 24,841 worker-seconds of extraction across four workers in 97,444 seconds of
+#: wall time - 6.4% - and a 90-document run recorded 130 across eleven in 1,055,
+#: about 1%. A worker waits on the disk, on LibreOffice and on a full queue far
+#: more than it computes. 0.25 is four times the larger figure, so a corpus of
+#: nothing but heavy PDFs still fits inside it; the oversubscription warning
+#: below still says so if it does not.
+EXTRACT_WORKER_DUTY = 0.25
+
 
 @dataclass(frozen=True)
 class Bounds:
@@ -212,13 +223,21 @@ def onnx_threads(profile: Any, workers: Optional[int] = None) -> Bounds:
     # really does run at a fraction of the speed on an E-core, which is the
     # distinction §0 draws and the reason `capacity` exists at all.
     usable = capacity(profile)
-    taken = float(workers if workers is not None else index_workers(profile).auto)
+    count = int(workers if workers is not None else index_workers(profile).auto)
+    # **A worker is charged what it uses, not a whole core.** This used to
+    # subtract one core per worker, which on the owner's 2P+8E machine left
+    # 1.2 cores and gave the model ONE thread - while embedding was 87% of the
+    # run's wall time and the four workers were busy 6% of theirs. Measured
+    # 2026-09-19 on 90 real documents: 1 thread 1,055 s; four 4-thread runs
+    # 222-587 s (this machine varies about 2.5x run to run, so the size of the
+    # gain is a range, not a number - see the order's section 0).
+    taken = count * EXTRACT_WORKER_DUTY
     spare = max(1.0, usable - taken)
     auto = max(1, int(spare))
     logical = int(getattr(profile, "logical_processors", 0) or 0) or auto
     return Bounds(
         1, max(1, logical), auto,
-        f"about {spare:.1f} core(s) are left once {int(taken)} worker(s) are "
+        f"about {spare:.1f} core(s) are left once {count} worker(s) are "
         f"running; threads beyond that contend rather than help",
     )
 

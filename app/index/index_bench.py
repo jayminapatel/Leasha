@@ -31,6 +31,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -234,7 +235,14 @@ def _time_embedding(settings: Any, texts: list[str], devices: Optional[tuple],
             continue
 
         started = time.perf_counter()
-        embedder.embed_all(sample)
+        # **Consumed, not just called.** `embed_all` is a generator - lazy on
+        # purpose, so a caller can write each batch as it arrives - and this
+        # line used to be `embedder.embed_all(sample)` alone. That times the
+        # creation of a generator, which is microseconds, so the stored rate
+        # was 106,666,662 chunks a second and the tuning arithmetic read it as
+        # "fast enough to double the batch". `deque(maxlen=0)` drains it
+        # without holding a single vector.
+        deque(embedder.embed_all(sample), maxlen=0)
         seconds = time.perf_counter() - started
         if seconds <= 0:
             continue

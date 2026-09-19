@@ -305,6 +305,16 @@ class IndexingView(QWidget):
         except (AttributeError, TypeError, ValueError):
             pass
 
+    @property
+    def pool(self) -> QThreadPool:
+        """The pool an index run lives in, so a closing window can wait on it.
+
+        It is not the global pool - see `__init__` - which is exactly why
+        `MainWindow._drain_workers` could not see the run and let the window
+        close over one that was still going.
+        """
+        return self._pool
+
     def set_next_run(self, text: str) -> None:
         self._next_run_text = text
 

@@ -140,6 +140,11 @@ class _DownloadProgressWatcher:
 #: second one, and aligns the embedder it is given - see `Pipeline.__init__`.
 EMBED_BATCH = 256
 
+#: Passages in one model call **on a processor**, which is a different thing
+#: from `EMBED_BATCH` (how many the pipeline gathers before writing). See
+#: `Embedder._call_options` for the measurement behind 32.
+CPU_INFER_BATCH = 32
+
 #: How far a vector's magnitude may drift from 1.0 before it is renormalised.
 #: Floating point noise lands around 1e-7; anything past this is a real signal
 #: that the model is not returning unit vectors.
@@ -353,8 +358,28 @@ class Embedder:
                 self._problems.append(wanted.why)
 
             backends.record_provider("meaning model", self.choice)
-            self._encoder = lambda texts: model.embed(list(texts))
+            self._encoder = lambda texts: model.embed(
+                list(texts), **self._call_options())
             return self._encoder
+
+    def _call_options(self) -> dict:
+        """What to pass fastembed besides the texts.
+
+        **The model's own batch size, which nothing here ever set.** fastembed
+        splits whatever it is given into calls of 256 - so `EMBED_BATCH=512`
+        reached the model as 256 regardless, the same silent re-split the note
+        on `EMBED_BATCH` above describes from the other direction. On a
+        processor that is pure cost: measured 2026-09-19 at one thread, 512
+        passages took 173.8s and 4.4GB at the default and about the same speed
+        at 32 in 1.25GB. Only memory changes, and the governor pauses the
+        whole run on memory.
+
+        The graphics card is left on fastembed's default: it is the case that
+        does want a large batch, and nothing has measured it wanting less.
+        """
+        if self.choice is not None and self.choice.is_gpu:
+            return {}
+        return {"batch_size": CPU_INFER_BATCH}
 
     def _start_progress_watcher_if_downloading(self) -> Optional["_DownloadProgressWatcher"]:
         r"""Start watching the cache directory grow, if there is anyone to tell.

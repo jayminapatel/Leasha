@@ -2899,6 +2899,12 @@ class MainWindow(QMainWindow):
     #: same outcome as before - just without the wait.
     SHUTDOWN_GRACE_MS = 4_000
 
+    #: The same wait for an index run, which has more to finish: the file in
+    #: flight, the vectors already handed to the feeder, the final flush. The
+    #: window is hidden before this starts, so the wait costs nobody anything
+    #: they can see - only the single-instance lock, held until it is over.
+    INDEX_SHUTDOWN_GRACE_MS = 30_000
+
     def changeEvent(self, event: Any) -> None:          # noqa: N802
         """Hide to the tray when minimised; force a repaint when un-minimised.
 
@@ -3075,6 +3081,14 @@ class MainWindow(QMainWindow):
         _log.info("closing: took {:.1f}s{}", time.monotonic() - began,
                   f" ({slow})" if slow else "")
         super().closeEvent(event)
+        # Set by `main()` only - see `app/ui/exit_watchdog.py`. A closed window
+        # that leaves a process behind is diagnosed and then ended.
+        after_close = getattr(self, "after_close", None)
+        if after_close is not None:
+            try:
+                after_close()
+            except Exception as exc:                     # noqa: BLE001
+                _log.warning("closing: the exit watchdog did not start: {}", exc)
 
     def _drain_workers(self) -> None:
         """Wait for the thread pool, keeping the UI alive while it empties.
@@ -3087,23 +3101,35 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import QDeadlineTimer, QEventLoop
         from PyQt6.QtWidgets import QApplication
 
-        pool = QThreadPool.globalInstance()
-        deadline = QDeadlineTimer(self.SHUTDOWN_GRACE_MS)
-        while pool.activeThreadCount() and not deadline.hasExpired():
-            pool.waitForDone(50)
-            # **User input excluded.** Pumping *all* events here re-enters the
-            # loop while the window is closing, so a keystroke or a click landing
-            # in that window starts a fresh search against a store that is about
-            # to be shut - the very race `shutdown()` was just called to end.
-            # Paint and timer events are what keep the window alive while the
-            # pool empties; input is not, and there is nothing useful left to do
-            # with it.
-            QApplication.processEvents(
-                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10)
+        # **Both pools.** An index run lives in the indexing view's own pool,
+        # not the global one, so waiting on the global pool alone returned at
+        # once with a run still going: `closing: took 0.0s`, then three more
+        # minutes of LibreOffice conversions with no window, and a process
+        # that had to be killed from Task Manager. Sequential rather than
+        # combined, because the two get different grace periods.
+        index_view = getattr(self, "indexing_view", None)
+        pools = [(QThreadPool.globalInstance(), self.SHUTDOWN_GRACE_MS, "")]
+        if index_view is not None:
+            pools.append((index_view.pool, self.INDEX_SHUTDOWN_GRACE_MS,
+                          "index run "))
 
-        remaining = pool.activeThreadCount()
-        if remaining:
-            _log.warning(
-                "closing with {} background thread(s) still running; "
-                "they will be abandoned", remaining,
-            )
+        for pool, grace_ms, what in pools:
+            deadline = QDeadlineTimer(grace_ms)
+            while pool.activeThreadCount() and not deadline.hasExpired():
+                pool.waitForDone(50)
+                # **User input excluded.** Pumping *all* events here re-enters
+                # the loop while the window is closing, so a keystroke or a
+                # click landing in that window starts a fresh search against a
+                # store that is about to be shut - the very race `shutdown()`
+                # was just called to end. Paint and timer events are what keep
+                # the window alive while the pool empties; input is not, and
+                # there is nothing useful left to do with it.
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10)
+
+            remaining = pool.activeThreadCount()
+            if remaining:
+                _log.warning(
+                    "closing with {} {}background thread(s) still running; "
+                    "they will be abandoned", remaining, what,
+                )

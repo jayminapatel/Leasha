@@ -2004,6 +2004,16 @@ class Pipeline:
                 self._offer(results, _STOP)
                 work.task_done()
                 return
+            # **Checked on every item, not only when the queue is empty.** The
+            # queue is bounded and the walker keeps it full, so `Empty` above
+            # never fires while there is work - and a stopped run kept
+            # converting whatever was already queued, up to a queue-length of
+            # files, for minutes after the window had closed. `_drain` empties
+            # the queue too, but only once `_consume` returns, and `_consume`
+            # can be inside an embedding batch for as long as that takes.
+            if self._stop.is_set():
+                work.task_done()
+                return
             if not getattr(candidate, "readable", True):
                 # **Nothing is opened.** The row is its name, path, size and
                 # date - one INSERT on top of a `stat` the walk already did.

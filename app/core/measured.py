@@ -60,6 +60,41 @@ DRIFT = 0.30
 #: afternoon; three in a row is a machine that has changed.
 DRIFT_RUNS = 3
 
+#: The most chunks a second the embedding model could plausibly manage on any
+#: machine this runs on - **a ceiling on believing a measurement, not a target**.
+#:
+#: 2026-09-19: the stored rate on the owner's machine was 106,666,662 a second.
+#: `index_bench` timed a generator it never iterated, so the "measurement" was
+#: how long it takes to create one, and `embed_batch_from_rates` read anything
+#: over 20 as "fast enough to double the batch". A number that cannot be true
+#: is not a number, and it must be refused where it is *read*, because one is
+#: already sitting in a stored record.
+MAX_PLAUSIBLE_EMBED_PER_SECOND = 5_000.0
+
+
+def plausible_embed_rates(rates: Any) -> dict[str, float]:
+    """The entries of `rates` that could have come from a real measurement.
+
+    Drops anything non-numeric, non-finite, zero, negative or above
+    `MAX_PLAUSIBLE_EMBED_PER_SECOND`. Never raises: what it cannot read it
+    leaves out, and leaving a rate out only makes the caller use its
+    heuristic - which is what Defaults does.
+    """
+    kept: dict[str, float] = {}
+    if not isinstance(rates, dict):
+        return kept
+    for name, value in rates.items():
+        try:
+            rate = float(value)
+        except (TypeError, ValueError):
+            continue
+        if rate != rate or rate <= 0 or rate > MAX_PLAUSIBLE_EMBED_PER_SECOND:
+            _log.warning("ignoring an implausible {} embedding rate of {:,.0f} "
+                         "a second", name, rate if rate == rate else 0.0)
+            continue
+        kept[str(name)] = rate
+    return kept
+
 
 @dataclass
 class Measured:
@@ -127,6 +162,9 @@ class Measured:
         try:
             fields = {key: value for key, value in payload.items()
                       if key in cls.__dataclass_fields__}
+            if "embed_per_second" in fields:
+                fields["embed_per_second"] = plausible_embed_rates(
+                    fields["embed_per_second"])
             return cls(**fields)
         except Exception:                        # noqa: BLE001 - a cache
             return None
