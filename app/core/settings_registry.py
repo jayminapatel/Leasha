@@ -474,6 +474,54 @@ SETTINGS: tuple[Setting, ...] = (
              "The Describe button is greyed out, with the exact command to "
              "pull one, until this model is actually installed.",
     ),
+    # Work order 202626270611 sections 3e and 4d: the Chat tab's model ROLES
+    # and its two behaviour tunables. **One model everywhere is the default**
+    # (every empty role inherits "Local model" above) - the performance-correct
+    # choice, because Ollama keeps one model resident and reloading a second one
+    # costs more than it saves on most machines. The router and the planner only
+    # ever answer a one-word or one-line question, so a small model can take
+    # those two roles when somebody has one and wants the saving.
+    Setting(
+        key="CHAT_MODEL", label="Chat model", kind="text", default="",
+        group="Models", surface="settings.models",
+        help="The model that writes Chat's answers. Leave it empty to use the "
+             "Local model above. Any model you have pulled in Ollama; a bigger "
+             "one answers better and slower. The Fast / Thoughtful choice in the "
+             "Chat tab sets this.",
+    ),
+    Setting(
+        key="CHAT_ROUTER_MODEL", label="Chat: model that sorts questions",
+        kind="text", default="", group="Models", surface="settings.models",
+        help="Decides whether a question is a count, a search or a question "
+             "about what documents say. Only asked when the plain rules cannot "
+             "tell, and its answer is one word - a small, fast model is right. "
+             "Empty means the Chat model.",
+    ),
+    Setting(
+        key="CHAT_PLANNER_MODEL", label="Chat: model that plans searches",
+        kind="text", default="", group="Models", surface="settings.models",
+        help="Suggests other words to search for when the first search finds "
+             "too little. Its suggestions are checked before they are used, so a "
+             "small, fast model is right. Empty means the Chat model.",
+    ),
+    Setting(
+        key="CHAT_MAX_ROUNDS", label="Searches Chat may run per question",
+        kind="int", default=3, group="Models", surface="settings.models",
+        minimum=1, maximum=3, unit="searches",
+        help="When the first search finds too little, Chat may try again with "
+             "different words - at most this many searches in all. One means it "
+             "never retries; more finds harder things and takes longer.",
+    ),
+    Setting(
+        key="CHAT_VERIFY_STRICTNESS", label="How closely an answer must match its source",
+        kind="int", default=70, group="Models", surface="settings.models",
+        minimum=30, maximum=90, unit="percent",
+        help="Every sentence in an answer is checked against the passage it "
+             "points at, and dropped if it does not match closely enough. Higher "
+             "is stricter: fewer sentences survive and each one is closer to the "
+             "document's own words. Figures, dates, names and quotations are "
+             "always checked exactly, whatever this is set to.",
+    ),
     # Work order 0i section 3b. OFF by default per the item's own text - a
     # description per photo costs seconds on CPU, corpus-wide that is hours
     # of a machine's own time nobody asked to spend, so this stays a
