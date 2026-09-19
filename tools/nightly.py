@@ -8,22 +8,27 @@ same way a person would, rather than importing application internals.
 
 **On the owner's machine - the target hardware**, per the work order's own
 heading. This script runs the sequence; it does not invent the numbers a
-real pass has not yet produced. `PERF_FLOORS` below is `None` for every
-metric until one real run on the target machine fills it in - asserting an
-unmeasured number would be exactly the guess this project's "measure, do
-not assume" rule exists to stop. Until then this script *records* what it
-measures (one line per run, appended to `logs/nightly.log`), which is
-itself the first thing a floor needs.
+real pass has not yet produced. `PERF_FLOORS` below holds only numbers a real
+run produced, each with what it was measured under written beside it; a
+metric that could not be measured stays `None` rather than a guess. A floor is
+a regression tripwire, not a target - it is set well below (or above, for a
+latency) what was measured, so a busy machine does not trip it and a genuine
+several-fold regression does.
 
-Five stages, each best-effort and each recorded even when a later one
-fails, so one broken stage does not hide whether the others were fine:
+Stages, each best-effort and each recorded even when a later one fails, so
+one broken stage does not hide whether the others were fine:
 
   1. Refresh the fixture corpus (`tests/fixtures/generate.py` - the same one
      the test suite uses; a genuinely GB-scale corpus is a separate, larger
      asset this script does not generate itself, matching the honest gap
      named in the work order note - see `docs/WORKORDER-202626270547-test-
      automation.md`'s dated note).
+  1b. Warm the embedding model into a *persistent* cache (`logs/nightly-models`,
+     or `LEASHA_NIGHTLY_MODEL_CACHE`) so a first-ever 65MB download is never
+     inside a timed stage - it was, when the cache lived in the temp dir.
   2. A full index run via the CLI, timed.
+  2b. `tools/nightly_probe.py measure`: chunker rate, embed rate and a search
+     p95 over the index stage 2 just built.
   3. `leasha evaluate --builtin`, parsed for its recall number.
   4. A kill-resume spot check: start a second index run, kill it after a few
      seconds, run it again, and confirm the cursor advanced rather than
@@ -45,17 +50,58 @@ from pathlib import Path
 from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON = ROOT / "venv" / "Scripts" / "python.exe"
+
+
+def _find_python() -> Path:
+    """`LEASHA_PYTHON` first (a git worktree has no `venv/` of its own), then
+    the checkout's own venv - the normal case, and the path `main()`'s "not
+    installed yet" message is about."""
+    override = os.environ.get("LEASHA_PYTHON")
+    return Path(override) if override else ROOT / "venv" / "Scripts" / "python.exe"
+
+
+PYTHON = _find_python()
 LOG_PATH = ROOT / "logs" / "nightly.log"
 
-#: Pinned floors, one real measurement each, before any of these can gate a
-#: run. `None` means "not yet measured on the target machine" - see the
-#: module docstring. Fill each in from `logs/nightly.log`'s own history
-#: once a few real nights exist to read it from.
+#: Pinned floors - regression tripwires, not targets. `None` means "not
+#: measured on the target machine", and never breaches.
+#:
+#: **What they were measured under.** Five runs on 2026-09-19 (two full, with
+#: kill-resume; three `--quick`) on the owner's machine, Windows 11, while that
+#: machine was busy running a large index of its own - so every observed number
+#: is pessimistic, and the spread between runs is itself large (the index
+#: stage varied 2.5x between back-to-back runs). Each floor sits roughly 2.5x
+#: to 3x beyond the WORST of the five, so machine noise does not trip it and a
+#: genuine several-fold regression does. Tighten them only from a quiet night's
+#: history in `logs/nightly.log`, never from a hunch.
+#:
+#:   index_files_per_second   observed 0.62 - 1.55, worst 0.62. The fixture
+#:       corpus is ~35 files (~19 readable), so this is dominated by process
+#:       start and model load, not throughput: it guards "the index run did not
+#:       become several times slower", nothing finer. Wall clock of the whole
+#:       `app.cli index` call divided by every file under the fixture root.
+#:   chunker_chunks_per_second   observed 757 - 1188, worst 757. `chunk_text`
+#:       over 120 synthetic 400-word documents, single thread, model-free.
+#:   embed_chunks_per_second   observed 6.9 - 11.4, worst 6.9. bge-small int8
+#:       on CPU, 48 chunks of that synthetic text after an untimed warm-up
+#:       batch, while another process was also using the CPU.
+#:   search_p95_ms   observed 190 - 316 across the five, worst 316 (a sixth
+#:       run, after pinning, gave 396 - still 2.5x inside the floor). 96 searches (8 queries x 12)
+#:       over the ~34-chunk fixture index, reranker OFF, result cache off,
+#:       models pre-warmed. It is a tiny index, so this guards the pipeline's
+#:       fixed cost, not scaling; a p95 over the owner's real index is a
+#:       different (larger) number nobody has measured here yet.
+#:   recall_at_10   observed 0.7 in all five (it is deterministic, so no noise
+#:       margin was needed); floored at 0.6 - one built-in question's worth.
+#:
+#: NOT pinned: a "ladder" floor (the order also names one) - nothing in this
+#: script measures it, and a number nobody measured is not a floor.
 PERF_FLOORS: dict[str, Optional[float]] = {
-    "index_files_per_second": None,
-    "search_p95_ms": None,
-    "recall_at_10": None,
+    "index_files_per_second": 0.2,
+    "chunker_chunks_per_second": 300.0,
+    "embed_chunks_per_second": 2.5,
+    "search_p95_ms": 1000.0,
+    "recall_at_10": 0.6,
 }
 
 ENV_TEMPLATE = """\
@@ -63,7 +109,7 @@ DATA_PATH={d}
 VECTOR_PATH={d}/vectors
 FTS_DB={d}/fts/knowledge.db
 CACHE_PATH={d}/cache
-MODEL_CACHE={d}/models
+MODEL_CACHE={m}
 STATE_PATH={d}/state
 PROJECT_PATH={d}
 LOG_PATH={d}/logs
@@ -79,6 +125,15 @@ OLLAMA_MODEL=mistral
 MIN_FREE_GB=1
 REQUIRED_FREE_GB=1
 """
+
+
+def _model_cache() -> Path:
+    """One model cache shared by every night, so the model is downloaded once
+    ever and never inside a timed stage."""
+    override = os.environ.get("LEASHA_NIGHTLY_MODEL_CACHE")
+    path = Path(override) if override else ROOT / "logs" / "nightly-models"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _run_cli(args: list, *, env_file: Path, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -113,6 +168,36 @@ def stage_index_run(env_file: Path, fixture_root: Path) -> dict:
         "ok": result.returncode == 0, "seconds": elapsed, "returncode": result.returncode,
         "stderr_tail": result.stderr[-2000:] if result.returncode != 0 else "",
     }
+
+
+def stage_warm(env_file: Path) -> dict:
+    """Stage 1b. Load the embedding model once, untimed by any later stage."""
+    started = time.monotonic()
+    result = subprocess.run(
+        [str(PYTHON), str(ROOT / "tools" / "nightly_probe.py"), "warm", "--env", str(env_file)],
+        cwd=str(ROOT), capture_output=True, text=True, timeout=1800, check=False)
+    return {"ok": result.returncode == 0, "seconds": time.monotonic() - started,
+            "stderr_tail": result.stderr[-1000:] if result.returncode != 0 else ""}
+
+
+def stage_probe(env_file: Path, fixture_root: Path) -> dict:
+    """Stage 2b. Chunker rate, embed rate and search p95 - see
+    `tools/nightly_probe.py`. A metric it could not measure comes back `null`
+    with a note; it is recorded as such, never filled in."""
+    started = time.monotonic()
+    result = subprocess.run(
+        [str(PYTHON), str(ROOT / "tools" / "nightly_probe.py"), "measure",
+         "--env", str(env_file), "--fixture", str(fixture_root)],
+        cwd=str(ROOT), capture_output=True, text=True, timeout=1800, check=False)
+    elapsed = time.monotonic() - started
+    if result.returncode != 0:
+        return {"ok": False, "seconds": elapsed, "stderr_tail": result.stderr[-1000:]}
+    try:
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        return {"ok": False, "seconds": elapsed, "error": "probe output did not parse"}
+    payload.update(ok=True, seconds=elapsed)
+    return payload
 
 
 def stage_evaluate(env_file: Path) -> dict:
@@ -185,7 +270,9 @@ def run(*, quick: bool = False) -> dict:
     with tempfile.TemporaryDirectory(prefix="leasha-nightly-") as tmp:
         root = Path(tmp)
         env_file = root / ".env"
-        env_file.write_text(ENV_TEMPLATE.format(d=root.as_posix()), encoding="utf-8")
+        env_file.write_text(
+            ENV_TEMPLATE.format(d=root.as_posix(), m=_model_cache().as_posix()),
+            encoding="utf-8")
 
         report: dict[str, Any] = {"started_at": datetime.now(timezone.utc).isoformat()}
         fixture = stage_refresh_fixture()
@@ -194,7 +281,9 @@ def run(*, quick: bool = False) -> dict:
             return _finish(report, ok=False)
 
         fixture_root = Path(fixture["path"])
+        report["warm"] = stage_warm(env_file)
         report["index"] = stage_index_run(env_file, fixture_root)
+        report["probe"] = stage_probe(env_file, fixture_root)
         report["evaluate"] = stage_evaluate(env_file)
         if not quick:
             report["kill_resume"] = stage_kill_resume(env_file, fixture_root)
@@ -211,10 +300,18 @@ def run(*, quick: bool = False) -> dict:
         msg = _check_floor("recall_at_10", recall, higher_is_better=True)
         if msg:
             breaches.append(msg)
+        probe = report.get("probe", {})
+        for name, higher in (("chunker_chunks_per_second", True),
+                             ("embed_chunks_per_second", True),
+                             ("search_p95_ms", False)):
+            msg = _check_floor(name, probe.get(name), higher_is_better=higher)
+            if msg:
+                breaches.append(msg)
         report["breaches"] = breaches
 
         ok = (
             report["fixture"]["ok"] and report["index"]["ok"] and report["evaluate"]["ok"]
+            and report["probe"]["ok"]
             and (quick or report.get("kill_resume", {}).get("ok", False))
             and not breaches
         )
@@ -233,10 +330,19 @@ def _append_log_line(report: dict) -> None:
     status = "PASS" if report["ok"] else "FAIL"
     recall = report.get("evaluate", {}).get("recall")
     index_s = report.get("index", {}).get("seconds")
+    probe = report.get("probe", {})
+    fps = report.get("index", {}).get("files_per_second")
+    # The first three fields are what `doctor.check_nightly_status` and its
+    # tests already read; the measurements ride after them.
     line = (
         f"{report['finished_at']} {status} "
         f"index={index_s if index_s is None else round(index_s, 1)}s "
-        f"recall={recall} breaches={len(report.get('breaches', []))}\n"
+        f"recall={recall} breaches={len(report.get('breaches', []))} "
+        f"files_per_s={fps if fps is None else round(fps, 2)} "
+        f"chunker_per_s={probe.get('chunker_chunks_per_second')} "
+        f"embed_per_s={probe.get('embed_chunks_per_second')} "
+        f"search_p95_ms={probe.get('search_p95_ms')} "
+        f"search_p50_ms={probe.get('search_p50_ms')}\n"
     )
     with LOG_PATH.open("a", encoding="utf-8") as fh:
         fh.write(line)
