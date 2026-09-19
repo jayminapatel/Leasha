@@ -273,6 +273,19 @@ class Settings(BaseModel):
     #: face-backfill drain, and every test asserting "switch off means no
     #: face code runs, no face rows exist" (the order's own test list).
     people_recognition_enabled: bool = False
+    # --- work order 202626270515: video and audio -------------------------
+    #
+    # Both OFF by default - see settings_registry.py for the reasoning. Read
+    # once per run by `app.extract.media.MediaConfig.from_settings`, which is
+    # also where the range of each number is enforced.
+    video_indexing_enabled: bool = False
+    audio_transcription_enabled: bool = False
+    #: `tiny | base | small | medium`. Anything else falls back to `base`.
+    transcribe_model: str = "base"
+    #: The longest gap, in seconds, between pictures taken from one video.
+    video_keyframe_interval_s: int = 60
+    #: The most pictures taken from one video.
+    video_keyframe_cap: int = 200
 
     # --- indexing: how hard this is allowed to work ------------------------
     #
@@ -426,6 +439,11 @@ SETTING_KEYS: tuple[str, ...] = (
     "OLLAMA_VISION_MODEL",
     "CAPTION_TRICKLE_ENABLED",
     "PEOPLE_RECOGNITION_ENABLED",
+    "VIDEO_INDEXING_ENABLED",
+    "AUDIO_TRANSCRIPTION_ENABLED",
+    "TRANSCRIBE_MODEL",
+    "VIDEO_KEYFRAME_INTERVAL_S",
+    "VIDEO_KEYFRAME_CAP",
     "INDEX_TUNING_MODE",
     "INDEX_WORKERS",
     "ONNX_INTRA_OP_THREADS",
@@ -575,6 +593,19 @@ def load_settings(
             people_recognition_enabled=_as_bool(
                 "PEOPLE_RECOGNITION_ENABLED",
                 values.get("PEOPLE_RECOGNITION_ENABLED", "false")),
+            video_indexing_enabled=_as_bool(
+                "VIDEO_INDEXING_ENABLED",
+                values.get("VIDEO_INDEXING_ENABLED", "false")),
+            audio_transcription_enabled=_as_bool(
+                "AUDIO_TRANSCRIPTION_ENABLED",
+                values.get("AUDIO_TRANSCRIPTION_ENABLED", "false")),
+            transcribe_model=(
+                values.get("TRANSCRIBE_MODEL") or "base").strip().lower(),
+            video_keyframe_interval_s=_as_int(
+                "VIDEO_KEYFRAME_INTERVAL_S",
+                values.get("VIDEO_KEYFRAME_INTERVAL_S", "60")),
+            video_keyframe_cap=_as_int(
+                "VIDEO_KEYFRAME_CAP", values.get("VIDEO_KEYFRAME_CAP", "200")),
             index_tuning_mode=(
                 values.get("INDEX_TUNING_MODE") or "defaults").strip().lower(),
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),

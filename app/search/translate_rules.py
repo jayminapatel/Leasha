@@ -89,6 +89,15 @@ KIND_WORDS: dict = {
     "pictures": ("jpg", "jpeg", "png", "heic"),
     "image": ("jpg", "jpeg", "png", "heic", "gif", "webp"),
     "images": ("jpg", "jpeg", "png", "heic", "gif", "webp"),
+    # Work order 202626270515. Resolved against the index like every word here:
+    # only the extensions the corpus actually holds become a filter.
+    "video": ("mp4", "mov", "mkv", "avi", "m4v", "wmv", "webm"),
+    "videos": ("mp4", "mov", "mkv", "avi", "m4v", "wmv", "webm"),
+    "film": ("mp4", "mov", "mkv", "avi", "m4v", "wmv", "webm"),
+    "films": ("mp4", "mov", "mkv", "avi", "m4v", "wmv", "webm"),
+    "recording": ("mp3", "m4a", "wav", "flac", "ogg", "opus"),
+    "recordings": ("mp3", "m4a", "wav", "flac", "ogg", "opus"),
+    "audio": ("mp3", "m4a", "wav", "flac", "ogg", "opus"),
     "drawing": ("dwg", "dxf", "pdf"),
     "drawings": ("dwg", "dxf", "pdf"),
     "invoice": ("pdf", "docx", "xlsx"),

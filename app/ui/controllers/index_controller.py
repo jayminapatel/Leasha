@@ -616,6 +616,7 @@ class IndexController(QObject):
         """
         from app.index.clip_embedder import ClipImageEmbedder
         from app.index.embedder import Embedder
+        from app.extract.media import MediaConfig
         from app.index.pipeline import Pipeline, PipelineConfig
         from app.index.walker import WalkConfig
 
@@ -692,6 +693,9 @@ class IndexController(QObject):
                     getattr(self._w._settings, "ollama_vision_model", "llava")),
                 people_recognition_enabled=bool(getattr(
                     self._w._settings, "people_recognition_enabled", False)),
+                # Work order 202626270515: video and audio, off unless the
+                # two switches in Settings say otherwise.
+                media=MediaConfig.from_settings(self._w._settings),
                 # Work order 202626130120 (0t) section 6: resolved above, off
                 # this thread, by the same resolve_for_run call that decided
                 # tuned.workers - see its own docstring for why the notice

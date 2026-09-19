@@ -56,6 +56,9 @@ DECLARING = {
     "window_box.py", "model_box.py", "file_types.py", "settings_view.py",
     "environment_box.py", "roots_box.py", "code_types_box.py",
     "search_behaviour_box.py",
+    # Work order 202626270515: the video and audio panel loads its five values
+    # into controls and emits them back - the display side, like the rest.
+    "media_box.py",
 }
 
 #: Names that reach a setting **as a literal string** rather than by attribute

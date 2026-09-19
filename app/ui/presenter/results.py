@@ -116,6 +116,12 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
     # nobody's spreadsheet calls a page and gives no way to find the row.
     location = cell_location(getattr(result, "label", ""))
     if not location:
+        # Work order 202626270515: a transcript or on-screen-text hit in a video
+        # or recording says *when* - `at 12:41` - from the same `label` column.
+        from app.extract.timecode import describe_timecode
+
+        location = describe_timecode(getattr(result, "label", ""))
+    if not location:
         location = f"page {page}" if page is not None else ""
 
     return ResultRow(
@@ -436,6 +442,12 @@ KIND_LABELS = {
     "xlsx": "XLS", "xls": "XLS", "ods": "XLS", "csv": "CSV",
     "pptx": "PPT", "ppt": "PPT", "odp": "PPT",
     "txt": "TXT", "md": "TXT", "log": "TXT",
+    # Work order 202626270515: what a hit in a video or recording is.
+    **{ext: "VID" for ext in (
+        "mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg",
+        "3gp", "flv", "m2ts")},
+    **{ext: "AUD" for ext in (
+        "mp3", "m4a", "wav", "flac", "ogg", "oga", "opus", "aac", "wma")},
 }
 
 

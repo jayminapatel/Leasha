@@ -20,6 +20,7 @@ from app.extract import diagrams as diagrams  # noqa: F401,E402
 from app.extract import ebook as ebook  # noqa: F401,E402
 from app.extract import email_files as email_files  # noqa: F401,E402
 from app.extract import email_mbox as email_mbox  # noqa: F401,E402
+from app.extract import media as media  # noqa: F401,E402
 from app.extract import ocr as ocr  # noqa: F401,E402
 from app.extract import odf as odf  # noqa: F401,E402
 from app.extract import office as office  # noqa: F401,E402

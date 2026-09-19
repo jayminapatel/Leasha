@@ -559,6 +559,12 @@ class PipelineConfig:
     #: (the enrichment-backlog kind for already-indexed photos, section
     #: 1a's own "backfill... runs as an enrichment-backlog job kind").
     people_recognition_enabled: bool = False
+    #: Work order 202626270515 (video and audio): a `media.MediaConfig`, or None
+    #: for "both layers off" - which is what every caller that has never heard
+    #: of video means. Typed `Any` so this module need not import the extractor
+    #: at load time. Handed to `media.configure` at the top of `run()`, because
+    #: the walk decides which extensions exist from it.
+    media: Optional[Any] = None
     #: Work order 202626130120 (0t) section 6: "" unless `resolve_for_run`
     #: found that this machine had a working DirectML provider last time and
     #: genuinely does not have one now. Carried through unchanged rather than
@@ -868,6 +874,21 @@ class Pipeline:
         #: those enqueues its own matching marker. Set in `run()`.
         self._expected_stops = 0
 
+    def _media_pace(self) -> bool:
+        r"""The resource governor's pause, for a long recording. True = stop.
+
+        Called by `app.extract.media` between pictures and between spoken
+        passages - the only places inside one file where a two-hour job can
+        stop and resume - so a video is paced by the same battery, CPU and
+        memory ceilings as everything else instead of holding a worker for an
+        hour regardless. Never raises: pacing is a courtesy, not a gate.
+        """
+        try:
+            verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        except Exception:                        # noqa: BLE001
+            return self._stop.is_set()
+        return self._stop.is_set() or getattr(verdict, "action", "") == "stop"
+
     def _on_throttle(self, found: Verdict) -> None:
         """Remember the last throttle so progress can say why it went quiet.
 
@@ -924,6 +945,15 @@ class Pipeline:
         self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
+        # Work order 202626270515. **Before anything walks**: the walker asks
+        # `media.disabled_extensions()` which extensions exist, and
+        # `_narrow_to_images` below adds the enabled ones to the images pass.
+        # Always called, even with no media settings, so one run's switches
+        # can never leak into the next.
+        from app.extract import media as _media
+        _media.configure(
+            self.config.media,
+            pacer=self._media_pace, should_stop=self._stop.is_set)
         self._suspended_fts_triggers = []
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
@@ -1470,7 +1500,14 @@ class Pipeline:
     #: Settling it here would leave a hydrated file claiming its content is
     #: still online-only, forever - the exact bug this constant was built to
     #: catch, reappearing for a skip code nobody had yet.
-    DEFERRED_SKIP_CODES = frozenset({"ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY"})
+    #:
+    #: `ERR_MEDIA_HELD` is the video and audio twin of `ERR_OCR_HELD` (held for
+    #: the images pass), and `ERR_MEDIA_INTERRUPTED` is a recording whose
+    #: transcription was stopped part-way: neither has settled anything.
+    DEFERRED_SKIP_CODES = frozenset({
+        "ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY",
+        "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED",
+    })
 
     def _is_deferred(self, skip_code: Optional[str]) -> bool:
         """Is this skip a queue entry that the current pass should honour?
@@ -1508,6 +1545,15 @@ class Pipeline:
         if self.config.ocr_mode == "text" and is_image:
             return make_error(
                 "ERR_OCR_HELD", "index.pipeline", path=str(candidate.path))
+        # Work order 202626270515. **A video is the most expensive thing in the
+        # corpus, so a text-only pass holds it exactly as it holds a picture**:
+        # search is useful in hours rather than days, and the film waits for
+        # the images pass. Only reached for extensions whose switch is on - the
+        # walker does not offer the rest.
+        if (self.config.ocr_mode == "text"
+                and candidate.path.suffix.lower() in _media_extensions()):
+            return make_error(
+                "ERR_MEDIA_HELD", "index.pipeline", path=str(candidate.path))
         # In `images` mode the walk is already narrowed to the image types, so
         # this is a belt-and-braces guard rather than the mechanism - see
         # `_narrow_to_images`. Nothing is written for a non-image, because
@@ -1532,9 +1578,13 @@ class Pipeline:
         """
         if self.config.ocr_mode != "images":
             return
+        from app.extract import media as _media
         from app.extract.ocr import OcrExtractor
 
-        wanted = frozenset(OcrExtractor.extensions)
+        # Pictures, and the video and audio whose switch is on: a text pass
+        # holds those back (`ERR_MEDIA_HELD`), so this is where they are read.
+        wanted = (frozenset(OcrExtractor.extensions)
+                  | (_media.media_extensions() - _media.disabled_extensions()))
         current = self.config.walk.extensions
         # An explicit set from the caller is narrowed, never widened: a run
         # restricted to `.png` must not become a run over every image type.
@@ -3277,6 +3327,16 @@ class Pipeline:
         # Work order 0i section 4b: computed once, used by the upsert below.
         taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
         place = self._photo_place(candidate)
+        # Work order 202626270515: a video's *recorded* date and place come from
+        # its container (ffprobe), carried on the document's meta so the
+        # subprocess is not run a second time. The same rule as a photograph's
+        # EXIF date - it survives copies where the file's own date does not -
+        # and the same precedence: only used when nothing above found one.
+        if item.meta:
+            if taken_at_ns is None and item.meta.get("media_created_ns"):
+                taken_at_ns, taken_at_is_hint = int(item.meta["media_created_ns"]), False
+            if place is None and item.meta.get("media_place"):
+                place = str(item.meta["media_place"])
         # **One transaction for the three writes, not three.**
         #
         # `upsert_file`, `replace_chunks` and `set_message` each committed
@@ -3378,6 +3438,9 @@ class Pipeline:
         # pHash are three unrelated capabilities and a failure in one must
         # never cost either of the others.
         self._maybe_detect_faces(candidate, file_id)
+        # Work order 202626270515. Last, and it always releases the video's
+        # temporary pictures - see `_maybe_embed_video`.
+        self._maybe_embed_video(candidate, file_id, item.meta)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
@@ -3524,6 +3587,68 @@ class Pipeline:
 
         self._pending_images.append(
             (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+
+    def _maybe_embed_video(
+        self, candidate: Candidate, file_id: int, meta: Optional[dict[str, Any]],
+    ) -> None:
+        r"""One CLIP vector for a video, from its keyframes. Work order 202626270515.
+
+        **The existing image lane, unchanged, fed pictures a video produced.**
+        `app.extract.media` took the scene-change frames and left them in a
+        temporary folder named in `meta`; this embeds them with the same
+        `image_embedder` a photograph uses and queues the result on the same
+        `_pending_images` list, so `_flush_pending_images` writes it at the same
+        M6-ordered checkpoints and nothing about the lane's storage changes.
+
+        **One vector per video, the mean of its frames.** The image table's whole
+        key is `file_id` (`ImageVectorStore.add_images`), so per-frame rows would
+        need a new keyed table; a normalised mean answers "which video looks
+        like this" and cannot answer "which minute", which is what the text
+        anchors are for. Recorded as a known limit in the work order's note.
+
+        **Always releases the folder**, success or failure, in a `finally` - a
+        film's pictures are the biggest temporary thing this pipeline makes.
+        Faces are deliberately not detected in frames: a face row stores a crop
+        box into a *file*, and there is no picture file to crop from once the
+        temporary folder is gone.
+
+        H4: a missing model, a broken frame, an embedder that raises - logged,
+        counted, and the video stays fully indexed by its container, its screen
+        text and its speech.
+        """
+        if not meta or not meta.get("keyframes"):
+            return
+        from app.extract import media as _media
+
+        try:
+            if self.image_embedder is None or self.image_vectors is None:
+                return
+            paths = [str(p) for _seconds, p in meta["keyframes"] if Path(p).is_file()]
+            if not paths:
+                return
+            with self._clock.stage("clip"):
+                vectors = self.image_embedder.embed(paths)
+            if not len(vectors):
+                return
+            width = len(vectors[0])
+            total = [0.0] * width
+            for vector in vectors:
+                for i in range(width):
+                    total[i] += float(vector[i])
+            norm = sum(v * v for v in total) ** 0.5 or 1.0
+            mean = [v / norm for v in total]
+            self._pending_images.append(
+                (file_id, mean, indexed_ext(candidate.path) or "", int(candidate.mtime_ns)))
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
+            self._log.warning(
+                "no CLIP vector for the video {}: {}. It stays searchable by "
+                "its details, the words on screen and what was said - only "
+                "look-alike search misses it.", candidate.path, exc)
+            code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
+            self._stats_ref.warned_by_code[code] = (
+                self._stats_ref.warned_by_code.get(code, 0) + 1)
+        finally:
+            _media.release_keyframes(meta)
 
     def _photo_place(self, candidate: Candidate) -> Optional[str]:
         r"""A photograph's place, from its EXIF GPS, offline. Or None.
@@ -4226,6 +4351,14 @@ class Pipeline:
                 for file_id in batch:
                     self.store.delete_file(file_id)
         return len(doomed)
+
+
+def _media_extensions() -> frozenset[str]:
+    """Every video and audio extension, imported late so this module does not
+    depend on the extractor at load time. See `Pipeline._ocr_gate`."""
+    from app.extract.media import media_extensions
+
+    return media_extensions()
 
 
 def _text_digest(chunks: list[dict[str, Any]]) -> str:
