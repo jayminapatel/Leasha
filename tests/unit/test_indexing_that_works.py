@@ -16,6 +16,7 @@ Every test below fails on the code as it was.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -100,6 +101,11 @@ def test_the_index_bench_consumes_the_embedding_it_times(monkeypatch):
         def embed_all(self, texts):
             for text in texts:                 # a generator, like the real one
                 consumed.append(text)
+                # Half a millisecond each, as a model would take. Instant,
+                # forty passages finish in ~8 microseconds - five million a
+                # second, which a fast machine reads as the 'never iterated'
+                # signature this test's ceiling exists to catch.
+                time.sleep(0.0005)
                 yield text
 
     monkeypatch.setattr(embedder_module.Embedder, "from_settings",

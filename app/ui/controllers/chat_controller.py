@@ -141,7 +141,12 @@ class ChatController(QObject):
     def _tab_changed(self, index: int) -> None:
         if self.view is None or index != self._w._tab_index.get(self.view):
             return
-        self.view.focus()
+        # Not while somebody is arrowing down the rail: the composer taking the
+        # focus after the first Down left Reports, Indexing and Settings
+        # unreachable by the arrow keys. `shell._tab_changed` has the same guard
+        # for the pages it focuses (found by test_ui_redesign_scenarios.py).
+        if not self._w.rail.column.hasFocus():
+            self.view.focus()
         if not self._opened:
             self._opened = True
             self._load_sessions()

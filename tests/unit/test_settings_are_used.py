@@ -73,6 +73,15 @@ def _literal_strings(tree: Any) -> set:
     return {node.value for node in ast.walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)}
 
+#: Files that share a **basename** with a declaring file but are readers.
+#:
+#: `DECLARING` matches on file name, so `app/chat/config.py` - which builds the
+#: chat engine's runtime configuration from `Settings` and is exactly where
+#: `chat_max_rounds` and `chat_verify_strictness` are obeyed - was skipped for
+#: having the same name as `app/core/config.py`, the file that only loads them.
+#: Matched here by full path so the one is excluded and the other is not.
+READERS = {"app/chat/config.py"}
+
 #: Settings whose control exists before the behaviour behind it does.
 #:
 #: **Each line says what is missing and when it was added.** A control that
@@ -95,7 +104,7 @@ def _mentions() -> dict[str, set[str]]:
     """
     found: dict[str, set[str]] = {}
     for path in APP.rglob("*.py"):
-        if path.name in DECLARING:
+        if path.name in DECLARING and path.relative_to(ROOT).as_posix() not in READERS:
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))

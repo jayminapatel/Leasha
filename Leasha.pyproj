@@ -45,6 +45,7 @@
     <Folder Include="_Knowledge" />
     <Folder Include="_Knowledge\prompt_log" />
     <Folder Include="app" />
+    <Folder Include="app\chat" />
     <Folder Include="app\cli" />
     <Folder Include="app\core" />
     <Folder Include="app\extract" />
@@ -77,16 +78,37 @@
     <Folder Include="tests\golden\ui-redesign\dark-1024x600\dark" />
     <Folder Include="tests\golden\ui-redesign\dark-1100x760" />
     <Folder Include="tests\golden\ui-redesign\dark-1100x760\dark" />
+    <Folder Include="tests\golden\ui-redesign\dark-1920x1080" />
+    <Folder Include="tests\golden\ui-redesign\dark-1920x1080\dark" />
     <Folder Include="tests\golden\ui-redesign\light-1024x600" />
     <Folder Include="tests\golden\ui-redesign\light-1024x600\light" />
     <Folder Include="tests\golden\ui-redesign\light-1100x760" />
     <Folder Include="tests\golden\ui-redesign\light-1100x760\light" />
+    <Folder Include="tests\golden\ui-redesign\light-1920x1080" />
+    <Folder Include="tests\golden\ui-redesign\light-1920x1080\light" />
     <Folder Include="tests\integration" />
     <Folder Include="tests\unit" />
     <Folder Include="tools" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="app\__init__.py" />
+    <Compile Include="app\chat\__init__.py" />
+    <Compile Include="app\chat\absence.py" />
+    <Compile Include="app\chat\aggregate.py" />
+    <Compile Include="app\chat\config.py" />
+    <Compile Include="app\chat\context.py" />
+    <Compile Include="app\chat\engine.py" />
+    <Compile Include="app\chat\evaluate.py" />
+    <Compile Include="app\chat\llm.py" />
+    <Compile Include="app\chat\plan.py" />
+    <Compile Include="app\chat\prompts.py" />
+    <Compile Include="app\chat\roles.py" />
+    <Compile Include="app\chat\router.py" />
+    <Compile Include="app\chat\sessions.py" />
+    <Compile Include="app\chat\testing.py" />
+    <Compile Include="app\chat\text.py" />
+    <Compile Include="app\chat\types.py" />
+    <Compile Include="app\chat\verify.py" />
     <Compile Include="app\cli\__init__.py" />
     <Compile Include="app\cli\__main__.py" />
     <Compile Include="app\cli\_common.py" />
@@ -98,6 +120,7 @@
     <Compile Include="app\cli\formats.py" />
     <Compile Include="app\cli\index.py" />
     <Compile Include="app\cli\maintenance.py" />
+    <Compile Include="app\cli\media.py" />
     <Compile Include="app\cli\offline_media.py" />
     <Compile Include="app\cli\ollama.py" />
     <Compile Include="app\cli\report.py" />
@@ -146,6 +169,8 @@
     <Compile Include="app\extract\exif.py" />
     <Compile Include="app\extract\face_detect.py" />
     <Compile Include="app\extract\florence_tagger.py" />
+    <Compile Include="app\extract\media.py" />
+    <Compile Include="app\extract\media_tools.py" />
     <Compile Include="app\extract\ocr.py" />
     <Compile Include="app\extract\ocr_ladder.py" />
     <Compile Include="app\extract\odf.py" />
@@ -158,6 +183,8 @@
     <Compile Include="app\extract\raw.py" />
     <Compile Include="app\extract\rtf.py" />
     <Compile Include="app\extract\source_types.py" />
+    <Compile Include="app\extract\timecode.py" />
+    <Compile Include="app\extract\transcribe.py" />
     <Compile Include="app\extract\vision_caption.py" />
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
@@ -227,9 +254,12 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\chat_sessions.py" />
+    <Compile Include="app\ui\chat_view.py" />
     <Compile Include="app\ui\chips_logic.py" />
     <Compile Include="app\ui\code_view.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
+    <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
     <Compile Include="app\ui\controllers\settings_controller.py" />
     <Compile Include="app\ui\debug_recorder.py" />
@@ -249,6 +279,7 @@
     <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\explain.py" />
@@ -261,6 +292,7 @@
     <Compile Include="app\ui\presenter\search.py" />
     <Compile Include="app\ui\presenter\settings.py" />
     <Compile Include="app\ui\presenter\snippets.py" />
+    <Compile Include="app\ui\presenter\space_rows.py" />
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
@@ -288,6 +320,13 @@
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
+    <Compile Include="app\ui\widgets\chat_answer_run.py" />
+    <Compile Include="app\ui\widgets\chat_box.py" />
+    <Compile Include="app\ui\widgets\chat_bubbles.py" />
+    <Compile Include="app\ui\widgets\chat_message_box.py" />
+    <Compile Include="app\ui\widgets\chat_session_list.py" />
+    <Compile Include="app\ui\widgets\chat_shelf.py" />
+    <Compile Include="app\ui\widgets\chat_sources.py" />
     <Compile Include="app\ui\widgets\chips.py" />
     <Compile Include="app\ui\widgets\code_commands.py" />
     <Compile Include="app\ui\widgets\code_results.py" />
@@ -315,6 +354,7 @@
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
+    <Compile Include="app\ui\widgets\media_box.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
@@ -326,11 +366,14 @@
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\rail.py" />
+    <Compile Include="app\ui\widgets\repo_health_note.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
+    <Compile Include="app\ui\widgets\restart_note.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
     <Compile Include="app\ui\widgets\result_tools.py" />
     <Compile Include="app\ui\widgets\roots_box.py" />
+    <Compile Include="app\ui\widgets\saved_dialogs.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
     <Compile Include="app\ui\widgets\search_bar.py" />
     <Compile Include="app\ui\widgets\search_behaviour_box.py" />
@@ -341,6 +384,7 @@
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
     <Compile Include="app\ui\widgets\sortable_item.py" />
+    <Compile Include="app\ui\widgets\space_table.py" />
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\table_filter.py" />
@@ -359,8 +403,10 @@
     <Compile Include="suggest.py" />
     <Compile Include="tests\__init__.py" />
     <Compile Include="tests\conftest.py" />
+    <Compile Include="tests\fixtures\chat_eval.py" />
     <Compile Include="tests\fixtures\evaluation.py" />
     <Compile Include="tests\fixtures\generate.py" />
+    <Compile Include="tests\fixtures\space_scale.py" />
     <Compile Include="tests\integration\__init__.py" />
     <Compile Include="tests\integration\test_layer0_acceptance.py" />
     <Compile Include="tests\integration\test_layer1_acceptance.py" />
@@ -370,6 +416,8 @@
     <Compile Include="tests\integration\test_repos_acceptance.py" />
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
     <Compile Include="tests\unit\__init__.py" />
+    <Compile Include="tests\unit\chat_env.py" />
+    <Compile Include="tests\unit\chat_fakes.py" />
     <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
@@ -382,6 +430,18 @@
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
     <Compile Include="tests\unit\test_cell_locators.py" />
+    <Compile Include="tests\unit\test_chat_absence.py" />
+    <Compile Include="tests\unit\test_chat_aggregate.py" />
+    <Compile Include="tests\unit\test_chat_engine.py" />
+    <Compile Include="tests\unit\test_chat_evaluate.py" />
+    <Compile Include="tests\unit\test_chat_layering.py" />
+    <Compile Include="tests\unit\test_chat_llm_roles.py" />
+    <Compile Include="tests\unit\test_chat_router.py" />
+    <Compile Include="tests\unit\test_chat_sessions.py" />
+    <Compile Include="tests\unit\test_chat_tab.py" />
+    <Compile Include="tests\unit\test_chat_tab_qt.py" />
+    <Compile Include="tests\unit\test_chat_text.py" />
+    <Compile Include="tests\unit\test_chat_verify.py" />
     <Compile Include="tests\unit\test_chunker.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
     <Compile Include="tests\unit\test_cli_index.py" />
@@ -447,6 +507,7 @@
     <Compile Include="tests\unit\test_file_types_editor.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
+    <Compile Include="tests\unit\test_filter_offers.py" />
     <Compile Include="tests\unit\test_filters_properties.py" />
     <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_first_contact_box.py" />
@@ -468,6 +529,7 @@
     <Compile Include="tests\unit\test_grab_ui.py" />
     <Compile Include="tests\unit\test_grammars.py" />
     <Compile Include="tests\unit\test_gui_scenarios.py" />
+    <Compile Include="tests\unit\test_gui_scenarios_journeys.py" />
     <Compile Include="tests\unit\test_gui_scenarios_results.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
@@ -495,6 +557,7 @@
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
+    <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_name_only.py" />
@@ -601,6 +664,8 @@
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_space_report_caching_and_progress.py" />
+    <Compile Include="tests\unit\test_space_report_scale.py" />
+    <Compile Include="tests\unit\test_space_report_table.py" />
     <Compile Include="tests\unit\test_speed_work.py" />
     <Compile Include="tests\unit\test_spelling.py" />
     <Compile Include="tests\unit\test_splash.py" />
@@ -629,6 +694,7 @@
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
     <Compile Include="tests\unit\test_ui_redesign.py" />
     <Compile Include="tests\unit\test_ui_redesign_qt.py" />
+    <Compile Include="tests\unit\test_ui_redesign_scenarios.py" />
     <Compile Include="tests\unit\test_ui_responsiveness.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
@@ -651,6 +717,7 @@
     <Compile Include="tools\__init__.py" />
     <Compile Include="tools\grab_ui.py" />
     <Compile Include="tools\nightly.py" />
+    <Compile Include="tools\nightly_probe.py" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env.example" />
@@ -695,6 +762,7 @@
     <Content Include="assets\icons\layout-grid.svg" />
     <Content Include="assets\icons\list.svg" />
     <Content Include="assets\icons\mail.svg" />
+    <Content Include="assets\icons\message-square.svg" />
     <Content Include="assets\icons\move.svg" />
     <Content Include="assets\icons\palette.svg" />
     <Content Include="assets\icons\panel-right.svg" />
@@ -797,10 +865,14 @@
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-results.png" />
     <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-home.png" />
     <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-results.png" />
+    <Content Include="tests\golden\ui-redesign\dark-1920x1080\dark\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\dark-1920x1080\dark\search-results.png" />
     <Content Include="tests\golden\ui-redesign\light-1024x600\light\search-home.png" />
     <Content Include="tests\golden\ui-redesign\light-1024x600\light\search-results.png" />
     <Content Include="tests\golden\ui-redesign\light-1100x760\light\search-home.png" />
     <Content Include="tests\golden\ui-redesign\light-1100x760\light\search-results.png" />
+    <Content Include="tests\golden\ui-redesign\light-1920x1080\light\search-home.png" />
+    <Content Include="tests\golden\ui-redesign\light-1920x1080\light\search-results.png" />
   </ItemGroup>
   <ItemGroup>
     <Interpreter Include="venv\">
