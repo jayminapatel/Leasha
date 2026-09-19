@@ -234,6 +234,8 @@ from app.ui.presenter.search import (
     interpret_hint,
     NOTICE_KIND_SUGGESTION,
     NOTICE_INTERPRET_HINT,
+    NOTICE_FILTER_OFFER,
+    filter_offers,
     _Hint,
     result_view_state,
     window_notices,
@@ -267,6 +269,7 @@ from app.ui.presenter.snippets import (
 #: Worker bodies live in `app.ui.tasks`; they are re-exported lazily because
 #: `tasks` imports the modules above and an eager import here would be a cycle.
 _TASK_NAMES = frozenset({
+    "filter_offer_notices",
     "repo_health_notes",
     "search_check_lines",
     "settings_labels",
