@@ -26,6 +26,7 @@ without it says so in plain words rather than failing to start.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import time
 from typing import Any, Callable, Optional
@@ -38,7 +39,8 @@ from app.ui.chat_sessions import (
     ChatSession, ChatSessions, new_session, session_to_dict,
 )
 from app.ui.chat_view import ChatView
-from app.ui.presenter.chat import FAILED_LINE, title_from_question
+from app.ui.presenter.chat import FAILED_LINE, speed_note, title_from_question
+from app.ui.tasks import first_chunk_id
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ChatController", "SPEED_KEY"]
@@ -117,6 +119,9 @@ class ChatController(QObject):
         view.open_requested.connect(lambda path: self._w._open_path(path))
         view.result_opened.connect(lambda row: self._w._open_result(row))
         view.result_revealed.connect(lambda row: self._w._open_result(row, reveal=True))
+        view.pin_requested.connect(self._pin)
+        view.reindex_requested.connect(lambda row: self._w._reindex_for(row))
+        view.similar_requested.connect(self._similar)
         view.sessions.selected.connect(self._select)
         view.sessions.new_requested.connect(self._new)
         view.sessions.renamed.connect(self._rename)
@@ -195,7 +200,13 @@ class ChatController(QObject):
         except Exception as exc:                          # noqa: BLE001
             _log.warning("chat: availability check failed: {}", exc)
             return (True, False, "")
-        return (True, bool(ok), str(reason or ""))
+        note = ""
+        try:
+            chosen = str(getattr(getattr(engine, "cfg", None), "answer_model", "") or "")
+            note = speed_note(engine.suggest_modes(), chosen)
+        except Exception as exc:                          # noqa: BLE001 - the note is a courtesy
+            _log.debug("chat: no speed note ({})", exc)
+        return (True, bool(ok), str(reason or ""), note)
 
     def _load(self) -> tuple:
         """Saved conversations and the remembered Fast / Thoughtful choice."""
@@ -214,10 +225,11 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _probed(self, result: tuple) -> None:
-        built, ok, reason = result
+        built, ok, reason = result[:3]
         self._available = bool(ok)
         if self.view is not None:
             self.view.show_available(ok, reason, built=built)
+            self.view.show_speed_note(result[3] if len(result) > 3 else "")
 
     def _load_sessions(self) -> None:
         worker = CallableWorker(self._load, component="ui.chat")
@@ -314,6 +326,36 @@ class ChatController(QObject):
             _log.warning("chat: a conversation could not be saved: {}", error)
         self._flush()
 
+    # -- the Sources pane's right-click menu ---------------------------------------
+    def _pin(self, row: Any) -> None:
+        """Keep this source: pinned, so every later question looks at it first."""
+        path = str(getattr(row, "path", "") or "")
+        if self.view is None or not path:
+            return
+        self.session.shelf.pin(path, "", getattr(row, "file_id", None))
+        self.view.shelf.set_shelf(self.session.shelf)
+        self._persist(self.session)
+
+    def _similar(self, row: Any) -> None:
+        """Documents like this one, shown on the Search page."""
+        chunk_id = int(getattr(row, "chunk_id", 0) or 0)
+        if chunk_id > 0:
+            self._show_similar(row, chunk_id)
+            return
+        # A source built from a receipt may carry no passage id of its own.
+        worker = CallableWorker(first_chunk_id, self._w._store, str(getattr(row, "path", "")),
+                                component="ui.chat")
+        worker.signals.finished.connect(lambda found, r=row: self._show_similar(r, int(found or 0)))
+        worker.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_similar(self, row: Any, chunk_id: int) -> None:
+        if chunk_id <= 0:
+            return
+        found = dataclasses.replace(row, chunk_id=chunk_id)
+        self._w._show(self._w.search_view)
+        self._w.search_view.results.similar_requested.emit(found)
+
     def _speed_changed(self, value: str) -> None:
         self._w._store.set_state(SPEED_KEY, value)
 
@@ -333,7 +375,10 @@ class ChatController(QObject):
         self._ask = ask
         view.set_busy(True)
         self._persist(session)
-        extra = {"scope": session.shelf.paths(),
+        # A snapshot taken here, on the window thread, and handed to the worker: the
+        # pinned documents are looked at first, the removed ones never used.
+        extra = {"scope": [i.path for i in session.shelf.items if i.pinned],
+                 "removed": sorted(session.shelf.removed),
                  "style": str(view.speed.currentData() or "fast")}
         worker = CallableWorker(self._answer, ask, question, history, extra,
                                 component="ui.chat")

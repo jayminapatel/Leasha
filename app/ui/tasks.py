@@ -25,6 +25,17 @@ from app.ui.presenter.repos import RepoRow
 _log = logger.bind(component="ui.presenter")
 
 
+def first_chunk_id(store: Any, path: str) -> int:
+    """The first passage of a file, so "find similar" from a chat source has
+    something to start from - a source built from a receipt may carry no chunk
+    id of its own. 0 when the file or its passages are not there."""
+    record = store.get_file(str(path))
+    if record is None:
+        return 0
+    chunks = store.chunks_for_file(record.id)
+    return int(chunks[0].id) if chunks else 0
+
+
 def settings_labels(store: Any) -> tuple:
     r"""`(searches, direct_pst)` for the two slow Settings labels. **Worker.**
 

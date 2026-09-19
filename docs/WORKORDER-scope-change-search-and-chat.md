@@ -1,6 +1,6 @@
 # Work order: scope change - local search you can describe in plain English
 
-**Doc version:** 2.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 2.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.2
 
 **Supersedes version 1.0 of this document**, which made prose chat the headline feature. That
 was an inference, and it was wrong. The owner has since been explicit:
@@ -242,3 +242,21 @@ search engine cannot reach the translator at all.
 
 **Still open:** the median translation latency on the owner's hardware. It is
 a number from a machine with Ollama running, so it cannot be taken here.
+
+
+## Dated note, 2026-09-19 - the owner reopened the chat decision
+
+This is the record `WORKORDER-202626270611-chat-tab.md` asks for at promotion.
+On 2026-09-19 the owner instructed the build thread to add the Chat tab - "can you
+also add the chat page which is outstanding workorder", and then "actually do all
+the workorders you can then test" - and it was built that day. The decision in
+section 5 above (prose answers secondary, and only if asked for) was **reopened by
+the owner's instruction, with the design in that order**: every answer carries
+receipts, sentences that cannot be traced to a passage are dropped, and a question
+the index cannot answer gets an honest absence, not a guess. Nothing above this
+note was edited.
+
+Two things that did not change: search never depends on a language model (it works
+with Ollama stopped, and no LLM sits in the retrieval path), and Chat is a separate
+tab. Whether the order's own HELD status line should now be rewritten is the
+owner's to say; the register carries it as RELEASED from today.

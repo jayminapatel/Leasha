@@ -43,6 +43,10 @@ class ChatView(QWidget):
     open_requested = pyqtSignal(str)            # a path (a shelf chip)
     result_opened = pyqtSignal(object)          # a result row (a source, a hit)
     result_revealed = pyqtSignal(object)
+    #: The Sources pane's right-click menu: the row that was clicked.
+    pin_requested = pyqtSignal(object)
+    reindex_requested = pyqtSignal(object)
+    similar_requested = pyqtSignal(object)
     error = pyqtSignal(object)
     #: The window is closing: the controller stops any answer still running.
     closing = pyqtSignal()
@@ -78,6 +82,12 @@ class ChatView(QWidget):
         self.speed.currentIndexChanged.connect(
             lambda _i: self.speed_changed.emit(str(self.speed.currentData())))
 
+        self.speed_note = QLabel("")
+        self.speed_note.setObjectName("chatSpeedNote")
+        self.speed_note.setWordWrap(True)
+        self.speed_note.setAccessibleName("What Fast and Thoughtful do")
+        self.speed_note.setVisible(False)
+
         head = QHBoxLayout()
         head.addWidget(self.notice, stretch=1)
         head.addWidget(self.recheck_button)
@@ -86,6 +96,7 @@ class ChatView(QWidget):
         column = QVBoxLayout(centre)
         column.setContentsMargins(0, 0, 0, 0)
         column.addLayout(head)
+        column.addWidget(self.speed_note)
         column.addWidget(self.bubbles, stretch=1)
         column.addWidget(self.shelf)
         column.addWidget(self.box)
@@ -107,6 +118,9 @@ class ChatView(QWidget):
         self.shelf.open_requested.connect(self.open_requested)
         self.sources.opened.connect(self.result_opened)
         self.sources.revealed.connect(self.result_revealed)
+        self.sources.results.pin_requested.connect(self.pin_requested)
+        self.sources.results.reindex_requested.connect(self.reindex_requested)
+        self.sources.results.similar_requested.connect(self.similar_requested)
 
     # -- state the controller sets --------------------------------------------
     def focus(self) -> None:
@@ -122,6 +136,10 @@ class ChatView(QWidget):
         self.recheck_button.setVisible(not ok and built)
         self.box.set_unavailable("" if ok else text)
         self.speed.setEnabled(ok)
+
+    def show_speed_note(self, text: str) -> None:
+        self.speed_note.setText(text)
+        self.speed_note.setVisible(bool(text))
 
     def set_busy(self, busy: bool) -> None:
         self.box.set_busy(busy)

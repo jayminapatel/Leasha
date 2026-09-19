@@ -30,7 +30,7 @@ __all__ = [
     "render_answer_html", "receipt_to_result", "closing_line",
     "unavailable_text", "title_from_question", "passage_html", "MAX_UNPINNED",
     "PLACEHOLDER", "EMPTY_HEADING", "EMPTY_HINT", "STOPPED_LINE", "FAILED_LINE",
-    "NOT_BUILT_LINE", "SHELF_EMPTY",
+    "NOT_BUILT_LINE", "SHELF_EMPTY", "speed_note",
 ]
 
 # ---------------------------------------------------------------------------
@@ -240,6 +240,16 @@ class Shelf:
         item.pinned = not item.pinned
         return item.pinned
 
+    def pin(self, path: str, name: str = "", file_id: Optional[int] = None) -> bool:
+        """Pin a document, putting it on the shelf first if it is not there.
+        What a right-click on a source does; True when it is pinned afterwards."""
+        self.add(path, name, file_id, explicit=True)
+        item = self._find(path)
+        if item is None:
+            return False
+        item.pinned = True
+        return True
+
     def _trim(self) -> None:
         loose = [i for i in self.items if not i.pinned]
         while len(loose) > MAX_UNPINNED:
@@ -281,6 +291,23 @@ def closing_line(turn: Any, *, stopped: bool = False) -> str:
         return ""
     if getattr(turn, "kind", "") == "find" and not getattr(turn, "result_set", None):
         return "Nothing in what Leasha has indexed matches that."
+    return ""
+
+
+def speed_note(modes: Any, explicit: str = "") -> str:
+    """One plain line when Fast and Thoughtful would answer the same way, else "".
+
+    They would when a `CHAT_MODEL` is set (it decides), or when only one model is
+    installed. A control that changes nothing should say so; this is that
+    sentence, shown beside the control and empty the rest of the time.
+    """
+    if explicit:
+        return (f"Chat is set to use {explicit}, so Fast and Thoughtful answer the "
+                "same way. Change that in Settings if you want a choice.")
+    fast = (modes or {}).get("fast")
+    if fast and fast == (modes or {}).get("thoughtful"):
+        return (f"Only one model is installed ({fast}), so Fast and Thoughtful "
+                "answer the same way.")
     return ""
 
 

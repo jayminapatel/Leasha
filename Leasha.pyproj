@@ -443,6 +443,8 @@
     <Compile Include="tests\unit\test_chat_tab_qt.py" />
     <Compile Include="tests\unit\test_chat_text.py" />
     <Compile Include="tests\unit\test_chat_verify.py" />
+    <Compile Include="tests\unit\test_chat_wiring.py" />
+    <Compile Include="tests\unit\test_chat_wiring_qt.py" />
     <Compile Include="tests\unit\test_chunker.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
     <Compile Include="tests\unit\test_cli_index.py" />
