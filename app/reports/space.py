@@ -239,6 +239,61 @@ def total_reclaimable_bytes(store: Any) -> int:
     return int(row["reclaimable"] or 0) if row else 0
 
 
+def _cluster_by_phash(rows: Sequence[Any], threshold: int) -> list[list[Any]]:
+    r"""Greedy clustering of `rows` by pHash - each row joins the first
+    earlier cluster whose *representative* (its first member) is within
+    `threshold` bits, else starts its own. Exactly the rule
+    `app.search.folding.phash_distance` defines, only faster.
+
+    The rule is unchanged from the version that called `phash_distance` once
+    per pair; what changed is the cost. Hashes are held as 64-bit integers
+    and one photo is compared against every representative in a single
+    NumPy XOR + popcount, instead of parsing two hex strings per pair. A
+    hash that is not 64-bit hex is its own cluster and never matches
+    anything - `phash_distance`'s own answer for a malformed one (999).
+    Falls back to `int.bit_count` per pair where NumPy's `bitwise_count`
+    (NumPy 2) is missing: slower, same clusters.
+    """
+    clusters: list[list[Any]] = []
+    try:
+        import numpy as np
+        popcount = np.bitwise_count
+    except (ImportError, AttributeError):
+        np = None
+        popcount = None
+
+    reps = np.empty(max(1, len(rows)), dtype=np.uint64) if np is not None else None
+    rep_ints: list[int] = []            # the fallback's representatives
+    rep_cluster: list[int] = []         # representative slot -> index in `clusters`
+    for row in rows:
+        try:
+            value = int(str(row["phash"]), 16)
+            if value < 0 or value >= 1 << 64:
+                raise ValueError
+        except ValueError:
+            clusters.append([row])
+            continue
+        slot = -1
+        count = len(rep_cluster)
+        if count:
+            if reps is not None:
+                hits = np.flatnonzero(popcount(reps[:count] ^ np.uint64(value)) <= threshold)
+                slot = int(hits[0]) if hits.size else -1
+            else:
+                slot = next((i for i, r in enumerate(rep_ints)
+                             if (r ^ value).bit_count() <= threshold), -1)
+        if slot >= 0:
+            clusters[rep_cluster[slot]].append(row)
+            continue
+        if reps is not None:
+            reps[count] = value
+        else:
+            rep_ints.append(value)
+        rep_cluster.append(len(clusters))
+        clusters.append([row])
+    return clusters
+
+
 def find_near_duplicate_photo_groups(
     store: Any, *, limit: int = DUPLICATE_GROUPS_SHOWN,
 ) -> list[NearDuplicatePhotoGroup]:
@@ -255,9 +310,12 @@ def find_near_duplicate_photo_groups(
     different kinds of duplicate. This groups distinct *versions* of a
     picture, which is the gap `find_duplicate_groups` cannot see at all.
 
-    **O(n²) against the number of distinct photo hashes**, not yet measured
-    against the scale fixture - see order 0n §3c, still open for exactly
-    this reason.
+    **Still every distinct photo hash against every cluster so far - but as
+    one vectorised XOR-and-popcount per photo (`_cluster_by_phash`), not one
+    Python call per pair.** Measured on the 200,000-file scale fixture
+    (`tests/fixtures/space_scale.py`, ~12,700 distinct photo hashes): the
+    pair-at-a-time version this replaced would have taken minutes, and was
+    already 13 s at a quarter of that scale. See order 0n section 3c's note.
     """
     try:
         rows = store.conn.execute(
@@ -271,19 +329,9 @@ def find_near_duplicate_photo_groups(
         _log.debug("could not read photo hashes for near-duplicate matching: {}", exc)
         return []
 
-    from app.search.folding import PHASH_NEAR_THRESHOLD, phash_distance
+    from app.search.folding import PHASH_NEAR_THRESHOLD
 
-    clusters: list[list[Any]] = []
-    for row in rows:
-        phash = str(row["phash"])
-        match = next(
-            (c for c in clusters if phash_distance(phash, str(c[0]["phash"])) <= PHASH_NEAR_THRESHOLD),
-            None,
-        )
-        if match is not None:
-            match.append(row)
-        else:
-            clusters.append([row])
+    clusters = _cluster_by_phash(rows, PHASH_NEAR_THRESHOLD)
 
     volumes = _volume_lookup(store)
     groups: list[NearDuplicatePhotoGroup] = []
