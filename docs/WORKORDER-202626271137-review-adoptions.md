@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.7 · **Updated:** 2026-09-07 · **Applies to:** app v0.3.3
+**Doc version:** 1.8 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** SHIPPED — all 17 items ticked; closed 2026-09-07 by the pytest-qt sweep across all seven adoptions. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -609,3 +609,23 @@ that cannot run in this environment; everything they would write is returned
 as data by `registry_values` and asserted. Worth one run of
 `leasha open register` and a click on a `leasha://` link on the owner's
 machine before this is trusted.
+
+---
+
+> **2026-09-19 - 1a/1b were ticked with the affordance unbuilt; now built.**
+> The 2026-08-28 note above says it plainly: *"Not done: the expandable
+> affordance in the result row itself."* `why_result` and `explain_for` were
+> finished and tested and nothing in the window called either - the only
+> "why" a person could reach was the older **Why this result?** clipboard copy,
+> which is `score 0.83`, the exact number this item forbids showing. Wired by
+> a wiring audit: right-click a result > **Why is this here?** opens a plain
+> words answer built by `presenter.why_lines` (facts from recorded signals,
+> never a score; an empty answer says so rather than padding). `ResultRow`
+> now carries `text`, `recency`, `declares` and `rerank_score` straight from
+> `SearchResult`, because `why_result` reads them and the row had dropped
+> them. The `explain_results` switch decides in one place - `explain_switch_on`
+> - so the menu entry disappears when it is off. **Not carried yet:** the
+> "you have opened this N times" and "N other copies were folded" lines need
+> the usage log and the fold, which the row does not hold; they read as absent
+> rather than wrong. The older clipboard entry is left exactly as it was.
+> Tests: `tests/unit/test_wired_features.py`.

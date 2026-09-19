@@ -46,6 +46,7 @@ class FileActions:
         reindex: Optional[Callable[[], None]] = None,
         pin: Optional[Callable[[], None]] = None,
         similar: Optional[Callable[[], None]] = None,
+        explain: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.open_file = open_file
@@ -62,6 +63,10 @@ class FileActions:
         #: file's own state, same reasoning as `pin`: a vector neighbour
         #: search does not care whether the file is still on disk.
         self.similar = similar
+        #: Adoptions section 1: "Why is this here?" in plain words. Offered
+        #: only when the caller passes it, which the caller does only while
+        #: the `explain_results` switch is on.
+        self.explain = explain
         #: `(label, text)` pairs to offer alongside "Copy path". For mail:
         #: subject and sender are what people actually want on the clipboard,
         #: and a message's "file name" is a synthetic key nobody would
@@ -110,6 +115,15 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
             "already stored for this one."
         )
         action.triggered.connect(lambda: actions.similar())
+        menu.addAction(action)
+
+    if actions.explain is not None:
+        action = QAction("Why is this here?", parent)
+        action.setToolTip(
+            "Says, in plain words, what put this result on the page - your "
+            "words, meaning, how recent it is, whether you have opened it "
+            "before. Facts only; it never shows a score.")
+        action.triggered.connect(lambda: actions.explain())
         menu.addAction(action)
 
     menu.addSeparator()

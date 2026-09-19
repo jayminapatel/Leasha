@@ -33,11 +33,7 @@ from app.ui.widgets.result_table import redraw_with_details
 from app.ui.widgets.skeleton import arm as arm_skeleton
 from app.ui.widgets.result_tools import build_results_pane
 from app.ui.widgets.search_bar import (
-    build_controls,
-    build_input,
-    build_toolbar,
-    scope_value,
-    select_scope,
+    build_controls, build_input, build_toolbar, scope_value, select_scope,
 )
 from app.ui.workers import (
     SearchWorker,
@@ -113,6 +109,7 @@ class SearchView(QWidget):
             on_reindex=self.reindex_requested, on_error=self.error,
             store=getattr(engine, "store", None), search_box=self.input, on_filter=self.search_now, engine=engine)
         self.input.installEventFilter(self)                    # item 6a
+        self.results.explain_context = lambda: (self._last_terms, self._search_preferences)
 
         self.notices = build_toolbar(
             self, status=self.status, body=self.split,
