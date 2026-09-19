@@ -83,6 +83,13 @@ def _window(tmp_path):
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
     built = MainWindow(settings, store, vectors, _Engine(store))
+    # Order 0r item 2b (second pass): `indexing_view` and `settings_view` are
+    # built on the first turn of the event loop, and every test below reaches
+    # into `built.indexing_view`. Turning the loop here - rather than at each
+    # use - is what "the window is open" means for this file's purposes.
+    for _ in range(5):
+        app.processEvents()
+    assert hasattr(built, "indexing_view"), "the deferred pages were not built"
     return app, built, store, vectors
 
 
@@ -195,7 +202,8 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
 
     real = resolve_module.resolve_for_run
     resolve_module.resolve_for_run = slow_resolve
-    built.indexing_view.start = lambda pipeline, **kw: None
+    handed: list = []
+    built.indexing_view.start = lambda pipeline, **kw: handed.append(pipeline)
     try:
         folder = tmp_path / "corpus"
         folder.mkdir()
@@ -213,9 +221,26 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
 
         release.set()
         _pump(app)
-        assert built.indexing_view.start_button.isEnabled(), (
-            "the button must come back once resolution has finished"
-        )
+        # **Retargeted by order 0r item 2b (second pass).** This used to end on
+        # `start_button.isEnabled()` after the resolve - but `start` is replaced
+        # by a no-op above, so nothing in *this* test re-enables the button; it
+        # came back only because the window's first event-loop turn (which used
+        # to happen inside `_pump`, after the button was disabled) ran
+        # `_start_background_work` -> `_poll_external_run` -> `show_external`,
+        # which repaints Start as enabled. Building the deferred pages in
+        # `_window` moved that turn to before the click, exposing it. What the
+        # resolve step itself owns is asserted instead: the in-flight flag and
+        # the toast are cleared and the Pipeline is handed to the view exactly
+        # once - after that the button belongs to `IndexingView` (`start`
+        # disables it, `_on_done` restores it). The failure path, where nothing
+        # is handed over and the button must come back, is asserted by
+        # `test_a_resolution_failure_shows_the_same_error_dialog_a_synchronous_
+        # one_would` and is unchanged.
+        assert not built._resolving_index, "the in-flight flag must be cleared"
+        assert built.toast.current_text() == "", (
+            "the 'Checking your hardware' notice must be cleared when resolution ends")
+        assert len(handed) == 1, (
+            "the resolved Pipeline must be handed to IndexingView.start exactly once")
     finally:
         resolve_module.resolve_for_run = real
         store.close()
