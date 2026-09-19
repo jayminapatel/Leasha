@@ -67,7 +67,7 @@ def test_a_volume_row_resolves_before_opening(monkeypatch):
     """A catalogued-volume row must never reach `open_async` with its
     synthetic path - it goes through `resolve_open_path` first, on a
     worker, exactly as `shell._open_volume_result` already does."""
-    from app.ui import presenter, workers
+    from app.ui import tasks, workers
 
     resolved_calls = []
     opened_calls = []
@@ -80,7 +80,7 @@ def test_a_volume_row_resolves_before_opening(monkeypatch):
         opened_calls.append((path, select))
         return None
 
-    monkeypatch.setattr(presenter, "resolve_open_path", _fake_resolve)
+    monkeypatch.setattr(tasks, "resolve_open_path", _fake_resolve)
     monkeypatch.setattr(workers, "open_in_explorer", _fake_open_in_explorer)
 
     row = SimpleNamespace(
@@ -102,7 +102,7 @@ def test_a_volume_row_that_cannot_resolve_reports_the_error(monkeypatch):
     docstring), and the worker's failure path is what the caller's
     `on_error` sees - never a silent nothing."""
     from app.core.errors import AppErrorException, make_error
-    from app.ui import presenter, workers
+    from app.ui import tasks, workers
 
     def _fake_resolve(store, row):
         raise AppErrorException(make_error(
@@ -110,7 +110,7 @@ def test_a_volume_row_that_cannot_resolve_reports_the_error(monkeypatch):
             suggestion="Plug it in and try again.",
         ))
 
-    monkeypatch.setattr(presenter, "resolve_open_path", _fake_resolve)
+    monkeypatch.setattr(tasks, "resolve_open_path", _fake_resolve)
 
     row = SimpleNamespace(
         path="leasha-volume://1/reports/q3.txt", volume_id=1,
