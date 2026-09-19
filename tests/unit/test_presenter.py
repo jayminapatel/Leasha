@@ -453,25 +453,33 @@ def test_the_presenter_never_imports_qt() -> None:
     """The load-bearing property of Layer 5's design.
 
     Qt widgets cannot be instantiated without a display, so anything that
-    imports Qt is untestable here. If a helper drifts into `presenter.py` that
+    imports Qt is untestable here. If a helper drifts into the presenter that
     needs a `QColor` or a `QFont`, this fails immediately - rather than the
     module quietly becoming as untestable as the widgets it exists to keep
     logic out of.
+
+    **The whole package, and `tasks.py`.** The presenter is a package now and
+    its worker bodies live beside it; a check on `__init__.py` alone would pass
+    while any of the domain modules imported Qt.
     """
     import ast
     from pathlib import Path
 
-    source = Path(__file__).resolve().parents[2] / "app" / "ui" / "presenter.py"
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    files = sorted((ui / "presenter").glob("*.py")) + [ui / "tasks.py"]
+    assert len(files) > 2, "the presenter package has gone missing"
 
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported |= {alias.name.split(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
+    for source in files:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
 
-    assert "PyQt6" not in imported, f"presenter.py imported Qt: {sorted(imported)}"
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+
+        assert "PyQt6" not in imported, f"{source.name} imported Qt: {sorted(imported)}"
 
 
 def test_every_qt_view_keeps_its_logic_in_the_presenter() -> None:
