@@ -215,8 +215,14 @@ def test_the_application_name_has_a_single_definition():
     assert window_title("Settings") == "Leasha - Settings"
 
 
+_CLI_MODULES = sorted(
+    p.relative_to(Path(__file__).resolve().parents[2]).as_posix()
+    for p in (Path(__file__).resolve().parents[2] / "app" / "cli").glob("*.py")
+)
+
+
 @pytest.mark.parametrize("module", [
-    "app/main.py", "app/cli.py", "app/ui/shell.py", "app/core/diagnostics.py",
+    "app/main.py", *_CLI_MODULES, "app/ui/shell.py", "app/core/diagnostics.py",
 ])
 def test_no_module_hardcodes_the_old_name(module: str):
     text = (Path(__file__).resolve().parents[2] / module).read_text(encoding="utf-8")
