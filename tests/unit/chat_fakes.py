@@ -74,10 +74,10 @@ class FakeChatEngine:
         self.threads.append(threading.current_thread().name)
         return self._available
 
-    def ask(self, question, history, emit, should_stop, scope=None, style=None):
+    def ask(self, question, history, emit, should_stop, scope=None, style=None, removed=None):
         self.threads.append(threading.current_thread().name)
         self.calls.append({"question": question, "history": list(history),
-                           "scope": scope, "style": style})
+                           "scope": scope, "style": style, "removed": removed})
         events, turn = self.script(question)
         for index, event in enumerate(events):
             if should_stop():

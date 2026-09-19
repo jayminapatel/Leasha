@@ -136,6 +136,12 @@ class ChatEngine:
         self._clients: dict[str, OllamaLLM] = {}
         self._pinned: set[int] = set()
         self._excluded: set[int] = set()
+        #: What the tab handed the *current* question (`ask(scope=, removed=)`):
+        #: the documents pinned on its shelf and the ones taken off it. Reset at
+        #: the start of every question, so an old answer's shelf never leaks
+        #: into the next one - unlike `set_shelf`, which is standing state.
+        self._scope: set[int] = set()
+        self._removed: set[int] = set()
 
     # ------------------------------------------------------------------ models
 
@@ -227,11 +233,34 @@ class ChatEngine:
     # ------------------------------------------------------------------ ask
 
     def ask(self, question: str, history: Sequence[ChatTurn],
-            emit: Callable[[Any], None], should_stop: Callable[[], bool]) -> ChatTurn:
-        """Answer `question`. **Blocks. Never raises.**"""
+            emit: Callable[[Any], None], should_stop: Callable[[], bool], *,
+            scope: Optional[Sequence[str]] = None, removed: Optional[Sequence[str]] = None,
+            style: Optional[str] = None) -> ChatTurn:
+        """Answer `question`. **Blocks. Never raises.**
+
+        The three keywords are what the tab knows and the engine does not, handed
+        over per question so nothing is left set behind:
+
+        * `scope` - paths of the documents the person **pinned**. They are looked
+          at first for *every* question, not only follow-ups ("Keep" on the shelf
+          says "look here first"); when they do not answer it, the corpus is
+          searched as usual.
+        * `removed` - paths the person took off the shelf. Never used, in any
+          round, as a source.
+        * `style` - `"fast"` or `"thoughtful"`: which model writes the answer.
+          An explicit `CHAT_MODEL` setting wins over it, and `debug["style"]`
+          says so, because a control that silently does nothing is worse than
+          none.
+        """
         started = time.perf_counter()
         debug: dict[str, Any] = {"timings": {}}
         say_stop = should_stop or (lambda: False)
+        try:
+            self._scope = self._ids_for(scope)
+            self._removed = self._ids_for(removed)
+            self._apply_style(style, debug)
+        except Exception as exc:                        # noqa: BLE001 - the contract: never raises
+            log.debug("chat: could not apply the shelf or style: {}", exc)
 
         def stop() -> bool:
             try:
@@ -302,7 +331,7 @@ class ChatEngine:
         if stop():
             return self._stopped(debug)
 
-        shelf = self._shelf_ids(history) if route.kind == "FOLLOWUP" else []
+        shelf = self._shelf_ids(history) if route.kind == "FOLLOWUP" else self._pinned_ids()
         from app.chat.text import content_tokens
 
         retrieval = self._retrieve(plan, say, stop, debug, shelf=shelf,
@@ -409,10 +438,41 @@ class ChatEngine:
             for receipt in getattr(turn, "receipts", None) or []:
                 if receipt.file_id is not None and receipt.file_id not in ids:
                     ids.append(int(receipt.file_id))
-        for pinned in sorted(self._pinned):
+        for pinned in sorted(self._pinned | self._scope):
             if pinned not in ids:
                 ids.append(pinned)
-        return [i for i in ids if i not in self._excluded][:12]
+        blocked = self._excluded | self._removed
+        return [i for i in ids if i not in blocked][:12]
+
+    def _pinned_ids(self) -> list[int]:
+        """Only the pinned documents - what every question, follow-up or not, looks
+        at first. Empty when nothing is pinned, which is the usual case."""
+        return sorted((self._pinned | self._scope) - self._excluded - self._removed)[:12]
+
+    def _ids_for(self, paths: Optional[Sequence[str]]) -> set[int]:
+        """File ids for paths the tab holds. A path the index no longer knows is
+        simply out of scope - one stale entry never fails a question."""
+        found: set[int] = set()
+        for path in paths or ():
+            try:
+                record = self.store.get_file(str(path))
+            except Exception:                           # noqa: BLE001
+                continue
+            if record is not None:
+                found.add(int(record.id))
+        return found
+
+    def _apply_style(self, style: Optional[str], debug: dict) -> None:
+        """Fast / Thoughtful -> which model answers, from what is installed."""
+        if style not in ("fast", "thoughtful") or self._fixed is not None:
+            return
+        if self.cfg.answer_model:
+            debug["style"] = {"style": style, "ignored": "CHAT_MODEL is set, so it decides"}
+            return
+        name = self.suggest_modes().get(style)
+        if name:
+            self.set_model("answerer", name)
+            debug["style"] = {"style": style, "model": name}
 
     def _shelf_hits(self, ids: Sequence[int], plan: Plan) -> list:
         wanted = set(plan.stems())
@@ -471,12 +531,13 @@ class ChatEngine:
         """
         out = _Retrieval()
         seen: set[int] = set()
+        blocked = self._excluded | self._removed
 
         def add(results: Sequence[Any]) -> None:
             for r in results:
                 key = int(getattr(r, "chunk_id", 0) or 0) or id(r)
                 fid = getattr(r, "file_id", None)
-                if key in seen or (fid is not None and int(fid) in self._excluded):
+                if key in seen or (fid is not None and int(fid) in blocked):
                     continue
                 seen.add(key)
                 out.results.append(r)

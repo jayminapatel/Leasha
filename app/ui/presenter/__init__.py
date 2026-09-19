@@ -272,6 +272,7 @@ _TASK_NAMES = frozenset({
     "filter_offer_notices",
     "repo_health_notes",
     "search_check_lines",
+    "first_chunk_id",
     "settings_labels",
     "decorate_results",
     "offline_volume_marks",

@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 **Status: HELD — created at the owner's request, to be scheduled BY THE OWNER
 later. Do not execute until he promotes it (registers a queue position in
@@ -143,9 +143,49 @@ codebase:
 > outside Manual" - the Manual mode belongs to the Index Tuning screen and Chat is
 > not in `app/core/envelope.py`.
 
+> **Dated note, 2026-09-19, later the same day - the wiring gaps above are closed,
+> and 3a, 3c, 3d and the section-5 UI-scenarios item are ticked.** The earlier note
+> listed features built on one side and never connected. Connected now, each with a
+> test against the **real** `ChatEngine`, real store and real search (only the
+> language model is a stand-in) in `tests/unit/test_chat_wiring.py`, and against the
+> real window in `tests/unit/test_chat_wiring_qt.py`:
+>
+> * **Pins.** `ChatEngine.ask` takes `scope=` (the pinned documents' paths). They are
+>   looked at first for *every* question - not only follow-ups - and when they do not
+>   answer, the corpus is searched as before
+>   (`test_a_pinned_document_is_looked_at_first_for_a_question_that_is_not_a_follow_up`,
+>   `test_a_pin_that_does_not_answer_falls_back_to_the_corpus`). Scope belongs to one
+>   question and does not leak into the next.
+> * **Removal.** `removed=` - a document taken off the shelf is never a source in any
+>   round (`test_a_document_taken_off_the_shelf_is_never_used_as_a_source`; removing
+>   and pinning the same one leaves it out). The tab passes both, snapshotted on the
+>   window thread and resolved to file ids on the worker.
+> * **Fast / Thoughtful.** `style=` chooses the answering model from what is installed
+>   (`test_fast_and_thoughtful_choose_different_models_when_two_are_installed`). **An
+>   explicit `CHAT_MODEL` wins over it, and the turn's debug says so**
+>   (`test_an_explicit_chat_model_wins_and_the_turn_says_so`). When the control would
+>   change nothing - one model installed, or `CHAT_MODEL` set - a plain line beside it
+>   says so instead of leaving a control that does nothing (`speed_note`).
+> * **The Sources pane's right-click menu.** Pin, re-index and "More like this" now
+>   act: pin puts the document on the shelf pinned; re-index starts indexing that
+>   document's folder; "More like this" opens the Search page with the results. The
+>   test right-clicks the pane's own list and invokes the actions it builds
+>   (`test_the_real_right_click_menu_of_a_source_pins_re_indexes_and_finds_similar`).
+>   A source carrying no passage id has its file's first passage looked up on a
+>   worker first.
+>
+> **Still open, on purpose.** 3e (chat behaviours as envelope tunables, invisible
+> outside Manual): the Chat group on Settings is always visible and Chat is not in
+> `app/core/envelope.py`. 4b and 4c as in the note above. 4d: there is still no roles
+> grid, no Describe role and no RAM line. **Not verified with a live model:** the
+> Fast / Thoughtful mapping is tested against stand-in clients, not a running Ollama
+> (UNCONFIRMED against real models). The passage is shown in a strip under the
+> Sources list, not highlighted inside the full `PreviewPane`, which is why 3a's
+> "highlights the exact passage in the pane" is read as that strip.
+
 ## 3. The tab (owner: NO badges — receipts are integrated, not stigmata)
 
-- [ ] **3a** a Chat tab: clean conversation bubbles, streaming tokens, Stop
+- [x] **3a** a Chat tab: clean conversation bubbles, streaming tokens, Stop
   button, Enter sends / Shift+Enter newline. No "AI-generated, verify!"
   banners anywhere — the honesty lives in the *architecture*: superscript
   source numbers in the prose, a **Sources pane** alongside listing the
@@ -157,12 +197,12 @@ codebase:
   grid/rows — the chat drives every search lane conversationally and shows
   real results, not prose about results. Mixed answers (a sentence + the
   seven documents) are the norm, not the exception.
-- [ ] **3c The context shelf**: documents the conversation has touched
+- [x] **3c The context shelf**: documents the conversation has touched
   accumulate as visible chips (the pinned-working-set pattern); the user
   can pin (keep in scope), remove (out of scope), or add (drag a result
   in). Follow-ups search the shelf first, the corpus second. What the model
   can see is always exactly what the shelf shows — no hidden context.
-- [ ] **3d Sessions**: conversations persist locally (the index-sensitivity
+- [x] **3d Sessions**: conversations persist locally (the index-sensitivity
   sentence extends to chat logs), listed in a sidebar, deletable; a session
   reopens with its shelf intact. Plain-words model control ("Fast /
   Thoughtful" mapped to installed Ollama models; greyed-with-reason when
@@ -319,7 +359,7 @@ checks in the aggregate/find fixtures.
 - [x] aggregate: the number shown equals the query result, always (property
   test over generated corpora).
 - [x] absence: planted-absence fixtures produce the protocol answer.
-- [ ] UI: pytest-qt scenarios per 0m's convention — ask, stream, click a
+- [x] UI: pytest-qt scenarios per 0m's convention — ask, stream, click a
   receipt, pin to shelf, follow-up scoped, Ollama-absent degrade.
 - [x] the no-badge rule as a test: no fixed string in the tab matches the
   warning-banner deny-list; honesty is structural, asserted structurally.
