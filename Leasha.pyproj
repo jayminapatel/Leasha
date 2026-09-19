@@ -399,6 +399,7 @@
     <Compile Include="app\ui\workers.py" />
     <Compile Include="doctor.py" />
     <Compile Include="scripts\regen_vs_project.py" />
+    <Compile Include="scripts\run_suite.py" />
     <Compile Include="scripts\stage.py" />
     <Compile Include="suggest.py" />
     <Compile Include="tests\__init__.py" />
