@@ -85,22 +85,66 @@ def test_the_script_produces_a_non_empty_png_per_surface(grabbed):
         assert path.is_file() and path.stat().st_size > 1000, path
 
 
-def test_fresh_grabs_match_the_goldens_within_tolerance(grabbed):
+def _golden_sets() -> list[tuple[str, str, Path]]:
+    """`(theme, size, folder)` for every `<theme>-<WxH>/<theme>/` on disk."""
+    found = []
+    for folder in sorted(GOLDEN.glob("*-*x*")):
+        theme, _, size = folder.name.partition("-")
+        if (folder / theme).is_dir():
+            found.append((theme, size, folder / theme))
+    return found
+
+
+def test_the_goldens_are_the_twelve_9i_describes():
+    """§9i: the empty state and results-with-inspector, light and dark, at
+    1024x600, the default window (1100x760) and maximised (1920x1080)."""
+    if not GOLDEN.is_dir():
+        pytest.skip("no goldens captured yet (§9i runs on the Windows venv)")
+    have = {(theme, size, p.stem) for theme, size, folder in _golden_sets()
+            for p in folder.glob("*.png")}
+    want = {(theme, size, state) for theme in ("light", "dark")
+            for size in ("1024x600", "1100x760", "1920x1080")
+            for state in ("search-home", "search-results")}
+    assert have == want, f"missing {sorted(want - have)}, stray {sorted(have - want)}"
+
+
+def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
     """0m §4a: the only automated catch for the theme-token bug class (the
-    unreadable-QListView incident). Perceptual hash, not pixel equality."""
+    unreadable-QListView incident). Perceptual hash, not pixel equality.
+
+    **Each golden is compared with a grab at its own theme and size.** This
+    used to compare `grabs/<name>.png` with `GOLDEN/<name>.png`, a path that
+    does not exist (the goldens live under `<theme>-<size>/<theme>/`), so every
+    file was skipped and the test could not fail."""
+    pytest.importorskip("PyQt6")
     if not GOLDEN.is_dir() or not any(GOLDEN.rglob("*.png")):
         pytest.skip("no goldens captured yet (§9i runs on the Windows venv)")
     imagehash = pytest.importorskip("imagehash")
     from PIL import Image
-    out, written = grabbed
-    drifted = []
-    for path in written:
-        golden = GOLDEN / path.name
-        if not golden.is_file():
-            continue
-        distance = imagehash.phash(Image.open(golden)) - imagehash.phash(Image.open(path))
-        if distance > TOLERANCE:
-            drifted.append(f"{path.name}: distance {distance}")
+
+    import subprocess
+    import sys
+
+    drifted, compared = [], 0
+    for theme, size, folder in _golden_sets():
+        names = sorted(p.stem for p in folder.glob("*.png"))
+        out = tmp_path / f"{theme}-{size}"
+        # **A fresh process per set, the way the goldens were made.** The
+        # offscreen platform reads its font directory once, when the first
+        # `QApplication` is built (`tools/grab_ui.py` sets it on import); in a
+        # test run that has already built one, an in-process grab renders every
+        # glyph as a box and drifts from every golden by 20-plus bits.
+        run = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "grab_ui.py"), "--theme", theme,
+             "--size", size, "--out", str(out), *[f"--surface={n}" for n in names]],
+            cwd=ROOT, capture_output=True, text=True, timeout=240)
+        assert run.returncode == 0, run.stderr[-2000:]
+        for path in sorted((out / theme).glob("*.png")):
+            distance = imagehash.phash(Image.open(folder / path.name)) - imagehash.phash(Image.open(path))
+            compared += 1
+            if distance > TOLERANCE:
+                drifted.append(f"{theme}-{size}/{path.name}: distance {distance}")
+    assert compared, "no golden was compared with anything"
     assert not drifted, ("the look drifted from the goldens - if that was the "
                          "point of the commit, regenerate them and say so in "
                          "the message:\n  " + "\n  ".join(drifted))
