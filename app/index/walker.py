@@ -339,7 +339,15 @@ class WalkConfig:
             return self.extensions
 
         from app.core.formats import load_rules
-        from app.extract import supported_extensions
+        from app.extract import media, supported_extensions
+
+        # **Video and audio are off unless their own switch is on**
+        # (`VIDEO_INDEXING_ENABLED`, `AUDIO_TRANSCRIPTION_ENABLED`), whatever
+        # else is true. Subtracted last and on every path out, so the extensions
+        # a switched-off feature owns can never leak in through configuration -
+        # and so "off" means the walk is exactly what it was before video
+        # existed: a `.mp4` is found by name and nothing reads it.
+        switched_off = media.disabled_extensions()
 
         known = set(supported_extensions())
         try:
@@ -347,11 +355,11 @@ class WalkConfig:
         except Exception:                        # noqa: BLE001
             # A broken config must not stop the walk finding the file types the
             # code itself knows about.
-            return frozenset(known)
+            return frozenset(known) - switched_off
 
         known |= set(rules.extensions)           # tier 1: routed by config
         known |= set(rules.converters)           # tier 2: external converters
-        return rules.enabled_extensions(known)
+        return rules.enabled_extensions(known) - switched_off
 
 
 def own_paths(settings: object) -> frozenset[str]:
@@ -588,6 +596,12 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     names = config.resolved_names()
     # Normalised once for the whole walk, not per directory entry.
     blocked = config.excluded_paths_lower()
+    # **A film is not "too big to read"** the way a disk image is. Reading one
+    # means ffprobe on its header and ffmpeg seeking for pictures - neither
+    # touches most of its bytes - and a family archive is exactly where the
+    # multi-gigabyte files are. Only extensions whose switch is on are exempt.
+    from app.extract.media import media_extensions
+    size_exempt = media_extensions() & extensions
 
     for root in config.roots:
         root = Path(root)
@@ -683,7 +697,8 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 # both real files somebody may go looking for; what they are
                 # not is files worth opening. They become name-only rows, which
                 # is the honest answer and costs nothing.
-                too_big = stat.st_size > config.max_file_bytes
+                too_big = (stat.st_size > config.max_file_bytes
+                           and path.suffix.lower() not in size_exempt)
                 if (too_big or stat.st_size == 0) and not config.name_only:
                     continue
 

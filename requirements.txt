@@ -280,3 +280,49 @@ prompt_toolkit==3.0.53
 # the package only; degrades to "no faces found" for every photo when
 # absent or switched off, never a hang and never a failed search
 # (non-negotiable #1).
+
+# --- Optional: video and audio (work order 202626270515) -------------------
+# Both features are OFF by default (VIDEO_INDEXING_ENABLED and
+# AUDIO_TRANSCRIPTION_ENABLED in Settings) and need software this file does not
+# install. Nothing below is required for the application to start or to index.
+#
+#   FFmpeg (ffmpeg + ffprobe) - for video: container details, the date a film was
+#   recorded, and scene-change pictures. Not a Python package and not pinned
+#   here: a program, run as a subprocess and never linked, so its licence (LGPL
+#   or GPL depending on the build) never touches this MIT application.
+#       winget install --id Gyan.FFmpeg -e
+#   Detected on PATH and in the standard install folders (app/extract/
+#   converter.py). Without it a video is findable by name only, and the skip
+#   ledger says why.
+#
+#   faster-whisper==1.2.1 - for speech to text (voice memos, calls, the sound of
+#   a video). MIT. Checked against PyPI 2026-09-19: 1.2.1 is the newest release;
+#   it is a py3-none-any wheel whose own requirements are ctranslate2 (>=4,<5),
+#   av (>=11), tokenizers, huggingface-hub, onnxruntime (>=1.14,<2) and tqdm.
+#       venv\Scripts\python.exe -m pip install faster-whisper==1.2.1
+#   **Read before running it.** `onnxruntime` is already satisfied by the pin at
+#   the top of this file, so pip should leave it alone - but this venv has been
+#   overwritten that way before (see the 0t note above and the 2026-09-19 note
+#   below). If pip offers to install ANOTHER onnxruntime, stop. After the
+#   install run: venv\Scripts\python.exe -c "import onnxruntime as o;
+#   print(o.get_available_providers())" and confirm DmlExecutionProvider is
+#   still listed. Also note `av` (PyAV) arrives as a dependency and bundles
+#   FFmpeg's libraries under the LGPL, dynamically linked; nothing in Leasha
+#   imports it, and faster-whisper uses it only to decode audio.
+#
+#   A speech model, downloaded ONCE by a command you choose to run (Leasha
+#   never downloads while indexing; it loads with local_files_only=True):
+#       venv\Scripts\python.exe -c "from faster_whisper import download_model; download_model('base')"
+#   'tiny' is ~75MB, 'base' ~145MB, 'small' ~480MB, 'medium' ~1.5GB. They are
+#   cached under <DATA_PATH>\models\whisper.
+#
+# Throughput on this machine has NOT been measured (faster-whisper was not
+# installed when this was written). After installing, run
+#     venv\Scripts\python.exe -m app.cli media --measure FILE --model base
+# once and record the number in docs/WORKORDER-202626270515-video-audio-DRAFT.md.
+#
+# Optional at runtime - app/extract/transcribe.py::available() checks for the
+# package with find_spec and never imports it; app/extract/media_tools.py
+# reports a missing FFmpeg the same way. Both degrade to "findable by name",
+# with an ERR_MEDIA_TOOLS_MISSING / ERR_TRANSCRIBE_UNAVAILABLE line in the skip
+# ledger that names the exact command above.
