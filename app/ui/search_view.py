@@ -245,6 +245,9 @@ class SearchView(QWidget):
         # reason: one doorway, one grammar. See `saved_box.SavedSearches`.
         query = self.saved.expand(self.input.text())
         if not query:
+            # Whatever is still out there is now stale: without this a search
+            # dispatched a moment before Esc answered into the empty page.
+            self._generation += 1; self._shown_generation = self._generation
             self._shown_anything = False
             self._index_count = 0
             self.results.clear()

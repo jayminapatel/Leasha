@@ -1640,6 +1640,12 @@ class MainWindow(QMainWindow):
             # looking at this tab.
             self.code_view.refresh()
 
+        # Not while somebody is arrowing down the rail: taking the focus into
+        # the page after the first Down left every other page unreachable by
+        # the arrow keys (found by test_ui_redesign_scenarios.py).
+        if self.rail.column.hasFocus():
+            return
+
         # By index rather than by widget: a view inside a scroll area is not the
         # tab's widget, which is the same trap `_show` exists to avoid.
         for view in (self.search_view, self.files_view,

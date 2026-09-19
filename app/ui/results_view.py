@@ -50,7 +50,7 @@ from app.ui.presenter import (
     explain_switch_on, row_identity, to_rows, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
-from app.ui.view_options import ViewPreferences
+from app.ui.view_options import ViewPreferences, apply_font
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.result_drag_model import DraggableResultsModel
 from app.ui.widgets.why_dialog import show_why
@@ -154,6 +154,10 @@ class ResultsView(QWidget):
         """Text size, spacing, grouping and whether scores show inline."""
         self._prefs = prefs if isinstance(prefs, ViewPreferences) else ViewPreferences()
         self._delegate.prefs = self._prefs
+        # The delegate paints from `option.font`, i.e. the list's own font, and
+        # nothing else set it: the text-size preference reached only the
+        # tables. Same stylesheet route as there (see `apply_font`).
+        apply_font(self._list, self._prefs.font_pt)
         if self._rows:
             self._rebuild()
 

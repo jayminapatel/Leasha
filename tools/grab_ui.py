@@ -113,13 +113,80 @@ class _Engine:
         return SearchResponse(parsed=parse_query(raw).scoped(options.get("scope", "all")))
 
 
+class _NoVectors:
+    def search(self, *_a: Any, **_k: Any) -> list:
+        return []
+
+
+class _NoModel:
+    """Keyword-only: `app/search/vector.py` degrades to no vectors on this."""
+
+    def embed(self, _t: Any) -> Any:
+        raise RuntimeError("no model - grab_ui stays keyword-only")
+
+    def embed_all(self, _t: Any) -> Any:
+        raise RuntimeError("no model - grab_ui stays keyword-only")
+
+    def warm_up(self) -> None:
+        pass
+
+
+#: What the "results" surface finds: (file name, kind, text). One document, one
+#: message and one piece of code, so the three badge colours all show, and every
+#: file is really written to disk so the inspector has something to preview.
+_SEED = (
+    ("boiler-quote-dave.txt", "txt",
+     "Quote for the new boiler from Dave, sent last winter. Includes the boiler, the flue kit "
+     "and fitting, and a second boiler visit for the annual service. Valid for thirty days."),
+    ("boiler-service-notes.md", "md",
+     "Notes from the boiler service: pressure was low, topped up. The quote Dave sent covers "
+     "a replacement boiler if it fails again."),
+    ("boiler_calc.py", "py",
+     "# boiler quote calculator: adds the flue kit, fitting and Dave's margin to the boiler price\n"
+     "def quote(boiler, flue, fitting, margin=0.1):\n    return (boiler + flue + fitting) * (1 + margin)\n"),
+)
+_SEED_MTIME = 1_741_780_800          # 12 March 2025, so dates do not drift with the day it is run
+
+
+def seed(store: Any, root: Path) -> None:
+    """Real files and their index rows, so the search page has rows to show."""
+    import json
+
+    folder = root / "documents"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, ext, text in _SEED:
+        path = folder / name
+        path.write_text(text, encoding="utf-8")
+        os.utime(path, (_SEED_MTIME, _SEED_MTIME))
+        file_id = store.upsert_file(
+            path.as_posix(), parent_dir=folder.as_posix(), ext=ext, size_bytes=len(text),
+            mtime_ns=_SEED_MTIME * 1_000_000_000, status="INDEXED", source_kind="file")
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": text}])
+    message = store.upsert_file(
+        "pst://msg/Boiler quote", parent_dir="pst://msg", size_bytes=1,
+        mtime_ns=_SEED_MTIME * 1_000_000_000, status="INDEXED", source_kind="pst_message")
+    with store.write() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO messages (file_id, subject, sender, recipients, sent_at, has_attach) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (message, "Boiler quote", "dave@example.com", json.dumps(["me@example.com"]),
+             _SEED_MTIME, 0))
+    store.replace_chunks(message, [{"ordinal": 0, "text":
+        "Hi, here is the boiler quote I promised. Dave. The flue kit and fitting are included."}])
+
+
 def _pump(app: Any, n: int = 8) -> None:
     for _ in range(n):
         app.processEvents()
 
 
-def build_window(root: Path, *, theme: str = "system", size: str = "1100x760") -> tuple:
-    """The real window against a temporary store. Returns `(app, window, closers)`."""
+def build_window(root: Path, *, theme: str = "system", size: str = "1100x760",
+                 seeded: bool = False) -> tuple:
+    """The real window against a temporary store. Returns `(app, window, closers)`.
+
+    `seeded` gives it documents and the real (keyword-only) `SearchEngine`, for
+    the surface that needs results; every other surface stays an empty store.
+    """
     from PyQt6.QtWidgets import QApplication
 
     from app.core.config import load_settings
@@ -135,7 +202,14 @@ def build_window(root: Path, *, theme: str = "system", size: str = "1100x760") -
     if theme in ("light", "dark"):
         store.set_state("ui:theme", theme)
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-    window = MainWindow(settings, store, vectors, _Engine(store), debug=False)
+    if seeded:
+        from app.search.engine import SearchEngine
+
+        seed(store, root)
+        engine: Any = SearchEngine(store, _NoVectors(), _NoModel(), log_usage=False)
+    else:
+        engine = _Engine(store)
+    window = MainWindow(settings, store, vectors, engine, debug=False)
     w, h = (int(x) for x in size.lower().split("x"))
     window.resize(w, h)
     _pump(app)
@@ -159,16 +233,61 @@ def _reach(app: Any, window: Any, spec: dict) -> Any:
         if nav is not None:
             nav.show_category(spec["category"], persist=False)
     if spec.get("state") == "results":
-        window.search_view.input.setText("boiler quote dave sent last winter")
+        _show_results(app, window)
     elif spec.get("state") == "home":
         window.search_view.input.setText("")
     _pump(app)
+    # A startup toast ("Indexing: Only when you ask.") is still up when the
+    # first grabs are taken and sits over whatever is at the bottom of the page.
+    window.toast.clear()
+    _pump(app)
     return window
+
+
+def _wait(app: Any, done: Any, seconds: float = 8.0) -> bool:
+    """Run the event loop until `done()` or the time is up."""
+    import time
+
+    from PyQt6.QtTest import QTest
+
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if done():
+            return True
+        QTest.qWait(25)
+    return bool(done())
+
+
+def _show_results(app: Any, window: Any) -> None:
+    """Type a query, wait for the rows, select the first and open the inspector -
+    the state §9i calls "results with the inspector"."""
+    from PyQt6.QtCore import Qt
+
+    from app.ui.view_options import ViewPreferences
+
+    view = window.search_view
+    view.input.setText("boiler quote dave")
+    model = view.results._model
+    _wait(app, lambda: model.rowCount() > 0)
+    # A message's sender, subject and kind arrive from a worker a beat after its
+    # row; until they do it is drawn without its badge. Wait for that too, or the
+    # picture depends on which got there first.
+    _wait(app, lambda: any(getattr(model.index(i, 0).data(int(Qt.ItemDataRole.UserRole)),
+                                   "kind", "") == "email" for i in range(model.rowCount())))
+    view.set_view_preferences(ViewPreferences(preview=True))
+    view.results._list.setCurrentIndex(model.index(0, 0))
+    _wait(app, lambda: view.preview.subtitle.text() != "Loading…"
+          and bool(view.preview.text.toPlainText().strip()), seconds=4.0)
+    # The grab runs keyword-only, so the search says "meaning-based search
+    # returned nothing" in a banner over the rows; that is true of this run and
+    # of no user's, and it would sit in every golden. The status line stays.
+    view.notices.show_notices(())
 
 
 def grab(names: Iterable[str], out: Path, *, theme: str = "system",
          size: str = "1100x760") -> list[Path]:
     """Grab every named surface to `out/<name>.png`. Returns the files written."""
+    names = list(names)
     out.mkdir(parents=True, exist_ok=True)
     # ignore_cleanup_errors: SqliteStore hands out one sqlite3 connection per
     # native thread (threading.local()), but a QThreadPool worker thread that
@@ -182,7 +301,8 @@ def grab(names: Iterable[str], out: Path, *, theme: str = "system",
     # papering over here; tracked as a follow-up rather than blocking this
     # tool on it.
     with tempfile.TemporaryDirectory(prefix="leasha-grab-", ignore_cleanup_errors=True) as tmp:
-        app, window, closers = build_window(Path(tmp), theme=theme, size=size)
+        seeded = any(SURFACES[n].get("state") == "results" for n in names)
+        app, window, closers = build_window(Path(tmp), theme=theme, size=size, seeded=seeded)
         written: list[Path] = []
         try:
             for name in names:
