@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.9 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.10 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** SHIPPED — all 17 items ticked; closed 2026-09-07 by the pytest-qt sweep across all seven adoptions. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
@@ -646,4 +646,23 @@ machine before this is trusted.
 > **Save a support bundle...**, the zip `app.cli diagnose` has always written
 > (logs, settings, environment), built on a worker; its tooltip says it
 > includes folder paths so summary.txt should be read before sharing.
+
+
+---
+
+> **2026-09-19 - three more surfaces the wiring audit found missing.**
+> **3a/3b saved searches had no way to save, rename or delete one** - the note
+> above says so ("the dialog doesn't exist yet") and the items were ticked
+> anyway. **Edit > Save this search...** (Ctrl+D) asks for a name, pre-filled
+> by `suggest_name`, and saves it on a worker; **Edit > Saved searches...**
+> lists them with Search, Rename and Delete. An empty box says "Type a search
+> first" rather than saving nothing quietly. **Settings > Environment > Check
+> that search works** runs `evaluate --builtin`'s measurement (a built-in
+> corpus in a throwaway database - it never reads your own index), which the
+> installer has always told people to run from a terminal. And
+> `settings_registry.needs_restart()`, whose docstring says the UI *must* say so
+> on the control, was read by nothing: `restart_note.mark_restart_needed` now
+> appends "Takes effect the next time Leasha starts." to the tooltip of every
+> such control, in one pass, so a setting added later with `restart=True` gets
+> it for free. Tests: `tests/unit/test_wired_features.py`.
 

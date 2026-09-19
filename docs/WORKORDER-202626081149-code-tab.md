@@ -1,6 +1,6 @@
 # Work order: the Code tab, and repository detection that cannot be undone
 
-**Doc version:** 1.0 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
 **Created:** 2026-08-26 11:49 · **Layer:** L1/L3/L5 - `app/storage/sqlite_store.py`, `app/index/`, the Code tab
 
 **Thread:** the single merged thread
@@ -203,3 +203,18 @@ switch.
    pasted into `HANDOFF.md` as the record that §1 is closed.
 4. `CHANGELOG.md` appended under `[Unreleased]`. Append only.
 5. `WORKORDER-CONVENTIONS.md` §7 gains a row.
+
+
+---
+
+> **2026-09-19 - section 3's warning now arrives where somebody meets it.**
+> `app.index.repo_health` was written and tested (`suspicion`, `describe`) and
+> nothing ever called it: its own docstring says the warning "has to arrive
+> where somebody meets it", and the only place it lived was a printed line in
+> `app.cli repos`. The Code tab now shows it: `SqliteStore.repo_code_counts`
+> (one grouped query), `tasks.repo_health_notes` (on a worker), and a
+> `RepoHealthNote` label above the list that stays hidden unless a repository
+> of 50 or more files has under a tenth code. It judges against the default
+> code extensions, not the tab's current filter. Tests:
+> `tests/unit/test_wired_features.py`.
+

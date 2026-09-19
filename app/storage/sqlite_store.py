@@ -3400,6 +3400,24 @@ class SqliteStore:
         """).fetchall()
         return [dict(row) for row in rows]
 
+    def repo_code_counts(self, extensions: Sequence[str]) -> dict[int, int]:
+        """`{repo id: indexed files with one of these extensions}`.
+
+        Order 202626081149 section 3's `repo_health` judges a repository by
+        the share of its files that are code, and needs the count without
+        fetching every file. One grouped query over the indexed `repo_id` and
+        `ext` columns; a repository with none simply has no entry.
+        """
+        wanted = sorted({str(one).lstrip(".").lower() for one in extensions or () if one})
+        if not wanted:
+            return {}
+        marks = ", ".join("?" for _ in wanted)
+        rows = self.conn.execute(
+            f"SELECT repo_id, COUNT(*) AS n FROM files "
+            f"WHERE repo_id IS NOT NULL AND ext IN ({marks}) GROUP BY repo_id",
+            wanted).fetchall()
+        return {int(row[0]): int(row[1]) for row in rows}
+
     # -- Offline Media: volumes ------------------------------------------------
     #
     # Orders 202626270513 (drives) and 202626270514 (network, cloud, tape).

@@ -51,6 +51,7 @@ from app.ui.view_options import load_prefs, save_prefs
 from app.ui.window_state import restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.rail import Rail
+from app.ui.widgets.restart_note import mark_restart_needed
 from app.ui.widgets.search_bar import retint_toolbar
 from app.ui.widgets.toast import DEFAULT_TIMEOUT_MS, Toast
 from app.ui.widgets.scroll import wrap_if_needed
@@ -440,6 +441,7 @@ class MainWindow(QMainWindow):
         self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
         self.settings_view.error.connect(self._show_error)
         self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
+        mark_restart_needed(self)
         self.settings_view.environment.set_recording_status(
             f"Recording to {self.recorder.path.name}" if self.recorder.enabled
             else "Not recording."
@@ -1098,6 +1100,10 @@ class MainWindow(QMainWindow):
         add(edit, "Search", self._focus_search, "Ctrl+K", icon="search",
             tip="Put the cursor in the search box")
         add(edit, "Clear the search", self._clear_search, "Esc", icon="x")
+        add(edit, "Save this search…", self._save_current_search, "Ctrl+D", icon="bookmark",
+            tip="Give the search in the box a name, so you can run it again")
+        add(edit, "Saved searches…", self._manage_saved_searches, icon="list",
+            tip="Run, rename or delete the searches you have saved")
 
         view = bar.addMenu("&View")
         add(view, "Preview pane", self._toggle_preview, "Ctrl+Shift+P",
@@ -1592,6 +1598,27 @@ class MainWindow(QMainWindow):
     def _focus_search(self) -> None:
         self._show(self.search_view)
         self.search_view.focus()
+
+    def _save_current_search(self) -> None:
+        """Edit > Save this search. Adoptions 3b: only ever because somebody asked."""
+        from app.ui.widgets.saved_dialogs import ask_to_save
+
+        view = self.search_view
+        ask_to_save(self, view.saved, view.input.text(), view.current_scope())
+
+    def _manage_saved_searches(self) -> None:
+        """Edit > Saved searches: the list, with run, rename and delete."""
+        from app.ui.widgets.saved_dialogs import SavedSearchesDialog
+
+        dialog = SavedSearchesDialog(self.search_view.saved, self)
+        dialog.run_requested.connect(self._run_saved_search)
+        self._saved_dialog = dialog
+        dialog.show()
+
+    def _run_saved_search(self, token: str) -> None:
+        self._show(self.search_view)
+        self.search_view.input.setText(token)
+        self.search_view.search_now()
 
     def _clear_search(self) -> None:
         self.search_view.input.clear()
