@@ -354,8 +354,132 @@ class Extractor(Protocol):
     #: supports_resume: bool
 
 
+#: True once `app.extract._readers` has been imported and every extractor has
+#: registered. Module-level rather than an attribute of the dict, because both
+#: registries below share one load.
+_REGISTRY_LOADED = False
+#: Held while one thread loads, so a second thread waits for a whole registry
+#: rather than reading a half-filled one.
+_REGISTRY_LOCK = __import__("threading").RLock()
+#: Per-thread re-entry guard. `register()` reads the registry to refuse a
+#: duplicate claim, and `register()` is exactly what the load runs - without
+#: this, the load would call itself. Thread-local rather than a plain flag so
+#: that *another* thread arriving mid-load waits (above) instead of seeing the
+#: flag and reading an empty registry.
+_REGISTRY_REENTRY = __import__("threading").local()
+
+
+class _LazyRegistry(dict):
+    """A registry dict that imports the extractor modules when first read.
+
+    **Every read populates it; nothing else changed.** `REGISTRY[".pdf"]`,
+    `".pdf" in REGISTRY`, iteration, `.items()`, `len()`, `dict(REGISTRY)` -
+    each one loads first and then answers exactly as a plain dict would, so
+    `supported_extensions()`, `extractor_for()`, `format_health`, `doctor`,
+    `app.cli formats` and the walker all see the full set they always saw.
+    A duplicate claim still raises from `register()`, which checks this dict
+    with a raw `dict.get` - see the comment there for why it must not be the
+    loading kind.
+
+    Writes (`__setitem__`, `__delitem__`) deliberately do *not* load: they are
+    how `register()` fills the dict during the load itself. `pop`, `clear`,
+    `update` and `setdefault` do load, because a caller taking something out
+    of the registry means the whole registry - that is what the tests that
+    swap in a fake extractor and put the real set back are doing.
+
+    `keys` and `__iter__` are both overridden on purpose: CPython's
+    `dict(other)` takes a fast path that copies a dict subclass's storage
+    directly *unless* the subclass overrides `tp_iter`, and then falls back to
+    calling `keys()`. Overriding only one of the two would let `dict(REGISTRY)`
+    return an empty dict.
+    """
+
+    def _ensure(self) -> None:
+        global _REGISTRY_LOADED
+        if _REGISTRY_LOADED or getattr(_REGISTRY_REENTRY, "busy", False):
+            return
+        with _REGISTRY_LOCK:
+            if _REGISTRY_LOADED:
+                return
+            _REGISTRY_REENTRY.busy = True
+            try:
+                from app.extract import load_all_extractors
+
+                load_all_extractors()
+            finally:
+                _REGISTRY_REENTRY.busy = False
+            # Only on success: a reader that fails to import must fail again
+            # on the next question, exactly as `import app.extract` used to,
+            # rather than leaving a silently empty registry behind it.
+            _REGISTRY_LOADED = True
+
+    def __getitem__(self, key):                     # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):                    # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.__contains__(self, key)
+
+    def __iter__(self):                             # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.__iter__(self)
+
+    def __len__(self):                              # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.__len__(self)
+
+    def __repr__(self):                             # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.__repr__(self)
+
+    def get(self, key, default=None):               # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.get(self, key, default)
+
+    def keys(self):                                 # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.keys(self)
+
+    def values(self):                               # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.values(self)
+
+    def items(self):                                # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.items(self)
+
+    def copy(self):                                 # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict(self)
+
+    def pop(self, *args, **kwargs):                 # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.pop(self, *args, **kwargs)
+
+    def popitem(self):                              # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.popitem(self)
+
+    def setdefault(self, *args, **kwargs):          # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.setdefault(self, *args, **kwargs)
+
+    def update(self, *args, **kwargs):              # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.update(self, *args, **kwargs)
+
+    def clear(self):                                # type: ignore[no-untyped-def]
+        self._ensure()
+        return dict.clear(self)
+
+
 #: extension (lowercase, with dot) -> extractor
-REGISTRY: dict[str, Extractor] = {}
+#:
+#: Lazily filled: see `_LazyRegistry`. The first read imports every extractor
+#: module; before that it is genuinely empty, which is why nothing may read it
+#: through `dict.__getitem__` and friends directly.
+REGISTRY: dict[str, Extractor] = _LazyRegistry()
 
 
 #: Whole filenames an extractor claims, lower-cased: `makefile`, `.gitignore`.
@@ -366,7 +490,7 @@ REGISTRY: dict[str, Extractor] = {}
 #: extension-keyed map, so a build file and every dotfile in a repository were
 #: invisible to the walk. Filled by `register` from an extractor's optional
 #: `names`, which keeps one source of truth per extractor.
-NAME_REGISTRY: "dict[str, Extractor]" = {}
+NAME_REGISTRY: "dict[str, Extractor]" = _LazyRegistry()
 
 
 def register(extractor: Extractor) -> Extractor:
@@ -378,7 +502,14 @@ def register(extractor: Extractor) -> Extractor:
     """
     for ext in extractor.extensions:
         key = ext.lower()
-        existing = REGISTRY.get(key)
+        # **Read raw, on purpose.** `REGISTRY.get` would load every other
+        # extractor first, and `register()` runs at the top of every extractor
+        # module - so importing one reader (`app.main` imports `app.extract.
+        # ocr` to set its device) would drag all twenty-four in and undo the
+        # whole deferral. The duplicate check loses nothing: there is one dict,
+        # so whichever of the two claims arrives second sees the first and
+        # raises, whether that is this call or the deferred load.
+        existing = dict.get(REGISTRY, key)
         if existing is not None and existing is not extractor:
             raise ValueError(
                 f"'{key}' is already handled by {existing.name!r}; "

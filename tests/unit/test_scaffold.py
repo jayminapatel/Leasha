@@ -29,8 +29,12 @@ def tree(tmp_path: Path) -> Path:
     (root / "app" / "extract").mkdir(parents=True)
 
     real = project_root()
-    shutil.copy(real / "app" / "extract" / "__init__.py",
-                root / "app" / "extract" / "__init__.py")
+    # `_readers.py`, not `__init__.py`: the list of extractor imports moved
+    # there in work order 0r item 2b so that importing the package no longer
+    # imports every parser. The generator inserts into whichever file holds
+    # the list, and this is that file.
+    shutil.copy(real / "app" / "extract" / "_readers.py",
+                root / "app" / "extract" / "_readers.py")
     shutil.copy(real / "requirements.txt", root / "requirements.txt")
     return root
 
@@ -86,7 +90,7 @@ def test_the_generated_module_carries_the_whole_contract(tree: Path):
 
 def test_the_import_is_added_so_registration_actually_happens(tree: Path):
     apply(plan(spec(), tree))
-    text = (tree / "app" / "extract" / "__init__.py").read_text(encoding="utf-8")
+    text = (tree / "app" / "extract" / "_readers.py").read_text(encoding="utf-8")
 
     assert "from app.extract import cadx as cadx" in text
 
@@ -95,7 +99,7 @@ def test_the_import_is_inserted_in_order_not_appended(tree: Path):
     """The file is written alphabetically. A generator that appends turns a
     tidy file into a list with one odd entry at the end, every time."""
     apply(plan(spec(name="aaa_first", extensions=(".zzz",)), tree))
-    lines = (tree / "app" / "extract" / "__init__.py").read_text(
+    lines = (tree / "app" / "extract" / "_readers.py").read_text(
         encoding="utf-8").splitlines()
 
     imports = [i for i, line in enumerate(lines)
@@ -194,7 +198,7 @@ def test_applying_twice_does_not_clobber_the_first(tree: Path):
 
 def test_a_second_plan_does_not_duplicate_the_import(tree: Path):
     apply(plan(spec(), tree))
-    init = tree / "app" / "extract" / "__init__.py"
+    init = tree / "app" / "extract" / "_readers.py"
     before = init.read_text(encoding="utf-8").count("import cadx")
 
     # A different reader, same tree: the first import must not be repeated.

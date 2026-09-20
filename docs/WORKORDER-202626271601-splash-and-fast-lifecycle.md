@@ -370,6 +370,68 @@ The owner chose this on a live mock; implement it faithfully.
 > to `app/extract/__init__.py`, out of a measured-fix lane) or the views' imports deferred past
 > `show()`. **The 1.5 s target has not been measured on the owner's machine either; per the item's
 > own words it is recorded, not promised.**
+> **2026-09-20, lane-2b-registry - the extractor registry is lazy now; 2b stays UNTICKED, and
+> this machine could not measure whether the target is met.** The note above named the next cut:
+> "reaching 1.5 s needs the extractor registry made lazy (a structural change to
+> `app/extract/__init__.py`)". That change is made. What could not be done today is the
+> measurement: four agents were building and running tests on this machine at the same time, and
+> the offscreen start-up timing moved by a factor of ten under that load.
+>
+> **What is lazy, and how nothing else changed.** The twenty-three `from app.extract import x as x`
+> lines moved out of `app/extract/__init__.py` into a new `app/extract/_readers.py` - same lines,
+> same alphabetical order, same form the generator writes into. `REGISTRY` and `NAME_REGISTRY` in
+> `app/extract/base.py` are now a `dict` subclass that imports `_readers` on the *first read* -
+> `REGISTRY[".pdf"]`, `in`, iteration, `len`, `.get/.items/.values/.keys/.pop/.clear/.update`, and
+> `dict(REGISTRY)` - so `supported_extensions()`, `extractor_for()`, `extract()`, `format_health`,
+> `app.cli formats`, `app/ui/widgets/file_types.py` and the walker all see the full set exactly as
+> before, and `register()` still refuses a second claim on one extension (the `.svg`-twice failure
+> that lost 32 files). `keys` *and* `__iter__` are both overridden deliberately: CPython copies a
+> dict subclass's storage directly unless `__iter__` is overridden, so with only one of the two,
+> `dict(REGISTRY)` would have returned `{}`. `app/core/scaffold.py` and `tests/unit/test_scaffold.py`
+> now point at `_readers.py`; the generator's insertion, its alphabetical order and its
+> duplicate-line guard are unchanged.
+>
+> **The trap, found by measuring rather than by assuming.** The first version of this change saved
+> nothing at all. `register()` runs at the top of every extractor module and read the registry to
+> refuse a duplicate - so importing *one* reader loaded all twenty-four, and `app/main.py` imports
+> `app.extract.ocr` before the window to set the OCR device. `register()` now checks with a raw
+> `dict.get`; the duplicate is still caught, by whichever of the two claims arrives second.
+>
+> **Deterministic evidence, which load does not distort** (`python -X importtime`, importing the
+> pre-splash set and then the post-splash set `main.py` imports, in one process):
+>
+> | | modules imported after the splash | `app.extract.*` modules |
+> |---|---|---|
+> | before | 239 | 33 |
+> | after | 201 | 9 (`base`, `chunker`, `cells`, `source_types`, `ocr`, `ocr_ladder`, `media_tools`, `transcribe`, the package) |
+>
+> On a quiet machine earlier the same profile put `app.extract` at 49 ms of 396 ms of post-splash
+> import self-time; under the load that arrived later, 292 ms of 1867 ms. Both are the same 38
+> modules; only the clock moved.
+>
+> **Why no before/after timing table.** Five warm offscreen runs of HEAD, taken before any of this
+> (`QT_QPA_PLATFORM=offscreen`, scratch install, `startup: timings`): window visible 11159 / 3245 /
+> **1466** / 1867 / 1921 ms. The minimum of the warm runs was already inside the 1500 ms target and
+> the spread was eight-fold - so on this machine, today, the measurement cannot tell a 40 ms saving
+> from the noise, and could be made to "prove" the target either way. An interleaved A/B (same
+> load, HEAD install and changed install alternating) was built to beat the noise and did not
+> produce a number: the HEAD copy of the scratch install would not start (its configuration carries
+> absolute paths, and copying the install moved it), and by then splash-visible alone was running
+> at 886-1265 ms against its own 300 ms budget.
+>
+> **So: not ticked.** The structural cut this item's own note asked for is in and is proved by the
+> module count; the <1.5 s claim is not proved, and the remaining time is where the previous note
+> already put it - `app.ui.shell`'s own view imports (about 180 ms of the post-splash self-time on
+> a quiet machine), `MainWindow.__init__`, and `show()`, none of them in this lane's file scope.
+> The next person to close 2b should take the numbers on the owner's machine, on a real display,
+> with nothing else running.
+>
+> Tests, written failing first: `tests/unit/test_extract_lazy_registry.py` (the parser set is not
+> imported by `app.extract`, `cells`, `source_types`, `timecode`, `app.core.code_types` or
+> `app.extract.ocr`; reading the registry does import it; every accessor still answers in full;
+> `dict(REGISTRY)` is not empty; a duplicate claim still raises) and a new case in
+> `tests/unit/test_startup_import_order.py` (importing `app.ui.shell` in a fresh interpreter
+> imports no parser).
 - [ ] **2b** defer what the first paint does not need: audit
   `MainWindow.__init__` for work movable to after `show()` (the M11
   pattern — construct light, populate async). Target: window visible

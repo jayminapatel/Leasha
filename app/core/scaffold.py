@@ -4,8 +4,12 @@ Layer: L0
 
 Adding a file type that needs its own parser is six steps, five of which are
 identical every time and one of which is the actual work. The five are where it
-goes wrong - forget the line in `app/extract/__init__.py` and `register()` never
+goes wrong - forget the line in `app/extract/_readers.py` and `register()` never
 runs, so the extension reports as unsupported and nothing anywhere says why.
+(That list of imports lived in `app/extract/__init__.py` until work order 0r
+item 2b moved it one file sideways, so that importing the package no longer
+imports every parser before the window is on screen. The line is the same line,
+in the same alphabetical place; only the file it goes in changed.)
 
 **This generates the five and leaves the one.** The module arrives with the
 contract already correct - lazy import, declared `requires`, errors as values,
@@ -19,7 +23,7 @@ for a running program to do, so:
 * An existing file is never overwritten. A name already taken is refused, with
   the path that holds it.
 * Every edit is append-or-insert at a known anchor, never a rewrite - a
-  generator that reformats `__init__.py` would eventually eat something.
+  generator that reformats `_readers.py` would eventually eat something.
 * A frozen build has no source tree to write to and refuses outright rather
   than writing into a temporary directory nobody will ever look at.
 
@@ -336,8 +340,11 @@ def _amend_init(root: Path, spec: ExtractorSpec) -> Optional[FileChange]:
     the module is perfect, the extension reports unsupported, and nothing
     connects the two. Inserted in alphabetical order among the existing
     extractor imports so the file stays as it was written.
+
+    The file is `app/extract/_readers.py`, not the package's `__init__.py`:
+    see this module's own docstring, and `_readers.py`'s.
     """
-    path = root / "app" / "extract" / "__init__.py"
+    path = root / "app" / "extract" / "_readers.py"
     text = path.read_text(encoding="utf-8")
     line = f"from app.extract import {spec.name} as {spec.name}  # noqa: F401,E402"
 
@@ -349,7 +356,7 @@ def _amend_init(root: Path, spec: ExtractorSpec) -> Optional[FileChange]:
     positions = [i for i, entry in enumerate(lines) if entry.startswith(marker)]
     if not positions:
         _fail(
-            "app/extract/__init__.py has no extractor imports to insert beside",
+            "app/extract/_readers.py has no extractor imports to insert beside",
             suggestion=f"Add this line by hand:  {line}",
         )
 
