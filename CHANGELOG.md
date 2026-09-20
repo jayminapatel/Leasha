@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.23 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 4.24 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### PST resilience - an archive that is held open, or slightly damaged
+
+Work order `pst-resilience`. Most of it is on the direct (libpff) path, where the failures were.
+
+- **A `.pst` held open by another program is now a lock, not "corrupt".** It was reported as
+  `ERR_FILE_CORRUPT`, which is never retried, so the archive dropped out of the index for good.
+  It is now `ERR_FILE_LOCKED`, retried on every pass. Told apart by the message libpff gives,
+  measured on Windows 11 with `pypff` 20231205.
+- **With the backend on Auto, a held archive is read through Outlook instead.** Only before the
+  first message was read (a later fallback would index it twice), and never when libpff was
+  chosen by hand. If Outlook is not there, the lock is what gets reported.
+- **A message that fails costs that message.** Conversion is inside the same guard as the fetch,
+  a folder whose messages cannot be counted is recorded rather than skipped silently, and an
+  archive where nothing reads is reported as damaged rather than as "no text".
+- **What was skipped is now counted.** New `ERR_PST_PARTIAL` warning, the CLI run summary's
+  `Partial` line, and Outlook's skipped folders (which nothing in the app ever read) folded
+  into the same warning.
+- Not yet: the Indexing tab does not show the count, and a warning on an unchanged last
+  message is not counted on an incremental run. Both are open items in the order.
+
+### Docs
+
+- `HANDOFF.md` 6.7, `ORDER_REGISTER.md` 1.35 (row 0v), new `WORKORDER-pst-resilience.md` 1.0.
 
 ## [0.3.3] - 2026-09-19
 
