@@ -122,9 +122,11 @@ def test_a_converter_route_is_its_own_tier():
             return True
 
         def converter_for(self, extension):
-            return Converter() if extension == ".doc" else None
+            return Converter() if extension == ".wpd" else None
 
-    assert _tier(".doc", rules=Rules()) == "converter"
+    # `.wpd`, not `.doc`: `.doc` has an in-process reader now (2026-09-20), so it is tier 1;
+    # WordPerfect is still read only by a converter.
+    assert _tier(".wpd", rules=Rules()) == "converter"
     assert _tier(".qqq", rules=Rules()) == "none"
 
 

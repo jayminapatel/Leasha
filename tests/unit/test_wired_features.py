@@ -119,7 +119,10 @@ def test_the_result_menu_offers_why_and_it_answers_in_plain_words(gui_mainwindow
     monkeypatch.setattr(results_module, "show_for",
                         lambda widget, point, path, actions: captured.update(actions=actions))
     shown = []
-    monkeypatch.setattr(results_module, "show_why",
+    # 2026-09-20: `show_why` is called from `results_items` since the results view was
+    # split under its line guard, so that is the name to replace.
+    import app.ui.widgets.results_items as items_module
+    monkeypatch.setattr(items_module, "show_why",
                         lambda parent, row, terms, prefs: shown.append((row, terms, prefs)))
 
     view.results._on_context_menu(_first_row_point(view))
