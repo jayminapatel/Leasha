@@ -94,6 +94,52 @@ os.environ.setdefault("EMBED_DEVICE", "cpu")
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _repository_detection_stops_at_the_test_tree(tmp_path_factory) -> Iterator[None]:
+    """A test's folder must not be "inside a repository" because of what happens
+    to sit above pytest's temp directory.
+
+    `enclosing_repo` climbs to the drive root looking for a `.git` - correct for
+    an indexed root below a checkout, and wrong for a test that says "this folder
+    is not a repository": on 2026-09-19 that was a stray `.git` in the user's home
+    folder (Windows' temp directory lives under it), and the project's own `.git`
+    when the temp directory is `.pytest_tmp`. About twenty tests failed for it,
+    on every run, on the one machine that had it - and passed everywhere else.
+
+    The walk is bounded at pytest's base temp directory for any path inside it.
+    A repository a test *builds* inside its own folder is still found, because
+    it is below the ceiling; nothing above the ceiling is looked at.
+    """
+    from app.index import pipeline, walker
+
+    base = Path(tmp_path_factory.getbasetemp()).resolve()
+    real = walker.enclosing_repo
+
+    def bounded(start, *, ceiling=None):
+        try:
+            resolved = Path(start).resolve()
+            inside = base == resolved or base in resolved.parents
+        except OSError:
+            inside = False
+        return real(start, ceiling=ceiling if ceiling is not None else (base if inside else None))
+
+    walker.enclosing_repo, pipeline.enclosing_repo = bounded, bounded
+    # The same boundary for the real `git` the gitsearch commands run: git
+    # climbs on its own, and `GIT_CEILING_DIRECTORIES` is its own way to stop it.
+    # Set to the *parent* of the temp tree so a repository inside it is found and
+    # nothing above it is.
+    previous = os.environ.get("GIT_CEILING_DIRECTORIES")
+    os.environ["GIT_CEILING_DIRECTORIES"] = str(base.parent)
+    try:
+        yield
+    finally:
+        walker.enclosing_repo, pipeline.enclosing_repo = real, real
+        if previous is None:
+            os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+        else:
+            os.environ["GIT_CEILING_DIRECTORIES"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _pin_ocr_to_the_processor() -> Iterator[None]:
     """`ocr._device` is a module default that only the entry points set, so the
     environment variable above never reaches it in a test process."""

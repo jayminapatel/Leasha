@@ -104,8 +104,16 @@ def test_the_examples_are_formatted_like_the_request_that_follows_them():
 def test_the_prompt_got_shorter_despite_gaining_examples():
     """Every character is re-read on every translation, and prompt evaluation is
     what made mistral take over thirty seconds. The value hints that went are
-    for the dropdown, where a person needs them; the model never did."""
-    assert len(prompt()) < 1901
+    for the dropdown, where a person needs them; the model never did.
+
+    **The cap is a ratchet, and it moved once: 1,901 -> 2,100 on 2026-09-20.** The
+    prompt measured 2,084 by then. The growth is operators added after this was
+    written - `/on` for offline-media sources (order `202626270513`) and the
+    `video` / `movie` / `audio` / `recording` kind words (order `202626270515`) -
+    not examples creeping back in. Raise it again only with a translation-latency
+    measurement to show for it; do not simply let it drift.
+    """
+    assert len(prompt()) < 2100
 
 
 def test_every_operator_is_still_named():

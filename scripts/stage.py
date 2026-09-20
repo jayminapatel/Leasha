@@ -162,6 +162,37 @@ def _ignore_keeping_fixtures(_directory: str, names: list[str]) -> set[str]:
     return {name for name in names if name in EXCLUDED and name not in keep}
 
 
+def _remove(target: Path) -> None:
+    """Delete a file or folder that an earlier staging put there.
+
+    **A read-only file must not stop a re-stage.** `shutil.copy2` keeps the
+    read-only attribute, so a shipped file that is read-only in the source (one
+    of the logo files is) arrives read-only in the destination, and on Windows
+    `rmtree` then refuses it with `WinError 5: Access is denied` - the second
+    stage over an existing install failed for as long as any such file shipped.
+    Found 2026-09-20 by `test_staging.py`, which had been failing on the
+    developer's own machine. The file is made writable and the delete retried.
+    """
+    import os
+    import stat
+
+    def make_writable_and_retry(function, path, *_error):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+
+    if target.is_dir() and not target.is_symlink():
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(target, onexc=make_writable_and_retry)
+        else:
+            shutil.rmtree(target, onerror=make_writable_and_retry)
+    elif target.exists():
+        try:
+            target.unlink()
+        except PermissionError:
+            os.chmod(target, stat.S_IWRITE)
+            target.unlink()
+
+
 def _previous(dest: Path) -> list[str]:
     """What the last staging wrote here, or [] if this tree is new or foreign."""
     import json
@@ -208,10 +239,7 @@ def stage(source: Path, dest: Path, python: Path, with_tests: bool = False) -> l
     for name in _previous(dest):
         target = dest / name
         try:
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            elif target.exists():
-                target.unlink()
+            _remove(target)
         except OSError as exc:
             raise SystemExit(f"could not replace {target}: {exc}")
 
@@ -233,7 +261,7 @@ def stage(source: Path, dest: Path, python: Path, with_tests: bool = False) -> l
         if target.exists():
             # Only reachable for a foreign destination - a staged one had its
             # previous manifest removed above.
-            shutil.rmtree(target) if target.is_dir() else target.unlink()
+            _remove(target)
         if origin.is_dir():
             ignore = _ignore_keeping_fixtures if name == "tests" else _ignore
             shutil.copytree(origin, target, ignore=ignore)

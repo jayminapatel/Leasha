@@ -186,6 +186,16 @@ def test_no_index_exists_that_nothing_uses(store):
 
 # --- the plans ---------------------------------------------------------------
 
+@pytest.mark.xfail(strict=True, reason=(
+    "MEASURED 2026-09-20, 200,000 files (50% pdf, 15% txt, 4% xlsx, 1% dwg), best of 5, "
+    "`_filter_only` limit 100. Today SQLite plans `type:X` as 'walk idx_files_ext, then sort' - "
+    "type:pdf 177 ms, txt 92 ms, xlsx 68 ms, dwg 40 ms, a type with no matches 0.4 ms. Forcing "
+    "idx_files_mtime (what this test pins) gives pdf 0.6 ms, txt 13 ms, xlsx 36 ms - but dwg 166 ms "
+    "and a type with NO matches 2,880 ms, because it walks every file newest-first looking for one. "
+    "Neither plan is right for every type; a common type is ~300x slower than it needs to be. "
+    "The fix is an adaptive query (try a bounded newest-first walk, fall back to the ext index), "
+    "not INDEXED BY - open item in HANDOFF.md. strict=True: when it is fixed this test XPASSes and "
+    "fails loudly, so the marker cannot be forgotten."))
 def test_filter_only_browse_neither_scans_nor_sorts(populated):
     """P6: `WHERE c.ordinal = 0 ORDER BY f.mtime_ns DESC`.
 

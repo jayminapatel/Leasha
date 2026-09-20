@@ -250,21 +250,30 @@ def test_on_merges_a_run_too_small_to_qualify(tmp_path: Path) -> None:
 
 
 def test_the_triggers_are_not_dropped_until_the_dirty_flag_exists() -> None:
-    r"""**The half deliberately left out, pinned so it cannot creep in alone.**
+    r"""**The safe half of §6f, pinned so the fast half cannot lose it.**
 
-    Dropping the chunk FTS triggers is the fast half of §6f. The safe half is a
-    flag written *before* they go, so an interrupted bulk run knows on resume
-    that the word index is missing everything the run wrote. Without it, a run
+    Dropping the chunk FTS triggers is the fast half. The safe half is a flag
+    written *before* they go, so an interrupted bulk run knows on resume that
+    the word index is missing everything the run wrote. Without it, a run
     killed at hour forty leaves a corpus that is silently unsearchable - and
     nothing anywhere says why.
 
-    When the flag lands, this test changes with it.
+    2026-09-20: the flag has landed (`SqliteStore.drop_fts_triggers` sets
+    `fts_dirty` first; `Pipeline.run` calls `check_and_rebuild_fts_if_dirty`), so
+    as this test promised, it changed with it: it no longer bans dropping, it
+    pins the *order*. The behavioural half - including the resume that used to
+    leave the triggers off - is `test_fts_bulk_recovery.py`.
     """
-    source = (ROOT / "app" / "index" / "pipeline.py").read_text(encoding="utf-8")
+    store_source = (ROOT / "app" / "storage" / "sqlite_store.py").read_text(encoding="utf-8")
+    body = store_source.split("def drop_fts_triggers", 1)[1].split("\n    def ", 1)[0]
+    assert 'set_state("fts_dirty", "1")' in body and "_suspend_content_triggers(" in body
+    assert body.index('set_state("fts_dirty", "1")') < body.index("_suspend_content_triggers("), (
+        "the FTS triggers are dropped before the dirty flag is written - an "
+        "interrupted run would lose the word index silently")
 
-    assert "DROP TRIGGER" not in source.upper(), (
-        "the FTS triggers are being dropped - the dirty flag has to land in "
-        "the same change, or an interrupted run loses the word index silently")
+    pipeline_source = (ROOT / "app" / "index" / "pipeline.py").read_text(encoding="utf-8")
+    assert "check_and_rebuild_fts_if_dirty" in pipeline_source, (
+        "a run no longer checks for an interrupted bulk run before it starts")
 
 
 # --- the thread count reaches the model -------------------------------------
