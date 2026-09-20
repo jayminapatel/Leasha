@@ -91,12 +91,15 @@ def settings_page(tmp_path_factory):
     settings = load_settings(env)
 
     app = QApplication.instance() or QApplication([])
-    # **The real stylesheet.** Qt's default sizes these widgets differently, so
-    # a page checked without it is a page nobody sees.
-    app.setStyleSheet(stylesheet("light"))
 
     store = SqliteStore(settings.fts_db).connect()
     view = SettingsView(settings, store)
+    # **The real stylesheet.** Qt's default sizes these widgets differently, so
+    # a page checked without it is a page nobody sees. On the view rather than on
+    # the application: Qt cascades it to the children, so the metrics are identical,
+    # and nothing walks every widget alive in the process - see
+    # `test_no_application_stylesheet.py` for the crash that walk caused three times.
+    view.setStyleSheet(stylesheet("light"))
     area = scrollable(view)
     area.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
     area.show()
@@ -106,7 +109,6 @@ def settings_page(tmp_path_factory):
     yield app, view
 
     store.close()
-    app.setStyleSheet("")
 
 
 def test_the_page_is_taller_than_any_window_and_is_therefore_wrapped():

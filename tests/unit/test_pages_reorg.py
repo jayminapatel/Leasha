@@ -250,11 +250,13 @@ def indexing_page():
     from app.ui.theme import stylesheet
 
     app = QApplication.instance() or QApplication([])
-    app.setStyleSheet(stylesheet("light"))
     view = IndexingView()
+    # **On the view, not on the application** - Qt cascades it to the children, so the
+    # metrics are the same, and nothing walks every widget alive in the process. See
+    # `test_no_application_stylesheet.py` for the crash that walk caused three times.
+    view.setStyleSheet(stylesheet("light"))
     yield app, view
     view.hide()
-    app.setStyleSheet("")
 
 
 @pytest.mark.parametrize("size_name", sorted(SIZES))
