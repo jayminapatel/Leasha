@@ -87,6 +87,12 @@ class VectorStore:
             hits = vectors.search(query_vector, k=100)
     """
 
+    # Class-level defaults for the deferred-connect machinery: a store built without
+    # `__init__` (a test double, `__new__`) is an ordinary eager store, as it always was.
+    _deferred: bool = False
+    _connect_thread: Optional[threading.Thread] = None
+    _connect_error: Optional[BaseException] = None
+
     def __init__(self, uri: Path, *, dim: int = 384, table_name: str = TABLE_NAME,
                  deferred: bool = False):
         self.uri = Path(uri)
