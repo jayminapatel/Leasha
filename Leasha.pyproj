@@ -272,8 +272,6 @@
     <Compile Include="app\ui\hotkey.py" />
     <Compile Include="app\ui\indexing_settings.py" />
     <Compile Include="app\ui\indexing_view.py" />
-    <Compile Include="app\ui\indexing_view.py" />
-    <Compile Include="app\ui\indexing_view.py" />
     <Compile Include="app\ui\inspector.py" />
     <Compile Include="app\ui\kind_badge.py" />
     <Compile Include="app\ui\log_lines.py" />
@@ -741,8 +739,6 @@
     <Content Include="CHANGELOG.md" />
     <Content Include="CLAUDE.md" />
     <Content Include="GitSearch.txt" />
-    <Content Include="HANDOFF.md" />
-    <Content Include="HANDOFF.md" />
     <Content Include="HANDOFF.md" />
     <Content Include="LOCAL_KNOWLEDGE_GRAPH_V2.md" />
     <Content Include="README.md" />
