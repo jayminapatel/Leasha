@@ -300,6 +300,7 @@
     <Compile Include="app\ui\inspector.py" />
     <Compile Include="app\ui\kind_badge.py" />
     <Compile Include="app\ui\lag_monitor.py" />
+    <Compile Include="app\ui\later.py" />
     <Compile Include="app\ui\log_lines.py" />
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\offline_media_view.py" />
@@ -501,6 +502,7 @@
     <Compile Include="tests\unit\test_chat_wiring.py" />
     <Compile Include="tests\unit\test_chat_wiring_qt.py" />
     <Compile Include="tests\unit\test_chunker.py" />
+    <Compile Include="tests\unit\test_cli_expands_slashes.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
     <Compile Include="tests\unit\test_cli_index.py" />
     <Compile Include="tests\unit\test_cli_wiring.py" />
@@ -617,6 +619,7 @@
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
+    <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_legacy_office_completeness.py" />
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
@@ -636,6 +639,7 @@
     <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_nightly.py" />
     <Compile Include="tests\unit\test_nightly_scale.py" />
+    <Compile Include="tests\unit\test_no_application_stylesheet.py" />
     <Compile Include="tests\unit\test_no_scroll.py" />
     <Compile Include="tests\unit\test_no_stray_paths.py" />
     <Compile Include="tests\unit\test_no_undefined_names.py" />
