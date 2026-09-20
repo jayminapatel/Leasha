@@ -119,6 +119,18 @@ _engine_is_gpu = False
 #: convention in this codebase for "say it once, not on every item".
 _warned_transient_gpu = False
 
+#: Whether an ordinary (non-transient-GPU) recognition failure has been
+#: reported at warning level yet. Reported **once per process**, the same shape
+#: `ocr_ladder._probe_failure_reported` already uses for the detection probe.
+#:
+#: **2026-09-20.** This path was `log.debug` alone, which is invisible to
+#: anybody not reading a debug log - and the DirectML concurrency fault
+#: described in `_detect_only` failed *every* image this way: 131 photographs,
+#: 131 swallowed OpenCV faults, an index run that reported success and had read
+#: no text at all. One image that cannot be read is normal and must stay cheap;
+#: a run where nothing can be read is a fact somebody has to be told once.
+_recognition_failure_reported = False
+
 
 class OcrResult:
     """Text read from one image, with what it cost and how sure it was."""
@@ -304,9 +316,35 @@ def _detect_only(run: Callable[..., Any]) -> Callable[[Any], list]:
     fake `engine` from the unit tests below that does not accept these kwargs
     included - which treats "the probe could not run" as "not yet decided",
     never as "no text".
+
+    **2026-09-20 - this probe used to run outside the graphics-card gate, and
+    that is the picture stack's exit-139 crash.** The recognition call below
+    (`ocr_image`, the `gpu_exclusive(_engine_is_gpu)` around `run(...)`) was
+    gated from the day `app/core/gpu_serialize.py` was written; rung 2 was
+    added later, calls the *same three DirectML sessions*, and was never put
+    behind the same gate. So two extraction workers - the pipeline's default -
+    sat inside RapidOCR's DirectML text detector at the same moment, which is
+    literally the stack in `logs/crash/crash.log` for 2026-09-12: three threads
+    in `text_detect.__call__ -> InferenceSession.run`, two of them arriving
+    through `_detect`, and a fourth queued politely at `gpu_exclusive`.
+    Measured on the owner's `PhotosMaster\2008` (131 photographs, this machine,
+    `EMBED_DEVICE=auto` so DirectML): one thread, 0 failures and text read
+    normally; four threads, **261** native `Unknown C++ exception from OpenCV
+    code` faults and `lines=0` on every single image - the detector's output
+    buffer comes back corrupt and OpenCV's contour pass on it either throws or,
+    when the corruption lands differently, takes the process down with an access
+    violation. The gate is per-call and nothing wider, exactly as
+    `gpu_serialize` requires: rungs 0-1 (filename, thumbnail histogram) stay
+    outside it, because they are Pillow and numpy and have never been at risk.
     """
     def _detect(source: Any) -> list:
-        raw = run(source, use_det=True, use_cls=False, use_rec=False)
+        # `_engine_is_gpu` is read here rather than captured when the closure is
+        # built: `ocr_image` may have rebuilt the engine onto the processor
+        # between the two (see the transient-GPU path below), and a gate held
+        # for a session that no longer exists costs every other subsystem its
+        # concurrency for nothing.
+        with gpu_exclusive(_engine_is_gpu):
+            raw = run(source, use_det=True, use_cls=False, use_rec=False)
         boxes = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
         return list(boxes) if boxes else []
     return _detect
@@ -398,7 +436,16 @@ def ocr_image(
                 _engine = None
                 _engine_is_gpu = False
         else:
-            log.debug("OCR failed on an image: {}: {}", type(exc).__name__, exc)
+            global _recognition_failure_reported
+            if not _recognition_failure_reported:
+                _recognition_failure_reported = True
+                log.warning(
+                    "OCR could not read an image ({}: {}) - that image is "
+                    "recorded as unread and the run continues. Reported once "
+                    "per run; later failures are at debug level.",
+                    type(exc).__name__, exc)
+            else:
+                log.debug("OCR failed on an image: {}: {}", type(exc).__name__, exc)
         return OcrResult(elapsed_s=time.monotonic() - started)
 
     # RapidOCR returns `(results, timings)`; results is a list of

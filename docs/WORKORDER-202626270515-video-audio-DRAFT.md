@@ -2,6 +2,65 @@
 
 **Doc version:** 1.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
+> **Dated note, 2026-09-20 (later) - promotion item (1)'s exit-139 crash is found, explained and
+> fixed, and the corpus run now completes. Item (1) is ticked below on the evidence in this note.**
+>
+> **The run that ticks it.** `python -m app.cli index <131 photographs copied read-only from
+> PhotosMaster\2008> --env <scratch .env> --workers 2 --full-speed`, under `-X faulthandler`, into a
+> scratch `DATA_PATH` (nothing was written to `D:\Leasha\Data`). **131 seen, 131 indexed, 0 skipped,
+> 0 failed, 131 chunks, 131 vectors, 0 embed failures, 3,829.5 s = 63.8 minutes, 2.1 files/min,
+> 270 MB, exit code 0.** All four engines loaded and ran in the one process: RapidOCR, Florence-2,
+> the CLIP image model and insightface. **What was found: 467 faces and 243 AI tags across the 131
+> photographs.** Resolved settings: `workers 2, device cpu, threads 4, batch 256`. Time went
+> `waiting 57%, write 40%, clip 3%, embed 0%` - this corpus is dominated by reading, not embedding.
+>
+
+> **What it was not.** All 131 files in `PhotosMaster\2008` were opened and fully decoded with
+> Pillow under `warnings.simplefilter("error")`: **zero malformed, truncated or warning-raising
+> files**, largest 3648x2736. A bad file is not the cause, so no per-file quarantine was built.
+>
+> **What it is.** `app/extract/ocr.py::ocr_image` has wrapped its *recognition* call in
+> `gpu_exclusive` since `app/core/gpu_serialize.py` was written. The OCR ladder's **rung 2, the
+> detection-only probe, was added later, drives the same three DirectML sessions, and was never put
+> behind the same gate** (`_detect_only`, called through `ocr_ladder.route`). Two extraction workers
+> - the pipeline's default - therefore sat inside RapidOCR's DirectML text detector at the same
+> moment. That is exactly the stack already in `logs/crash/crash.log` for 2026-09-12: three threads
+> in `text_detect.__call__ -> InferenceSession.run`, two of them arriving through `_detect`, and a
+> fourth queued politely at `gpu_exclusive`. `EMBED_DEVICE` reaches `auto` on this DirectML machine
+> whenever a `.env` omits it - `.env.example` does - which is how a scratch run gets the card while
+> `D:\SearchProject\.env` says `cpu`.
+>
+> **Measured, this machine, the owner's 131 photographs, one variable at a time:**
+>
+> | run | device | threads | native OpenCV faults | text found | exit |
+> |---|---|---|---|---|---|
+> | before | cpu | 4 | 0 | yes (1-5 lines) | 0, 593 s |
+> | before | auto (DirectML) | 1 | 0 | yes (1-4 lines) | clean to 80 images |
+> | before | auto (DirectML) | 4 | **261** (+522 `Windows fatal exception 0xc000070a`) | **`lines=0` on every image** | 0, 69 s |
+> | after the fix | auto (DirectML) | 4 | **0** (and 0 fatal exceptions) | yes (1-3 lines) | 0, 1,072 s |
+>
+> So the graphics card is not broken and the photographs are not broken: **concurrency is**. The
+> detector's output buffer comes back corrupt, and OpenCV's contour pass over it either throws
+> `Unknown C++ exception from OpenCV code` - which `ocr_image` swallowed at DEBUG, so a run read
+> **nothing at all from 131 photographs and reported success** - or, when the corruption lands
+> differently, takes the process down with an access violation. Exit 139 is that access violation as
+> a POSIX shell reports it.
+>
+> **The fix** (`app/extract/ocr.py`, two changes, both inside that file): rung 2's probe now runs
+> inside `gpu_exclusive(_engine_is_gpu)`, per call and nothing wider, so rungs 0-1 (Pillow, numpy,
+> never at risk) stay outside it and a processor-only machine is not serialised; and the first
+> ordinary recognition failure of a run is reported once at WARNING instead of only at DEBUG,
+> mirroring `ocr_ladder._probe_failure_reported`, so "every image failed" can never again look like
+> "these photographs have no text". No pipeline change was needed.
+>
+> **Tests:** `tests/unit/test_media_picture_lane_gpu_gate.py`, four tests, all through the existing
+> `engine` seam so they need no OCR package, no card and no photographs. Failing-first proven by
+> removing the new gate and re-running: `4 threads were inside the graphics-card OCR engine at once`.
+>
+> **Still open.** `gpu_exclusive` is process-wide only; two Leasha processes on one card are not
+> coordinated and were observed interfering during this session's own measurements. Not a bug found
+> in the app, but it bounds what this gate can promise.
+
 > **Dated note, 2026-09-20 - promoted on the owner's instruction ("video audio do"), and the ffmpeg
 > design replaced by PyAV.** The Doc version is now 1.0; the file keeps its `-DRAFT` name because
 > the order says only "bump to 1.0" and gives no rename rule. The lead registers it in
@@ -128,7 +187,13 @@ item before then.
 
 ## Promotion checklist (for the collation session)
 
-- [ ] 0508–0512 landed and the picture stack proven on the owner's corpus.
+> **Dated note, 2026-09-20 (later):** ticked. Evidence is the completed 131-photograph run recorded
+> in the dated note at the top of this file (131/131 indexed, 63.8 minutes, exit 0, 467 faces and
+> 243 tags), after the exit-139 cause was found and fixed in `app/extract/ocr.py`. The run was on
+> `EMBED_DEVICE=cpu`, the owner's own `.env` value; the DirectML path is proven separately by the
+> before/after stress in the same note, not by this run.
+
+- [x] 0508–0512 landed and the picture stack proven on the owner's corpus.
 - [x] ffmpeg present on the owner's machine (winget) and detected.
 - [x] Whisper throughput measured once on the fixture (mins of audio per
   hour of CPU) so the trickle defaults are set from numbers, not guesses.
