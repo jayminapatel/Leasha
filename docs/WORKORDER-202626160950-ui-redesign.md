@@ -686,7 +686,27 @@ redo the shell.
 >   line breaks in 32,541 calls (0.38 s). Function counts, not a stopwatch; 9j's paint
 >   comparison is still open.
 
-- [ ] **9j** performance, measured not felt: `startup_timing.py`'s
+> **2026-09-20 (later) - 9j's second half, measured on a quiet machine: the redesign is not
+> slower, it is faster.** `tools/bench_results_paint.py`, the pre-redesign tree `3da478a` (extracted
+> with `git archive`, so it is exactly that commit) against this tree, three runs each,
+> alternating, machine at 18-21% CPU beforehand, 2,000 result rows (the tool's default: the
+> paint of one page does not depend on the row count, and building 10,000 costs about a minute).
+> The figure is the **minimum** paint of twelve, at the top, middle and end of the list:
+>
+> | | old `3da478a` | this tree |
+> |---|---|---|
+> | best run, top / middle / end | 240 / 275 / 260 ms | 186 / 192 / 189 ms |
+> | all three runs, average of the three positions | 259, 512, 467 ms | 189, 225, 258 ms |
+> | building 2,000 rows, best of three | 13.7 s | 5.2 s |
+>
+> Smallest against smallest: paint **27% faster** (259 to 189 ms), build **2.6x faster** (the build
+> gain is the `_wrap_ranges` fix above; the old tree's three builds were 13.7, 31.6 and 40.9 s, which is
+> why the order compares minimums). The constructor half was measured earlier the same day (not
+> slower). Neither figure is a regression, so 9j is ticked. **Not measured:** a 10,000-row model
+> literally scrolled end to end, and a machine other than this one; the figures above are one laptop
+> chip (i7-1365U) with other programs open.
+
+- [x] **9j** performance, measured not felt: `startup_timing.py`'s
   constructor figure before and after (0r's sandbox baseline is
   180–410ms); a 10,000-row results model scrolled end to end with the new
   delegate against the old, same machine, same index, numbers in the
