@@ -40,6 +40,7 @@ from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
 
 from app.chat.types import ChatTurn, WebAskEvent
 from app.core.logging import logger
+from app.ui.later import later
 from app.ui.chat_sessions import (
     ChatSession, ChatSessions, new_session, session_to_dict,
 )
@@ -563,7 +564,10 @@ class ChatController(QObject):
         if self.view is not None:
             self.view.box.stop_button.setEnabled(False)
             self.view.box.stop_button.setText("Stopping...")
-        QTimer.singleShot(STOP_GRACE_MS, lambda a=ask: self._release(a))
+        # `later`, not `QTimer.singleShot`: this waits four seconds, and a person who
+        # presses Stop and then closes the window is doing an ordinary thing. A bare
+        # single-shot lambda has no owner and would fire into a destroyed controller.
+        later(self, STOP_GRACE_MS, lambda a=ask: self._release(a))
 
     def _release(self, ask: _Ask) -> None:
         """Stop was pressed and the engine has not come back: give the box back now.

@@ -34,6 +34,7 @@ from app.core.branding import window_title
 from app.core.logging import logger
 from app.llm.ollama import OllamaClient
 from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
+from app.ui.later import later
 from app.ui.code_view import CodeView
 from app.ui.controllers.chat_controller import ChatController
 from app.ui.controllers.index_controller import IndexController
@@ -581,8 +582,11 @@ class MainWindow(QMainWindow):
         # Scheduled first so it has run by the time `_start_background_work`
         # does, though nothing in either method actually depends on that
         # order today.
-        QTimer.singleShot(0, lambda: self._construct_secondary_views(store))
-        QTimer.singleShot(0, lambda: self._construct_deferred_pages(
+        # `later`, not `QTimer.singleShot`: these lambdas have no owner, so a window
+        # closed before the next turn of the loop would still have its pages built
+        # into it. See `app/ui/later.py` for the measured difference.
+        later(self, 0, lambda: self._construct_secondary_views(store))
+        later(self, 0, lambda: self._construct_deferred_pages(
             store, settings, model, translator, interpret_on))
 
     def _construct_secondary_views(self, store: Any) -> None:
