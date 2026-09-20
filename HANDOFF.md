@@ -67,9 +67,12 @@ one repo test, two staging tests, one timing test), which leaves **two**:
   decision (section 7).
 
 **What the failures were.** About 22 tests failed because **the developer's home folder is itself
-a git repository** (`C:\Users\JayminPatel(INDEFF)\.git`, created 2026-09-19 11:06, no commits -
-almost certainly an accidental `git init`; **it is the owner's to delete**) and Windows' temp
-directory is under it, so "this folder is not a repository" found one; the suite is now bounded at
+a git repository** (`C:\Users\JayminPatel(INDEFF)\.git`, created 2026-09-19 11:06, zero commits -
+an aborted `git add` of the home folder for the *separate* JJOB project: 1,611 staged blobs,
+914 MB, and a remote URL spelt `jaymin-patel` that does not exist; the real JJOB repository is
+`D:\LocalSync\GDrive\jjobs`, four commits and level with its remote. **Deleted 2026-09-20 at the
+owner's word**, after checking nothing unique was in it) and Windows' temp
+directory was under it, so "this folder is not a repository" found one; the suite is now bounded at
 its temp tree (`tests/conftest.py`: `enclosing_repo` and `GIT_CEILING_DIRECTORIES`). About ten more
 read the machine (a real LibreOffice, a real captioning model, a clock captured at import, a
 subprocess with no `SYSTEMROOT`/`TEMP`); about ten were stale against deliberate design changes
@@ -1556,10 +1559,6 @@ Not blockers, but decide them deliberately rather than by accident.
 5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
    mean anything. The synthetic corpus is a floor, not a substitute.
 6. **Decisions waiting on the owner (2026-09-19, added to 2026-09-20).**
-   - **Delete the stray `.git` in the home folder** (`C:\Users\JayminPatel(INDEFF)\.git`, no
-     commits, created 2026-09-19 11:06). Anything under the home folder that is not inside another
-     repository is "in a repository" as far as `git` and Leasha's repository detection are
-     concerned. Not deleted here: it is the owner's data.
    - **The rail says "Offline"; the redesign order asks for the page's own title verbatim
      ("Offline Media").** `test_the_rail_labels_are_the_tab_titles_verbatim` is red until the label
      goes back or the test's expectation is corrected. A label is not reworded without the
