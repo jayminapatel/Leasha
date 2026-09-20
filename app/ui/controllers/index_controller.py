@@ -710,6 +710,11 @@ class IndexController(QObject):
         # exactly as long as the run - taking it here would hold it across the
         # whole life of the window again, which is the bug being fixed.
         pipeline.run_owner = GUI
+        # The window's own responsiveness, so the run can yield when it is late.
+        # Absent in a test window that never installed one: no yielding then.
+        monitor = getattr(self._w, "lag_monitor", None)
+        if monitor is not None:
+            pipeline.ui_lag = monitor.recent_lag_s
         self._w.indexing_view.start(pipeline, total_estimate=self._w._scan_total(chosen))
 
     def _index_resolve_failed(self, error: Any) -> None:

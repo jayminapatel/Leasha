@@ -35,6 +35,7 @@ regardless of what `shell.py` decides for the page as a whole.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
@@ -72,6 +73,10 @@ CATEGORY_SCHEDULE = "Schedule"
 CATEGORY_TUNING = "Tuning"
 
 
+
+
+#: The fastest a progress tick may repaint the page. See `_on_progress`.
+PROGRESS_PAINT_MIN_S = 0.25
 
 
 class IndexingView(QWidget):
@@ -120,6 +125,9 @@ class IndexingView(QWidget):
         self._pool.setMaxThreadCount(1)
         self._worker: Optional[IndexWorker] = None
         self._refreshing = False
+        #: When a progress tick last painted, and whether it showed a pause.
+        self._last_paint = 0.0
+        self._last_paused = False
         #: True between clicking Stop and the run ending. Stopping can take a
         #: while on a large file, and a dead button with no explanation reads
         #: as a click that was ignored.
@@ -263,6 +271,7 @@ class IndexingView(QWidget):
             return
         self._total_estimate = total_estimate
         self._stopping = False
+        self._last_paint = 0.0           # the first tick of a run always paints
         # A determinate bar with no total is a barber pole that spins forever,
         # which reads as "stuck" - and the caller never had a total to give,
         # because the walker discovers files as it goes. So it starts at zero
@@ -317,6 +326,20 @@ class IndexingView(QWidget):
         paint_external(self, record, locked=locked)
 
     def _on_progress(self, stats: Any) -> None:
+        # **At most a few repaints a second.** A fast run checkpoints every fifty
+        # documents, which is several times a second, and each tick rebuilds the
+        # skip summary, the archived-folder list and the notices on the one
+        # thread the person is typing on. A tick dropped here is replaced by the
+        # next, and the finished handler always paints the last state. A change
+        # in whether the run is paused is never dropped - that is the tick that
+        # explains why the bar stopped.
+        now = time.monotonic()
+        paused = bool(getattr(stats, "paused", False))
+        if (now - self._last_paint < PROGRESS_PAINT_MIN_S
+                and paused == self._last_paused and not self._stopping):
+            return
+        self._last_paint = now
+        self._last_paused = paused
         # See `presenter.progress_for` for both bugs this has had: the numerator
         # once left out `indexed`, so a fresh corpus sat near zero for hours;
         # then the denominator was `seen`, which a bounded queue keeps close to
