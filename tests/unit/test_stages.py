@@ -231,7 +231,16 @@ def test_a_second_run_reports_its_own_time_not_the_first_ones(
     first = pipeline.run()
     second = pipeline.run()          # everything unchanged: almost no work
 
-    assert sum(second.stages.values()) < sum(first.stages.values())
+    # The stages that do work, not `waiting`: that one is queue-scheduling time, and on
+    # a loaded machine (four test processes at once) an unchanged second run "waited"
+    # 1.2 s against a first run's 0.44 s in total. A reused Pipeline that adds the
+    # runs together makes the second number *at least* the first; a correct reset
+    # makes it smaller because nothing was written.
+    def work(stats):
+        return sum(seconds for stage, seconds in stats.stages.items() if stage != "waiting")
+
+    assert work(first) > 0, "the first run did no measurable work, so this proves nothing"
+    assert work(second) < work(first)
     store.close()
 
 
