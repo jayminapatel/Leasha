@@ -240,8 +240,31 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
                 parsed = parse_query(expand_slashes(query))
                 return [hit["path"] for hit in keyword.search(store, parsed, limit=args.k)]
 
+        # **`--interpret` used to be accepted here and do nothing.** It was wired into
+        # the `--questions` path only, so `--builtin --interpret` parsed the flag, printed
+        # no warning, and returned the untranslated numbers - the same "a setting that
+        # silently does nothing" failure the comment above warns about for a reranker
+        # name, one flag over. It matters because translation is what turns "the email
+        # from Chris" into `from:chris`: the table in `HANDOFF.md` section 3b credits it
+        # with taking sender, recipient and attachment from 50/0/0% to 100%, and that
+        # column cannot be reproduced by a flag that is ignored.
+        translate = None
+        if getattr(args, "interpret", False):
+            from app.llm.ollama import OllamaClient
+            from app.search.translate import QueryTranslator
+
+            interpret_settings = _load(args)
+            translator = QueryTranslator(OllamaClient(
+                interpret_settings.ollama_url, interpret_settings.ollama_model))
+            if not translator.available():
+                print("Ollama is not answering, so --interpret would measure nothing.")
+                print(r"  Check it: venv\Scripts\python.exe -m app.cli ollama")
+                return EXIT_ERROR
+            translate = lambda sentence: translator.translate(sentence).query  # noqa: E731
+            mode = f"{mode}, interpreted"
+
         report = evaluate(
-            QUESTIONS, search, k=args.k, mode=mode,
+            QUESTIONS, search, k=args.k, mode=mode, translate=translate,
             note=f"{len(CORPUS)} documents. A small clean corpus with no "
                  "near-duplicates - every number here is optimistic. Your own "
                  "questions against your own index are the measurement that counts.",
