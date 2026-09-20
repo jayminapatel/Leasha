@@ -634,7 +634,11 @@ redo the shell.
 > on an idle machine against a `git worktree` of `3da478a` and of this tree, three
 > times each, and compare the minimum.
 >
-> **The "Offline" rail label is still waiting for the owner.** Nothing was changed.
+> **The "Offline" rail label: decided by the owner, 2026-09-20 - it stays "Offline".**
+> The rail cannot fit "Offline Media" under an icon without wrapping. The test
+> (`test_the_rail_labels_are_the_tab_titles_verbatim`) now expects the shorter
+> word and says why; the page title and the Go menu are unchanged. Nothing else
+> in this order is waiting on a decision.
 
 - [ ] **9j** performance, measured not felt: `startup_timing.py`'s
   constructor figure before and after (0r's sandbox baseline is
