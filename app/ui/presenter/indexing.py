@@ -368,6 +368,7 @@ def index_summary(
     last_run: str = "",
     next_run: str = "",
     error: str = "",
+    warned: Optional[Mapping[str, Any]] = None,
 ) -> list[StatRow]:
     """Everything worth knowing about the index, in one list.
 
@@ -429,6 +430,20 @@ def index_summary(
             note=", ".join(f"{code} ({count})" for code, count in worst),
         ))
 
+    partial = int((warned or {}).get("ERR_PST_PARTIAL", 0) or 0)
+    if partial:
+        # Work order `pst-resilience` 3d. **Said, because "indexed" reads as
+        # "complete".** An archive with unreadable messages still indexes the
+        # rest, and without this row the tab looked the same as after a clean
+        # run - the CLI's `Partial` line was the only place it was ever said.
+        out.append(StatRow(
+            "Mail archives partly read",
+            f"{partial:,}",
+            note=("Everything readable is searchable. The log names what was "
+                  "missed; scanpst.exe repairs a damaged archive, then index again."),
+            warn=True,
+        ))
+
     if data_path:
         # Answers "is the index where I told it to be" at a glance, which is
         # otherwise a question requiring the CLI.
@@ -440,6 +455,33 @@ def index_summary(
     elif next_run:
         out.append(StatRow("Next run", next_run))
 
+    return out
+
+
+def warned_counts(raw: Any) -> dict[str, int]:
+    """`warned_by_code` out of the stored `last_run_stats`, or `{}`.
+
+    The run stores `repr()` of a plain dict, which `literal_eval` reads without
+    executing anything. A missing, old or unreadable record is not an error -
+    it is one row the panel does not draw.
+    """
+    if not raw:
+        return {}
+    import ast
+
+    try:
+        stats = ast.literal_eval(str(raw))
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return {}
+    counts = stats.get("warned_by_code") if isinstance(stats, dict) else None
+    if not isinstance(counts, dict):
+        return {}
+    out: dict[str, int] = {}
+    for code, count in counts.items():
+        try:
+            out[str(code)] = int(count)
+        except (TypeError, ValueError):
+            continue
     return out
 
 

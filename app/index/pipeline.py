@@ -65,6 +65,7 @@ from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
 from app.index.clip_embedder import ClipImageEmbedder
+from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.phash import PhashComputer
@@ -706,6 +707,18 @@ _GROWTH_WAITING_SHARE = 0.5
 _GROWTH_COOLDOWN_S = 10.0
 
 
+def _is_transient_partial(warning: Any) -> bool:
+    """Was this an `ERR_PST_PARTIAL` whose cause will pass on its own?
+
+    The extractor says so in the warning's context (`transient`); nothing here
+    decides that Outlook being busy is temporary and a damaged archive is not.
+    """
+    if str(getattr(warning, "code", "") or "") != "ERR_PST_PARTIAL":
+        return False
+    context = getattr(warning, "context", None) or {}
+    return bool(context.get("transient"))
+
+
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
 
@@ -743,6 +756,10 @@ class Pipeline:
         #: CLIP vectors computed but not yet written - see `_flush_pending_images`.
         #: Reset per run in `run()`, same as `_seen_paths` and the feeder queue.
         self._pending_images: list[tuple[int, list[float], str, int]] = []
+        #: Work order 202626270515. A video's per-picture CLIP vectors, waiting for
+        #: `_flush_pending_images` to write them after the file's mean. Keyed by
+        #: file id: `(seconds, vector)` pairs, extension, mtime.
+        self._pending_frames: dict[int, tuple[list[tuple[float, Any]], str, int]] = {}
         #: Work order 0h §2a. `file_id -> pHash hex string`, computed but not
         #: yet written - a dict, not a list like `_pending_images`, because a
         #: pHash is one value per file and a later write for the same file id
@@ -836,6 +853,11 @@ class Pipeline:
         # prune was guarded on it.
         self._stop = threading.Event()   # unwind the threads (always set at the end)
         self._interrupted = False        # the run was deliberately cut short
+        #: Work order 0u 6e. True once a stop made `_embed_pending` abandon part
+        #: of a batch. Its files stay PENDING and are redone on resume - which
+        #: is right - but that means neither their archive's completion marker
+        #: nor a resume position past them may be written this run.
+        self._embed_abandoned = False
         #: §6f: FTS trigger SQL for restoration after bulk insert. Stored here
         #: so _optimise_keyword_index can restore them at the end of the run.
         self._suspended_fts_triggers: list[str] = []
@@ -945,6 +967,7 @@ class Pipeline:
         self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
+        self._embed_abandoned = False
         # Work order 202626270515. **Before anything walks**: the walker asks
         # `media.disabled_extensions()` which extensions exist, and
         # `_narrow_to_images` below adds the enabled ones to the images pass.
@@ -958,6 +981,7 @@ class Pipeline:
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
+        self._pending_frames = {}
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -1062,6 +1086,10 @@ class Pipeline:
             # to ask it to stop.
             self._stop_feeder(feeder)
 
+        # Work order 202626270515: videos and recordings the run only found are
+        # read now, after everything else - see `app/index/media_backlog.py`.
+        self._drain_media_backlog(stats, on_progress)
+
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
         # yet" and pruning would delete perfectly good rows.
@@ -1153,6 +1181,11 @@ class Pipeline:
             self.image_vectors.maybe_compact(force=True)
         self._optimise_keyword_index(stats)
         self._write_completions()
+        from app.extract.legacy_office import take_fallback_summary
+
+        slower = take_fallback_summary()
+        if slower:
+            self._log.info("{}", slower)
         self._log.info("index run: {}", stats.as_dict())
         return stats
 
@@ -1506,7 +1539,7 @@ class Pipeline:
     #: transcription was stopped part-way: neither has settled anything.
     DEFERRED_SKIP_CODES = frozenset({
         "ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY",
-        "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED",
+        "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
     })
 
     def _is_deferred(self, skip_code: Optional[str]) -> bool:
@@ -1536,6 +1569,15 @@ class Pipeline:
         Asked once per file, in the extraction worker, after the change check
         has already decided the file is worth looking at.
         """
+        # Work order 202626270515: a normal run finds videos and recordings and
+        # reads them at the tail, as the `media_transcript` backlog kind
+        # (`app/index/media_backlog.py`) - never inline in front of the documents.
+        from app.index import media_backlog
+
+        if media_backlog.defers(self.config, candidate.path):
+            return make_error(
+                "ERR_MEDIA_BACKLOG", "index.pipeline", path=str(candidate.path))
+
         if self.config.ocr_mode not in ("text", "images"):
             return None
 
@@ -2042,6 +2084,30 @@ class Pipeline:
     # -- stage 2: extract (N threads) ---------------------------------------
 
     def _extract_worker(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
+        """Run one extraction worker, and never let it end without saying so.
+
+        `_consume` finishes only when it has seen one `_STOP` per worker, so a
+        worker that ended abnormally - an exception outside the per-file guard,
+        or a `BaseException` - left it polling `results` for ever with the run
+        looking alive. A clean return needs no marker (the stop flag ends the
+        consumer's loop); an abnormal one sends its own, and the reason is logged.
+        """
+        clean = False
+        try:
+            self._extract_worker_loop(work, results)
+            clean = True
+        except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
+            self._log.error("an extraction worker ended unexpectedly: {}: {}",
+                            type(exc).__name__, exc)
+            raise
+        finally:
+            if not clean:
+                try:
+                    results.put(_STOP, timeout=5)
+                except Exception:                       # noqa: BLE001 - nobody left to tell
+                    pass
+
+    def _extract_worker_loop(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
         while True:
             try:
                 _priority, _sequence, candidate, digest = work.get(timeout=0.25)
@@ -2118,7 +2184,9 @@ class Pipeline:
                     if self._stop.is_set():
                         break
                     self._offer(results, item)
-            except Exception as exc:            # noqa: BLE001 - never let a worker die silently
+            except BaseException as exc:        # noqa: BLE001 - never let a worker die silently
+                # `BaseException`, not `Exception`: one file that raises
+                # `SystemExit` or the like must cost that file, not the worker.
                 self._offer(results, _Extracted(
                     candidate=candidate, content_hash=digest,
                     error=to_app_error(exc, "index.pipeline", path=str(candidate.path)),
@@ -2291,10 +2359,15 @@ class Pipeline:
 
         produced = 0
         seen_keys: set[str] = set()
+        #: Work order `pst-resilience` 4a. Set when the archive came up short
+        #: for a reason that will pass (Outlook was busy) - see below.
+        retry_next_pass = False
         try:
             for index, document in enumerate(
                 extract(candidate.path, resume_from=resume_from)
             ):
+                if any(_is_transient_partial(w) for w in document.warnings):
+                    retry_next_pass = True
                 chunks: list[dict[str, Any]] = []
                 for ordinal, chunk in enumerate(chunk_document(document)):
                     chunks.append({
@@ -2375,7 +2448,18 @@ class Pipeline:
         default_key = str(candidate.path)
         if candidate.volume_id is not None and candidate.relative_path is not None:
             default_key = _candidate_row_key(candidate)
-        if seen_keys != {default_key}:
+        if retry_next_pass:
+            # **No marker, so the walker reads this archive again next pass.**
+            # Owner's decision, delegated and made 2026-09-20 (order
+            # `pst-resilience` 4a): retry a partial read when the cause was
+            # transient (Outlook busy on a folder), never for real damage -
+            # which would re-read the whole archive every run to skip the same
+            # messages. The messages already written are not re-embedded: each
+            # is compared by its text hash (`_already_current`).
+            self._log.info(
+                "{} was only partly read (Outlook was busy); it will be read "
+                "again on the next pass", candidate.path.name)
+        elif seen_keys != {default_key}:
             # This file was a container. Close it with a row for the archive
             # itself so the next run can see it is unchanged and skip it whole.
             yield _Extracted(
@@ -2506,6 +2590,11 @@ class Pipeline:
                 # exactly the reason the text vectors do just above.
                 self._flush_pending_images()
                 self._feed_sync(pending_vectors)
+                if self._embed_abandoned:
+                    # A stop abandoned part of a batch (0u 6e), so the archive
+                    # may be missing vectors: no marker, and the next run reads
+                    # it again. Its finished messages are skipped by hash.
+                    continue
                 self._write_marker(item)
                 continue
 
@@ -2515,6 +2604,10 @@ class Pipeline:
                 # 30GB archive with one new email is the entire difference
                 # between seconds and hours.
                 stats.unchanged_documents += 1
+                # Counted, not logged again: the message was logged on the run
+                # that wrote it, and a warning on every unchanged message would
+                # repeat on every incremental pass.
+                self._note_warnings(item, log=False)
                 self._note_resume_progress(item)
                 continue
 
@@ -2608,7 +2701,12 @@ class Pipeline:
         # `_note_resume_progress` for why nothing is persisted any earlier
         # than this single point.
         try:
-            self._persist_resume_progress()
+            # Not after an abandoned batch (0u 6e): a position was noted for
+            # every message handed to the feeder, and some of those vectors were
+            # never written - persisting them would skip those messages on
+            # resume, which is silent loss rather than a slower resume.
+            if not self._embed_abandoned:
+                self._persist_resume_progress()
         except Exception as exc:            # noqa: BLE001 - H4: never the run
             self._log.warning("could not persist mbox resume progress: {}", exc)
         if on_progress is not None:
@@ -2891,6 +2989,23 @@ class Pipeline:
     #: `_drain_face_backfill`/`_drain_face_cluster`.
     KIND_FACE_BACKFILL = "face_backfill"
     KIND_FACE_CLUSTER = "face_cluster"
+    #: Work order 202626270515. Drained at the *tail* of a run, not at its start
+    #: like the kinds above: it is the most expensive thing in the corpus and
+    #: nothing is waiting behind it. See `_drain_media_backlog`.
+    KIND_MEDIA_TRANSCRIPT = "media_transcript"
+
+    def _drain_media_backlog(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]] = None,
+    ) -> None:
+        """Read queued videos and recordings. Never fatal; see `media_backlog.drain`."""
+        from app.index import media_backlog
+
+        try:
+            media_backlog.drain(self, stats, on_progress)
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning("enrichment backlog kind {!r} failed: {}",
+                              self.KIND_MEDIA_TRANSCRIPT, exc)
 
     def _run_enrichment_drains(self, stats: IndexStats) -> None:
         """Run every registered enrichment-backlog kind, once, at run start.
@@ -3316,6 +3431,33 @@ class Pipeline:
             return False
         return record.content_hash == _text_digest(item.chunks)
 
+    def _note_warnings(self, item: _Extracted, *, log: bool = True) -> None:
+        """Log and count what an extractor warned about on one document.
+
+        **Counted, not only logged.** A warning on a document that indexed
+        successfully never reached the skip ledger, so "how many decks are
+        mostly pictures" - the number the Office OCR decision turns on - was
+        answerable only by grepping a log file. `_warn_if_mostly_pictures` has
+        been collecting this evidence since it was written; nothing was
+        reading it.
+
+        Called from `_write_one` for a document that was written, and from
+        `_consume` for one found already current - never both for the same
+        document, so nothing is counted twice. Work order `pst-resilience` 3e:
+        an archive's `ERR_PST_PARTIAL` rides on its *last* message, and on an
+        incremental run that message is usually unchanged, so it took the
+        `_already_current` skip and its warning was never counted.
+        """
+        for warning in item.warnings:
+            code = str(getattr(warning, "code", "") or "")
+            # An archive's own summary is logged whatever `log` says: it is one
+            # line per archive, and the only place the log names what was missed.
+            if log or code == "ERR_PST_PARTIAL":
+                self._log.warning("{} | {}", warning.message, warning.suggestion)
+            if code:
+                self._stats_ref.warned_by_code[code] = (
+                    self._stats_ref.warned_by_code.get(code, 0) + 1)
+
     def _write_one(self, item: _Extracted) -> list[tuple[int, int, list[float]]]:
         """Chunks and vectors first, INDEXED last.
 
@@ -3469,18 +3611,7 @@ class Pipeline:
         # batch - and that reasoning was right. It is preserved: the delete is
         # still outside any `store.batch()`, just later.
 
-        for warning in item.warnings:
-            self._log.warning("{} | {}", warning.message, warning.suggestion)
-            # **Counted, not only logged.** A warning on a document that indexed
-            # successfully never reached the skip ledger, so "how many decks are
-            # mostly pictures" - the number the Office OCR decision turns on -
-            # was answerable only by grepping a log file. `_warn_if_mostly_
-            # pictures` has been collecting this evidence since it was written;
-            # nothing was reading it.
-            code = str(getattr(warning, "code", "") or "")
-            if code:
-                self._stats_ref.warned_by_code[code] = (
-                    self._stats_ref.warned_by_code.get(code, 0) + 1)
+        self._note_warnings(item)
 
         # Deliberately does NOT embed. Embedding one document at a time means a
         # batch of three chunks per email, and ONNX throughput collapses at that
@@ -3621,10 +3752,15 @@ class Pipeline:
         from app.extract import media as _media
 
         try:
-            if self.image_embedder is None or self.image_vectors is None:
-                return
-            paths = [str(p) for _seconds, p in meta["keyframes"] if Path(p).is_file()]
+            kept = [(float(s), str(p)) for s, p in meta["keyframes"] if Path(p).is_file()]
+            paths = [p for _s, p in kept]
             if not paths:
+                return
+            # Faces first and on their own: independent of the CLIP lane (a machine
+            # can have one without the other) and switch-gated inside, exactly as a
+            # photograph's are. `app/index/video_frames.py` says what it does not do.
+            self._maybe_detect_faces_in_frames(file_id, paths)
+            if self.image_embedder is None or self.image_vectors is None:
                 return
             with self._clock.stage("clip"):
                 vectors = self.image_embedder.embed(paths)
@@ -3639,6 +3775,14 @@ class Pipeline:
             mean = [v / norm for v in total]
             self._pending_images.append(
                 (file_id, mean, indexed_ext(candidate.path) or "", int(candidate.mtime_ns)))
+            # Each picture's own vector, keyed by second, so a search can say which
+            # minute and not only which film. **Queued, not written here**: the mean
+            # is written by `_flush_pending_images`, which deletes a file's old
+            # vectors first, and the frames must go in after that - written now,
+            # they would be deleted by the very flush that writes their mean.
+            self._pending_frames[file_id] = (
+                [(s, v) for (s, _p), v in zip(kept, vectors)],
+                indexed_ext(candidate.path) or "", int(candidate.mtime_ns))
         except Exception as exc:                # noqa: BLE001 - H4: never costs the file
             self._log.warning(
                 "no CLIP vector for the video {}: {}. It stays searchable by "
@@ -3649,6 +3793,25 @@ class Pipeline:
                 self._stats_ref.warned_by_code.get(code, 0) + 1)
         finally:
             _media.release_keyframes(meta)
+
+    def _maybe_detect_faces_in_frames(self, file_id: int, paths: list[str]) -> None:
+        r"""Faces in a video's pictures. Switch-gated, first line, like a photograph's.
+
+        Work order 202626270515. **Off means off, all the way down**: the guard is
+        the first statement and `app.extract.face_detect` is named only inside
+        `video_frames.detect_faces`, after it passes.
+        """
+        if not self.config.people_recognition_enabled:
+            return
+        try:
+            from app.index import video_frames
+
+            video_frames.detect_faces(
+                self.store, file_id, paths, should_stop=self._stop.is_set)
+        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
+            self._log.warning(
+                "no face scan for the video's pictures: {}. It stays searchable as "
+                "usual - only people-search misses this film.", exc)
 
     def _photo_place(self, candidate: Candidate) -> Optional[str]:
         r"""A photograph's place, from its EXIF GPS, offline. Or None.
@@ -3845,6 +4008,32 @@ class Pipeline:
             self._stats_ref.warned_by_code["ERR_PHASH_STORE"] = (
                 self._stats_ref.warned_by_code.get("ERR_PHASH_STORE", 0) + 1)
 
+    def _flush_pending_frames(self, file_ids: list[int]) -> None:
+        """Write the per-picture vectors of the videos in this batch. Never raises.
+
+        After the mean, and never costs it (H4): a video whose frame rows could
+        not be written is still found by its mean, its details, the words on
+        screen and what was said - only "which minute looked like this" misses it.
+        """
+        from app.index import video_frames
+
+        for file_id in dict.fromkeys(file_ids):
+            entry = self._pending_frames.pop(file_id, None)
+            if entry is None:
+                continue
+            moments, ext, mtime_ns = entry
+            try:
+                video_frames.store_frames(
+                    self.image_vectors, file_id, [s for s, _v in moments],
+                    [v for _s, v in moments], ext=ext, mtime_ns=mtime_ns)
+            except Exception as exc:            # noqa: BLE001 - H4
+                self._log.warning(
+                    "no per-picture vectors for video file {}: {}. Search still "
+                    "finds the film; it cannot say which minute looked like the words.",
+                    file_id, exc)
+                self._stats_ref.warned_by_code["ERR_CLIP_STORE"] = (
+                    self._stats_ref.warned_by_code.get("ERR_CLIP_STORE", 0) + 1)
+
     def _flush_pending_images(self) -> None:
         r"""Write accumulated CLIP vectors in one batch - the H7 shape.
 
@@ -3899,6 +4088,7 @@ class Pipeline:
                 exts=[row[2] for row in batch],
                 mtimes_ns=[row[3] for row in batch],
             )
+            self._flush_pending_frames(file_ids)
         except Exception as exc:                # noqa: BLE001 - H4: never costs the run
             self._log.warning(
                 "{} image vector(s) could not be written: {}. Those photos "
@@ -3936,7 +4126,7 @@ class Pipeline:
         it and wants to compare.
         """
         if not self.config.dedup_chunks or len(texts) < 2:
-            return list(self.embedder.embed_all(texts))
+            return self._embed_sliced(texts)
 
         # An ordinary dict, keyed by the text itself: hashing it again would
         # cost a second pass over every character to save nothing, since
@@ -3953,9 +4143,20 @@ class Pipeline:
 
         saved = len(texts) - len(unique)
         if not saved:
-            return list(self.embedder.embed_all(texts))
+            return self._embed_sliced(texts)
 
-        embedded = list(self.embedder.embed_all(unique))
+        embedded = self._embed_sliced(unique)
+        if len(embedded) != len(unique) and self._stop.is_set():
+            # A stop abandoned the rest of `unique`. `unique` is in first-seen
+            # order, so the texts that are finished are exactly the leading run
+            # whose slot was embedded.
+            finished = len(embedded)
+            out = []
+            for slot in where:
+                if slot >= finished:
+                    break
+                out.append(embedded[slot])
+            return out
         if len(embedded) != len(unique):
             # **The model disagreed about how many it was given.** Rather than
             # map the wrong vectors onto the wrong chunks - which would be
@@ -3964,10 +4165,60 @@ class Pipeline:
             self._log.warning(
                 "the model returned {} vectors for {} passages; not reusing",
                 len(embedded), len(unique))
-            return list(self.embedder.embed_all(texts))
+            return self._embed_sliced(texts)
 
         self._stats_ref.chunks_deduped += saved
         return [embedded[index] for index in where]
+
+    def _embed_slice(self) -> int:
+        """Passages embedded between two looks at the stop flag. 0 = no slicing.
+
+        One model call on a processor (`CPU_INFER_BATCH`), so a stop costs at
+        most one call - about six seconds - rather than the whole batch of up to
+        `embed_batch`. The graphics card is left whole: it is the case that
+        wants a large batch (see `Embedder._call_options`).
+        """
+        choice = getattr(self.embedder, "choice", None)
+        if choice is not None and getattr(choice, "is_gpu", False):
+            return 0
+        return CPU_INFER_BATCH
+
+    def _embed_sliced(self, texts: list[str]) -> list:
+        """`embed_all`, looking at the stop flag before each slice.
+
+        Returns the vectors of the slices that finished - shorter than `texts`
+        only when a stop arrived. Work order 0u 6e.
+        """
+        size = self._embed_slice() or max(len(texts), 1)
+        out: list = []
+        for start in range(0, len(texts), size):
+            # **The first slice always runs**, unless an earlier batch was already
+            # abandoned. A stop keeps "everything gathered so far" up to one model
+            # call - the run's final flush happens with the flag set, and treating
+            # that as "abandon everything" would throw away the few files a stopped
+            # run had just finished (`test_stopping_does_not_lose_completed_work`).
+            # Once a batch has been cut, the rest are dropped without a call, so a
+            # stop still costs one call in flight plus at most this one.
+            if self._stop.is_set() and (start > 0 or self._embed_abandoned):
+                break
+            out.extend(self.embedder.embed_all(texts[start:start + size]))
+        return out
+
+    @staticmethod
+    def _whole_file_prefix(pending: list[tuple[int, int, str]], done: int) -> int:
+        """How many leading passages of `pending` belong to files finished in
+        full when only the first `done` have vectors.
+
+        A file is only marked INDEXED when *all* its passages have vectors, so a
+        file cut in half by a stop is abandoned whole - it is redone on resume.
+        """
+        if done >= len(pending):
+            return len(pending)
+        cut = done
+        boundary = pending[done][1]
+        while cut > 0 and pending[cut - 1][1] == boundary:
+            cut -= 1
+        return cut
 
     def _embed_pending(self, pending: list[tuple[int, int, str]]) -> None:
         """Embed everything accumulated so far, in one call, and write it.
@@ -3991,6 +4242,24 @@ class Pipeline:
         # are one `perf_counter` pair here.
         with self._clock.stage("embed"):
             vectors = self._embed_texts(texts)
+
+        if len(vectors) < len(pending) and self._stop.is_set():
+            # **A stop arrived mid-batch (0u 6e).** Write what is finished, for
+            # whole files only; leave the rest. Their chunks are already
+            # committed and their files are still PENDING - the state a crash in
+            # this window has always left, which the next run redoes. What must
+            # not happen is a marker or a resume position that claims them, so
+            # `_embed_abandoned` holds both back.
+            keep = self._whole_file_prefix(pending, len(vectors))
+            self._embed_abandoned = True
+            self._log.info(
+                "stopped mid-batch: {} of {} passages embedded and written, {} "
+                "left for the next run", keep, len(pending), len(pending) - keep)
+            if keep == 0:
+                pending.clear()
+                return
+            del pending[keep:]
+            vectors = vectors[:keep]
 
         # **Deleted here, one instant before the add** - see `_write_one` for
         # why this is not up there any more. A re-index must not leave the old

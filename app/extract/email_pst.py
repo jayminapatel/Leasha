@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -347,10 +348,24 @@ def _walk_folder(
         )
 
 
-#: Folders that could not be read, as AppErrors. Collected rather than raised so
-#: one closed Outlook does not end a walk that has already produced thousands of
-#: messages; the caller reports them at the end.
-_BUSY_FOLDERS: list[AppError] = []
+#: Folders that could not be read, as AppErrors, **keyed by the archive they were
+#: in**. Collected rather than raised so one closed Outlook does not end a walk
+#: that has already produced thousands of messages; the caller reports them at
+#: the end.
+#:
+#: Work order `pst-resilience` 5a. This was one process-wide list, drained whole
+#: by whoever finished first - so with two extraction workers reading archives
+#: through Outlook at once, each could report the other's folders as its own
+#: ("Only part of 'a.pst' could be read" over an archive that was read in full)
+#: and, worse, the archive that really was short could lose its record. Keyed by
+#: the store's path (lower-cased: Windows paths are case-insensitive, and
+#: `walk_session` already compares them that way), each archive drains its own.
+_BUSY_FOLDERS: dict[str, list[AppError]] = {}
+_BUSY_LOCK = threading.Lock()
+
+
+def _busy_key(path: Any) -> str:
+    return str(path or "").lower()
 
 
 def _iter_folder_items(store: MapiStore, folder: MapiFolder) -> Iterator[Any]:
@@ -383,18 +398,29 @@ def _iter_folder_items(store: MapiStore, folder: MapiFolder) -> Iterator[Any]:
 
 
 def _record_busy(store: MapiStore, folder: MapiFolder, exc: BaseException) -> None:
-    _BUSY_FOLDERS.append(make_error(
+    error = make_error(
         "ERR_OUTLOOK_BUSY", "extract.pst",
         folder=f"{store.display_name}/{folder.path}",
         details=f"{type(exc).__name__}: {exc}",
-    ))
+    )
+    key = _busy_key(getattr(store, "file_path", None) or store.display_name)
+    with _BUSY_LOCK:
+        _BUSY_FOLDERS.setdefault(key, []).append(error)
 
 
-def drain_busy_folders() -> list[AppError]:
-    """Take and clear the folders that could not be read during the last walk."""
-    global _BUSY_FOLDERS
-    busy, _BUSY_FOLDERS = _BUSY_FOLDERS, []
-    return busy
+def drain_busy_folders(path: Any = None) -> list[AppError]:
+    """Take and clear the folders that could not be read.
+
+    With `path`, only that archive's - what a pipeline worker must ask for, so
+    it never takes another worker's. With none, everything (the CLI's
+    `extract --mailbox`, which walks every store in one process).
+    """
+    with _BUSY_LOCK:
+        if path is None:
+            busy = [e for errors in _BUSY_FOLDERS.values() for e in errors]
+            _BUSY_FOLDERS.clear()
+            return busy
+        return _BUSY_FOLDERS.pop(_busy_key(path), [])
 
 
 # ---------------------------------------------------------------------------
@@ -784,11 +810,14 @@ def _busy_warning(path: Path) -> Optional[AppError]:
     `_BUSY_FOLDERS` was only ever drained by the CLI, so in the app the record
     of a skipped folder was written and never read.
     """
-    busy = drain_busy_folders()
+    busy = drain_busy_folders(path)
     if not busy:
         return None
     return make_error(
         "ERR_PST_PARTIAL", "extract.pst", path=str(path),
+        # 4a: Outlook being busy passes, so the next run should try again; the
+        # pipeline reads this to withhold the archive's `unchanged` marker.
+        transient=True,
         reason=f"{len(busy)} folder{'s' if len(busy) != 1 else ''} could not be read "
                "because Outlook was busy or closed",
         details="; ".join(str(e.details) for e in busy[:3]),

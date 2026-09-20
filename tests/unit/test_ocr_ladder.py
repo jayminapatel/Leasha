@@ -258,3 +258,29 @@ class TestRouteDecisionConsistency:
         result = route(Path("photo.jpg"))
         assert isinstance(result.decision, RouteDecision)
         assert result.decision in RouteDecision
+
+
+def test_a_failing_detection_probe_is_reported_once_at_warning(monkeypatch) -> None:
+    """It was `debug`: a probe that failed on every image (an engine whose call
+    signature changed) silently sent every photo through the full OCR pass."""
+    from pathlib import Path
+
+    from app.core.logging import logger as root_logger
+    from app.extract import ocr_ladder
+
+    warnings: list[str] = []
+    sink = root_logger.add(lambda message: warnings.append(str(message)), level="WARNING")
+    monkeypatch.setattr(ocr_ladder, "_probe_failure_reported", False)
+
+    def broken(_source):
+        raise TypeError("unexpected keyword argument 'use_det'")
+
+    try:
+        for _ in range(3):
+            ocr_ladder.route(Path("photo.jpg"), detect=broken)
+    finally:
+        root_logger.remove(sink)
+
+    probe = [w for w in warnings if "detection probe failed" in w]
+    assert len(probe) == 1, probe
+    assert "use_det" in probe[0]

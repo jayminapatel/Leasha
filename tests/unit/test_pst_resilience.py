@@ -329,10 +329,16 @@ def test_an_outlook_attach_failure_from_a_lock_is_a_lock(monkeypatch) -> None:
 def test_folders_outlook_could_not_read_reach_the_archive_warning(monkeypatch) -> None:
     email_pst.drain_busy_folders()
 
+    class Store:
+        display_name = "a"
+        file_path = "a.pst"
+
+    class Folder:
+        path = "Inbox"
+
     def walk(*_a, **_k):
         yield _doc("one")
-        email_pst._BUSY_FOLDERS.append(make_error(
-            "ERR_OUTLOOK_BUSY", "extract.pst", folder="Inbox", details="closed"))
+        email_pst._record_busy(Store(), Folder(), OSError("closed"))     # keyed by store
         yield _doc("two")
 
     session = _FakeSession()
@@ -391,3 +397,70 @@ def test_the_real_library_reports_garbage_as_corrupt(tmp_path: Path) -> None:
     with pytest.raises(AppErrorException) as caught:
         list(pst_libpff.read_archive(broken))
     assert caught.value.error.code == "ERR_FILE_CORRUPT"
+
+
+# --- a lock held by ANOTHER PROCESS, through the whole extractor ---------------
+
+_HOLDER = r"""
+import ctypes, sys
+from ctypes import wintypes
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.CreateFileW.restype = wintypes.HANDLE
+k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                          wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+h = k.CreateFileW(sys.argv[1], 0xC0000000, 0, None, 3, 0x80, None)   # share mode 0
+if h in (None, wintypes.HANDLE(-1).value):
+    print("FAILED", ctypes.get_last_error(), flush=True); sys.exit(1)
+print("HELD", flush=True)
+sys.stdin.read()                       # hold until the parent closes stdin
+"""
+
+
+@pytest.fixture()
+def held_by_another_process(tmp_path: Path):
+    """A file another *process* holds exclusively, as Outlook would hold a .pst."""
+    import subprocess
+
+    held = tmp_path / "held.pst"
+    held.write_bytes(b"!BDN" + bytes(4096))
+    proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(held)],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "HELD"
+        yield held
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+
+
+@needs_real_lock
+def test_a_file_another_process_holds_falls_back_to_outlook(
+    held_by_another_process, monkeypatch,
+) -> None:
+    """Order 1e's *logic*, proved without Outlook: real libpff, a real lock held by
+    a separate process, the real `PstExtractor`. Only Outlook itself is faked - and
+    must be, because building the real session **starts Outlook**, which attaches
+    every archive it can see and moves their modified times."""
+    session = _FakeSession()
+    session.attached = []
+    monkeypatch.setattr(email_pst, "Win32ComSession", lambda: session)
+    monkeypatch.setattr(email_pst, "walk_session",
+                        lambda *_a, **_k: iter([_doc("read through outlook")]))
+
+    documents = list(_extractor(email_pst.PstBackend.AUTO).extract(held_by_another_process))
+
+    assert [d.meta["subject"] for d in documents] == ["read through outlook"]
+    assert session.attached == [held_by_another_process], "libpff was refused, Outlook was not asked"
+
+
+@needs_real_lock
+def test_a_file_another_process_holds_is_reported_locked_when_outlook_is_absent(
+    held_by_another_process, monkeypatch,
+) -> None:
+    def no_outlook():
+        raise AppErrorException(make_error("ERR_OUTLOOK_MISSING", "extract.pst"))
+
+    monkeypatch.setattr(email_pst, "Win32ComSession", no_outlook)
+    with pytest.raises(AppErrorException) as caught:
+        list(_extractor(email_pst.PstBackend.AUTO).extract(held_by_another_process))
+    assert caught.value.error.code == "ERR_FILE_LOCKED"        # retried on the next pass

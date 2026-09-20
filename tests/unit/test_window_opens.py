@@ -1298,3 +1298,145 @@ def test_no_method_reachable_before_the_pages_exist_touches_them_directly():
     assert {"IndexingView", "SettingsView"} <= {
         n.func.id for n in ast.walk(shell["_construct_deferred_pages"])
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-20: what order 0r's note called "known, unfixed" in the deferred
+# build - the theme applied twice, and an F5 or a drop in the gap skipped - and
+# the one orphaned Settings signal.
+# ---------------------------------------------------------------------------
+
+def _wait_until(app, condition, seconds: float = 15.0) -> bool:
+    import time
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if condition():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_startup_sets_the_window_stylesheet_once_not_twice(tmp_path, monkeypatch):
+    r"""`_apply_theme` ran in `__init__` (first paint needs it) and again when the
+    deferred pages arrived. Setting the same sheet on the top-level window makes
+    Qt re-polish every widget in the tree - by then including Settings, the
+    heaviest page. The late pages now only have the *palette* pushed to their
+    pixmaps and log pane (`_push_palette`); the sheet reaches them by
+    inheritance.
+    """
+    from app.ui.shell import MainWindow
+
+    sheets: list[int] = []
+    applies: list[int] = []
+    real_set = MainWindow.setStyleSheet
+    real_apply = MainWindow._apply_theme
+
+    def counting_set(self, sheet):
+        sheets.append(len(sheet))
+        return real_set(self, sheet)
+
+    def counting_apply(self):
+        applies.append(1)
+        return real_apply(self)
+
+    monkeypatch.setattr(MainWindow, "setStyleSheet", counting_set)
+    monkeypatch.setattr(MainWindow, "_apply_theme", counting_apply)
+
+    with _unpumped_window(tmp_path, "theme_once") as (app, built, _store, _settings):
+        _pump(app)
+        assert hasattr(built, "settings_view") and hasattr(built, "indexing_view")
+
+        assert len(applies) == 1, f"_apply_theme ran {len(applies)} times at startup"
+        assert len(sheets) == 1, (
+            f"the window's stylesheet was set {len(sheets)} times at startup")
+        # Not traded away: the pages that arrived late were still told the palette.
+        assert built.settings_view.debug_pane._palette, (
+            "the late Settings page never received the theme palette")
+        # A real theme change still goes the whole way.
+        built._apply_theme()
+        assert len(sheets) == 2
+
+
+def test_an_f5_in_the_gap_is_replayed_once_the_page_exists(tmp_path):
+    r"""F5 before `_construct_deferred_pages` has run was logged and dropped, so a
+    person who hit it straight after launch got nothing and no word why."""
+    with _unpumped_window(tmp_path, "f5_gap") as (app, built, _store, _settings):
+        seen: list[tuple] = []
+        built.index_ctl._start_indexing = lambda **kw: seen.append(
+            (kw, hasattr(built, "indexing_view")))
+        assert not hasattr(built, "indexing_view")
+
+        built._start_indexing()
+        built._start_indexing()                     # a second press: still one run
+        assert seen == [], "nothing can start before the page exists"
+
+        _pump(app)
+
+        assert seen == [({"roots": None, "recheck_archives": False}, True)], (
+            "the queued F5 must start exactly once, after the page was built")
+        # And it is not replayed a second time by anything later.
+        _pump(app)
+        assert len(seen) == 1
+        # Later presses are ordinary again.
+        built._start_indexing()
+        assert len(seen) == 2
+
+
+def test_a_folder_dropped_in_the_gap_is_indexed_and_shown(tmp_path):
+    r"""The same gap for a drop, which carries information that cannot be
+    re-derived later: which folder. It also brings the Indexing page forward, as
+    a drop outside the gap does."""
+    from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PyQt6.QtGui import QDropEvent
+
+    dropped = tmp_path / "dropped_folder"
+    dropped.mkdir()
+    with _unpumped_window(tmp_path, "drop_gap") as (app, built, _store, _settings):
+        seen: list[dict] = []
+        built.index_ctl._start_indexing = lambda **kw: seen.append(kw)
+
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(dropped))])
+        built.dropEvent(QDropEvent(
+            QPointF(5, 5), Qt.DropAction.CopyAction, mime,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        built._start_indexing(recheck_archives=True)          # and a late F5-ish
+        assert seen == []
+
+        _pump(app)
+
+        assert len(seen) == 1
+        # `None` roots (everything configured) already covers the dropped folder.
+        assert seen[0] == {"roots": None, "recheck_archives": True}
+
+    with _unpumped_window(tmp_path, "drop_gap_only") as (app, built, _store, _settings):
+        seen = []
+        built.index_ctl._start_indexing = lambda **kw: seen.append(kw)
+        built._start_indexing(roots=[str(dropped)])
+        built._start_indexing(roots=[str(dropped), str(tmp_path)])
+        _pump(app)
+        assert seen == [{"roots": sorted({str(dropped), str(tmp_path)}),
+                         "recheck_archives": False}]
+        assert built.rail.tabText(built.rail.currentIndex()) == "Indexing", (
+            "a request that names a folder brings the Indexing page forward")
+
+
+def test_clearing_the_history_stops_the_search_box_offering_it(tmp_path):
+    r"""`history_cleared` was emitted and connected to nothing, so the box's
+    "recent searches" - a cached read of the very table being erased - went on
+    offering what had just been cleared until the next launch."""
+    with _unpumped_window(tmp_path, "history_cleared") as (app, built, store, _s):
+        _pump(app)
+        store.log_search("pump curves", hits=3)
+        saved = built.search_view.saved
+        saved.refresh()
+        assert _wait_until(app, lambda: saved._recent), "the recent search never arrived"
+        assert saved.sections(), "the box should be offering it before the clear"
+
+        built.settings_view._clear_history()
+        assert _wait_until(app, lambda: not saved._recent), (
+            "the search box still offers searches that were just cleared")
+        assert store.count_searches() == 0
+        assert not [name for name, _rows in saved.sections() if "ecent" in name]

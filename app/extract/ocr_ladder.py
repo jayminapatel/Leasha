@@ -63,6 +63,12 @@ from app.core.logging import logger
 
 log = logger.bind(component="extract.ocr_ladder")
 
+#: The detection probe's failure is reported once per process, at warning. It used
+#: to be `debug`, so a probe that failed on every image (an engine whose call
+#: signature changed) quietly turned every photograph into a full ~3.6 s recognition
+#: pass with nothing to say why - and once per image would flood the log.
+_probe_failure_reported = False
+
 #: Rung 1's own threshold before it became a setting, and the value
 #: `route()`/`_thumbnail_stats()` fall back to when no caller supplies one.
 #: See `OCR_WHITE_PAGE_PERCENT` in `app/core/settings_registry.py` - stored
@@ -246,7 +252,14 @@ def route(
         try:
             boxes = detect(source)
         except Exception as exc:                     # noqa: BLE001 - a broken probe is not "no text"
-            log.debug("detection probe failed: {}: {}", type(exc).__name__, exc)
+            global _probe_failure_reported
+            if not _probe_failure_reported:
+                _probe_failure_reported = True
+                log.warning(
+                    "the OCR detection probe failed ({}: {}); every image now takes "
+                    "the full recognition pass. Reported once.", type(exc).__name__, exc)
+            else:
+                log.debug("detection probe failed: {}: {}", type(exc).__name__, exc)
         else:
             if not boxes:
                 return LadderResult(
