@@ -554,6 +554,35 @@ codebase:
 > --chat-ids L01,...,L27` measures the lookups alone. 4c: first narration under one second is
 > asserted without a model; first-answer-token p95 was not measured (`--chat-runs N` does it).
 
+> **2026-09-20 (Opus pass) - the floor was being measured against half the retrieval stack, and
+> the real number is 84.0%, not 73.9%.** `evaluate --chat` built its engine with
+> `keyword_engine`: no embedder, no vector store. So every lookup whose answer has to be found
+> by *meaning* failed before the model was asked, and the score was reported as the model's
+> quality. This repository has made the identical mistake once before, on the **search**
+> evaluation - the comment in `app/cli/evaluate.py` beginning "The vectors have to be built or
+> this is not the full pipeline" is its record - and the `no vector hits` warnings were sitting
+> in the log both times. Fixed: a real model now gets `real_engine` (vectors built from the
+> fixture corpus, about a second); `--chat-fake` keeps keyword-only so it stays fast; and the
+> report prints **which retrieval it measured**, because a measurement that does not name its
+> own conditions invites this a third time.
+>
+> **Measured after the fix**, `mistral` answering, `llama3.2:1b` routing and planning, all 27
+> lookups, real retrieval, on the owner's machine:
+>
+> | | keyword only (the old, wrong way) | real retrieval |
+> |---|---|---|
+> | extractive | 73.9% (17 of 23, run cut short) | **84.0%** (23 of 27) |
+> | citation validity | - | 97.1% (33 of 34 sentences; **0 without a receipt**) |
+> | absence honesty | - | 100.0% |
+> | router | - | 100.0% |
+>
+> **4b stays open, and the floor is still not lowered.** 84.0% against 85% is now a miss of one
+> point rather than eleven, and citation validity is 97.1% against 98% - one sentence in
+> thirty-four. Both are close enough that a stronger answerer is the obvious next thing to try
+> (`gpt-oss:20b` and `gemma4:26b` are installed and were not run: minutes a question on this
+> laptop). What is *not* acceptable is moving the floor to meet the model. The command to repeat
+> it: `python -m app.cli evaluate --chat --chat-model NAME --chat-ids L01,...,L27`.
+
 - [ ] **4b** floors recorded in this file at first measurement and pinned as
   regression tests; the order does not ship below: citation validity ≥98%,
   aggregate exactness 100%, absence honesty 100%, extractive ≥85% on the
