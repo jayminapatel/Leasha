@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.25 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 4.26 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,59 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The closing pass, 2026-09-20 - three bugs that said nothing, and a button that was missing
+
+Every one of the first three was invisible: the wrong answer looked exactly like a right one,
+which is why they survived so long and why each now has a guard that fails loudly.
+
+**Silent failures, found by running the thing rather than reading it**
+
+- **`/newest` and `/oldest` did nothing from the command line.** `app/cli/search.py` handed the
+  raw query to the engine while every other caller - the window, the Code and Repos views, the
+  evaluation - expanded slash commands first, so the sort parsed to empty and was dropped. You
+  got relevance order and no warning. Found by checking the dates of what came back on the real
+  index; fixed and verified there.
+- **`--interpret` was accepted with `--builtin` and ignored.** Translation is what turns "the
+  email from Chris" into `from:chris`. It now runs, and refuses loudly when Ollama cannot answer
+  rather than quietly reporting untranslated numbers as translated ones.
+- **The Chat ship floor was measured against no vectors at all.** `evaluate --chat` built its
+  engine with keyword search only, so every question whose answer has to be found by meaning
+  failed before the model was asked - and that was reported as the model's quality. Re-measured
+  with the real stack: **84.0%, not 73.9%**. The 85% floor was NOT lowered to meet it. The
+  report now prints which retrieval it used, because this repository had already made the same
+  mistake once on the search evaluation.
+
+**The crash that killed three test runs**
+
+Not memory - that was the first answer and it was wrong. `QApplication.setStyleSheet` re-polishes
+every widget alive in the process, and the suite leaks widgets, so the walk eventually reached one
+already freed. Four sites fixed, a guard added for `app/` and `tests/`, and the application itself
+was confirmed never to do it (it themes its window, not the application). A deferred call with no
+owner is the same shape: `QTimer.singleShot` with a **lambda** fires into destroyed widgets while a
+bound method is cancelled - measured, not assumed - so `app/ui/later.py` ties them to an owner. The
+worst was chat **Stop**, which waits four seconds.
+
+**New**
+
+- **A Pause button on the Indexing page**, asked for by the owner. It holds the run; Stop still
+  ends it. Because it runs through the governor as one more reason to be waiting, the page can say
+  *which* pause is in force - yours, or the machine's. `app.cli index --pause-file PATH` for the
+  command line.
+- **`.doc` reads its WordArt** - DRAFT watermarks, signature banners, plant tag numbers: 39 of 388
+  real documents gained 168 words that were invisible before. Text inside embedded spreadsheets and
+  drawings is **counted and named** in the run summary rather than declined to LibreOffice, because
+  LibreOffice cannot recover it either: declining cost seconds a file and returned the same words.
+  Median 4.0 ms a file, down from 8.7 ms.
+- **The extractor registry loads on first read**, not on import: 38 fewer modules before the window.
+
+**Also**
+
+- A results refresh no longer loses the selected row; an offline result keeps its drive; database
+  waits are bounded; a folder chosen as an Offline Media source says what to choose instead.
+- The suite runner sizes itself to free memory, and says so when an explicit `-j` will not fit.
+- A hotkey test had asserted the non-Windows answer on Windows since it was written, failing every
+  run on the one platform this ships on. It was a missing guard, not the environment.
 
 ### The outstanding-work pass, 2026-09-20 - what was fixed, built and decided
 
