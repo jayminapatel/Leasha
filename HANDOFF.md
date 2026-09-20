@@ -115,8 +115,11 @@ so it must never be launched from a worktree (a "Cannot start" box appears: use
 must run in a child process (`tests/unit/close_scenario_child.py` - it froze the run three
 times); **LibreOffice 26.8 can crash or balloon to 8-11 GB on some real files**, so never loop
 real LibreOffice, and its crashes are silent to the person now (error mode inherited by the
-child); a long single-process Qt run can still die with a native access violation, so use
-`scripts/run_suite.py` and rerun the crashed part's files; `--timeout` on every pytest run,
+child); **a native crash in the suite is usually the machine running out of memory, not a bug in
+the test that died** - four test processes hold 1.2-2.0 GB each, and a Windows allocator that
+cannot get memory faults (`0xC0000005`) or corrupts the heap (`0xC0000374`) inside whichever test
+allocates next rather than raising `MemoryError`, so `scripts/run_suite.py` now picks the process
+count from what is actually free and warns when an explicit `-j` will not fit; `--timeout` on every pytest run,
 because a hung test does not stop by itself; the `WORKORDER-*.md` name is reserved for orders
 (the register counts every match).
 
