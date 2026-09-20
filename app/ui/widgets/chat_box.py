@@ -75,7 +75,7 @@ WEB_INTRO = ("Off, Chat stays entirely on this computer. On, it can also look th
 CHOICE_NOTES: dict[str, dict[str, str]] = {
     "CHAT_WEB_PROVIDER": {
         "wikipedia": " (works, no account; encyclopedia questions only)",
-        "duckduckgo": " (experimental, unverified: it asked for proof of a person)",
+        "duckduckgo": " (not confirmed working: it asked for proof of a person)",
         "searxng": " (your own server; unverified)",
         "brave": " (needs your key; unverified)",
     },
