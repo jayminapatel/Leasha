@@ -29,6 +29,13 @@ from app.extract.ebook import text_from_fb2, text_from_xhtml
 PACKAGED_CONFIG = Path(__file__).resolve().parents[2] / "config" / "extractors.toml"
 
 
+#: Formats read in-process first with the converter kept behind it, on the
+#: owner's instruction of 2026-09-20 ("make conversion as efficient as possible"):
+#: a cold LibreOffice is 5-10 s a file, the readers are milliseconds. Not an
+#: escape hatch - each entry needs an extractor that says `falls_back_to_converter`.
+READ_IN_PROCESS_FIRST = frozenset({".doc", ".ppt", ".pub", ".pages", ".numbers", ".key"})
+
+
 def shipped_converters() -> dict[str, dict]:
     """The `[converters]` table as shipped, read from the packaged file."""
     try:
@@ -89,6 +96,17 @@ def test_a_converted_format_has_no_library_extractor(extension: str) -> None:
     same document producing different search results on two installs, and is
     close to undebuggable from the outside.
     """
+    if extension in READ_IN_PROCESS_FIRST:
+        # The one sanctioned exception: an in-process reader first, the
+        # converter only for what it declines. The extractor must say so, or a
+        # format could quietly acquire both routes and behave differently on a
+        # machine without LibreOffice.
+        extractor = REGISTRY.get(extension)
+        assert extractor is not None and getattr(extractor, "falls_back_to_converter", False), (
+            f"{extension} is listed as read in-process first, but its extractor "
+            "does not declare falls_back_to_converter"
+        )
+        return
     assert extension not in REGISTRY, (
         f"{extension} has both a registered extractor ({REGISTRY[extension].name!r}) "
         "and a converter entry. Remove the converter."

@@ -248,10 +248,17 @@ then      = "plaintext"
 timeout_s = 180
 enabled   = true
 
+# 2026-09-20: read in-process first by app/extract/iwork.py (a few ms, no
+# LibreOffice); this route is only the fallback for what that reader declines
+# (an iWork '09 package, an encrypted file). It was `txt:Text` -> plaintext, which
+# is a Writer filter: Impress has none, LibreOffice exited 1 and wrote nothing for
+# all 8 of 8 `.key` files measured (27 on the owner's disk) - the `.ppt` fault
+# again. Converted to pptx and read by the `pptx` reader instead, verified on the
+# same 8 files.
 [converters.".key"]
-command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
+command   = ["soffice", "--headless", "--convert-to", "pptx", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.pptx"
+then      = "pptx"
 timeout_s = 180
 enabled   = true
 
@@ -265,10 +272,15 @@ timeout_s = 120
 enabled   = true
 note      = "WordPerfect conversion is unreliable; expect missing formatting and some lost text."
 
+# 2026-09-20: read in-process first by app/extract/publisher.py (Quill text
+# chunk, ~4 ms). This is the fallback only. It was `txt:Text` -> plaintext: a
+# Writer filter, but Publisher opens in Draw, so 8 of 8 measured `.pub` files
+# converted to nothing. Now exported as a PDF and read by the `pdf` reader, which
+# is what the in-process reader was proven against (8 of 8 written).
 [converters.".pub"]
-command   = ["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", "{outdir}", "{input}"]
-produces  = "{stem}.txt"
-then      = "plaintext"
+command   = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", "{outdir}", "{input}"]
+produces  = "{stem}.pdf"
+then      = "pdf"
 timeout_s = 120
 enabled   = true
 note      = "Publisher conversion is unreliable; layout-heavy files often yield little text."

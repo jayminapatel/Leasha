@@ -3,6 +3,16 @@
 **Doc version:** 1.1 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
 **Layer:** Backend - `app/extract/`, `config/extractors.toml`, `requirements.txt`
 
+> **Note 2026-09-20 (owner: "speed is important ... for all types of files applicable").**
+> The rule is now applied to what still ran per file: `.pub`, `.pages`, `.numbers`, `.key`
+> are read in-process (`publisher.py`, `iwork.py`) with the LibreOffice route kept only as
+> the fallback for a file the reader declines; `.mobi`/`.azw`/`.azw3` (390 files, previously
+> not indexed at all) by `mobi.py`; `.docx`, `.pptx`, `.xlsx` have a stdlib fast path
+> (`ooxml_fast.py`, `ooxml_pptx.py`, `ooxml_xlsx.py`) in front of python-docx, python-pptx
+> and openpyxl. The "one format, one route" test now allows an in-process reader that
+> declares `falls_back_to_converter`. Measurements and recall: `docs/EXTRACTION_SPEED.md`.
+> Not done: `.dwg` (no in-process route), `.wpd` (no sample to prove against).
+
 A new standing rule from the owner:
 
 > Use libraries where you can, and only LibreOffice where it cannot.
