@@ -115,11 +115,15 @@ so it must never be launched from a worktree (a "Cannot start" box appears: use
 must run in a child process (`tests/unit/close_scenario_child.py` - it froze the run three
 times); **LibreOffice 26.8 can crash or balloon to 8-11 GB on some real files**, so never loop
 real LibreOffice, and its crashes are silent to the person now (error mode inherited by the
-child); **a native crash in the suite is usually the machine running out of memory, not a bug in
-the test that died** - four test processes hold 1.2-2.0 GB each, and a Windows allocator that
-cannot get memory faults (`0xC0000005`) or corrupts the heap (`0xC0000374`) inside whichever test
-allocates next rather than raising `MemoryError`, so `scripts/run_suite.py` now picks the process
-count from what is actually free and warns when an explicit `-j` will not fit; `--timeout` on every pytest run,
+child); **a native crash in the suite is usually a leaked Qt widget, not a bug in
+the test that died**  - three runs died with `0xC0000005` / `0xC0000374` inside one rail test
+that passes alone. **Memory was blamed first and that was wrong**: it happened again at `-j 3` with
+14.8 GB free. The real cause is that tests build real widgets and let Python drop them without
+`deleteLater`, and `QApplication.setStyleSheet` re-polishes *every* widget alive in the process, so
+on a long run the walk reaches one that is already gone. Reproduced with the fourteen files before
+it, and neither half of those crashes alone - it is the *number* of leaked widgets, not one file.
+Fixed by scoping that stylesheet to the widget under test; **the leak itself is still there**, so
+anything else that walks all widgets (a theme switch in the running app) could meet it. `scripts/run_suite.py` also sizes its processes to free memory now, which is prudence, not the cure; `--timeout` on every pytest run,
 because a hung test does not stop by itself - though **a test that looks hung on a busy machine is usually the resource governor doing its job**: `wait_while_throttled` pauses while other processes hold the CPU, which is why two agents reported a "psutil hang" that was nothing of the kind (the probe itself measures 25-35 ms here against a 2 s poll). A test whose pipeline must not be throttled passes `ResourceLimits(cpu_percent=0)`, as `test_offline_media.py` does; the `WORKORDER-*.md` name is reserved for orders
 (the register counts every match).
 

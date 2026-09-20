@@ -20,13 +20,21 @@ and reports on each:
     python scripts/run_suite.py tests/unit/test_ocr.py tests/unit/test_backends.py
 
 **How many processes.** Each one loads Qt, onnxruntime, pyarrow and LanceDB, and the
-heaviest were measured at 1.2-2.0 GB resident. Run more of those than the free memory
-allows and the native allocators start failing - which Windows reports as an access
-violation (`0xC0000005`) or heap corruption (`0xC0000374`) inside whichever test happens
-to allocate next, not as an honest `MemoryError`. That is exactly how the last block of
-files died twice on 2026-09-20, in the same Qt test, with 8 GB free and four processes
-asked for. So the default is now derived from what is actually free; an explicit `-j` is
-obeyed, and warned about when the memory is not there for it.
+heaviest were measured at 1.2-2.0 GB resident, so the default is derived from what is
+actually free rather than being a flat four; an explicit `-j` is obeyed, and warned about
+when the memory is not there for it. **This is prudence, not a cure**: the native crashes
+of 2026-09-20 were first blamed on memory and that was wrong - the same crash happened at
+`-j 3` with 14.8 GB free. Their cause was a leaked widget (see below), and it is fixed.
+
+**A native crash here is usually a leaked Qt widget, not the test that died.** Three runs
+died with `0xC0000005` / `0xC0000374` inside one rail test that passes perfectly well on
+its own. It called `QApplication.setStyleSheet`, which makes Qt re-polish *every* widget
+alive in the process; tests build real widgets and let Python drop them without
+`deleteLater`, so on a long run the walk eventually reaches a C++ object that is already
+gone. Reproduced deliberately with the fourteen files that precede it - and neither half
+of those crashes alone, which is the tell: it is the *number* of leaked widgets, not one
+culprit file. Fixed by scoping that stylesheet to the widget under test. If this happens
+again, look for whatever just walked all widgets, not at the test named in the traceback.
 
 Exit code 0 only when every process finished and nothing failed. A process
 that died is reported as **CRASHED**, with the last test file it had started -
