@@ -84,6 +84,19 @@ def identify_source(path: Path) -> Optional[tuple[str, dict[str, Any]]]:
     return None
 
 
+def is_folder_not_a_drive(path: Path) -> bool:
+    r"""True when `path` is a real folder that `identify_source` could not
+    identify - the case of choosing `D:\Projects` rather than `D:\`. Only a
+    drive root or a share has a stable identity (a letter is never stored), so
+    a folder is refused; the caller says so in plain words rather than as a
+    configuration fault. False for a path that does not exist (an unplugged
+    drive, an unreachable share), which keeps its own message."""
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 #: 1a's structure-match offer: how similar a new root's top-level names must
 #: be to a catalogued-but-different source's own last-scan fingerprint before
 #: it is worth suggesting at all. High enough that two shares which merely
@@ -589,6 +602,8 @@ def scan_new_source(settings: Any, store: Any, root: Path, *, name: str,
         )
     found = identify_source(root)
     if found is None:
+        if is_folder_not_a_drive(root):
+            raise_error("ERR_SOURCE_NOT_A_DRIVE", "index.offline_media", path=str(root))
         raise_error(
             "ERR_CONFIG_INVALID", "index.offline_media",
             key="path", reason=f"could not read a volume or network identity for {root!r}",

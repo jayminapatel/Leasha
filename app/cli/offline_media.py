@@ -112,6 +112,11 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
 
     found = identify_source(root)
     if found is None:
+        from app.index.offline_media import is_folder_not_a_drive
+
+        if is_folder_not_a_drive(root):
+            return _report(make_error(
+                "ERR_SOURCE_NOT_A_DRIVE", "cli.offline_media", path=str(root)), as_json)
         return _report(make_error(
             "ERR_CONFIG_INVALID", "cli.offline_media",
             key="path", reason=f"could not read a volume or network identity for '{root}'",

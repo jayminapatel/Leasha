@@ -800,3 +800,22 @@ def test_a_long_index_does_not_squeeze_out_the_kind_words():
     found = value_suggestions(_Store([f"e{n:03d}" for n in range(60)]), "type",
                               catalogue=lambda: [])
     assert "excel" in found, "sixty extensions buried every kind word"
+
+
+def test_a_row_on_an_offline_media_volume_keeps_its_volume_and_relative_path():
+    r"""`to_row` declared `volume_id` / `relative_path` on `ResultRow` and never
+    copied them, so a row on a catalogued drive looked like an ordinary file and
+    the preview said "no longer where it was indexed" instead of showing the
+    text the index holds (order 0m, 2026-09-20 note)."""
+    from types import SimpleNamespace
+
+    from app.ui.presenter.results import to_row
+
+    on_a_drive = SimpleNamespace(chunk_id=1, file_id=1, path="leasha-volume://7/reports/q3.txt",
+                                 text="quarterly", volume_id=7, relative_path="reports/q3.txt")
+    ordinary = SimpleNamespace(chunk_id=2, file_id=2, path="C:/work/a.txt", text="x")
+
+    row = to_row(on_a_drive, [])
+    assert (row.volume_id, row.relative_path) == (7, "reports/q3.txt")
+    plain = to_row(ordinary, [])
+    assert (plain.volume_id, plain.relative_path) == (None, "")

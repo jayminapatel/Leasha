@@ -602,7 +602,7 @@ def test_check_renamed_source_offers_the_tab_the_same_suggestion(tmp_path, monke
             r"\old-nas\projects", kind="network", name="Old NAS",
         )
         _run(store, [mount],
-             volume_roots={str(mount).rstrip("\/").lower(): old_id})
+             volume_roots={str(mount).rstrip("\\/").lower(): old_id})
 
         new_mount = tmp_path / "renamed_mount"
         _write(new_mount / "Invoices" / "placeholder.txt", "x")
@@ -1423,3 +1423,45 @@ def test_browse_files_carries_volume_identity_through_for_the_files_tab(tmp_path
         assert on_volume in matched
         assert matched[on_volume]["volume_id"] == volume_id
         assert matched[on_volume]["relative_path"] == "reports/q3.txt"
+
+
+# --- a folder is refused in plain words (order 0m 2026-09-20, finding 3) -----
+
+def test_choosing_a_folder_says_to_choose_the_drive_itself(tmp_path, monkeypatch):
+    r"""A folder has no stable volume identity (a letter is never stored), so it
+    stays refused - the DECISION - but the message says what to do instead of
+    "configuration problem with 'path': could not read a volume or network
+    identity for WindowsPath(...)"."""
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import scan_new_source
+
+    folder = tmp_path / "Projects"
+    folder.mkdir()
+    monkeypatch.setattr(offline_media_module, "identify_source", lambda path: None)
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        with pytest.raises(AppErrorException) as excinfo:
+            scan_new_source(_fake_settings(tmp_path), store, folder, name="Projects",
+                            run_lock_owner=COMMAND_LINE)
+        assert store.list_volumes() == []            # and nothing was catalogued
+    error = excinfo.value.error
+    assert error.code == "ERR_SOURCE_NOT_A_DRIVE"
+    assert "Choose the drive itself, not a folder on it" in error.suggestion
+    assert "is a folder" in error.message
+    assert "Configuration problem" not in error.message and "WindowsPath" not in error.message
+
+
+def test_a_missing_path_keeps_its_own_message_not_the_folder_one(tmp_path, monkeypatch):
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import COMMAND_LINE
+    import app.index.offline_media as offline_media_module
+    from app.index.offline_media import scan_new_source
+
+    monkeypatch.setattr(offline_media_module, "identify_source", lambda path: None)
+    with SqliteStore(tmp_path / "index.db") as store:
+        with pytest.raises(AppErrorException) as excinfo:
+            scan_new_source(_fake_settings(tmp_path), store, tmp_path / "not-here", name="X",
+                            run_lock_owner=COMMAND_LINE)
+    assert excinfo.value.error.code == "ERR_CONFIG_INVALID"
