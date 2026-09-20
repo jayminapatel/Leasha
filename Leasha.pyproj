@@ -721,6 +721,7 @@
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
+    <Compile Include="tests\unit\test_run_suite_processes.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
     <Compile Include="tests\unit\test_saved_searches.py" />
