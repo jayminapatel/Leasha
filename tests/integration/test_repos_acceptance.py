@@ -631,7 +631,13 @@ def test_a_failed_vector_write_leaves_the_file_pending(stores, tmp_path):
     statuses = store.stats()["files"]
     assert statuses.get("INDEXED", 0) == 0, (
         "a file was marked INDEXED with no vector, and will never be retried")
-    assert statuses.get("PENDING", 0) == 4
+    # 2026-09-20: PARTIAL, not PENDING. Order 0b section 6d gave a file whose chunks
+    # are written (and keyword-searchable) but not yet embedded its own status, and
+    # this is exactly that state. What this test protects is unchanged: never
+    # INDEXED, and retried - `test_the_retry_recovers_it_on_the_next_run` below
+    # proves the retry.
+    assert statuses.get("PARTIAL", 0) == 4
+    assert statuses.get("PENDING", 0) == 0
     assert store.stats()["chunks_embedded"] == 0
 
 

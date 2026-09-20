@@ -350,6 +350,7 @@
     <Compile Include="app\ui\widgets\index_controls.py" />
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
+    <Compile Include="app\ui\widgets\indexing_layout.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />

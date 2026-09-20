@@ -339,6 +339,43 @@ def _v7_identifier_tokens(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
 
 
+#: Every trigger that mirrors a row into an external-content FTS table, as
+#: idempotent statements. Two consumers: `SqliteStore.check_and_rebuild_fts_if_dirty`
+#: puts them back after a bulk run that dropped them was interrupted, and
+#: `test_fts_bulk_recovery.py` pins that they match what a fresh database creates.
+#: The migrations above and below remain the definition of a *new* database;
+#: this is the copy that lets a *damaged* one be repaired without a migration.
+CONTENT_TRIGGERS: tuple[str, ...] = (
+    """CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+        INSERT INTO chunks_fts(rowid, text, symbols)
+        VALUES (new.id, new.text, new.symbols);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+        VALUES ('delete', old.id, old.text, old.symbols);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
+        VALUES ('delete', old.id, old.text, old.symbols);
+        INSERT INTO chunks_fts(rowid, text, symbols)
+        VALUES (new.id, new.text, new.symbols);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, subject, sender, recipients)
+      VALUES (new.file_id, new.subject, new.sender, new.recipients);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
+      VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
+      VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
+      INSERT INTO messages_fts(rowid, subject, sender, recipients)
+      VALUES (new.file_id, new.subject, new.sender, new.recipients);
+    END""",
+)
+
 #: The mail-header index, and the one place it is defined.
 #:
 #: **Created from Python rather than from `schema.sql`, because it may not be

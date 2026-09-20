@@ -26,6 +26,15 @@ from app.ui.presenter import (
 _NOW = time.time_ns()
 
 
+@pytest.fixture(autouse=True)
+def _now_is_now(monkeypatch):
+    """`_NOW` above is taken when the module is *imported* - at collection, which
+    in a full run is minutes before this file's tests execute - and the tests
+    assert a document touched "just now". They passed on a fast run and read "3
+    min ago" on a slow one. Refreshed for each test instead (2026-09-20)."""
+    monkeypatch.setitem(globals(), "_NOW", time.time_ns())
+
+
 def _row(sources=(0,), **changes):
     fields = dict(chunk_id=1, file_id=1, path="C:/work/report.pdf", rank=1,
                   score=0.5, text="the safety report", sources=sources,
