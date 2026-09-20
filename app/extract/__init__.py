@@ -1,44 +1,30 @@
 """Layer 2 — extraction: any supported file in, clean text and chunks out.
 
-Importing this package populates the extractor registry. Each extractor module
-registers itself on import, and the heavy parsers (PyMuPDF, python-docx,
-openpyxl, python-pptx) are imported lazily *inside* `extract()` - so importing
-`app.extract` to ask "is .pdf supported?" costs nothing, and a machine missing
-one optional parser can still index every other type.
+**Importing this package no longer imports every extractor.** It used to, and
+that cost about a quarter of a second before the window was on screen: three
+modules the first paint does need (`app.extract.cells` for the spreadsheet
+view, `app.extract.source_types` for code types, `app.extract.timecode` for
+media links) are submodules of this package, so reaching any one of them ran
+this file, and this file imported twenty-four parsers plus `email`, `mailbox`,
+`html` and `xml` behind them. Work order 0r item 2b.
 
-`email_pst` is imported defensively: it needs pywin32 and a live Outlook, and
-must never prevent the rest of the package from loading on a machine without
-them.
+Registration is instead deferred to the first question that needs an answer:
+`REGISTRY` and `NAME_REGISTRY` in `app/extract/base.py` import
+`app.extract._readers` - which holds the same import lines this file used to -
+the first time either is read. Every reader of the registry (`REGISTRY[".pdf"]`,
+`supported_extensions()`, `extractor_for()`, `extract()`, `format_health`,
+`doctor`, `app.cli formats`, the walker) therefore sees exactly what it always
+saw, and a duplicate claim still raises from `register()`; the difference is
+only *when* the modules are imported, never *whether*.
+
+The heavy parsers (PyMuPDF, python-docx, openpyxl, python-pptx) are still
+imported lazily *inside* `extract()` - so even loading the registry to ask "is
+.pdf supported?" costs no parser, and a machine missing one optional parser can
+still index every other type.
 """
 
 from __future__ import annotations
 
-from app.extract import archive as archive  # noqa: F401,E402
-from app.extract import cad as cad  # noqa: F401,E402
-from app.extract import cloudstub as cloudstub  # noqa: F401,E402
-from app.extract import diagrams as diagrams  # noqa: F401,E402
-from app.extract import doc as doc  # noqa: F401,E402
-from app.extract import ebook as ebook  # noqa: F401,E402
-from app.extract import email_files as email_files  # noqa: F401,E402
-from app.extract import email_mbox as email_mbox  # noqa: F401,E402
-from app.extract import iwork as iwork  # noqa: F401,E402
-from app.extract import media as media  # noqa: F401,E402
-from app.extract import mobi as mobi  # noqa: F401,E402
-from app.extract import ocr as ocr  # noqa: F401,E402
-from app.extract import odf as odf  # noqa: F401,E402
-from app.extract import office as office  # noqa: F401,E402
-# Every one of these registers itself on import. Order is irrelevant - a
-# duplicate claim raises - so they are kept alphabetical, which is what
-# `scripts/scaffold_extractor.py` inserts into and what `test_scaffold`
-# asserts. `plaintext` sat below this block, out of order, and the generator
-# was blamed for the file it was reading.
-from app.extract import pdf as pdf  # noqa: F401,E402
-from app.extract import plaintext as plaintext  # noqa: F401,E402
-from app.extract import ppt as ppt  # noqa: F401,E402
-from app.extract import publisher as publisher  # noqa: F401,E402
-from app.extract import raw as raw  # noqa: F401,E402
-from app.extract import rtf as rtf  # noqa: F401,E402
-from app.extract import xls as xls  # noqa: F401,E402
 from app.extract.base import (  # noqa: F401
     Document,
     DocumentBuilder,
@@ -52,10 +38,16 @@ from app.extract.base import (  # noqa: F401
 )
 from app.extract.chunker import Chunk, chunk_document, chunk_text  # noqa: F401
 
-try:  # pragma: no cover - Windows + Outlook only
-    from app.extract import email_pst as email_pst  # noqa: F401,E402
-except Exception:  # noqa: BLE001 - absence of Outlook is normal, not an error
-    email_pst = None  # type: ignore[assignment]
+
+def load_all_extractors() -> None:
+    """Import every extractor module, so each one's `register()` has run.
+
+    Idempotent - the second call is a `sys.modules` hit and nothing more.
+    Called by `app/extract/base.py` the first time the registry is read;
+    callers that want the registry should read the registry, not call this.
+    """
+    from app.extract import _readers  # noqa: F401 - registration side effects
+
 
 __all__ = [
     "Chunk",
@@ -68,6 +60,7 @@ __all__ = [
     "chunk_text",
     "extract",
     "extractor_for",
+    "load_all_extractors",
     "register",
     "supported_extensions",
 ]

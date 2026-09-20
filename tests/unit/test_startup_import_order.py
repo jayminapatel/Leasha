@@ -152,6 +152,51 @@ class TestStartupImportOrder:
             f"{violations}. Move these imports to after splash.show()."
         )
 
+    def test_the_extractor_set_is_not_imported_before_the_window(self) -> None:
+        """§2b: importing the window's module imports no file parser.
+
+        The second promise on this path, and it is not visible in `main.py`'s
+        own import list: `app.ui.shell` reaches `app.extract.cells` (the
+        spreadsheet view), `app.core.code_types` and `app.core.media_open`,
+        each of which is a submodule of `app.extract` - so until item 2b made
+        registration lazy, building the window's import graph also imported
+        twenty-four parsers and `email`, `mailbox`, `html` and `xml` behind
+        them. Nothing the first paint draws needs any of them.
+
+        Checked in a fresh interpreter: this one's `sys.modules` is full of
+        parsers other tests imported. `tests/unit/test_extract_lazy_registry.py`
+        holds the other half - that the registry still answers in full.
+        """
+        import os
+        import subprocess
+        import sys
+
+        root = MAIN_PY.parents[1]
+        environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys\n"
+             "import app.ui.shell\n"
+             "print('|'.join(sorted(m for m in sys.modules "
+             "if m.startswith('app.extract.'))))\n"],
+            cwd=str(root), text=True, capture_output=True,
+            timeout=180, env=environment,
+        )
+        assert result.returncode == 0, (
+            f"could not import app.ui.shell in a fresh interpreter:\n{result.stderr}"
+        )
+        loaded = set(result.stdout.strip().split("|")) - {""}
+
+        parsers = {"app.extract.pdf", "app.extract.office", "app.extract.media",
+                   "app.extract.email_mbox", "app.extract.ebook",
+                   "app.extract.archive", "app.extract.odf"}
+        assert not loaded & parsers, (
+            "importing app.ui.shell imported file parsers "
+            f"{sorted(loaded & parsers)} - they are registered lazily now "
+            "(app/extract/__init__.py) and nothing between the splash and "
+            "window.show() should be pulling them back in."
+        )
+
     def test_splash_construction_line_is_found(self) -> None:
         """Guard the guard: if this ever stops finding the call, the main
         test above would vacuously pass with an empty search space instead
