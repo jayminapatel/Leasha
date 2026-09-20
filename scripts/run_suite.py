@@ -15,9 +15,18 @@ touch a table that has been torn down (open - see HANDOFF.md). Neither is a
 reason to trust a single long process, so this splits the files across a few
 and reports on each:
 
-    python scripts/run_suite.py            # four processes
-    python scripts/run_suite.py -j 6       # six
+    python scripts/run_suite.py            # as many processes as memory allows, up to four
+    python scripts/run_suite.py -j 6       # six, whatever the machine has free
     python scripts/run_suite.py tests/unit/test_ocr.py tests/unit/test_backends.py
+
+**How many processes.** Each one loads Qt, onnxruntime, pyarrow and LanceDB, and the
+heaviest were measured at 1.2-2.0 GB resident. Run more of those than the free memory
+allows and the native allocators start failing - which Windows reports as an access
+violation (`0xC0000005`) or heap corruption (`0xC0000374`) inside whichever test happens
+to allocate next, not as an honest `MemoryError`. That is exactly how the last block of
+files died twice on 2026-09-20, in the same Qt test, with 8 GB free and four processes
+asked for. So the default is now derived from what is actually free; an explicit `-j` is
+obeyed, and warned about when the memory is not there for it.
 
 Exit code 0 only when every process finished and nothing failed. A process
 that died is reported as **CRASHED**, with the last test file it had started -
@@ -33,6 +42,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,16 +70,64 @@ def split(files: list[str], parts: int) -> list[list[str]]:
     return [files[i:i + size] for i in range(0, len(files), size)]
 
 
+#: Resident memory one test process needs before the native allocators start failing.
+#: Measured on 2026-09-20: the heaviest processes sat at 1.2 GB and 2.0 GB.
+MEMORY_PER_PROCESS_GB = 2.5
+
+#: Never more than this without being asked: beyond it the processes compete for the
+#: machine rather than finishing sooner.
+DEFAULT_MAX_PROCESSES = 4
+
+
+def choose_processes(requested: Optional[int], free_gb: Optional[float]) -> tuple[int, str]:
+    """How many processes to run, and the sentence to print when that needs explaining.
+
+    Pure, so the arithmetic is testable without a particular machine: `free_gb` is
+    `None` when the amount free could not be read, and then nothing is second-guessed.
+    """
+    if free_gb is None:
+        return (requested or DEFAULT_MAX_PROCESSES), ""
+    affordable = max(1, int(free_gb // MEMORY_PER_PROCESS_GB))
+    if requested is None:
+        chosen = max(1, min(DEFAULT_MAX_PROCESSES, affordable))
+        if chosen < DEFAULT_MAX_PROCESSES:
+            return chosen, (f"{free_gb:.1f} GB free, so {chosen} process"
+                            f"{'es' if chosen != 1 else ''} rather than {DEFAULT_MAX_PROCESSES} "
+                            f"(about {MEMORY_PER_PROCESS_GB} GB each)")
+        return chosen, ""
+    if requested > affordable:
+        return requested, (f"WARNING: {requested} processes asked for with only {free_gb:.1f} GB "
+                           f"free - about {MEMORY_PER_PROCESS_GB} GB each is needed, so a process "
+                           f"may die natively part-way through. {affordable} would be safe.")
+    return requested, ""
+
+
+def _free_gb() -> Optional[float]:
+    try:
+        import psutil
+    except Exception:                                      # noqa: BLE001 - never block a run
+        return None
+    try:
+        return float(psutil.virtual_memory().available) / (1024 ** 3)
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("files", nargs="*", help="test files (default: all)")
-    parser.add_argument("-j", "--processes", type=int, default=4)
+    parser.add_argument("-j", "--processes", type=int, default=None,
+                        help="how many processes (default: what the free memory allows, "
+                             f"up to {DEFAULT_MAX_PROCESSES})")
     parser.add_argument("--timeout", type=int, default=900,
                         help="seconds one test may take (pytest-timeout)")
     args = parser.parse_args(argv)
 
     files = find_files(args.files)
-    groups = split(files, args.processes)
+    processes, note = choose_processes(args.processes, _free_gb())
+    if note:
+        print(note, flush=True)
+    groups = split(files, processes)
     # Not "leasha-...": tests name fixture repositories after the project and
     # match them by name *and* root-path substring, so a temp folder with the
     # project's name in it made `repo:leasha` match a second repository.
