@@ -33,6 +33,8 @@ import os
 import platform
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -45,6 +47,7 @@ __all__ = [
     "detect",
     "cached_profile",
     "stored_profile",
+    "reset_detection_cache",
     "OVERRIDE_ENV",
     "PROFILE_STATE_KEY",
 ]
@@ -159,8 +162,26 @@ class ComputeProfile:
 # --- detection ---------------------------------------------------------------
 
 
-def detect(index_path: Any = None) -> ComputeProfile:
-    """Look at the machine. **Never raises**; gaps are recorded as unknowns."""
+def detect(index_path: Any = None, *, refresh: bool = False) -> ComputeProfile:
+    """Look at the machine. **Never raises**; gaps are recorded as unknowns.
+
+    **The two PowerShell probes run once per process, not once per call.**
+    The embedder, OCR, the image model, the reranker, the Settings card and the
+    start-of-run resolve each call this for themselves, and every call used to
+    spawn PowerShell twice (the index-disk type, then the display adapters) -
+    up to 25 seconds of waiting per call when the machine is busy, and the
+    exposure behind the 2026-09-08 "no display adapter was detected" log. What
+    was learned the first time is kept (`_gpu_cache`, `_disk_cache`) and
+    everything cheap - core counts, RAM, AVX2, whether DirectML is offered -
+    is still read fresh every time.
+
+    `refresh=True` is the way round it: the Settings "Re-detect" button and the
+    tests use it, and it asks the machine again. A probe that **failed** is not
+    kept for good - it is served for `_RETRY_AFTER_FAILURE` seconds (so a busy
+    machine is not made busier by every subsystem retrying at once) and then
+    asked again, and it is still reported as "could not run", never as "no
+    graphics card".
+    """
     override = _from_override()
     if override is not None:
         return override
@@ -168,7 +189,7 @@ def detect(index_path: Any = None) -> ComputeProfile:
     unknowns: list[str] = []
     logical = os.cpu_count() or 0
     physical, performance, efficiency = _cores(unknowns)
-    gpus, gpu_probe_failed = _gpus(unknowns)
+    gpus, gpu_probe_failed = _gpus(unknowns, refresh=refresh)
     return ComputeProfile(
         logical_processors=logical,
         physical_cores=physical or logical,
@@ -176,7 +197,7 @@ def detect(index_path: Any = None) -> ComputeProfile:
         efficiency_cores=efficiency,
         ram_mb=_ram_mb(unknowns),
         avx2=_avx2(unknowns),
-        index_disk=_disk_kind(index_path, unknowns),
+        index_disk=_disk_kind(index_path, unknowns, refresh=refresh),
         gpus=gpus,
         platform=f"{platform.system()} {platform.release()}".strip(),
         unknowns=tuple(unknowns),
@@ -308,21 +329,25 @@ def _avx2(unknowns: list[str]) -> bool:
         return False
 
 
-def _disk_kind(index_path: Any, unknowns: list[str]) -> str:
+def _disk_kind(index_path: Any, unknowns: list[str], *,
+               refresh: bool = False) -> str:
     """`"ssd"`, `"hdd"`, or `""` for the volume holding the index."""
     if index_path is None:
         return ""
     try:
         if sys.platform == "win32":
-            return _windows_disk_kind(Path(index_path), unknowns)
+            return _windows_disk_kind(Path(index_path), unknowns, refresh=refresh)
         return _linux_disk_kind(Path(index_path), unknowns)
     except Exception:                            # noqa: BLE001
         unknowns.append("index disk type")
         return ""
 
 
-def _windows_disk_kind(path: Path, unknowns: list[str]) -> str:
-    """Seek penalty, via PowerShell's storage cmdlets.
+def _windows_disk_kind(path: Path, unknowns: list[str], *,
+                       refresh: bool = False) -> str:
+    """Seek penalty, via PowerShell's storage cmdlets. **Once per drive letter
+    per process** (see `detect`); a probe that failed is retried after
+    `_RETRY_AFTER_FAILURE`.
 
     `IOCTL_STORAGE_QUERY_PROPERTY` would avoid the subprocess, but it needs a
     handle to the physical drive, which needs elevation on some systems - and a
@@ -333,6 +358,22 @@ def _windows_disk_kind(path: Path, unknowns: list[str]) -> str:
     if not letter:
         unknowns.append("index disk type")
         return ""
+    with _probe_lock:
+        known = _disk_cache.get(letter.upper())
+        if known is not None and not refresh and not _stale(known[3], known[2]):
+            unknowns.extend(known[1])
+            return known[0]
+        mine: list[str] = []
+        answer, failed = _probe_windows_disk(letter, mine)
+        _disk_cache[letter.upper()] = (answer, tuple(mine), failed, _now())
+    unknowns.extend(mine)
+    return answer
+
+
+def _probe_windows_disk(letter: str, unknowns: list[str]) -> tuple[str, bool]:
+    """The subprocess itself: `(kind, failed)`. `failed` is True only when the
+    probe did not run to an answer (timeout, no PowerShell) - an answer that is
+    neither SSD nor HDD is a real answer and is not asked again."""
     script = (
         f"$p = Get-Partition -DriveLetter {letter} -ErrorAction Stop; "
         "(Get-PhysicalDisk -ErrorAction Stop | "
@@ -346,14 +387,14 @@ def _windows_disk_kind(path: Path, unknowns: list[str]) -> str:
         )
     except Exception:                            # noqa: BLE001
         unknowns.append("index disk type")
-        return ""
+        return "", True
     answer = (done.stdout or "").strip().lower()
     if "ssd" in answer:
-        return "ssd"
+        return "ssd", False
     if "hdd" in answer:
-        return "hdd"
+        return "hdd", False
     unknowns.append("index disk type")
-    return ""
+    return "", False
 
 
 def _linux_disk_kind(path: Path, unknowns: list[str]) -> str:
@@ -384,12 +425,50 @@ def _linux_disk_kind(path: Path, unknowns: list[str]) -> str:
 #: answer instead of a false "no display adapter was detected".
 _last_known_adapters: Optional[tuple[GpuAdapter, ...]] = None
 
+#: 2026-09-20. **Detect once per process.** Every subsystem calls `detect()`
+#: for itself and each call used to spawn PowerShell twice. The two probes'
+#: answers are kept here: `"probe"` -> `(adapters, probe_failed, unknowns,
+#: taken_at)` for the display adapters, and per upper-case drive letter
+#: `(kind, unknowns, failed, taken_at)` for the index disk. One lock, held
+#: across the subprocess, so two subsystems asking at the same moment share
+#: one probe rather than each spawning their own.
+_probe_lock = threading.RLock()
+_gpu_cache: dict[str, tuple] = {}
+_disk_cache: dict[str, tuple] = {}
+
+#: A probe that could not run is served from memory for this long, then asked
+#: again. Long enough that a machine under load is not hammered by every
+#: subsystem retrying, short enough that one bad moment at startup does not
+#: stand for the whole session.
+_RETRY_AFTER_FAILURE = 120.0
+
+_now = time.monotonic
+
+
+def _stale(taken_at: float, failed: bool) -> bool:
+    """A cached answer is stale only when it is a failure old enough to retry.
+    An answer the machine really gave - including "no adapters" - stands."""
+    return bool(failed) and (_now() - taken_at) >= _RETRY_AFTER_FAILURE
+
+
+def reset_detection_cache() -> None:
+    """Forget everything the two probes learned, including the last known
+    adapters. For tests; a caller that only wants a fresh look uses
+    `detect(refresh=True)`, which keeps the last-known fall-back."""
+    global _last_known_adapters
+    with _probe_lock:
+        _gpu_cache.clear()
+        _disk_cache.clear()
+        _last_known_adapters = None
+
+
 #: Seconds the display-adapter probe is allowed. Deliberately not lengthened
 #: as a fix: a longer wait under load is still a wait that can fail.
 _DXGI_TIMEOUT = 15
 
 
-def _gpus(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], bool]:
+def _gpus(unknowns: list[str], *,
+          refresh: bool = False) -> tuple[tuple[GpuAdapter, ...], bool]:
     """Display adapters, and whether DirectML can actually be used.
 
     **Two separate questions, deliberately.** An adapter that DXGI reports and
@@ -406,12 +485,37 @@ def _gpus(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], bool]:
     and an earlier one in this process succeeded, that answer is reused and
     said so at WARNING; when there is none, the empty tuple comes back flagged
     so the sentence downstream can be truthful.
-    """
-    global _last_known_adapters
 
+    2026-09-20: **the probe itself runs once per process** (`_gpu_cache`); only
+    the DirectML check, which is in-process and cheap, is asked every time - so
+    a lost provider is still noticed (`resolve._gpu_regression` depends on it).
+    """
     directml = _directml_provider_available()
     if sys.platform != "win32":
         return (), False
+
+    with _probe_lock:
+        cached = _gpu_cache.get("probe")
+        if cached is not None and not refresh and not _stale(cached[3], cached[1]):
+            adapters, probe_failed = cached[0], cached[1]
+            unknowns.extend(cached[2])
+        else:
+            mine: list[str] = []
+            adapters, probe_failed = _probe_gpus(mine)
+            _gpu_cache["probe"] = (adapters, probe_failed, tuple(mine), _now())
+            unknowns.extend(mine)
+
+    if not adapters:
+        return (), probe_failed
+    from dataclasses import replace
+
+    return (tuple(replace(adapter, directml=directml) for adapter in adapters),
+            probe_failed)
+
+
+def _probe_gpus(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], bool]:
+    """Ask the machine (one PowerShell call) and apply the fall-back rules."""
+    global _last_known_adapters
 
     adapters, failure = _dxgi_adapters(unknowns)
     if failure:
@@ -421,18 +525,9 @@ def _gpus(unknowns: list[str]) -> tuple[tuple[GpuAdapter, ...], bool]:
             return (), True
         _log.warning("graphics card check {} - using the last known answer "
                      "({} adapters)", failure, len(_last_known_adapters))
-        adapters = _last_known_adapters
-        probe_failed = True
-    else:
-        _last_known_adapters = adapters
-        probe_failed = False
-
-    if not adapters:
-        return (), probe_failed
-    from dataclasses import replace
-
-    return (tuple(replace(adapter, directml=directml) for adapter in adapters),
-            probe_failed)
+        return _last_known_adapters, True
+    _last_known_adapters = adapters
+    return adapters, False
 
 
 def _directml_provider_available() -> bool:
@@ -526,7 +621,8 @@ def stored_profile(store: Any) -> Optional[ComputeProfile]:
         return None
 
 
-def cached_profile(store: Any, index_path: Any = None) -> ComputeProfile:
+def cached_profile(store: Any, index_path: Any = None, *,
+                   refresh: bool = False) -> ComputeProfile:
     """The stored profile if this is still the same machine, else a fresh one.
 
     **The future-machine story in one function.** The same index folder opened
@@ -534,7 +630,7 @@ def cached_profile(store: Any, index_path: Any = None) -> ComputeProfile:
     notices and re-derives everything rather than running on the old machine's
     numbers.
     """
-    fresh = detect(index_path)
+    fresh = detect(index_path, refresh=True) if refresh else detect(index_path)
     if fresh.overridden:
         return fresh                             # an override is never cached
 

@@ -1435,7 +1435,13 @@ class SearchEngine:
         # Fires only on a single symbol-shaped word, so a sentence never
         # reaches it - and in prose no declaration pattern can match, which
         # makes it a no-op rather than a wrong answer.
-        symbol = definitions.looks_like_symbol(parsed.terms)
+        #
+        # **Not under an explicit `/newest` or `/oldest`.** `boost` re-sorts
+        # the whole list by `rrf_score`, so run after the date sort above it
+        # put a single symbol-shaped word back into relevance order with no
+        # notice (`SearchEngine /oldest`). An explicit date sort abandons
+        # relevance on purpose and must win.
+        symbol = None if parsed.sort else definitions.looks_like_symbol(parsed.terms)
         if symbol:
             fused = definitions.boost(fused, symbol)
 

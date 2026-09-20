@@ -283,8 +283,10 @@ def windows_with_no_earlier_answer(monkeypatch):
     Everything else `detect()` asks on win32 (topology, AVX2) fails through
     its own guard on Linux and is recorded as an unknown, which is fine."""
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(cp, "_last_known_adapters", None)
+    cp.reset_detection_cache()
     monkeypatch.setattr(cp, "_directml_provider_available", lambda: True)
+    yield
+    cp.reset_detection_cache()
 
 
 def _timing_out(*args, **kwargs):
@@ -331,7 +333,7 @@ def test_a_timed_out_probe_reuses_the_answer_from_an_earlier_one(
     assert not first.gpu_probe_failed
 
     monkeypatch.setattr(cp.subprocess, "run", _timing_out)
-    later = detect()
+    later = detect(refresh=True)
 
     assert [g.name for g in later.gpus] == ["Intel Iris Xe"]
     assert later.directml_available
@@ -339,6 +341,113 @@ def test_a_timed_out_probe_reuses_the_answer_from_an_earlier_one(
     assert later.fingerprint() == first.fingerprint()
     assert any("timed out after 15s - using the last known answer (1 adapters)"
                in line for line in warnings)
+
+
+def _counting(answer):
+    calls: list[list] = []
+
+    def run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    return run, calls
+
+
+def test_the_probes_run_once_per_process_not_once_per_call(
+        windows_with_no_earlier_answer, monkeypatch, tmp_path) -> None:
+    """2026-09-20. The embedder, OCR, the image model and the reranker each
+    call `detect()`, and each call spawned PowerShell twice (disk, then
+    adapters). Five callers must cost two subprocesses, not ten."""
+    run, calls = _counting(_Done())
+    monkeypatch.setattr(cp.subprocess, "run", run)
+
+    profiles = [detect(tmp_path) for _ in range(5)]
+
+    assert len(calls) == 2, f"expected the disk probe and the adapter probe once, got {len(calls)}"
+    assert all([g.name for g in p.gpus] == ["Intel Iris Xe"] for p in profiles)
+    assert len({p.fingerprint() for p in profiles}) == 1
+
+
+def test_a_forced_refresh_asks_the_machine_again(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    run, calls = _counting(_Done())
+    monkeypatch.setattr(cp.subprocess, "run", run)
+
+    detect()
+    detect()
+    assert len(calls) == 1
+    detect(refresh=True)
+    assert len(calls) == 2
+
+
+def test_a_failed_probe_is_still_could_not_run_when_served_from_memory(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    """Caching must not launder a failure into "no graphics card": the second
+    caller, who never ran the probe, gets the flag as well."""
+    run, calls = _counting(subprocess.TimeoutExpired(cmd="powershell", timeout=15))
+    monkeypatch.setattr(cp.subprocess, "run", run)
+
+    first, second = detect(), detect()
+
+    assert len(calls) == 1, "a busy machine must not be probed by every caller"
+    for profile in (first, second):
+        assert profile.gpus == () and profile.gpu_probe_failed
+        assert "display adapters" in profile.unknowns
+
+
+def test_a_failed_probe_is_retried_after_the_retry_window(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    """One bad moment at startup must not stand for the whole session."""
+    clock = [1000.0]
+    monkeypatch.setattr(cp, "_now", lambda: clock[0])
+    run, calls = _counting(subprocess.TimeoutExpired(cmd="powershell", timeout=15))
+    monkeypatch.setattr(cp.subprocess, "run", run)
+    assert detect().gpu_probe_failed
+
+    clock[0] += cp._RETRY_AFTER_FAILURE - 1
+    detect()
+    assert len(calls) == 1
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Done())
+    clock[0] += 2
+    recovered = detect()
+
+    assert not recovered.gpu_probe_failed
+    assert [g.name for g in recovered.gpus] == ["Intel Iris Xe"]
+
+
+def test_an_honest_no_adapters_answer_is_not_asked_again(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    """Only a probe that *failed* is retried; "none found" is an answer."""
+    clock = [1000.0]
+    monkeypatch.setattr(cp, "_now", lambda: clock[0])
+
+    class Nothing:
+        returncode = 0
+        stdout = ""
+
+    run, calls = _counting(Nothing())
+    monkeypatch.setattr(cp.subprocess, "run", run)
+
+    detect()
+    clock[0] += cp._RETRY_AFTER_FAILURE * 10
+    profile = detect()
+
+    assert len(calls) == 1
+    assert profile.gpus == () and not profile.gpu_probe_failed
+
+
+def test_a_lost_directml_provider_is_still_noticed_with_the_probe_cached(
+        windows_with_no_earlier_answer, monkeypatch) -> None:
+    """`resolve._gpu_regression` needs the DirectML question asked fresh every
+    time; only the subprocess is remembered."""
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Done())
+    assert detect().directml_available
+
+    monkeypatch.setattr(cp, "_directml_provider_available", lambda: False)
+    assert not detect().directml_available
 
 
 def test_a_probe_that_ran_and_found_nothing_is_not_a_failure(
