@@ -540,6 +540,20 @@ codebase:
 > still asks whether to search the web - the ask is the guard, but the web should be consulted only when the
 > files are thin or the checked answer is partial; that refinement is not built.
 
+> **2026-09-20 (closing pass) - 4b and 4c are left open on purpose, and the floor is NOT lowered.**
+> Real-model lookup ("extractive") measurements on this machine, both partial because a full
+> 96-question run costs about 40 s a question while the machine is shared: `mistral` 17 of the first
+> 23 lookups (73.9%, cut off by a watchdog), `llama3` 5 of the first 9 (56%, stopped for time),
+> `llama3.2:1b` 2 of 9. None reaches the 85% ship floor; the earlier 83.9% / 83.3% figures in this
+> file remain UNCONFIRMED (never reproduced here). The stand-in `FakeLLM` still clears every floor
+> and is pinned in `test_chat_evaluate.py`, but it is not a language model. Decision: the 85% floor
+> stays as the target, because a floor chosen to fit a weak model would certify answers nobody
+> should trust. **The way to close 4b is a stronger local model** (`gpt-oss:20b` and `gemma4:26b`
+> are installed and were not run to completion: minutes a question on this laptop) or the owner
+> choosing a lower floor with eyes open. `python -m app.cli evaluate --chat --chat-model NAME
+> --chat-ids L01,...,L27` measures the lookups alone. 4c: first narration under one second is
+> asserted without a model; first-answer-token p95 was not measured (`--chat-runs N` does it).
+
 - [ ] **4b** floors recorded in this file at first measurement and pinned as
   regression tests; the order does not ship below: citation validity ≥98%,
   aggregate exactness 100%, absence honesty 100%, extractive ≥85% on the
