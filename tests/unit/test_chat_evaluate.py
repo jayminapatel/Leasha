@@ -13,6 +13,12 @@ needs a model is a test that cannot run on the machines the suite runs on; set
 The ship floors of the order itself (citation validity >= 98%, aggregate exactness 100%,
 absence honesty 100%, extractive >= 85%) are `app.chat.evaluate.FLOORS`, and the deterministic
 run must clear all four.
+
+**Re-decided 2026-09-20** (the conversational Chat): 96 questions now (13 conversational, 3
+general-but-not-in-the-files), citation validity counts the sentences that *claim something
+about the files* (a sentence with a marker), and "nothing found" has two honest shapes. The
+pinned numbers below are the fake's fresh measurement; the real-model measurements are in the
+work order.
 """
 
 from __future__ import annotations
@@ -24,7 +30,9 @@ from pathlib import Path
 
 import pytest
 
-from app.chat.evaluate import FLOORS, ChatReport, run_chat_eval, score_case
+from app.chat.evaluate import (
+    FLOORS, ChatReport, ConversationReport, run_chat_eval, run_conversations, score_case,
+)
 from app.chat.router import CLASSES
 from app.chat.testing import FakeLLM
 from app.chat.types import ChatTurn
@@ -89,8 +97,8 @@ def test_the_deterministic_run_clears_the_orders_ship_floors(report):
     assert set(FLOORS) == {"citation_validity", "aggregate_exactness", "absence_honesty", "extractive"}
 
 
-#: Recorded at the first measurement (FakeLLM, 80 questions) and pinned with margin. A
-#: value lower than its floor here is a regression in the router, the loop, the
+#: Recorded at the measurement of 2026-09-20 (FakeLLM, 96 questions) and pinned with margin.
+#: A value lower than its floor here is a regression in the router, the loop, the
 #: verification, the counting or the fixture - fix that, do not lower the floor.
 PINNED = {
     "citation_validity": 0.98,
@@ -102,7 +110,10 @@ PINNED = {
     "find": 0.95,                  # measured 100%
     "refusal": 0.60,               # measured 66.7%: one of three traps fools a lexical stand-in
     "traps": 0.50,                 # measured 60%
-    "synthesis": 0.60,             # measured 80%; no floor at v1 (work order 4b)
+    "synthesis": 0.50,             # measured 60% (was 80% when synthesis was one call per document:
+                                   # the fake now answers in one call); no floor at v1 (work order 4b)
+    "conversation": 1.0,           # measured 100%: LLM-free structure, the router's rules decide it
+    "general_fill": 1.0,           # measured 100%: the sentence and the label are the engine's own
 }
 
 
@@ -114,7 +125,10 @@ def test_each_measure_holds_its_pinned_floor(report, measure, floor):
 
 def test_no_rendered_sentence_is_without_a_receipt(report):
     assert report.unreceipted_sentences == 0
-    assert sum(r.sentences for r in report.results) >= 60             # and there were sentences to check
+    # ...and there were claims to check: a sentence with a marker is a claim about the files
+    # (the count was 60+ when every sentence had to carry one; unmarked prose is judged by
+    # `audit_answer` instead, which the zero above is).
+    assert sum(r.sentences for r in report.results) >= 45
 
 
 def test_every_first_narration_arrives_within_a_second(report):
@@ -125,7 +139,7 @@ def test_every_first_narration_arrives_within_a_second(report):
 def test_the_report_states_what_it_measured_and_never_hides_a_stand_in(report):
     text = "\n".join(report.lines())
     assert "NOT a language model" in text and "citation validity" in text
-    assert report.as_dict()["real_model"] is False and report.as_dict()["questions"] == 80
+    assert report.as_dict()["real_model"] is False and report.as_dict()["questions"] == len(fx.QUESTIONS)
     real = ChatReport(model="qwen2.5:1.5b", real_model=True, machine="m")
     assert "a real local model" in "\n".join(real.lines())
 
@@ -167,6 +181,135 @@ def test_an_absence_that_claims_the_thing_does_not_exist_is_dishonest(env):
     assert score_case(qa, unscoped, env.store).honest is False
 
 
+# --------------------------------------------------------------------------- conversations
+
+@pytest.fixture(scope="module")
+def talk(env) -> ConversationReport:
+    return run_conversations(env.engine("extractive"), fx.CONVERSATIONS, model="FakeLLM")
+
+
+def test_the_scripted_conversations_cover_everything_the_owner_listed():
+    steps = [s for _title, ss in fx.CONVERSATIONS for s in ss]
+    kinds = {(s.route, s.kind) for s in steps}
+    assert ("CHAT", "chat") in kinds                                     # a greeting, "shorter"
+    assert ("LOOKUP", "general") in kinds                                # a general question, files first
+    assert ("LOOKUP", "answer") in kinds and ("FOLLOWUP", "answer") in kinds   # archive, then a follow-up on it
+    assert any(s.regenerate for s in steps) and any(s.say == "shorter" for s in steps)
+    assert any(s.memory and s.kind == "chat" for s in steps)             # a follow-up on the previous answer
+
+
+def test_every_step_of_every_scripted_conversation_has_the_right_shape(talk):
+    assert [s.problems for s in talk.steps if not s.ok] == []
+    assert talk.structure == 1.0 and len(talk.steps) == 10
+    assert all(s.memory_kept >= 2 for s in talk.steps[1:3])              # the talk reached the model
+
+
+def test_a_regenerated_step_is_asked_again_with_a_fresh_variant(talk):
+    last = [s for s in talk.steps if s.regenerated]
+    assert len(last) == 1 and last[0].say == "shorter" and last[0].ok
+
+
+def test_the_conversation_harness_can_fail(env):
+    class Refuses:
+        """An engine that answers every greeting with a search refusal."""
+
+        def ask(self, question, history, emit, should_stop, **kwargs):
+            return ChatTurn("assistant", "I couldn't find that in your files.", kind="absence",
+                            debug={"route": {"kind": "LOOKUP"}, "memory": {"kept": 0}})
+
+    bad = run_conversations(Refuses(), fx.CONVERSATIONS[:1], model="broken")
+    assert bad.structure < 0.5
+    first = bad.steps[0]
+    assert not first.ok and any("routed LOOKUP" in p for p in first.problems)
+
+
+def test_the_transcript_is_kept_whole_for_a_person_to_read(talk):
+    text = "\n".join(talk.lines())
+    assert "You:  hi" in text and "Leasha [CHAT/chat" in text and "(regenerated)" in text
+    assert talk.as_dict()["conversations"][0]["steps"][0]["reply"]
+
+
+def test_a_chat_turn_that_searched_or_refused_scores_as_wrong(env):
+    qa = next(q for q in fx.QUESTIONS if q.id == "C01")
+    refusal = ChatTurn("assistant", "I couldn't find that in your files.", kind="chat",
+                       debug={"route": {"kind": "CHAT"}})
+    assert not score_case(qa, refusal, env.store).correct
+    searched = ChatTurn("assistant", "Hello!", kind="chat",
+                        debug={"route": {"kind": "CHAT"}, "queries": ["hello"]})
+    assert not score_case(qa, searched, env.store).correct
+    fine = ChatTurn("assistant", "Hello! What can I do for you?", kind="chat", debug={"route": {"kind": "CHAT"}})
+    assert score_case(qa, fine, env.store).correct
+
+
+def test_the_two_honest_shapes_of_nothing_found_both_score(env):
+    qa = next(q for q in fx.QUESTIONS if q.id == "B01")
+    general = ChatTurn("assistant", "I couldn't find that in your files.\n\n**Not from your files:** It is a document.",
+                       kind="general", debug={"route": {"kind": "ABSENCE"}})
+    assert score_case(qa, general, env.store).honest is True
+    unlabelled = ChatTurn("assistant", "I couldn't find that in your files. It is definitely in the drawer.",
+                          kind="general")
+    assert score_case(qa, unlabelled, env.store).honest is False
+
+
+# --------------------------------------------------------------------------- nothing waits forever
+
+def test_a_turn_that_never_comes_back_is_a_failed_turn_not_a_hung_run(env):
+    """Every turn of an evaluation has a wall-clock limit: past it the turn is asked to stop, and
+    if it still does not come back it is reported as failed and the run goes on."""
+    import threading
+
+    from app.chat.evaluate import ask_with_limit
+
+    release = threading.Event()
+
+    class Stuck:
+        def ask(self, question, history, emit, should_stop, **kw):
+            release.wait(timeout=30)                   # ignores should_stop, like a model still loading
+            return ChatTurn("assistant", "too late")
+
+    started = __import__("time").monotonic()
+    turn = ask_with_limit(Stuck(), "hello?", [], lambda _e: None, limit_s=0.2, grace_s=0.2)
+    assert __import__("time").monotonic() - started < 5
+    assert turn.kind == "error" and "did not finish within 0.2 seconds" in turn.text and turn.debug["stalled"]
+    release.set()
+
+    class Breaks:
+        def ask(self, *a, **k):
+            raise RuntimeError("the model exploded")
+
+    broken = ask_with_limit(Breaks(), "hello?", [], lambda _e: None)
+    assert broken.kind == "error" and "RuntimeError: the model exploded" in broken.text
+
+
+def test_a_stalled_step_is_counted_and_the_conversations_carry_on(env):
+    class Stalls:
+        def __init__(self):
+            self.n = 0
+
+        def ask(self, question, history, emit, should_stop, **kw):
+            self.n += 1
+            if self.n == 1:
+                while not should_stop():
+                    __import__("time").sleep(0.01)
+                return ChatTurn("assistant", "stopped", kind="error")
+            return env.engine("extractive").ask(question, history, emit, should_stop, **kw)
+
+    report = run_conversations(Stalls(), fx.CONVERSATIONS[:1], model="stalls", limit_s=0.2)
+    assert len(report.steps) == 7 and not report.steps[0].ok and report.structure < 1.0
+    assert report.steps[1].reply                                            # it went on to the next step
+
+
+def test_a_reply_that_trickles_forever_is_ended_by_the_wall_clock_with_what_had_arrived(env, monkeypatch):
+    from app.chat import engine as engine_module
+    from app.chat.testing import FakeLLM
+
+    monkeypatch.setattr(engine_module, "REPLY_DEADLINE_S", 0.05)
+    llm = FakeLLM(chat_replies=lambda messages: "word " * 200_000, chunk=1)
+    turn, _events = __import__("tests.unit.chat_env", fromlist=["ask"]).ask(env.engine(llm), "hi")
+    assert turn.kind == "chat" and turn.partial and turn.text.startswith("word")
+    assert "did not finish" in turn.notes[-1]
+
+
 # --------------------------------------------------------------------------- the command line
 
 def test_evaluate_chat_runs_from_the_command_line_without_a_model():
@@ -179,6 +322,15 @@ def test_evaluate_chat_runs_from_the_command_line_without_a_model():
     assert "NOT a language model" in result.stdout and "citation validity" in result.stdout
 
 
+def test_conversations_run_from_the_command_line_with_a_transcript():
+    result = subprocess.run(
+        [sys.executable, "-m", "app.cli", "evaluate", "--chat", "--chat-fake", "--chat-conversation-only"],
+        cwd=ROOT, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "Conversation evaluation  (10 steps)" in result.stdout and "You:  hi" in result.stdout
+    assert "Chat evaluation" not in result.stdout
+
+
 def test_the_flag_and_its_helpers_are_on_the_evaluate_subcommand():
     import argparse
 
@@ -189,9 +341,10 @@ def test_the_flag_and_its_helpers_are_on_the_evaluate_subcommand():
     common.add_argument("--json", action="store_true")
     add_evaluate_parser(parser.add_subparsers(), common)
     args = parser.parse_args(["evaluate", "--chat", "--chat-model", "qwen2.5:1.5b",
-                              "--chat-ids", "L01,A01", "--chat-fake"])
+                              "--chat-ids", "L01,A01", "--chat-fake", "--chat-conversation",
+                              "--chat-runs", "3"])
     assert args.chat and args.chat_model == "qwen2.5:1.5b" and args.chat_fake
-    assert args.chat_ids == "L01,A01"
+    assert args.chat_ids == "L01,A01" and args.chat_conversation and args.chat_runs == 3
 
 
 @pytest.mark.skipif(not os.environ.get("LEASHA_CHAT_REAL_MODEL"),

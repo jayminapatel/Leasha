@@ -30,20 +30,40 @@ __all__ = [
     "render_answer_html", "receipt_to_result", "closing_line",
     "unavailable_text", "title_from_question", "passage_html", "MAX_UNPINNED",
     "PLACEHOLDER", "EMPTY_HEADING", "EMPTY_HINT", "STOPPED_LINE", "FAILED_LINE",
-    "NOT_BUILT_LINE", "SHELF_EMPTY", "speed_note",
+    "NOT_BUILT_LINE", "SHELF_EMPTY", "speed_note", "THINKING_LINE", "RETRY_LABEL",
+    "COPY_LABEL", "COPIED_LABEL", "REGENERATE_LABEL", "EDIT_LABEL", "NEW_CHAT_LABEL",
+    "WEB_LABEL", "is_web_receipt", "WEB_OFF_TIP", "WEB_ON_TIP", "plain_answer_text",
 ]
 
 # ---------------------------------------------------------------------------
 # The fixed strings. Plain words: what it does, what to do next.
 # ---------------------------------------------------------------------------
 
-PLACEHOLDER = ("Ask about your files and mail. Enter sends; "
+#: **Reworded on 2026-09-20 by the owner's instruction** (the Chat tab now talks like an
+#: assistant and reads the files first): the old words were "Ask about your files and
+#: mail. Enter sends; Shift+Enter starts a new line." and "Ask about anything you have
+#: kept." - see the dated note in `docs/WORKORDER-202626270611-chat-tab.md`.
+PLACEHOLDER = ("Ask about your files, or just talk. Enter sends; "
                "Shift+Enter starts a new line.")
-EMPTY_HEADING = "Ask about anything you have kept."
+EMPTY_HEADING = "Ask about your files, or just talk."
 EMPTY_HINT = ("For example: What did we agree with the landlord about the "
               "deposit?  Show me the photos from the beach in 2015.  "
-              "How many PDFs did Dave send in 2019?")
+              "How many PDFs did Dave send in 2019?  What is a PST file?")
 STOPPED_LINE = "Stopped. That is as far as it got."
+THINKING_LINE = "Thinking..."
+RETRY_LABEL = "Try again"
+COPY_LABEL = "Copy"
+COPIED_LABEL = "Copied"
+REGENERATE_LABEL = "Regenerate"
+EDIT_LABEL = "Edit"
+NEW_CHAT_LABEL = "New chat"
+WEB_LABEL = "Web"
+WEB_OFF_TIP = ("Off: this conversation stays on this computer. Turn it on to let Chat also "
+               "search the web for what your files do not say. Only a short search phrase "
+               "leaves this computer, and you see it first.")
+WEB_ON_TIP = ("On: after searching your files, Chat may search the web for what they do not "
+              "say. Only a short search phrase leaves this computer - never your files or "
+              "this conversation.")
 FAILED_LINE = ("That did not work this time. Searching is not affected. "
                "Try asking again in a moment.")
 NOT_BUILT_LINE = ("Chat is not part of this copy of Leasha yet. "
@@ -153,6 +173,12 @@ def render_answer_html(text: str, numbering: Numbering,
 # Receipts as result cards
 # ---------------------------------------------------------------------------
 
+def is_web_receipt(receipt: Any) -> bool:
+    """A receipt the engine made from a web page (`locator == "Web"`, a `http(s)` address)."""
+    return (str(getattr(receipt, "locator", "") or "") == WEB_LABEL
+            and str(getattr(receipt, "path", "") or "").lower().startswith(("http://", "https://")))
+
+
 def receipt_to_result(receipt: Any, rank: int) -> Any:
     """A `Receipt` as the `SearchResult` the results list already draws.
 
@@ -170,9 +196,12 @@ def receipt_to_result(receipt: Any, rank: int) -> Any:
     chunk_id = getattr(receipt, "chunk_id", None)
     if chunk_id is None:
         chunk_id = -1_000_000 - int(rank)
+    quote = str(getattr(receipt, "quote", "") or "")
+    if is_web_receipt(receipt) and quote:
+        quote = "From the web: " + quote           # a web card says so in its own words
     return SearchResult(
         chunk_id=int(chunk_id), file_id=int(file_id), path=path,
-        text=str(getattr(receipt, "quote", "") or ""), score=1.0,
+        text=quote, score=1.0,
         rank=int(rank), label=str(getattr(receipt, "locator", "") or ""))
 
 
@@ -225,6 +254,8 @@ class Shelf:
         return True
 
     def add_receipt(self, receipt: Any) -> bool:
+        if is_web_receipt(receipt):          # a web page is not one of the person's documents
+            return False
         return self.add(str(getattr(receipt, "path", "") or ""),
                         str(getattr(receipt, "name", "") or ""),
                         getattr(receipt, "file_id", None))
@@ -289,9 +320,18 @@ def closing_line(turn: Any, *, stopped: bool = False) -> str:
         return STOPPED_LINE
     if turn is None:
         return ""
+    if getattr(turn, "partial", False):
+        notes = [n for n in (getattr(turn, "notes", None) or []) if n and n != "stopped"]
+        return notes[-1] if notes else STOPPED_LINE
     if getattr(turn, "kind", "") == "find" and not getattr(turn, "result_set", None):
         return "Nothing in what Leasha has indexed matches that."
     return ""
+
+
+def plain_answer_text(text: str) -> str:
+    """The answer as it should be copied: the words, without the `[n]` source
+    markers (they mean nothing pasted anywhere else)."""
+    return re.sub(r"\s*\[\d{1,3}(?:\s*[,;]\s*\d{1,3})*\]", "", text or "").strip()
 
 
 def speed_note(modes: Any, explicit: str = "") -> str:

@@ -20,14 +20,19 @@ from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from app.ui.presenter.chat import passage_html, receipt_to_result
+from app.ui.presenter.chat import is_web_receipt, passage_html, receipt_to_result
 from app.ui.result_delegate import ROLE_PAYLOAD
 from app.ui.results_view import ResultsView
 
 __all__ = ["SourcesPane"]
 
-HEADING = "Sources"
-NOTHING_YET = "Sources appear here as the answer uses them."
+#: **Reworded 2026-09-20 (owner: the sources pane must visibly be the local sources).**
+#: The words were "Sources" and "Sources appear here as the answer uses them."
+HEADING = "Local sources"
+#: What the heading becomes while a web page stands among the sources - added to, not
+#: reworded: with no web source the heading is exactly `HEADING`.
+HEADING_WITH_WEB = "Local sources and the web"
+NOTHING_YET = "Passages from your files appear here as the answer uses them."
 
 
 class SourcesPane(QWidget):
@@ -76,6 +81,8 @@ class SourcesPane(QWidget):
         self._by_number[number] = receipt
         self._order.append(number)
         self.empty.setVisible(False)
+        if is_web_receipt(receipt):
+            self.heading.setText(HEADING_WITH_WEB)
         self.results.append_results([receipt_to_result(receipt, len(self._order))], [])
         return True
 
@@ -83,6 +90,7 @@ class SourcesPane(QWidget):
         self._by_number.clear()
         self._order.clear()
         self.results.clear()
+        self.heading.setText(HEADING)
         self.passage.setVisible(False)
         self.empty.setVisible(True)
 

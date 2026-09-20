@@ -289,4 +289,15 @@ def add_evaluate_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     p_eval.add_argument(
         "--chat-ids", metavar="L01,A03",
         help="with --chat: only these question ids (a real model is slow)")
+    p_eval.add_argument(
+        "--chat-conversation", action="store_true",
+        help="with --chat: also play the scripted multi-turn conversations (greeting, "
+             "general question, follow-ups, an archive question, 'shorter', regenerate) "
+             "and print the transcript")
+    p_eval.add_argument(
+        "--chat-conversation-only", action="store_true",
+        help="with --chat: play only the scripted conversations")
+    p_eval.add_argument(
+        "--chat-runs", type=int, default=1, metavar="N",
+        help="with --chat: run the question set N times, so latency comes with its spread")
     p_eval.set_defaults(func=cmd_evaluate)

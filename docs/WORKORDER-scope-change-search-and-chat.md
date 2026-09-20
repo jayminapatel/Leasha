@@ -1,6 +1,6 @@
 # Work order: scope change - local search you can describe in plain English
 
-**Doc version:** 2.1 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.2
+**Doc version:** 2.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.2
 
 **Supersedes version 1.0 of this document**, which made prose chat the headline feature. That
 was an inference, and it was wrong. The owner has since been explicit:
@@ -260,3 +260,43 @@ Two things that did not change: search never depends on a language model (it wor
 with Ollama stopped, and no LLM sits in the retrieval path), and Chat is a separate
 tab. Whether the order's own HELD status line should now be rewritten is the
 owner's to say; the register carries it as RELEASED from today.
+
+## Dated note, 2026-09-20 - the Chat tab stands as RELEASED
+
+The note above asked whose call it was whether the Chat order's own status line
+should be rewritten, and left it. It is decided: **the Chat tab stands as RELEASED.**
+The decision was taken by the lead on the owner's behalf, on the owner's standing
+instruction to make decisions and report them, and the owner's own 2026-09-19
+instruction to build it stands behind it. What that reverses, exactly: the statement
+in section 5 above and in `HANDOFF.md` that prose chat over the index is a
+*deliberate refusal*. It is now allowed for **local, receipt-backed answers only** -
+no sentence is shown without a source that supports it, a question the index cannot
+answer gets an honest absence, and counts are computed rather than generated. What
+it does not reverse: search works with Ollama stopped, no language model sits in the
+retrieval path, Chat is a separate tab, and nothing leaves the machine. The Chat
+order's Status line was corrected the same day (a dated note above it records the old
+wording). Nothing above this note was edited.
+
+## Dated note, 2026-09-20 (later) - the Chat tab became a conversation, reads his files first, and may optionally use the web
+
+Three further decisions of the owner's, all recorded in full, with what they supersede, in the dated
+decision note at the top of `WORKORDER-202626270611-chat-tab.md`:
+
+1. **"the chat has to behave like i am talking to ai chat like in claude"** - the Chat tab is a
+   conversation: role-tagged messages to the local model, streamed, with real multi-turn memory, markdown,
+   message actions and a warm plain-words persona. What it reverses of the 2026-09-19 text above: the
+   design of extract-and-quote with a refusal on thin retrieval is replaced by a conversational assistant
+   whose **claims about the files are still checked** (after they are written, sentence by sentence).
+2. **"the chat should use local source though"** - retrieval first: the person's own files and mail are
+   the primary basis of every substantive answer, including a general-sounding one; only greetings, thanks,
+   instructions about the previous answer and tasks that name none of his files skip the search. When the
+   files have nothing the answer says so in one plain sentence and only then offers a short general answer,
+   labelled as not from his files. Everything stays on this computer (Ollama at localhost only).
+3. **"and optionally can augment from web"** - **an explicit exception to the offline rule, for the Chat tab
+   only**: optional, off by default, a per-conversation Web switch plus a Settings control, local first, one
+   short search phrase leaves the computer (shown first, sent only after Allow unless he turns that off),
+   never a file name, passage, email or the conversation. Search, indexing and every other part of Leasha
+   remain fully offline; the statements above that "nothing leaves the machine" and that search "never depends
+   on a language model" stand for everything except that one switch.
+
+Nothing above this note was edited.

@@ -11,8 +11,8 @@ Everything a person can see in a conversation is one of these:
 
 * a `ChatTurn` - one message, the user's or the assistant's;
 * a `Receipt` - the document (and the exact words in it) a sentence stands on;
-* and, while an answer is being made, three kinds of event the engine pushes
-  through its `emit` callback: `NarrationEvent`, `TokenEvent` and `ShelfEvent`.
+* and, while an answer is being made, the events the engine pushes through its
+  `emit` callback: `NarrationEvent`, `TokenEvent`, `ShelfEvent` and `SourcesEvent`.
 
 Nothing here imports the search engine at runtime: `ChatTurn.result_set` holds
 `app.search.engine.SearchResult` objects, but only as a type name.
@@ -29,12 +29,17 @@ __all__ = [
     "NarrationEvent",
     "TokenEvent",
     "ShelfEvent",
+    "SourcesEvent",
+    "WebAskEvent",
     "KINDS",
     "ROLES",
 ]
 
 #: What `ChatTurn.kind` may be. The tab branches on it, so it is a closed set.
-KINDS = ("answer", "find", "aggregate", "absence", "error", "clarify")
+#: `chat` is a turn answered from the conversation alone (no retrieval); `general`
+#: is the short answer from general knowledge that follows "I couldn't find that in
+#: your files" - neither makes a claim about what a document says.
+KINDS = ("answer", "find", "aggregate", "absence", "error", "clarify", "chat", "general")
 
 #: `ChatTurn.role`.
 ROLES = ("user", "assistant")
@@ -90,6 +95,12 @@ class ChatTurn:
     #: pane's view of how the answer was made: the route and why, the queries
     #: run, rounds used, timings, model names. Plain JSON-able values only.
     debug: dict[str, Any] = field(default_factory=dict)
+    #: **Added 2026-09-20 (conversational Chat), with defaults.** The model that
+    #: wrote this turn, for the person who wonders why two answers differ.
+    model: str = ""
+    #: The reply stopped part-way (Stop, or Ollama went away): `text` is what had
+    #: arrived, and the tab offers Retry.
+    partial: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +124,29 @@ class TokenEvent:
     """
 
     text: str
+
+
+@dataclass(frozen=True)
+class SourcesEvent:
+    """The numbered passages the model has been shown, before it writes a word.
+
+    `receipts[n - 1]` is what `[n]` will point at while the answer streams, so a
+    source number is a live link the moment it appears. **It does not touch the
+    shelf** - a document joins the shelf only when the finished answer stands on it.
+    The finished turn's own `receipts` replace these (it renumbers by first mention
+    after the unsupported sentences are taken out)."""
+
+    receipts: tuple
+
+
+@dataclass(frozen=True)
+class WebAskEvent:
+    """The engine would like to search the web for `query` and is **waiting** for the
+    person's answer (Allow or Skip) before it sends anything. Only emitted when the
+    Web switch is on and "Ask before each web search" is on; the tab answers through the
+    gate function it handed to `ask(web_gate=...)`."""
+
+    query: str
 
 
 @dataclass(frozen=True)

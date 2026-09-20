@@ -13,6 +13,12 @@ mouse:
 * Esc drops the picked source and returns to the conversation.
 
 While an answer is being written Send gives way to Stop.
+
+**The box grows with what is typed** - by wrapped lines, not just by Enter - up to
+`MAX_LINES`, then scrolls inside itself, so a long question never hides its own
+first line and a short one takes one line of the page. The **Web** chip beside it is
+the per-conversation switch for looking things up on the web (owner, 2026-09-20): it is
+absent unless Settings allows the web at all, and off until the person turns it on.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QWidget
 
-from app.ui.presenter.chat import PLACEHOLDER
+from app.ui.presenter.chat import PLACEHOLDER, WEB_LABEL, WEB_OFF_TIP, WEB_ON_TIP
 
 __all__ = ["MessageBox"]
 
@@ -75,6 +81,8 @@ class MessageBox(QWidget):
     walk_requested = pyqtSignal(int)
     open_source_requested = pyqtSignal()
     escaped = pyqtSignal()
+    #: The Web chip was switched (`True` = on for this conversation).
+    web_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -93,6 +101,7 @@ class MessageBox(QWidget):
         self.edit.escaped.connect(self.escaped)
         self.edit.document().documentLayout().documentSizeChanged.connect(
             lambda _size: self._fit())
+        self.edit.textChanged.connect(self._fit)
 
         self.send_button = QPushButton("Send")
         self.send_button.setToolTip(
@@ -106,8 +115,18 @@ class MessageBox(QWidget):
         self.stop_button.setVisible(False)
         self.stop_button.clicked.connect(lambda _c=False: self.stop_requested.emit())
 
+        self.web = QPushButton(WEB_LABEL)
+        self.web.setObjectName("chatWebChip")
+        self.web.setCheckable(True)
+        self.web.setAccessibleName("Let this conversation search the web")
+        self.web.setToolTip(WEB_OFF_TIP)
+        self.web.setVisible(False)
+        self.web.toggled.connect(self._web_toggled)
+
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
+        row.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        row.addWidget(self.web, alignment=Qt.AlignmentFlag.AlignBottom)
         row.addWidget(self.edit, stretch=1)
         row.addWidget(self.send_button)
         row.addWidget(self.stop_button)
@@ -116,9 +135,35 @@ class MessageBox(QWidget):
         self._fit()
 
     def _fit(self) -> None:
-        lines = max(1, min(MAX_LINES, self.edit.document().blockCount()))
+        """Height for the wrapped text as it stands: one line up to `MAX_LINES`."""
         line = self.edit.fontMetrics().lineSpacing()
-        self.edit.setFixedHeight(line * lines + 22)
+        content = self.edit.document().size().height()
+        wanted = int(round(content)) + 14
+        low, high = line + 22, line * MAX_LINES + 22
+        self.edit.setFixedHeight(max(low, min(high, wanted)))
+
+    def resizeEvent(self, event: object) -> None:                 # noqa: N802 - Qt
+        super().resizeEvent(event)
+        self._fit()
+
+    def _web_toggled(self, on: bool) -> None:
+        self.web.setToolTip(WEB_ON_TIP if on else WEB_OFF_TIP)
+        self.web_toggled.emit(bool(on))
+
+    def set_web(self, available: bool, on: bool = False) -> None:
+        """Show the Web chip (only when Settings allows the web) and set it, silently."""
+        self.web.setVisible(bool(available))
+        self.web.blockSignals(True)
+        try:
+            self.web.setChecked(bool(on) and bool(available))
+        finally:
+            self.web.blockSignals(False)
+        self.web.setToolTip(WEB_ON_TIP if self.web.isChecked() else WEB_OFF_TIP)
+
+    def set_text(self, text: str) -> None:
+        """Put text in the box (an edited message coming back to be changed)."""
+        self.edit.setPlainText(text)
+        self.focus()
 
     def _submit(self) -> None:
         text = self.edit.toPlainText().strip()
@@ -131,6 +176,9 @@ class MessageBox(QWidget):
         self._busy = busy
         self.send_button.setVisible(not busy)
         self.stop_button.setVisible(busy)
+        if not busy:                            # ready for the next Stop
+            self.stop_button.setEnabled(True)
+            self.stop_button.setText("Stop")
 
     def set_unavailable(self, reason: str) -> None:
         """Greyed, with the reason on it - not hidden, not silent."""

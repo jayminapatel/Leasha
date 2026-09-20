@@ -75,7 +75,10 @@ def test_an_empty_index_says_so_and_offers_to_start(tmp_path):
 
 def test_an_answer_the_model_could_not_give_is_a_refusal_not_a_guess(env):
     """Retrieval found documents; the model found nothing to say that could be checked."""
-    turn, _events = ask(env.engine("not_found"), "How much is the rent per month on the 2024 agreement?")
+    # A question about the person's own affairs ("my"): the searched-and-found-nothing account.
+    # (A question that is not gets the one plain sentence and a labelled general answer -
+    # see tests/unit/test_chat_conversation.py.)
+    turn, _events = ask(env.engine("not_found"), "How much is my rent per month on the 2024 agreement?")
     assert turn.kind == "absence"
     assert "none of them states an answer i can point to" in turn.text.lower()
     assert turn.result_set                                   # the documents are offered instead

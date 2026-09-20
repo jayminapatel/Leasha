@@ -1,22 +1,27 @@
-"""The chat engine: a search agent that narrates its searching and cannot lie.
+"""The chat engine: an assistant you talk to, that reads your files before it answers.
 
 Layer: L8b - no Qt (the tab runs `ask` on a worker and forwards `emit` by signal).
-Work order `202626270611-chat-tab`, sections 1-2.
+Work order `202626270611-chat-tab`, sections 1-2, as changed by the owner on
+2026-09-20 ("the chat has to behave like i am talking to ai chat like in claude",
+"the chat should use local source though").
 
-    question -> route -> plan -> search (<=3 rounds) -> assess -> answer -> verify
+    greeting / thanks / "shorter"  ->  conversation (no retrieval)
+    anything else                  ->  route -> plan -> search (<=3 rounds) -> assess -> answer
 
-**The design in one paragraph.** Naive "chat with your documents" stuffs retrieved
-text into a prompt and ships whatever comes back. This does not. The *router*
-decides whether the question is a database question (counting: computed, never
-generated), a search (FIND: the answer is the results themselves), an existence
-question (ABSENCE: what was searched, honestly scoped) or a question about what
-documents say (LOOKUP/SYNTHESIS). Only the last needs a model to write anything -
-and what it writes passes through `verify.py` a sentence at a time: no sentence
-reaches the screen without a source marker that points at a retrieved passage
-which supports it, with every figure, date and name found in that passage and
-every quotation verbatim. **The guarantee is structural**: `ChatTurn.text` of an
-answer is built only from `AnswerAssembler.accepted`. A model that hallucinates
-produces an empty answer and an honest refusal, never a confident wrong one.
+**The design in one paragraph.** The person's own files come first. The *router*
+decides whether the turn is social or an instruction about the last answer (CHAT: the
+model answers from the conversation, streamed), a database question (counting:
+computed, never generated), a search (FIND: the answer is the results themselves), an
+existence question (ABSENCE: what was searched, honestly scoped) or a question that
+files answer (LOOKUP/SYNTHESIS). For that last kind the model writes flowing prose
+from the numbered passages, **streamed as it is written** with the conversation
+behind it (`memory.py`), and when it is complete `reconcile.py` judges every sentence
+against the passages: a claim about the files that no passage supports is taken out
+(never the whole answer), what is left is renumbered, and if nothing survives the
+turn is the plain "I couldn't find that in your files" - followed, for a question
+that is not about the person's own affairs, by a short answer labelled as general
+knowledge. **The guarantee moved, honestly**: from "no unverified word is ever on
+screen" to "no unverified claim about the files is in the answer that is kept".
 
 **Search is separate and untouched.** Nothing here runs in the search path; the
 engine calls `SearchEngine.search` like any other caller. With Ollama stopped,
@@ -32,27 +37,34 @@ and `ShelfEvent` (a document the answer now stands on).
 
 from __future__ import annotations
 
+import re
 import time
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, Optional, Sequence
 
-from app.chat import absence, prompts
+from app.chat import absence, memory, prompts
 from app.chat.aggregate import parse_aggregate, run_aggregate
 from app.chat.config import ChatSettings
-from app.chat.context import Source, build_sources
+from app.chat.context import Piece, Source, build_sources
 from app.chat.llm import OllamaLLM, as_llm
 from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, widen
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
+from app.chat.reconcile import reconcile
 from app.chat.router import (
-    ABSENCE, AGGREGATE, FIND, LOOKUP, SYNTHESIS, Route, route_question,
+    ABSENCE, AGGREGATE, CHAT, FIND, FOLLOWUP, LOOKUP, SYNTHESIS, Route, route_question,
 )
-from app.chat.types import ChatTurn, NarrationEvent, Receipt, ShelfEvent, TokenEvent
+from app.chat.types import (
+    ChatTurn, NarrationEvent, Receipt, ShelfEvent, SourcesEvent, TokenEvent,
+)
 from app.chat.verify import Accepted, AnswerAssembler, Verifier
-from app.core.errors import AppErrorException
+from app.chat.webrule import WebNeed, decide as decide_web
+from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 from app.search.policy import SearchPolicy
 
-__all__ = ["ChatEngine", "CHAT_POLICY", "ANSWER_MAX_TOKENS"]
+__all__ = ["ChatEngine", "CHAT_POLICY", "ANSWER_MAX_TOKENS", "CHAT_MAX_TOKENS",
+           "NOT_IN_FILES_LEAD"]
 
 log = logger.bind(component="chat.engine")
 
@@ -67,9 +79,36 @@ CHAT_POLICY = SearchPolicy(
     version_folding=False, explain_results=False,
 )
 
-#: Tokens an answer may run to. A verified answer is a few sentences; anything
-#: longer is a model that has stopped answering and started talking.
-ANSWER_MAX_TOKENS = 260
+#: Tokens an answer from the files may run to. It is prose, not a quotation, so it
+#: needs room - but it is checked sentence by sentence, and a model that has stopped
+#: answering and started talking only adds sentences that are then dropped.
+ANSWER_MAX_TOKENS = 700
+
+#: Tokens a plain conversational reply may run to ("continue" asks for more).
+CHAT_MAX_TOKENS = 1200
+
+#: The short general answer offered when the files have nothing.
+GENERAL_MAX_TOKENS = 320
+
+#: The longest one reply may take, start to finish, whatever keeps arriving. Every read from
+#: Ollama already has its own timeout (a model that goes silent is cut off after
+#: `ChatSettings.timeout_s`), but a model that trickles a word a minute never trips that: this is
+#: the wall clock over the whole reply. Generous - a big model on a CPU writes a long answer at
+#: a few words a second - and it ends the reply *with what had arrived*, like any other failure.
+REPLY_DEADLINE_S = 900.0
+
+#: What the engine says - in its own words, not the model's - when the files have
+#: nothing on a general question. The label after it is what keeps the general answer
+#: visibly apart from anything the files said.
+NOT_IN_FILES_LEAD = "I couldn't find that in your files.\n\n**Not from your files:** "
+
+#: Appended when some sentences of an answer were taken out because no passage
+#: supports them - the plain "here is what I could not confirm".
+_PARTIAL_LINE = "I could not confirm the rest of that from your files."
+
+#: A question about the person's own affairs. A general answer to one of these would
+#: be a guess about their life, so the files-only account is given instead.
+_PERSONAL = re.compile(r"\b(?:my|our|mine|ours|we|we've|we'd|i|i've|i'd|i'm|me|us)\b", re.I)
 
 #: Passages fetched per search round. More than the model is shown, because the
 #: ranking, dedupe by document and the sufficiency check all want a wider net.
@@ -84,6 +123,18 @@ _FIND_SHELF = 5
 
 _NO_MODEL_NOTE = ("No AI model is running, so these are the passages that best match your "
                   "question, quoted exactly. Start Ollama to get written answers.")
+
+
+@dataclass
+class _Streamed:
+    """What one streamed conversation call produced."""
+
+    text: str = ""
+    #: The model answered NOT FOUND (only watched for in an answer from the files).
+    not_found: bool = False
+    stopped: bool = False
+    #: The `AppError` that ended it early, if one did. `text` is whatever arrived first.
+    error: Any = None
 
 
 class _Hit:
@@ -142,6 +193,15 @@ class ChatEngine:
         #: into the next one - unlike `set_shelf`, which is standing state.
         self._scope: set[int] = set()
         self._removed: set[int] = set()
+        #: "fast" or "thoughtful" for the current question, and how many times this
+        #: same question has been asked again (Regenerate) - both set by `ask`.
+        self._style = "fast"
+        self._variant = 0
+        #: The Web switch for the current question, the tab's gate for "Allow this
+        #: search?", and - for tests - the transport every web call goes through.
+        self._web_on = False
+        self._web_gate: Optional[Callable[[str], bool]] = None
+        self.web_transport: Optional[Callable] = None
 
     # ------------------------------------------------------------------ models
 
@@ -153,7 +213,8 @@ class ChatEngine:
             from app.llm.ollama import OllamaClient
 
             self._clients[name] = OllamaLLM(
-                OllamaClient(self.cfg.ollama_url, name, timeout=self.cfg.timeout_s))
+                OllamaClient(self.cfg.ollama_url, name, timeout=self.cfg.timeout_s),
+                num_ctx=self.cfg.context_tokens)
         return self._clients[name]
 
     def installed_models(self) -> list[str]:
@@ -235,7 +296,8 @@ class ChatEngine:
     def ask(self, question: str, history: Sequence[ChatTurn],
             emit: Callable[[Any], None], should_stop: Callable[[], bool], *,
             scope: Optional[Sequence[str]] = None, removed: Optional[Sequence[str]] = None,
-            style: Optional[str] = None) -> ChatTurn:
+            style: Optional[str] = None, variant: int = 0, web: bool = False,
+            web_gate: Optional[Callable[[str], bool]] = None) -> ChatTurn:
         """Answer `question`. **Blocks. Never raises.**
 
         The three keywords are what the tab knows and the engine does not, handed
@@ -251,10 +313,22 @@ class ChatEngine:
           An explicit `CHAT_MODEL` setting wins over it, and `debug["style"]`
           says so, because a control that silently does nothing is worse than
           none.
+        * `variant` - how many times this same question has been asked again
+          (Regenerate): a little warmer each time, so the reply is a different one.
+        * `web` - the conversation's Web switch. **Only with this on, and only when
+          Settings allows the web at all, does anything leave this computer**, and then
+          only a short search phrase (`app/chat/web.py`). `web_gate(query) -> bool` is
+          the tab's "Allow this search?" - it blocks until the person answers; without
+          one, an ask-first search is skipped rather than sent.
         """
         started = time.perf_counter()
         debug: dict[str, Any] = {"timings": {}}
         say_stop = should_stop or (lambda: False)
+        self._style = style if style in ("fast", "thoughtful") else "fast"
+        self._variant = max(0, int(variant or 0))
+        debug["variant"] = self._variant
+        self._web_on = bool(web) and bool(self.cfg.web_enabled)
+        self._web_gate = web_gate
         try:
             self._scope = self._ids_for(scope)
             self._removed = self._ids_for(removed)
@@ -310,6 +384,9 @@ class ChatEngine:
         debug["route"] = route.as_dict()
         eff = route.effective
 
+        if eff == CHAT:
+            debug["route_explained"] = route.explain()
+            return self._chat_turn(text, history, send, say, stop, debug, started, route=route)
         if eff == AGGREGATE:
             return self._aggregate(route, say, send, stop, debug)
 
@@ -356,8 +433,14 @@ class ChatEngine:
                 return self._absence_turn(plan, retrieval, debug)
             return self._find_turn(plan, retrieval, send, debug, lead="have")
         if thin:
-            return self._absence_turn(plan, retrieval, debug)
-        return self._answer_turn(route, plan, retrieval, say, send, stop, debug, started)
+            # No passage holds half of what was asked, or the index has no document with
+            # its words at all: there is nothing to write from. (A *partial* answer - some
+            # of the question supported, some not - is made after the model writes, by
+            # `reconcile`: the unsupported sentences go, the rest stays, and it says so.)
+            return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
+                                      debug, started)
+        return self._answer_turn(route, plan, retrieval, history, text, say, send, stop,
+                                 debug, started)
 
     # ------------------------------------------------------------------ aggregate
 
@@ -667,6 +750,168 @@ class ChatEngine:
         return ChatTurn("assistant", text, kind="absence", notes=notes,
                         result_set=results if unhelpful else None, debug=debug)
 
+    # ------------------------------------------------------------------ conversation
+
+    def _window_of(self, llm: Any) -> int:
+        """Tokens the model will read: its real window, never a guess above it."""
+        try:
+            return max(1024, int(llm.context_window()))
+        except Exception:                               # noqa: BLE001
+            return 4096
+
+    def _think_mode(self) -> str:
+        """`"off"` for Fast, `"medium"` for Thoughtful: how long a model that reasons
+        first may reason. A model that cannot ignores it (`OllamaLLM.chat_stream`)."""
+        return "medium" if self._style == "thoughtful" else "off"
+
+    def _stream_chat(self, llm: Any, messages: list, *, stop: Callable[[], bool],
+                     send: Callable, max_tokens: int, temperature: float,
+                     hold_sentinel: bool = False, debug: dict, started: float,
+                     lead: str = "", think: str = "off") -> "_Streamed":
+        """One conversation call, streamed to the screen as it is written.
+
+        Returns everything that arrived - text, whether the model said NOT FOUND (only
+        when `hold_sentinel`), whether it was stopped, and the error that ended it, if
+        one did. **Nothing here raises**: a failure part-way keeps the text so far,
+        which is what lets the tab offer Retry beside a partial answer.
+
+        `lead` is text the engine has already put on screen (its own words); it is
+        sent first and is not part of `.text`.
+        """
+        out = _Streamed()
+        if lead:
+            send(TokenEvent(lead))
+        held = ""
+        released = not hold_sentinel
+
+        def emit(text: str) -> None:
+            if text and "first_token_s" not in debug["timings"]:
+                debug["timings"]["first_token_s"] = round(time.perf_counter() - started, 3)
+            send(TokenEvent(text))
+
+        deadline = time.monotonic() + REPLY_DEADLINE_S
+        try:
+            pieces = self._pieces(llm, messages, stop, max_tokens, temperature, think)
+            for piece in pieces:
+                if time.monotonic() > deadline:
+                    out.error = make_error(
+                        "ERR_OLLAMA_TIMEOUT", "chat.engine", timeout_s=f"{REPLY_DEADLINE_S:g}",
+                        details="the reply ran past its wall-clock limit")
+                    break
+                out.text += piece
+                if not released:
+                    held += piece
+                    head = held.lstrip()
+                    if len(head) < len(prompts.NOT_FOUND) and \
+                            prompts.NOT_FOUND.startswith(head.upper()):
+                        continue                        # it could still be the sentinel
+                    released = True
+                    if head.upper().startswith(prompts.NOT_FOUND):
+                        out.not_found = True
+                        break
+                    emit(held)
+                    continue
+                emit(piece)
+                if stop():
+                    break
+            if not released and held and not out.not_found:
+                emit(held)                              # a reply shorter than the sentinel
+        except AppErrorException as exc:
+            out.error = exc.error
+        out.stopped = bool(stop())
+        return out
+
+    @staticmethod
+    def _pieces(llm: Any, messages: list, stop: Callable[[], bool], max_tokens: int,
+                temperature: float, think: str = "off") -> Any:
+        """The reply's pieces: `chat_stream` where the model has it, and - for a
+        model object that only knows single prompts - the same conversation
+        flattened into one."""
+        chat = getattr(llm, "chat_stream", None)
+        kwargs = {"temperature": temperature, "max_tokens": max_tokens, "should_stop": stop}
+        if chat is not None:
+            return chat(messages, think=think, **kwargs)
+        flat = "\n\n".join(f"{m['role'].title()}: {m['content']}" for m in messages) + "\n\nAssistant:"
+        return llm.stream(flat, **kwargs)
+
+    def _chat_turn(self, text: str, history: list, send: Callable, say: Callable,
+                   stop: Callable[[], bool], debug: dict, started: float, *,
+                   route: Route) -> ChatTurn:
+        """A turn that needs no retrieval: the model answers from the conversation."""
+        llm = self._role("answerer")
+        if llm is None or not self._reachable(llm):
+            return self._unavailable_turn(debug)
+        window = self._window_of(llm)
+        reserve = min(CHAT_MAX_TOKENS, max(256, window // 3))
+        packed = memory.pack(prompts.chat_system(style_note=self.cfg.style_note, today=self.today),
+                             history, text, window_tokens=window, reserve_tokens=reserve)
+        debug["memory"] = packed.as_dict()
+        debug["mode"] = "conversation"
+        debug["models"] = {"answerer": getattr(llm, "model", "")}
+        say("Thinking...")
+        streamed = self._stream_chat(
+            llm, packed.messages, stop=stop, send=send, max_tokens=CHAT_MAX_TOKENS,
+            temperature=self._temperature(0.7), debug=debug, started=started,
+            think=self._think_mode())
+        return self._finish_conversation(streamed, kind="chat", llm=llm, debug=debug)
+
+    def _finish_conversation(self, streamed: "_Streamed", *, kind: str, llm: Any, debug: dict,
+                             text: Optional[str] = None, notes: Sequence[str] = (),
+                             receipts: Optional[list] = None) -> ChatTurn:
+        body = (streamed.text if text is None else text).strip()
+        model = str(getattr(llm, "model", "") or "")
+        notes = list(notes)
+        if streamed.error is not None:
+            message = f"{streamed.error.message} {streamed.error.suggestion}".strip()
+            if not body:
+                return self._error_turn(streamed.error.message, streamed.error.suggestion, debug)
+            notes.append(message)
+            return ChatTurn("assistant", body, receipts=receipts or [], kind=kind, notes=notes,
+                            debug=debug, model=model, partial=True)
+        if streamed.stopped:
+            if not body:
+                return self._stopped(debug)
+            notes.append("stopped")
+            return ChatTurn("assistant", body, receipts=receipts or [], kind=kind, notes=notes,
+                            debug=debug, model=model, partial=True)
+        if not body:
+            return self._error_turn("The model did not write anything back.",
+                                    "Ask again. If it keeps happening, try another model in Settings.",
+                                    debug)
+        return ChatTurn("assistant", body, receipts=receipts or [], kind=kind, notes=notes,
+                        debug=debug, model=model)
+
+    def _temperature(self, base: float) -> float:
+        """A little warmer each time the same question is asked again (Regenerate),
+        so the answer is a different one and not the same words."""
+        return min(1.0, base + 0.2 * self._variant)
+
+    def _unavailable_turn(self, debug: dict) -> ChatTurn:
+        ok, why = self.available()
+        text = why or "No AI model is answering right now. Check that Ollama is running, then try again."
+        return ChatTurn("assistant", text, kind="error", debug=dict(debug))
+
+    def title(self, question: str, answer: str = "") -> str:
+        """A short name for a conversation, from the small model. `""` when it cannot
+        be made - the tab then uses the first words of the question. Never raises."""
+        llm = self._role("router") or self._role("answerer")
+        if llm is None:
+            return ""
+        try:
+            if not self._reachable(llm):
+                return ""
+            reply = llm.generate(prompts.title_prompt(question, answer), temperature=0.2,
+                                 max_tokens=16, timeout=min(self.cfg.timeout_s, 30.0), stop=["\n"])
+            raw = str(getattr(reply, "text", reply) or "").strip().splitlines()[0:1]
+            title = re.sub(r"^[\"'`*#\s]+|[\"'`*.\s]+$", "", raw[0] if raw else "")
+            words = title.split()
+            if not 1 <= len(words) <= 8 or len(title) > 60:
+                return ""
+            return title
+        except Exception as exc:                        # noqa: BLE001 - a courtesy only
+            log.debug("chat: no generated title ({})", exc)
+            return ""
+
     # ------------------------------------------------------------------ the answer
 
     def _similarity(self) -> Optional[Callable[[str, str], float]]:
@@ -691,118 +936,268 @@ class ChatEngine:
         except Exception:                               # noqa: BLE001
             return {}
 
-    def _answer_turn(self, route: Route, plan: Plan, retrieval: _Retrieval, say: Callable,
-                     send: Callable, stop: Callable[[], bool], debug: dict,
-                     started: float) -> ChatTurn:
+    def _answer_turn(self, route: Route, plan: Plan, retrieval: _Retrieval, history: list,
+                     text: str, say: Callable, send: Callable, stop: Callable[[], bool],
+                     debug: dict, started: float) -> ChatTurn:
+        """An answer built from the person's own files, written as prose and streamed.
+
+        The model writes it once, as it would in any conversation, and it reaches the
+        screen as it is written. When it is complete every sentence is judged against
+        the passages (`app/chat/reconcile.py`): what a passage does not support is taken
+        out, what is left is renumbered, and if nothing at all is supported the turn is
+        the plain "I couldn't find that in your files" instead."""
         llm = self._role("answerer")
         model_ok = llm is not None and self._reachable(llm)
         try:
             has_model = model_ok and bool(llm.has_model())
         except Exception:                               # noqa: BLE001
             has_model = False
-        window = 4096
-        if has_model:
-            try:
-                window = int(llm.context_window())
-            except Exception:                           # noqa: BLE001
-                window = 4096
+        window = self._window_of(llm) if has_model else 4096
 
         results = sorted(retrieval.results, key=lambda r: getattr(r, "rank", 0))
         sources = build_sources(
-            results, plan.terms, max_sources=self.cfg.max_sources, window_tokens=window,
-            question=route.question, metas=self._metas(results))
+            results, plan.terms, max_sources=self.cfg.max_sources,
+            window_tokens=int(window * 0.55), question=route.question,
+            metas=self._metas(results))
         debug["sources"] = [s.name for s in sources]
         debug["models"] = {r: getattr(self._role(r), "model", "") for r in ("router", "planner", "answerer")}
         if not sources:
-            return self._absence_turn(plan, retrieval, debug)
+            return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
+                                      debug, started)
 
-        verifier = Verifier(sources, threshold=self.cfg.verify_threshold,
+        if not has_model:
+            verifier = Verifier(sources, threshold=self.cfg.verify_threshold,
+                                similarity=self._similarity())
+            return self._extractive_turn(sources, plan, verifier, debug, send)
+        # The web may add what the files do not say - after they have been searched,
+        # never instead of them, and never for a question about the person's own affairs.
+        assessed = retrieval.assessment
+        need = decide_web(text, sources=len(sources), thin=assessed is None or assessed.thin,
+                          coverage=None if assessed is None else assessed.coverage)
+        web_sources, web_note = self._consult_web(text, sources, say, stop, debug, need)
+        if web_note:
+            debug["web_note"] = web_note
+        verifier = Verifier(list(sources) + web_sources, threshold=self.cfg.verify_threshold,
                             similarity=self._similarity())
+
+        # Every passage the model is shown, as a receipt, before it writes a word: a
+        # source number is a live link from the moment it appears.
+        shown: list[Receipt] = []
+        for source in list(sources) + web_sources:
+            try:
+                piece, start, end = source.best_quote(plan.terms)
+                shown.append(source.receipt(piece, start, end))
+            except Exception:                           # noqa: BLE001 - one bad file never halts anything
+                shown.append(Receipt(source.file_id, source.path, source.name, "", "", None))
+        send(SourcesEvent(tuple(shown)))
+        say("Reading " + self._names(sources) + "...")
+
+        system = prompts.archive_system(
+            sources, style_note=self.cfg.style_note, today=self.today,
+            combine=self.cfg.synthesis_combine or route.effective != SYNTHESIS,
+            web=[(s.n, s.name, s.path, s.passage) for s in web_sources])
+        if route.kind == FOLLOWUP:
+            system += f"\n\nQuestion: {route.question}"     # the follow-up, made standalone
+        reserve = min(ANSWER_MAX_TOKENS, max(256, window // 3))
+        packed = memory.pack(system, history, text, window_tokens=window, reserve_tokens=reserve)
+        debug["memory"] = packed.as_dict()
+        debug["mode"] = "answer (conversational, streamed, then checked)"
+        streamed = self._stream_chat(
+            llm, packed.messages, stop=stop, send=send, max_tokens=ANSWER_MAX_TOKENS,
+            temperature=self._temperature(0.2), hold_sentinel=True, debug=debug, started=started,
+            think=self._think_mode())
+
+        debug["model_output"] = streamed.text[:800]
+        if streamed.not_found or (not streamed.text.strip() and streamed.error is None
+                                  and not streamed.stopped):
+            return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
+                                      debug, started, unhelpful=True, results=results)
+        known = " ".join(str(getattr(t, "text", "")) for t in history
+                         if getattr(t, "role", "") == "user") + " " + text
+        rec = reconcile(streamed.text, verifier, known_text=known)
+        debug["dropped"] = [{"sentence": s, "reason": r} for s, r in rec.dropped]
+        debug["supported"], debug["general_sentences"] = rec.supported, rec.general
+        if not rec.has_support:
+            if streamed.error is not None:
+                return self._error_turn(streamed.error.message, streamed.error.suggestion, debug)
+            if streamed.stopped:
+                return self._stopped(debug)
+            return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
+                                      debug, started, unhelpful=True, results=results)
+        body = rec.text
+        if rec.partial and not streamed.stopped and streamed.error is None:
+            body += "\n\n" + _PARTIAL_LINE
+        if web_note and not web_sources:
+            body += "\n\n" + web_note                     # the web failed: say so, once
+        return self._finish_conversation(streamed, kind="answer", llm=llm, debug=debug,
+                                         text=body, receipts=rec.receipts)
+
+    def _extractive_turn(self, sources: Sequence[Source], plan: Plan, verifier: Verifier,
+                         debug: dict, send: Callable) -> ChatTurn:
+        """No model is running: the best-matching sentences, verbatim, each with its source."""
         assembler = AnswerAssembler(verifier)
-        stream_out = not (route.effective == SYNTHESIS and self.cfg.synthesis_combine and has_model)
-        first_token: dict[str, Any] = {}
+        debug["mode"] = "extractive"
+        self._extractive(sources, plan, assembler, lambda accepted: [
+            send(TokenEvent(item.text + " ")) for item in accepted])
+        if not assembler.accepted:
+            return self._absence_turn(plan, _Retrieval(), debug, unhelpful=True)
+        return ChatTurn("assistant", assembler.text(), receipts=assembler.receipts(),
+                        kind="answer", notes=[_NO_MODEL_NOTE], debug=debug)
 
-        def deliver(accepted: Sequence[Accepted]) -> None:
-            for item in accepted:
-                if stream_out:
-                    if "at" not in first_token:
-                        first_token["at"] = round(time.perf_counter() - started, 3)
-                        debug["timings"]["first_token_s"] = first_token["at"]
-                    send(TokenEvent(item.text + " "))
-                    for receipt in item.new_receipts:
-                        send(ShelfEvent(receipt))
+    def _nothing_turn(self, route: Route, plan: Plan, retrieval: _Retrieval, history: list,
+                      text: str, say: Callable, send: Callable, stop: Callable[[], bool],
+                      debug: dict, started: float, *, unhelpful: bool = False,
+                      results: Optional[list] = None) -> ChatTurn:
+        """The files have nothing usable. Say so in one plain sentence, and - for a
+        question that is not about the person's own affairs, and only then - offer a
+        short general answer, labelled as not from the files.
 
-        notes: list[str] = []
-        stopped = False
-        try:
-            if not has_model:
-                debug["mode"] = "extractive"
-                notes.append(_NO_MODEL_NOTE)
-                self._extractive(sources, plan, assembler, deliver)
-            elif route.effective == SYNTHESIS:
-                debug["mode"] = "synthesis: extract-and-quote" + (" + combine" if not stream_out else "")
-                stopped = self._synthesise(route, sources, llm, assembler, deliver, say, stop)
-            else:
-                debug["mode"] = "answer"
-                say("Reading " + self._names(sources) + "...")
-                stopped = self._generate(route.question, sources, llm, assembler, deliver, stop,
-                                         strict=False)
-                if not assembler.accepted and not stopped and not self._said_not_found(assembler):
-                    say("Checking that again more carefully...")
-                    stopped = self._generate(route.question, sources[:3], llm, assembler, deliver,
-                                             stop, strict=True)
-        except AppErrorException as exc:
-            if not assembler.accepted:
-                return self._error_turn(exc.error.message, exc.error.suggestion, debug)
-            notes.append(f"The model stopped answering part-way: {exc.error.message}")
+        A question about *their* files ("what did we agree with the landlord") gets the
+        searched-and-found-nothing account instead: a general answer to it would be a
+        guess about their life."""
+        llm = self._role("answerer")
+        offer = (not _PERSONAL.search(text)) and llm is not None and self._reachable(llm)
+        if offer:
+            try:
+                offer = bool(llm.has_model())
+            except Exception:                           # noqa: BLE001
+                offer = False
+        if not offer:
+            return self._absence_turn(plan, retrieval, debug, unhelpful=unhelpful,
+                                      results=(list({r.file_id: r for r in results}.values())[:10]
+                                               if unhelpful and results else None))
+        web_sources, web_note = self._consult_web(
+            text, [], say, stop, debug, decide_web(text, sources=0, thin=True))
+        if web_sources:
+            return self._web_turn(llm, web_sources, history, text, say, send, stop, debug, started)
+        lead = NOT_IN_FILES_LEAD if not web_note else NOT_IN_FILES_LEAD.replace(
+            "\n\n", f" {web_note}\n\n", 1)
+        window = self._window_of(llm)
+        packed = memory.pack(prompts.general_system(style_note=self.cfg.style_note, today=self.today),
+                             history, text, window_tokens=window,
+                             reserve_tokens=min(400, max(200, window // 4)))
+        debug["mode"] = "not in the files: short general answer"
+        debug["memory"] = packed.as_dict()
+        say("Nothing in your files - answering from general knowledge...")
+        streamed = self._stream_chat(
+            llm, packed.messages, stop=stop, send=send, max_tokens=GENERAL_MAX_TOKENS,
+            temperature=self._temperature(0.5), debug=debug, started=started, lead=lead,
+            think=self._think_mode())
+        notes = [f"Searched for: {q}" for q in plan.tried]
+        if not streamed.text.strip() and streamed.error is None and not streamed.stopped:
+            return self._absence_turn(plan, retrieval, debug, unhelpful=unhelpful)
+        turn = self._finish_conversation(
+            streamed, kind="general", llm=llm, debug=debug, notes=notes,
+            text=lead + streamed.text.strip())
+        if turn.kind == "error":                        # stopped or failed before any word
+            turn = ChatTurn("assistant", lead.strip(), kind="general", notes=notes,
+                            debug=debug, partial=True)
+        return turn
 
-        if not stream_out and assembler.accepted:
-            assembler = self._combine(route, assembler, sources, llm, debug)
-            for item in assembler.accepted:
-                send(TokenEvent(item.text + " "))
-                for receipt in item.new_receipts:
-                    send(ShelfEvent(receipt))
+    # ------------------------------------------------------------------ the web (optional)
 
-        debug["model_output"] = assembler.raw[:800]
-        debug["dropped"] = [{"sentence": s, "reason": r} for s, r in assembler.dropped
-                            if not s.upper().startswith(prompts.NOT_FOUND)]
-        if assembler.accepted:
-            if stopped:
-                notes.append("Stopped early - this is only part of the answer.")
-            return ChatTurn("assistant", assembler.text(), receipts=assembler.receipts(),
-                            kind="answer", notes=notes, debug=debug)
-        if stopped:
-            return self._stopped(debug)
-        # Retrieval was fine and the model produced nothing that could be
-        # checked. Say so - and offer the documents - instead of guessing.
-        return self._absence_turn(plan, retrieval, debug, unhelpful=True,
-                                  results=list({r.file_id: r for r in results}.values())[:10])
+    def _consult_web(self, text: str, sources: Sequence[Source], say: Callable,
+                     stop: Callable[[], bool], debug: dict,
+                     need: WebNeed) -> tuple[list[Source], str]:
+        """`(web passages as Sources numbered after `sources`, a plain sentence about
+        what happened)`. **Empty and silent unless the Web switch is on - and, with it on,
+        unless `need` (`app/chat/webrule.py`) says the files came up thin or the person
+        asked for the web.** A question the files answered is never offered to the web:
+        no prompt, no connection.
+
+        What leaves the computer is one short keyword phrase, composed by the local
+        model from the question alone, cleaned of anything that names a file of the
+        person's (`app/chat/web.py`), **shown before it is sent**, and - unless the person
+        turned that off - sent only after they press Allow. Never a passage, a path, a
+        file name or the conversation."""
+        if not self._web_on:
+            return [], ""
+        debug.setdefault("web_need", need.as_dict())
+        if not need.wanted or stop() or "web" in debug:      # "web" in debug: already asked once
+            return [], ""
+        from app.chat import web as webmod
+
+        settings = webmod.WebSettings(
+            enabled=True, provider=self.cfg.web_provider, searxng_url=self.cfg.web_searxng_url,
+            brave_key=self.cfg.web_brave_key, ask_first=self.cfg.web_ask_first,
+            show_query=self.cfg.web_show_query)
+        avoid: list[str] = []
+        for source in sources:
+            avoid += [source.name, source.path, *source.path.replace("\\", "/").split("/")]
+            avoid += [piece.text[:160] for piece in source.pieces[:2]]
+        llm = self._role("router") or self._role("answerer")
+        query = webmod.compose_query(text, llm, avoid=avoid)
+        if not query:
+            return [], "There was nothing safe to search the web for, so I did not."
+        debug["web"] = {"query": query, "provider": settings.provider, "asked": settings.ask_first}
+        if settings.ask_first:
+            say(f'Waiting for your answer: search the web for "{query}"?')
+            allowed = False
+            try:
+                allowed = bool(self._web_gate(query)) if self._web_gate is not None else False
+            except Exception:                           # noqa: BLE001 - no answer is a no
+                allowed = False
+            debug["web"]["allowed"] = allowed
+            if not allowed:
+                return [], "I did not search the web."
+        elif settings.show_query:
+            say(f'Searching the web for: "{query}"')
+        else:
+            say("Searching the web...")
+        if stop():
+            return [], ""
+        result = webmod.run_web(query, settings, transport=self.web_transport, avoid=avoid)
+        debug["web"].update(error=result.error, hits=len(result.hits), pages=len(result.pages),
+                            provider=result.provider or settings.provider)
+        if not result.ok:
+            return [], result.error or "The web search found nothing."
+        first = len(sources) + 1
+        found: list[Source] = []
+        for offset, (_n, title, url, body) in enumerate(webmod.web_context(result, max_chars=1400)):
+            found.append(Source(
+                n=first + offset, file_id=None, path=url, name=title,
+                pieces=[Piece(None, body, None, "Web")], passage=body, meta=title))
+        return found, ""
+
+    def _web_turn(self, llm: Any, web_sources: list[Source], history: list, text: str,
+                  say: Callable, send: Callable, stop: Callable[[], bool], debug: dict,
+                  started: float) -> ChatTurn:
+        """The files had nothing and the web had something: a short answer built from web
+        passages, every sentence checked against them, after the plain "I couldn't find
+        that in your files."."""
+        numbered = [Source(n=i, file_id=None, path=s.path, name=s.name, pieces=s.pieces,
+                           passage=s.passage, meta=s.meta)
+                    for i, s in enumerate(web_sources, start=1)]
+        receipts = [Receipt(None, s.path, s.name, " ".join(s.passage.split())[:240], "Web", None)
+                    for s in numbered]
+        send(SourcesEvent(tuple(receipts)))
+        verifier = Verifier(numbered, threshold=self.cfg.verify_threshold,
+                            similarity=self._similarity())
+        window = self._window_of(llm)
+        packed = memory.pack(
+            prompts.web_system(numbered, style_note=self.cfg.style_note, today=self.today),
+            history, text, window_tokens=window, reserve_tokens=min(500, max(200, window // 4)))
+        debug["mode"] = "not in the files: answered from the web"
+        say("Reading what the web says...")
+        lead = NOT_IN_FILES_LEAD.split("\n\n")[0] + "\n\n"
+        streamed = self._stream_chat(
+            llm, packed.messages, stop=stop, send=send, max_tokens=GENERAL_MAX_TOKENS + 200,
+            temperature=self._temperature(0.2), hold_sentinel=True, debug=debug, started=started,
+            lead=lead, think=self._think_mode())
+        rec = reconcile(streamed.text, verifier, known_text=text)
+        debug["dropped"] = [{"sentence": s, "reason": r} for s, r in rec.dropped]
+        if streamed.not_found or not rec.has_support:
+            note = "The web did not have a clear answer either."
+            return ChatTurn("assistant", lead.strip() + " " + note, kind="general",
+                            debug=debug, model=str(getattr(llm, "model", "") or ""))
+        return self._finish_conversation(streamed, kind="answer", llm=llm, debug=debug,
+                                         text=lead + rec.text, receipts=rec.receipts)
 
     @staticmethod
     def _names(sources: Sequence[Source]) -> str:
         names = [s.name for s in sources[:2]]
         rest = len(sources) - len(names)
         return " and ".join(names) + (f" and {rest} more" if rest > 0 else "")
-
-    @staticmethod
-    def _said_not_found(assembler: AnswerAssembler) -> bool:
-        return assembler.raw.strip().upper().startswith(prompts.NOT_FOUND)
-
-    def _generate(self, question: str, sources: Sequence[Source], llm: Any,
-                  assembler: AnswerAssembler, deliver: Callable, stop: Callable[[], bool], *,
-                  strict: bool) -> bool:
-        """One streamed generation, judged as it arrives. Returns whether it was stopped."""
-        prompt = prompts.answer_prompt(question, sources, strict=strict)
-        for piece in llm.stream(prompt, temperature=0.0, max_tokens=ANSWER_MAX_TOKENS,
-                                timeout=self.cfg.timeout_s, should_stop=stop):
-            deliver(assembler.feed(piece))
-            if stop():
-                deliver(assembler.flush())
-                return True
-        deliver(assembler.flush())
-        # A stream that ended because `should_stop` was asked and said yes (the
-        # model wrapper honours it too) looks the same as one that finished.
-        return bool(stop())
 
     # -- extractive fallback -------------------------------------------------------------
 
@@ -831,62 +1226,6 @@ class ChatEngine:
             if chosen >= 3:
                 break
         deliver(assembler.flush())
-
-    # -- synthesis (extract-and-quote, optionally combined) ----------------------------------
-
-    def _synthesise(self, route: Route, sources: Sequence[Source], llm: Any,
-                    assembler: AnswerAssembler, deliver: Callable, say: Callable,
-                    stop: Callable[[], bool]) -> bool:
-        """The map step: each document, alone, asked what it says about the
-        question. Its sentences are verified against that document and joined in
-        document order - "extract-and-quote", the work order's honest downgrade
-        for a small model (its 4b: synthesis has no floor at v1)."""
-        for source in sources:
-            if stop():
-                return True
-            say(f"Reading {source.name}...")
-            try:
-                reply = llm.generate(prompts.extract_prompt(route.question, source),
-                                     temperature=0.0, max_tokens=140, timeout=self.cfg.timeout_s)
-            except AppErrorException:
-                if assembler.accepted:
-                    break
-                raise
-            text = str(getattr(reply, "text", reply) or "")
-            if text.strip().upper().startswith(prompts.NOT_FOUND):
-                continue
-            deliver(assembler.feed(text.strip() + " "))
-            deliver(assembler.flush())
-        return False
-
-    def _combine(self, route: Route, extracts: AnswerAssembler, sources: Sequence[Source],
-                 llm: Any, debug: dict) -> AnswerAssembler:
-        """The reduce step (`synthesis_combine` only): the verified extracts,
-        renumbered, are combined by the model - and the result is verified again
-        against the documents. If nothing survives, the extracts stand."""
-        from dataclasses import replace
-
-        order = extracts.source_order()
-        renumbered = [replace(next(s for s in sources if s.n == n), n=i)
-                      for i, n in enumerate(order, start=1)]
-        notes = [(i, a.body) for i, a in enumerate(extracts.accepted, start=1)]
-        pairs = []
-        for item in extracts.accepted:
-            for number in item.display:
-                pairs.append((number, item.body))
-        try:
-            reply = llm.generate(prompts.combine_prompt(route.question, pairs or notes),
-                                 temperature=0.0, max_tokens=ANSWER_MAX_TOKENS,
-                                 timeout=self.cfg.timeout_s)
-            combined = AnswerAssembler(Verifier(renumbered, threshold=self.cfg.verify_threshold))
-            combined.feed(str(getattr(reply, "text", reply) or "") + " ")
-            combined.flush()
-            if combined.accepted:
-                debug["combined"] = True
-                return combined
-        except Exception as exc:                        # noqa: BLE001 - the extracts still stand
-            log.debug("combine step failed: {}", exc)
-        return extracts
 
     # ------------------------------------------------------------------ small turns
 

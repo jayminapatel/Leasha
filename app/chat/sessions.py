@@ -89,6 +89,7 @@ def _result_from_dict(data: dict[str, Any]) -> Any:
 def turn_to_dict(turn: ChatTurn) -> dict[str, Any]:
     return {
         "role": turn.role, "text": turn.text, "kind": turn.kind,
+        "model": turn.model, "partial": bool(turn.partial),
         "receipts": [receipt_to_dict(r) for r in turn.receipts],
         "notes": list(turn.notes),
         "result_set": (None if turn.result_set is None
@@ -110,7 +111,8 @@ def turn_from_dict(data: dict[str, Any]) -> ChatTurn:
         role=str(data.get("role", "assistant")), text=str(data.get("text", "")),
         receipts=[receipt_from_dict(r) for r in data.get("receipts", [])],
         result_set=restored, kind=str(data.get("kind", "answer")),
-        notes=[str(n) for n in data.get("notes", [])])
+        notes=[str(n) for n in data.get("notes", [])],
+        model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)))
 
 
 def title_for(turns: list[ChatTurn], limit: int = 60) -> str:

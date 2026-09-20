@@ -29,6 +29,15 @@ them. Its modes:
     empty            says nothing.
     scripted         replies from a list (or a callable), for one-off cases.
 
+**Conversation** (`chat_stream` / `chat`, the `/api/chat` shape): the double reads the
+system message the engine sends - `prompts.chat_kind` says whether it is a plain
+conversation, an answer from numbered sources or the short general fill - and answers
+accordingly. In an archive conversation it answers from the sources exactly as the
+modes above do; in a plain conversation it answers from `chat_replies` (a list, or a
+callable taking the messages) or, failing that, a short deterministic reply that
+quotes the last thing said, so a test can see the *memory* arrive. Every conversation
+call is recorded in `chat_calls` as `(kind, messages)`.
+
 It streams (`stream`) in small pieces so the sentence-at-a-time verification and
 the Stop button can be tested, and it can be told to be "down" (`up=False`) or to
 fail part-way (`fail_after`).
@@ -213,6 +222,8 @@ class FakeLLM:
         chunk: int = 9,
         fail_after: Optional[int] = None,
         models: Optional[list[str]] = None,
+        chat_replies: Any = None,
+        thinks: bool = False,
     ) -> None:
         self.mode = mode
         self.model = model
@@ -226,6 +237,14 @@ class FakeLLM:
         self.chunk = max(1, chunk)
         self.fail_after = fail_after
         self._models = list(models) if models is not None else [model]
+        self._chat_replies = list(chat_replies) if isinstance(chat_replies, (list, tuple)) else chat_replies
+        self.thinks = thinks
+        #: `[(kind, messages), ...]` of every conversation call, for assertions.
+        self.chat_calls: list[tuple[str, list[dict]]] = []
+        #: The `think=` each conversation call asked for.
+        self.think_asked: list[Optional[str]] = []
+        #: The temperature each conversation call asked for.
+        self.temperatures: list[float] = []
         #: `[(kind, prompt), ...]` of every prompt received, for assertions.
         self.calls: list[tuple[str, str]] = []
 
@@ -278,6 +297,55 @@ class FakeLLM:
                 raise self._down()
             sent += 1
             yield text[at:at + self.chunk]
+
+    def can_think(self) -> bool:
+        return self.thinks
+
+    def chat_stream(self, messages: Sequence[dict], *, temperature: float = 0.4,
+                    timeout: Optional[float] = None, max_tokens: Optional[int] = None,
+                    stop: Optional[list[str]] = None,
+                    should_stop: Optional[Callable[[], bool]] = None,
+                    think: Optional[str] = None) -> Iterator[str]:
+        if not self.up:
+            raise self._down()
+        self.think_asked.append(think)
+        self.temperatures.append(temperature)
+        text = self._chat_reply(messages)
+        sent = 0
+        for at in range(0, len(text), self.chunk):
+            if should_stop is not None and should_stop():
+                return
+            if self.fail_after is not None and sent >= self.fail_after:
+                raise self._down()
+            sent += 1
+            yield text[at:at + self.chunk]
+
+    def chat(self, messages: Sequence[dict], **kwargs: Any) -> FakeReply:
+        return FakeReply(text="".join(self.chat_stream(messages, **kwargs)), model=self.model)
+
+    def _chat_reply(self, messages: Sequence[dict]) -> str:
+        kind = prompts.chat_kind(messages)
+        self.chat_calls.append((kind, [dict(m) for m in messages]))
+        self.calls.append(({"archive": "answer"}.get(kind, kind),
+                           "\n\n".join(f"{m.get('role')}: {m.get('content')}" for m in messages)))
+        replies = self._chat_replies
+        if callable(replies):
+            return str(replies(messages))
+        if isinstance(replies, list) and replies:
+            return str(replies.pop(0))
+        last = next((str(m.get("content", "")) for m in reversed(messages)
+                     if m.get("role") == "user"), "")
+        if kind in ("archive", "web"):
+            system = str(messages[0].get("content", ""))
+            question = prompts.parse_question(system) or last
+            text = self._answer(f"{system}\n\nQuestion: {question}\nAnswer:")
+            return "From the web: " + text if kind == "web" and text != prompts.NOT_FOUND else text
+        if kind == "general":
+            return "In short, that is a general-knowledge answer from the fake model."
+        if self.mode in ("empty",):
+            return ""
+        earlier = sum(1 for m in messages if m.get("role") == "user") - 1
+        return f"Fake reply to: {last.strip()[:80]} (I can see {earlier} earlier message{'s' if earlier != 1 else ''})."
 
     # -- what it says -------------------------------------------------------------------
 
