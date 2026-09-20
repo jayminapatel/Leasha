@@ -87,6 +87,19 @@ governor as one more reason to wait); `.doc` now reads its WordArt and **counts*
 reach inside embedded objects rather than paying LibreOffice for words LibreOffice does not have
 either; the extractor registry loads on first read (38 fewer modules before the window).
 
+*One test is red on purpose, and it should stay red until somebody does the work.*
+`test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter` says
+`indexing_view.py` is **299 code lines against a 250 guard**, because the Pause button added
+85 lines of genuine view code to a file that had already been split once for this. Moving
+`start`, `stop` and `refresh_totals` out was tried and reverted: `test_pages_reorg` requires
+"Stopping after the current file...", "Indexing..." and "Everything indexed so far is kept."
+to be in **that file**, and `test_ui_never_blocks` requires `refresh_totals` to start a worker
+and `signals.progress.connect` to appear there - so the two guards pull opposite ways and the
+cheap move breaks the other one. **The guard was not raised to make the change pass**, which
+is the same refusal the chat floor got. The real fix is a controls widget (the Start/Stop/
+Pause/Reset row and its handlers) as its own file, the way `settings_shelves.py` and
+`results_items.py` were carved out - an hour of careful work, not a line-count edit.
+
 *Open, and honest about it:* order 0r 2b is not ticked - the warm minimum was already 1466 ms
 **before** the lazy-registry change, across runs spanning 1466-11159 ms, and that spread cannot
 support the claim either way; it needs a quiet machine. The test-suite widget leak was measured
