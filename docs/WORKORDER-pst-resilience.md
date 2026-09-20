@@ -1,6 +1,6 @@
 # Work order (One thread): PST resilience
 
-**Doc version:** 1.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (`app/extract/pst_libpff.py`, `app/extract/email_pst.py`,
 `app/extract/base.py`, `app/core/errors.py`, `app/cli/index.py`)
 **Status:** RELEASED by the owner 2026-09-20 - asked for in the same request that asked for
@@ -16,6 +16,34 @@ lands first.
 places where a bad archive cost more than it should. Each is now an item.
 
 ---
+
+> **2026-09-20 (second session) - measured on this machine, and built.** Nothing below
+> reworded an item; ticks carry their evidence under the item.
+>
+> - **Damaged archives (6c).** A scratch copy of `D:\OutlookArchive\2007.pst` (91 MB, 345
+>   messages) with garbage blocks of 0.5-2 MB written mid-file read 339-344 messages and
+>   reported `ERR_PST_PARTIAL` correctly ("4 messages could not be read (341 were)").
+>   Truncation, a zeroed header, a zeroed tail index and 6-20 MB of garbage gave
+>   `ERR_FILE_CORRUPT` with no crash. A pipeline run with a fake embedder indexed 341
+>   messages, counted `ERR_PST_PARTIAL` once, skipped the two hopeless files as
+>   `ERR_FILE_CORRUPT`, and a second run re-read nothing. No code change was needed.
+> - **The lock (1e) - NOT measured against Outlook.** Outlook 16 is installed but was not
+>   running, so how it holds an attached `.pst` is **still unmeasured**. (An earlier attempt
+>   to measure it started Outlook, which attached every archive in `D:\OutlookArchive` and
+>   moved their modified times to ~09:24; do not start Outlook to measure this - open a
+>   `.pst` in it yourself, then run the command in 1e on a *copy*.) What was proved instead
+>   is the logic the order depends on: a copy of the real `2007.pst` held share-none by a
+>   **separate process** reads 50 messages when free and gives `ERR_FILE_LOCKED`
+>   ("libpff could not open the archive: pypff_file_open: unable to open file ...") when
+>   held, and the real `PstExtractor` then asks Outlook (faked - the real session starts
+>   Outlook) and, if Outlook is missing, reports the lock so the archive is retried. Both
+>   are tests in `test_pst_resilience.py`.
+> - **4a decided (delegated by the owner, made by the lead, 2026-09-20):** retry a partial
+>   read on the next pass **only when the cause was transient** (`ERR_OUTLOOK_BUSY`), never
+>   for damage. Built as `transient=True` on the `ERR_PST_PARTIAL` that `_busy_warning`
+>   raises; the pipeline withholds the archive's completion marker when it sees it.
+> - **3d, 3e, 5a built;** see under each. **Still open:** 1e (needs a live Outlook) and 6b
+>   (the whole suite).
 
 ## 0. THE EVIDENCE - read this before changing anything
 
@@ -81,6 +109,8 @@ it has attached - exclusive or shared - is **unmeasured**. §1e is that measurem
   Expected: either libpff reads it (Outlook shares it - fine) or the log says
   `is held open; trying Outlook instead` and the messages arrive. Whichever it is, write the
   answer in the note above §0: it is the one fact this order could not measure.
+  > **2026-09-20: still open.** Outlook was not running; the note above §0 says what was
+  > proved instead (a lock held by a separate process, end to end, without starting Outlook).
 
 ## 2. A few bad messages cost a few messages
 
@@ -104,25 +134,41 @@ it has attached - exclusive or shared - is **unmeasured**. §1e is that measurem
   `_BUSY_FOLDERS`, which nothing but the CLI ever read.
 - [x] **3c. The run summary says it.** `app/cli/index.py` prints a `Partial` line, in the
   shape of the existing `Pictures` one.
-- [ ] **3d. The Indexing tab does not show it yet.** `warned_by_code` is persisted in
+- [x] **3d. The Indexing tab does not show it yet.** `warned_by_code` is persisted in
   `last_run_stats` but only the CLI reads it. Wire the count into the tab's summary, with a
   pytest-qt scenario (`WORKORDER-CONVENTIONS.md` §5b). Not started: the tab's summary layout
   needs reading first.
-- [ ] **3e. A warning on an *unchanged* last message is lost.** Found while building this.
+  > **2026-09-20:** a "Mail archives partly read" warning row in the tab's "This index" panel,
+  > from `warned_by_code` in the stored `last_run_stats` (`presenter.warned_counts`, read by
+  > `read_index_summary`, drawn by `index_summary`). `tests/unit/test_indexing_partial_row.py`,
+  > including a pytest-qt scenario that opens the real `IndexingView` over a store holding the
+  > record and waits for the row. The tab shows the *last run's* count; it clears on the next
+  > run that reads every message.
+- [x] **3e. A warning on an *unchanged* last message is lost.** Found while building this.
   `_consume` skips a message that is already current (`pipeline.py:2512`) before the warning
   loop in `_write_one` (`pipeline.py:3472`). So on an incremental run whose last message has not
   changed, `ERR_PST_PARTIAL` is not counted (the per-message log lines still are). Fix by
   counting a document's warnings before the `_already_current` check. Not done: it is inside
   the consumer, which is load-bearing, and wants its own test.
+  > **2026-09-20:** done as `Pipeline._note_warnings`, called from `_write_one` (a written
+  > document) and from the `_already_current` branch in `_consume` (an unchanged one) - never
+  > both for one document. On the unchanged path it counts, and logs only `ERR_PST_PARTIAL`
+  > (one line an archive); other warnings are counted, not logged again every pass. Red first:
+  > `test_a_partial_warning_on_an_unchanged_last_message_is_still_counted` failed before.
 
 ## 4. Retry what was missed - needs a decision
 
-- [ ] **4a. Should a partial read be retried on the next pass?** Today an archive that finishes
+- [x] **4a. Should a partial read be retried on the next pass?** Today an archive that finishes
   with skips gets its "unchanged" marker like a clean one, and only `--force` (or Outlook
   touching the file, which moves its mtime) re-reads it. For a transient cause (Outlook was
   busy on a folder) a retry is right; for real damage it re-reads the whole archive every run
   to skip the same messages. **Owner's call.** If yes: withhold the marker when a partial
   warning was raised *and* the cause was `ERR_OUTLOOK_BUSY`, never for damage.
+  > **2026-09-20: decided yes, as proposed** (see the note above §0). `_extract_stream` skips
+  > the archive marker when any document carries an `ERR_PST_PARTIAL` whose `context` has
+  > `transient`; per-message text hashes (`_already_current`) mean the retry embeds nothing it
+  > already has. Tests: a transient partial is re-read next pass and settles once a read is
+  > clean; a damage partial is opened once across three passes.
 
 ## 5. Considered and not built
 
@@ -141,7 +187,10 @@ Recorded so the next session does not re-derive them.
 - **`_BUSY_FOLDERS` is process-global**, shared by every extraction worker. Two workers reading
   archives through Outlook at once could each take the other's folder list. Existing, and not
   made worse by this order; the fix is to key it by store. Open as **5a**:
-  - [ ] **5a. Key `drain_busy_folders` by store path.**
+  - [x] **5a. Key `drain_busy_folders` by store path.**
+    > **2026-09-20:** `_BUSY_FOLDERS` is a dict keyed by the store's lower-cased path, behind a
+    > lock; `drain_busy_folders(path)` takes one archive's, and with no argument takes all (the
+    > CLI's `--mailbox`). Tests in `test_pst_partial_pipeline.py`.
 
 ## 6. Verification
 
@@ -149,8 +198,11 @@ Recorded so the next session does not re-derive them.
   `test_pst_libpff.py`, `test_email_pst.py`, `test_errors.py` - green.
 - [ ] **6b. The whole suite** - `venv\Scripts\python.exe scripts\run_suite.py -j 4`, compared
   against `HANDOFF.md`'s "Known red" families. Tick when the failures are all in those.
-- [ ] **6c. A real damaged archive - owner-run.** Take a copy of a `.pst`, damage it (change a
+- [x] **6c. A real damaged archive - owner-run.** Take a copy of a `.pst`, damage it (change a
   few bytes in the middle with a hex editor), index the copy. Expected: the run finishes, the
   readable messages are searchable, the `Partial` line appears, `logs\` names what was missed.
   This is the only test of "slightly corrupt" against a real file; every one above uses a fake
   archive, because nobody has a damaged PST to test with.
+  > **2026-09-20: done on a copy, by an agent, not with a hex editor** - the numbers are in the
+  > note above §0. Garbage blocks mid-file gave a partial read with the right count; heavier
+  > damage gave `ERR_FILE_CORRUPT` and no crash. The owner may still repeat it by hand.

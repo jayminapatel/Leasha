@@ -597,7 +597,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # Normalised once for the whole walk, not per directory entry.
     blocked = config.excluded_paths_lower()
     # **A film is not "too big to read"** the way a disk image is. Reading one
-    # means ffprobe on its header and ffmpeg seeking for pictures - neither
+    # means PyAV reading its header and decoding only its keyframes - neither
     # touches most of its bytes - and a family archive is exactly where the
     # multi-gigabyte files are. Only extensions whose switch is on are exempt.
     from app.extract.media import media_extensions

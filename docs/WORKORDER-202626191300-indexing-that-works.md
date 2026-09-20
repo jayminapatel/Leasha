@@ -1,6 +1,6 @@
 # Work order (One thread): indexing that works
 
-**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (`app/core/measured.py` + `app/index/index_bench.py` +
 `app/core/envelope.py` + `app/index/embedder.py` + `config/extractors.toml` +
 the close path in `app/ui/shell.py` and `app/main.py`)
@@ -186,7 +186,7 @@ choice, and this order leaves it alone.
   > **2026-09-19:** `config/extractors.toml`:
   > `--convert-to pptx`, `produces = "{stem}.pptx"`, `then = "pptx"`, with a dated
   > comment above the rule. `.doc` is untouched (`txt:Text` is right for Writer).
-- [ ] **5b.** The 79 `.ppt` rows already recorded as `SKIPPED` are read.
+- [x] **5b.** The 79 `.ppt` rows already recorded as `SKIPPED` are read.
   > **Open, and deliberately not done from here.** A settled skip whose date and
   > size have not changed is never re-attempted
   > (`pipeline._classify`, the `settled` branch), so the fix does not reach them
@@ -194,6 +194,14 @@ choice, and this order leaves it alone.
   > --retry-skipped` does; it retries every settled skip (118 in the owner's
   > index), which is cheap. It writes to the owner's real index, so it is theirs
   > to run.
+  > **2026-09-20: proved, by a different route than the one above.** A read-only look at
+  > the real index finds 107 files (103 `INDEXED`, 2 `NAME_ONLY`, 2 `SKIPPED` image-only
+  > PDFs) and **no `.ppt` rows at all**: the index was reset on 2026-09-19 (§11), so the 79
+  > `SKIPPED` rows the item describes no longer exist, and `--retry-skipped` is not needed
+  > for them. What the item is really about - that a `.ppt` is read - holds: LibreOffice is
+  > at `C:\Program Files\LibreOffice\program\soffice.exe` (not on `PATH`) and was found, and
+  > two real `.ppt` copies converted and read (10.3 s / 456 characters, 5.0 s / 405
+  > characters). Any `.ppt` indexed from here on is read, not skipped.
 
 ## 6. Closing a window
 
@@ -219,13 +227,46 @@ choice, and this order leaves it alone.
       run is in the pool.
   > **Open.** Not reproducible from here. The next occurrence will log the stacks
   > (§6c); read them first and do not reason ahead of them.
-- [ ] **6e.** A stop that arrives mid-batch finishes the batch it is in.
+  > **2026-09-20: still open, but one mechanism is found and closed, and one is ruled
+  > out as the cause.** Measured with plain PyQt6 offscreen (no application code): closing
+  > the main window with a **second visible top-level widget** left `exec()` running until
+  > something else called `quit()` (3.0 s, the experiment's own timer), against 0.2 s
+  > without one. `PreviewWindow` (pop-outs), `LogWindow` and `MiniSearch` are all
+  > parentless top-level widgets, so any one left visible keeps the loop alive with the main
+  > window gone. `MainWindow.closeEvent` now closes every other visible top-level window
+  > (`app/ui/close_windows.py`, one line in `shell.py`); `test_close_ends_the_app.py` builds
+  > the real `MainWindow`, starts a real index run in the view's pool, shows a `LogWindow`
+  > and a bare window, closes, runs a real event loop and requires it to end by itself - it
+  > fails (the backstop timer ends it) with the fix removed. **A second mechanism was also
+  > reproduced and is not the cause:** deleting an object that owns a `QThreadPool` blocks
+  > the main thread in `~QThreadPool` for the length of the run (6.0 s for a 6 s job), but
+  > `MainWindow` is not `WA_DeleteOnClose` and nothing deletes the view inside `exec()`.
+  > **What this does not explain:** the 2026-09-17 incident had no visible pop-out. The
+  > watchdog (§6c) stays as the backstop and the box stays unticked - do not tick it until an
+  > occurrence has been read.
+- [x] **6e.** A stop that arrives mid-batch finishes the batch it is in.
   > **Open, and smaller than it was.** Each model call is now at most 32
   > passages (about 6 s at 5.7/s), but the pipeline still embeds everything it
   > has gathered — up to `EMBED_BATCH`, 256 — before the run can report stopped,
   > because vectors are written before an archive's completion marker (M6) and an
   > abandoned batch would leave a marker with no vectors. Interrupting inside a
   > batch needs that ordering redesigned, not a flag.
+  > **2026-09-20: done - and the ordering did not need redesigning, only guarding.**
+  > `Pipeline._embed_pending` now embeds in slices of one model call (`CPU_INFER_BATCH`, 32;
+  > the graphics card keeps whole batches) and looks at the stop flag before each. When a
+  > stop arrives it writes vectors for **whole files only**, marks only those `INDEXED`
+  > (a file cut in half is left `PENDING`, the state a crash has always left, which the next
+  > run redoes), and sets `_embed_abandoned`. That flag holds back the two things that would
+  > otherwise claim the abandoned work: an archive's completion marker (`_consume`, after its
+  > blocking `_feed_sync`) and the resume positions (`_persist_resume_progress`). A stopped
+  > run therefore costs at most one model call (about 6 s here), not the up-to-256-passage
+  > batch. `tests/unit/test_stop_mid_batch.py`: one call not the batch; only whole files
+  > `INDEXED` and every one has a vector; a resume ends with every passage embedded once (the
+  > fake store asserts no chunk is added twice); no marker and no saved position after a
+  > cut; and the same in `test_close_ends_the_app.py` through the real window. Each guard was
+  > removed in turn and its test went red. **Not covered:** the image (CLIP) flush is a
+  > separate path and is not sliced; `stats.indexed` still counts files whose vectors were
+  > abandoned (they are `PENDING` in the database and redone).
 
 ## 7. The venv
 

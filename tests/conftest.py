@@ -233,3 +233,26 @@ def _qt_application():
     # this fixture exists to stop mattering, and destroying the application
     # while a widget somewhere is still alive is the same abort by another
     # route. The process is ending anyway.
+
+
+@pytest.fixture(autouse=True)
+def _no_florence_model_load(request, monkeypatch):
+    """No test may download or load the Florence-2 captioning model.
+
+    **A hang, not a failure.** Any test whose OCR fake reads nothing makes the
+    image "photo-class", and the extractor then calls `florence_tagger.tag_image`,
+    which - with torch and transformers installed - imports transformers (tens of
+    seconds) and downloads about a gigabyte from the Hugging Face hub. Stack dump of
+    `test_clip_lane_pipeline::test_image_vector_is_written_regardless_of_ocr_text`
+    (2026-09-20): the extraction worker sat in `florence_tagger._load` while
+    `Pipeline._consume` polled its queue every 0.25 s - a live worker, not a lost
+    sentinel. A test that wants a tagger patches `_load` itself, which overrides this;
+    the two real-model proofs are marked `slow`, and that marker opts them out.
+    """
+    if request.node.get_closest_marker("slow") is not None:
+        return
+    try:
+        from app.extract import florence_tagger
+    except Exception:                            # noqa: BLE001 - not importable, nothing to guard
+        return
+    monkeypatch.setattr(florence_tagger, "_load", lambda: None)

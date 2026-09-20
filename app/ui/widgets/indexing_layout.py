@@ -93,6 +93,7 @@ def paint_totals(view: Any, payload: dict) -> None:
         last_run=when_text(payload.get("last_run") or ""),
         next_run=view._next_run_text,
         error=payload.get("error", ""),
+        warned=payload.get("warned"),
     )
     view.stats_box.show_rows(rows)
     stats = payload.get("stats") or {}
