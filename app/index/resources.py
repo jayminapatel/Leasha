@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -51,6 +52,7 @@ __all__ = [
     "default_workers",
     "psutil_available",
     "busiest_processes",
+    "MANUAL_PAUSE_REASON",
 ]
 
 log = logger.bind(component="index.resources")
@@ -66,6 +68,22 @@ SETTLE_DROP_MB = 50.0
 #: Most times per run the memory floor may be raised. Bounds the damage if the
 #: growth really is a leak: it still trips, just later and loudly.
 MAX_SETTLES = 3
+
+#: 2026-09-20. Why the *person's* pause runs through this module at all.
+#:
+#: Everything above pauses the run **for the machine** - memory, battery, other
+#: people's CPU - and it already owns the only place a run waits without ending
+#: (`wait_while_throttled`), the only live "we are stopped, here is why" pair
+#: (`paused`/`pause_reason`), and the accounting the summaries print. A second
+#: waiting mechanism beside it would mean two flags the UI has to merge, two
+#: places a stop has to be noticed, and two answers to "why is nothing
+#: happening". So a manual pause is one more reason this one wait can be
+#: waiting - with its own `cause`, so the reason shown is always the true one:
+#: the person's while they hold it, and the machine's the moment they let go
+#: and the machine is still busy.
+MANUAL_PAUSE_REASON = (
+    "Paused at your request. Nothing is lost - press Resume to carry on."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +576,7 @@ class ResourceGovernor:
         sleep: Callable[[float], None] = time.sleep,
         on_state_change: Optional[Callable[[Verdict], None]] = None,
         busiest: Optional[Callable[[], list[tuple[str, float]]]] = None,
+        manual_check: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.limits = limits or ResourceLimits()
         self._probe = probe or SystemProbe().read
@@ -582,9 +601,76 @@ class ResourceGovernor:
         #: without it a pause is a frozen progress bar with no explanation.
         self.paused = False
         self.pause_reason = ""
+        #: The person's own pause - see `MANUAL_PAUSE_REASON`. An `Event`
+        #: because it is set from the interface thread and read by the walker,
+        #: every extraction worker and the consumer.
+        self._manual = threading.Event()
+        #: The same answer from outside this process - the command line's
+        #: pause file. Polled here rather than by each waiter, so one wait
+        #: path notices it. Never raises; an unreadable source means "not
+        #: paused", because a pause nobody asked for is worse than none.
+        self._manual_check = manual_check
+        #: Of `paused_seconds`, how much the person asked for. Kept apart so
+        #: "waited 40 minutes to stay out of the way" stays true.
+        self.manual_paused_seconds = 0.0
+
+    # -- the person's pause -------------------------------------------------
+
+    def pause_manually(self) -> None:
+        """Hold the run where it is. Not a stop: nothing is settled or ended."""
+        self._manual.set()
+
+    def resume(self) -> None:
+        """Let go of the person's pause. The machine's own may still hold."""
+        self._manual.clear()
+
+    def note_manual_pause(self, seconds: float) -> None:
+        """Record one pause the person held, and how long it lasted.
+
+        **Measured by the caller, not by this loop.** A manual pause is held
+        at several places at once - the walker, every extraction worker, the
+        consumer - and each of them adding its own wait would report a
+        two-minute pause as eight. So the run's one spine (the consumer, which
+        is also the only thread that commits anything) times it, and says so
+        here once.
+        """
+        if seconds <= 0:
+            return
+        self.paused_seconds += seconds
+        self.manual_paused_seconds += seconds
+        self.pauses += 1
+
+    @property
+    def manually_paused(self) -> bool:
+        if self._manual.is_set():
+            return True
+        if self._manual_check is None:
+            return False
+        try:
+            return bool(self._manual_check())
+        except Exception:                       # noqa: BLE001 - see `_manual_check`
+            return False
 
     def check(self, now: Optional[float] = None) -> Verdict:
         """One decision, with the busy-timer maintained across calls."""
+        # **First, and without reading the machine.** The person's pause is not
+        # a measurement and does not need one; probing while held would cost
+        # 25-35ms of process-table walk every poll for an answer nothing uses.
+        # It also means the *reason* shown while they hold it is theirs, and
+        # the machine's own reason reappears by itself on the next check after
+        # Resume - which is the true one at that moment.
+        if self.manually_paused:
+            found = Verdict("pause", MANUAL_PAUSE_REASON, cause="manual")
+            if found.action != self._last_action:
+                self._last_action = found.action
+                # **Not counted here.** However many threads ask, one pause
+                # happened; `note_manual_pause` counts it once, from the one
+                # thread that waited the whole of it out.
+                log.info("resource governor: paused at the person's request")
+                if self._on_state_change is not None:
+                    self._on_state_change(found)
+            return found
+
         snapshot = self._probe()
         self._last_rss = snapshot.rss_mb
         moment = now if now is not None else snapshot.at or time.monotonic()
@@ -707,7 +793,11 @@ class ResourceGovernor:
                 settle_from, ineffective = None, 0
 
             self.pauses = self.pauses            # state kept for reporting
-            self.paused_seconds += self.limits.poll_seconds
+            if found.cause != "manual":
+                # The person's pause is timed once, by whoever waits the whole
+                # of it out - see `note_manual_pause`. Counting it here too
+                # would add this thread's share of the same wait a second time.
+                self.paused_seconds += self.limits.poll_seconds
             self._sleep(self.limits.poll_seconds)
 
     def _accept_resident(self, rss: float) -> bool:
@@ -766,6 +856,7 @@ class ResourceGovernor:
             "low_priority": self.limits.low_priority,
             "pauses": self.pauses,
             "paused_seconds": round(self.paused_seconds, 1),
+            "manual_paused_seconds": round(self.manual_paused_seconds, 1),
             "governor_active": psutil_available(),
         }
 
