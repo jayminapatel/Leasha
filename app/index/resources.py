@@ -399,9 +399,14 @@ class SystemProbe:
         under its own guard and a vanished child simply contributes nothing.
         `children(recursive=True)` walks the process table once. Measured in
         the Linux sandbox with six real children: 0.28ms for the walk, 0.41ms
-        for the whole `read()` - against a 2s poll. Windows takes a process
-        snapshot for the same call, so expect low single-digit milliseconds
-        there; still nothing against the poll interval.
+        for the whole `read()` - against a 2s poll. **Measured on the owner's
+        Windows machine 2026-09-20, which the sandbox figure had only guessed
+        at: 25-35ms** with 597 processes on the box, with or without children
+        (the cost is the snapshot, not the children). Ten times the guess, and
+        still about 1.5% of a 2s poll - so it is not worth caching, and it is
+        not the cause of anything that looks like a stall. When indexing
+        appears to hang on a busy machine it is this governor *working*:
+        `wait_while_throttled` pauses while other processes hold the CPU.
         `test_the_probe_stays_cheap_with_children` guards the probe's own
         arithmetic with a fake psutil.
         """
