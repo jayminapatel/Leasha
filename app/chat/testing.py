@@ -54,7 +54,7 @@ from app.chat import prompts
 from app.chat.text import content_tokens, sentence_spans
 from app.core.errors import AppErrorException, make_error
 
-__all__ = ["FakeLLM", "FakeReply", "hallucinations_for", "keyword_engine"]
+__all__ = ["FakeLLM", "FakeReply", "hallucinations_for", "keyword_engine", "real_engine"]
 
 
 @dataclass(frozen=True)
@@ -383,6 +383,52 @@ class FakeLLM:
         if mode == "mixed":
             return (truth + " " + lies).strip()
         return truth
+
+
+def real_engine(store: Any, folder: Any, settings: Any = None) -> Any:
+    """A real `SearchEngine` over `store`: the actual embedding model, and a vector
+    store built from the corpus that is already in SQLite.
+
+    **Why this is not `keyword_engine`.** That one is right for unit tests -
+    deterministic, no model to download, and chat's own behaviour is what they are
+    about. It is wrong for `evaluate --chat`, which is the measurement that decides
+    whether the Chat tab is good enough to ship: with the semantic lane dead, every
+    question whose answer has to be found by meaning fails before the model is even
+    asked, and the number that comes out measures the handicap, not the answer.
+
+    **This exact mistake has been made here once before**, on the *search*
+    evaluation - see the comment in `app/cli/evaluate.py` that begins "The vectors
+    have to be built or this is not the full pipeline": it ran keyword plus an empty
+    vector store, warned "no vector hits" on all twenty questions, and still called
+    itself the full pipeline. The chat evaluation then inherited `keyword_engine` and
+    repeated it, and the 85% floor was reported as missed on the strength of it
+    (2026-09-20). The warnings were in the log both times.
+
+    The corpus is a few dozen documents, so building the vectors costs about a second.
+    """
+    from pathlib import Path
+
+    from app.index.embedder import Embedder
+    from app.search.engine import SearchEngine
+    from app.storage.vector_store import VectorStore
+
+    # `settings` is None when there is no `.env` to read - a worktree, a fresh clone.
+    # That must not turn into a crash *or* into a silent keyword-only run: the whole
+    # point of this function is that the measurement says which stack it measured.
+    dim = int(getattr(settings, "embed_dim", 0) or 384)
+    vectors = VectorStore(Path(folder) / "vectors", dim=dim)
+    vectors.connect()
+    embedder = Embedder.from_settings(settings) if settings is not None else Embedder(dim=dim)
+
+    chunks = list(store.conn.execute("SELECT id, file_id, text FROM chunks ORDER BY id"))
+    if chunks:
+        vectors.add(
+            chunk_ids=[row["id"] for row in chunks],
+            file_ids=[row["file_id"] for row in chunks],
+            vectors=list(embedder.embed_all([row["text"] for row in chunks])),
+        )
+        store.mark_embedded(row["id"] for row in chunks)
+    return SearchEngine(store, vectors, embedder, log_usage=False)
 
 
 def keyword_engine(store: Any) -> Any:
