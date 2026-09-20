@@ -114,12 +114,17 @@ def test_a_batch_survives_every_bad_file_in_the_corpus(fixture_root: Path) -> No
     )
     assert len(everything) >= 15
 
+    # Counted per *file*: `indexed + skipped == len(everything)` below only holds
+    # when each file is counted once, and a file can yield several documents (a
+    # multi-part workbook, a mailbox) - counting documents made it 29 against 28.
     indexed, skipped = 0, 0
     for path in everything:
         try:
+            produced = False
             for document in extract(path):
                 chunk_document(document)
-                indexed += 1
+                produced = True
+            indexed += 1 if produced else 0
         except AppErrorException:
             skipped += 1
 

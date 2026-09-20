@@ -448,7 +448,9 @@ def test_a_members_contents_are_searchable(indexed):
 
     found = store.search_bm25("commissioning")
 
-    assert [row["path"].replace(str(corpus), "") for row in found] == [
+    # Separators normalised: the key is the container's native path plus
+    # `/member`, so on Windows it reads `<corpus>\backup.zip/q3/notes.txt`.
+    assert [row["path"].replace(str(corpus), "").replace("\\", "/") for row in found] == [
         r"/backup.zip/q3/notes.txt"]
 
 
@@ -463,7 +465,7 @@ def test_members_are_not_pruned_at_the_end_of_the_run(indexed):
     """
     store, corpus, stats = indexed
 
-    kinds = {row["path"].replace(str(corpus), ""): row["source_kind"]
+    kinds = {row["path"].replace(str(corpus), "").replace("\\", "/"): row["source_kind"]
              for row in store.conn.execute(
                  "SELECT path, source_kind FROM files")}
 
@@ -475,7 +477,7 @@ def test_members_are_not_pruned_at_the_end_of_the_run(indexed):
 def test_a_member_with_no_reader_still_gets_a_row(indexed):
     store, corpus, _stats = indexed
 
-    paths = {row["path"].replace(str(corpus), "")
+    paths = {row["path"].replace(str(corpus), "").replace("\\", "/")
              for row in store.conn.execute("SELECT path FROM files")}
 
     assert r"/backup.zip/q3/plan.dwg" in paths

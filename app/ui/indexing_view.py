@@ -39,30 +39,25 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
 from app.core.logging import logger
 from app.ui.presenter import (
     finished_text,
-    index_summary,
     progress_for,
     progress_text,
     read_index_summary,
-    when_text,
 )
 from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.archived_roots import ArchivedRoots
-from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.index_stats import IndexStats
-from app.ui.widgets.scroll import scrollable
+from app.ui.widgets.indexing_layout import assemble_pages, paint_run_panels, paint_totals
 from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.widgets.tuning_box import TuningBox
 from app.ui.workers import CallableWorker, IndexWorker, run
@@ -200,52 +195,11 @@ class IndexingView(QWidget):
         self.schedule_box = IndexingSettings()
         self.tuning = TuningBox()
 
-        # --- §2a: three shelves, one sidebar (see the module docstring for
-        # §2b, the layout fix this split is).
-        #
-        # **Status keeps its old, unwrapped shape.** `self.skips` already
-        # scrolls its own contents (`stretch=1`, exactly as before) and was
-        # never the reported fault - wrapping it in a second scroll area
-        # would only reintroduce the two-scrollbars problem `widgets/scroll.py`
-        # warns about. Schedule and Tuning are the two shelves that pushed the
-        # old single page past its height with nothing to scroll it, so they
-        # are the two that get `scrollable()` - the same mechanism `shell.py`
-        # already gives Settings, applied here internally because `shell.py`
-        # itself is outside this thread's file scope.
-        status_page = QWidget()
-        status_layout = QVBoxLayout(status_page)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(8)
-        status_layout.addWidget(self.headline)
-        status_layout.addWidget(self.totals)
-        status_layout.addWidget(self.stats_box)
-        status_layout.addWidget(self.bar)
-        status_layout.addWidget(self.detail)
-        status_layout.addWidget(self.notices)
-        status_layout.addLayout(controls)
-        status_layout.addWidget(self.archives)
-        status_layout.addWidget(self.skips, stretch=1)
-
-        schedule_page = QWidget()
-        schedule_layout = QVBoxLayout(schedule_page)
-        schedule_layout.setContentsMargins(0, 0, 0, 0)
-        schedule_layout.addWidget(self.schedule_box)
-        schedule_layout.addStretch(1)
-
-        tuning_page = QWidget()
-        tuning_layout = QVBoxLayout(tuning_page)
-        tuning_layout.setContentsMargins(0, 0, 0, 0)
-        tuning_layout.addWidget(self.tuning)
-        tuning_layout.addStretch(1)
-
-        self._nav = CategoryNav()
-        self._nav.add_category(CATEGORY_STATUS, status_page)
-        self._nav.add_category(CATEGORY_SCHEDULE, scrollable(schedule_page))
-        self._nav.add_category(CATEGORY_TUNING, scrollable(tuning_page))
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._nav)
+        # --- §2a: three shelves, one sidebar (see the module docstring for §2b,
+        # the layout fix this split is). Assembled in `widgets/indexing_layout.py`,
+        # which also says why Status stays unwrapped and the other two scroll.
+        self._nav = assemble_pages(
+            self, controls, (CATEGORY_STATUS, CATEGORY_SCHEDULE, CATEGORY_TUNING))
 
     # -- running ------------------------------------------------------------
 
@@ -289,21 +243,7 @@ class IndexingView(QWidget):
 
     def _show_totals(self, payload: dict) -> None:
         """Paint the summary. UI thread, no I/O."""
-        rows = index_summary(
-            payload.get("stats"),
-            payload.get("vectors"),
-            data_path=payload.get("data_path", ""),
-            disk_bytes=payload.get("disk_bytes"),
-            last_run=when_text(payload.get("last_run") or ""),
-            next_run=self._next_run_text,
-            error=payload.get("error", ""),
-        )
-        self.stats_box.show_rows(rows)
-        stats = payload.get("stats") or {}
-        try:
-            self.totals_shown.emit(int(stats.get("files_total", 0) or 0))
-        except (AttributeError, TypeError, ValueError):
-            pass
+        paint_totals(self, payload)
 
     @property
     def pool(self) -> QThreadPool:
@@ -397,9 +337,7 @@ class IndexingView(QWidget):
         )
         self.headline.setText(headline)
         self.detail.setText(detail)
-        self.skips.show_skips(stats.skipped_by_code)
-        self.archives.show_roots(getattr(stats, "skipped_roots", ()))
-        self.show_notices(getattr(stats, "notices", ()))
+        paint_run_panels(self, stats)
 
     def _on_finished(self, stats: Any) -> None:
         # **Only a run that reached the end is full.** `pipeline.run` returns
@@ -415,9 +353,7 @@ class IndexingView(QWidget):
         headline, detail = finished_text(stats)
         self.headline.setText(headline)
         self.detail.setText(detail)
-        self.skips.show_skips(stats.skipped_by_code)
-        self.archives.show_roots(getattr(stats, "skipped_roots", ()))
-        self.show_notices(getattr(stats, "notices", ()))
+        paint_run_panels(self, stats)
         self.finished.emit(stats)
 
     def _on_failed(self, error: Any) -> None:

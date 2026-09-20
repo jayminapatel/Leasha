@@ -36,7 +36,9 @@ from app.storage.like import like_escape
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
-from app.storage.migrations import CURRENT_VERSION, apply_migrations, read_version
+from app.storage.migrations import (
+    CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
+)
 
 __all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion"]
 
@@ -1182,8 +1184,28 @@ class SqliteStore:
             _log.info("rebuilding word index after interrupted bulk run")
             try:
                 with self.write() as conn:
+                    # **Put the triggers back first.** The interrupted run dropped
+                    # them and died before restoring them, and the drop is stored
+                    # in the database. A rebuild alone repairs the rows written so
+                    # far and leaves nothing to index the *next* chunk - every
+                    # document indexed after a resume was silently missing from
+                    # the word index (found 2026-09-20 by reproducing it).
+                    has_messages = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name = 'messages_fts'").fetchone()
+                    for sql in CONTENT_TRIGGERS:
+                        # The mail triggers write into `messages_fts`; where that table
+                        # could not be created (no trigram) they never existed, and
+                        # creating them now would make every message insert fail.
+                        if sql.startswith("CREATE TRIGGER IF NOT EXISTS messages_") and not has_messages:
+                            continue
+                        conn.execute(sql)
                     conn.execute(
                         "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+                    try:
+                        conn.execute(
+                            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+                    except sqlite3.OperationalError:
+                        pass
                 self.set_state("fts_dirty", "")
                 _log.info("word index rebuilt successfully")
             except Exception as exc:                  # noqa: BLE001

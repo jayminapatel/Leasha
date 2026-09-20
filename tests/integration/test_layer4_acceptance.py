@@ -241,10 +241,17 @@ def test_a_missing_rerank_model_degrades_to_the_fused_order(indexed) -> None:
 
     reranker = Reranker(scorer=explode)
     engine = SearchEngine(store, vectors, embedder, reranker=reranker)
+    from app.search.rerank import RERANK_FAILURE_BUDGET
+
     try:
-        response = engine.search("valve replacement", use_cache=False)
-        assert response.results, "the search still succeeded"
-        assert not response.reranked
+        # Every failing search still succeeds. The reranker is given a budget of
+        # consecutive failures before it stops being tried (one transient failure
+        # used to switch it off for the whole session); once that is spent it is
+        # not retried again.
+        for attempt in range(RERANK_FAILURE_BUDGET):
+            response = engine.search("valve replacement", use_cache=False)
+            assert response.results, f"the search still succeeded (attempt {attempt + 1})"
+            assert not response.reranked
         assert not reranker.available, "and it will not be retried all session"
     finally:
         engine.close()
@@ -344,8 +351,28 @@ def test_a_filter_only_query_lists_what_matches(engine) -> None:
 
 
 def test_a_filter_that_matches_nothing_returns_nothing_calmly(engine) -> None:
-    response = engine.search("pump station type:xlsx", use_cache=False)
+    """With "Try again with fewer words" switched off, which is the contract this
+    test was written for: nothing matches, nothing is returned, nothing errors."""
+    from app.search.policy import SearchPolicy
+
+    response = engine.search("pump station type:xlsx", use_cache=False,
+                             policy=SearchPolicy(relax_on_empty=False))
     assert response.results == []
+    assert response.relaxed is None
+
+
+def test_a_filter_that_matches_nothing_is_relaxed_and_says_so_by_default(engine) -> None:
+    """2026-09-20: by default an empty search now retries with fewer constraints
+    (the search-experience order's `relax_on_empty`), so `type:xlsx` is dropped and
+    the text files match the rest. **What makes that acceptable is the label:**
+    the response carries the relaxation and a notice saying what was dropped."""
+    from app.search.engine import NOTICE_RELAXED
+
+    response = engine.search("pump station type:xlsx", use_cache=False)
+    assert response.relaxed is not None
+    assert response.results, "relaxing should have found what matches the rest"
+    assert any(notice.code == NOTICE_RELAXED for notice in response.notices), (
+        "results were changed silently - the person is not told what was dropped")
 
 
 def test_the_interim_tier_touches_no_model(indexed) -> None:

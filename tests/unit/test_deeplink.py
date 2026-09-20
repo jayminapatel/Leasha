@@ -17,6 +17,7 @@ nothing that touches a file, a setting or the index. The worst a hostile
 
 from __future__ import annotations
 
+import os
 import pathlib
 import tempfile
 
@@ -233,22 +234,43 @@ def test_registering_nothing_is_refused_before_it_reaches_the_registry():
 # The command line
 # ---------------------------------------------------------------------------
 
-def test_the_cli_leaves_the_link_for_the_window(tmp_path, monkeypatch):
+def _windows_essentials() -> dict:
+    """What a stripped-down subprocess environment still needs on Windows.
+
+    These tests hand the CLI a deliberately bare environment, so the machine's
+    own configuration cannot leak in. Bare must not mean broken: without
+    `SYSTEMROOT` Python cannot start Winsock (importing asyncio dies with
+    WinError 10106 before the CLI runs), and without `TEMP`/`TMP` SQLite has no
+    directory for the table rebuild a new index goes through and reports "unable
+    to open database file". Both found 2026-09-20.
+    """
+    return {key: os.environ[key] for key in ("SYSTEMROOT", "TEMP", "TMP") if key in os.environ}
+
+
+def test_the_cli_leaves_the_link_for_the_window(tmp_path, temp_env):
     r"""**The outcome, end to end.** `leasha open leasha://search?q=...` is
     what Windows runs, and what it has to do is leave a query somewhere the
     window will find it — not start a second application.
+
+    Runs against `temp_env` (a throwaway `.env`, passed with `--env`) rather than
+    whatever `.env` sits at the project root: a checkout or worktree with none
+    failed with `ERR_CONFIG_MISSING` before the link was read (2026-09-20).
     """
     import subprocess
     import sys
 
+    from app.core.config import load_settings
+
     root = pathlib.Path(__file__).resolve().parents[2]
+    # The index folder exists once Leasha has run; `temp_env` only names it.
+    load_settings(temp_env).fts_db.parent.mkdir(parents=True, exist_ok=True)
     environment = {
-        "DATA_PATH": str(tmp_path), "INDEX_PATH": str(tmp_path / "i"),
-        "LOG_PATH": str(tmp_path / "l"), "PATH": "/usr/bin:/bin",
+        "PATH": "/usr/bin:/bin",
         "PYTHONPATH": str(root),
+        **_windows_essentials(),
     }
     result = subprocess.run(
-        [sys.executable, "-m", "app.cli", "open",
+        [sys.executable, "-m", "app.cli", "--env", str(temp_env), "open",
          "leasha://search?q=pump%20station"],
         cwd=str(root), env=environment, capture_output=True, text=True,
         timeout=120)
@@ -257,10 +279,7 @@ def test_the_cli_leaves_the_link_for_the_window(tmp_path, monkeypatch):
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
 
-    monkeypatch.setenv("DATA_PATH", str(tmp_path))
-    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "i"))
-    monkeypatch.setenv("LOG_PATH", str(tmp_path / "l"))
-    settings = load_settings()
+    settings = load_settings(temp_env)
     with SqliteStore(settings.fts_db) as opened:
         assert take_pending(opened).query == "pump station"
 
@@ -276,7 +295,8 @@ def test_the_cli_refuses_a_link_that_is_not_ours(tmp_path):
         cwd=str(root), text=True, capture_output=True, timeout=120,
         env={"DATA_PATH": str(tmp_path), "INDEX_PATH": str(tmp_path / "i"),
              "LOG_PATH": str(tmp_path / "l"), "PATH": "/usr/bin:/bin",
-             "PYTHONPATH": str(root)})
+             "PYTHONPATH": str(root),
+             **_windows_essentials()})
     assert result.returncode != 0
     assert f"{SCHEME}://search?q=" in (result.stdout + result.stderr)
 

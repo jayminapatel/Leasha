@@ -68,7 +68,11 @@ def cmd_open(args: argparse.Namespace) -> int:
                 f"  leasha open unregister   stop it"),
         ), args.json)
 
-    settings = load_settings()
+    # `--env`, like every other command. This called `load_settings()` bare, so
+    # `leasha --env X open ...` read the project's own `.env` and ignored the
+    # option it was given (found 2026-09-20 by a test that had no `.env` at all).
+    env_file = getattr(args, "env", None)
+    settings = load_settings(Path(env_file) if env_file else None)
     from app.storage.sqlite_store import SqliteStore
 
     with SqliteStore(settings.fts_db) as store:
