@@ -238,7 +238,18 @@ def cmd_search(args: argparse.Namespace) -> int:
             # comparison between models meaningless, which is exactly what the
             # numbers were being used for.
             engine.warm_up()
-            response = engine.search(raw, limit=args.limit)
+            # **`expand_slashes` first, exactly as every other caller does** - the
+            # window's presenter, the Code and Repos views, and `evaluate`. Without it
+            # `/newest` reaches `parse_query` unexpanded, comes back with an empty sort,
+            # and is silently dropped: the command line answered `report /newest` in
+            # relevance order and said nothing, while the window sorted by date. Found
+            # by running it against the real index on 2026-09-20. The comment a few
+            # lines above names this exact shape of bug - "it works from the app and not
+            # from the command line" - which is what makes it worth a note rather than a
+            # quiet one-word fix.
+            from app.search.commands import expand_slashes
+
+            response = engine.search(expand_slashes(raw), limit=args.limit)
             # **The same federation the window does**, because the standing rule
             # here is that a feature added for one entry point is added for the
             # others - the shape of bug that gets reported as "it works from the
