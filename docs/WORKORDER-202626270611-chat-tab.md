@@ -1,16 +1,89 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
-**Status: HELD — created at the owner's request, to be scheduled BY THE OWNER
-later. Do not execute until he promotes it (registers a queue position in
-HANDOFF).** Promotion consciously reopens the search-and-chat scope decision:
-at promotion, a dated note goes on `WORKORDER-scope-change-search-and-chat.md`
-recording that the owner reopened it with this design — appended, never
-edited. Prerequisites when promoted: the search-experience order (translator
-seam, policy machinery) landed; benefits compound with 0510–0512 (photo
-lanes) and grow with the GPU machine, but a 7–8B CPU model is the design
-target — this must be good on the machine of today.
+
+> **Dated note, 2026-09-20 - the Status line below is corrected; it said HELD and
+> the order is RELEASED.** The Status line was written on 2026-08-28 when the owner
+> asked for the order to be held for him to schedule. On 2026-09-19 the owner
+> instructed the build thread to add the Chat tab ("can you also add the chat page
+> which is outstanding workorder", then "actually do all the workorders you can
+> then test") and it was built and merged that day; `ORDER_REGISTER.md` has carried it
+> as RELEASED since. The line and the register disagreed for a day. **Decision, taken
+> by the lead on the owner's behalf on 2026-09-20: the Chat tab stands as RELEASED.**
+> The "deliberate refusal of chat over the index" in
+> `WORKORDER-scope-change-search-and-chat.md` is reversed for local, receipt-backed
+> answers only (a dated confirming note is on that order). Nothing below this note
+> was reworded except that one Status line; its original words are kept here so the
+> history is not lost: "HELD - created at the owner's request, to be scheduled BY THE
+> OWNER later. Do not execute until he promotes it." The prerequisites it listed (the
+> search-experience order's translator seam and policy machinery landed) held when
+> the tab was built.
+
+**Status: RELEASED** — built and merged 2026-09-19 on the owner's instruction;
+the owner's reopening of the search-and-chat scope decision is recorded as a dated
+note on `WORKORDER-scope-change-search-and-chat.md`. Open items are listed in the
+dated notes below, section by section.
+
+> **Dated note, 2026-09-20 (later) - the owner changed what the Chat tab is: a conversation
+> that reads his own files first.** His words, in order: "the chat has to behave like i am
+> talking to ai chat like in claude"; then "the chat should use local source though"; then
+> "and optionally can augment from web". This note is the decision and the list of what it
+> supersedes. **Nothing below it is reworded**: each superseded item has its own dated note
+> above it, marked SUPERSEDED IN PART, and keeps its words so the history reads.
+>
+> **What the tab is now.**
+> 1. *Retrieval first.* Every substantive question - including a general-sounding one
+>    ("what is a PST file?") - searches the local index before a word is said. Only social
+>    or meta turns (hello, thanks, "what can you do?"), instructions about the previous
+>    answer ("shorter", "translate that", "why?", "continue"), and writing / maths / code
+>    tasks that name none of his files skip it: router class `CHAT`
+>    (`app/chat/router.py`; the router model is never asked to choose it, so a small model
+>    cannot talk the tab out of searching). This **supersedes** the first reading of the
+>    owner's request ("a plain question must not go searching").
+> 2. *Real conversation.* The model is sent the conversation as role-tagged messages through
+>    Ollama's `/api/chat` (`app/chat/llm.py`, `chat_stream`), streamed as it is written, with a
+>    sliding memory sized from the model's real context window
+>    (`app/chat/memory.py`: newest turns whole, older ones dropped whole-turn first, the turn
+>    at the edge cut at a sentence, what was dropped kept as a one-line-per-turn digest).
+>    One persona, in one place (`app/chat/prompts.py`, `PERSONA`), plus his own note through
+>    the setting `CHAT_STYLE_NOTE`.
+> 3. *Answers from his files read like an assistant wrote them*: flowing prose, numbered
+>    citations to the Sources pane, written once and streamed; when it is complete every
+>    sentence is judged against the retrieved passages (`app/chat/reconcile.py`). A sentence
+>    no passage supports is taken out - **not the whole answer** - a sentence padded past what
+>    a passage says is cut back to the clause it does say, the rest is renumbered, and the
+>    answer ends "I could not confirm the rest of that from your files." if anything went. If
+>    nothing survives, the turn is the plain "I couldn't find that in your files."
+> 4. *Nothing found.* One plain sentence, then - for a question that is not about his own
+>    affairs (no "my", "we", "I") and only then - a short answer from general knowledge under
+>    the label "Not from your files:". A question about his own affairs gets the
+>    searched-and-found-nothing account instead: a general answer to it would be a guess about
+>    his life.
+> 5. *Fully local.* All inference is Ollama on this computer. `tests/unit/test_chat_conversation.py`
+>    runs whole conversations under a patched `socket.create_connection` /
+>    `getaddrinfo` that fails the test on any host but loopback (once with the fake model, once
+>    through `OllamaLLM` with a recording transport); the Settings text of the three chat model
+>    settings now says they run on this computer.
+> 6. *The web is optional, off by default, and chat-only* (the owner's explicit exception to the
+>    offline rule; search, indexing and everything else stay offline). See the dated note above
+>    section 3e for the design and its guards.
+>
+> **What this supersedes, item by item** (each has its own note): design principle 1 ("The
+> model never speaks unverified") - claims about the files are still checked, but *after* they
+> are written, so unchecked words are on screen while they stream and the kept text is the
+> checked text; 1c's "per-document extract-then-combine (map-reduce)" - one streamed answer,
+> checked by sentence; 2a's "if the answer thins too far the loop retries once with tighter
+> instructions" - no retry, a partial answer instead; the section 2 heading's "no sentence
+> without a receipt" and "Unverifiable prose never renders" - an unmarked sentence that makes no
+> claim about the files (conversation, a labelled general paragraph) is allowed, and an unmarked
+> sentence with an invented figure, name, month or quotation is dropped (`audit_answer` re-checks
+> the finished turn; a **limit, stated plainly**: an unmarked, vague, general-sounding claim about
+> the files that shares little with any passage is treated as conversation and kept - a lexical
+> check cannot see it); 3a's "streaming tokens" is now literally so (before, a verified sentence
+> at a time); 4b's `synthesis_combine` "off" - it is **on** and now means "a question across
+> several documents is answered as one account" (off asks for one short paragraph per document);
+> the tab's fixed strings (see the note above section 3).
 
 > **Dated note, 2026-09-19 - what was built and merged, checked against the code
 > and the tests.** The Chat engine (`app/chat/`), the tab (`app/ui/chat_view.py`,
@@ -41,6 +114,14 @@ target — this must be good on the machine of today.
 > only); (5) extractive quality with real models is below the 85% floor - see the
 > note above section 4.
 
+> **Dated note, 2026-09-20 - SUPERSEDED IN PART: principle 1 below.** "The model never speaks
+> unverified" now holds for **claims about the person's files** only, and is enforced *after* the
+> words are written, not before: the words stream as they are generated and the kept text is the
+> checked text (see the decision note at the top). Conversation that makes no claim about the files
+> and a labelled general answer are not verified, because they claim nothing about them. Principles
+> 2, 3 and 4 stand; 4 gained a labelled general answer, after the plain sentence, for a question
+> that is not about his own affairs.
+
 ## Why this design succeeds where naive RAG disappoints
 
 Every "chat with your documents" product fails the same way: stuff retrieved
@@ -59,6 +140,14 @@ codebase:
    search agent that narrates its searching — not a context-window gambler.
 4. **Absence is stated honestly.** "I searched these ways and found nothing
    in the index" is a first-class answer — never "that doesn't exist."
+
+> **Dated note, 2026-09-20 - SUPERSEDED IN PART: 1c's "per-document extract-then-combine
+> (map-reduce) for synthesis instead of one giant prompt".** A question across several documents is
+> answered as one flowing account, written once and streamed, then checked sentence by sentence
+> (`synthesis_combine` is on and means that; off asks for one short paragraph per document). The
+> rest of 1c stands: the context budget still comes from the model's real window, now shared with the
+> conversation (the numbered passages get 55% of it, the conversation the rest). 1a gained a class,
+> `CHAT` - no retrieval - and the router model is never asked to choose it.
 
 ## 1. The engine: an agentic retrieval loop (the core)
 
@@ -88,6 +177,21 @@ codebase:
   was searched (the queries, visibly), the honest scope sentence ("nothing
   in Leasha's index matches — sources currently indexed: …"), and offer the
   obvious next steps (different words; is it on an unscanned drive?).
+
+> **Dated note, 2026-09-20 - SUPERSEDED IN PART: this section's heading ("no sentence without a
+> receipt") and 2a's "the sentence is dropped and ... the loop retries once with tighter
+> instructions" / "Unverifiable prose never renders".** A sentence with a marker `[n]` is still
+> checked against the passage it cites (2a-2c unchanged: words found together, negation agrees, every
+> figure, date, name and quotation exists, quotes verbatim - `app/chat/verify.py`) and is dropped if it
+> fails; but there is **no retry** - a partial answer is kept instead and says what it could not
+> confirm - and unverified words are on screen while they stream (the finished turn replaces them). A
+> sentence with **no** marker is judged too (`app/chat/reconcile.py`): if it says what a passage says it
+> is attached to it (or dropped if it contradicts it), if it states a figure, name, month or quotation
+> that no passage has it is dropped, and otherwise it is conversation and stays. A sentence padded past
+> what its passage says is cut back to the clause that is supported. `audit_answer` re-checks a finished
+> turn independently; `audit_turn` remains the strict check for the no-model extract-and-quote fallback.
+> **Limit, stated plainly:** an unmarked, vague, general-sounding claim about the files that shares less
+> than half its words with any passage is treated as conversation and kept - a lexical check cannot see it.
 
 ## 2. Verification: no sentence without a receipt
 
@@ -183,6 +287,45 @@ codebase:
 > Sources list, not highlighted inside the full `PreviewPane`, which is why 3a's
 > "highlights the exact passage in the pane" is read as that strip.
 
+> **Dated note, 2026-09-20 - SUPERSEDED IN PART: 3a's "clean conversation bubbles, streaming
+> tokens"; the tab as it is now, and the words that changed.** The assistant's words sit on the
+> page with no box round them; the person's are a soft block on the right. A slim "Thinking..."
+> shows before the first word and goes when it arrives. Tokens appear as they are generated
+> (before, a verified sentence at a time). Stop always ends a turn: the bubble closes at once
+> with what had arrived, and if the engine - still loading a model, so with nothing to stop
+> between - has not come back within four seconds the box is handed back, the orphaned worker's
+> late words are ignored, and the next question gets a fresh engine. The view follows the newest
+> text only while the reader is at the bottom; Enter sends, Shift+Enter starts a new line, and
+> the box grows with the *wrapped* text, up to five lines. **Markdown is drawn as it streams**
+> (`app/ui/widgets/chat_markdown.py`): bold, italic, headings, bullet and numbered lists,
+> tables, inline code and fenced code blocks with a Copy button on each. **Copy** is on every
+> answer (the words, without the source numbers), **Regenerate** on the last (a little warmer
+> each time, so the answer differs), **Edit** on the last message (it comes back into the box and
+> the exchange is taken out), **Try again** beside a reply that stopped part-way or failed (a
+> reply that dies mid-stream keeps its words, and says why in one plain sentence with the fix),
+> **New chat** in the sidebar, and a **short title** from the fast model after the first answer
+> (the first words of the question stand in until it arrives; asked once; a rename by the person
+> wins). Saved conversations keep the new fields (`model`, `partial`, `auto_titled`, `web`).
+> **Strings reworded by the owner's instruction** (old -> new): the box's placeholder "Ask about
+> your files and mail. Enter sends; Shift+Enter starts a new line." -> "Ask about your files, or
+> just talk. Enter sends; Shift+Enter starts a new line."; the empty heading "Ask about anything
+> you have kept." -> "Ask about your files, or just talk." (its hint gained "What is a PST
+> file?"); the Sources pane heading "Sources" -> "Local sources", and its empty line "Sources
+> appear here as the answer uses them." -> "Passages from your files appear here as the answer
+> uses them." (the owner asked that the pane be visibly the local sources; a web page in it is
+> marked Web and opens in the browser).
+> **A bug found by looking at the real window, not by a test:** `ChatSessions` called the
+> store's `save_session` with one dict, but the store's method is
+> `save_session(session_id, title, turns, shelf, model)`, so every save raised `TypeError` and
+> **no conversation was ever kept outside the tests' in-memory double**. Fixed in
+> `app/ui/chat_sessions.py` (a translation both ways: the tab's own id, its flags and the shelf's
+> removed list ride in a `_meta` first entry of the stored turns) and pinned against the real
+> `SqliteStore` in `tests/unit/test_chat_sessions_store.py`, which is the test that was missing.
+> Also found and fixed: `test_the_settings_page_carries_the_chat_group_and_forwards_its_changes`
+> could hang the whole run - a settings write raced the file on Windows, the error opened a modal
+> dialog, and nothing clicked it. The Chat tests' harness now records errors and captures `.env`
+> writes instead (`tests/unit/test_chat_tab_qt.py::chat`).
+
 ## 3. The tab (owner: NO badges — receipts are integrated, not stigmata)
 
 - [x] **3a** a Chat tab: clean conversation bubbles, streaming tokens, Stop
@@ -208,7 +351,81 @@ codebase:
   Thoughtful" mapped to installed Ollama models; greyed-with-reason when
   Ollama is absent — the whole tab degrades to a plain explanation of what
   to install, H4 register).
-- [ ] **3e** tab-one plain-words rules apply to every fixed string; policy
+> **Dated note, 2026-09-20 - 3e (chat tunables as envelope settings), and the web.**
+> **3e.** Every chat tunable is declared once in `app/core/settings_registry.py`, read into
+> `Settings.chat_*` by `app/core/config.py`, resolved in `app/chat/config.py`
+> (`ChatSettings.from_settings`) and given a control on Settings > Models & AI
+> (`app/ui/widgets/chat_box.py`, built from the registry). They follow the Index Tuning mode:
+> in Defaults and Auto-tune the envelope decides (`app/core/envelope.py`: `chat_max_rounds`,
+> `chat_verify_strictness`, and the new `chat_context_tokens` - 4096 below 8GB of RAM, else
+> 8192, **an estimate, flagged as one**: measured only on a 34GB CPU-only machine) and nothing
+> is forced onto a model role; in Manual what was typed counts, clamped to the envelope; what was
+> typed in Manual is kept and inert elsewhere. New: `CHAT_CONTEXT_TOKENS` (how much the model
+> reads at once) and `CHAT_STYLE_NOTE` (the person's own words, added to the persona - never
+> replacing it). The help text of `CHAT_MODEL`, `CHAT_ROUTER_MODEL` and `CHAT_PLANNER_MODEL` gained
+> "It runs on this computer" (the owner asked for it).
+> **The web** (owner: "and optionally can augment from web" - an explicit exception to the offline
+> rule, for chat only; search, indexing and everything else stay offline). Settings: `CHAT_WEB_ENABLED`
+> (off), `CHAT_WEB_PROVIDER` (auto | duckduckgo | wikipedia | searxng | brave), `CHAT_WEB_ASK_FIRST`
+> (on), `CHAT_WEB_SHOW_QUERY` (on), `CHAT_WEB_SEARXNG_URL`, `CHAT_WEB_BRAVE_KEY` (a field the owner
+> fills, masked on screen; Leasha never fills it in). **These are always visible, in every tuning
+> mode** - a privacy choice, not a tuning - in words that say what leaves the computer. In the tab:
+> a **Web** chip beside the box, per conversation, remembered with it, absent unless Settings allows
+> the web, off until turned on. Design (`app/chat/web.py`; the engine imports it inside the one
+> function that needs it, `test_chat_layering.py::test_the_web_module_is_only_ever_imported_lazily_by_the_engine`):
+> *local first* - the files are searched, then the web adds what they do not say, or answers when they
+> have nothing, and is never used for a question about his own affairs (my / our / we / I); the answer
+> keeps "From your files" and "From the web:" visibly apart, web passages are numbered after the
+> local ones, marked Web in the Sources pane and opened in the browser. **What leaves the computer is
+> one keyword phrase** (at most ten words), composed by the local model from the question alone and
+> scrubbed of paths, e-mail addresses, file names, long digit runs and every file name, folder and
+> passage the search retrieved; it is **shown before it is sent**, and sent only after Allow unless
+> the person turned "Ask before each web search" off (with no way to ask, an ask-first search is
+> skipped, not sent). Result pages are read as text only (the top three, 1 MB each, no script run, at
+> most three redirects, loopback and private addresses refused). A claim from the web is cited to the
+> web passage and checked against it; a claim about his files still needs a local passage. If the web
+> fails the answer says so in one sentence and stands on the files; it never blocks the answer.
+> **Provider - called live from this machine on 2026-09-20:** Wikipedia's API answers (0.9 s at first,
+> 4-22 s minutes later on a busy network); DuckDuckGo's HTML, lite and instant-answer endpoints all
+> answered HTTP 202 with an anti-bot challenge and were not bypassed; Mojeek, Marginalia and Brave's
+> HTML search were bot-blocked. **So the one keyless provider that works is Wikipedia** (encyclopedic
+> questions only); a general web search needs his own SearXNG address or a Brave key, and the
+> DuckDuckGo, SearXNG and Brave parsers were built from their documented shapes and **not seen live**.
+> Guards: `tests/unit/test_chat_web.py` (the module, including a socket-level guard) and
+> `tests/unit/test_chat_web_engine.py` - off means off; the files are searched before the web is
+> asked; **nothing planted in the local documents (a file name, a path, a passage, a name, a figure)
+> appears in any outgoing URL, parameter or header, including when the model tries to smuggle it
+> into the phrase**; ask-first really blocks until Allow; Skip and Stop send nothing.
+
+> **Dated note, 2026-09-20 (later still) - the web is asked only when the files come up thin;
+> this CORRECTS the flow in the note above.** The defect: with Web on, a question the files could
+> already answer still showed "Ask before each web search" (the engine consulted the web after every
+> retrieval). The owner's requirement is "the chat should use local source though" and "optionally
+> can augment from web", so the order of a turn with Web on is now: (a) local retrieval and the
+> assessment, always first; (b) `app/chat/webrule.py` (pure text and numbers, unit-tested as a table in
+> `tests/unit/test_chat_webrule.py`) decides from a rule, not a vibe: **ask** when the person's own
+> words ask for it ("search the web", "google", "online"), when no passage supports the question (none
+> retrieved, or the answer stage found nothing usable), when the assessment was thin, or when the
+> files cover under 80% of the question's words *and* it is about the present ("latest", "current",
+> "news", "today", "price"...) or asks what / who an outside thing is; **never** for a question about
+> the person's own affairs, and **never** when the files answered; (c) only then the prompt (if "Ask
+> before each web search" is on) and the search; (d) the answer keeps "from your files" and "From the
+> web:" apart and web sources are marked Web in the Sources pane. The person is asked at most once per
+> turn. The instruction to use the web ("search the web too") is stripped from the phrase that is sent.
+> Tests: `test_chat_web_flow.py` (files answered -> no prompt and no non-loopback connection; thin ->
+> prompt, then only a clean phrase after Allow; Skip -> the plain one-liner; asked -> prompt though the
+> files answered), `test_chat_webrule.py`. The word "may" in the Settings help ("may then search the web
+> for what they do not say") already described this; no label was reworded.
+> **Providers, called live from this machine, 2026-09-20 ~12:37, one request each, 8 s timeout, polite
+> agent, query "what is a PST file":** Wikipedia - WORKS (5 hits, 3 pages read, 6.3 s in all);
+> DuckDuckGo - anti-bot challenge again, reported as "asked for proof that a person was searching",
+> not bypassed; SearXNG and Brave - **cannot be tried here** (they need the person's own server address
+> and key, and no key may be entered by an agent). Settings therefore says so on the choice itself
+> (`app/ui/widgets/chat_box.py`, `CHOICE_NOTES`; the stored value stays the bare word): Wikipedia "works,
+> no account; encyclopedia questions only", DuckDuckGo "experimental, unverified", SearXNG and Brave
+> "unverified". Automatic still tries Wikipedia then DuckDuckGo and moves on from a challenge.
+
+- [x] **3e** tab-one plain-words rules apply to every fixed string; policy
   seam: chat behaviours (rounds, verification threshold, model mapping) are
   envelope tunables, invisible outside Manual.
 
@@ -267,6 +484,62 @@ codebase:
   exactness (must be 100% — they're queries), absence honesty (never claims
   nonexistence-in-world, always scopes to index), and refusal correctness
   (thin retrieval → says so rather than guessing).
+> **Dated note, 2026-09-20 - 4b, 4c and the conversation: measured, with real models where it could be, and
+> what could not be.** Command: `python -m app.cli evaluate --chat [--chat-model NAME] [--chat-conversation]
+> [--chat-runs N]`; the fixture is now 96 questions (13 conversational, 3 general-but-not-in-the-files) plus
+> two scripted multi-turn conversations (`CONVERSATIONS`: a greeting, a general question, a follow-up on that
+> answer, an archive question, a follow-up on it, "shorter", a Regenerate; then the files first and talk
+> about the answer). Every turn has a wall-clock limit (`ask_with_limit`, 900 s) and a reply that trickles
+> for 15 minutes is ended (`REPLY_DEADLINE_S`): a stalled turn is a failed turn, reported, and the run goes on.
+> **The old figures - extractive 83.9% and 83.3% "with real models" - are replaced** (they were never
+> reproduced; no model was named). **What was measured, on this machine (Windows 11, 12 logical CPUs, 32 GB,
+> Ollama on the CPU, shared with other work - so every latency is noisy and is a maximum-honest, not a best case):**
+> * **Deterministic stand-in (`FakeLLM`, NOT a language model)**, all 96 questions: citation validity 100.0%
+>   (52 of 52 claims, none without a receipt), extractive 96.8%, aggregate exactness 100%, absence honesty
+>   100%, absence recall 100%, refusal on thin retrieval 66.7%, conversation 100%, labelled general fill 100%,
+>   trap questions 60.0%, router 100%, find 100%, synthesis 60.0% (no floor at v1); both scripted conversations
+>   10 of 10 steps the right shape. Pinned, with margin, in `test_chat_evaluate.py` (`PINNED`). This is the
+>   router, the loop, the checking and the counting - not a model.
+> * **Real model, `mistral` (the shipped default answerer; `llama3.2:1b` routes), partial**: the run was
+>   killed by the machine's watchdog after 23 questions (a 7B model on a busy CPU took 15-200 s a question), so
+>   **17 of the first 23 lookup questions correct = 73.9%**, on the code as it stood *before* two later fixes
+>   (ordinals - "the 1st of March" is now read as "1 March" - and cutting a padded sentence back to its
+>   supported clause). It is **below the 85% extractive floor**. Where it missed, the checking was doing its
+>   job (a wrong "three nonconformities" for the real seven was dropped, not shown); the cost is that the
+>   answer became "I couldn't find that in your files", which is wrong the other way round (the fact *is* there).
+> * **Real model, `llama3.2:1b`**, the first 16 questions of a 22-question subset that was still running at the
+>   deadline (nine lookups, two follow-ups, two counts, two planted absences, one trap): lookups 2 of 9 correct
+>   (22%) - far below the floor, as expected of a 1B model; the counts, the planted absences and the trap were
+>   right (they do not depend on the model writing). A separate run of the conversation script, 10 steps: **9 of
+>   10 the right shape** (the miss: "Who is my landlord?" was not answered from the file). First narration under
+>   0.3 s; first token min 0.22 s, p50 6.7 s, max 35.4 s; whole reply p50 19.8 s, max 54 s (n=10, other jobs on
+>   the same CPU).
+> **Decisions.** The floors are **not lowered**: citation validity >= 98%, aggregate exactness 100%, absence
+> honesty 100%, extractive >= 85% stay the bar for the answering model. **No real model measured here clears
+> the extractive floor**, so 4b stays open. Citation validity, aggregate exactness and absence honesty do not
+> depend on a model writing well and are 100% on the stand-in; they were not re-measured with a full real-model
+> run (the runs above were bounded by the watchdog), so they are **UNCONFIRMED for real models**. 4c stays open:
+> first-token p95 for a real model was not measured with enough runs to call it a p95 (`--chat-runs N` exists
+> for it).
+> **A real-model conversation, as it reads** (`mistral`, this machine, 2026-09-20; the first reply took 3.5 minutes
+> because three jobs were sharing the CPU while the model loaded): "hi" -> "Hello there! I'm Leasha, your personal
+> assistant inside your computer. I can help you with a variety of tasks, like finding files or answering
+> questions based on the information in your files and emails. Just ask me what you need..."; "How much notice
+> must the tenant give?" -> "The tenant must give two months notice, as stated in the tenancy agreement [1]."
+> With `llama3.2:1b` (the reply to "shorter" copied the "Not from your files:" label it had seen in its own earlier
+> reply; the engine's own lead and label are no longer shown back to the model - not re-measured): "What is a PST file?" -> "I couldn't find that in
+> your files." / "**Not from your files:** PST files are a type of file used by Microsoft Outlook to store email
+> messages..."; "explain that like I'm eight" -> "... A PST file is like a special box for keeping track of
+> emails..."; "shorter" -> a shorter version. **Fast / Thoughtful, against the live Ollama:** Fast chose
+> `llama3.2:1b`, Thoughtful `mistral:latest` (`debug["style"]`); both ran; the answering model changed with the
+> control. **Live web run** (`llama3.2:1b` answering, Wikipedia, "Ask before each web search" on): "What is a PST
+> file?" -> the phrase "PST file" was shown and allowed, five hits and three pages read, and the answer was two
+> sentences cited to the Wikipedia page (marked Web, `locator="Web"`); a model that writes bold headings and adds a
+> name from the page shows the 1B model's limits, not the plumbing's. **One thing that run showed and is not
+> done:** with the web on, a question the files can already answer ("How much notice must the tenant give?")
+> still asks whether to search the web - the ask is the guard, but the web should be consulted only when the
+> files are thin or the checked answer is partial; that refinement is not built.
+
 - [ ] **4b** floors recorded in this file at first measurement and pinned as
   regression tests; the order does not ship below: citation validity ≥98%,
   aggregate exactness 100%, absence honesty 100%, extractive ≥85% on the

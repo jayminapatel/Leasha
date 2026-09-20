@@ -60,13 +60,34 @@ def test_the_index_layers_never_reach_chat():
             assert not bad, f"{path} imports {sorted(bad)}"
 
 
-def test_only_the_llm_seam_speaks_http():
-    """One module talks to the network; every other chat module is pure or injected."""
+#: The two modules that may open a connection. `llm.py` talks to Ollama on this computer. `web.py`
+#: is the owner's exception of 2026-09-20 ("and optionally can augment from web"): optional, off by
+#: default, chat only, one short search phrase out - see its docstring and `test_chat_web_engine.py`.
+NETWORK_MODULES = ("llm.py", "web.py")
+
+
+def test_only_the_llm_seam_and_the_web_module_speak_http():
+    """Two modules talk to the network; every other chat module is pure or injected."""
     for path in CHAT:
         source = path.read_text(encoding="utf-8")
-        if path.name == "llm.py":
+        if path.name in NETWORK_MODULES:
             continue
         assert "import requests" not in source and "urllib" not in source, path.name
+
+
+def test_the_web_module_is_only_ever_imported_lazily_by_the_engine():
+    """A conversation with the web off must not even *load* the module that could reach it:
+    the engine imports it inside the one function that needs it, and nothing else in `app/`
+    imports it at all."""
+    engine = ast.parse((ROOT / "app" / "chat" / "engine.py").read_text(encoding="utf-8"))
+    top_level = {alias.name for node in engine.body if isinstance(node, ast.ImportFrom)
+                 for alias in node.names} | {node.module for node in engine.body
+                                             if isinstance(node, ast.ImportFrom) and node.module}
+    assert "app.chat.web" not in top_level and "web" not in top_level
+    users = [p for p in (ROOT / "app").rglob("*.py")
+             if p.name != "web.py" and "app.chat.web" in p.read_text(encoding="utf-8")
+             or (p.parent.name == "chat" and p.name != "web.py" and "from app.chat import web" in p.read_text(encoding="utf-8"))]
+    assert {p.name for p in users} <= {"engine.py"}, users
 
 
 # --------------------------------------------------------------------------- the settings

@@ -1,12 +1,15 @@
 """The chat engine end to end, with a real store, a real search engine and a fake model.
 
-Layer: L8b. Work order `202626270611-chat-tab` sections 1, 2 and 5.
+Layer: L8b. Work order `202626270611-chat-tab` sections 1, 2 and 5, as changed on
+2026-09-20 (the answer is written as prose, streamed, then checked - see the dated notes
+in the order).
 
-The load-bearing test of the whole order is `test_a_hallucinating_model_produces_zero_
-unreceipted_sentences`: a model built to lie - fabricated figures, invented names,
-misquotes, markers for sources that do not exist, unmarked sentences, a sentence with its
-meaning reversed - is put behind the real engine and asked a dozen real questions, and
-nothing it says reaches a finished turn or a streamed event.
+The load-bearing test of the whole order is `test_a_hallucinating_model_never_gets_a_lie_
+into_the_finished_turn`: a model built to lie - fabricated figures, invented names,
+misquotes, markers for sources that do not exist, a sentence with its meaning reversed -
+is put behind the real engine and asked a dozen real questions, and nothing it says
+reaches a **finished turn**. (What is *streamed* while it writes is raw by design: the
+finished turn replaces it - `test_the_raw_stream_is_replaced_by_the_checked_turn`.)
 """
 
 from __future__ import annotations
@@ -17,9 +20,10 @@ import pytest
 
 from app.chat.config import ChatSettings
 from app.chat.engine import ChatEngine
+from app.chat.reconcile import audit_answer
 from app.chat.testing import FakeLLM, hallucinations_for
-from app.chat.types import ChatTurn, NarrationEvent, ShelfEvent, TokenEvent
 from app.chat.verify import audit_turn
+from app.chat.types import ChatTurn, NarrationEvent, ShelfEvent, SourcesEvent, TokenEvent
 from tests.fixtures import chat_eval as fx
 from tests.unit.chat_env import Env, ask, converse
 
@@ -37,61 +41,67 @@ LOOKUPS = [q for q in fx.QUESTIONS if q.cls == "LOOKUP" and q.outcome == "answer
 # =========================================================================== the guarantee
 
 @pytest.mark.parametrize("qa", LOOKUPS[:14], ids=lambda q: q.id)
-def test_a_hallucinating_model_produces_zero_unreceipted_sentences(env, qa):
-    """The load-bearing test. Every sentence a lying model writes is dropped: what
-    comes back is an honest refusal, with no receipts and none of the lies in it."""
+def test_a_hallucinating_model_never_gets_a_lie_into_the_finished_turn(env, qa):
+    """The load-bearing test. Every claim a lying model makes about the files is dropped:
+    what comes back is the honest "nothing found", with no receipts and none of the lies."""
     llm = FakeLLM("hallucinating")
-    turn, events = ask(env.engine(llm), qa.question)
+    turn, _events = ask(env.engine(llm), qa.question)
 
     assert llm.calls, "the model must actually have been asked - otherwise this proves nothing"
-    assert audit_turn(turn) == []                                     # nothing unreceipted
-    assert turn.kind == "absence" and turn.receipts == []
+    assert audit_answer(turn) == []
+    assert turn.kind in ("absence", "general") and turn.receipts == []
     prompt = next(p for kind, p in llm.calls if kind == "answer")
     for lie in hallucinations_for(prompt):
         core = lie.split(" [")[0].rstrip(".")
-        assert core not in turn.text                                  # not in the answer ...
-        assert not any(isinstance(e, TokenEvent) and core in e.text for e in events)   # ... nor streamed
-    assert not any(isinstance(e, TokenEvent) for e in events)
+        assert core not in turn.text
+
+
+def test_the_raw_stream_is_replaced_by_the_checked_turn(env):
+    """The guarantee moved from "no unverified word is ever on screen" to "no unverified
+    claim about the files is in the answer that is kept": tokens stream as written, and the
+    tab replaces them with the finished turn's text."""
+    llm = FakeLLM("hallucinating")
+    turn, events = ask(env.engine(llm), "What did we agree with the landlord about the deposit?")
+    streamed = "".join(e.text for e in events if isinstance(e, TokenEvent))
+    assert "7,341" in streamed                                        # it did stream, raw ...
+    assert "7,341" not in turn.text and turn.kind == "absence"        # ... and the kept turn has none of it
 
 
 def test_a_lie_beside_a_truth_is_dropped_and_the_truth_kept(env):
     llm = FakeLLM("mixed")
     turn, events = ask(env.engine(llm), "How much notice must the tenant give?")
     assert turn.kind == "answer"
-    assert audit_turn(turn) == []
-    assert turn.text == "The tenant must give two months notice [1]."
-    assert "7,341" not in turn.text and "Jonathan" not in turn.text
-    streamed = "".join(e.text for e in events if isinstance(e, TokenEvent))
-    assert streamed.strip() == turn.text                              # the screen saw only what was kept
+    assert audit_answer(turn) == []
+    assert "The tenant must give two months notice [1]." in turn.text
+    assert "7,341" not in turn.text and "Jonathan" not in turn.text and "non-refundable" not in turn.text
+    assert "I could not confirm the rest of that from your files." in turn.text     # said plainly, once
     dropped = " ".join(d["reason"] for d in turn.debug["dropped"])
-    assert "quotation" in dropped and "not shown" in dropped and "no source marker" in dropped
-    assert len(turn.debug["dropped"]) >= 6                            # every lie was judged and refused
+    assert "quotation" in dropped and "not shown" in dropped
+    assert len(turn.debug["dropped"]) >= 5                            # every lie was judged and refused
 
 
 def test_every_sentence_of_every_answer_has_a_receipt_that_points_at_its_own_words(env):
     engine = env.engine("extractive")
     for qa in LOOKUPS:
         turn, _events = ask(engine, qa.question)
-        assert audit_turn(turn) == [], qa.id
+        assert audit_answer(turn) == [], qa.id
         for receipt in turn.receipts:
             row = env.store.conn.execute(
                 "SELECT text FROM chunks WHERE id = ?", (receipt.chunk_id,)).fetchone()
             assert " ".join(receipt.quote.split()) in " ".join(row[0].split()), qa.id
 
 
-def test_a_model_that_says_nothing_or_declines_is_a_refusal_not_a_guess(env):
+def test_a_model_that_says_nothing_or_declines_is_the_honest_nothing_found_not_a_guess(env):
     for mode in ("empty", "not_found"):
         turn, _events = ask(env.engine(mode), "How much notice must the tenant give?")
-        assert turn.kind == "absence" and turn.receipts == [], mode
-        assert turn.result_set                                        # the documents are offered instead
+        assert turn.kind in ("absence", "general") and turn.receipts == [], mode
+        assert "couldn't find" in turn.text or turn.result_set, mode
 
 
-def test_a_thin_first_answer_is_retried_once_with_tighter_instructions(env):
-    llm = FakeLLM(script=["Sentence with no marker at all.", "The tenant must give two months notice [1]."])
-    turn, events = ask(env.engine(llm), "How much notice must the tenant give?")
-    assert turn.kind == "answer" and len(llm.calls) == 2
-    assert "not support" in llm.calls[1][1] or "leave out" in llm.calls[1][1]   # the strict prompt
-    assert any(isinstance(e, NarrationEvent) and "again" in e.text for e in events)
+def test_a_model_that_only_says_unsupported_things_gets_the_plain_nothing_found(env):
+    llm = FakeLLM(chat_replies=["Sentence with no marker at all.", "The tenant must give two months notice [1]."])
+    turn, _events = ask(env.engine(llm), "How much notice must the tenant give?")
+    assert turn.kind in ("absence", "general") and turn.receipts == []      # a marker-less remark is no answer
 
 
 # =========================================================================== the events
@@ -112,19 +122,19 @@ def test_events_arrive_in_a_sensible_order(env):
     turn, events = ask(env.engine("extractive"), "What did we agree with the landlord about the deposit?")
     kinds = [type(e).__name__ for e in events]
     assert kinds[0] == "NarrationEvent"
-    assert kinds.index("TokenEvent") < len(kinds) and "ShelfEvent" in kinds
-    # a document joins the shelf as the answer first stands on it
-    first_token = kinds.index("TokenEvent")
-    assert kinds[first_token + 1] == "ShelfEvent"
+    # the numbered passages are handed over before a word is written, so [n] is a live link
+    assert kinds.index("SourcesEvent") < kinds.index("TokenEvent")
+    assert "ShelfEvent" not in kinds                                  # the shelf follows the finished answer
     assert turn.debug["timings"]["first_narration_s"] < 1.0
+    assert turn.debug["timings"]["first_token_s"] >= turn.debug["timings"]["first_narration_s"]
 
 
-def test_source_numbers_follow_first_mention_and_the_shelf_matches(env):
+def test_source_numbers_follow_first_mention_and_the_receipts_match(env):
     turn, events = ask(env.engine("extractive"), "What did we agree with the landlord about the deposit?")
-    shelf = [e.receipt for e in events if isinstance(e, ShelfEvent)]
-    assert shelf == turn.receipts                                     # [n] is receipts[n - 1]
+    offered = [e for e in events if isinstance(e, SourcesEvent)][0].receipts
+    assert {r.path for r in turn.receipts} <= {r.path for r in offered}
     assert [n for n in range(1, len(turn.receipts) + 1) if f"[{n}]" in turn.text] == list(
-        range(1, len(turn.receipts) + 1))
+        range(1, len(turn.receipts) + 1))                             # [n] is receipts[n - 1]
 
 
 # =========================================================================== the contract
@@ -300,30 +310,20 @@ def test_an_excluded_document_is_never_used_and_a_pinned_one_is_always_in_scope(
     engine.set_shelf()
 
 
-def test_a_synthesis_answer_is_extract_and_quote_by_default(env):
-    turn, events = ask(env.engine("extractive"), "Summarise what the emails say about the licence")
-    assert turn.kind == "answer" and audit_turn(turn) == []
-    assert turn.debug["mode"] == "synthesis: extract-and-quote"
-    assert len({r.name for r in turn.receipts}) >= 3                  # several documents, each quoted
-    narrated = [e.text for e in events if isinstance(e, NarrationEvent)]
-    assert sum(1 for t in narrated if t.startswith("Reading ")) >= 3   # one line per document
+def test_a_synthesis_answer_is_one_flowing_account_that_is_still_checked(env):
+    turn, _events = ask(env.engine("extractive"), "Summarise what the emails say about the licence")
+    assert turn.kind == "answer" and audit_answer(turn) == []
+    assert turn.debug["mode"].startswith("answer (conversational")
+    assert env.engine("extractive").cfg.synthesis_combine is True     # on by default (owner, 2026-09-20)
 
 
-def test_synthesis_can_combine_but_the_combined_text_is_verified_again(env):
-    """The optional reduce step. A model that invents in the combine step loses the
-    invention; if nothing survives, the verified extracts stand."""
-    calls = {"n": 0}
-
-    def script(prompt: str) -> str:
-        calls["n"] += 1
-        if "combine these notes" in prompt.lower():
-            return "The licence renewal cost 99,999 pounds and was cancelled by Zebediah [1]."
-        return FakeLLM("extractive")._reply(prompt)
-
-    turn, _events = ask(env.engine(FakeLLM(script=script), synthesis_combine=True),
-                        "Summarise what the emails say about the licence")
-    assert turn.kind == "answer" and audit_turn(turn) == []
-    assert "99,999" not in turn.text and "Zebediah" not in turn.text
+def test_synthesis_one_paragraph_per_document_is_a_setting_not_a_second_model_call(env):
+    llm = FakeLLM("extractive")
+    turn, _events = ask(env.engine(llm, synthesis_combine=False), "Summarise what the emails say about the licence")
+    assert turn.kind == "answer"
+    system = llm.chat_calls[0][1][0]["content"]
+    assert "one at a time" in system                                  # asked for in the prompt
+    assert [k for k, _p in llm.calls].count("answer") == 1            # one call, not one per document
 
 
 # =========================================================================== roles

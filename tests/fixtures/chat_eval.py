@@ -28,6 +28,16 @@ years of near-duplicates. Every number from here is optimistic.
   * ABSENCE - "do I have...". Planted absences (nothing in the corpus matches) must
     answer with the protocol; the rest ("do I have the MOT certificate?") find it.
   * SYNTHESIS - across documents; scored loosely, no floor at v1.
+  * CHAT (2026-09-20) - small talk, instructions about the last answer, writing and
+    sums that name no file: answered from the conversation, no search, no sources, no
+    refusal. Scored on *structure* only (no language model needed for the check).
+  * GENERAL (2026-09-20) - a question that sounds general but the files cannot answer
+    ("What is a PST file?"): the retrieval-first rule says the files are searched, the
+    answer says "I couldn't find that in your files", then a labelled general answer.
+
+`CONVERSATIONS` (below the questions) are scripted multi-turn talks - greeting, a general
+question, a follow-up, an archive question, a follow-up on it, "shorter", and a Regenerate -
+checked step by step for their *shape*; a real-model run records what was actually said.
 
 "Today" for the whole set is `TODAY`, so "last year" means the same thing forever.
 """
@@ -39,7 +49,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as clock
 from typing import Callable, Optional
 
-__all__ = ["Doc", "CORPUS", "QA", "QUESTIONS", "TODAY", "load_into", "expected_count", "human_size"]
+__all__ = ["Doc", "CORPUS", "QA", "QUESTIONS", "TODAY", "load_into", "expected_count", "human_size",
+           "Step", "CONVERSATIONS"]
 
 #: The date "today" is for every question.
 TODAY = date(2026, 9, 19)
@@ -288,7 +299,7 @@ class QA:
     question: str
     #: The class the router should choose.
     cls: str
-    #: What kind of turn should come back: answer | aggregate | find | absence.
+    #: What kind of turn should come back: answer | aggregate | find | absence | chat | general.
     outcome: str
     #: Every one of these must appear (case-insensitively) in the answer.
     expect_all: tuple[str, ...] = ()
@@ -436,6 +447,68 @@ QUESTIONS: tuple[QA, ...] = (
        expect_any=("March", "findings"), cite="audit"),
     QA("S05", "Give me an overview of the pump station documents", "SYNTHESIS", "answer",
        expect_any=("pump station",), cite="pump-"),
+)
+
+
+# ---- conversation: answered from the talk, no search, no sources, no refusal (2026-09-20) --------
+QUESTIONS = QUESTIONS + (
+    QA("C01", "hi", "CHAT", "chat"),
+    QA("C02", "thanks!", "CHAT", "chat"),
+    QA("C03", "what can you do?", "CHAT", "chat"),
+    QA("C04", "who are you", "CHAT", "chat"),
+    QA("C05", "good morning", "CHAT", "chat"),
+    QA("C06", "write a short poem about the sea", "CHAT", "chat"),
+    QA("C07", "what is 12 * 7", "CHAT", "chat"),
+    QA("C08", "tell me a joke", "CHAT", "chat"),
+    # instructions about the answer just given: the earlier question is asked first
+    QA("C09", "shorter", "CHAT", "chat", history=("How much notice must the tenant give?",)),
+    QA("C10", "translate that to French", "CHAT", "chat", history=("How much notice must the tenant give?",)),
+    QA("C11", "why?", "CHAT", "chat", history=("How much notice must the tenant give?",)),
+    QA("C12", "explain like I'm eight", "CHAT", "chat", history=("Who is my landlord?",)),
+    QA("C13", "continue", "CHAT", "chat", history=("Who is my landlord?",)),
+    # ---- general-sounding, but the files search comes first: nothing there, so it says so ------------
+    QA("G01", "What is a PST file?", "LOOKUP", "general"),
+    QA("G02", "How does version control work?", "LOOKUP", "general"),
+    QA("G03", "What is the capital of France?", "LOOKUP", "general"),
+)
+
+
+@dataclass(frozen=True)
+class Step:
+    """One message of a scripted conversation and the *shape* its reply must have."""
+
+    say: str
+    #: The router class the message should get, and the kind of turn that should come back.
+    route: str
+    kind: str
+    #: An answer from the files carries receipts; every other kind carries none.
+    receipts: bool = False
+    #: The model must have been shown the earlier conversation (a follow-up, "shorter").
+    memory: bool = False
+    #: Ask the previous message again as a Regenerate.
+    regenerate: bool = False
+    expect_all: tuple[str, ...] = ()
+
+
+#: `(title, steps)`. The owner's list, in order: a greeting, a general question, a follow-up
+#: on the previous answer, an archive question, a follow-up on the archive answer, "shorter",
+#: and a regenerate.
+CONVERSATIONS: tuple[tuple[str, tuple[Step, ...]], ...] = (
+    ("hello, a general question, then the files, then \"shorter\", then regenerate", (
+        Step("hi", "CHAT", "chat"),
+        Step("What is a PST file?", "LOOKUP", "general", memory=True),
+        Step("explain that like I'm eight", "CHAT", "chat", memory=True),
+        Step("How much notice must the tenant give?", "LOOKUP", "answer", receipts=True,
+             memory=True, expect_all=("two months",)),
+        Step("And what about the deposit?", "FOLLOWUP", "answer", receipts=True, memory=True),
+        Step("shorter", "CHAT", "chat", memory=True),
+        Step("shorter", "CHAT", "chat", memory=True, regenerate=True),
+    )),
+    ("the files first, then talk about the answer", (
+        Step("Who is my landlord?", "LOOKUP", "answer", receipts=True, expect_all=("Margaret Okafor",)),
+        Step("translate that to French", "CHAT", "chat", memory=True),
+        Step("thanks", "CHAT", "chat", memory=True),
+    )),
 )
 
 

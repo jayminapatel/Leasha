@@ -13,6 +13,10 @@ that waits:
 * **Stop is a flag the engine polls**, plus an immediate change on screen: the
   bubble is closed with what had arrived and says it stopped, without waiting
   for the engine to notice.
+* **The message actions** - Regenerate, Try again, Edit the last message - trim the
+  conversation back to the person's last message and ask again (or put the message
+  back in the box); a short **title** is made by the fast model after the first
+  answer, on a worker, and the first words of the question stand in until it comes.
 * **Sessions are saved on a worker**, one at a time, through `ChatSessions`
   (which asks the store for `save_session` and friends, and keeps the same
   records under a keyed-state entry until it has them).
@@ -28,18 +32,21 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import threading
 import time
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal
+from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
 
-from app.chat.types import ChatTurn
+from app.chat.types import ChatTurn, WebAskEvent
 from app.core.logging import logger
 from app.ui.chat_sessions import (
     ChatSession, ChatSessions, new_session, session_to_dict,
 )
 from app.ui.chat_view import ChatView
-from app.ui.presenter.chat import FAILED_LINE, speed_note, title_from_question
+from app.ui.presenter.chat import (
+    FAILED_LINE, plain_answer_text, speed_note, title_from_question,
+)
 from app.ui.tasks import first_chunk_id
 from app.ui.workers import CallableWorker, run
 
@@ -49,6 +56,12 @@ _log = logger.bind(component="ui.chat")
 
 #: Keyed window state: which of Fast / Thoughtful was last chosen.
 SPEED_KEY = "ui:chat_speed"
+
+#: How long a stopped answer may take to wind down before the box is handed back anyway.
+#: The engine stops between pieces, but a model that is still *loading* sends nothing to stop
+#: between (a big model on a CPU takes a minute and more), and a Stop that leaves the person
+#: staring at a disabled box for that long is a Stop that does not work.
+STOP_GRACE_MS = 4000
 
 
 class _Bridge(QObject):
@@ -65,6 +78,27 @@ class _Ask:
         self.run = run_view
         self.stopped = False
         self.finalised = False
+        #: Stop was pressed and the worker did not come back in time: the box was handed back
+        #: and this worker's late results are ignored.
+        self.released = False
+        #: The person's answer to "Search the web for ...?", and the wait for it.
+        self.decision = threading.Event()
+        self.allowed = False
+
+
+def _machine() -> Any:
+    """What the envelope needs to know about this computer (its memory), or `None`.
+
+    Read on the worker that builds the engine, never on the window thread."""
+    try:
+        import psutil
+
+        from types import SimpleNamespace
+
+        return SimpleNamespace(ram_mb=int(psutil.virtual_memory().total / 1024 ** 2))
+    except Exception as exc:                              # noqa: BLE001 - the envelope copes with unknown
+        _log.debug("chat: this computer's memory is unknown ({})", exc)
+        return None
 
 
 def supported_kwargs(engine: Any, **wanted: Any) -> dict:
@@ -104,6 +138,10 @@ class ChatController(QObject):
         self._closing = False
         self._saving = False
         self._pending: dict[str, dict] = {}
+        #: Times the same question has been asked again (Regenerate), for a fresh reply.
+        self._again = 0
+        #: Whether Settings lets Chat use the web at all (the Web chip's presence).
+        self._web_allowed = False
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
@@ -115,6 +153,11 @@ class ChatController(QObject):
         view.stop_requested.connect(self.stop)
         view.recheck_requested.connect(self.recheck)
         view.speed_changed.connect(self._speed_changed)
+        view.regenerate_requested.connect(self.regenerate)
+        view.retry_requested.connect(self.retry)
+        view.edit_requested.connect(self.edit_last)
+        view.web_toggled.connect(self._web_toggled)
+        view.web_decided.connect(self._web_decided)
         view.shelf_changed.connect(lambda: self._persist(self.session))
         view.open_requested.connect(lambda path: self._w._open_path(path))
         view.result_opened.connect(lambda row: self._w._open_result(row))
@@ -128,6 +171,9 @@ class ChatController(QObject):
         view.sessions.deleted.connect(self._delete)
         view.shelf.set_shelf(self.session.shelf)
         self._w.rail.currentChanged.connect(self._tab_changed)
+        self._web_allowed = bool(getattr(getattr(self._w, "_settings", None),
+                                         "chat_web_enabled", False))
+        view.set_web(self._web_allowed, self.session.web)
         return view
 
     def attach_settings(self) -> None:
@@ -136,6 +182,21 @@ class ChatController(QObject):
         settings_view = getattr(self._w, "settings_view", None)
         if settings_view is not None:
             settings_view.settings_changed.connect(self._settings_changed)
+            vision = getattr(settings_view, "vision_model", None)
+            grid = getattr(getattr(settings_view, "chat_box", None), "_describe", None)
+            if vision is not None and grid is not None:
+                # Two controls name the same setting (the photo description model: the
+                # text box on the Models page, and the Describe row of the roles grid).
+                # Each says what the other was set to, so they never disagree on screen.
+                grid.activated.connect(lambda _i, v=vision, g=grid: v.setText(g.value()))
+                vision.editingFinished.connect(
+                    lambda g=grid, v=vision: g.select(v.text().strip()))
+        # Chat follows the Index Tuning mode (work order 3e): its settings are
+        # invisible outside Manual and the engine ignores them there. The mode is
+        # changed on the Indexing page, whose box does not go through `settings_view`.
+        tuning = getattr(getattr(self._w, "indexing_view", None), "tuning", None)
+        if tuning is not None:
+            tuning.changed.connect(self._tuning_changed)
 
     def shutdown(self) -> None:
         self._closing = True
@@ -166,6 +227,34 @@ class ChatController(QObject):
     def _settings_changed(self, values: dict) -> None:
         if any(str(key).startswith("CHAT_") for key in values):
             self.engine = None        # rebuilt from `.env` on the next question
+        if "CHAT_WEB_ENABLED" in values and self.view is not None:
+            self._web_allowed = bool(values["CHAT_WEB_ENABLED"])
+            self.view.set_web(self._web_allowed, self.session.web)
+
+    def _web_toggled(self, on: bool) -> None:
+        """The Web chip: per conversation, remembered with it, off until turned on."""
+        self.session.web = bool(on)
+        self._persist(self.session)
+
+    def _web_decided(self, allowed: bool) -> None:
+        """Allow or Skip on "Search the web for ...?": lets the waiting engine go on."""
+        ask = self._ask
+        if ask is not None:
+            ask.allowed = bool(allowed)
+            ask.decision.set()
+
+    def _tuning_changed(self, values: dict) -> None:
+        """The Indexing page's tuning mode changed: show or hide Chat's settings, and
+        rebuild the engine so the very next question is answered under the new mode."""
+        mode = values.get("INDEX_TUNING_MODE") if isinstance(values, dict) else None
+        if mode is None:
+            return
+        box = getattr(getattr(self._w, "settings_view", None), "chat_box", None)
+        if box is not None:
+            box.set_manual(str(mode).strip().lower() == "manual")
+        self.engine = None
+        if self._opened:
+            self._check()             # the speed note depends on whether a model is forced
 
     # -- worker bodies -----------------------------------------------------------
     def _make_engine(self) -> Any:
@@ -184,7 +273,10 @@ class ChatController(QObject):
             settings = load_settings(settings.env_file)
         except Exception as exc:                          # noqa: BLE001
             _log.debug("chat: using the window's settings ({})", exc)
-        return ChatEngine(self._w._engine, self._w._store, settings=settings)
+        from app.chat.config import ChatSettings
+
+        return ChatEngine(self._w._engine, self._w._store,
+                          settings=ChatSettings.from_settings(settings, profile=_machine()))
 
     def _probe(self) -> tuple:
         """`(built, available, reason)`. Pings Ollama - never on the window thread."""
@@ -264,12 +356,14 @@ class ChatController(QObject):
         self.session = session
         self.view.show_turns(session.turns)
         self.view.shelf.set_shelf(session.shelf)
+        self.view.set_web(self._web_allowed, session.web)
         self._refresh_list()
 
     def _new(self) -> None:
         self.session = new_session()
         self.view.show_turns([])
         self.view.shelf.set_shelf(self.session.shelf)
+        self.view.set_web(self._web_allowed, False)
         self._refresh_list()
         self.view.focus()
 
@@ -359,11 +453,52 @@ class ChatController(QObject):
     def _speed_changed(self, value: str) -> None:
         self._w._store.set_state(SPEED_KEY, value)
 
+    # -- the message actions -----------------------------------------------------------
+    def _rewind_to_last_question(self) -> str:
+        """Take the conversation back to just before the person's last message and
+        return that message ("" when there is none). What was answered is dropped."""
+        turns = self.session.turns
+        index = next((i for i in range(len(turns) - 1, -1, -1) if turns[i].role == "user"), -1)
+        if index < 0 or self.view is None:
+            return ""
+        question = turns[index].text
+        del turns[index:]
+        self.view.show_turns(turns)
+        return question
+
+    def regenerate(self) -> None:
+        """Ask the last question again and get a fresh answer (a little warmer each time)."""
+        if self._ask is not None:
+            return
+        question = self._rewind_to_last_question()
+        if question:
+            self._again += 1
+            self.ask(question, again=self._again)
+
+    def retry(self) -> None:
+        """Ask again after an answer that stopped part-way or failed."""
+        if self._ask is not None:
+            return
+        question = self._rewind_to_last_question()
+        if question:
+            self.ask(question, again=0)
+
+    def edit_last(self) -> None:
+        """The last message comes back into the box to be changed and sent again."""
+        if self._ask is not None or self.view is None:
+            return
+        question = self._rewind_to_last_question()
+        if question:
+            self._persist(self.session)
+            self.view.box.set_text(question)
+
     # -- asking ---------------------------------------------------------------------
-    def ask(self, question: str) -> None:
+    def ask(self, question: str, *, again: int = 0) -> None:
         view = self.view
         if view is None or self._ask is not None or not question.strip():
             return
+        if not again:
+            self._again = 0
         session = self.session
         history = [t for t in session.turns if t.kind != "error"]
         session.turns.append(ChatTurn("user", question))
@@ -379,12 +514,30 @@ class ChatController(QObject):
         # pinned documents are looked at first, the removed ones never used.
         extra = {"scope": [i.path for i in session.shelf.items if i.pinned],
                  "removed": sorted(session.shelf.removed),
-                 "style": str(view.speed.currentData() or "fast")}
+                 "style": str(view.speed.currentData() or "fast"),
+                 "variant": again,
+                 "web": bool(session.web and self._web_allowed),
+                 "web_gate": self._gate(ask)}
         worker = CallableWorker(self._answer, ask, question, history, extra,
                                 component="ui.chat")
         worker.signals.finished.connect(lambda turn: self._answered(ask, turn))
         worker.signals.failed.connect(lambda error: self._answer_failed(ask, error))
         run(QThreadPool.globalInstance(), worker)
+
+    def _gate(self, ask: _Ask) -> Callable[[str], bool]:
+        """What the engine calls, on its worker, before a web search: shows the exact
+        phrase with Allow / Skip and **waits** for the person. Skips on Stop, on the
+        window closing, or after five minutes without an answer."""
+        def gate(query: str) -> bool:
+            ask.decision.clear()
+            ask.allowed = False
+            self._bridge.event.emit((ask.token, WebAskEvent(query)))
+            deadline = time.monotonic() + 300
+            while not ask.decision.wait(0.1):
+                if ask.stopped or self._closing or time.monotonic() > deadline:
+                    return False
+            return ask.allowed
+        return gate
 
     def _answer(self, ask: _Ask, question: str, history: list, extra: dict) -> Any:
         """The blocking call. Runs on a worker; everything it says is queued."""
@@ -405,7 +558,31 @@ class ChatController(QObject):
         if ask is None or ask.finalised:
             return
         ask.stopped = True
+        ask.decision.set()                       # a search waiting on Allow / Skip lets go
         self._close_answer(ask, None, stopped=True)
+        if self.view is not None:
+            self.view.box.stop_button.setEnabled(False)
+            self.view.box.stop_button.setText("Stopping...")
+        QTimer.singleShot(STOP_GRACE_MS, lambda a=ask: self._release(a))
+
+    def _release(self, ask: _Ask) -> None:
+        """Stop was pressed and the engine has not come back: give the box back now.
+
+        The worker cannot be killed, so it is *orphaned*: its events and its result are
+        ignored from here on, and the next question gets a **fresh engine** so nothing it
+        still holds (per-question state, a half-read stream) can touch the new answer."""
+        if self._ask is not ask or self._closing:
+            return
+        _log.warning("chat: the stopped answer did not finish in {} ms; handing the box back",
+                     STOP_GRACE_MS)
+        ask.released = True
+        self._ask = None
+        self.engine = None
+        if self.view is not None:
+            self.view.set_busy(False)
+            self.view.end_answer()
+            self.view.focus()
+        self._maybe_title(self.session)
 
     def _close_answer(self, ask: _Ask, turn: Any, *, stopped: bool = False) -> None:
         ask.finalised = True
@@ -414,8 +591,10 @@ class ChatController(QObject):
         if turn is not None:
             session.turns.append(turn)
         elif ask.run.bubble.raw.strip():
-            session.turns.append(ChatTurn("assistant", ask.run.bubble.raw,
-                                          notes=["stopped"]))
+            # What arrived before Stop. Its source numbers were the model's own and are
+            # not checked yet, so they are not kept - the words are.
+            session.turns.append(ChatTurn("assistant", plain_answer_text(ask.run.bubble.raw),
+                                          kind="chat", notes=["stopped"], partial=True))
         self._persist(session)
 
     def _answered(self, ask: _Ask, turn: Any) -> None:
@@ -433,8 +612,40 @@ class ChatController(QObject):
         self._finished_asking(ask)
 
     def _finished_asking(self, ask: _Ask) -> None:
+        if ask.released:
+            return                               # the box was handed back already; this is the orphan
         if self._ask is ask:
             self._ask = None
         if self.view is not None:
             self.view.set_busy(False)
+            self.view.end_answer()
             self.view.focus()
+        self._maybe_title(self.session)
+
+    # -- the conversation's name ------------------------------------------------------
+    def _maybe_title(self, session: ChatSession) -> None:
+        """After the first exchange, ask the fast model for a short title - once, on a
+        worker. The first words of the question stand in until it arrives, and if the
+        person renamed the conversation meanwhile theirs wins."""
+        if session.titled or session.auto_titled or self.engine is None:
+            return
+        users = [t for t in session.turns if t.role == "user"]
+        last = session.turns[-1] if session.turns else None
+        if len(users) != 1 or last is None or last.role != "assistant" or last.kind == "error" \
+                or not getattr(self.engine, "title", None):
+            return
+        session.auto_titled = True                # asked for once, whatever comes back
+        worker = CallableWorker(self.engine.title, users[0].text, plain_answer_text(last.text),
+                                component="ui.chat")
+        worker.signals.finished.connect(lambda title, s=session: self._titled(s, title))
+        worker.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _titled(self, session: ChatSession, title: Any) -> None:
+        title = " ".join(str(title or "").split())
+        if not title or session.titled:
+            self._persist(session)                # keeps `auto_titled`, so it is not asked again
+            return
+        session.title = title
+        self._persist(session)
+        self._refresh_list()

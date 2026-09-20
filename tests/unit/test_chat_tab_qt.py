@@ -47,6 +47,11 @@ pytestmark = pytest.mark.gui
 # The harness
 # ---------------------------------------------------------------------------
 
+def _html(bubble) -> str:
+    """What the answer bubble shows, as HTML: its prose segments (source numbers are anchors)."""
+    return "".join(view.toHtml() for view in bubble.body.prose_views())
+
+
 def _wait(qtbot, condition, timeout=5000):
     qtbot.waitUntil(condition, timeout=timeout)
 
@@ -72,6 +77,12 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     monkeypatch.setattr(window, "_open_result",
                         lambda row, reveal=False: (revealed if reveal else opened).append(row))
     monkeypatch.setattr(window, "_open_path", lambda path, reveal=False: paths.append(path))
+    # Nothing in a test may open a modal dialog (it waits for a click nobody will make and
+    # hangs the run) or write a real `.env`: an error is recorded, a write is captured.
+    errors, written = [], []
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    monkeypatch.setattr("app.core.env_writer.apply_values",
+                        lambda path, values: written.append(dict(values)) or {})
     window.resize(1200, 760)
     window.show()
     window._show(window.search_view)
@@ -80,7 +91,7 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     _wait(qtbot, lambda: ctl._available is not None)
     return SimpleNamespace(app=app, window=window, ctl=ctl, view=view, fake=fake,
                            backend=backend, opened=opened, revealed=revealed,
-                           paths=paths, store=store, qtbot=qtbot)
+                           paths=paths, store=store, qtbot=qtbot, errors=errors, written=written)
 
 
 def ask(c, text: str) -> None:
@@ -137,13 +148,13 @@ def test_ask_shows_the_narration_then_streams_text_then_receipts_open_the_source
     answered(c)
 
     assert bubble.narration.isHidden(), "and the progress line goes when it is done"
-    body = bubble.body.text()
-    assert 'href="receipt:1"' in body and 'href="receipt:2"' in body
+    body = _html(bubble)
+    assert 'href="leasha-receipt:1"' in body and 'href="leasha-receipt:2"' in body
     assert "held in a protected scheme" in body
     assert c.view.sources.numbers() == [1, 2]
 
     # Click the raised 2: the pane picks that document and shows the exact passage.
-    bubble.body.linkActivated.emit("receipt:2")
+    bubble.body.receipt_activated.emit(2)
     gui_pump(c.app)
     assert AGREEMENT.quote in passage(c)
     assert c.view.sources.results.current_row().path == AGREEMENT.path
@@ -158,10 +169,10 @@ def test_hovering_a_number_shows_its_passage_without_picking_it(chat):
     ask(c, "deposit?")
     answered(c)
     bubble = last_answer(c)
-    bubble.body.linkHovered.emit("receipt:1")
+    bubble.body.receipt_hovered.emit(1)
     assert LETTER.quote in passage(c)
     assert c.view.sources.results.current_row() is None
-    bubble.body.linkHovered.emit("")
+    bubble.body.receipt_hovered.emit(0)
     assert c.view.sources.passage.isHidden()
 
 
@@ -229,7 +240,7 @@ def test_a_find_answer_shows_the_real_results_and_ends_with_thats_all(chat):
     ask(c, "show me the photos of the kids at the beach")
     answered(c)
     bubble = last_answer(c)
-    assert "beach" in bubble.body.text()
+    assert "beach" in _html(bubble)
     assert bubble.results is not None and gui_row_count(bubble.results) == 3
     model = bubble.results._model
     last = model.item(model.rowCount() - 1).data(int(Qt.ItemDataRole.UserRole))
@@ -257,7 +268,7 @@ def test_an_aggregate_answer_is_shown_as_the_engine_wrote_it_scope_and_all(chat)
     c.fake.script = script
     ask(c, "how many photos from Diwali 2019")
     answered(c)
-    assert "counted across everything indexed" in last_answer(c).body.text()
+    assert "counted across everything indexed" in _html(last_answer(c))
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +297,7 @@ def test_a_conversation_is_saved_and_comes_back_with_its_shelf_and_sources(chat)
     assert c.view.sessions.list.currentItem().text().startswith("What did we agree")
     assert len(c.view.shelf.chips()) == 2, "it reopens with its shelf intact"
     assert c.view.sources.numbers() == [1, 2]
-    assert 'href="receipt:1"' in last_answer(c).body.text()
+    assert 'href="leasha-receipt:1"' in _html(last_answer(c))
 
 
 def test_new_rename_and_delete(chat):
@@ -307,7 +318,7 @@ def test_new_rename_and_delete(chat):
             c.view.sessions.list.setCurrentRow(row)
     gui_pump(c.app)
     assert c.ctl.session.id == first
-    assert c.view.bubbles.bubbles()[0].label.text() == "first question"
+    assert c.view.bubbles.bubbles()[0].label.toPlainText() == "first question"
 
     # Rename by editing the name in the list.
     c.view.sessions.list.currentItem().setText("The deposit chat")
@@ -461,7 +472,7 @@ def test_an_engine_that_blows_up_gives_a_plain_sentence_not_a_traceback(chat):
     c.fake.script = script
     ask(c, "anything")
     answered(c)
-    text = last_answer(c).body.text()
+    text = last_answer(c).body_text()
     assert text == presenter.FAILED_LINE and "boom" not in text
     assert c.view.box.send_button.isVisibleTo(c.view), "and the box is usable again"
 
@@ -494,7 +505,7 @@ def test_sources_only_ever_append_and_numbers_never_change_mid_answer(chat):
     assert c.view.sources.numbers() == [1, 2], "the second arrived after, at the end"
     assert c.view.sources.receipt(1).path == AGREEMENT.path, "number 1 never moved"
     assert c.view.sources.receipt(2).path == LETTER.path
-    assert re.findall(r"receipt:(\d)", last_answer(c).body.text()) == ["1", "2", "1"]
+    assert re.findall(r"receipt:(\d)", _html(last_answer(c))) == ["1", "2", "1"]
 
 
 def test_the_reader_who_scrolled_up_is_not_pulled_back_down_by_new_text(chat):
@@ -590,7 +601,7 @@ def test_enter_sends_and_shift_enter_starts_a_new_line(chat):
     answered(c)
     assert c.fake.calls[0]["question"] == "first line\nsecond line"
     assert edit.toPlainText() == ""
-    assert c.view.bubbles.bubbles()[0].label.text() == "first line\nsecond line"
+    assert c.view.bubbles.bubbles()[0].label.toPlainText() == "first line\nsecond line"
 
 
 def test_enter_does_nothing_while_an_answer_is_being_written(chat):

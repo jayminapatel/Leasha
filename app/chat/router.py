@@ -3,7 +3,7 @@
 Layer: L8b - no Qt, no store, no network unless a model is handed in. Work order
 `202626270611-chat-tab` section 1a.
 
-The router decides **how a question will be answered**, and the six answers are
+The router decides **how a question will be answered**, and the answers are
 different machines, not different prompts:
 
     LOOKUP     "what did we agree with the landlord about the deposit"
@@ -18,6 +18,18 @@ different machines, not different prompts:
                -> did retrieval find something, or say exactly what was searched
     FOLLOWUP   "and what about 2019?"
                -> resolved against the conversation, then answered as one of the above
+    CHAT       "hi", "thanks", "what can you do?", "shorter", "translate that to French"
+               -> **no retrieval at all**: the model answers from the conversation
+
+**Retrieval first (owner, 2026-09-20: "the chat should use local source though").**
+The person's own files are the primary basis of every substantive answer, so CHAT is
+deliberately narrow: only *social or meta* turns (greetings, thanks, "what can you
+do?"), *instructions about the previous answer* ("shorter", "translate that", "why?",
+"continue"), and *writing, rewriting or maths tasks that name no file of theirs*
+skip the archive. **A general-sounding question - "what is a PST file?" - still
+searches first**; the answer says so plainly when the files have nothing on it and
+only then offers a short, labelled general answer. This supersedes the earlier
+"a plain question must not go searching".
 
 **Rules first, the way the translator does it** (`app/search/translate.py`): a
 sentence that says "how many" is an AGGREGATE question and needs no model to
@@ -44,7 +56,8 @@ __all__ = [
     "route_question",
     "resolve_followup",
     "CLASSES",
-    "LOOKUP", "AGGREGATE", "SYNTHESIS", "FIND", "ABSENCE", "FOLLOWUP",
+    "LOOKUP", "AGGREGATE", "SYNTHESIS", "FIND", "ABSENCE", "FOLLOWUP", "CHAT",
+    "chat_reason",
 ]
 
 LOOKUP = "LOOKUP"
@@ -53,8 +66,9 @@ SYNTHESIS = "SYNTHESIS"
 FIND = "FIND"
 ABSENCE = "ABSENCE"
 FOLLOWUP = "FOLLOWUP"
+CHAT = "CHAT"
 
-CLASSES = (LOOKUP, AGGREGATE, SYNTHESIS, FIND, ABSENCE, FOLLOWUP)
+CLASSES = (LOOKUP, AGGREGATE, SYNTHESIS, FIND, ABSENCE, FOLLOWUP, CHAT)
 
 
 @dataclass(frozen=True)
@@ -225,6 +239,9 @@ def _rule_class(question: str) -> Optional[tuple[str, str]]:
     if _ABSENCE.match(q) or _ABSENCE_ANYWHERE.search(q):
         return ABSENCE, "'do I have...' asks whether something exists in the index"
 
+    if _TASK_VERB.match(q):
+        return SYNTHESIS, "asks for something written, which may draw on their files"
+
     if _FIND_GUARD.match(q):
         return LOOKUP, "a command that is really a question ('show me how...')"
     if _FIND.search(q) and not _SYNTHESIS.search(q):
@@ -235,6 +252,128 @@ def _rule_class(question: str) -> Optional[tuple[str, str]]:
 
     if _QUESTION_START.match(q) or q.endswith("?"):
         return LOOKUP, "a question about what documents say"
+    return None
+
+
+# --------------------------------------------------------------------------- conversation (CHAT)
+
+#: Words that say "my own files": any of them keeps a writing or maths request out
+#: of CHAT, because the archive may have what it needs.
+_ARCHIVE_WORDS = re.compile(
+    r"\b(?:my|our|mine|ours|files?|folders?|documents?|docs?|emails?|e-mails?|mail|messages?"
+    r"|photos?|pictures?|pdfs?|spreadsheets?|attachments?|invoices?|archive|index(?:ed)?"
+    r"|inbox|drive|computer|pc|leasha)\b", re.I)
+
+_SMALLTALK = re.compile(
+    r"^\s*(?:(?:hi|hello|hey|hiya|howdy|yo|sup|good\s+(?:morning|afternoon|evening|day)|greetings)"
+    r"(?:\s+(?:there|leasha|again|everyone|friend))?"
+    r"|(?:thanks?|thank\s+you|thx|ta|cheers|many\s+thanks)"
+    r"(?:\s+(?:a\s+lot|so\s+much|very\s+much|that\s+(?:helps|was\s+helpful|worked)|mate|leasha))?"
+    r"|(?:ok(?:ay)?|cool|great|nice|perfect|awesome|brilliant|lovely|got\s+it|i\s+see|makes\s+sense"
+    r"|sounds\s+good|fair\s+enough|good|fine)(?:\s*,?\s*(?:thanks?|thank\s+you|cheers))?"
+    r"|(?:bye|goodbye|good\s*night|see\s+you(?:\s+later)?|cya|later|that'?s\s+all|that\s+is\s+all|never\s*mind)"
+    r"|how\s+are\s+you(?:\s+(?:today|doing))?|how'?s\s+it\s+going|how\s+do\s+you\s+do|what'?s\s+up"
+    r"|who\s+are\s+you|what\s+are\s+you|what'?s\s+your\s+name|what\s+is\s+your\s+name"
+    r"|are\s+you\s+(?:there|real|an?\s+(?:ai|bot|robot|human)|listening|working)"
+    r"|what\s+(?:can|could)\s+(?:you|i)\s+(?:do|ask(?:\s+you)?)(?:\s+(?:for\s+me|here|with\s+you))?"
+    r"|what\s+do\s+you\s+do|what\s+is\s+this|what\s+can\s+this\s+do"
+    r"|how\s+do\s+(?:you|i)\s+(?:work|use\s+(?:you|this|leasha))"
+    r"|(?:can|could)\s+you\s+help(?:\s+me)?|i\s+need\s+(?:some\s+)?help|help(?:\s+me)?|help\s+please|please\s+help"
+    r"|what\s+should\s+i\s+ask(?:\s+you)?|any\s+(?:tips|suggestions)|show\s+me\s+what\s+you\s+can\s+do"
+    r"|tell\s+me\s+about\s+(?:yourself|you)|introduce\s+yourself)"
+    r"\s*[!.?,;:)]*\s*$", re.I)
+
+#: Reactions and feelings - talk, not a search ("lol", "I'm bored", "that's funny"). A first-person
+#: sentence that *wants* something ("I'm looking for...", "I need...") is not here: it is searched.
+_CHATTER = re.compile(
+    r"^\s*(?:lol|lmao|haha+|hehe+|wow|oh(?:\s+(?:no|dear|wow|nice|ok(?:ay)?|right|i\s+see))?|hmm+|ah+|aha|yay|oops|ouch"
+    r"|nice(?:\s+one)?|good\s+(?:job|one)|well\s+done|no\s+worries|sorry|my\s+bad|never\s*mind|fair\s+enough"
+    r"|i(?:'|\u2019)?m\s+(?:so\s+|very\s+|a\s+bit\s+)?(?:bored|tired|sad|happy|confused|stuck|fine|good|great|ok(?:ay)?|back|here|lost|worried|stressed|annoyed|excited)"
+    r"|i\s+am\s+(?:so\s+|very\s+|a\s+bit\s+)?(?:bored|tired|sad|happy|confused|stuck|fine|good|great|ok(?:ay)?|back|here|lost|worried|stressed|annoyed|excited)"
+    r"|i\s+(?:feel|love|hate|like)\b.*"
+    r"|(?:that|this|it)(?:'|\u2019)?s\s+(?:so\s+|really\s+|very\s+)?(?:funny|great|cool|interesting|wrong|right|odd|weird|strange|amazing|helpful|useful|good|bad|nice)"
+    r"|you(?:'|\u2019)?re\s+(?:so\s+|really\s+)?(?:great|right|wrong|funny|clever|smart|helpful|good)"
+    r"|(?:i\s+)?(?:appreciate|love)\s+(?:it|that|you|this)|you\s+(?:rock|are\s+(?:great|right|wrong)))"
+    r"\s*[!.?,;:)]*\s*$", re.I)
+
+#: A greeting or thanks that leads into the real message: "hi, what did we agree about the deposit?".
+_GREETING_LEAD = re.compile(
+    r"^\s*(?:hi|hello|hey|hiya|howdy|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok(?:ay)?|right|so)"
+    r"(?:\s+(?:there|leasha|again))?\s*[,!.:;-]+\s*(?=\S)", re.I)
+
+#: An instruction about *the previous answer* - meaningless without one.
+_ABOUT_PREVIOUS = re.compile(
+    r"^\s*(?:(?:ok(?:ay)?|right|so|and|now|please|can\s+you|could\s+you|would\s+you|just|maybe)[, ]+)*"
+    r"(?:"
+    r"(?:make|keep)\s+(?:it|that|this)\s+(?:a\s+bit\s+|much\s+|way\s+)?"
+    r"(?:shorter|longer|simpler|clearer|briefer|more\s+\w+|less\s+\w+|formal|informal|friendlier|punchier|concise)"
+    r"|(?:shorter|longer|briefer|simpler|clearer|more\s+(?:detail|details|formal|casual|concise|friendly|polite)"
+    r"|less\s+formal)(?:\s+(?:please|pls|version))?"
+    r"|(?:shorten|lengthen|simplify|expand|elaborate|condense|summari[sz]e|tl;?dr|reword|rephrase|paraphrase"
+    r"|rewrite|redo|repeat)(?:\s+(?:that|it|this|the\s+(?:last|previous)\s+(?:answer|one|reply)"
+    r"|your\s+(?:answer|reply)))?(?:\s+(?:please|pls|again|more|a\s+bit|in\s+.{1,40}|as\s+.{1,40}|for\s+.{1,40}))?"
+    r"|translate(?:\s+(?:that|it|this|your\s+(?:answer|reply)))?(?:\s+in(?:to)?\s+\w+|\s+to\s+\w+)?"
+    r"|(?:in|into|as)\s+(?:french|spanish|german|italian|portuguese|dutch|hindi|nepali|chinese|japanese"
+    r"|arabic|russian|english|bullets?|bullet\s+points?|a\s+(?:list|table|paragraph|sentence|nutshell)"
+    r"|one\s+(?:line|sentence)|plain\s+(?:english|words))"
+    r"|(?:say|put)\s+(?:that|it|this)\s+(?:again|differently|another\s+way|(?:in|as)\s+.{1,40})"
+    r"|(?:continue|go\s+on|keep\s+going|carry\s+on|proceed|finish|more|and\s+then|then\s+what|what\s+else"
+    r"|anything\s+else|next)(?:\s+(?:please|pls))?"
+    r"|(?:explain|describe|say|tell\s+me|walk\s+me\s+through)\s+(?:that|it|this|more|again|further)"
+    r"(?:\s+(?:again|more|simply|simpler|differently|(?:like|as\s+if)\s+.{1,40}|to\s+(?:me\s+)?(?:like\s+)?.{1,40}"
+    r"|in\s+.{1,40}|please))?"
+    r"|(?:explain|describe)\s+(?:it\s+|that\s+)?(?:like|as\s+if)\s+(?:i(?:'|’)?m|i\s+am)\s+.{1,40}"
+    r"|eli5|explain\s+like\s+i(?:'|’)?m\s+.{1,20}"
+    r"|why(?:\s+(?:is\s+that|is\s+it|was\s+that|so|not|though|do\s+you\s+say\s+that|did\s+you\s+say\s+that))?"
+    r"|how\s+so|how\s+come|are\s+you\s+sure|really|what\s+do\s+you\s+mean|what\s+does\s+that\s+mean"
+    r"|can\s+you\s+(?:say|explain)\s+(?:that|it)\s+(?:again|differently|more\s+simply)"
+    r"|give\s+me\s+(?:an?\s+)?(?:example|examples|another(?:\s+one)?|more|a\s+summary)"
+    r"|(?:another|one\s+more)(?:\s+(?:one|example))?"
+    r"|(?:that'?s|that\s+is)\s+(?:wrong|not\s+right|incorrect|not\s+what\s+i\s+(?:asked|meant))"
+    r"|no\s*,?\s*(?:i\s+meant|i\s+mean)\s+.{1,80}"
+    r")(?:\s+(?:please|pls|thanks))?\s*[!.?,;:]*\s*$", re.I)
+
+_TASK_VERB = re.compile(
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|i\s+(?:want|need|would\s+like)\s+(?:you\s+)?to\s+)?"
+    r"(?:write|draft|compose|create|generate|brainstorm|come\s+up\s+with|make\s+(?:me\s+)?(?:a|an|some)"
+    r"|give\s+me\s+(?:a|an|some)\s+(?:joke|poem|haiku|story|idea|ideas|example|recipe|name|names|slogan|quote)"
+    r"|tell\s+me\s+(?:a|an)\s+(?:joke|story|riddle|fun\s+fact)|sing|rhyme|calculate|compute|solve|convert)\b", re.I)
+_REWRITE_VERB = re.compile(
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:rewrite|rephrase|proofread|paraphrase|translate|edit|polish|reword|correct|improve|shorten|summari[sz]e|"
+    r"fix\s+(?:the\s+)?(?:grammar|spelling|typos?|tone)|make\s+this|check\s+(?:the\s+)?(?:grammar|spelling)|"
+    r"explain\s+this\s+(?:code|error|sentence|paragraph|text)|what\s+does\s+this\s+(?:code|error|mean))\b", re.I)
+_ARITHMETIC = re.compile(
+    r"^\s*(?:what(?:'s|\s+is)\s+|calculate\s+|compute\s+)?[-+]?\(?\s*\d[\d,.\s]*(?:[-+*/x×÷^%()]\s*\(?\d[\d,.\s]*\)?\s*)+"
+    r"(?:=\s*)?\??\s*$"
+    r"|^\s*what(?:'s|\s+is)\s+\d+(?:\.\d+)?\s*%\s+of\s+\d[\d,.]*\s*\??\s*$", re.I)
+_CODE_FENCE = re.compile(r"```")
+
+
+def chat_reason(question: str, history: Sequence[Any]) -> Optional[str]:
+    """Why this turn needs no retrieval (a plain sentence), or `None`.
+
+    Narrow on purpose - see the module docstring: only social turns, instructions
+    about what was already said, and tasks that name none of the person's files."""
+    text = str(question or "").strip()
+    if not text:
+        return None
+    if _SMALLTALK.match(text):
+        return "a greeting, thanks or a question about Leasha itself - nothing in the files is needed"
+    if _CHATTER.match(text):
+        return "a reaction or a feeling, not a question - nothing in the files is needed"
+    if _ABOUT_PREVIOUS.match(text):
+        return "an instruction about the previous answer - it needs the conversation, not the files"
+    words = text.split()
+    pasted = len(words) >= 18 or "\n" in text or bool(_CODE_FENCE.search(text))
+    if _REWRITE_VERB.match(text) and (pasted or re.match(r"^\s*(?:please\s+)?translate\b", text, re.I)):
+        return "rewriting or explaining text the person supplied - it is all in their message"
+    if _CODE_FENCE.search(text) and not _ARCHIVE_WORDS.search(_CODE_FENCE.split(text)[0]):
+        return "a question about code the person pasted"
+    if _ARITHMETIC.match(text):
+        return "arithmetic - computed, not looked up"
+    if _TASK_VERB.match(text) and not _ARCHIVE_WORDS.search(text):
+        return "a writing, code or maths task that names none of their files"
     return None
 
 
@@ -273,6 +412,13 @@ def route_question(
     the minority case - and its answer is validated before it is believed.
     """
     text = str(question or "").strip()
+    social = chat_reason(text, history)
+    if social is not None:
+        return Route(CHAT, "rules", social, text)
+    lead = _GREETING_LEAD.match(text)
+    if lead is not None and lead.end() < len(text):
+        # "hi, what did we agree about the deposit?" is the question after the hello.
+        return route_question(text[lead.end():], history, llm=llm)
     reason = _followup_reason(text, history)
     if reason is not None:
         resolved = resolve_followup(text, history, llm=llm)

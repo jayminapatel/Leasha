@@ -27,11 +27,15 @@ parameters or fewer - or it is not used for the small roles.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from app.llm.models import parameter_billions, rank
 
-__all__ = ["RoleModels", "resolve_roles", "suggest_modes", "SMALL_MODEL_B", "AFFORDABLE_MAX_B"]
+__all__ = [
+    "RoleModels", "resolve_roles", "suggest_modes", "SMALL_MODEL_B", "AFFORDABLE_MAX_B",
+    "InstalledModels", "is_vision_name", "size_of", "ram_line", "NO_VISION_MODEL_LINE",
+    "OLLAMA_UNREACHABLE_LINE", "MEMORY_OVERHEAD",
+]
 
 #: A model this size or smaller may play router/planner.
 SMALL_MODEL_B = 3.0
@@ -165,3 +169,92 @@ def suggest_modes(installed: Sequence[str], configured: str = "mistral") -> dict
     else:
         thoughtful = affordable[-1].name if affordable else usable[-1].name
     return {"fast": fast, "thoughtful": thoughtful}
+
+
+# ---------------------------------------------------------------------------
+# What is installed, and what the choices cost in memory (work order 4d)
+# ---------------------------------------------------------------------------
+
+#: Name fragments of models that read pictures, used only when Ollama's own
+#: `capabilities` list (`/api/show`) is missing - older builds do not send it.
+VISION_NAME_HINTS = ("llava", "bakllava", "moondream", "minicpm-v", "-vl", "vl:", "vision",
+                     "qwen2.5vl", "qwen3-vl")
+
+#: How much more memory a resident model takes than its file: the context window
+#: (Ollama's key/value cache) and working buffers. **An estimate, and flagged as
+#: one** - it moves with the context length and the model, and nobody has measured
+#: it here. It is used only to say "about N GB", so being off by a fifth changes a
+#: sentence, not a decision.
+MEMORY_OVERHEAD = 1.2
+
+NO_VISION_MODEL_LINE = ("None of the models installed here can read pictures. To describe photos, "
+                        "install one - for example run: ollama pull llava")
+OLLAMA_UNREACHABLE_LINE = ("Leasha could not reach Ollama, so these lists show only what is saved. "
+                           "Start Ollama, then press Look again.")
+
+
+@dataclass(frozen=True)
+class InstalledModels:
+    """What Ollama reports, as the roles grid needs it. Built by
+    `app.chat.llm.probe_installed`; empty and `reachable=False` when Ollama is not
+    answering, which is a normal state and never an exception."""
+
+    reachable: bool = False
+    #: Every model that can answer a prompt (embedding models are left out).
+    names: tuple[str, ...] = ()
+    #: The ones among them that can read pictures.
+    vision: tuple[str, ...] = ()
+    #: File size in bytes by installed name.
+    sizes: Mapping[str, int] = field(default_factory=dict)
+    #: This computer's memory in MB, or 0 when it could not be read.
+    ram_mb: int = 0
+
+
+def is_vision_name(name: str) -> bool:
+    lowered = (name or "").lower()
+    return any(hint in lowered for hint in VISION_NAME_HINTS)
+
+
+def size_of(name: str, sizes: Mapping[str, int]) -> int:
+    """File size in bytes of `name`, tolerating `mistral` for `mistral:latest`; 0 if unknown."""
+    hit = _installed_match(name, list(sizes))
+    return int(sizes.get(hit, 0)) if hit else 0
+
+
+def _gb(n_bytes: float) -> str:
+    gb = n_bytes / 1024 ** 3
+    return f"{gb:.1f} GB" if gb < 10 else f"{gb:.0f} GB"
+
+
+def ram_line(models: Sequence[str], sizes: Mapping[str, int], ram_mb: int = 0) -> str:
+    """One plain sentence on what these models need in memory if they are all kept
+    ready at once - the order's "these two together need about 11 GB - you have 32".
+
+    `""` when nothing is known (no model chosen, or none of them has a known size):
+    a sentence with a made-up number is worse than none. Names with no known size are
+    left out of the sum and the sentence says so.
+    """
+    seen: list[str] = []
+    for name in models:
+        hit = _installed_match(name, list(sizes)) or name
+        if name and hit not in seen:
+            seen.append(hit)
+    known = [(n, size_of(n, sizes)) for n in seen if size_of(n, sizes) > 0]
+    if not known:
+        return ""
+    total = sum(size for _n, size in known) * MEMORY_OVERHEAD
+    have = f" This computer has {ram_mb / 1024:.0f} GB." if ram_mb else ""
+    if len(known) == 1:
+        text = f"{known[0][0]} needs about {_gb(total)} of memory while it is ready.{have}"
+    else:
+        names = ", ".join(n for n, _s in known[:-1]) + f" and {known[-1][0]}"
+        text = (f"{names} together need about {_gb(total)} of memory if all are kept ready "
+                f"at once.{have}")
+    if ram_mb and total > ram_mb * 1024 ** 2 * 0.6:
+        text += (" That is more than is comfortable here: Ollama will swap them in and out, "
+                 "and every swap adds seconds to an answer. Using one model for every job "
+                 "avoids it.")
+    left_out = [n for n in seen if size_of(n, sizes) <= 0]
+    if left_out:
+        text += f" (No size is known for {', '.join(left_out)}, so it is not counted.)"
+    return text

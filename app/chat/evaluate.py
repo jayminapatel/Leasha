@@ -5,10 +5,14 @@ Layer: L8b - no Qt. Work order section 4 (4a scoring, 4b floors, 4c latency).
 The search harness (`app/search/evaluate.py`) asks "did the right document come
 back". This asks the questions the Chat tab makes different:
 
-    citation validity     of every sentence shown, how many have a receipt that
+    citation validity     of every sentence that *claims something about the files*
+                          (it carries a source marker), how many have a receipt that
                           checks out - the marker points at a real source, the
                           quoted words are in that source's stored text, and the
                           sentence's meaningful words are in it too. (Floor 98%.)
+                          A sentence with no marker is conversation, and is held to
+                          the weaker rule of `audit_answer`: it may not state a figure,
+                          name, month or quotation that no receipt contains.
     extractive            for a question about what a document says, is the fact in
                           the answer and does a receipt name the right document.
                           (Floor 85%.)
@@ -17,7 +21,15 @@ back". This asks the questions the Chat tab makes different:
     absence honesty       does every "nothing found" answer scope itself to the
                           index, show what was searched, and never claim the thing
                           does not exist in the world. (Floor 100%.)
-    refusal               thin evidence -> says so, instead of guessing.
+    refusal               thin evidence -> says so, instead of guessing: "I couldn't
+                          find that in your files", then - for a question that is not
+                          about the person's own affairs - a labelled general answer.
+    conversation          LLM-free structure of the talk (2026-09-20): a greeting, thanks
+                          or "shorter" is answered by the model from the conversation
+                          (kind chat, route CHAT, no search, no receipts, no refusal);
+                          scripted multi-turn conversations (`CONVERSATIONS` in the
+                          fixture) are checked step by step, and a real-model run
+                          records the transcript.
     router                did the question go to the right machine.
     find                  did the results include the documents that should be there,
                           and does the grid end by saying "that's all N".
@@ -47,13 +59,18 @@ from typing import Any, Callable, Optional, Sequence
 
 from app.chat.absence import WORLD_CLAIMS
 from app.chat.text import content_tokens, fold_quotes, normalise_space, sentence_spans
+from app.chat.reconcile import audit_answer
 from app.chat.types import ChatTurn, NarrationEvent, ShelfEvent, TokenEvent
-from app.chat.verify import audit_turn, normalise_marker_placement, split_markers
+from app.chat.verify import normalise_marker_placement, split_markers
 
 __all__ = [
     "CaseResult",
     "ChatReport",
     "run_chat_eval",
+    "run_conversations",
+    "ConversationReport",
+    "ask_with_limit",
+    "TURN_LIMIT_S",
     "score_case",
     "FLOORS",
     "machine_description",
@@ -68,6 +85,10 @@ FLOORS = {
 }
 
 _SIZE_UNITS = ("bytes", "KB", "MB", "GB", "TB")
+
+#: The longest one question or one conversation step may take before the harness gives up on it
+#: and counts it as a failed turn. A benchmark that can wait forever is one that hangs a night's run.
+TURN_LIMIT_S = 900.0
 
 
 def machine_description() -> str:
@@ -142,13 +163,15 @@ def _citation_validity(turn: ChatTurn, store: Any) -> tuple[int, int, int]:
     if turn.kind != "answer":
         return 0, 0, 0
     text = normalise_marker_placement(turn.text or "")
-    unreceipted = len(audit_turn(turn))
+    unreceipted = len(audit_answer(turn))
     total = valid = 0
     for start, end in sentence_spans(text):
         sentence = text[start:end]
         body, numbers = split_markers(sentence)
+        if not numbers:
+            continue                    # conversation, not a claim about the files: `audit_answer` judges it
         total += 1
-        if not numbers or any(n < 1 or n > len(turn.receipts) for n in numbers):
+        if any(n < 1 or n > len(turn.receipts) for n in numbers):
             continue
         ok = True
         wanted = set(content_tokens(body))
@@ -179,6 +202,53 @@ def _honest_absence(turn: ChatTurn) -> bool:
     if not any(note.startswith("Searched for:") for note in turn.notes):
         return False
     return True
+
+
+#: What the engine says first when the files have nothing. Kept here as a literal, not
+#: imported, so the scoring is an independent reading of the finished turn.
+_NOTHING_LEAD = "i couldn't find that in your files."
+
+_REFUSAL_WORDS = ("couldn't find", "could not find", "not found", "nothing in leasha",
+                   "no results", "i can't find", "i cannot find")
+
+
+def _honest_general(turn: ChatTurn) -> bool:
+    """Is a `general` turn the honest shape: the plain one-sentence "I couldn't find that
+    in your files", then an answer **labelled** as not from the files, no receipts, and no
+    claim that anything is or is not in the files beyond the first sentence?"""
+    text = _norm(turn.text)
+    if not text.startswith(_NOTHING_LEAD) or turn.receipts:
+        return False
+    rest = text[len(_NOTHING_LEAD):].strip()
+    return not rest or rest.startswith("**not from your files:**") or "not from your files" in rest
+
+
+def _honest_nothing(turn: ChatTurn) -> Optional[bool]:
+    """The honesty of a "nothing found" turn of either shape; `None` if it is not one."""
+    if turn.kind == "absence":
+        return _honest_absence(turn)
+    if turn.kind == "general":
+        return _honest_general(turn)
+    return None
+
+
+def _conversation_ok(turn: ChatTurn, routed: str) -> tuple[bool, str]:
+    """The LLM-free structure of a conversational turn: answered from the conversation."""
+    problems = []
+    if turn.kind != "chat":
+        problems.append(f"kind={turn.kind}")
+    if routed != "CHAT":
+        problems.append(f"routed {routed}")
+    if turn.receipts or turn.result_set:
+        problems.append("carries sources")
+    if not turn.text.strip():
+        problems.append("empty")
+    text = _norm(turn.text)
+    if any(word in text for word in _REFUSAL_WORDS):
+        problems.append("reads like a refusal")
+    if "queries" in (turn.debug or {}):
+        problems.append("searched the files")
+    return not problems, ", ".join(problems)
 
 
 def score_case(qa: Any, turn: ChatTurn, store: Any) -> CaseResult:
@@ -221,11 +291,24 @@ def score_case(qa: Any, turn: ChatTurn, store: Any) -> CaseResult:
         if not result.correct:
             result.detail = f"kind={turn.kind} missing results={missing}"
     elif qa.outcome == "absence":
-        result.honest = _honest_absence(turn) if turn.kind == "absence" else None
+        # "Nothing in the files": either the searched-and-found-nothing account (a
+        # question about the person's own affairs) or the one plain sentence and a labelled
+        # general answer (a question that is not) - both are honest, both are scored.
+        result.honest = _honest_nothing(turn)
         forbidden = [w for w in qa.forbid if _norm(w) in text]
-        result.correct = turn.kind == "absence" and bool(result.honest) and not forbidden
+        result.correct = turn.kind in ("absence", "general") and bool(result.honest) and not forbidden
         if not result.correct:
             result.detail = f"kind={turn.kind}" + (f" forbidden present={forbidden}" if forbidden else "")
+    elif qa.outcome == "general":
+        result.honest = _honest_general(turn) if turn.kind == "general" else None
+        result.correct = turn.kind == "general" and bool(result.honest)
+        if not result.correct:
+            result.detail = f"kind={turn.kind}"
+    elif qa.outcome == "chat":
+        ok, why = _conversation_ok(turn, result.routed)
+        result.correct = ok and all(_norm(w) in text for w in qa.expect_all)
+        if not result.correct:
+            result.detail = why or "an expected word is missing"
     return result
 
 
@@ -274,8 +357,21 @@ class ChatReport:
     @property
     def absence_honesty(self) -> Optional[float]:
         """Of every absence answer given, the share that are honest."""
-        items = self._of(lambda r: r.turn.kind == "absence")
-        return self._rate(items, lambda r: bool(_honest_absence(r.turn)))
+        items = self._of(lambda r: r.turn.kind == "absence"
+                         or (r.turn.kind == "general" and _norm(r.turn.text).startswith(_NOTHING_LEAD)))
+        return self._rate(items, lambda r: bool(_honest_nothing(r.turn)))
+
+    @property
+    def conversation(self) -> Optional[float]:
+        """Conversational turns (greetings, thanks, "shorter") answered from the
+        conversation - no search, no sources, no refusal. LLM-free structure."""
+        return self._rate(self._of(lambda r: r.qa.outcome == "chat"), lambda r: r.correct)
+
+    @property
+    def general_fill(self) -> Optional[float]:
+        """Questions the files cannot answer that got the plain sentence and a labelled
+        general answer."""
+        return self._rate(self._of(lambda r: r.qa.outcome == "general"), lambda r: r.correct)
 
     @property
     def absence_recall(self) -> Optional[float]:
@@ -325,6 +421,8 @@ class ChatReport:
             "absence_honesty": self.absence_honesty,
             "absence_recall": self.absence_recall,
             "refusal": self.refusal,
+            "conversation": self.conversation,
+            "general_fill": self.general_fill,
             "traps": self.traps,
             "router": self.router,
             "find": self.find,
@@ -386,6 +484,8 @@ class ChatReport:
             f"  absence honesty       {pct(self.absence_honesty)}   floor 100%",
             f"  absence recall        {pct(self.absence_recall)}   (planted absences answered as absence)",
             f"  refusal on thin       {pct(self.refusal)}",
+            f"  conversation          {pct(self.conversation)}   (small talk and \"shorter\" answered from the talk)",
+            f"  labelled general fill {pct(self.general_fill)}   (nothing in the files -> one plain sentence, then a labelled answer)",
             f"  trap questions        {pct(self.traps)}",
             f"  router                {pct(self.router)}",
             f"  find                  {pct(self.find)}",
@@ -423,6 +523,7 @@ def run_chat_eval(
     real_model: bool = False,
     note: str = "",
     on_result: Optional[Callable[[CaseResult], None]] = None,
+    limit_s: float = TURN_LIMIT_S,
 ) -> ChatReport:
     """Ask every question through `chat` and score it.
 
@@ -441,7 +542,7 @@ def run_chat_eval(
     for qa in questions:
         history: list[ChatTurn] = []
         for earlier in getattr(qa, "history", ()):
-            turn = chat.ask(earlier, list(history), lambda _e: None, lambda: False)
+            turn = ask_with_limit(chat, earlier, history, lambda _e: None, limit_s=limit_s)
             history += [ChatTurn("user", earlier), turn]
 
         stamps: dict[str, float] = {}
@@ -458,7 +559,7 @@ def run_chat_eval(
             elif isinstance(event, ShelfEvent):
                 _s.setdefault("shelf", now)
 
-        turn = chat.ask(qa.question, list(history), emit, lambda: False)
+        turn = ask_with_limit(chat, qa.question, history, emit, limit_s=limit_s)
         result = score_case(qa, turn, store)
         result.total_s = time.perf_counter() - started
         result.first_narration_s = stamps.get("narration")
@@ -467,6 +568,198 @@ def run_chat_eval(
         report.results.append(result)
         if on_result is not None:
             on_result(result)
+    return report
+
+
+
+# ---------------------------------------------------------------------------
+# scripted multi-turn conversations (owner, 2026-09-20)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class StepResult:
+    """One step of a scripted conversation, run and checked."""
+
+    say: str
+    reply: str = ""
+    kind: str = ""
+    routed: str = ""
+    ok: bool = True
+    problems: list = field(default_factory=list)
+    receipts: int = 0
+    model: str = ""
+    first_narration_s: Optional[float] = None
+    first_token_s: Optional[float] = None
+    total_s: float = 0.0
+    memory_kept: int = 0
+    regenerated: bool = False
+
+
+@dataclass
+class ConversationReport:
+    """Every scripted conversation, and whether each step had the right *shape*.
+
+    The checks are LLM-free - the route, the kind of turn, whether sources are
+    carried, whether the model was shown the earlier talk - so they hold for the fake
+    and for a real model alike. **What a real model actually wrote is the transcript**:
+    the report keeps it whole so a person can read whether it sounds like an assistant."""
+
+    model: str = ""
+    real_model: bool = False
+    machine: str = ""
+    conversations: list = field(default_factory=list)      # [(title, [StepResult, ...])]
+
+    @property
+    def steps(self) -> list[StepResult]:
+        return [s for _title, steps in self.conversations for s in steps]
+
+    @property
+    def structure(self) -> Optional[float]:
+        steps = self.steps
+        return (sum(1 for s in steps if s.ok) / len(steps)) if steps else None
+
+    def latency(self, attribute: str) -> dict[str, Optional[float]]:
+        values = sorted(v for v in (getattr(s, attribute) for s in self.steps) if v is not None)
+        if not values:
+            return {"n": 0, "min": None, "p50": None, "max": None}
+        return {"n": len(values), "min": round(values[0], 3),
+                "p50": round(values[len(values) // 2], 3), "max": round(values[-1], 3)}
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model, "real_model": self.real_model, "machine": self.machine,
+            "structure": None if self.structure is None else round(self.structure, 4),
+            "latency": {"first_narration_s": self.latency("first_narration_s"),
+                        "first_token_s": self.latency("first_token_s"),
+                        "total_s": self.latency("total_s")},
+            "conversations": [
+                {"title": title, "steps": [
+                    {"say": s.say, "reply": s.reply, "kind": s.kind, "routed": s.routed,
+                     "ok": s.ok, "problems": s.problems, "receipts": s.receipts,
+                     "first_token_s": s.first_token_s, "total_s": round(s.total_s, 2),
+                     "regenerated": s.regenerated} for s in steps]}
+                for title, steps in self.conversations],
+        }
+
+    def lines(self, *, width: int = 420) -> list[str]:
+        kind = "a real local model" if self.real_model else \
+            "the deterministic FakeLLM - NOT a language model"
+        out = [f"Conversation evaluation  ({len(self.steps)} steps)", "=" * 62,
+               f"  model      {self.model}  ({kind})", f"  machine    {self.machine}",
+               f"  structure  {self.structure:.0%} of steps have the right shape (route, kind, "
+               "sources, memory)" if self.structure is not None else "  structure  n/a"]
+        for label, key in (("first narration", "first_narration_s"), ("first token", "first_token_s"),
+                           ("whole reply", "total_s")):
+            lat = self.latency(key)
+            if lat["n"]:
+                out.append(f"  {label:<16} min {lat['min']:.2f}s   p50 {lat['p50']:.2f}s   "
+                           f"max {lat['max']:.2f}s   (n={lat['n']})")
+        for title, steps in self.conversations:
+            out += ["", f"  -- {title}"]
+            for s in steps:
+                mark = "ok " if s.ok else "NOT"
+                tag = "  (regenerated)" if s.regenerated else ""
+                out.append(f"  {mark} You:  {s.say}{tag}")
+                reply = " ".join(s.reply.split())
+                out.append(f"      Leasha [{s.routed or '?'}/{s.kind or '?'}, {s.total_s:.1f}s, "
+                           f"first word {'-' if s.first_token_s is None else f'{s.first_token_s:.1f}s'}]: "
+                           f"{reply[:width]}{'...' if len(reply) > width else ''}")
+                for problem in s.problems:
+                    out.append(f"      problem: {problem}")
+        return out
+
+
+def ask_with_limit(chat: Any, question: str, history: Sequence[ChatTurn], emit: Callable[[Any], None],
+                   limit_s: float = TURN_LIMIT_S, *, grace_s: float = 30.0, **kwargs: Any) -> ChatTurn:
+    """`chat.ask(...)` with a wall-clock limit. **Never waits forever.**
+
+    The question runs on a worker thread; past `limit_s` it is asked to stop (its `should_stop`
+    turns true) and given thirty seconds to notice, and if it still has not come back a failed
+    turn is returned and the worker is left behind (a daemon: it dies with the process). A stalled
+    turn is reported as one, in plain words, and the run goes on."""
+    import threading
+
+    box: dict[str, Any] = {}
+    stop = threading.Event()
+
+    def work() -> None:
+        try:
+            box["turn"] = chat.ask(question, list(history), emit, stop.is_set, **kwargs)
+        except Exception as exc:                          # noqa: BLE001 - a failed turn, not a crashed run
+            box["error"] = f"{type(exc).__name__}: {exc}"
+
+    thread = threading.Thread(target=work, name="chat-eval-turn", daemon=True)
+    thread.start()
+    thread.join(limit_s)
+    if thread.is_alive():
+        stop.set()
+        thread.join(grace_s)
+    turn = box.get("turn")
+    if isinstance(turn, ChatTurn):
+        return turn
+    why = box.get("error") or f"did not finish within {limit_s:g} seconds"
+    return ChatTurn("assistant", f"This turn {why}.", kind="error", debug={"stalled": True})
+
+
+def run_conversations(chat: Any, conversations: Sequence[Any], *, model: str = "fake",
+                      real_model: bool = False, limit_s: float = TURN_LIMIT_S,
+                      on_step: Optional[Callable[[StepResult], None]] = None) -> ConversationReport:
+    """Play each scripted conversation through `chat`, one step at a time, on one history.
+
+    A step with `regenerate=True` asks the previous step's message again as a Regenerate
+    (the last exchange is taken back out of the history first), which is how the tab does it.
+    """
+    report = ConversationReport(model=model, real_model=real_model, machine=machine_description())
+    for title, steps in conversations:
+        history: list[ChatTurn] = []
+        results: list[StepResult] = []
+        for step in steps:
+            variant = 0
+            say = step.say
+            if step.regenerate and len(history) >= 2:
+                say = history[-2].text
+                history = history[:-2]
+                variant = 1
+            stamps: dict[str, float] = {}
+            started = time.perf_counter()
+
+            def emit(event: Any, _s: dict = stamps, _t0: float = started) -> None:
+                now = time.perf_counter() - _t0
+                if isinstance(event, NarrationEvent):
+                    _s.setdefault("narration", now)
+                elif isinstance(event, TokenEvent):
+                    _s.setdefault("token", now)
+
+            kwargs = {"variant": variant} if variant else {}
+            turn = ask_with_limit(chat, say, history, emit, limit_s=limit_s, **kwargs)
+            history += [ChatTurn("user", say), turn]
+            result = StepResult(
+                say=say, reply=turn.text, kind=turn.kind,
+                routed=str((turn.debug or {}).get("route", {}).get("kind", "")),
+                receipts=len(turn.receipts), model=turn.model, total_s=time.perf_counter() - started,
+                first_narration_s=stamps.get("narration"), first_token_s=stamps.get("token"),
+                memory_kept=int(((turn.debug or {}).get("memory") or {}).get("kept", 0)),
+                regenerated=bool(variant))
+            if result.routed != step.route:
+                result.problems.append(f"routed {result.routed or '?'}, expected {step.route}")
+            if turn.kind != step.kind:
+                result.problems.append(f"kind {turn.kind}, expected {step.kind}")
+            if step.receipts != bool(turn.receipts):
+                result.problems.append("sources expected" if step.receipts else "carries sources")
+            if step.memory and result.memory_kept < 2:
+                result.problems.append("the model was not shown the earlier conversation")
+            if variant and int((turn.debug or {}).get("variant", 0)) < 1:
+                result.problems.append("regenerate did not ask for a fresh reply")
+            missing = [w for w in step.expect_all if _norm(w) not in _norm(turn.text)]
+            if missing:
+                result.problems.append(f"missing {missing}")
+            if step.kind == "chat" and any(w in _norm(turn.text) for w in _REFUSAL_WORDS):
+                result.problems.append("a conversational reply that reads like a refusal")
+            result.ok = not result.problems
+            results.append(result)
+            if on_step is not None:
+                on_step(result)
+        report.conversations.append((title, results))
     return report
 
 
@@ -503,9 +796,13 @@ def _pick_models(settings: Any, requested: str, force_fake: bool) -> tuple[Any, 
         planner=str(getattr(settings, "chat_planner_model", "") or ""))
     clients: dict[str, Any] = {}
 
+    from app.chat.config import ChatSettings
+
+    context = ChatSettings.from_settings(settings).context_tokens
+
     def client(name: str) -> Any:
         if name not in clients:
-            clients[name] = OllamaLLM(OllamaClient(url, name, timeout=180.0))
+            clients[name] = OllamaLLM(OllamaClient(url, name, timeout=300.0), num_ctx=context)
         return clients[name]
 
     llm = {"router": client(roles.router), "planner": client(roles.planner),
@@ -545,6 +842,9 @@ def run_cli(args: Any) -> int:
         settings = None
 
     questions = list(QUESTIONS)
+    conversations_only = bool(getattr(args, "chat_conversation_only", False))
+    with_conversations = bool(getattr(args, "chat_conversation", False)) or conversations_only
+    runs = max(1, int(getattr(args, "chat_runs", 1) or 1))
     only = str(getattr(args, "chat_ids", "") or "").strip()
     if only:
         wanted = {part.strip().upper() for part in only.split(",") if part.strip()}
@@ -567,16 +867,43 @@ def run_cli(args: Any) -> int:
             print(f"  {mark} {result.qa.id}  {result.total_s:5.1f}s  {result.qa.question}",
                   flush=True)
 
-        print(f"Asking {len(questions)} questions of {label}"
-              f"{'' if real else ' (no real model - see the note in the report)'} ...")
-        report = run_chat_eval(chat, questions, store, model=label, real_model=real,
-                               note=note, on_result=progress)
+        report = None
+        if not conversations_only:
+            print(f"Asking {len(questions)} questions of {label}"
+                  f"{'' if real else ' (no real model - see the note in the report)'}"
+                  f"{f', {runs} times' if runs > 1 else ''} ...")
+            for _run in range(runs):
+                again = run_chat_eval(chat, questions, store, model=label, real_model=real,
+                                      note=note, on_result=progress)
+                if report is None:
+                    report = again
+                else:
+                    report.results += again.results          # the spread of latency and of correctness
+        talk = None
+        if with_conversations:
+            try:
+                from tests.fixtures.chat_eval import CONVERSATIONS
+            except ImportError:
+                CONVERSATIONS = ()
+
+            def step_progress(step: StepResult) -> None:
+                print(f"  {'ok ' if step.ok else 'NOT'} {step.total_s:5.1f}s  {step.say}", flush=True)
+
+            print(f"Playing {len(CONVERSATIONS)} scripted conversation(s) with {label} ...")
+            talk = run_conversations(chat, CONVERSATIONS, model=label, real_model=real,
+                                     on_step=step_progress)
         search.close()
 
     print()
-    for line in report.lines():
-        print(line)
+    if report is not None:
+        for line in report.lines():
+            print(line)
+    if talk is not None:
+        print()
+        for line in talk.lines():
+            print(line)
     if getattr(args, "json", False):
         print()
-        print(json.dumps(report.as_dict(), indent=2))
+        print(json.dumps({"questions": report.as_dict() if report else None,
+                          "conversations": talk.as_dict() if talk else None}, indent=2))
     return 0

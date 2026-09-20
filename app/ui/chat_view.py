@@ -1,4 +1,4 @@
-"""Chat: ask your archive a question and get an answer with its sources.
+"""Chat: talk to Leasha - it reads your files first, and answers in plain words.
 
 Layer: L5 view - thin. Decisions are in `app/ui/presenter/chat.py`; the pieces
 are in `app/ui/widgets/chat_*.py`; the engine, the worker and the saving are in
@@ -7,21 +7,23 @@ turns the person's keys and clicks into signals.
 
 Work order 202626270611 section 3. The layout is three columns: your
 conversations, the conversation itself (bubbles, the documents on the shelf,
-the box you type in), and the sources the answer stands on. **No banners:** the
-receipts are the honesty - every source number in the prose opens the passage
-it came from.
+the box you type in), and the local sources the answer stands on. **No banners:**
+the receipts are the honesty - every source number in the prose opens the passage
+it came from. The message actions (Copy, Regenerate, Try again, Edit) live on the
+messages themselves (`chat_bubbles.py`); this file only forwards them.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
-from app.ui.presenter.chat import NOT_BUILT_LINE, unavailable_text
+from app.ui.presenter.chat import NOT_BUILT_LINE, THINKING_LINE, unavailable_text
 from app.ui.widgets.chat_answer_run import AnswerRun
 from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble
 from app.ui.widgets.chat_message_box import MessageBox
@@ -50,6 +52,14 @@ class ChatView(QWidget):
     error = pyqtSignal(object)
     #: The window is closing: the controller stops any answer still running.
     closing = pyqtSignal()
+    #: The last answer's Regenerate / Try again, and the last message's Edit.
+    regenerate_requested = pyqtSignal()
+    retry_requested = pyqtSignal()
+    edit_requested = pyqtSignal()
+    #: The Web chip was switched for this conversation.
+    web_toggled = pyqtSignal(bool)
+    #: The person answered "Search the web for ...?" - `True` is Allow.
+    web_decided = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -113,12 +123,13 @@ class ChatView(QWidget):
 
         self.box.submitted.connect(self.question_submitted)
         self.box.stop_requested.connect(self.stop_requested)
+        self.box.web_toggled.connect(self.web_toggled)
         self.box.walk_requested.connect(self.sources.walk)
         self.box.open_source_requested.connect(self.sources.open_selected)
         self.box.escaped.connect(self._back_to_conversation)
         self.shelf.changed.connect(self.shelf_changed)
         self.shelf.open_requested.connect(self.open_requested)
-        self.sources.opened.connect(self.result_opened)
+        self.sources.opened.connect(self._opened)
         self.sources.revealed.connect(self.result_revealed)
         self.sources.results.pin_requested.connect(self.pin_requested)
         self.sources.results.reindex_requested.connect(self.reindex_requested)
@@ -147,6 +158,23 @@ class ChatView(QWidget):
         self.box.set_busy(busy)
         self.sessions.set_enabled_for_work(not busy)
 
+    def set_web(self, available: bool, on: bool = False) -> None:
+        """The Web chip: shown only when Settings allows the web, set for this conversation."""
+        self.box.set_web(available, on)
+
+    def _opened(self, row: Any) -> None:
+        """A source was opened. A web page opens in the person's browser; a file goes
+        to the window, which opens it the way every other page does."""
+        path = str(getattr(row, "path", "") or "")
+        if path.lower().startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(path))
+            return
+        self.result_opened.emit(row)
+
+    def open_link(self, href: str) -> None:
+        if str(href).lower().startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(href))
+
     def set_speed(self, value: str) -> None:
         index = self.speed.findData(value)
         if index >= 0:
@@ -156,24 +184,39 @@ class ChatView(QWidget):
 
     # -- the conversation --------------------------------------------------------
     def add_user(self, text: str) -> None:
-        self.bubbles.add(UserBubble(text))
+        self.bubbles.add(self._user_bubble(text))
         self.bubbles.scroll_to_end()
+
+    def _user_bubble(self, text: str) -> UserBubble:
+        bubble = UserBubble(text)
+        bubble.edit_requested.connect(self.edit_requested)
+        return bubble
 
     def begin_answer(self) -> AnswerRun:
         """A fresh answer bubble; the Sources pane starts again for it."""
         bubble = self._answer_bubble()
+        bubble.narrate(THINKING_LINE)                # a slim state before the first word
         self._owner = bubble
         self.sources.clear()
         self.bubbles.add(bubble)
         self._run = AnswerRun(bubble, self.sources, self.shelf)
         return self._run
 
+    def end_answer(self) -> None:
+        """The answer is finished: the newest answer takes Regenerate, the newest
+        message Edit."""
+        self.bubbles.refresh_last()
+
     def _answer_bubble(self) -> AnswerBubble:
         bubble = AnswerBubble()
         bubble.receipt_activated.connect(lambda n, b=bubble: self._activate(b, n))
         bubble.receipt_hovered.connect(self._hovered)
-        bubble.result_opened.connect(self.result_opened)
+        bubble.result_opened.connect(self._opened)
         bubble.result_revealed.connect(self.result_revealed)
+        bubble.regenerate_requested.connect(self.regenerate_requested)
+        bubble.retry_requested.connect(self.retry_requested)
+        bubble.link_activated.connect(self.open_link)
+        bubble.web_decided.connect(self.web_decided)
         return bubble
 
     def show_turns(self, turns: list) -> None:
@@ -184,7 +227,7 @@ class ChatView(QWidget):
         last = None
         for turn in turns:
             if turn.role == "user":
-                self.bubbles.add(UserBubble(turn.text))
+                self.bubbles.add(self._user_bubble(turn.text))
                 continue
             bubble = self._answer_bubble()
             run = AnswerRun(bubble, None, _NoShelf())
@@ -193,6 +236,7 @@ class ChatView(QWidget):
             last = bubble
         if last is not None:
             self._show_sources_of(last)
+        self.bubbles.refresh_last()
         self.bubbles.scroll_to_end()
 
     # -- sources -----------------------------------------------------------------
