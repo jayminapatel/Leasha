@@ -135,6 +135,56 @@ def gui_mainwindow(tmp_path_factory):
     vectors.close()
 
 
+@pytest.fixture
+def no_leaked_widgets():
+    r"""Delete the top-level widgets *this test* built, and nothing else.
+
+    **Opt-in, per test, and deliberately not autouse.** 2026-09-20: see the dated note
+    in `test_no_application_stylesheet.py` for why the blanket version was not added.
+    The short form: the leak is real and large - `test_tuning_screen.py` leaves 6
+    top-level widgets and about 120 widgets behind on *every* test, measured - but the
+    one walk that made it fatal is gone, and `gui_mainwindow` above says in as many
+    words that tearing a `MainWindow` down mid-process is itself a crash.
+
+    **Why the snapshot is what makes this safe.** pytest builds higher-scoped fixtures
+    first, so by the time a function-scoped fixture runs, any module-scoped window -
+    `gui_mainwindow`'s, or a module's own - already exists and is in `before`. Only
+    widgets that appear afterwards are touched, so a fixture's window can never be
+    taken out from under the tests that still need it.
+
+    **What it still cannot know** is whether the test stashed one of its widgets in a
+    module-level global for a later test to use. That is the case that turns a passing
+    suite red, and it is why this is opt-in: a module adopts it after its own file
+    passes with it, rather than all 349 files being changed at once on the strength of
+    an argument.
+
+        def test_something(no_leaked_widgets):
+            ...
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    before = set() if app is None else {id(w) for w in QApplication.topLevelWidgets()}
+    yield
+    if app is None:
+        return
+    for widget in list(QApplication.topLevelWidgets()):
+        if id(widget) in before:
+            continue
+        widget.close()
+        widget.deleteLater()
+    # **`processEvents()` is not enough, and this is the trap worth knowing.**
+    # `deleteLater` posts a `DeferredDelete`, and Qt deliberately holds those back until
+    # the event loop *that posted them* returns - `processEvents` does not deliver them.
+    # The obvious `deleteLater(); processEvents()` teardown therefore frees nothing at
+    # all while looking exactly as though it does; `test_worker_signal_owner.py` pins
+    # this, because it is the shape anyone writing this fixture reaches for first.
+    from PyQt6.QtCore import QEvent
+
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
 def gui_pump(app, n: int = 5) -> None:
     for _ in range(n):
         app.processEvents()

@@ -460,9 +460,17 @@ class SettingsController(QObject):
             return
         from app.core.deeplink import is_registered
 
+        # `when_done` rather than a bare `connect(lambda ...)`: the lambda would have
+        # no receiver, so a registry read that lands after the box is gone would call
+        # into its C++ half from inside a Qt slot. `finished` was already safe - a
+        # bound method of a QObject is dropped when that object dies - and this gives
+        # the failure path the same protection. See `app/ui/later.py`.
+        from app.ui.later import when_done
+
         worker = CallableWorker(is_registered, component="ui.links.read")
-        worker.signals.finished.connect(box.set_links_state)
-        worker.signals.failed.connect(lambda _e: box.set_links_state(None))
+        when_done(box, worker,
+                  finished=box.set_links_state,
+                  failed=lambda _e: box.set_links_state(None))
         run(QThreadPool.globalInstance(), worker)
 
     def _links_toggled(self, wanted: bool) -> None:
@@ -476,9 +484,12 @@ class SettingsController(QObject):
             set_registered(bool(wanted))
             return is_registered()
 
+        from app.ui.later import when_done
+
         worker = CallableWorker(change, component="ui.links.write")
-        worker.signals.finished.connect(box.set_links_state)
-        worker.signals.failed.connect(lambda _e: self._w._refresh_link_scheme())
+        when_done(box, worker,
+                  finished=box.set_links_state,
+                  failed=lambda _e: self._w._refresh_link_scheme())
         run(QThreadPool.globalInstance(), worker)
 
     def _load_roots(self) -> list[str]:

@@ -484,12 +484,21 @@ class IndexController(QObject):
         self._w.notify("Counting files… the bar will show a real "
                                      "percentage once this finishes.", 0)
 
+        # **The button, not the window, owns the re-enable.** A count of a large tree
+        # takes a while, and the lambda that re-enables the button has no receiver of
+        # its own: if the button's C++ half has gone by the time the scan lands, that
+        # `setEnabled` raises inside a Qt slot where nothing catches it. `when_done`
+        # parents the connection to the button, so it is dropped with it instead.
+        # `finished`/`failed` are bound methods of the window and already safe.
+        from app.ui.later import when_done
+
+        scan_button = self._w.indexing_view.scan_button
         worker = CallableWorker(_scan_and_save, self._w._store, chosen,
                                 component="ui.index.scan")
         worker.signals.finished.connect(self._w._scan_finished)
         worker.signals.failed.connect(self._w._show_error)
-        worker.signals.done.connect(
-            lambda: self._w.indexing_view.scan_button.setEnabled(True))
+        when_done(scan_button, worker,
+                  done=lambda: scan_button.setEnabled(True))
         run(QThreadPool.globalInstance(), worker)
 
     def _scan_finished(self, payload: dict) -> None:
