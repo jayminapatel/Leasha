@@ -14,6 +14,7 @@ count roughly doubles.
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -86,12 +87,24 @@ class VectorStore:
             hits = vectors.search(query_vector, k=100)
     """
 
-    def __init__(self, uri: Path, *, dim: int = 384, table_name: str = TABLE_NAME):
+    def __init__(self, uri: Path, *, dim: int = 384, table_name: str = TABLE_NAME,
+                 deferred: bool = False):
         self.uri = Path(uri)
         self.dim = int(dim)
         self.table_name = table_name
-        self._db: Any = None
-        self._table: Any = None
+        #: Work order 0r item 2b. **Importing LanceDB is the largest single cost
+        #: between the splash and the window** (it builds hundreds of pydantic
+        #: models), and nothing the window paints needs it. A deferred store
+        #: does nothing on `__enter__`; `warm()` connects on a background thread
+        #: and *every* read of `_db` / `_table` waits for that to finish, so a
+        #: search typed the instant the window appears still sees the connected
+        #: store. Off by default: everything but the window opens it eagerly.
+        self._deferred = bool(deferred)
+        self._connect_lock = threading.Lock()
+        self._connect_thread: Optional[threading.Thread] = None
+        self._connect_error: Optional[BaseException] = None
+        self._db_value: Any = None
+        self._table_value: Any = None
         self._indexed_at_rows = 0
         #: Said once per store, not once per rebuild - see `_partitions_for`.
         self._warned_partitions = False
@@ -101,10 +114,89 @@ class VectorStore:
         self._approx_rows = 0
         self._since_compact = 0
 
+    # -- deferred connection (work order 0r item 2b) ---------------------------
+
+    def _settle(self, *, raise_error: bool) -> None:
+        """Wait for a background connect, starting it first if nobody has.
+
+        A no-op on the connecting thread itself (it is the one writing `_db`)
+        and on every store that was never deferred.
+        """
+        if not self._deferred:
+            return
+        with self._connect_lock:
+            thread = self._connect_thread
+            if thread is None and self._db_value is None and self._connect_error is None:
+                if not raise_error:
+                    return
+                thread = self._start_connect_locked()
+        if thread is not None and thread is not threading.current_thread():
+            thread.join()
+        if raise_error and self._connect_error is not None:
+            raise self._connect_error
+
+    def _start_connect_locked(self) -> threading.Thread:
+        thread = threading.Thread(target=self._connect_worker, name="vector-connect", daemon=True)
+        self._connect_thread = thread
+        thread.start()
+        return thread
+
+    def _connect_worker(self) -> None:
+        try:
+            self.connect()
+        except BaseException as exc:                # noqa: BLE001 - re-raised at first use
+            self._connect_error = exc
+
+    def warm(self) -> None:
+        """Start connecting in the background and return at once. Idempotent."""
+        if not self._deferred:
+            return
+        with self._connect_lock:
+            if self._connect_thread is None and self._db_value is None                     and self._connect_error is None:
+                self._start_connect_locked()
+
+    def wait(self) -> None:
+        """Block until a background connect has finished; never raises."""
+        self._settle(raise_error=False)
+        with self._connect_lock:
+            thread = self._connect_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join()
+
+    def deferred_error(self) -> Optional[BaseException]:
+        """The error a background connect ended with, or None. Never blocks."""
+        return self._connect_error
+
+    @property
+    def connected(self) -> bool:
+        return self._db_value is not None
+
+    @property
+    def _db(self) -> Any:
+        self._settle(raise_error=True)
+        return self._db_value
+
+    @_db.setter
+    def _db(self, value: Any) -> None:
+        self._db_value = value
+
+    @property
+    def _table(self) -> Any:
+        self._settle(raise_error=True)
+        return self._table_value
+
+    @_table.setter
+    def _table(self, value: Any) -> None:
+        self._table_value = value
+
     # -- lifecycle -----------------------------------------------------------
 
     def connect(self) -> "VectorStore":
-        if self._db is not None:
+        # A deferred store that is being (or has been) connected in the
+        # background is connected once, there - never twice.
+        if self._connect_thread is not None:
+            self._settle(raise_error=False)
+        if self._db_value is not None:
             return self
         try:
             import lancedb
@@ -152,10 +244,17 @@ class VectorStore:
         return list(db.table_names())
 
     def close(self) -> None:
-        self._table = None
-        self._db = None
+        # A connect still running must finish before the handles are dropped, or
+        # it would re-open the store behind the close.
+        self.wait()
+        self._connect_error = None
+        self._connect_thread = None
+        self._table_value = None
+        self._db_value = None
 
     def __enter__(self) -> "VectorStore":
+        if self._deferred:
+            return self
         return self.connect()
 
     def __exit__(
@@ -686,8 +785,9 @@ class ImageVectorStore(VectorStore):
         *,
         dim: int = IMAGE_VECTOR_DIM,
         table_name: str = IMAGE_TABLE_NAME,
+        deferred: bool = False,
     ) -> None:
-        super().__init__(uri, dim=dim, table_name=table_name)
+        super().__init__(uri, dim=dim, table_name=table_name, deferred=deferred)
         self._frames: Optional["VideoFrameVectorStore"] = None
 
     def video_frames(self) -> "VideoFrameVectorStore":

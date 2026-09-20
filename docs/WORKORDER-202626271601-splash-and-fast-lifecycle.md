@@ -332,6 +332,44 @@ The owner chose this on a live mock; implement it faithfully.
   > so arbitrary kwargs are silently swallowed. The new timing/close logging
   > interpolates values directly into the message string instead, which is
   > the only way that actually reaches the log file.
+> **2026-09-20, lane-2b-cut - window-visible cut from about 8 s to about 2.3 s in the offscreen
+> measurement; 2b stays UNTICKED (target <1.5 s not reached).** *Offscreen (`QT_QPA_PLATFORM=
+> offscreen`) from a scratch install (`tests/unit/e2e_support.py::build_scratch_install`), on a
+> machine under heavy background load (a long Ollama evaluation was running) - close to, not
+> identical with, a real display and the owner's machine.* Same install, same load, before and after
+> interleaved, `startup: timings` line, warm runs (the first run after a copy is cold and is left out):
+>
+> | | splash | window visible | ready |
+> |---|---|---|---|
+> | before (HEAD), 3 warm runs | 165-182 ms | **8043 / 9668 / 10626 ms** (min 8043) | 18.9-22.1 s |
+> | after, 7 warm runs | 130-170 ms | **2296 / 2311 / 2406 / 2450 / 2461 / 2872 / 3193 ms** (min 2296) | 15.9-21.0 s |
+>
+> **Where the time went (function-level, `cProfile` + `-X importtime`, not guessed).** The single
+> largest cost between splash and window was `import lancedb` inside `VectorStore.connect()`, run
+> synchronously in `app/main.py`'s `with` block before the window was built: 4.8 s under this load,
+> almost all of it `lance_namespace_urllib3_client` building hundreds of pydantic validators and models (366 `validate_call` wrappers in the profile). Nothing the
+> first paint shows needs it. **Fixed:** `VectorStore` / `ImageVectorStore` take `deferred=True`
+> (used only by `app/main.py`): `__enter__` connects nothing, `warm()` connects on a background
+> thread right after `window.show()`, and every read of the store's connection waits for it
+> (`_db` / `_table` are now properties), so a search or an index run started the instant the window
+> appears sees the same connected store. A store that cannot be opened (for instance the
+> dimension-mismatch refusal) used to stop start-up in the "Cannot start" dialog; it now shows once,
+> over the open window, in the same words (`_watch_vector_connect`, "Something needs attention"
+> box) and again at the first use. Everything else that opens a store is unchanged (eager).
+> Also cut, smaller: `numpy` is imported where `Embedder` normalises a batch, not at module level
+> (0.2-0.3 s off the pre-window imports; it now loads after the window, with the vector-store connection); `tray.assets_dir()`
+> is remembered once found - the window asked for it about 40 times (once per icon) at three
+> `resolve()` calls each. Tests, written failing first: `tests/unit/test_vector_store_deferred.py`.
+>
+> **What is left, measured.** Of the remaining ~2.3 s: about 1.5 s is Python module imports between
+> the splash and `MainWindow` (`app.ui.shell` and its views; about 0.4 s of it is the `app.extract`
+> package, whose `__init__` imports every extractor so they can register, and which
+> `app.ui.widgets.spreadsheet_view`, `app.core.code_types`, `app.core.media_open` and `app.main`
+> itself each reach), about 0.45 s is `MainWindow.__init__` (Search, Files, rail, theme), about
+> 0.25 s is `show()`. Reaching 1.5 s needs the extractor registry made lazy (a structural change
+> to `app/extract/__init__.py`, out of a measured-fix lane) or the views' imports deferred past
+> `show()`. **The 1.5 s target has not been measured on the owner's machine either; per the item's
+> own words it is recorded, not promised.**
 - [ ] **2b** defer what the first paint does not need: audit
   `MainWindow.__init__` for work movable to after `show()` (the M11
   pattern — construct light, populate async). Target: window visible
