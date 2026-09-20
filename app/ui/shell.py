@@ -38,6 +38,7 @@ from app.ui.code_view import CodeView
 from app.ui.controllers.chat_controller import ChatController
 from app.ui.controllers.index_controller import IndexController
 from app.ui.controllers.settings_controller import SettingsController
+from app.ui.controllers.timeline_controller import TimelineController
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
@@ -115,6 +116,18 @@ _BOUND_ELSEWHERE = frozenset({"Ctrl+K", "Ctrl+F", "Ctrl+,", "Ctrl+I", "Ctrl+P",
                               "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5"})
 
 
+
+def _moment_of(row: Any) -> Optional[int]:
+    """Seconds into a recording that a result row is about, else None. Pure."""
+    from app.core.media_open import seconds_for_result
+    from app.extract.media import media_extensions
+
+    ext = str(getattr(row, "ext", "") or "").lower().lstrip(".")
+    if f".{ext}" not in media_extensions():
+        return None
+    return seconds_for_result(getattr(row, "label", ""))
+
+
 class MainWindow(QMainWindow):
     """Search, indexing and settings in one window."""
 
@@ -162,6 +175,10 @@ class MainWindow(QMainWindow):
         #: does not help either: it only becomes true once a `Pipeline` exists,
         #: which is the very thing still being resolved.
         self._resolving_index = False
+        #: `(roots, recheck_archives)` asked for before the Indexing page was
+        #: built - see `_start_indexing`. Empty for the whole life of the window
+        #: in every case but the first beat after launch.
+        self._queued_index_requests: list = []
         self._store = store
         self._vectors = vectors
         self._engine = engine
@@ -205,7 +222,13 @@ class MainWindow(QMainWindow):
         # A floor, not the opening size. Without one Qt will happily shrink the
         # window until the tab bar is the only thing left, and a view with no
         # scroll area then has controls that cannot be reached at all.
-        self.setMinimumSize(720, 480)
+        #
+        # **500, not 480**: at 125% scaling the rail needs 454px even with icons
+        # alone (`Rail._measure`), and below that every button in it was squeezed
+        # short and overlapped by the indexing pill. Removing the floor to let the
+        # rail decide is not an option - the pages' own minimums then hold the
+        # window at 645, taller than a 1366x768 screen at 125%.
+        self.setMinimumSize(720, 500)
         self.setAcceptDrops(True)
 
         # §4a-4b: restore the window to its last known state (§4c provides the
@@ -393,6 +416,8 @@ class MainWindow(QMainWindow):
         # for, never a user's own file.
         self.reports_view = ReportsView(store)
         self.reports_view.error.connect(self._show_error)
+        # Order 0n 4b: the doors into the Life Timeline - see the controller.
+        self.timeline_ctl = TimelineController(self)
 
         # **Order 0r item 2b.** Mail and Code are not what first paint shows
         # (Search is), and building both here was real, measured constructor
@@ -585,6 +610,7 @@ class MainWindow(QMainWindow):
         self.mail_view = MailView(store)
         self.mail_view.error.connect(self._show_error)
         self.mail_view.search_inside_requested.connect(self._search_inside)
+        self.mail_view.period_requested.connect(self.timeline_ctl.browse_period)
 
         # Repositories are a browser, not a second search - see code_view.py.
         self.code_view = CodeView(store)
@@ -735,6 +761,10 @@ class MainWindow(QMainWindow):
             self.settings_view.rerank_toggled.connect(self._rerank_toggled)
             self.settings_view.cloud_toggled.connect(self._cloud_toggled)
             self.settings_view.settings_changed.connect(self._settings_changed)
+            # "Clear search history" empties the log the search box's recent
+            # searches are read from; without this it kept offering them.
+            self.settings_view.history_cleared.connect(
+                lambda _removed: self.search_view.saved.forget_recent())
             chat_ctl = getattr(self, "chat_ctl", None)
             if chat_ctl is not None:
                 chat_ctl.attach_settings()
@@ -789,11 +819,14 @@ class MainWindow(QMainWindow):
             # controls by `findChild` on the window, and a page that has not been
             # added to the rail yet has no parent to be found under.
             mark_restart_needed(self)
-            # `_apply_theme` reaches `settings_view.debug_pane` and retints both pages.
-            self._apply_theme()
+            # The stylesheet is already on the window (set once, in `__init__`);
+            # what these pages still need is the palette pushed to the pixmaps
+            # and the log pane - see `_push_palette`.
+            self._push_palette()
             self._wire_recorder_pages()
         finally:
             self._start_background_work(store, settings)
+            self._replay_index_requests()
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.
@@ -1011,11 +1044,35 @@ class MainWindow(QMainWindow):
                         recheck_archives: bool = False) -> None:
         # F5, a drop and "Index this folder" can arrive in the beat before
         # `_construct_deferred_pages` has built the Indexing page; there is
-        # nothing to start into yet, so the request is skipped, not raised.
+        # nothing to start into yet, so the request is **kept, not dropped**
+        # and replayed the moment the page exists (`_replay_index_requests`).
+        # It used to be skipped, which lost a folder somebody had just dropped.
         if getattr(self, "indexing_view", None) is None:
-            _log.debug("start indexing ignored: the Indexing page is not built yet")
+            _log.debug("start indexing queued: the Indexing page is not built yet")
+            self._queued_index_requests.append((roots, recheck_archives))
             return
         self.index_ctl._start_indexing(roots=roots, recheck_archives=recheck_archives)
+
+    def _replay_index_requests(self) -> None:
+        """Start what was asked for before the Indexing page existed. **Once.**
+
+        However many were queued - F5 twice, a drop then F5 - they become one
+        run, because `_start_indexing` refuses a second while one is out and
+        would drop the rest. `None` roots means "everything configured", which
+        already covers any folder named beside it; otherwise the named folders
+        are merged. A request that named folders (a drop, "Index this folder")
+        also brings the Indexing page forward, as it does when it is not late.
+        """
+        queued, self._queued_index_requests = self._queued_index_requests, []
+        if not queued or getattr(self, "indexing_view", None) is None:
+            return
+        named = [roots for roots, _recheck in queued if roots]
+        everything = any(not roots for roots, _recheck in queued)
+        if named:
+            self._show(self.indexing_view)
+        self._start_indexing(
+            roots=None if everything else sorted({r for roots in named for r in roots}),
+            recheck_archives=any(recheck for _roots, recheck in queued))
 
     def _index_resolved(self, tuned: Any, chosen: list[str],
                         roots: Optional[list[str]], recheck_archives: bool) -> None:
@@ -1417,6 +1474,45 @@ class MainWindow(QMainWindow):
         preference = self._theme_preference
         detected = detect_scheme(QGuiApplication.instance())
         self.setStyleSheet(stylesheet(preference, detected=detected))
+        self._push_palette()
+
+        # Qt 6.5+ emits this when the system switch is flipped, so the window
+        # follows without a restart.
+        #
+        # **Connected exactly once.** This used to be connected here, inside the
+        # function it calls back into - so every theme change added another
+        # connection, and one flick of the system switch then re-ran the handler
+        # once per change the person had ever made, each re-entering and
+        # connecting again. Signal connections are not idempotent, and Qt gives
+        # no warning: it looks fine until the machine changes theme, and then the
+        # window locks up rebuilding its stylesheet exponentially.
+        if not self._theme_hooked:
+            self._theme_hooked = True
+            try:
+                QGuiApplication.instance().styleHints().colorSchemeChanged.connect(
+                    lambda _scheme: self._apply_theme()
+                )
+            except Exception:                # noqa: BLE001 - older Qt, or no hints
+                pass
+
+    def _push_palette(self) -> None:
+        """Everything `_apply_theme` does except set the window's stylesheet.
+
+        **Why this is its own method: `_apply_theme` used to run twice at
+        startup** (order 0r's known cost). The first call, in `__init__`, is
+        the one first paint needs. The second, from `_construct_deferred_pages`,
+        was only there because Mail, Code, Chat, Indexing and Settings did not
+        exist yet and their pixmap icons and log pane have to be *told* the
+        palette (the stylesheet never reaches a pixmap). Re-setting the same
+        stylesheet on the window to do that made Qt re-polish every widget in
+        the tree - and by then the tree held Settings, the heaviest page.
+        Those late pages now call this alone; the stylesheet is set once, and
+        reaches children added later by inheritance.
+        """
+        from PyQt6.QtGui import QGuiApplication
+
+        preference = self._theme_preference
+        detected = detect_scheme(QGuiApplication.instance())
 
         # **Workspace §1a: the log's colours are pushed, not read.** The pane
         # paints warnings and errors from theme tokens, and this is the one
@@ -1455,25 +1551,6 @@ class MainWindow(QMainWindow):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
                     retint(colours)
-
-        # Qt 6.5+ emits this when the system switch is flipped, so the window
-        # follows without a restart.
-        #
-        # **Connected exactly once.** This used to be connected here, inside the
-        # function it calls back into - so every theme change added another
-        # connection, and one flick of the system switch then re-ran the handler
-        # once per change the person had ever made, each re-entering and
-        # connecting again. Signal connections are not idempotent, and Qt gives
-        # no warning: it looks fine until the machine changes theme, and then the
-        # window locks up rebuilding its stylesheet exponentially.
-        if not self._theme_hooked:
-            self._theme_hooked = True
-            try:
-                QGuiApplication.instance().styleHints().colorSchemeChanged.connect(
-                    lambda _scheme: self._apply_theme()
-                )
-            except Exception:                # noqa: BLE001 - older Qt, or no hints
-                pass
 
     def _pin_document(self, row: Any, provider: Any = None) -> None:
         r"""Open this document in a window of its own. Workspace §2.
@@ -1745,6 +1822,14 @@ class MainWindow(QMainWindow):
         self.search_view.search_now()
 
     def _clear_search(self) -> None:
+        """Escape. **An open find bar closes first**; only a second press empties
+        the box, so dismissing a little bar never throws away the search that
+        produced the document being read."""
+        for pane in self._preview_panes():
+            find = getattr(pane, "find", None)
+            if find is not None and find.isVisible():
+                find.dismissed.emit()
+                return
         self.search_view.input.clear()
 
     # -- startup ------------------------------------------------------------
@@ -1800,6 +1885,16 @@ class MainWindow(QMainWindow):
         """
         if getattr(row, "volume_id", None) is not None:
             self._open_volume_result(row, reveal=reveal)
+            return
+        # Work order 202626270515: a recording's hit says "at 12:41", and opening
+        # it goes there (`app.core.media_open`). Not for "reveal", which is the
+        # folder. A locator that is not a time (a sheet cell, a page) is None.
+        seconds = None if reveal else _moment_of(row)
+        if seconds is not None:
+            from app.ui.workers import open_media_async
+
+            open_media_async(row.path, seconds, on_error=self._show_error,
+                             on_note=self.notify)
             return
         self._open_path(row.path, reveal=reveal)
 
@@ -2125,6 +2220,10 @@ class MainWindow(QMainWindow):
             stage("schedule", indexing_view.schedule_box.flush_pending)
             stage("tuning", indexing_view.tuning.flush_pending)
             stage("indexing", indexing_view.stop)
+        # A pop-out or the log window left visible keeps the event loop alive
+        # after this window is gone - see `close_windows` (order 202626191300 6d).
+        from app.ui.close_windows import close_other_windows
+        stage("other windows", lambda: close_other_windows(self))
         # **Pre-existing gap, found live by this session's own rapid-close
         # test for item 2b, not introduced by it.** `self.scheduler` is only
         # ever assigned inside `_start_scheduler`, which only ever runs from

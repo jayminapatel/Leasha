@@ -654,10 +654,26 @@ QComboBox QAbstractItemView {{
     background: {accent_soft}; color: {text};
     border: 1px solid {border}; border-radius: {radius_box};
 }}
+/* The assistant's words sit on the page itself, as they do in any chat: no box round
+   them (2026-09-20). Its quiet row of actions sits underneath. */
 #chatBubbleAnswer {{
-    background: {surface}; color: {text};
-    border: 1px solid {border}; border-radius: {radius_box};
+    background: transparent; color: {text};
+    border: none;
 }}
+#chatAction {{
+    background: transparent; color: {text_faint}; border: none;
+    padding: 2px 8px; border-radius: {radius_control}; font-size: {small};
+}}
+#chatAction:hover {{ background: {surface_alt}; color: {text}; }}
+#chatWebPrompt {{
+    background: {accent_soft}; color: {text};
+    border: 1px solid {border}; border-radius: {radius_control};
+}}
+#chatWebChip {{
+    border: 1px solid {border}; border-radius: {radius_pill};
+    padding: 2px 10px; color: {text_faint}; background: transparent;
+}}
+#chatWebChip:checked {{ background: {accent_soft}; color: {text}; border-color: {text_faint}; }}
 #chatNarration, #chatFooter {{ color: {text_faint}; font-size: {small}; }}
 #chatEmpty, #chatShelfEmpty, #chatSourcesEmpty {{ color: {text_faint}; }}
 #chatSourcesHeading {{ font-weight: 600; }}

@@ -2,30 +2,18 @@ r"""The results list.
 
 Layer: L5
 
-**One row per document, not one per matching chunk.** A long PDF matching in
-five places took five of the top ten rows, so ten documents became three.
-`presenter.group_results` does the grouping; this shows it.
+**One row per document, not one per matching chunk** (`presenter.group_results`
+does the grouping; this shows it). **Rows are painted, not built**: a
+`QListView` over a plain model with `ResultDelegate` painting only what is on
+screen, so the cost stops scaling with the result count - the item construction
+and the right-click menu are in `widgets/results_items.py`.
 
-**Rows are painted, not built.** This used `QListWidget` with `setItemWidget` -
-three live `QLabel`s per row, fifteen hundred widgets for five hundred results,
-all constructed before the first one is visible. It is now a `QListView` over a
-plain model with `ResultDelegate` painting only what is on screen, so the cost
-stops scaling with the result count.
-
-A row reads the way a browser result reads, because that convention is right and
-people already know it: **name first**, location small and grey underneath, date
-to the right. The previous layout led with a path elided in the *middle* -
-`D:\Archive\2019\Projects\...` - which hides the distinguishing part of a long
-archive path and asks somebody to scan the one thing they cannot recognise.
-
-**`explain` and the score moved, they were not deleted.** Being able to ask "why
-is this here" is where trust comes from. But it was the second thing the eye
-landed on, on every row, forever - so it lives in the tooltip and the right-click
-menu, and returns inline for anyone who turns it on.
-
-**A result whose file has vanished is marked, not hidden.** A stale index entry
-is a genuine finding, and dropping it silently would make the count disagree with
-the list for reasons nobody could see.
+A row reads the way a browser result reads: **name first**, location small and
+grey underneath, date to the right. `explain` and the score live in the tooltip
+and the right-click menu, and return inline for anyone who turns them on. **A
+result whose file has vanished is marked, not hidden**: a stale index entry is a
+genuine finding, and dropping it silently would make the count disagree with the
+list for reasons nobody could see.
 """
 
 from __future__ import annotations
@@ -33,29 +21,21 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QStandardItem
-
-from app.ui.widgets.skeleton import disarm as disarm_skeleton
-from PyQt6.QtWidgets import (
-    QAbstractItemView,
-    QLabel,
-    QListView,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QAbstractItemView, QLabel, QListView, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
-    KIND_LABELS, ResultGroup, ResultRow, Terminator, accessible_text,
-    group_results, offline_volume_note, result_tooltip, results_terminator,
-    explain_switch_on, row_identity, to_rows, why,
+    KIND_LABELS, ResultGroup, ResultRow, group_results, results_terminator,
+    row_identity, to_rows,
 )
-from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
+from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences, apply_font
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.file_menu import show_for
 from app.ui.widgets.result_drag_model import DraggableResultsModel
-from app.ui.widgets.why_dialog import show_why
+from app.ui.widgets.results_items import result_item, show_result_menu, terminator_item
+from app.ui.widgets.skeleton import disarm as disarm_skeleton
 
 __all__ = ["ResultsView", "KIND_LABELS"]
+
 
 class ResultsView(QWidget):
     """A painted list of search results, grouped by document."""
@@ -70,6 +50,9 @@ class ResultsView(QWidget):
     pin_requested = pyqtSignal(object)
     #: "More like this" chosen from the right-click menu - work order 0h §2d.
     similar_requested = pyqtSignal(object)
+    #: "See everything from this month" chosen from the right-click menu -
+    #: order 0n section 4b. The shell opens the Life Timeline at the month.
+    period_requested = pyqtSignal(object)
     #: The rows on screen changed - a new search or a federated append. The
     #: timeline strip listens; nothing here knows it exists either. The
     #: thumbnail grid (work order 0h §3a) listens too, and filters it down to
@@ -265,7 +248,19 @@ class ResultsView(QWidget):
         position = bar.value() if bar is not None and keep_scroll else 0
         # Item 5d: *what* was current, not *where* - a rebuild that adds or
         # re-ranks rows changes every screen position, never the payload.
-        anchor = row_identity(self._list.currentIndex().data(ROLE_PAYLOAD)) if keep_scroll else None
+        #
+        # **Kept whether or not the scroll position is.** It was taken only when
+        # `keep_scroll` was True, so a second paint for a *different* query text
+        # - the interim tier of "barn" replaced by the full tier of "barnsley",
+        # which is what a slow typist or a busy machine produces - silently
+        # dropped the selection the person had just made. The pane then still
+        # showed that row, but `current_row()` was None, so opening the preview
+        # a moment later said "Nothing selected" beside a list they had clicked.
+        # A row that is still in the new results stays selected; scrolling to the
+        # top for a new search is a separate decision and is unchanged.
+        anchor = row_identity(self._list.currentIndex().data(ROLE_PAYLOAD))
+        if anchor == ("chunk", None):                # nothing was current
+            anchor = None
 
         self._model.clear()
         if self._prefs.group_by_document:
@@ -288,41 +283,15 @@ class ResultsView(QWidget):
         self.rows_changed.emit(self._rows)          # the timeline strip listens
 
     def _append(self, payload: Any, *, expanded: bool = False, anchor: Any = None) -> None:
-        item = QStandardItem()
-        item.setEditable(False)
-        item.setData(payload, ROLE_PAYLOAD)
-        item.setData(expanded, ROLE_EXPANDED)
-        note = offline_volume_note(self._volumes.get(int(getattr(payload, "file_id", 0) or 0)))
-        is_placeholder = (not note) and str(getattr(payload, "path", "") or "") in self._placeholders
-        item.setData(
-            result_tooltip(payload, missing=getattr(payload, "path", "") in self._missing,
-                           volume_note=note, placeholder=is_placeholder),
-            int(Qt.ItemDataRole.ToolTipRole))
-        # **Both roles, or the list is empty to a screen reader.** The delegate
-        # paints from `ROLE_PAYLOAD`, so the item carried no text of its own -
-        # and `QAccessible` reads `AccessibleTextRole`, falling back to
-        # `DisplayRole`. With neither set there was nothing to fall back to and
-        # fifty results announced as fifty blanks.
-        #
-        # `DisplayRole` is set too and is harmless: the delegate draws the row
-        # itself and never consults it, so nothing appears twice.
-        spoken = accessible_text(payload, expanded=expanded)      # item 7a
-        item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
-        item.setData(spoken, int(Qt.ItemDataRole.DisplayRole))
-        self._model.appendRow(item)
+        self._model.appendRow(result_item(
+            payload, expanded=expanded, missing=self._missing,
+            volumes=self._volumes, placeholders=self._placeholders))
         if anchor is not None and row_identity(payload) == anchor:      # item 5d
             self._list.setCurrentIndex(self._model.index(self._model.rowCount() - 1, 0))
 
     def _append_terminator(self, text: str) -> None:
-        """Item 5c: not selectable or activatable - a fact, not a result."""
-        if not text:
-            return
-        item = QStandardItem()
-        item.setEditable(False)
-        item.setData(Terminator(text), ROLE_PAYLOAD)
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEnabled)
-        item.setData(text, int(Qt.ItemDataRole.AccessibleTextRole))
-        self._model.appendRow(item)
+        if text:
+            self._model.appendRow(terminator_item(text))
 
     def clear(self, message: str = "") -> None:
         disarm_skeleton(self)                     # §6d
@@ -392,40 +361,9 @@ class ResultsView(QWidget):
         return True
 
     def _on_context_menu(self, point: Any) -> None:
-        """One menu, shared with the filename browser - see widgets/file_menu.py."""
-        # Viewport coordinates: the signal gives a point relative to the widget
-        # and `indexAt` wants one relative to the viewport. Getting this wrong is
-        # why right-click looked broken - it acted a row low and found nothing
-        # at all on the last row.
-        index = self._list.indexAt(viewport_point(self._list, point))
-        row = self._row_for(index.data(ROLE_PAYLOAD) if index.isValid() else None)
-        if row is None:
-            selected = self.selected_rows()
-            row = selected[0] if selected else None
-        if row is None:
-            return
-
-        # **"Why this result?" keeps the explanation reachable.** It came off
-        # every row to stop it competing with the name; it must not become
-        # unavailable, because being able to ask is where trust comes from.
-        terms, prefs = self.explain_context() if self.explain_context else ((), {})
-        show_for(self._list, point, row.path, FileActions(
-            open_file=lambda: self.opened.emit(row),
-            reveal=lambda: self.reveal_requested.emit(row),
-            reindex=lambda: self.reindex_requested.emit(row),
-            pin=lambda: self.pin_requested.emit(row),
-            # Work order 0h §2d: offered for every row, photos included -
-            # `similar_requested` carries whichever row was right-clicked,
-            # and the handler (result_tools._run_similar) is the one place
-            # that knows whether this chunk_id is a real passage or a
-            # photo's file_id wearing one. See that function's docstring for
-            # the image-row caveat: this action is wired to `similar_to`
-            # exactly as the engine has it today.
-            similar=lambda: self.similar_requested.emit(row),
-            explain=(lambda: show_why(self, row, terms, prefs))
-            if explain_switch_on(prefs) else None,
-            copy=[("Why this result?", why(row))],
-        ))
+        # `show_for` is passed in, not imported over there, so it stays
+        # replaceable here - the menu is modal and a test cannot click it.
+        show_result_menu(self, point, show_for)
 
     def image_rows(self) -> list[ResultRow]:
         """The photo rows currently on screen, in list order.

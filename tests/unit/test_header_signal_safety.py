@@ -222,3 +222,102 @@ class TestTheWatcherIsSafeToLeaveRunning:
         fill()
         assert callable(getattr(table, "leasha_resync_widths", None)), (
             "apply_to_table has nothing to resync against")
+
+
+class TestALetGoViewTakesItsWatcherWithIt:
+    r"""The native crash between two tests (2026-09, no Python exception).
+
+    A view somebody had let go of stayed alive - view, View button, the
+    button's `on_change` closure, view: a reference cycle - so its width
+    watcher kept ticking on tables nobody owned until the *cyclic garbage
+    collector* found it. The collector deletes the C++ widget wherever an
+    allocation happens to set it off, which can be inside another widget's
+    timer during an event-loop turn. Measured: a dropped view was still alive,
+    and its timer had fired 15 times in 300ms, until `gc.collect()`.
+
+    These run with the collector off, so "deleted at once" means by reference
+    count and cannot be rescued by a lucky collection.
+    """
+
+    @staticmethod
+    def _pump(seconds: float) -> None:
+        import time
+
+        from PyQt6.QtWidgets import QApplication
+
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            QApplication.processEvents()
+            time.sleep(0.005)
+
+    def test_a_dropped_view_is_deleted_at_once_and_its_timer_stops(
+            self, _qt_application) -> None:
+        import gc
+        import weakref
+
+        from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+        from app.ui import view_options
+
+        class View(QWidget):
+            def __init__(self) -> None:
+                super().__init__()
+                self.table = ResultTable([h for _k, h in COLUMNS], ranked=True,
+                                         aligns=["left", "right", "left"])
+                QVBoxLayout(self).addWidget(self.table)
+                # A bound method, as `files_view`, `mail_view` and `code_view` pass.
+                self.chooser = view_options.button(
+                    self, None, "t", columns=COLUMNS,
+                    on_change=self._prefs_changed, table=self.table)
+
+            def _prefs_changed(self, _prefs) -> None:
+                pass
+
+        ticks: list = []
+        gc.collect()
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            view = View()
+            view.show()
+            timer = [c for c in view.table.children() if isinstance(c, QTimer)][0]
+            timer.setInterval(10)
+            timer.timeout.connect(lambda: ticks.append(1))
+            self._pump(0.1)
+            assert ticks, "this test's own probe never ticked - it proves nothing"
+
+            alive = weakref.ref(view)
+            del view, timer
+            assert alive() is None, (
+                "a dropped view is still alive - something in it is a reference "
+                "cycle, so it waits for the cyclic collector, timers running")
+            before = len(ticks)
+            self._pump(0.15)
+            assert len(ticks) == before, "the watcher ticked on a dropped view"
+        finally:
+            if was_enabled:
+                gc.enable()
+        gc.collect()                       # and the collector then finds nothing to delete
+        self._pump(0.05)
+
+    def test_the_watcher_does_not_keep_its_table_alive(self, _qt_application) -> None:
+        import gc
+        import weakref
+
+        from PyQt6.QtWidgets import QTableWidget
+
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            # A plain QTableWidget: `ResultTable` has a cycle of its own that is
+            # nothing to do with the watcher, and would hide this one.
+            table = QTableWidget(2, 3)
+            remember_widths(table, _Button(), COLUMNS)
+            alive = weakref.ref(table)
+            del table
+            assert alive() is None, (
+                "the width watcher's closures hold the table strongly: "
+                "table -> leasha_resync_widths -> closure -> table")
+        finally:
+            if was_enabled:
+                gc.enable()

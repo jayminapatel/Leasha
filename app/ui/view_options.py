@@ -488,6 +488,37 @@ def build_menu(
     return menu
 
 
+def _weakly(callback: Any) -> Any:
+    """`callback`, without keeping its owner alive. **A bound method only.**
+
+    The View button lives as long as its view and its closures used to hold the
+    view's own `_prefs_changed`, which made a cycle - view, button, closure,
+    view. A view somebody had let go of then stayed alive until the cyclic
+    garbage collector found it, with its 600ms width watcher still ticking on
+    its tables, and the collector deletes the C++ widget wherever an allocation
+    happens to trigger it: mid event-loop turn, in the middle of some other
+    widget's timer. One native crash between two tests was that. Held weakly,
+    a view that is let go is deleted at once, by reference count, with its
+    timers, at a point that is not inside anything else.
+
+    A plain function (or a lambda, which is what a test passes) is returned as
+    it is: nothing owns those but the caller, so there is no cycle to break.
+    """
+    import inspect
+    import weakref
+
+    if callback is None or not inspect.ismethod(callback):
+        return callback
+    ref = weakref.WeakMethod(callback)
+
+    def call(*args: Any) -> None:
+        method = ref()
+        if method is not None:
+            method(*args)
+
+    return call
+
+
 def button(
     parent: Any,
     store: Any,
@@ -512,6 +543,7 @@ def button(
     """
     from PyQt6.QtWidgets import QToolButton
 
+    on_change = _weakly(on_change)
     widget = QToolButton(parent)
     widget.setText("View")
     widget.setToolTip(
@@ -809,7 +841,20 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         return
     order = [key for key, _heading in columns]
 
+    import weakref
+
     from PyQt6.QtCore import QTimer
+
+    #: **Held weakly** - see `_weakly`. `table.leasha_resync_widths` is this
+    #: module's closure stored on the table, so a strong reference here made
+    #: table <-> closure a cycle that only the cyclic collector could end.
+    table_ref = weakref.ref(table)
+
+    def live() -> Any:
+        found = table_ref()
+        if found is None:
+            raise RuntimeError("the table has been collected")
+        return found
 
     #: Widths as this module last left them. Anything else is somebody else.
     baseline: dict = {}
@@ -820,9 +865,10 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     viewport: list = [-1]
 
     def widths_now() -> dict:
+        view = live()
         return {index: int(header.sectionSize(index))
                 for index in range(header.count())
-                if not table.isColumnHidden(index)}
+                if not view.isColumnHidden(index)}
 
     def resync() -> None:
         """Take the current widths as the new normal. Never raises.
@@ -834,17 +880,17 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             baseline.clear()
             baseline.update(widths_now())
             settling.clear()
-            viewport[0] = _available_width(table)
+            viewport[0] = _available_width(live())
         except RuntimeError:
             return
 
     def look() -> None:
         """One pass. **Never raises** - it runs forever, unattended."""
         try:
-            if table.property(APPLYING):
+            if live().property(APPLYING):
                 return                           # mid-apply; ours, not theirs
 
-            room = _available_width(table)
+            room = _available_width(live())
             current = widths_now()
             if not baseline:
                 baseline.update(current)

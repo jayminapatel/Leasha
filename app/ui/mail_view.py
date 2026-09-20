@@ -94,6 +94,7 @@ class MailView(QWidget):
     #: Search the *contents* of one message. The bridge to the search tab, for
     #: the question this tab deliberately cannot answer.
     search_inside_requested = pyqtSignal(str)
+    period_requested = pyqtSignal(int)       # file_id - "see everything from this month"
     opened = pyqtSignal(int)                 # file_id
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
@@ -357,5 +358,6 @@ class MailView(QWidget):
         # that fails, which is worse than not offering it.
         show_for(self.results, point, row.path, FileActions(
             search_inside=lambda: self.search_inside_requested.emit(row.path),
+            same_period=lambda: self.period_requested.emit(int(row.file_id)),
             copy=[("Copy subject", row.subject), ("Copy sender", row.sender)],
         ))

@@ -875,8 +875,10 @@ def test_the_terminator_is_appended_after_every_rebuild():
 
 
 def test_the_terminator_row_is_not_selectable():
-    text = RESULTS_VIEW.read_text(encoding="utf-8")
-    body = text.split("def _append_terminator")[1].split("\n    def ")[0]
+    # Built in `widgets/results_items.py` since results_view.py reached the
+    # 250-line guard; `_append_terminator` is one call to it.
+    text = (RESULTS_VIEW.parent / "widgets" / "results_items.py").read_text(encoding="utf-8")
+    body = text.split("def terminator_item(")[1].split("\n\n\ndef ")[0]
     assert "ItemIsSelectable" in body
 
 
@@ -1007,3 +1009,100 @@ def test_the_delegate_holds_no_store_or_engine():
         node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     }
     assert not any("storage" in name or "engine" in name for name in imported)
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-20: `_wrap_ranges` measured every prefix of a line from scratch.
+# ---------------------------------------------------------------------------
+
+def _wrap_ranges_scan(metrics, text, width, max_lines):
+    """The character-by-character original, kept as the reference answer."""
+    if width <= 0 or not text or max_lines <= 0:
+        return []
+    ranges = []
+    pos, n = 0, len(text)
+    while pos < n and len(ranges) < max_lines:
+        last_line = len(ranges) == max_lines - 1
+        budget = width - (metrics.horizontalAdvance("…") if last_line else 0)
+        end, last_break = pos, -1
+        while end < n and metrics.horizontalAdvance(text[pos:end + 1]) <= budget:
+            if text[end] == " ":
+                last_break = end
+            end += 1
+        if end >= n:
+            ranges.append((pos, n))
+            break
+        if last_line:
+            ranges.append((pos, end))
+            break
+        if last_break > pos:
+            ranges.append((pos, last_break))
+            pos = last_break + 1
+        else:
+            ranges.append((pos, max(end, pos + 1)))
+            pos = max(end, pos + 1)
+    return ranges
+
+
+class _CountingMetrics:
+    """Every character `px` wide - a monotonic stand-in that also counts calls."""
+
+    def __init__(self, px: int = 7) -> None:
+        self.px = px
+        self.calls = 0
+
+    def horizontalAdvance(self, text: str) -> int:      # noqa: N802 - Qt's name
+        self.calls += 1
+        return len(text) * self.px
+
+
+def test_the_binary_search_wraps_exactly_as_the_scan_did():
+    """Same ranges as the old loop across widths, line counts and awkward text
+    (no spaces, a word wider than the row, leading and doubled spaces)."""
+    import random
+
+    from app.ui.result_delegate import _wrap_ranges
+
+    rng = random.Random(20260920)
+    words = ["pump", "station", "commissioning", "x", "a" * 40, "boiler", "report"]
+    for _ in range(400):
+        text = ""
+        for _w in range(rng.randint(0, 40)):
+            text += rng.choice(words) + rng.choice([" ", " ", "  ", ""])
+        if rng.random() < 0.2:
+            text = " " + text
+        metrics = _CountingMetrics(rng.choice([5, 7, 9]))
+        width = rng.randint(1, 900)
+        lines = rng.randint(1, 3)
+        assert _wrap_ranges(metrics, text, width, lines) == \
+            _wrap_ranges_scan(metrics, text, width, lines), (text, width, lines)
+
+
+def test_the_binary_search_wraps_exactly_as_the_scan_did_with_a_real_font():
+    from PyQt6.QtGui import QFont, QFontMetrics
+    from PyQt6.QtWidgets import QApplication
+
+    from app.ui.result_delegate import _wrap_ranges
+
+    QApplication.instance() or QApplication([])
+    metrics = QFontMetrics(QFont("Segoe UI", 10))
+    text = ("chunk 12 pump station commissioning report for the boiler house " * 6).strip()
+    for width in (60, 140, 260, 380, 520, 900):
+        for lines in (1, 2):
+            assert _wrap_ranges(metrics, text, width, lines) == \
+                _wrap_ranges_scan(metrics, text, width, lines), (width, lines)
+
+
+def test_laying_out_a_snippet_measures_it_a_logarithmic_number_of_times():
+    """Function-level evidence, not a stopwatch: a 400-character snippet in two
+    lines took ~115 `horizontalAdvance` calls per row (231,087 for 2,000 rows,
+    95% of the time to lay out a results list); it must stay far below that."""
+    from app.ui.result_delegate import _wrap_ranges
+
+    text = ("chunk pump station commissioning report for the boiler house " * 7)[:400]
+    metrics = _CountingMetrics()
+    _wrap_ranges(metrics, text, 300, 2)
+    scan = _CountingMetrics()
+    _wrap_ranges_scan(scan, text, 300, 2)
+    assert scan.calls > 80, "the reference should be the quadratic one"
+    assert metrics.calls <= 30, f"{metrics.calls} measurements for one snippet"

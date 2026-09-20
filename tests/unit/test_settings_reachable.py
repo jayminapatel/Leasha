@@ -67,7 +67,7 @@ SURFACE_MODULES = {
     # was already the panel for what gets read, so it moved screen rather
     # than being rebuilt.
     "indexing.tuning": ("widgets/tuning_box.py", "widgets/tuning_groups.py",
-                        "widgets/long_run_box.py"),
+                        "widgets/long_run_box.py", "widgets/converter_box.py"),
     "settings.reading": ("settings_view.py", "widgets/file_types.py"),
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.
@@ -451,32 +451,11 @@ def _connect_targets_in(root: Path) -> set[str]:
     return found
 
 
-#: Signals found declared and emitted with no receiver anywhere, each dated
-#: and naming what blocks the fix. Not a general escape hatch - an entry here
-#: is a promise with a name on it, the same shape as `NOT_YET_BUILT` in
-#: `test_settings_are_used.py` and `WRITTEN_BY_A_FLOW` above.
-#:
-#: **`history_cleared` is real**, found while proving this test rather than
-#: invented to make it pass: `settings_view.py` emits it (`self.history_cleared
-#: .emit(removed)`, after clearing the usage log) and nothing in the whole
-#: repository ever calls `.connect()` on it. The fix needs a receiver in
-#: `shell.py`, or the signal deleted from `settings_view.py` if nothing should
-#: react - either way it touches a file a concurrent session owns (see
-#: `docs/WORKORDER-everything-tunable-has-a-ui.md`, item 6), so it is recorded
-#: here rather than fixed by this change.
-ORPHANED_PENDING_FIX: dict[str, str] = {
-    "settings_view.py: history_cleared": (
-        "found 2026-09-05 verifying item 6 of "
-        "WORKORDER-everything-tunable-has-a-ui.md. Emitted at "
-        "settings_view.py:385 after the usage log is cleared; nothing "
-        "connects to it. Fixing it means adding a receiver in shell.py (or "
-        "removing the signal from settings_view.py), and both files are "
-        "outside this order's scope while the pages-reorg order is restructuring "
-        "settings_view.py - see the work order's note on item 6 for the owner "
-        "to pick up."
-    ),
-}
-
+# 2026-09-20: there is no exemption list any more. `history_cleared` was the one
+# entry ("Clear search history" emitted it and nothing listened); `MainWindow`
+# now connects it to `SavedSearches.forget_recent`, so the search box stops
+# offering searches that were just erased - see `test_clearing_the_history_*`
+# in `test_window_opens.py`. A new orphan fails here with no place to hide.
 
 def test_every_signal_a_settings_panel_declares_has_a_receiver():
     """The generic form of the `rerank_toggled` / `cloud_toggled` bug.
@@ -491,31 +470,13 @@ def test_every_signal_a_settings_panel_declares_has_a_receiver():
     for relative in SETTINGS_PANEL_MODULES:
         for name in sorted(_signals_declared_in(UI / relative)):
             entry = f"{relative}: {name}"
-            if name not in connected and entry not in ORPHANED_PENDING_FIX:
+            if name not in connected:
                 missing.append(entry)
     assert not missing, (
         "these settings-panel signals are declared and emitted, but nothing "
         "anywhere in app/ui calls .connect() on them - the exact shape of the "
         "rerank_toggled/cloud_toggled bug:\n  " + "\n  ".join(missing)
     )
-
-
-def test_the_pending_orphan_fix_is_dated_and_still_needed():
-    """An exemption nobody checks becomes permanent.
-
-    Two failure modes, both checked: a reason with no substance, and an entry
-    that was quietly fixed and should have been deleted rather than kept -
-    which would let a *real* new regression on the same signal hide behind an
-    old, satisfied promise.
-    """
-    connected = _connect_targets_in(UI)
-    for entry, reason in ORPHANED_PENDING_FIX.items():
-        assert len(reason) > 40, f"{entry} is exempt without a real reason"
-        _relative, _, name = entry.partition(": ")
-        assert name not in connected, (
-            f"{entry} is listed as pending a fix, but something now connects "
-            f"to {name} - delete the exemption, the promise has been kept"
-        )
 
 
 def test_the_orphaned_signal_detector_can_actually_fail(tmp_path: Path):

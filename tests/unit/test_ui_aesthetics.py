@@ -135,3 +135,66 @@ def test_a_bad_window_id_never_raises() -> None:
     from app.ui import tray
 
     assert tray.set_window_relaunch(0) in (True, False)
+
+
+_READ_BACK = r'''
+import os, sys, json
+os.environ["QT_QPA_PLATFORM"] = "windows"
+sys.path.insert(0, os.getcwd())
+from PyQt6.QtWidgets import QApplication, QWidget
+app = QApplication([])
+window = QWidget()
+window.show()
+app.processEvents()
+from app.ui import tray
+hwnd = int(window.winId())
+ok = tray.set_window_relaunch(hwnd)
+from win32com.propsys import propsys, pscon
+store = propsys.SHGetPropertyStoreForWindow(hwnd, propsys.IID_IPropertyStore)
+read = {name: store.GetValue(getattr(pscon, "PKEY_AppUserModel_" + name)).GetValue()
+        for name in ("ID", "RelaunchCommand", "RelaunchIconResource",
+                     "RelaunchDisplayNameResource")}
+print("RESULT " + json.dumps({"ok": ok, "read": read}))
+'''
+
+
+def test_the_relaunch_properties_can_be_read_back_from_a_real_window() -> None:
+    """**What this proves, and what it does not.** It proves the four properties
+    reach the window's property store on the Windows platform plugin - written,
+    committed, and readable back as the strings set. It does **not** prove that
+    a taskbar *pin* then relaunches Leasha or shows its icon: that is decided by
+    the shell when somebody pins, and has never been observed here (unpin and
+    re-pin Leasha, then check the pinned button's icon and that it opens the
+    app). Two doubts are recorded rather than settled: the command is
+    `leasha.cmd`, a batch file, not an executable - it is used because a pinned
+    shortcut has no working directory and the launcher is what `cd`s to the
+    install - and the display name is a plain string where the property is
+    documented as a resource-style string.
+    """
+    import json
+    from pathlib import Path
+    import subprocess
+
+    pytest.importorskip("win32com.propsys")
+    if sys.platform != "win32":
+        pytest.skip("the Windows taskbar")
+    from app.ui import tray
+
+    root = Path(__file__).resolve().parents[2]
+    run = subprocess.run([sys.executable, "-c", _READ_BACK], cwd=str(root),
+                         capture_output=True, text=True, timeout=90)
+    line = next((ln for ln in run.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    if line is None:
+        pytest.skip("no window could be made on the Windows platform plugin here: "
+                    + run.stderr[-300:])
+    found = json.loads(line[len("RESULT "):])
+    launcher, icon = root / "leasha.cmd", tray.icon_path()
+
+    assert found["ok"] is True
+    assert found["read"] == {
+        "ID": tray.APP_USER_MODEL_ID,
+        "RelaunchCommand": f'"{launcher}"',
+        "RelaunchIconResource": f"{icon},0",
+        "RelaunchDisplayNameResource": "Leasha",
+    }
+    assert launcher.is_file() and icon is not None and icon.is_file()

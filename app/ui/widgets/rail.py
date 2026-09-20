@@ -60,6 +60,7 @@ class _Pill(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Open the Indexing page")
         self.setAccessibleName("Indexing")
+        self._compact = False
         layout = QVBoxLayout(self)
         # 3px, not 6, and no side padding in the stylesheet either: the rail is
         # 72 wide and the pill 60, so the old 6 + 4 a side left 40 for the
@@ -86,10 +87,16 @@ class _Pill(QFrame):
         for w in (self.headline, self.bar, self.detail):
             layout.addWidget(w)
 
+    def set_compact(self, compact: bool) -> None:
+        """Drop the bar and the detail line - the headline is the state."""
+        self._compact = compact
+        self.bar.setVisible(not compact)
+        self.detail.setVisible(bool(self.detail.text()) and not compact)
+
     def show_state(self, state: PillState, fraction: Optional[float]) -> None:
         self.headline.setText(state.headline)
         self.detail.setText(state.detail)
-        self.detail.setVisible(bool(state.detail))
+        self.detail.setVisible(bool(state.detail) and not self._compact)
         if state.busy and fraction is None:
             self.bar.setRange(0, 0)               # Qt's moving bar
         else:
@@ -144,6 +151,10 @@ class Rail(QWidget):
         self._foot: set[int] = set()
         self._pill_index: Optional[int] = None
         self._colours: dict[str, str] = {}
+        #: See `_fit_height`. `_natural` is the column's minimum height with
+        #: every label showing, re-read whenever the labels are showing.
+        self._compact = False
+        self._natural = 0
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -296,6 +307,52 @@ class Rail(QWidget):
             button = self._buttons[index]
             self.group.addButton(button, index)
             (self._bottom if index in self._foot else self._top).addWidget(button)
+        if self.isVisible():
+            self._measure()
+
+    def _set_compact(self, compact: bool) -> None:
+        """Icons alone, and a pill with no detail line."""
+        self._compact = compact
+        style = (Qt.ToolButtonStyle.ToolButtonIconOnly if compact
+                 else Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        for button in self._buttons.values():
+            button.setToolButtonStyle(style)
+        self.pill.set_compact(compact)
+
+    def _measure(self) -> None:
+        """Set the column's floor to what it needs in its smallest form.
+
+        **The window's own floor (480 tall) is lower than the rail needs**, and
+        with a fixed-height button per page Qt then squeezes every one of them
+        below its own height: measured on the real window at 125% scaling, seven
+        47px buttons where 57 are needed, the last label's descenders cut off by
+        the indexing pill. So the rail declares what it needs - the shell no
+        longer sets a floor of its own for the height - and below what it needs
+        with labels it drops to icons (the tooltips and accessible names still
+        carry the words) rather than overlap.
+        """
+        was = self._compact
+        self._set_compact(True)
+        self.column.setMinimumHeight(0)
+        self.column.layout().invalidate()
+        self.column.setMinimumHeight(self.column.layout().totalMinimumSize().height())
+        self._set_compact(was)
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        if not self._compact:
+            self._natural = self.column.layout().totalMinimumSize().height()
+        should = self.column.height() < self._natural
+        if should != self._compact and self._natural:
+            self._set_compact(should)
+
+    def resizeEvent(self, event: Any) -> None:                           # noqa: N802
+        super().resizeEvent(event)
+        self._fit_height()
+
+    def showEvent(self, event: Any) -> None:                             # noqa: N802
+        super().showEvent(event)
+        self._measure()
 
     def _stack_changed(self, index: int) -> None:
         self._sync_checked(index)

@@ -80,8 +80,21 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
         results.set_drag_enabled(checked)
         _write_flag(store, drag_out.DRAG_ENABLED_KEY, checked)
 
+    switched_on = {"pinned": True}
+
+    def show_pinned() -> None:
+        # **Empty means no space at all.** With nothing pinned the panel was a
+        # titled box, a blank list and four greyed buttons taking a fifth of
+        # the results page to say "nothing here" - it appears with the first
+        # pin (`PinnedPanel.changed`) and goes again when the list is emptied.
+        # The switch still decides whether it may appear at all.
+        pinned.setVisible(switched_on["pinned"] and bool(pinned.pins))
+
+    pinned.changed.connect(lambda _pins: show_pinned())
+
     def toggle_pinned(checked: bool) -> None:
-        pinned.setVisible(checked)
+        switched_on["pinned"] = bool(checked)
+        show_pinned()
         _write_flag(store, PANEL_ENABLED_KEY, checked)
 
     def toggle_timeline(checked: bool) -> None:
@@ -338,6 +351,7 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
 
     outer = QSplitter()
     outer.switches = switches                 # for the toolbar's mirrors (§3e)
+    outer.timeline = timeline                 # for the Life Timeline's door (0n §4b)
     outer.addWidget(left)
     outer.addWidget(pinned)
     outer.setStretchFactor(0, 4)

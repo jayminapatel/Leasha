@@ -99,6 +99,18 @@ class SavedSearches:
         # keystroke where somebody is least willing to wait.
         recent_searches_async(self._store, self._took_recent, self._settings)
 
+    def forget_recent(self) -> None:
+        """The usage log was cleared: stop offering what it held. **Now.**
+
+        The recent searches are a cache of the `searches` table, so without
+        this the box went on offering every search someone had just asked to
+        have erased until the window was next launched. Saved searches are
+        not the log and are untouched. The re-read is for a fetch that was
+        already out when the log was cleared and would land after this.
+        """
+        self._recent = ()
+        self.refresh()
+
     def _took_recent(self, rows: Any) -> None:
         """A fetched history has arrived. **Never raises.**"""
         try:
