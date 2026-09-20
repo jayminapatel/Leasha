@@ -124,16 +124,20 @@ def test_a_failing_report_still_gets_a_log_line(tmp_path, monkeypatch, capsys):
 # Order 0m 5a: the measured floors and the probe that feeds them
 # ---------------------------------------------------------------------------
 
-#: The worst of the six real runs recorded around pinning the floors
-#: (2026-09-19, owner's machine, busy). Not a target - see `PERF_FLOORS`.
+#: The worst value ever observed for each metric across the real runs recorded
+#: around pinning the floors (2026-09-19: five runs; 2026-09-20: three full runs
+#: on the scale corpus; the owner's machine, busy). Not a target - see
+#: `PERF_FLOORS`.
 _WORST_OBSERVED = {
-    "index_files_per_second": 0.62,
-    "chunker_chunks_per_second": 757.0,
+    "index_files_per_second": 1.02,
+    "chunker_chunks_per_second": 523.7,
     "embed_chunks_per_second": 6.9,
+    "ladder_rung01_images_per_second": 18.5,
+    "ladder_probe_ms": 1251.8,
     "search_p95_ms": 396.0,
     "recall_at_10": 0.7,
 }
-_LOWER_IS_BETTER = {"search_p95_ms"}
+_LOWER_IS_BETTER = {"search_p95_ms", "ladder_probe_ms"}
 
 
 def test_every_measured_metric_has_a_pinned_floor_or_says_none():
