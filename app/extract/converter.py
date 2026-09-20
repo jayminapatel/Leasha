@@ -54,8 +54,6 @@ __all__ = [
     "convert",
     "resolve_binary",
     "available_binaries",
-    "run_media_tool",
-    "MAX_MEDIA_TIMEOUT_S",
 ]
 
 log = logger.bind(component="extract.converter")
@@ -76,6 +74,14 @@ log = logger.bind(component="extract.converter")
 ALLOWED_BINARIES = frozenset({
     "soffice",          # LibreOffice: doc, ppt, pages, numbers, key, wpd, pub
     "libreoffice",      # the same thing under its other name
+    # The `python.exe` that ships beside `soffice.exe`, and the only interpreter
+    # with LibreOffice's `uno` bridge. It runs one script of ours
+    # (`app/extract/lo_server.py`) that keeps LibreOffice warm between files -
+    # see `lo_session.py`. A separate name because it is a separate program: the
+    # allow-list names programs, and `soffice` on it does not silently permit
+    # everything else in the same folder. Never run with a shell, and never
+    # given anything but the path of that one script.
+    "libreoffice-python",
     "xstexporter",      # Lotus Notes NSF, on the rare machine that has it
     "tesseract",        # OCR as a converter, for anybody preferring it to RapidOCR
     # AutoCAD DWG has no open specification and no Python reader. Both of these
@@ -94,19 +100,12 @@ ALLOWED_BINARIES = frozenset({
     # `test_cad.test_no_module_imports_libredwgs_python_bindings` is that rule
     # as code.
     "dwg2SVG",
-    # Video and audio (work order 202626270515). **Two programs, two names, for
-    # the reason `dwg2SVG` is separate from `dwg2dxf`**: the list names programs,
-    # and permitting one does not silently permit the other. ffprobe only reads
-    # (duration, codec, creation date); ffmpeg writes keyframes into a temporary
-    # folder this module owns.
-    #
-    # **Subprocess only, never a Python binding to FFmpeg's libraries** - the
-    # same rule as LibreDWG above. FFmpeg builds are LGPL or GPL depending on how
-    # they were configured; running the program is mere aggregation, linking it
-    # would not be, and the owner has expressly kept this application MIT.
-    # `test_media.test_no_module_imports_an_ffmpeg_binding` is that rule as code.
-    "ffmpeg",
-    "ffprobe",
+    # **No ffmpeg or ffprobe, deliberately (work order 202626270515, 2026-09-20).**
+    # Video and audio are read in-process by PyAV (`app/extract/media_tools.py`):
+    # nothing to install, 0.1 s to read a container, and a library where one
+    # exists is what non-negotiable 12 asks for. The first build ran both as
+    # subprocesses; `test_media.test_ffmpeg_is_not_an_allowed_program` is the
+    # rule that they do not come back without a reason and a diff.
 })
 
 #: **Why each remaining format still needs an external converter.**
@@ -121,10 +120,20 @@ ALLOWED_BINARIES = frozenset({
 #: `xls.py`, `rtf.py` and `ebook.py`; the ones below were checked and have no
 #: library in any state worth depending on.
 CONVERTER_JUSTIFIED: dict[str, str] = {
-    ".doc":     "OLE2 Word. olefile opens the container but nothing parses the "
-                "WordDocument stream; no maintained pure-Python reader exists.",
-    ".ppt":     "OLE2 PowerPoint. Same as .doc - no reader for the record "
-                "structures inside the container.",
+    # 2026-09-20: `.doc` and `.ppt` are now read in-process first, by
+    # `app/extract/doc.py` and `ppt.py` on top of `olefile` (owner instruction:
+    # "make conversion as efficient as possible"). No maintained library reads
+    # either stream - the parsers are ours - so the converter stays as the
+    # fallback for what they decline: encrypted files, Word 6/95 and PowerPoint
+    # 4/95 layouts, damaged containers, and Word 2007/RTF/HTML saved as `.doc`.
+    # `test_libraries_before_converters` names the two as the only formats
+    # allowed both routes.
+    ".doc":     "OLE2 Word. No maintained pure-Python reader exists; ours "
+                "(doc.py, over olefile) declines encrypted, Word 6/95 and "
+                "damaged files, and those go here.",
+    ".ppt":     "OLE2 PowerPoint. No maintained reader for the record "
+                "structures; ours (ppt.py, over olefile) declines encrypted "
+                "and damaged decks, and those go here.",
     ".pub":     "Microsoft Publisher. No reader in any language worth depending "
                 "on, and LibreOffice's own import is poor - hence the note.",
     ".wpd":     "WordPerfect. libwpd is C++ with no maintained Python binding.",
@@ -211,6 +220,7 @@ class ConversionResult:
 _WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
     "soffice": (("LibreOffice",), "soffice.exe"),
     "libreoffice": (("LibreOffice",), "soffice.exe"),
+    "libreoffice-python": (("LibreOffice",), "python.exe"),
     "tesseract": (("Tesseract-OCR",), "tesseract.exe"),
     # No `pandoc` entry: it came off ALLOWED_BINARIES when `.epub` and `.fb2`
     # moved in-process. A location for a name that cannot run is dead weight,
@@ -220,12 +230,6 @@ _WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
     # Same install, second program - so the same folders, and the same three
     # arrangements `_WINDOWS_SUBDIRS` already covers.
     "dwg2SVG": (("libredwg", "LibreDWG"), "dwg2SVG.exe"),
-    # `winget install Gyan.FFmpeg` puts a link in `WinGet\Links` and the real
-    # files under `WinGet\Packages\...\bin`; a hand-extracted zip usually
-    # lands in `ffmpeg\bin`. The link folder is what a fresh install offers
-    # before the terminal has been reopened and PATH has caught up.
-    "ffmpeg": (("ffmpeg", "FFmpeg", "Links"), "ffmpeg.exe"),
-    "ffprobe": (("ffmpeg", "FFmpeg", "Links"), "ffprobe.exe"),
 }
 
 #: Where an executable sits inside its install folder. `""` is the folder
@@ -267,9 +271,6 @@ def _installed_on_windows(name: str) -> Optional[str]:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         roots.append(os.path.join(local, "Programs"))
-        # Where `winget` puts the command-line shims for the package it just
-        # installed (see the `ffmpeg` entry in `_WINDOWS_LOCATIONS`).
-        roots.append(os.path.join(local, "Microsoft", "WinGet"))
 
     for root in roots:
         if not root:
@@ -313,84 +314,6 @@ def available_binaries() -> dict[str, Optional[str]]:
     One lookup, one answer.
     """
     return {name: resolve_binary(name) for name in sorted(ALLOWED_BINARIES)}
-
-
-#: The longest a media tool may run in one call. Well above `MAX_TIMEOUT_S`: a
-#: document converter that is quiet for five minutes is stuck, but taking
-#: keyframes out of a two-hour film legitimately is not. Still a ceiling - a
-#: hung ffmpeg must not hold a worker for ever.
-MAX_MEDIA_TIMEOUT_S = 3600
-
-
-def run_media_tool(
-    name: str,
-    args: list[str],
-    *,
-    timeout_s: int,
-    source: Optional[Path] = None,
-    cwd: Optional[str] = None,
-) -> "subprocess.CompletedProcess[bytes]":
-    """Run `ffmpeg` or `ffprobe` - the one way this application does.
-
-    **Same rules as `convert`, for the same reasons**: the name must be on
-    `ALLOWED_BINARIES` (checked before anything is resolved), the path actually
-    invoked comes from `resolve_binary` and is logged, `shell=False` always, and
-    the timeout has a ceiling. It exists as a second function rather than a
-    parameter on `convert` because a media tool has no "output file the rule
-    names" - the answer is on stdout (ffprobe) or a numbered set of frames
-    (ffmpeg) - and forcing that through `ConversionResult` would mean lying
-    about what it produced.
-
-    Raises `AppErrorException`: `ERR_CONVERTER_BLOCKED` for a name off the list,
-    `ERR_MEDIA_TOOLS_MISSING` when it is not installed, and
-    `ERR_MEDIA_PROBE_FAILED` for a timeout or a program that cannot be started.
-    A non-zero exit status is **returned**, not raised - ffmpeg exits non-zero
-    for a truncated file that still yielded frames, and only the caller knows
-    whether what came back is enough.
-    """
-    if name not in ALLOWED_BINARIES:
-        raise AppErrorException(make_error(
-            "ERR_CONVERTER_BLOCKED", "extract.converter",
-            binary=name or "(empty)", path=str(source or ""),
-            details=(
-                f"'{name}' is not on the allow-list, which lives in "
-                f"app/extract/converter.py and not in configuration."
-            ),
-        ))
-    binary_path = resolve_binary(name)
-    if not binary_path:
-        raise AppErrorException(make_error(
-            "ERR_MEDIA_TOOLS_MISSING", "extract.converter",
-            binary=name, path=str(source or ""),
-        ))
-
-    limit = max(1, min(int(timeout_s), MAX_MEDIA_TIMEOUT_S))
-    command = [binary_path, *args]
-    started = time.monotonic()
-    try:
-        # **shell=False, always** - and here the argument list carries a path
-        # from the corpus, which is exactly the input not to trust.
-        finished = subprocess.run(
-            command, capture_output=True, timeout=limit, check=False,
-            shell=False, cwd=cwd,
-            # No console window flashing up per file on Windows.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except subprocess.TimeoutExpired:
-        raise AppErrorException(make_error(
-            "ERR_MEDIA_PROBE_FAILED", "extract.converter",
-            path=str(source or ""), details=f"{name} did not finish within {limit}s",
-        )) from None
-    except OSError as exc:
-        raise AppErrorException(make_error(
-            "ERR_MEDIA_PROBE_FAILED", "extract.converter",
-            path=str(source or ""), details=str(exc),
-        )) from exc
-
-    log.debug("ran {} in {:.1f}s (exit {}){}", binary_path,
-              time.monotonic() - started, finished.returncode,
-              f" for {source.name}" if source is not None else "")
-    return finished
 
 
 def _build_command(
@@ -486,6 +409,17 @@ def convert(
 
     holder = tempfile.TemporaryDirectory(prefix="leasha-convert-")
     outdir = Path(holder.name)
+    limit = min(int(timeout_s or getattr(rule, "timeout_s", 180)), MAX_TIMEOUT_S)
+
+    # **The warm session first** (work order 202626270114 item 6i). A cold
+    # LibreOffice costs 5-10 s a file, nearly all of it start-up; a running one
+    # answers in a fraction of that. Nothing below changes for a caller: this
+    # either returns the same `ConversionResult` or steps aside.
+    if binary_name in ("soffice", "libreoffice") and not stdout_to:
+        warm = _convert_warm(source, rule, binary_path, holder, outdir, limit)
+        if warm is not None:
+            return warm
+
     command = _build_command(tuple(rule.command), binary_path, source, outdir)
     if binary_name in ("soffice", "libreoffice"):
         # **Each conversion gets its own LibreOffice profile.** `--headless`
@@ -502,25 +436,20 @@ def convert(
         profile_dir.mkdir(exist_ok=True)
         profile_url = "file:///" + str(profile_dir.resolve()).replace("\\", "/")
         command.insert(1, f"-env:UserInstallation={profile_url}")
-    limit = min(int(timeout_s or getattr(rule, "timeout_s", 180)), MAX_TIMEOUT_S)
-
     started = time.monotonic()
     try:
         # **shell=False, always.** Filenames come from the corpus, and a shell
         # would interpret `;`, `&&`, `|` and backticks in one.
-        finished = subprocess.run(
-            command, capture_output=True, timeout=limit, check=False, shell=False,
-            cwd=str(outdir),
-        )
+        finished = _run_tree(command, limit, str(outdir))
     except subprocess.TimeoutExpired:
-        holder.cleanup()
+        _drop(holder)
         raise AppErrorException(make_error(
             "ERR_CONVERTER_FAILED", "extract.converter",
             binary=binary_name, path=str(source),
             details=f"{binary_name} did not finish within {limit}s",
         )) from None
     except OSError as exc:
-        holder.cleanup()
+        _drop(holder)
         raise AppErrorException(make_error(
             "ERR_CONVERTER_FAILED", "extract.converter",
             binary=binary_name, path=str(source), details=str(exc),
@@ -541,7 +470,7 @@ def convert(
         try:
             target.write_bytes(finished.stdout or b"")
         except OSError as exc:
-            holder.cleanup()
+            _drop(holder)
             raise AppErrorException(make_error(
                 "ERR_CONVERTER_FAILED", "extract.converter",
                 binary=binary_name, path=str(source),
@@ -551,7 +480,7 @@ def convert(
     produced = _find_output(outdir, rule, source)
     if produced is None:
         detail = (finished.stderr or b"").decode("utf-8", "replace").strip()[:400]
-        holder.cleanup()
+        _drop(holder)
         raise AppErrorException(make_error(
             "ERR_CONVERTER_FAILED", "extract.converter",
             binary=binary_name, path=str(source),
@@ -562,6 +491,117 @@ def convert(
             ),
         ))
 
+    return ConversionResult(produced, binary_path, elapsed, cleanup=holder)
+
+
+def _drop(holder: Any) -> None:
+    """Remove a temporary directory on an error path, and never raise doing it.
+
+    On Windows a directory cannot be removed while a killed program still has a
+    file in it open for a moment (`WinError 32`). Raising that from the error
+    path replaced the real reason - "LibreOffice did not finish" - with a
+    sharing violation, and the file was then reported as broken for the wrong
+    cause. Retried briefly, then removed as far as possible; the operating
+    system's temp cleanup takes what is left.
+    """
+    for attempt in range(5):
+        try:
+            holder.cleanup()
+            return
+        except OSError:
+            time.sleep(0.1 * (attempt + 1))
+    shutil.rmtree(getattr(holder, "name", ""), ignore_errors=True)
+
+
+def _run_tree(command: list[str], timeout: float, cwd: str) -> "subprocess.CompletedProcess[bytes]":
+    """`subprocess.run(command, timeout=...)`, except a timeout kills the *tree*.
+
+    **Plain `subprocess.run` leaked LibreOffice.** On timeout it kills the
+    process it started - `soffice.exe`, a thin launcher - and leaves the
+    `soffice.bin` it spawned running, at whatever memory that had reached. On a
+    corpus with one document that sends LibreOffice past 8GB, that is a
+    gigabyte-sized orphan per timeout, for as long as the machine stays up.
+    """
+    from app.extract.lo_session import quiet_errors
+
+    # `quiet_errors`: a converter that crashes must not raise an operating-system
+    # error box on the desktop of whoever is at the machine.
+    with quiet_errors():
+        proc = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
+            cwd=cwd, creationflags=0x08000000 if os.name == "nt" else 0,
+        )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        from app.extract.lo_session import kill_tree
+
+        kill_tree(proc)
+        raise
+    except BaseException:
+        from app.extract.lo_session import kill_tree
+
+        kill_tree(proc)
+        raise
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+
+
+def set_stop_check(check: Optional[Any]) -> None:
+    """Hand the converter the run's stop flag: `set_stop_check(self._stop.is_set)`.
+
+    Optional and additive. With it, pressing Stop ends a conversion in progress
+    within a fifth of a second; without it a conversion is bounded by its time
+    limit and by the process exiting. `None` removes it.
+    """
+    from app.extract import lo_session
+
+    lo_session.set_stop_check(check)
+
+
+def _convert_warm(
+    source: Path, rule: Any, binary_path: str, holder: Any, outdir: Path, limit: int
+) -> Optional["ConversionResult"]:
+    """Convert through the warm LibreOffice session, or None to use the cold command.
+
+    **None only ever means "no session can be had here"** - LibreOffice's own
+    Python missing, a kind the helper has no filter for, a session that would
+    not start. A file that a running session failed on is a real failure and is
+    raised: converting it again, cold, would spend another five to ten seconds
+    to fail the same way.
+    """
+    from app.extract import lo_session
+
+    kind = lo_session.kind_for(tuple(rule.command))
+    if kind is None:
+        return None
+
+    target = outdir / f"{source.stem}.{kind}"
+    # The setting is the ceiling for a warm conversion; a rule that asks for
+    # less is honoured.
+    warm_limit = min(limit, lo_session.wanted()[1])
+    started = time.monotonic()
+    try:
+        lo_session.convert_warm(source, target, kind, timeout_s=warm_limit)
+    except lo_session.SessionUnavailable as exc:
+        log.debug("no warm LibreOffice ({}); converting cold", exc)
+        return None
+    except lo_session.ConversionFailed as exc:
+        _drop(holder)
+        raise AppErrorException(make_error(
+            "ERR_CONVERTER_FAILED", "extract.converter",
+            binary=Path(binary_path).name, path=str(source), details=str(exc),
+        )) from exc
+
+    elapsed = time.monotonic() - started
+    log.debug("warm {} converted {} in {:.2f}s", Path(binary_path).name, source.name, elapsed)
+    produced = _find_output(outdir, rule, source)
+    if produced is None:
+        _drop(holder)
+        raise AppErrorException(make_error(
+            "ERR_CONVERTER_FAILED", "extract.converter",
+            binary=Path(binary_path).name, path=str(source),
+            details="LibreOffice reported success and the file is empty",
+        ))
     return ConversionResult(produced, binary_path, elapsed, cleanup=holder)
 
 

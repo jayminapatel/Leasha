@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 from app.ui.tuning import (
     DEFAULTS, MODE_HELP, MODE_LABELS, MODES, footer_text,
 )
+from app.ui.widgets.converter_box import ConverterBox
 from app.ui.widgets.long_run_box import LongRunBox
 from app.ui.widgets.machine_card import MachineCard
 from app.ui.widgets.tuning_groups import ComputeBox, ResourcesBox, StrategyBox
@@ -102,8 +103,9 @@ class TuningBox(QGroupBox):
         self.resources = ResourcesBox(settings)
         self.coverage = LongRunBox()
         self.strategy = StrategyBox(settings)
+        self.converter = ConverterBox(settings)
 
-        for box in (self.compute, self.resources, self.strategy):
+        for box in (self.compute, self.resources, self.strategy, self.converter):
             box.changed.connect(self.changed)
         self.coverage.changed.connect(
             lambda: self.coverage_changed.emit(self.coverage.values()))
@@ -125,6 +127,7 @@ class TuningBox(QGroupBox):
         layout.addWidget(self.resources)
         layout.addWidget(self.coverage)
         layout.addWidget(self.strategy)
+        layout.addWidget(self.converter)
         layout.addWidget(self.footer)
 
         if settings is not None:
@@ -146,6 +149,7 @@ class TuningBox(QGroupBox):
         self.resources.load(settings)
         self.coverage.load(settings)
         self.strategy.load(settings)
+        self.converter.load(settings)
         self._apply()
 
     def current_mode(self) -> str:
@@ -216,5 +220,5 @@ class TuningBox(QGroupBox):
 
     def flush_pending(self) -> None:
         """Persist anything still inside a debounce window, before closing."""
-        for box in (self.compute, self.resources, self.strategy):
+        for box in (self.compute, self.resources, self.strategy, self.converter):
             box.flush()

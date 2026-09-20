@@ -805,7 +805,70 @@ correctness is unproven against a populated database in practice, though
   this session must not do on its own judgement, and adding `onnx` as a
   dependency for a feature most users will never touch is a real
   install-footprint decision, not a detail.
-- [ ] **6i Converter session** (only if 6a shows conversion matters on the
+> **Dated note, 2026-09-20 - owner instruction supersedes 6i's condition.** The
+> owner said: "make conversion as efficient as possible; counting how many
+> legacy files there are does not matter." 6i's own condition ("only if 6a shows
+> conversion matters") is therefore superseded and 6i was built unconditionally.
+> The 2026-09-15 check below stands as history and is not edited.
+>
+> **What was built, and the numbers (this machine, noisy - other agents running;
+> cold figures are the owner-session measurements of 10.3 s and 5.0 s per real
+> `.ppt`, not re-run because a stress loop against the real LibreOffice crashed
+> `soffice.bin` and raised Windows error boxes on the owner's desktop).**
+>
+> | route | per file |
+> |---|---|
+> | cold `soffice --convert-to` (before) | 5.0 - 10.3 s |
+> | warm session, `.doc` to text | 0.17 - 0.3 s (min of 3), 1.2 s first file |
+> | warm session, `.ppt` to pptx | 1.6 s (small deck) to 8+ s (picture-heavy; LibreOffice re-encodes the images) |
+> | **in-process reader, `.doc`** (`app/extract/doc.py`) | **median 5.6 ms**, max 0.86 s over 288 real files |
+> | **in-process reader, `.ppt`** (`app/extract/ppt.py`) | **median 11.8 ms**, max 0.58 s over 200 real files |
+>
+> The winner is lever (d): non-negotiable 12, a library in-process. No maintained
+> library reads either stream, so the readers are ours, on `olefile` (already a
+> dependency). LibreOffice stays as the **fallback** for what they decline
+> (encrypted, Word 6/95, damaged, non-OLE) and for the rare formats, through a
+> warm session (`app/extract/lo_session.py`, `lo_server.py`): persistent private
+> profile, one process reused, per-file time and memory limits, kill-on-close job
+> object, parent-death watchdog, crash circuit-breaker. Levers tried and dropped:
+> persistent profile alone (start-up remains), many files per command line
+> (callers hand over one file at a time), CLI forwarded to a running instance
+> (returns before the file exists).
+>
+> **Accuracy against LibreOffice's own output, on real corpus files:**
+> `.doc` n=139, mean token recall 0.9994 ignoring generated list numbering
+> (0.984 counting it), precision 0.988; `.ppt` n=127, mean recall 0.988, median
+> 1.000, precision 0.997. Known gaps: numbering LibreOffice generates (not in the
+> file), repeated master-slide footers on some decks, and text held in WordArt or
+> embedded objects (worst deck 0.49). 12 of 300 `.doc` and 0 of 200 `.ppt`
+> declined to the fallback. **Not proven:** a recall floor that fails closed on
+> WordArt-heavy decks - see the report.
+>
+> Settings keys added: `CONVERTER_WORKERS`, `CONVERTER_TIMEOUT_S`
+> (Index Tuning screen, "Old Office files").
+> **Dated note, 2026-09-20 (later) - the readers now fail closed.** The "not
+> proven" line above is closed. On the same corpus (142 `.doc`, 127 `.ppt` with a
+> LibreOffice reference; distinct words, generated numbering ignored):
+> `.ppt` recall mean 0.988 -> 0.9993, worst deck 0.49 -> 0.98; `.doc` mean
+> 0.9994 -> 0.9993, worst 0.959 (Roman-numeral list numbers, not file text).
+> Nothing accepted is below 0.95. What was missing: WordArt text (the
+> `gtextUNICODE` property in an Escher property table - the 0.49 deck), the
+> deck-wide Header & Footer (in the document container's own `HeadersFooters`),
+> and text boxes on the master. The completeness signals, each the file's own
+> statement checked against what was read: `.ppt` - every slide's declared text
+> run count (`SlidePersistAtom.numberTexts`) against runs found, a listed slide
+> or used master that is not where the persist directory says; `.doc` - the FIB's
+> `ccp*` totals against the piece table (agree to within one on 287 of 287 real
+> files), a piece running past the stream. Any mismatch raises
+> `LegacyOfficeUnreadable` and LibreOffice reads the file; the count and reasons
+> are logged once per run ("N legacy Office files went to the slower reader").
+> Fallback rate on the corpus: `.ppt` 1 of 127 (0.8%, a false positive that lost
+> no text), `.doc` 3 of 142 (2.1%, all non-OLE files renamed `.doc`). Median
+> 3 ms `.doc`, 11 ms `.ppt`. Not done: WordArt in `.doc` (Escher drawing in the
+> table stream), text inside embedded OLE objects, and slide/comment text in
+> `.ppt` beyond what is listed above.
+
+- [x] **6i Converter session** (only if 6a shows conversion matters on the
   owner's corpus): persistent soffice listener instead of per-file cold
   starts. Same evidence rule as 6e — numbers or closed.
 

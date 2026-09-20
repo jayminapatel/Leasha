@@ -46,6 +46,9 @@ __all__ = [
     "embed_batch",
     "embed_batch_from_rates",
     "index_memory_mb",
+    "chat_max_rounds",
+    "chat_verify_strictness",
+    "chat_context_tokens",
     "oversubscription_warning",
     "for_setting",
     "ENVELOPES",
@@ -285,6 +288,82 @@ def index_memory_mb(profile: Any) -> Bounds:
     )
 
 
+def chat_max_rounds(profile: Any) -> Bounds:
+    """Searches the Chat tab may run for one question (work order 202626270611, 3e).
+
+    A retry is one more search of the index, which is cheap, plus at most one call
+    to the planning model (capped at 30 seconds by the engine) - the model call is
+    what a small machine feels. Below 8GB the extra reload of a model is the cost
+    that matters, so the automatic number is two; anywhere else, or when memory
+    could not be detected, it is the ceiling of three.
+
+    **The 8GB line is an estimate, and flagged as one.** Nobody has timed a retry
+    on a small machine; it is chosen so that a machine which cannot keep two
+    models resident does not spend its wait on a second planning call. The
+    ceiling of three is the work order's own bound, not the machine's, and no
+    setting can lift it.
+    """
+    ram_mb = int(getattr(profile, "ram_mb", 0) or 0)
+    if ram_mb and ram_mb < 8_000:
+        return Bounds(
+            1, 3, 2,
+            f"{ram_mb / 1024:.0f}GB of RAM: a retry can mean loading a second "
+            f"model, which a small machine feels most, so Chat retries once at "
+            f"most (an estimate - nobody has timed it here)")
+    return Bounds(
+        1, 3, 3,
+        "another search of the index is cheap, and three is the most Chat is "
+        "ever allowed - it stops earlier by itself as soon as it has enough"
+        if ram_mb else
+        "memory could not be detected, so the ordinary three searches apply")
+
+
+def chat_verify_strictness(profile: Any) -> Bounds:
+    """How closely a sentence must match its source, as a percentage.
+
+    **Not a matter of the machine**, so the bounds are the same everywhere and
+    the reason says what the number is. 70 is the value the verification tests
+    and the shipped question set (`tests/fixtures/chat_eval.py`) were built on:
+    a sentence needs seven in ten of its meaningful words in the passage it
+    cites. Lower lets loosely-matching sentences through and higher throws out
+    correct ones that quote a passage in other words. Figures, dates, names and
+    quotations are checked exactly whatever this is.
+    """
+    return Bounds(
+        30, 90, 70,
+        "the same on every machine: a sentence needs seven in ten of its "
+        "meaningful words in the passage it cites, the value the checking was "
+        "built and measured on")
+
+
+def chat_context_tokens(profile: Any) -> Bounds:
+    """How many tokens of conversation the Chat model is asked to read at once.
+
+    Ollama's own default is 4096 whatever the model was built for, which is a few
+    pages: enough for one question and its passages, not for a conversation. The
+    window is what the sliding memory is fitted to (`app/chat/memory.py`), and a
+    bigger one costs memory (the model's key/value cache grows with it) and a longer
+    load, so: **4096 below 8GB of RAM, 8192 anywhere else.** The ceiling is 32768 and
+    the model's own limit still applies on top of it.
+
+    **The 8GB line and the 8192 are estimates, flagged as such**: measured here only
+    on a 34GB machine with CPU-only inference, where 8192 loaded and answered.
+    """
+    ram_mb = int(getattr(profile, "ram_mb", 0) or 0)
+    if ram_mb and ram_mb < 8_000:
+        return Bounds(
+            2048, 32768, 4096,
+            f"{ram_mb / 1024:.0f}GB of RAM: a bigger window makes the model use more "
+            f"memory, so Chat reads four thousand tokens at a time (an estimate - "
+            f"measured only on a 34GB machine)")
+    return Bounds(
+        2048, 32768, 8192,
+        "enough for a long conversation plus the passages of one answer, and "
+        "modest for the memory the model needs to hold it (an estimate - measured "
+        "only on a 34GB machine)" if ram_mb else
+        "memory could not be detected, so the ordinary eight thousand tokens apply")
+
+
 def oversubscription_warning(profile: Any, workers: Any,
                              threads: Any) -> Optional[str]:
     """§3c's one rule worth a warning. None when there is nothing to say.
@@ -314,6 +393,12 @@ ENVELOPES = {
     "ONNX_INTRA_OP_THREADS": onnx_threads,
     "EMBED_BATCH": embed_batch,
     "INDEX_MEMORY_MB": index_memory_mb,
+    # The Chat tab's two behaviours (work order 202626270611, 3e). Chat follows
+    # the same three modes as the Indexing page's tuning screen: Defaults and
+    # Auto-tune use `auto` below, Manual uses what was typed, clamped.
+    "CHAT_MAX_ROUNDS": chat_max_rounds,
+    "CHAT_VERIFY_STRICTNESS": chat_verify_strictness,
+    "CHAT_CONTEXT_TOKENS": chat_context_tokens,
 }
 
 #: The knobs a *measurement* can improve on, by the same names.
