@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QToolButton, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QMenu, QToolButton, QWidget
 
 from app.ui.timeline import bands
 
@@ -41,6 +41,10 @@ class TimelineStrip(QWidget):
 
     #: The filter text a clicked bar stands for - `after:… before:…`.
     filter_chosen = pyqtSignal(str)
+    #: `(after, before)` - a period's bar was right-clicked and "See everything
+    #: from this period" chosen. Opens the Life Timeline there (order 0n 4b);
+    #: it does not touch the search, which is what a left click is for.
+    browse_requested = pyqtSignal(str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -67,6 +71,15 @@ class TimelineStrip(QWidget):
             self._bands = ()
         self._redraw(self._bands if self._enabled else ())
 
+    def _menu(self, button: QToolButton, point: Any, band: Any) -> None:
+        """Right-click on a bar: the other thing you might want from a period."""
+        menu = QMenu(button)
+        action = menu.addAction("See everything from this period")
+        action.setToolTip("Open your timeline on this period - photos, files and mail from "
+                          "then, not only the results of this search.")
+        action.triggered.connect(lambda: self.browse_requested.emit(band.after, band.before))
+        menu.exec(button.mapToGlobal(point))
+
     def _redraw(self, found: tuple) -> None:
         while self._layout.count():
             item = self._layout.takeAt(0)
@@ -85,11 +98,15 @@ class TimelineStrip(QWidget):
             button.setToolTip(
                 f"{band.count} result{'s' if band.count != 1 else ''} "
                 f"between {band.after} and {band.before}.\nClick to filter "
-                f"the search to this period."
+                f"the search to this period.\nRight-click to browse everything "
+                f"from this period."
             )
             button.setAutoRaise(True)
             button.clicked.connect(
                 lambda _checked=False, text=band.filter_text: self.filter_chosen.emit(text))
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.customContextMenuRequested.connect(
+                lambda point, b=button, band=band: self._menu(b, point, band))
             self._layout.addWidget(button, stretch=max(1, band.count * 100 // total))
 
 

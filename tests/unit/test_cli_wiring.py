@@ -911,6 +911,9 @@ def test_report_space_json_is_machine_readable(tmp_path, capsys):
         "source_uniqueness": [], "generated_at": None,
         # 0n section 3a added these two; an empty index has neither.
         "near_duplicate_photo_groups": [], "source_duplicate_share": [],
+        # 2026-09-20: how much of the index the findings can cover (thin-data
+        # honesty, `test_reports_thin_data.py`). An empty index has nothing to compare.
+        "files_total": 0, "files_compared": 0,
     }
 
 

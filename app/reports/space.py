@@ -53,6 +53,8 @@ __all__ = [
     "find_near_duplicate_photo_groups",
     "find_source_uniqueness",
     "find_source_duplicate_share",
+    "hash_coverage",
+    "coverage_sentence",
     "render_space_document",
     "DUPLICATE_GROUPS_SHOWN",
 ]
@@ -167,6 +169,11 @@ class SpaceFindings:
     uniqueness: tuple[SourceUniqueness, ...] = ()
     total_reclaimable: int = 0
     generated_at: Optional[int] = None
+    #: How many of the index's files Leasha has read the contents of, out of
+    #: how many there are. Both 0 means "not measured" (an empty index, or a
+    #: caller that predates this). See `coverage_sentence`.
+    files_total: int = 0
+    files_compared: int = 0
 
 
 class SpaceDocument(str):
@@ -503,6 +510,42 @@ def find_source_uniqueness(store: Any) -> list[SourceUniqueness]:
     return results
 
 
+def hash_coverage(store: Any) -> dict[str, int]:
+    r"""How much of the index the duplicate findings can possibly cover.
+
+    Duplicates and "the only copy" both come from `content_hash`, which is
+    empty for a file whose contents have not been read (a name-only pass, a
+    first run still going). An empty column must not be reported as an empty
+    finding: **"no duplicates were found" is a statement about the owner's
+    files, and with nothing compared it is not one this report can make.**
+    Returned as keyword arguments for `SpaceFindings`; never raises.
+    """
+    try:
+        total = store.conn.execute(
+            "SELECT COUNT(*) FROM files WHERE source_kind = 'file'").fetchone()[0]
+        compared = store.conn.execute(
+            "SELECT COUNT(*) FROM files WHERE source_kind = 'file' "
+            "AND content_hash IS NOT NULL").fetchone()[0]
+    except Exception as exc:                      # noqa: BLE001 - a note, not the report
+        _log.debug("could not measure how much has been compared: {}", exc)
+        return {"files_total": 0, "files_compared": 0}
+    return {"files_total": int(total or 0), "files_compared": int(compared or 0)}
+
+
+def coverage_sentence(files_total: int, files_compared: int) -> str:
+    """What the report cannot say yet, in plain words - empty when it can say it all."""
+    total, compared = int(files_total or 0), int(files_compared or 0)
+    if total <= 0 or compared >= total:
+        return ""
+    if compared <= 0:
+        return (f"None of the {total:,} {'file' if total == 1 else 'files'} has been compared "
+                "with the others yet - Leasha compares files by what is inside them, and has "
+                "not read these - so this report cannot say what is duplicated or what exists "
+                "only once.")
+    return (f"Leasha has compared {compared:,} of {total:,} files. The other {total - compared:,} "
+            "have not been read yet, so everything below covers only the ones that have.")
+
+
 def _size_words(size_bytes: int) -> str:
     value = float(max(0, size_bytes))
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -534,6 +577,7 @@ def render_space_document(
     *, total_reclaimable: int = 0, generated_at: Optional[int] = None,
     near_duplicates: Sequence[NearDuplicatePhotoGroup] = (),
     duplicate_share: Sequence[SourceDuplicateShare] = (),
+    files_total: int = 0, files_compared: int = 0,
 ) -> str:
     r"""§3a and §3b, as one document - the whole-corpus headline first,
     then the largest duplicate groups, then similar photos and the
@@ -553,11 +597,15 @@ def render_space_document(
     else:
         lines.append("This index has nothing recorded yet.")
     lines.append("")
+    thin = coverage_sentence(files_total, files_compared)
+    if thin:
+        lines.extend([thin, ""])
 
     lines.append("## Duplicates")
     lines.append("")
     if not groups and not total_reclaimable:
-        lines.append("No duplicate files were found.")
+        lines.append("Nothing can be said about duplicates yet." if files_total and not files_compared
+                     else "No duplicate files were found.")
     else:
         lines.append(
             f"Keeping one copy of everything duplicated would reclaim "
@@ -609,7 +657,9 @@ def render_space_document(
     lines.append("## The only copy")
     lines.append("")
     if not uniqueness:
-        lines.append("Nothing in the index exists on exactly one source yet.")
+        lines.append("Nothing can be said about what exists only once yet."
+                     if files_total and not files_compared
+                     else "Nothing in the index exists on exactly one source yet.")
     else:
         for source in uniqueness:
             when = _formatted_date(source.last_seen)
@@ -641,5 +691,6 @@ def document_for(findings: SpaceFindings) -> SpaceDocument:
         total_reclaimable=findings.total_reclaimable,
         generated_at=findings.generated_at,
         near_duplicates=findings.near_duplicates,
-        duplicate_share=findings.duplicate_share)
+        duplicate_share=findings.duplicate_share,
+        files_total=findings.files_total, files_compared=findings.files_compared)
     return SpaceDocument(text, findings)

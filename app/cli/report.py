@@ -94,6 +94,7 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
         find_near_duplicate_photo_groups,
         find_source_duplicate_share,
         find_source_uniqueness,
+        hash_coverage,
         render_space_document,
         total_reclaimable_bytes,
     )
@@ -106,9 +107,11 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
         near_duplicates = find_near_duplicate_photo_groups(store)
         duplicate_share = find_source_duplicate_share(store)
         generated_at = report_generated_at(store)
+        coverage = hash_coverage(store)
 
     if args.json:
         print(json.dumps({
+            **coverage,
             "duplicate_groups": [
                 {"content_hash": g.content_hash, "size_bytes": g.size_bytes,
                  "reclaimable_bytes": g.reclaimable_bytes,
@@ -139,7 +142,7 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
 
     document = render_space_document(
         groups, uniqueness, total_reclaimable=reclaimable, generated_at=generated_at,
-        near_duplicates=near_duplicates, duplicate_share=duplicate_share)
+        near_duplicates=near_duplicates, duplicate_share=duplicate_share, **coverage)
 
     if args.out:
         Path(args.out).write_text(document, encoding="utf-8")

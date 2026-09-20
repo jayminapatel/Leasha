@@ -29,6 +29,7 @@ from typing import Any, Optional, Sequence
 from app.reports.space import (
     DuplicateCopy,
     SpaceFindings,
+    coverage_sentence,
     formatted_date,
     size_words,
 )
@@ -223,11 +224,17 @@ def space_tables(findings: SpaceFindings) -> tuple[SpaceTable, ...]:
 def space_headline(findings: SpaceFindings) -> str:
     """A few plain numbers, in the document's own words."""
     lines = []
+    thin = coverage_sentence(findings.files_total, findings.files_compared)
     if findings.groups or findings.total_reclaimable:
         lines.append("Keeping one copy of everything duplicated would free "
                      f"{size_words(findings.total_reclaimable)}.")
+    elif findings.files_total and not findings.files_compared:
+        lines.append(thin)
+        thin = ""
     else:
         lines.append("No duplicate files were found.")
+    if thin:
+        lines.append(thin)
     for source in findings.uniqueness[:2]:
         seen = formatted_date(source.last_seen)
         note = _status_note(source.status)

@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
 from app.ui.widgets.space_table import SpaceTables
+from app.ui.widgets.timeline_host import attach_timeline, show_timeline_only
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ReportsView", "REPORTS"]
@@ -47,6 +48,12 @@ REPORTS: tuple[tuple[str, str, str], ...] = (
      "Which files exist in more than one place, how much room the copies "
      "take, and what exists nowhere else - so you know what is safe to "
      "clear and what is not."),
+    # Order 0n section 4: a place to wander rather than a document. Its own
+    # view (`timeline_view.py`) sits in the same pane; nothing here decides
+    # what it shows.
+    ("timeline", "Browse your timeline",
+     "Everything from a month or year - photos, files and mail together, "
+     "wherever they are kept now - in the order it happened."),
 )
 
 
@@ -54,6 +61,10 @@ class ReportsView(QWidget):
     """A list of reports; pick one, read it, export it."""
 
     error = pyqtSignal(object)
+    #: A timeline entry was opened / shown in its folder - it carries `path`,
+    #: `volume_id` and `relative_path`, everything the shell's own opener reads.
+    opened = pyqtSignal(object)
+    reveal_requested = pyqtSignal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -114,6 +125,7 @@ class ReportsView(QWidget):
         right.addWidget(self.progress_label)
         right.addWidget(self.body, 1)
         right.addWidget(self.space_table, 1)
+        self.timeline = attach_timeline(self, store, right)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.export)
@@ -142,6 +154,7 @@ class ReportsView(QWidget):
         already follow."""
         if self._store is None:
             return
+        self.timeline.refresh()
         worker = CallableWorker(
             _report_snapshot, self._store, self._space_cached_at,
             component="ui.reports", report_progress=True)
@@ -170,6 +183,8 @@ class ReportsView(QWidget):
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
         tabled = False
+        if show_timeline_only(self, row >= 0 and self.list.item(row).data(1) == "timeline"):
+            return
         if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return
@@ -250,7 +265,7 @@ def _report_snapshot(
     from app.reports.space import (
         SpaceFindings, document_for, find_duplicate_groups,
         find_near_duplicate_photo_groups, find_source_duplicate_share,
-        find_source_uniqueness, total_reclaimable_bytes,
+        find_source_uniqueness, hash_coverage, total_reclaimable_bytes,
     )
 
     generated_at = report_generated_at(store)
@@ -278,7 +293,7 @@ def _report_snapshot(
     space = document_for(SpaceFindings(
         groups=tuple(groups), near_duplicates=tuple(near_duplicates),
         duplicate_share=tuple(duplicate_share), uniqueness=tuple(uniqueness),
-        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at))
+        total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at, **hash_coverage(store)))
     return sources, generated_at, space
 
 

@@ -1,6 +1,6 @@
 # Work order (One thread): Reports — the index tells you about your hoard — and the Life Timeline
 
-**Doc version:** 1.5 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (new Reports surface + timeline view + report queries)
 **Status:** RELEASED by the owner 2026-08-28. **Queue position: after 0l
 (Offline Media II), BEFORE 0m (test automation) — 0m stays deliberately last
@@ -81,6 +81,23 @@ against a real `SqliteStore`.
 > 200,000 rows, and nothing more. Section 4 (the Life Timeline) is untouched;
 > it stays held.
 
+> **2026-09-20 - two things found while writing section 5's fixture tests, and one
+> caution restated.** (1) **The Space Report said "No duplicate files were found." about an
+> index where nothing had been compared** - a name-only pass leaves `content_hash` empty, so
+> the queries returned nothing and the document reported the *empty column* as a fact about
+> the owner's files. It now says, in the document, the table headline and `report space
+> --json` (`files_total`, `files_compared`): "None of the N files has been compared with the
+> others yet ... so this report cannot say what is duplicated or what exists only once", or
+> "Leasha has compared X of Y files" when partly done (`space.hash_coverage`,
+> `coverage_sentence`; `test_reports_thin_data.py`, written failing-first). (2) **The
+> Digital Inheritance map dropped the owner's own description of every drive, share and
+> tape** ("the old work drive") - it was printed for a local root only, where the
+> "description" is merely the path - although 2a asks for "NAME, user description, physical
+> location text". It is printed for every source now (`_source_paragraph`;
+> `test_reports_fixtures.py` reads the real PDF back). (3) **3c's measurement remains
+> synthetic** - the 200,000-row fixture of 2026-09-19, not `D:\Leasha\Data`, which cannot be
+> reached from here; nothing in this note changes what that measurement does and does not say.
+
 - [x] **3a** across ALL sources, from content hashes + pHash (photos):
   total duplicate bytes reclaimable, largest duplicate groups (what, where,
   each copy's source), per-source duplicate share. Table + a few plain
@@ -160,20 +177,74 @@ against a real `SqliteStore`.
 
 ## 4. The Life Timeline — a browsing surface
 
-- [ ] **4a** a timeline view: pick a period (year → month drill-down, or
+> **2026-09-20 - the owner's HOLD on this section is RELEASED, and it is built.** Decision by
+> the lead, on the owner's delegation, 2026-09-20 (the hold was the owner's own decision of
+> 2026-09-16). Built CLI first (non-negotiable 8) and then the window:
+> `app/reports/timeline.py` (queries), `timeline_words.py` (every sentence, one place),
+> `app/cli/timeline.py` (`leasha timeline`), `app/ui/timeline_view.py` +
+> `widgets/timeline_list.py` / `timeline_picker.py` / `timeline_host.py` +
+> `presenter/timeline.py` + `controllers/timeline_controller.py`. It lives in the Reports
+> page as its third entry, "Browse your timeline", so it adds no rail page.
+> About 490 test cases (360 of them parametrised query-plan checks); the numbers and the measurements are in the notes below and in
+> `test_timeline_scale.py`'s docstring.
+>
+> **The truthful-date rules, as built** (`app/reports/timeline.py`'s docstring is the
+> authority): a camera's own date (`taken_at_ns`) > a **date sidecar - NOT BUILT: no reader
+> for a Takeout `.json` exists anywhere in this codebase (`era_hints.py` checked and said so),
+> so there is nothing to rank; when one exists it slots in here and only the SQL changes** >
+> a year guessed from a folder name (labelled "Guessed from the folder name") > for mail,
+> `messages.sent_at`, **never the file row's time** (every message in a `.pst` carries the
+> container's one modified time) > the file's modified time (labelled "File date", with the
+> tooltip that after copying it is often the day of the copy). A file with no usable date
+> is left off and counted ("N items have no date at all, so they are not on the timeline").
+> **Left out on purpose:** files inside an archive, and program code (`repo_id` set) - code
+> is one choice away in the "Show" box, because a checkout touched in June 2015 is thousands
+> of files nobody asking for June 2015 wants.
+>
+> **Density (4c).** A page is 200 entries, read by keyset (date, source, id), never OFFSET:
+> a month of 4,000 photographs arrives a page at a time as the list is scrolled, on a
+> worker, and a heartbeat test shows the window never stalls while it does. Photographs are
+> painted in fixed-height bands of five and only what is on screen is drawn. Burst folding
+> is the search's own (`app.search.folding`: identical bytes, near-identical pHash) and
+> can be turned off; a folded row says how many are behind it and right-click takes it
+> apart. **Measured on a synthetic 200,000-row index (not the owner's), VM steps being the
+> noise-free number:** first page of a 4,000-photo month 87,100 steps (43-129 ms depending on
+> what else the machine was doing); **a page 15 years in cost 2,095,300 steps until the
+> cursor's own date became a lower bound (now 95,500)** - `EXPLAIN QUERY PLAN` said "SEARCH ...
+> USING INDEX" the whole time, which is why the steps are asserted, not only the plan; the
+> picker's count is one table scan, 8.9M steps, 1-13 s, on a worker, cached until the next
+> index run. **Not measured: 20 million rows.** On a database that has never been analysed the
+> planner chose `idx_files_source_kind` (72 ms a branch, sorting everything); a unary `+`
+> keeps it on the date indexes and `test_timeline_query_plans.py` pins both states.
+>
+> **Entry points (4b), and one decision.** Reports > "Browse your timeline"; a search
+> result's or a mail row's right-click "See everything from this month" (the file's
+> *truthful* date is asked of the index on a worker, so a photograph copied in 2019 and shot
+> in 2015 opens June 2015; a file with no date says so); and the timeline strip, which
+> **already exists in the tree** - a right-click on a period there opens the timeline on that
+> period. **Decision:** the order says "strip click -> this view", but a left click on the
+> strip already means "add `after:`/`before:` to the search" (workspace 3d), and changing
+> what an existing control does under somebody's hand was the worse trade; the left click is
+> unchanged (one appended sentence on its tooltip says the right-click exists). The Files
+> tab's menu does not have the door yet: `files_view.py` is 248 lines against a 250 budget.
+> **The timeline needs Windows only for one thing:** whether a catalogued drive is plugged in
+> is asked live (`connected_volumes`), once per period shown, on a worker; offline items are there
+> with their source badge and cannot be opened (the shell's opener says which drive to plug in).
+
+- [x] **4a** a timeline view: pick a period (year → month drill-down, or
   free after:/before: range) → everything from that period across ALL media
   and sources — photos as thumbnails, documents/mail/videos as rows,
   interleaved chronologically, offline items included with their source
   badge. Dates use the truthful-date rules (EXIF > sidecar > era-hint >
   mtime, per 0508/0511).
-- [ ] **4b** entry points: from the Reports section ("Browse your timeline")
+- [x] **4b** entry points: from the Reports section ("Browse your timeline")
   AND from any result's date ("see everything from this month" in the
   context menu) AND composing with the existing timeline strip when the
   search-experience order lands it (strip click → this view, pre-filtered).
-- [ ] **4c** density handling: a month with 4,000 photos paginates/clusters
+- [x] **4c** density handling: a month with 4,000 photos paginates/clusters
   (burst folding applies here too); scrolling stays worker-fed
   (test_ui_never_blocks taught the module).
-- [ ] **4d** it is a browsing surface, not a search tab: no query box of its
+- [x] **4d** it is a browsing surface, not a search tab: no query box of its
   own — the search box already speaks dates; this is for wandering.
 
 ## 5. Rules and tests
@@ -184,16 +255,35 @@ plain-words deny-list and tooltip-effect halves, and the fixture/pytest-qt items
 are not yet written for this order's surfaces and stay open — §3/§4 don't exist yet to
 test either, so this bullet cannot be ticked whole.
 
-- [ ] read-only guarantee asserted (no write syscalls to user paths from any
+> **2026-09-20 - section 5 is written, all three bullets.** *Read-only*
+> (`test_reports_read_only.py`): the store's connection is given a SQLite authorizer that
+> denies every write while every report and timeline function runs; every write-shaped
+> filesystem call is recorded while the command-line reports and the timeline window run over
+> real files and none is under the user's folders; a source scan covers every report module
+> by glob - and each of the three guards is shown to fail. *Plain words*
+> (`test_timeline_wording.py`): the project's own deny-list, imported, over every label,
+> tooltip, placeholder, menu entry and sentence, plus a runtime "says what pressing it does"
+> check on every control. The behavioural switches are "Show" (what kinds) and "Group
+> near-identical photos", both remembered and both off-able. *Fixtures*
+> (`test_reports_fixtures.py`, one family index): the printed map is really written and read
+> back with PyMuPDF (every source's name and location text present, no file contents, not
+> even a file name); the space report finds the planted cross-source duplicates and the
+> unique-to-one-drive file; June 2015 shows the EXIF photo, the mtime letter and the offline
+> drive's item with its badge; thin data states itself (`test_reports_thin_data.py`).
+> *Scenarios* (`test_reports_acceptance_scenarios.py`): each of the order's three acceptance
+> sentences is pressed in the real `MainWindow`. **Not run in this pass: the whole suite** -
+> files were run by name only, in a shared checkout.
+
+- [x] read-only guarantee asserted (no write syscalls to user paths from any
   report path — the view-only invariant extended); plain-words deny-list
   and tooltip-effect tests cover the new surfaces; every control off-able
   where behavioural (per the configurability doctrine).
-- [ ] fixture tests: inheritance PDF contains every fixture source's name
+- [x] fixture tests: inheritance PDF contains every fixture source's name
   and location text, and NO file contents; space report finds the planted
   cross-source duplicates and the planted unique-to-one-drive file; timeline
   June-2015 fixture shows the photo (EXIF), the letter (mtime), and the
   offline drive's item with badge; thin-data degradation states itself.
-- [ ] pytest-qt scenarios for each acceptance sentence below (0m convention,
+- [x] pytest-qt scenarios for each acceptance sentence below (0m convention,
   written here).
 
 ## Done means
