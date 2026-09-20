@@ -519,6 +519,7 @@
     <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
+    <Compile Include="tests\unit\test_fts_bulk_recovery.py" />
     <Compile Include="tests\unit\test_fusion.py" />
     <Compile Include="tests\unit\test_generation_bump.py" />
     <Compile Include="tests\unit\test_git_sharpness_and_mail.py" />
