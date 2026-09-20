@@ -31,7 +31,7 @@ the user to re-save them.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import make_error, raise_error
 from app.core.format_health import Requirement
@@ -64,14 +64,40 @@ def _fail(component: str, path: Path, exc: BaseException) -> None:
 
 class DocxExtractor:
     name = "docx"
-    extensions = frozenset({".docx", ".docm"})
+    #: `.dotx` and `.dotm` are templates: the same package with a different
+    #: content type. 83 of them were on the measured disk and every one was
+    #: skipped as an unsupported type.
+    extensions = frozenset({".docx", ".docm", ".dotx", ".dotm"})
+    #: Soft since 2026-09-20: `ooxml_fast` reads the document part with the
+    #: standard library, and python-docx is the fallback for a package that
+    #: reader will not vouch for. Missing it is "Limited", no longer "Cannot read".
     requires = (Requirement("docx", "python-docx",
-                            provides="Word document text", hard=True),)
+                            provides="Word documents the built-in reader declines",
+                            hard=False),)
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        # The fast path first - see `ooxml_fast`: 2.0 s -> a few tens of ms on a
+        # 6 MB report. Anything it will not read cleanly falls through to the
+        # python-docx code below, unchanged.
+        try:
+            from app.extract.ooxml_fast import DocxUnreadable, docx_blocks
+            blocks_text = docx_blocks(path)
+        except PermissionError as exc:
+            _fail("extract.docx", path, exc)
+            return
+        except (DocxUnreadable, OSError):
+            blocks_text = None
+        if blocks_text is not None:
+            fast = DocumentBuilder(path)
+            fast.meta["read_by"] = "zip+xml"
+            for text in blocks_text:
+                fast.add(text)
+            yield fast.build()
+            return
+
         import docx
         from docx.oxml.ns import qn
         from docx.table import Table
@@ -117,6 +143,27 @@ def _table_text(table: Any) -> str:
     return "\n".join(lines)
 
 
+def _truncated_warning(path: Path, name: Any) -> Any:
+    """The loud, non-fatal note that a sheet was capped at `MAX_SHEET_ROWS`."""
+    return make_error(
+        # **Not ERR_FILE_CORRUPT.** That renders as "Cannot read '<path>' - it is
+        # encrypted or damaged", which is then followed by a detail line saying
+        # the first 5,000 rows WERE indexed. The two contradict each other, and
+        # the headline is the false one: the file read perfectly and was capped
+        # on purpose.
+        "ERR_FILE_TRUNCATED",
+        "extract.xlsx",
+        path=str(path),
+        suggestion=(
+            f"Sheet '{name}' has more than {MAX_SHEET_ROWS:,} rows. The first "
+            f"{MAX_SHEET_ROWS:,} were indexed; the rest were not, to stop one "
+            "spreadsheet from dominating the index. Split it, or export the "
+            "table to CSV, if the later rows matter."
+        ),
+        details=f"Sheet '{name}' truncated at {MAX_SHEET_ROWS} rows.",
+    )
+
+
 class XlsxExtractor:
     name = "xlsx"
     extensions = frozenset({".xlsx", ".xlsm", ".xltx"})
@@ -155,7 +202,59 @@ class XlsxExtractor:
             warnings.simplefilter("ignore", UserWarning)
             yield from self._read(path, openpyxl)
 
+    def _read_fast(self, path: Path) -> Optional[Document]:
+        """The workbook through `ooxml_xlsx`, or None if it will not vouch for it.
+
+        Same text, anchors, labels and truncation warning as the openpyxl path
+        below - `tests/unit/test_fast_xlsx.py` asserts the two agree.
+        """
+        try:
+            from app.extract.ooxml_xlsx import XlsxUnreadable, read_workbook
+            sheets = read_workbook(path, max_rows=MAX_SHEET_ROWS)
+        except (XlsxUnreadable, ImportError):
+            return None
+
+        builder = DocumentBuilder(path)
+        builder.meta["sheets"] = [sheet.name for sheet in sheets]
+        builder.meta["read_by"] = "zip+xml"
+        letters = cached_letter
+        for index, sheet in enumerate(sheets, start=1):
+            name = sheet.name
+            sheet_name = " ".join(str(name).split())
+            lines: list[str] = []
+            anchors: list[tuple[int, str]] = []
+            offset = 0
+            for row_number, cells in sheet.rows:
+                values: list[str] = []
+                first_column = 0
+                for column, value in cells:
+                    if column > MAX_SHEET_COLUMNS:
+                        break
+                    text = str(value).strip()
+                    if not text:
+                        continue
+                    if not first_column:
+                        first_column = column
+                    values.append(text)
+                if values:
+                    anchors.append((offset, f"{sheet_name}!{letters(first_column)}{row_number}"))
+                    line = "\t".join(values)
+                    lines.append(line)
+                    offset += len(line) + 1
+            if sheet.truncated:
+                builder.warn(_truncated_warning(path, name))
+            builder.add("\n".join(lines), page=index, label=f"Sheet: {name}",
+                        prefix_label=True, anchors=anchors)
+        return builder.build()
+
     def _read(self, path: Path, openpyxl: Any) -> Iterable[Document]:
+        # Fast path first: 4.5 s -> under a second on a real 880 KB dashboard
+        # (see `ooxml_xlsx`). Anything it declines is read exactly as before.
+        fast = self._read_fast(path)
+        if fast is not None:
+            yield fast
+            return
+
         try:
             workbook = openpyxl.load_workbook(
                 str(path), read_only=True, data_only=True, keep_links=False
@@ -225,26 +324,7 @@ class XlsxExtractor:
                         offset += len(line) + 1
 
                 if truncated:
-                    builder.warn(
-                        make_error(
-                            # **Not ERR_FILE_CORRUPT.** That renders as "Cannot
-                            # read '<path>' - it is encrypted or damaged", which
-                            # is then followed by a detail line saying the first
-                            # 5,000 rows WERE indexed. The two contradict each
-                            # other, and the headline is the false one: the file
-                            # read perfectly and was capped on purpose.
-                            "ERR_FILE_TRUNCATED",
-                            "extract.xlsx",
-                            path=str(path),
-                            suggestion=(
-                                f"Sheet '{name}' has more than {MAX_SHEET_ROWS:,} rows. The first "
-                                f"{MAX_SHEET_ROWS:,} were indexed; the rest were not, to stop one "
-                                "spreadsheet from dominating the index. Split it, or export the "
-                                "table to CSV, if the later rows matter."
-                            ),
-                            details=f"Sheet '{name}' truncated at {MAX_SHEET_ROWS} rows.",
-                        )
-                    )
+                    builder.warn(_truncated_warning(path, name))
 
                 builder.add(
                     "\n".join(lines),
@@ -261,14 +341,32 @@ class XlsxExtractor:
 
 class PptxExtractor:
     name = "pptx"
-    extensions = frozenset({".pptx", ".pptm"})
+    #: Slide shows (`.ppsx`, `.ppsm`) and templates (`.potx`, `.potm`) are the same
+    #: package under another content type. python-pptx refuses them; the fast
+    #: reader does not care.
+    extensions = frozenset({".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm"})
+    #: Soft since 2026-09-20 - see `DocxExtractor.requires`.
     requires = (Requirement("pptx", "python-pptx",
-                            provides="slide and notes text", hard=True),)
+                            provides="decks the built-in reader declines", hard=False),)
 
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        # Fast path first: see `ooxml_pptx`. Falls through to python-pptx, below,
+        # for anything it will not vouch for.
+        try:
+            from app.extract.ooxml_pptx import PptxUnreadable, pptx_slides
+            fast_slides = pptx_slides(path)
+        except PermissionError as exc:
+            _fail("extract.pptx", path, exc)
+            return
+        except (PptxUnreadable, OSError):
+            fast_slides = None
+        if fast_slides is not None:
+            yield self._build(path, fast_slides)
+            return
+
         from pptx import Presentation
 
         try:
@@ -314,6 +412,30 @@ class PptxExtractor:
         _warn_if_mostly_pictures(builder, path, total_chars, len(deck.slides), size_bytes)
 
         yield builder.build()
+
+
+    def _build(self, path: Path, slides: list[tuple[str, str]]) -> Document:
+        """The document for slides already read as `(text, notes)` - the same
+        structure, labels and warnings the python-pptx path produces."""
+        builder = DocumentBuilder(path)
+        builder.meta["slide_count"] = len(slides)
+        builder.meta["read_by"] = "zip+xml"
+        total_chars = 0
+        for number, (text, notes) in enumerate(slides, start=1):
+            body = normalise_whitespace(text)
+            total_chars += len(body)
+            builder.add(body, page=number, label=f"Slide {number}", prefix_label=True)
+            if notes.strip():
+                notes_body = normalise_whitespace(notes)
+                total_chars += len(notes_body)
+                builder.add(notes_body, page=number, label=f"Slide {number} speaker notes",
+                            prefix_label=True)
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            size_bytes = 0
+        _warn_if_mostly_pictures(builder, path, total_chars, len(slides), size_bytes)
+        return builder.build()
 
 
 def _shape_text(shape: Any) -> list[str]:

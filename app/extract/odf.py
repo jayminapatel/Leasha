@@ -132,6 +132,14 @@ def text_from_content(xml_bytes: bytes) -> str:
     except ElementTree.ParseError:
         return ""
 
+    if _local(root.tag) == "document":
+        # A flat ODF file (`.fodt`...) holds styles, fonts and metadata beside the
+        # body. Only the body is the document.
+        for child in root:
+            if _local(child.tag) == "body":
+                root = child
+                break
+
     lines: list[str] = []
     words: list[str] = []          # text seen since the last block ended
     cells: list[str] = []          # cells seen since the last row ended
@@ -193,7 +201,18 @@ class OdfExtractor:
     """OpenDocument text, spreadsheets, presentations and their templates."""
 
     name = "odf"
-    extensions = frozenset({".odt", ".ods", ".odp", ".ott", ".ots", ".otp", ".odg"})
+    #: 2026-09-20: the OpenOffice 1.x family (`.sxw` text, `.sxc` sheets, `.sxi`
+    #: presentations, `.sxd` drawings and their `.st*` templates) is the same ZIP
+    #: with the same `content.xml`, and the reader matches tags on their local
+    #: name, so it reads them unchanged. The *flat* forms (`.fodt`, `.fods`,
+    #: `.fodp`, `.fodg`) are the same markup in one plain XML file, read below.
+    extensions = frozenset({
+        ".odt", ".ods", ".odp", ".ott", ".ots", ".otp", ".odg",
+        ".sxw", ".sxc", ".sxi", ".sxd", ".stw", ".stc", ".sti", ".std",
+        ".fodt", ".fods", ".fodp", ".fodg",
+    })
+    #: Extensions that are a single XML document rather than a ZIP.
+    FLAT = frozenset({".fodt", ".fods", ".fodp", ".fodg"})
     reads_externally = False
 
     def supports(self, path: Path) -> bool:
@@ -201,8 +220,15 @@ class OdfExtractor:
 
     def extract(self, path: Path) -> Iterable[Document]:
         try:
-            with zipfile.ZipFile(path) as archive:
-                content = self._read_content(archive, path)
+            if path.suffix.lower() in self.FLAT:
+                if path.stat().st_size > MAX_CONTENT_BYTES:
+                    raise_error("ERR_FILE_TOO_LARGE", "extract.odf", path=str(path),
+                                details="a flat OpenDocument file over 64MB")
+                    return
+                content = path.read_bytes()
+            else:
+                with zipfile.ZipFile(path) as archive:
+                    content = self._read_content(archive, path)
         except zipfile.BadZipFile as exc:
             # An ODF file that is not a zip is corrupt, truncated, or something
             # else wearing the extension. Precise, so the skip ledger says which.
