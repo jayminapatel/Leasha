@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.6 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 6.7 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,55 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-20 - the "known red" list below is superseded: it is down from 57 to 2, and
+most of it was four causes, not 57 problems.** The last full run
+(`scripts/run_suite.py -j 4`) had 8 failures; five of those were fixed after it (project file,
+one repo test, two staging tests, one timing test), which leaves **two**:
+
+- **`test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter`** - a load-bearing
+  guard. `indexing_view.py` was fixed (292 -> 241 code lines; layout and painting moved to
+  `app/ui/widgets/indexing_layout.py`), which showed that **`results_view.py` (294) and
+  `settings_view.py` (475)** had been hiding behind it. `settings_view.py` needs about 226 lines
+  moved (its `__init__` alone is 178), and `test_pages_reorg.py` requires every pre-existing
+  label and tooltip to stay verbatim *in that file*, so only string-free code can move. It is a
+  refactor of the Settings screen and needs the `tools/grab_ui.py` goldens to verify.
+- **`test_ui_redesign.py::test_the_rail_labels_are_the_tab_titles_verbatim`** - an owner
+  decision (section 7).
+
+**What the failures were.** About 22 tests failed because **the developer's home folder is itself
+a git repository** (`C:\Users\JayminPatel(INDEFF)\.git`, created 2026-09-19 11:06, no commits -
+almost certainly an accidental `git init`; **it is the owner's to delete**) and Windows' temp
+directory is under it, so "this folder is not a repository" found one; the suite is now bounded at
+its temp tree (`tests/conftest.py`: `enclosing_repo` and `GIT_CEILING_DIRECTORIES`). About ten more
+read the machine (a real LibreOffice, a real captioning model, a clock captured at import, a
+subprocess with no `SYSTEMROOT`/`TEMP`); about ten were stale against deliberate design changes
+(`PARTIAL` status, "try again with fewer words", the reranker's three-failure budget, the QAction
+rerank toggle) and were updated with the reason written in.
+
+**Real bugs this turned up, all fixed with tests:**
+- **An interrupted bulk index run left the word index unable to index again.** `drop_fts_triggers`
+  writes a dirty flag then drops the FTS triggers; the resume-time rebuild repaired the rows already
+  written but **never put the triggers back**, so every chunk indexed after a resume was silently
+  missing from keyword search. Only with `bulk_fts=on`, but silent when it happens
+  (`test_fts_bulk_recovery.py`; `CONTENT_TRIGGERS` in `migrations.py` is pinned to a fresh database).
+- **`leasha --env X open <link>` ignored `--env`.**
+- **Re-staging over an existing install failed on Windows** whenever a shipped file was read-only
+  (`assets\leasha-logo.png` is): `scripts/stage.py` used a bare `rmtree`.
+
+**Open, measured, not fixed - the filter-only browse plan.** `type:pdf` with no terms is planned by
+SQLite as "walk `idx_files_ext`, then sort": **177 ms at 200,000 files** (50% pdf), 92 ms for txt,
+68 ms xlsx, 40 ms dwg, 0.4 ms for a type with no matches. Forcing `idx_files_mtime` gives 0.6 ms for
+pdf but **2.9 s for a type with no matches** (it walks every file), so `INDEXED BY` is not the fix; an
+adaptive query is (bounded newest-first walk, fall back to the ext index).
+`test_query_plans.py::test_filter_only_browse_neither_scans_nor_sorts` is a strict `xfail` carrying
+these numbers and fails loudly once it is fixed.
+
+**Also worth knowing:** `test_prompt_examples`'s length cap moved 1,901 -> 2,100 (the prompt had grown
+to 2,084 from `/on` and the video/audio kind words - raise it again only with a latency
+measurement); the docs-header check now skips `_Knowledge/prompt_log/views` (generated, untracked,
+"never edit it"); timing tests are load-sensitive, so two were rewritten to compare work rather than
+wall clock.
 
 **2026-09-19 (evening) - everything that can be built without the owner's machine is
 built and merged, and the suite now runs to the end.** For whoever picks this up:
@@ -1506,7 +1555,11 @@ Not blockers, but decide them deliberately rather than by accident.
    venv plus a shortcut rather than let packaging block a working app.
 5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
    mean anything. The synthetic corpus is a floor, not a substitute.
-6. **Decisions waiting on the owner (2026-09-19).**
+6. **Decisions waiting on the owner (2026-09-19, added to 2026-09-20).**
+   - **Delete the stray `.git` in the home folder** (`C:\Users\JayminPatel(INDEFF)\.git`, no
+     commits, created 2026-09-19 11:06). Anything under the home folder that is not inside another
+     repository is "in a repository" as far as `git` and Leasha's repository detection are
+     concerned. Not deleted here: it is the owner's data.
    - **The rail says "Offline"; the redesign order asks for the page's own title verbatim
      ("Offline Media").** `test_the_rail_labels_are_the_tab_titles_verbatim` is red until the label
      goes back or the test's expectation is corrected. A label is not reworded without the
