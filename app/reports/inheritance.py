@@ -236,7 +236,13 @@ def _source_paragraph(source: SourceSummary) -> str:
     single run-on sentence carrying both reads as a wall of text.
     """
     status = _status_words(source)
-    where = f" ({source.description})" if source.kind == "local" and source.description else ""
+    # **The owner's own words for a source, whatever kind it is** ("the old work
+    # drive"). This used to be printed for a local root only - where the
+    # "description" is merely its path - and dropped for every drive, share and
+    # tape, which are exactly the sources a family member holding the printout
+    # needs the owner's description of. Order 0n 2a: "its NAME, user
+    # description, physical location text".
+    where = f" ({source.description})" if source.description else ""
     location = f" - {source.location_note}" if source.location_note else ""
     lines = [
         f"{source.name!r}{where}{status}{location} - "
