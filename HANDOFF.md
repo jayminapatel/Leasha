@@ -120,7 +120,7 @@ the test that died** - four test processes hold 1.2-2.0 GB each, and a Windows a
 cannot get memory faults (`0xC0000005`) or corrupts the heap (`0xC0000374`) inside whichever test
 allocates next rather than raising `MemoryError`, so `scripts/run_suite.py` now picks the process
 count from what is actually free and warns when an explicit `-j` will not fit; `--timeout` on every pytest run,
-because a hung test does not stop by itself; the `WORKORDER-*.md` name is reserved for orders
+because a hung test does not stop by itself - though **a test that looks hung on a busy machine is usually the resource governor doing its job**: `wait_while_throttled` pauses while other processes hold the CPU, which is why two agents reported a "psutil hang" that was nothing of the kind (the probe itself measures 25-35 ms here against a 2 s poll). A test whose pipeline must not be throttled passes `ResourceLimits(cpu_percent=0)`, as `test_offline_media.py` does; the `WORKORDER-*.md` name is reserved for orders
 (the register counts every match).
 
 **2026-09-20 - the "known red" list below is superseded: it is down from 57 to 2, and
