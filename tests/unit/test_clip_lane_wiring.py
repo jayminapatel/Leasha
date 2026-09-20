@@ -150,6 +150,14 @@ def ocr_that_reads_nothing(monkeypatch):
     made true at the source rather than assumed."""
     monkeypatch.setattr(ocr_module, "available", lambda: True)
     monkeypatch.setattr(ocr_module, "_load_engine", lambda: (lambda _s: ([], 0.0)))
+    # And no AI caption either. A photo with no text used to be the end of the
+    # line; with Florence installed (order 0i) it now gets a caption and is
+    # *indexed* - so on a machine that has it this file's premise (the skip
+    # ledger) was false and a real captioning model was loaded to find that out.
+    # The same seam `test_ocr.py` uses (2026-09-20).
+    from app.extract import florence_tagger
+
+    monkeypatch.setattr(florence_tagger, "available", lambda: False)
 
 
 def _assert_both_photos_reached_the_picture_lane(stats, images) -> None:
