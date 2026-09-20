@@ -261,7 +261,7 @@ def stage(source: Path, dest: Path, python: Path, with_tests: bool = False) -> l
         if target.exists():
             # Only reachable for a foreign destination - a staged one had its
             # previous manifest removed above.
-            shutil.rmtree(target) if target.is_dir() else target.unlink()
+            _remove(target)
         if origin.is_dir():
             ignore = _ignore_keeping_fixtures if name == "tests" else _ignore
             shutil.copytree(origin, target, ignore=ignore)
