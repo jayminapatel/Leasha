@@ -3,14 +3,14 @@ r"""Video and audio files: what they are, what is on screen, and what was said.
 Layer: L2
 
 Work order 202626270515. Three layers, each optional and each degrading to the
-one below it, so the feature is useful the day ffmpeg is installed and better
+one below it, so the feature is useful the day PyAV is installed and better
 with every dependency added after:
 
-  * **Layer 0 - the container** (ffprobe). Duration, resolution, codecs and,
+  * **Layer 0 - the container** (PyAV, in-process). Duration, resolution, codecs and,
     above all, the date it was *recorded*: the video equivalent of an EXIF date,
     which survives copying from a phone to a laptop to a backup drive where the
     file's own date does not. GPS from a phone becomes a place.
-  * **Layer 1 - scene-change pictures** (ffmpeg). A frame at every cut, and at
+  * **Layer 1 - scene-change pictures** (PyAV, keyframes only). A frame at every cut, and at
     least one every N seconds, capped. Each is read by **the same code that
     reads a photograph** - the OCR ladder, then Florence-2 for a picture with no
     text - and the frames are handed to the pipeline for the CLIP lane. Nothing
@@ -26,7 +26,7 @@ picture: the same transcriber, the same timestamps.
 `AUDIO_TRANSCRIPTION_ENABLED` decide whether the walker even offers these
 extensions (`disabled_extensions`), so switched off the files are exactly what
 they were before this order: findable by name, nothing read. Switched on with
-ffmpeg missing, each file is one skip-ledger line saying what to install. Every
+PyAV missing, each file is one skip-ledger line saying what to install. Every
 failure is a per-file `AppErrorException`; none can stop a run.
 
 **Transcripts are labelled `read_by=whisper`**, as OCR text is `read_by=ocr` -
@@ -536,7 +536,8 @@ class VideoExtractor(_MediaBase):
                 keyframe_dir = Path(tempfile.mkdtemp(prefix=KEYFRAME_DIR_PREFIX))
                 frames = media_tools.extract_keyframes(
                     path, keyframe_dir, interval_s=cfg.keyframe_interval_s,
-                    cap=cfg.keyframe_cap, duration_s=info.duration_s)
+                    cap=cfg.keyframe_cap, duration_s=info.duration_s,
+                    should_stop=_pace)
                 timeline = self._read_frames(path, frames, cfg)
                 if _add_screen_text(builder, timeline):
                     layers.append("keyframes")
@@ -612,7 +613,7 @@ class VideoExtractor(_MediaBase):
 
 
 class AudioExtractor(_MediaBase):
-    """Layer 0 (if ffprobe is there) and Layer 2 for an audio file."""
+    """Layer 0 (if PyAV is there) and Layer 2 for an audio file."""
 
     name = "audio"
     extensions = AUDIO_EXTENSIONS
@@ -629,9 +630,9 @@ class AudioExtractor(_MediaBase):
         try:
             info = media_tools.probe(path)
         except AppErrorException as exc:
-            # A recording is transcribable without ffprobe - faster-whisper reads
-            # the file itself - so a missing probe costs the metadata, not the
-            # file. A *damaged* file is still a skip.
+            # A recording is transcribable without a probe of its own -
+            # faster-whisper reads the file itself - so a missing PyAV costs the
+            # metadata, not the file. A *damaged* file is still a skip.
             if exc.error.code != "ERR_MEDIA_TOOLS_MISSING":
                 raise
 

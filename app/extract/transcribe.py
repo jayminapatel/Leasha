@@ -33,12 +33,12 @@ targets there is no graphics-card path to serialise against
 (`app/core/gpu_serialize.py`). A CUDA machine is a future decision, not a
 half-built one.
 
-**Nothing here has been run against the real package.** faster-whisper was not
-installed on the machine this was written on. The engine seam
-(`TranscriberEngine`) is what every test drives, with a fake; the real
-`FasterWhisperEngine` is written against the package's documented interface and
-is unverified until somebody installs it and runs
-`python -m app.cli media --measure FILE`.
+**Run against the real package on 2026-09-20** (faster-whisper 1.2.1, model
+`base`, CPU): `python -m app.cli media --measure` transcribed a 199 s clip in
+three runs at 11.6x-12.0x real time on a quiet machine, and the real engine
+resumed from a journal (`tests/unit/test_media_real.py`). The engine seam
+(`TranscriberEngine`) is still what most tests drive, with a fake, because a
+model is 148 MB; the real-model tests skip cleanly when it is not downloaded.
 """
 
 from __future__ import annotations
@@ -58,6 +58,10 @@ from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 
 __all__ = [
+    "MEASURED_REALTIME_FACTOR",
+    "MEASURED_REALTIME_FACTOR_BUSY",
+    "MEASURED_ON",
+    "cost_sentence",
     "SpeechSegment",
     "Transcript",
     "TranscriberEngine",
@@ -80,12 +84,23 @@ log = logger.bind(component="extract.transcribe")
 #: language.
 MODELS = ("tiny", "base", "small", "medium")
 
-#: **A default chosen without a number.** `base` is the size that is usually
-#: good enough for clear speech and cheap enough for a processor; it is not
-#: derived from a measurement, because faster-whisper was not installed on the
-#: machine this was written on. `app.cli media --measure` exists to replace the
-#: guess, and the work order's promotion checklist records it as pending.
+#: `base` is the size that is usually good enough for clear speech and cheap
+#: enough for a processor. **Measured 2026-09-20** (Systran/faster-whisper-base,
+#: 148 MB, MIT per its model card; int8, 4 threads on 12 logical cores): about 12x
+#: real time on a quiet machine. `tiny` and `small` were not measured; the two
+#: settings say only what is known.
 DEFAULT_MODEL = "base"
+
+#: How fast `base` transcribes on the CPU-only machine it was measured on, as a
+#: multiple of the recording's own length: **12x on a quiet machine** (three runs
+#: on a 199 s clip, 11.6x-12.0x, and 13.7x on a 600 s slice of a real recording)
+#: and **about 2.3x when other programs were using every core** (two runs,
+#: 2.26x and 2.46x, same clip). Each run includes the model load. The Settings
+#: cost line and `media --status` quote these, so a change here is a change to
+#: what people are told; re-measure with `python -m app.cli media --measure`.
+MEASURED_REALTIME_FACTOR = 12.0
+MEASURED_REALTIME_FACTOR_BUSY = 2.3
+MEASURED_ON = "2026-09-20, model base, CPU only"
 
 #: Journals older than this are removed. A journal for a recording that has not
 #: been touched for six weeks belongs to a file that is finished or gone.
@@ -149,6 +164,17 @@ def available() -> bool:
         return importlib.util.find_spec("faster_whisper") is not None
     except (ImportError, ValueError):
         return False
+
+
+def cost_sentence() -> str:
+    """What transcribing costs, in words, from the measured figures. Pure."""
+    quiet = 60.0 / MEASURED_REALTIME_FACTOR
+    busy = 60.0 / MEASURED_REALTIME_FACTOR_BUSY
+    return (f"An hour of recordings takes about {quiet:.0f} minutes of this "
+            f"computer's processor when nothing else is running, and up to "
+            f"about {busy:.0f} minutes when it is busy (measured "
+            f"{MEASURED_ON}). It is done slowly in the background, and can be "
+            f"stopped and carried on.")
 
 
 def download_command(model: str) -> str:

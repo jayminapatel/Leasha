@@ -7,13 +7,19 @@ Layer: L2 (the CLI every layer ships before its UI)
     python -m app.cli media "D:\Family\holiday.mp4" --transcribe --model tiny
     python -m app.cli media "D:\Voice\memo.m4a" --json
     python -m app.cli media --measure "D:\Voice\memo.m4a" --model tiny
+    python -m app.cli media --find "a birthday cake with candles"
 
 Read-only: it opens no index and writes nothing but a temporary folder it
 removes. `--status` is the answer to "why are my videos only found by name?" -
-FFmpeg, faster-whisper and the speech model, each with the command that fixes
-it. A path shows what an index run would write for that one file, through the
+PyAV (which reads the video), faster-whisper and the speech model, each with the
+command that fixes it. No ffmpeg program is needed - see `app/extract/media_tools.py`. A path shows what an index run would write for that one file, through the
 same extractor, whichever switches are on in `.env`: naming a file is
 deliberate, so the switches do not apply to it.
+
+`--find` asks the per-picture index (work order 202626270515, "per-frame CLIP")
+which *moments* of which videos look like the words: the film and the time in it,
+nearest first. It is the headless way to prove that lane, as `--status` is for the
+switches; it needs videos to have been indexed with the picture model available.
 
 `--measure` is the one-off throughput measurement the work order asks for. It
 needs faster-whisper and a downloaded model, refuses politely without them, and
@@ -37,7 +43,7 @@ from app.core.logging import setup_logging
 
 
 def _duration_of(path: Path) -> Optional[float]:
-    """Seconds of audio in `path`: ffprobe if there, the standard library for a
+    """Seconds of audio in `path`: PyAV if there, the standard library for a
     WAV, otherwise unknown. Never raises."""
     try:
         from app.extract import media_tools
@@ -52,6 +58,51 @@ def _duration_of(path: Path) -> Optional[float]:
         except (wave.Error, OSError, EOFError):
             return None
     return None
+
+
+def moments_for(
+    text: str, embedder: Any, frames: Any, store: Any, *, limit: int = 10,
+) -> list[dict[str, Any]]:
+    """The moments in videos that look like `text`, nearest first. Pure enough to test.
+
+    `embedder` is the CLIP **text** tower (`.embed([text])`), `frames` the
+    `VideoFrameVectorStore`, `store` the SQLite store that turns a file id back
+    into a path. A file that has since been removed from the index is left out.
+    """
+    from app.extract.timecode import format_timecode
+
+    vector = embedder.embed([text])[0]
+    found: list[dict[str, Any]] = []
+    for hit in frames.search_frames(vector, k=max(1, limit)):
+        record = store.get_file_by_id(hit.file_id)
+        if record is None:
+            continue
+        found.append({
+            "path": record.path, "seconds": hit.seconds,
+            "at": format_timecode(hit.seconds), "distance": round(hit.distance, 4)})
+    return found
+
+
+def _find(text: str, args: argparse.Namespace, settings: Any) -> int:
+    from app.search import vector as search_vector
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import ImageVectorStore
+
+    embedder = search_vector.clip_text_embedder_from_settings(settings)
+    with SqliteStore(settings.fts_db) as store, \
+            ImageVectorStore(settings.vector_path) as images:
+        found = moments_for(text, embedder, images.video_frames(), store,
+                            limit=int(args.limit))
+    if args.json:
+        print(json.dumps(found, indent=2))
+        return EXIT_OK
+    if not found:
+        print("No video pictures are indexed yet - switch on 'Read videos on this "
+              "computer' and index a folder with a film in it.")
+        return EXIT_OK
+    for item in found:
+        print(f"  {item['at']:>8}  {item['path']}")
+    return EXIT_OK
 
 
 def status_report(settings: Any) -> dict[str, Any]:
@@ -74,12 +125,18 @@ def status_report(settings: Any) -> dict[str, Any]:
             "VIDEO_KEYFRAME_CAP": config.keyframe_cap,
         },
         "fix": {
-            "ffmpeg": "winget install --id Gyan.FFmpeg -e",
+            "av": r"venv\Scripts\python.exe -m pip install av==18.1.0",
             "faster_whisper": r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1",
             "model": transcribe.download_command(config.model),
         },
         "video_ready": all(tools.values()),
         "audio_ready": transcribe.available(),
+        # The measured figure the pacing defaults and the Settings cost line come
+        # from - see `transcribe.MEASURED_REALTIME_FACTOR` for where it is from.
+        "speech_throughput": {
+            "realtime_factor": transcribe.MEASURED_REALTIME_FACTOR,
+            "measured": transcribe.MEASURED_ON,
+        },
     }
 
 
@@ -89,7 +146,7 @@ def _print_status(report: dict[str, Any]) -> None:
     for name, where in report["tools"].items():
         print(f"  {name:<14} {where or 'NOT FOUND'}")
     if not all(report["tools"].values()):
-        print(f"      fix: {report['fix']['ffmpeg']}")
+        print(f"      fix: {report['fix']['av']}")
     print(f"  {'faster-whisper':<14} "
           f"{'installed' if report['faster_whisper_installed'] else 'NOT INSTALLED'}")
     if not report["faster_whisper_installed"]:
@@ -104,11 +161,12 @@ def _print_status(report: dict[str, Any]) -> None:
     for key, value in report["settings"].items():
         print(f"  {key:<30} {value}")
     print()
-    print(f"  Videos read here:      {'yes' if report['video_ready'] else 'no - FFmpeg missing'}")
+    print(f"  Videos read here:      {'yes' if report['video_ready'] else 'no - PyAV missing'}")
     print(f"  Speech transcribed:    "
           f"{'yes' if report['audio_ready'] and report['model_downloaded'] else 'no'}")
-    print("  Speech throughput:     not measured on this machine - run "
-          "`media --measure FILE` once")
+    speed = report["speech_throughput"]
+    print(f"  Speech throughput:     about {speed['realtime_factor']:g}x real time "
+          f"({speed['measured']}); run `media --measure FILE` to check this machine")
 
 
 def _show_file(path: Path, args: argparse.Namespace, settings: Any) -> int:
@@ -196,7 +254,7 @@ def _measure(path: Path, args: argparse.Namespace, settings: Any) -> int:
         print(f"  {duration:.0f}s of audio in {elapsed:.0f}s = {duration / elapsed:.2f}x real time")
         print(f"  = {duration / elapsed * 60:.0f} minutes of audio per hour of processor")
     else:
-        print("  audio length unknown (install FFmpeg, or use a .wav), so no rate")
+        print("  audio length unknown (install PyAV, or use a .wav), so no rate")
     print("  Record this number in the work order's promotion checklist.")
     return EXIT_OK
 
@@ -205,6 +263,8 @@ def cmd_media(args: argparse.Namespace) -> int:
     settings = _load(args)
     setup_logging(settings.log_path)
     try:
+        if args.find:
+            return _find(args.find, args, settings)
         if args.measure:
             return _measure(Path(args.measure).expanduser(), args, settings)
         if args.path:
@@ -232,6 +292,11 @@ def add_media_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
                    help="also transcribe the speech (needs faster-whisper and a model)")
     p.add_argument("--model", choices=("tiny", "base", "small", "medium"),
                    help="speech model to use instead of TRANSCRIBE_MODEL")
+    p.add_argument("--find", metavar="TEXT",
+                   help="which moments of which indexed videos look like TEXT "
+                        "(the per-picture index)")
+    p.add_argument("--limit", type=int, default=10,
+                   help="with --find: how many moments to show (default 10)")
     p.add_argument("--measure", metavar="FILE",
                    help="transcribe FILE once and print minutes of audio per hour "
                         "of processor")

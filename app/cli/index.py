@@ -21,6 +21,7 @@ _ENRICHMENT_LABELS = dict(
     unembedded_chunk="vector(s) repaired",
     ocr_pending="held file(s) retried",
     image_tag="photo(s) tagged",
+    media_transcript="video/recording file(s) read in the background",
 )
 
 

@@ -5,13 +5,17 @@ Layer: L5 view - thin. Every fact about what is installed comes from
 display; this is five controls and three honest sentences.
 
 **The sentences are the point.** Both features are off by default and both need
-software Leasha does not ship - FFmpeg, and the faster-whisper package with a
-speech model. A switch that can be turned on and then silently does nothing is
-the worst version of that, so beside each switch this says in words whether the
-thing it needs is here and, when it is not, the exact command that fixes it.
-The command is selectable so it can be copied; Leasha never runs it. Installing
-software is the owner's call, and a model download is hundreds of megabytes of
-their bandwidth.
+packages Leasha does not ship - PyAV to read a video (no ffmpeg program: it is
+in-process), and the faster-whisper package with a speech model. A switch that
+can be turned on and then silently does nothing is the worst version of that,
+so beside each switch this says in words whether the thing it needs is here and,
+when it is not, the exact command that fixes it. The command is selectable so
+it can be copied; Leasha never runs it. Installing software is the owner's
+call, and a model download is hundreds of megabytes of their bandwidth.
+
+**And the third sentence is the cost**, from the measured figures in
+`transcribe.cost_sentence` and `PICTURE_COST_SENTENCE`: the label of an
+off-by-default switch has to say what turning it on costs, in minutes.
 """
 
 from __future__ import annotations
@@ -29,18 +33,32 @@ from app.extract import media_tools, transcribe
 
 __all__ = ["MediaBox", "tools_sentence", "speech_sentence", "model_sentence"]
 
-FFMPEG_INSTALL = "winget install --id Gyan.FFmpeg -e"
+PYAV_INSTALL = r"venv\Scripts\python.exe -m pip install av==18.1.0"
 WHISPER_INSTALL = r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1"
 
 
+#: What reading a video's pictures costs. **Measured 2026-09-20**, and the
+#: honest half of the cost line: taking the pictures out is quick (a 1080p film
+#: is scanned at roughly 300 times its own length) but each picture is then
+#: read like a photograph - text first, then a description - at several seconds
+#: each on a computer with no spare graphics card, up to the picture cap per film.
+PICTURE_COST_SENTENCE = (
+    "Taking the pictures out of a film is quick (a two-hour film in about half "
+    "a minute), but each picture is then read like a photograph, which takes "
+    "several seconds each - so a film with the default 200 pictures can take "
+    "ten to twenty minutes.")
+
+
 def tools_sentence(status: dict[str, Optional[str]]) -> str:
-    """Whether FFmpeg was found, in words. Pure, so a test can check it."""
-    missing = [name for name, where in status.items() if not where]
-    if not missing:
-        return f"FFmpeg: found ({status.get('ffmpeg')})."
-    return (f"FFmpeg: not found ({', '.join(missing)}). Videos are findable by "
-            f"name only until it is installed. To install it, run: "
-            f"{FFMPEG_INSTALL}")
+    """Whether the video reader (PyAV) was found, in words. Pure, so a test can
+    check it."""
+    where = status.get("av")
+    if where:
+        return (f"Reading videos: ready (PyAV {where}, built in - no separate "
+                f"program to install).")
+    return (f"Reading videos: the PyAV package is not installed, so videos are "
+            f"findable by name only until it is. To install it, run: "
+            f"{PYAV_INSTALL}")
 
 
 def speech_sentence(installed: bool) -> str:
@@ -77,8 +95,9 @@ class MediaBox(QGroupBox):
         self.video.setToolTip(
             "Makes videos findable by how long they are, the date they were "
             "filmed, where a phone recorded them and the words and scenes at "
-            "each moment. Off by default - it can take minutes per film. "
-            "Needs FFmpeg; the note below says whether it was found.")
+            "each moment. Off by default - it can take minutes per film, and is "
+            "done in the background after everything else. Needs the PyAV "
+            "package; the note below says whether it was found.")
 
         self.audio = QCheckBox("Write down what is said in recordings")
         self.audio.setObjectName("AUDIO_TRANSCRIPTION_ENABLED")
@@ -123,6 +142,11 @@ class MediaBox(QGroupBox):
         self.restart_note.setObjectName("mediaRestartNote")
         self.restart_note.setWordWrap(True)
 
+        # The cost, always visible - not a tooltip: it is what a person needs
+        # before ticking a box that can occupy the computer for hours.
+        self.cost_note = self._note("mediaCostNote")
+        self.cost_note.setText(f"What it costs: {PICTURE_COST_SENTENCE} "
+                               f"{transcribe.cost_sentence()}")
         self.tools_note = self._note("mediaToolsNote")
         self.speech_note = self._note("mediaSpeechNote")
         self.model_note = self._note("mediaModelNote")
@@ -136,8 +160,8 @@ class MediaBox(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
-        for note in (self.restart_note, self.tools_note, self.speech_note,
-                     self.model_note):
+        for note in (self.cost_note, self.restart_note, self.tools_note,
+                     self.speech_note, self.model_note):
             layout.addWidget(note)
 
         if settings is not None:

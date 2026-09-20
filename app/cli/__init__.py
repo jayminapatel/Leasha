@@ -38,7 +38,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-from app.cli._common import EXIT_ERROR, EXIT_OK, _report
+from app.cli._common import EXIT_ERROR, EXIT_OK, _report, make_console_safe
 from app.cli.bench import add_bench_index_parser, add_embed_bench_parser, add_rerank_bench_parser
 from app.cli.desktop import add_completions_parser, add_open_parser
 from app.cli.evaluate import add_evaluate_parser
@@ -57,6 +57,7 @@ from app.cli.maintenance import (
 from app.cli.offline_media import add_offline_media_parser
 from app.cli.ollama import add_ollama_parser
 from app.cli.report import add_report_parser
+from app.cli.timeline import add_timeline_parser
 from app.cli.repos import add_gitsearch_parser, add_repos_parser
 from app.cli.scan import add_scan_parser
 from app.cli.search import (
@@ -151,6 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_repos_parser(sub, common)
     add_offline_media_parser(sub, common)
     add_report_parser(sub, common)
+    add_timeline_parser(sub, common)
     add_evaluate_parser(sub, common)
     add_embed_bench_parser(sub, common)
     add_bench_index_parser(sub, common)
@@ -169,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    make_console_safe()
     parser = build_parser()
     args = parser.parse_args(argv)
 

@@ -1,20 +1,21 @@
-r"""Video and audio, end to end, on a machine with no ffmpeg and no faster-whisper.
+r"""Video and audio, end to end, on a machine with no faster-whisper and no model.
 
 Work order 202626270515. Layer: L2 / L3.
 
-**Nothing here needs FFmpeg or faster-whisper installed**, which is the machine
-this was written on and the machine most people will have. ffprobe and ffmpeg
-are faked at `converter.run_media_tool` - the one place a process is started -
-with canned JSON and a few generated pictures; speech is faked at the
-`TranscriberEngine` seam; reading a picture is faked at `media.read_frame`. What
-is real is everything Leasha owns: the parsers, the extractors, the journals,
-the pipeline, the store.
+**PyAV is real here** (it is what reads a container and takes the pictures), and
+the tests that need it skip cleanly when it is absent. What is faked is what is
+heavy or absent: a speech model is faked at the `TranscriberEngine` seam, reading
+a picture (OCR, Florence-2) at `media.read_frame`, and - for the wiring tests that
+do not care about pixels - `media_tools.probe` and `extract_keyframes` with
+canned answers. What is real is everything Leasha owns: the parsers, the
+extractors, the journals, the pipeline, the store. `test_media_real.py` runs the
+real speech model on a real recording when both are present.
 
 Two properties are the point of the file:
 
   * **Off means off.** With both switches off a `.mp4` is exactly what it was
     before this order - findable by name, no tool ever started.
-  * **Absent means said.** With the switches on and the tools missing, the run
+  * **Absent means said.** With the switches on and PyAV missing, the run
     finishes, one file is one skip-ledger line, and the line names the command
     that fixes it.
 """
@@ -25,14 +26,13 @@ import ast
 import json
 import math
 import os
-import subprocess
 import time
 import wave
 from pathlib import Path
 
 import pytest
 
-from app.core.errors import AppErrorException
+from app.core.errors import AppErrorException, make_error
 from app.extract import converter, media, media_tools, transcribe
 from app.extract.base import extract, extractor_for
 from app.extract.timecode import describe_timecode, format_timecode, parse_timecode
@@ -71,34 +71,52 @@ def probe_json(*, video=True, audio=True, created="2019-07-03T14:22:11.000000Z",
     })
 
 
-SHOWINFO = "\n".join(
-    f"[Parsed_showinfo_2 @ 0x1] n:   {i} pts: {int(t * 1000)} pts_time:{t} pos: 1 fmt:yuv420p"
-    for i, t in enumerate((0.0, 30.5, 95.25)))
+SCENES = (0.0, 30.5, 95.25)
 
 
-class FakeTools:
-    """Stands in for `converter.run_media_tool` and records what was run."""
+def probe_info(**kwargs) -> media_tools.MediaInfo:
+    return media_tools.parse_probe(probe_json(**kwargs))
 
-    def __init__(self, *, probe=None, frames=3):
-        self.probe = probe if probe is not None else probe_json()
+
+class FakeMedia:
+    """Stands in for the two PyAV calls and records what was asked of them."""
+
+    def __init__(self, *, info=None, frames=3):
+        self.info = info if info is not None else probe_info()
         self.frames = frames
-        self.calls: list[tuple[str, list[str]]] = []
+        self.calls: list[tuple[str, object]] = []
 
-    def __call__(self, name, args, *, timeout_s, source=None, cwd=None):
-        self.calls.append((name, list(args)))
-        if name == "ffprobe":
-            return subprocess.CompletedProcess(args, 0, self.probe.encode(), b"")
-        outdir = Path(args[-1]).parent
+    def probe(self, path):
+        self.calls.append(("probe", str(path)))
+        return self.info
+
+    def extract_keyframes(self, path, outdir, *, interval_s, cap, duration_s=None,
+                          should_stop=None):
+        self.calls.append(("keyframes", {"interval_s": interval_s, "cap": cap}))
+        found = []
         for i in range(1, self.frames + 1):
-            (outdir / f"kf_{i:05d}.jpg").write_bytes(b"\xff\xd8\xff" + bytes([i]) * 200)
-        return subprocess.CompletedProcess(args, 0, b"", SHOWINFO.encode())
+            target = Path(outdir) / f"kf_{i:05d}.jpg"
+            target.write_bytes(b"\xff\xd8\xff" + bytes([i]) * 200)
+            found.append(media_tools.Keyframe(SCENES[i - 1], target))
+        return found
 
 
 @pytest.fixture()
 def tools(monkeypatch):
-    fake = FakeTools()
-    monkeypatch.setattr(converter, "run_media_tool", fake)
+    fake = FakeMedia()
+    monkeypatch.setattr(media_tools, "probe", fake.probe)
+    monkeypatch.setattr(media_tools, "extract_keyframes", fake.extract_keyframes)
     return fake
+
+
+def no_pyav(monkeypatch):
+    """PyAV is not installed: the one thing `probe` and `extract_keyframes` do first."""
+    def refuse(path=None):
+        raise AppErrorException(make_error(
+            "ERR_MEDIA_TOOLS_MISSING", "extract.media_tools",
+            binary="av (PyAV)", path=str(path or "")))
+
+    monkeypatch.setattr(media_tools, "_import_av", refuse)
 
 
 @pytest.fixture(autouse=True)
@@ -254,84 +272,249 @@ def test_unreadable_probe_output_is_an_empty_answer_not_a_crash(junk):
     assert not info.has_video and not info.has_audio
 
 
-def test_showinfo_timestamps_are_read_in_order():
-    assert media_tools.parse_showinfo_times(SHOWINFO) == [0.0, 30.5, 95.25]
-    assert media_tools.parse_showinfo_times("") == []
+def test_scene_score_is_zero_for_the_same_picture_and_large_for_a_cut():
+    np = pytest.importorskip("numpy")
+    dark = np.zeros((90, 160), dtype=np.uint8)
+    light = np.full((90, 160), 200, dtype=np.uint8)
+    assert media_tools.scene_score(dark, dark) == 0.0
+    assert media_tools.scene_score(dark, light) > media_tools.SCENE_THRESHOLD * 10
+    assert media_tools.scene_score(dark, np.zeros((9, 16), dtype=np.uint8)) == 1.0
 
 
-def test_the_scene_filter_takes_the_first_frame_and_one_every_interval():
-    expression = media_tools._select_expression(45)
-    assert "gt(scene," in expression and "isnan(prev_selected_t)" in expression
-    assert "gte(t-prev_selected_t,45)" in expression
-
-
-def test_keyframes_come_back_with_their_times_and_the_cap_reaches_ffmpeg(tmp_path, tools):
-    found = media_tools.extract_keyframes(
-        tmp_path / "v.mp4", tmp_path, interval_s=30, cap=7, duration_s=761)
-    assert [round(f.seconds, 2) for f in found] == [0.0, 30.5, 95.25]
-    assert all(f.path.is_file() for f in found)
-    name, args = tools.calls[-1]
-    assert name == "ffmpeg" and args[args.index("-frames:v") + 1] == "7"
+def test_thinning_keeps_the_first_and_spreads_the_rest_evenly():
+    picked = media_tools._spread(list(range(10)), 3)
+    assert picked[0] == 0 and picked[-1] == 9 and len(picked) == 3
+    assert media_tools._spread(list(range(10)), 1) == [0]
+    assert media_tools._spread([1, 2], 5) == [1, 2]
 
 
 # ==========================================================================
-# The one place a process starts
+# Layer 0 and 1 against a real file, made by PyAV itself
 # ==========================================================================
 
-def test_ffmpeg_and_ffprobe_are_on_the_allow_list_by_name_and_deliberately():
-    assert {"ffmpeg", "ffprobe"} <= converter.ALLOWED_BINARIES
-    assert {"ffmpeg", "ffprobe"} <= set(converter._WINDOWS_LOCATIONS)
-    assert set(converter._WINDOWS_LOCATIONS) <= converter.ALLOWED_BINARIES
+def make_real_video(path: Path, *, colours=((250, 0, 0), (0, 250, 0), (0, 0, 250)),
+                    seconds_each=2, fps=10, audio=True,
+                    created="2019-07-03T14:22:11.000000Z",
+                    location="+51.5074-000.1278/") -> Path:
+    """A small real mp4: solid-colour scenes, a keyframe every second, a tone."""
+    import fractions
+
+    av = pytest.importorskip("av")
+    np = pytest.importorskip("numpy")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = av.open(str(path), "w")
+    out.metadata["creation_time"] = created
+    if location:
+        out.metadata["location"] = location
+    out.metadata["title"] = "Ben's birthday"
+    video = out.add_stream("mpeg4", rate=fps)
+    video.width, video.height, video.pix_fmt = 96, 64, "yuv420p"
+    video.codec_context.gop_size = fps
+    tone = None
+    if audio:
+        tone = out.add_stream("aac", rate=16000)
+        tone.layout = "mono"
+    n = 0
+    for colour in colours:
+        for _ in range(seconds_each * fps):
+            image = np.zeros((64, 96, 3), dtype=np.uint8)
+            image[:] = colour
+            frame = av.VideoFrame.from_ndarray(image, format="rgb24")
+            frame.pts, frame.time_base = n, fractions.Fraction(1, fps)
+            for packet in video.encode(frame):
+                out.mux(packet)
+            n += 1
+    for packet in video.encode():
+        out.mux(packet)
+    if tone is not None:
+        total = 16000 * seconds_each * len(colours)
+        sound = (np.sin(2 * np.pi * 440 * np.arange(total) / 16000) * 8000).astype(np.int16)
+        for pos in range(0, total, 1024):
+            frame = av.AudioFrame.from_ndarray(
+                sound[pos:pos + 1024].reshape(1, -1), format="s16", layout="mono")
+            frame.sample_rate, frame.pts = 16000, pos
+            for packet in tone.encode(frame):
+                out.mux(packet)
+        for packet in tone.encode():
+            out.mux(packet)
+    out.close()
+    return path
 
 
-def test_a_name_off_the_list_is_refused_before_anything_is_resolved(monkeypatch):
-    looked_up = []
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: looked_up.append(name))
+def test_a_real_file_yields_length_picture_date_and_place(tmp_path):
+    path = make_real_video(tmp_path / "birthday.mp4")
+    info = media_tools.probe(path)
+    assert info.has_video and info.has_audio
+    assert (info.width, info.height) == (96, 64) and info.video_codec == "mpeg4"
+    assert info.duration_s == pytest.approx(6.0, abs=0.3)
+    assert info.created.year == 2019 and info.created.month == 7
+    assert (info.latitude, info.longitude) == pytest.approx((51.5074, -0.1278))
+    assert info.tags["title"] == "Ben's birthday"
+
+
+def test_a_real_file_gives_one_picture_per_scene_with_its_time(tmp_path):
+    """Three flat colours, two seconds each: the first frame and the two cuts are
+    kept, the keyframes between them (one a second) are the same scene and are not.
+    This is also the regression test for the decoder flush: with frame threading
+    the first version returned **no pictures at all** for a file this short."""
+    path = make_real_video(tmp_path / "scenes.mp4")
+    out = tmp_path / "pics"
+    out.mkdir()
+    found = media_tools.extract_keyframes(path, out, interval_s=60, cap=50, duration_s=6.0)
+    assert [round(f.seconds) for f in found] == [0, 2, 4]
+    assert all(f.path.is_file() and f.path.stat().st_size > 100 for f in found)
+
+
+def test_the_gap_setting_adds_a_picture_when_nothing_changes(tmp_path):
+    path = make_real_video(tmp_path / "still.mp4", colours=((90, 90, 90),), seconds_each=6)
+    out = tmp_path / "pics"
+    out.mkdir()
+    found = media_tools.extract_keyframes(path, out, interval_s=2, cap=50, duration_s=6.0)
+    # First frame, then one at least every 2 seconds: 0, 2, 4.
+    assert [round(f.seconds) for f in found] == [0, 2, 4]
+    one = tmp_path / "one"
+    one.mkdir()
+    assert len(media_tools.extract_keyframes(path, one, interval_s=600, cap=50)) == 1
+
+
+def test_the_cap_thins_evenly_and_deletes_what_it_drops(tmp_path):
+    # Neighbours differ a lot in brightness, so every change counts as a scene.
+    colours = ((250, 0, 0), (0, 250, 0), (0, 0, 250), (250, 250, 0),
+               (0, 250, 250), (250, 0, 250), (255, 255, 255), (0, 0, 0))
+    path = make_real_video(tmp_path / "many.mp4", colours=colours, seconds_each=2)
+    out = tmp_path / "pics"
+    out.mkdir()
+    found = media_tools.extract_keyframes(path, out, interval_s=60, cap=3, duration_s=16.0)
+    assert len(found) == 3 and found[0].seconds == 0.0
+    assert found[-1].seconds > 8                                 # covers the end, not just the start
+    assert len(list(out.glob("kf_*.jpg"))) == 3                  # the rest were removed from disk
+
+
+def test_a_stop_request_during_the_scan_is_interrupted_not_failed(tmp_path):
+    path = make_real_video(tmp_path / "scenes.mp4")
+    out = tmp_path / "pics"
+    out.mkdir()
     with pytest.raises(AppErrorException) as caught:
-        converter.run_media_tool("curl", ["http://example.com"], timeout_s=5)
-    assert caught.value.error.code == "ERR_CONVERTER_BLOCKED"
-    assert looked_up == []
+        media_tools.extract_keyframes(path, out, interval_s=60, cap=5, should_stop=lambda: True)
+    assert caught.value.error.code == "ERR_MEDIA_INTERRUPTED"
 
 
-def test_a_missing_tool_says_what_to_install(monkeypatch):
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+def test_a_real_audio_file_is_audio_and_takes_no_pictures(tmp_path):
+    pytest.importorskip("av")
+    path = make_wav(tmp_path)
+    info = media_tools.probe(path)
+    assert info.has_audio and not info.has_video
+    out = tmp_path / "pics"
+    out.mkdir()
+    assert media_tools.extract_keyframes(path, out, interval_s=60, cap=5) == []
+
+
+def test_a_text_file_renamed_mp4_is_one_skip_with_the_reason(tmp_path):
+    pytest.importorskip("av")
+    path = tmp_path / "fake.mp4"
+    path.write_text("this is not a video, it is a note to self", encoding="utf-8")
     with pytest.raises(AppErrorException) as caught:
-        converter.run_media_tool("ffprobe", ["-i", "x.mp4"], timeout_s=5)
+        media_tools.probe(path)
+    assert caught.value.error.code == "ERR_MEDIA_PROBE_FAILED"
+    assert str(path) in caught.value.error.message
+
+
+def test_the_status_says_which_version_of_the_reader_is_here():
+    pytest.importorskip("av")
+    status = media_tools.tools_status()
+    assert list(status) == ["av"] and status["av"]
+    assert media_tools.available()
+
+
+# ==========================================================================
+# No ffmpeg program, one library
+# ==========================================================================
+
+def test_ffmpeg_is_not_an_allowed_program():
+    """Decided and measured 2026-09-20: PyAV reads the container in 0.1 s and scans
+    an 87-minute film's keyframes in 14 s, and `faster-whisper` needs PyAV anyway,
+    so a second copy of FFmpeg as a program bought nothing. Putting either name back
+    on the list is a decision with a diff, and this is what makes it visible."""
+    assert not {"ffmpeg", "ffprobe"} & converter.ALLOWED_BINARIES
+    assert not {"ffmpeg", "ffprobe"} & set(converter._WINDOWS_LOCATIONS)
+    assert not hasattr(converter, "run_media_tool")
+    assert converter.resolve_binary("ffmpeg") is None
+
+
+def test_a_missing_reader_says_what_to_install(monkeypatch):
+    no_pyav(monkeypatch)
+    with pytest.raises(AppErrorException) as caught:
+        media_tools.probe(Path("x.mp4"))
     error = caught.value.error
     assert error.code == "ERR_MEDIA_TOOLS_MISSING"
-    assert "winget install --id Gyan.FFmpeg" in (error.action_payload or "")
-    assert error.suggestion
+    assert "pip install av==18.1.0" in (error.action_payload or "")
+    assert error.suggestion and "PyAV" in error.message
 
 
-def test_the_process_is_started_without_a_shell_and_with_a_list(monkeypatch):
-    seen = {}
-
-    def fake_run(command, **kwargs):
-        seen.update(command=command, **kwargs)
-        return subprocess.CompletedProcess(command, 0, b"", b"")
-
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: rf"C:\ff\{name}.exe")
-    monkeypatch.setattr(converter.subprocess, "run", fake_run)
-    converter.run_media_tool("ffprobe", ["-i", "a file; rm -rf.mp4"], timeout_s=10_000_000)
-    assert seen["shell"] is False
-    assert isinstance(seen["command"], list) and seen["command"][-1] == "a file; rm -rf.mp4"
-    assert seen["timeout"] == converter.MAX_MEDIA_TIMEOUT_S
-
-
-def test_no_module_imports_an_ffmpeg_binding():
-    """FFmpeg's licence depends on how a build was configured. Running the program
-    is aggregation; linking it would not be, and the application is MIT."""
-    banned = {"av", "ffmpeg", "imageio_ffmpeg", "moviepy", "pydub", "ffmpeg_python", "pyav"}
-    offenders = []
+def _python_files():
     for path in (ROOT / "app").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = []
-            if isinstance(node, ast.Import):
-                names = [a.name.split(".")[0] for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module.split(".")[0]]
-            offenders += [f"{path.name}: {n}" for n in names if n in banned]
+        yield path, ast.parse(path.read_text(encoding="utf-8"))
+
+
+def _imports(tree):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            yield from (a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            yield node.module
+
+
+def test_only_the_media_modules_import_pyav():
+    """**The rule changed on 2026-09-20 and this is the new one.** It used to ban
+    every FFmpeg binding, so that FFmpeg would only ever be aggregated. That bought
+    no licence separation once `faster-whisper` (which needs `av` to decode audio)
+    was in the picture - see `docs/THIRD_PARTY_NOTICES.md` - so PyAV is now the one
+    way in, kept in one module so its use is one place to read, test and replace.
+    Every *other* FFmpeg wrapper stays banned: a second binding is a second
+    dependency and a second set of DLLs for nothing."""
+    other = {"ffmpeg", "imageio_ffmpeg", "moviepy", "pydub", "ffmpeg_python", "pyav",
+             "vlc", "mpv"}
+    offenders, av_users = [], set()
+    for path, tree in _python_files():
+        for name in _imports(tree):
+            top = name.split(".")[0]
+            if top == "av":
+                av_users.add(path.name)
+            elif top in other:
+                offenders.append(f"{path.name}: {name}")
     assert not offenders
+    assert av_users <= {"media_tools.py"}, av_users
+
+
+def test_no_module_encodes_media():
+    """Leasha only decodes, which is what keeps the libx264/libx265 question in
+    `docs/THIRD_PARTY_NOTICES.md` a question about a wheel rather than a question
+    about Leasha. Opening a stream for writing, or asking for an encoder, is the
+    change that would make it Leasha's."""
+    for path, _tree in _python_files():
+        source = path.read_text(encoding="utf-8")
+        for needle in ("add_stream(", '"libx264"', "'libx264'", '"libx265"',
+                       "'libx265'", 'av.open(str(path), "w")'):
+            assert needle not in source, f"{path.name} mentions {needle}"
+
+
+def test_the_bundled_ffmpeg_still_reports_lgpl():
+    """The licence statement in `docs/THIRD_PARTY_NOTICES.md` is read from the wheel
+    itself: `avutil_license()` in its own DLL. If a future `av` bundles a GPL build
+    this fails, and the notice has to be revisited before anything else."""
+    import ctypes
+
+    av = pytest.importorskip("av")
+    if os.name != "nt":
+        pytest.skip("reads the wheel's Windows DLL")
+    libs = Path(av.__file__).resolve().parent.parent / "av.libs"
+    dlls = sorted(libs.glob("avutil-*.dll"))
+    if not dlls:
+        pytest.skip("this av build does not bundle its libraries in av.libs")
+    handle = ctypes.CDLL(str(dlls[0]))
+    handle.avutil_license.restype = ctypes.c_char_p
+    licence = handle.avutil_license().decode()
+    assert licence.startswith("LGPL"), licence
 
 
 # ==========================================================================
@@ -404,8 +587,9 @@ def test_speech_is_left_out_when_its_switch_is_off(tmp_path, tools, frames):
 
 
 def test_an_audio_file_is_layer_two_with_no_pictures(tmp_path, monkeypatch):
-    fake = FakeTools(probe=probe_json(video=False, created="2020-02-02T10:00:00Z", location=""))
-    monkeypatch.setattr(converter, "run_media_tool", fake)
+    fake = FakeMedia(info=probe_info(video=False, created="2020-02-02T10:00:00Z", location=""))
+    monkeypatch.setattr(media_tools, "probe", fake.probe)
+    monkeypatch.setattr(media_tools, "extract_keyframes", fake.extract_keyframes)
     use_engine(FakeEngine())
     media.configure(enabled(tmp_path))
     (document,) = list(extract(make_wav(tmp_path)))
@@ -413,12 +597,12 @@ def test_an_audio_file_is_layer_two_with_no_pictures(tmp_path, monkeypatch):
     assert "The treasure is under the oak tree" in document.text
     assert document.meta["layers"] == ["metadata", "speech"]
     assert document.meta["read_by"] == "whisper"
-    assert not any(name == "ffmpeg" for name, _ in fake.calls)      # no pictures asked for
+    assert not any(name == "keyframes" for name, _ in fake.calls)      # no pictures asked for
     assert "keyframes" not in document.meta
 
 
-def test_a_recording_is_transcribed_even_when_ffprobe_is_not_installed(tmp_path, monkeypatch):
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+def test_a_recording_is_transcribed_even_when_pyav_is_not_installed(tmp_path, monkeypatch):
+    no_pyav(monkeypatch)
     use_engine(FakeEngine())
     media.configure(enabled(tmp_path))
     (document,) = list(extract(make_wav(tmp_path)))
@@ -430,19 +614,19 @@ def test_a_recording_is_transcribed_even_when_ffprobe_is_not_installed(tmp_path,
 # Absent is a state, not a crash
 # ==========================================================================
 
-def test_a_video_with_no_ffmpeg_is_one_skip_that_names_the_fix(tmp_path, monkeypatch):
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+def test_a_video_with_no_pyav_is_one_skip_that_names_the_fix(tmp_path, monkeypatch):
+    no_pyav(monkeypatch)
     media.configure(enabled(tmp_path))
     with pytest.raises(AppErrorException) as caught:
         list(extract(make_video(tmp_path)))
     error = caught.value.error
     assert error.code == "ERR_MEDIA_TOOLS_MISSING"
-    assert "ffprobe" in error.message
-    assert error.action_payload == "winget install --id Gyan.FFmpeg -e"
+    assert "PyAV" in error.message
+    assert error.action_payload == r"venv\Scripts\python.exe -m pip install av==18.1.0"
 
 
-def test_a_recording_with_no_speech_package_and_no_ffprobe_says_what_to_install(tmp_path, monkeypatch):
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+def test_a_recording_with_no_speech_package_and_no_pyav_says_what_to_install(tmp_path, monkeypatch):
+    no_pyav(monkeypatch)
     monkeypatch.setattr(transcribe, "available", lambda: False)
     media.configure(enabled(tmp_path))
     with pytest.raises(AppErrorException) as caught:
@@ -462,7 +646,7 @@ def test_a_missing_model_is_named_and_never_downloaded(tmp_path, monkeypatch):
         except FileNotFoundError as exc:
             raise transcribe._classify_load_failure(exc, model, "memo.wav") from exc
 
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+    no_pyav(monkeypatch)
     transcribe.set_engine_factory(factory)
     media.configure(enabled(tmp_path, model="tiny"))
     with pytest.raises(AppErrorException) as caught:
@@ -485,14 +669,43 @@ def test_a_video_whose_speech_cannot_be_read_still_indexes_its_container(tmp_pat
     media.release_keyframes(document.meta)
 
 
-def test_a_damaged_file_is_one_skip(tmp_path, monkeypatch):
-    monkeypatch.setattr(converter, "run_media_tool",
-                        lambda *a, **k: subprocess.CompletedProcess([], 1, b"", b"moov atom not found"))
+def test_a_damaged_file_is_one_skip(tmp_path):
+    """Not faked: `make_video` writes an `ftyp` box and 400 junk bytes, which is
+    what a download cut off before its `moov` atom looks like to the real reader."""
+    pytest.importorskip("av")
     media.configure(enabled(tmp_path))
     with pytest.raises(AppErrorException) as caught:
         list(extract(make_video(tmp_path)))
     assert caught.value.error.code == "ERR_MEDIA_PROBE_FAILED"
-    assert "moov atom" in (caught.value.error.details or "")
+    assert caught.value.error.details
+
+
+def test_a_real_video_is_read_end_to_end_by_the_real_reader(tmp_path, monkeypatch):
+    """The whole of Layers 0 and 1 on a real file: PyAV opens it, takes the
+    pictures, and the words come from the (faked) OCR - only the speech model and
+    the OCR engine are stand-ins."""
+    pytest.importorskip("av")
+    seen: list[Path] = []
+    colour_words = {0: "Red slide", 1: "Green slide", 2: "Blue slide"}
+
+    def read(path):
+        seen.append(Path(path))
+        return media.FrameReading(text=colour_words[len(seen) - 1])
+
+    monkeypatch.setattr(media, "read_frame", read)
+    media.configure(media.MediaConfig(video_enabled=True, journal_dir=tmp_path / "j"))
+    path = make_real_video(tmp_path / "party.mp4")
+    (document,) = list(extract(path))
+    text = document.text
+    assert "Video: party.mp4" in text and "96x64" in text
+    assert "Recorded: 03 July 2019" in text and "Title: Ben's birthday" in text
+    assert "On screen: Red slide" in text and "On screen: Blue slide" in text
+    assert document.meta["layers"] == ["metadata", "keyframes"]
+    assert [round(t) for t, _p in document.meta["keyframes"]] == [0, 2, 4]
+    locate = document.anchor_lookup()
+    assert locate(text.index("Blue slide")) == "0:04"
+    media.release_keyframes(document.meta)
+    assert not any(p.exists() for p in seen)
 
 
 def test_a_failed_video_leaves_no_pictures_behind(tmp_path, tools, monkeypatch):
@@ -617,7 +830,8 @@ def test_a_media_box_holds_all_five_and_says_what_is_missing(monkeypatch):
 
     from app.ui.widgets.media_box import MediaBox, model_sentence, tools_sentence
 
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+    monkeypatch.setattr(media_tools, "available", lambda: False)
+    monkeypatch.setattr(media_tools, "version", lambda: None)
     monkeypatch.setattr(transcribe, "available", lambda: False)
     QApplication.instance() or QApplication([])
 
@@ -636,11 +850,14 @@ def test_a_media_box_holds_all_five_and_says_what_is_missing(monkeypatch):
     assert box.values() == {
         "VIDEO_INDEXING_ENABLED": True, "AUDIO_TRANSCRIPTION_ENABLED": False,
         "TRANSCRIBE_MODEL": "small", "VIDEO_KEYFRAME_INTERVAL_S": 30, "VIDEO_KEYFRAME_CAP": 50}
-    assert "winget install --id Gyan.FFmpeg -e" in box.tools_note.text()
+    assert "pip install av==18.1.0" in box.tools_note.text()
+    # The cost, in minutes and from the measured figures, is always on show.
+    assert "What it costs" in box.cost_note.text()
+    assert transcribe.cost_sentence() in box.cost_note.text()
     assert "pip install faster-whisper" in box.speech_note.text()
     assert "download_model('small')" in box.model_note.text()
     assert "restart" in box.restart_note.text().lower() or "starts" in box.restart_note.text()
-    assert "found" in tools_sentence({"ffmpeg": "C:/x/ffmpeg.exe", "ffprobe": "C:/x/ffprobe.exe"})
+    assert "ready" in tools_sentence({"av": "18.1.0"}) and "18.1.0" in tools_sentence({"av": "18.1.0"})
     assert "downloaded" in model_sentence("base", True)
 
 
@@ -661,7 +878,8 @@ def test_opening_the_box_writes_nothing():
 def test_the_status_report_is_honest_on_a_bare_machine(monkeypatch, tmp_path):
     from app.cli.media import status_report
 
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+    monkeypatch.setattr(media_tools, "available", lambda: False)
+    monkeypatch.setattr(media_tools, "version", lambda: None)
     monkeypatch.setattr(transcribe, "available", lambda: False)
 
     class S:
@@ -672,7 +890,8 @@ def test_the_status_report_is_honest_on_a_bare_machine(monkeypatch, tmp_path):
     assert report["video_ready"] is False and report["audio_ready"] is False
     assert report["model_downloaded"] is False
     assert report["settings"]["VIDEO_INDEXING_ENABLED"] is False
-    assert "winget" in report["fix"]["ffmpeg"] and "faster-whisper" in report["fix"]["faster_whisper"]
+    assert "install av==18.1.0" in report["fix"]["av"] and "faster-whisper" in report["fix"]["faster_whisper"]
+    assert report["speech_throughput"]["realtime_factor"] == transcribe.MEASURED_REALTIME_FACTOR
 
 
 def test_the_media_command_is_registered():
@@ -810,7 +1029,7 @@ def test_a_transcript_passage_is_findable_by_keyword(tmp_path, tools, frames):
 
 
 def test_the_run_finishes_when_the_tools_are_missing_and_the_ledger_names_the_fix(tmp_path, monkeypatch):
-    monkeypatch.setattr(converter, "resolve_binary", lambda name: None)
+    no_pyav(monkeypatch)
     root = _corpus(tmp_path)
     with SqliteStore(tmp_path / "index.db") as store:
         stats = _pipeline(store, root, config=enabled(tmp_path)).run()
@@ -904,3 +1123,343 @@ def test_a_film_is_not_too_big_to_read_but_a_big_text_file_still_is(tmp_path):
     found = {c.path.name: c for c in walk(WalkConfig(roots=[tmp_path], max_file_bytes=100))}
     assert found["big.mp4"].readable is True
     assert found["huge.txt"].readable is False
+
+
+# ==========================================================================
+# The backlog: videos and recordings are read after everything else
+# ==========================================================================
+
+def test_a_normal_run_reads_the_video_only_after_every_document(tmp_path, tools, frames):
+    """The point of the backlog kind: the film does not stand in front of the
+    spreadsheets. Asked from inside the speech engine - the most expensive thing
+    the run does - whether the ordinary file is already indexed."""
+    root = _corpus(tmp_path)
+    seen: dict[str, object] = {}
+
+    class Watcher(FakeEngine):
+        def transcribe(self, path, start_s=0.0):
+            record = store_ref[0].get_file(str(root / "notes.txt"))
+            seen["notes_when_speech_started"] = record.status if record else None
+            yield from super().transcribe(path, start_s)
+
+    store_ref: list = []
+    use_engine(Watcher())
+    with SqliteStore(tmp_path / "index.db") as store:
+        store_ref.append(store)
+        stats = _pipeline(store, root, config=enabled(tmp_path)).run()
+        video = store.get_file(str(root / "holiday.mp4"))
+    assert seen["notes_when_speech_started"] == FileStatus.INDEXED
+    assert video.status == FileStatus.INDEXED
+    assert stats.enrichment_counts["media_transcript"] == 1
+    assert stats.indexed == 2 and not stats.skipped_by_code
+    assert any("read in the background" in note for note in stats.notices)
+
+
+def test_the_main_pass_only_queues_the_video_and_says_so_in_the_ledger(tmp_path, tools, monkeypatch):
+    from app.index import media_backlog
+
+    monkeypatch.setattr(media_backlog, "drain", lambda *a, **k: None)   # the tail never comes
+    root = _corpus(tmp_path)
+    with SqliteStore(tmp_path / "index.db") as store:
+        stats = _pipeline(store, root, config=enabled(tmp_path)).run()
+        row = store.get_file(str(root / "holiday.mp4"))
+    assert tools.calls == []                                # nothing was opened
+    assert row.skip_code == "ERR_MEDIA_BACKLOG"
+    assert stats.skipped_by_code == {"ERR_MEDIA_BACKLOG": 1}
+    assert "ERR_MEDIA_BACKLOG" in Pipeline.DEFERRED_SKIP_CODES
+
+
+def test_a_queued_recording_is_read_by_the_next_run_even_from_another_folder(tmp_path, tools, frames, monkeypatch):
+    """The queue is the ledger, not the walk: a run over some *other* folder still
+    empties the backlog, so a night's stopped run is finished by any later run."""
+    from app.index import media_backlog
+
+    root = _corpus(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "a.txt").write_text("nothing to do with films", encoding="utf-8")
+    use_engine(FakeEngine())
+    real_drain = media_backlog.drain
+    monkeypatch.setattr(media_backlog, "drain", lambda *a, **k: None)
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root, config=enabled(tmp_path)).run()
+        assert store.get_file(str(root / "holiday.mp4")).skip_code == "ERR_MEDIA_BACKLOG"
+
+        monkeypatch.setattr(media_backlog, "drain", real_drain)
+        stats = _pipeline(store, elsewhere, config=enabled(tmp_path)).run()
+        done = store.get_file(str(root / "holiday.mp4"))
+    assert done.status == FileStatus.INDEXED and done.skip_code is None
+    assert stats.enrichment_counts["media_transcript"] == 1
+
+
+def test_a_stopped_run_leaves_the_queue_alone_and_says_what_is_waiting(tmp_path, tools, frames):
+    root = _corpus(tmp_path)
+    use_engine(FakeEngine())
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, root, config=enabled(tmp_path))
+        original = pipeline._drain_media_backlog
+        pipeline._drain_media_backlog = lambda stats, on_progress=None: (
+            pipeline.request_stop(), original(stats, on_progress))[1]
+        stats = pipeline.run()
+        row = store.get_file(str(root / "holiday.mp4"))
+    assert row.skip_code == "ERR_MEDIA_BACKLOG" and row.status != FileStatus.INDEXED
+    assert stats.enrichment_counts["media_transcript"] == 0
+    assert stats.skipped_by_code == {"ERR_MEDIA_BACKLOG": 1}
+
+
+def test_a_switched_off_kind_is_not_read_from_the_queue(tmp_path, tools, frames):
+    """A `.mp4` queued while videos were on stays queued, not read, once they are off."""
+    from app.index import media_backlog
+
+    root = _corpus(tmp_path)
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_id = store.upsert_file(str(root / "holiday.mp4"), size_bytes=400, mtime_ns=1)
+        store.mark_skipped(file_id, make_error(
+            "ERR_MEDIA_BACKLOG", "test", path=str(root / "holiday.mp4")))
+        media.configure(media.MediaConfig(video_enabled=False, audio_enabled=True))
+        assert media_backlog.queued_paths(store) == []
+        media.configure(media.MediaConfig(video_enabled=True))
+        assert media_backlog.queued_paths(store) == [root / "holiday.mp4"]
+
+
+def test_only_a_default_run_defers_and_only_media_whose_switch_is_on():
+    from app.index import media_backlog
+
+    on = PipelineConfig(walk=WalkConfig(roots=[]), media=media.MediaConfig(video_enabled=True))
+    media.configure(on.media)
+    assert media_backlog.defers(on, Path("a.mp4"))
+    assert not media_backlog.defers(on, Path("a.mp3"))          # recordings are off
+    assert not media_backlog.defers(on, Path("a.txt"))
+    assert not media_backlog.defers(
+        PipelineConfig(walk=WalkConfig(roots=[]), media=on.media, ocr_mode="text"), Path("a.mp4"))
+    assert not media_backlog.defers(
+        PipelineConfig(walk=WalkConfig(roots=[]), media=on.media, ocr_mode="images"), Path("a.mp4"))
+    assert not media_backlog.defers(PipelineConfig(walk=WalkConfig(roots=[])), Path("a.mp4"))
+
+
+# ==========================================================================
+# Per-frame CLIP: which minute, not only which film
+# ==========================================================================
+
+def _unit(*values):
+    norm = math.sqrt(sum(v * v for v in values)) or 1.0
+    return [v / norm for v in values]
+
+
+def test_each_picture_of_a_film_is_searchable_by_file_and_second(tmp_path):
+    pytest.importorskip("lancedb")
+    from app.storage.vector_store import ImageVectorStore
+
+    with ImageVectorStore(tmp_path / "vec", dim=4) as images:
+        frames_table = images.video_frames()
+        rows = frames_table.replace_frames(
+            7, [(0.0, _unit(1, 0, 0, 0)), (30.5, _unit(0, 1, 0, 0)), (95.25, _unit(0, 0, 1, 0))],
+            ext="mp4", mtime_ns=5)
+        assert rows == 3
+        best = frames_table.search_frames(_unit(0, 1, 0.05, 0), k=3)
+        assert (best[0].file_id, best[0].seconds) == (7, 30)
+        assert len(best) == 3
+
+        # A re-read film has different pictures: the old ones must not linger.
+        frames_table.replace_frames(7, [(10.0, _unit(0, 0, 0, 1))])
+        after = frames_table.search_frames(_unit(0, 1, 0, 0), k=10)
+        assert {(h.file_id, h.seconds) for h in after} == {(7, 10)}
+
+
+def test_two_films_do_not_share_a_moment_and_deleting_a_file_deletes_its_frames(tmp_path):
+    pytest.importorskip("lancedb")
+    from app.storage.vector_store import ImageVectorStore
+
+    with ImageVectorStore(tmp_path / "vec", dim=4) as images:
+        images.add_images([7, 8], [_unit(1, 0, 0, 0), _unit(0, 1, 0, 0)])
+        table = images.video_frames()
+        table.replace_frames(7, [(5.0, _unit(1, 0, 0, 0))])
+        table.replace_frames(8, [(5.0, _unit(0, 1, 0, 0))])
+        found = {(h.file_id, h.seconds) for h in table.search_frames(_unit(1, 1, 0, 0), k=10)}
+        assert found == {(7, 5), (8, 5)}                    # same second, different films
+
+        images.delete_by_file_ids([7])                      # the one call every deletion makes
+        left = {(h.file_id, h.seconds) for h in table.search_frames(_unit(1, 1, 0, 0), k=10)}
+        assert left == {(8, 5)}
+
+
+def test_the_pipeline_writes_a_row_per_picture_beside_the_mean(tmp_path, tools, frames):
+    pytest.importorskip("lancedb")
+    from app.storage.vector_store import ImageVectorStore
+
+    use_engine(FakeEngine())
+    root = _corpus(tmp_path)
+    clip = FakeImageEmbedder()
+    with ImageVectorStore(tmp_path / "vec", dim=4) as images, \
+            SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root, config=enabled(tmp_path),
+                  image_embedder=clip, image_vectors=images).run()
+        video_id = store.get_file(str(root / "holiday.mp4")).id
+        table = images.video_frames()
+        hits = table.search_frames([0.0, 1.0, 0.0, 0.0], k=10)
+        mean = images.vector_for(video_id)
+    assert {(h.file_id, h.seconds) for h in hits} == {(video_id, 0), (video_id, 30), (video_id, 95)}
+    assert (hits[0].file_id, hits[0].seconds) == (video_id, 30)     # the 2nd picture is [0,1,0,0]
+    assert mean is not None and len(mean) == 4                      # and the mean is still written
+
+
+def test_a_failure_writing_frames_never_costs_the_video_its_mean(tmp_path, tools, frames):
+    use_engine(FakeEngine())
+    root = _corpus(tmp_path)
+    vectors = FakeImageVectors()
+
+    def refuse():
+        raise RuntimeError("lance is unhappy")
+
+    vectors.video_frames = refuse
+    with SqliteStore(tmp_path / "index.db") as store:
+        stats = _pipeline(store, root, config=enabled(tmp_path),
+                          image_embedder=FakeImageEmbedder(), image_vectors=vectors).run()
+        record = store.get_file(str(root / "holiday.mp4"))
+    assert record.status == FileStatus.INDEXED and stats.indexed == 2
+    assert len(vectors.rows) == 1                                   # the mean was written
+
+
+# ==========================================================================
+# Faces on video frames, behind the people-recognition switch
+# ==========================================================================
+
+class Detection:
+    def __init__(self, embedding, bbox=(10.0, 10.0, 40.0, 40.0)):
+        import numpy as np
+
+        self.embedding = np.asarray(embedding, dtype="float32").tobytes()
+        self.bbox = bbox
+        self.confidence = 0.99
+
+
+def _people(tmp_path, *, on, monkeypatch, detector=None):
+    """A video run with a fake face detector; returns (faces, scan rows, detector calls)."""
+    from app.extract import face_detect
+
+    calls: list[str] = []
+
+    def fake(path):
+        calls.append(Path(path).name)
+        return detector(len(calls)) if detector else []
+
+    monkeypatch.setattr(face_detect, "available", lambda: True)
+    monkeypatch.setattr(face_detect, "detect_faces", fake)
+    use_engine(FakeEngine())
+    root = _corpus(tmp_path)
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root, config=enabled(tmp_path), people_recognition_enabled=on,
+                  image_embedder=FakeImageEmbedder(), image_vectors=FakeImageVectors()).run()
+        video_id = store.get_file(str(root / "holiday.mp4")).id
+        faces = store.faces_for_file(video_id)
+        scanned = store.conn.execute(
+            "SELECT COUNT(*) FROM face_scans WHERE file_id = ?", (video_id,)).fetchone()[0]
+    return faces, scanned, calls
+
+
+def test_off_by_default_no_face_code_touches_a_video(tmp_path, tools, frames, monkeypatch):
+    faces, scanned, calls = _people(tmp_path, on=False, monkeypatch=monkeypatch,
+                                    detector=lambda n: [Detection([1, 0, 0, 0])])
+    assert calls == [] and faces == [] and scanned == 0
+
+
+def test_switched_on_each_picture_is_scanned_and_a_person_seen_twice_is_one_face(
+        tmp_path, tools, frames, monkeypatch):
+    """Three pictures: person A, person A again (a little different), and person B."""
+    seen = {1: [1, 0, 0, 0], 2: [0.98, 0.15, 0, 0], 3: [0, 1, 0, 0]}
+    faces, scanned, calls = _people(
+        tmp_path, on=True, monkeypatch=monkeypatch,
+        detector=lambda n: [Detection(_unit(*seen[n]))])
+    assert calls == ["kf_00001.jpg", "kf_00002.jpg", "kf_00003.jpg"]
+    assert len(faces) == 2
+    assert scanned == 1                          # "looked" is recorded, so nobody re-asks
+
+
+def test_a_picture_the_detector_chokes_on_costs_only_that_picture(tmp_path, tools, frames, monkeypatch):
+    def detector(n):
+        if n == 1:
+            raise RuntimeError("bad frame")
+        return [Detection(_unit(0, 0, 1, 0))]
+
+    faces, scanned, calls = _people(tmp_path, on=True, monkeypatch=monkeypatch, detector=detector)
+    assert len(calls) == 3 and len(faces) == 1 and scanned == 1
+
+
+def test_a_film_cannot_write_an_unbounded_number_of_faces():
+    from app.index import video_frames
+
+    class Store:
+        scanned = False
+
+        def __init__(self):
+            self.rows = []
+
+        def add_face(self, file_id, bbox, embedding):
+            self.rows.append(embedding)
+
+        def mark_face_scanned(self, file_id):
+            self.scanned = True
+
+    store = Store()
+    # 40 mutually different "people": orthogonal unit vectors.
+    crowd = [Detection([1.0 if i == j else 0.0 for j in range(40)]) for i in range(40)]
+    written = video_frames.detect_faces(store, 1, ["a.jpg"], detector=lambda p: crowd)
+    assert written == video_frames.MAX_FACES_PER_VIDEO == len(store.rows) and store.scanned
+
+
+def test_a_stopped_scan_is_not_marked_as_finished():
+    from app.index import video_frames
+
+    class Store:
+        marked = False
+
+        def add_face(self, *args):
+            pass
+
+        def mark_face_scanned(self, file_id):
+            self.marked = True
+
+    store = Store()
+    video_frames.detect_faces(store, 1, ["a.jpg", "b.jpg"], detector=lambda p: [],
+                              should_stop=lambda: True)
+    assert store.marked is False
+
+
+def test_a_re_read_film_forgets_the_faces_of_its_old_pictures(tmp_path):
+    with SqliteStore(tmp_path / "i.db") as store:
+        file_id = store.upsert_file("D:/v/a.mp4", size_bytes=1, mtime_ns=1)
+        store.add_face(file_id, (0.0, 0.0, 1.0, 1.0), b"\x00" * 16)
+        store.mark_face_scanned(file_id)
+        assert store.clear_faces_for_file(file_id) == 1
+        assert store.faces_for_file(file_id) == []
+        assert store.conn.execute("SELECT COUNT(*) FROM face_scans").fetchone()[0] == 0
+
+
+def test_media_find_says_which_film_and_which_minute(tmp_path):
+    """`python -m app.cli media --find`: the headless proof of the per-picture lane."""
+    pytest.importorskip("lancedb")
+    from app.cli.media import moments_for
+    from app.storage.vector_store import ImageVectorStore
+
+    class Text:
+        def embed(self, texts):
+            return [_unit(0, 1, 0, 0) for _ in texts]
+
+    with ImageVectorStore(tmp_path / "vec", dim=4) as images, \
+            SqliteStore(tmp_path / "i.db") as store:
+        cake = store.upsert_file("D:/v/party.mp4", size_bytes=1, mtime_ns=1)
+        walk = store.upsert_file("D:/v/walk.mp4", size_bytes=1, mtime_ns=1)
+        frames_table = images.video_frames()
+        frames_table.replace_frames(cake, [(0.0, _unit(1, 0, 0, 0)), (761.0, _unit(0, 1, 0, 0))])
+        frames_table.replace_frames(walk, [(65.0, _unit(0, 0.7, 0.7, 0))])
+        found = moments_for("a birthday cake", Text(), frames_table, store, limit=5)
+    assert (found[0]["path"], found[0]["at"]) == ("D:/v/party.mp4", "12:41")
+    assert [f["path"] for f in found][1] == "D:/v/walk.mp4"
+    assert found[0]["distance"] <= found[1]["distance"]
+
+
+def test_the_find_option_is_registered():
+    from app.cli import build_parser
+
+    args = build_parser().parse_args(["media", "--find", "a cake", "--limit", "3"])
+    assert args.find == "a cake" and args.limit == 3

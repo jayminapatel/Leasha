@@ -18,6 +18,32 @@ EXIT_ERROR = 1
 EXIT_NOT_IMPLEMENTED = 2
 
 
+def make_console_safe() -> None:
+    """A result the console cannot draw is shown as `?`, never a traceback.
+
+    **Found 2026-09-20 running `app.cli search` over a video.** Text read out of
+    a film's pictures held a Chinese character; Windows Python encodes stdout with
+    the ANSI code page (cp1252) whenever it is a pipe or a redirect - and often in
+    a terminal too - so printing the hit raised `UnicodeEncodeError` **after the
+    search had succeeded**, with the answer on screen and a stack trace under it.
+    Any indexed text can hold any character; a command that prints indexed text
+    must not depend on the console being able to draw it.
+
+    `errors="replace"` and not a forced UTF-8: reconfiguring the encoding would
+    turn every correct cp1252 character into mojibake for a person whose console
+    is cp1252, which is most of them. Never raises (a stream without
+    `reconfigure` - a test's `StringIO` - is left alone).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def _report(error: AppError, as_json: bool) -> int:
     """Print an AppError to the console in the requested shape."""
     if as_json:
