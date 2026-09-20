@@ -121,6 +121,15 @@ class ResultsView(QWidget):
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.setDragEnabled(True)          # §3b; see `set_drag_enabled`
         self._list.setUniformItemSizes(False)
+        # **Rows follow the list's width, both ways.** `QListView` lays out once
+        # (`ResizeMode.Fixed`) and keeps that width, so opening the preview and
+        # inspector - which narrows the list from 269 to 207 - left every row
+        # 62px wider than its viewport: the date, the path and the snippet were
+        # clipped at the edge and a horizontal scrollbar appeared. Measured on
+        # the real window on 2026-09-20. Text is elided, so nothing ever needs
+        # to scroll sideways.
+        self._list.setResizeMode(QListView.ResizeMode.Adjust)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._list.setMouseTracking(True)          # item 5a: hover needs it

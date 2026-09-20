@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.7 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 6.8 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1306,6 +1306,16 @@ the mailbox and the GUI could not, because one ran on the main thread and the ot
 extractors now declare `reads_externally` so those files are never read for a hash. More
 generally: nothing on the walker thread may raise, because one exception there abandons every
 file not yet reached and the run still reports success.
+
+**Look at the real window, not only the offscreen one.** Offscreen grabs are 100% scaling
+with another font, so they hid six faults that the owner's 125% screen showed at once (the
+pill's "Up to date" cut to "p to dat", a grey box behind every label, an unreadable toast,
+result rows wider than their pane). `tools/grab_ui.py` takes `QT_QPA_PLATFORM=windows` to
+use the real platform and fonts. Two things it taught: **the theme's `QWidget { background:
+window }` reaches labels**, so any label placed on a card needs the transparent rule that
+now sits under it; and **`QListView` never lays its rows out again after a resize** unless
+`ResizeMode.Adjust` is set. To read the actual taskbar, `PrintWindow` on the `Shell_TrayWnd`
+handle works (a screenshot does not, when another window is full-screen).
 
 **Filesystem timestamps have a resolution, and Windows' is coarse.** Two writes inside one tick
 share an mtime; if the edit preserves the file's size, no cheap check can see it. The walker

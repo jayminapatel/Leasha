@@ -61,11 +61,19 @@ class _Pill(QFrame):
         self.setToolTip("Open the Indexing page")
         self.setAccessibleName("Indexing")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        # 3px, not 6, and no side padding in the stylesheet either: the rail is
+        # 72 wide and the pill 60, so the old 6 + 4 a side left 40 for the
+        # headline - "Up to date" is 58px at 125% scaling, "Indexing" 48 - and it
+        # was cut to "p to dat".
+        layout.setContentsMargins(3, 6, 3, 6)
         layout.setSpacing(3)
         self.headline = QLabel("Index")
         self.headline.setObjectName("railPillHeadline")
         self.headline.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        # Wraps rather than clips: the headline is one of "Up to date",
+        # "Needs attention", "Indexing", "Paused", "Stopped", "Index" and the
+        # first two are wider than the pill at any scaling above 100%.
+        self.headline.setWordWrap(True)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
         self.bar.setRange(0, 1)
@@ -88,6 +96,29 @@ class _Pill(QFrame):
             self.bar.setRange(0, 1000)
             self.bar.setValue(int(round((fraction or (0.0 if state.busy else 1.0)) * 1000)))
         self.setAccessibleName(f"Indexing. {state.headline}. {state.detail}".strip())
+        self._fit_wrapped_text()
+
+    def _fit_wrapped_text(self) -> None:
+        """Give each wrapped label the height its wrapped text needs.
+
+        A word-wrapped label inside a frame inside the rail's column reports the
+        height of *one* line to the layouts above it, so a headline that wrapped
+        to two was cut off at the pill's edge. Asking the label what it needs at
+        the width it actually has, and holding it to that, does not depend on
+        how far up the height-for-width request gets.
+        """
+        for label in (self.headline, self.detail):
+            width = label.width()
+            if width > 0 and label.wordWrap():
+                label.setMinimumHeight(label.heightForWidth(width))
+
+    def resizeEvent(self, event: Any) -> None:                 # noqa: N802
+        super().resizeEvent(event)
+        self._fit_wrapped_text()
+
+    def showEvent(self, event: Any) -> None:                   # noqa: N802
+        super().showEvent(event)
+        self._fit_wrapped_text()
 
     def mousePressEvent(self, event: Any) -> None:      # noqa: N802
         self.activated.emit()

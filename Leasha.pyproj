@@ -610,6 +610,7 @@
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
+    <Compile Include="tests\unit\test_pst_resilience.py" />
     <Compile Include="tests\unit\test_quantize_model.py" />
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
@@ -693,6 +694,7 @@
     <Compile Include="tests\unit\test_tray.py" />
     <Compile Include="tests\unit\test_tuning.py" />
     <Compile Include="tests\unit\test_tuning_screen.py" />
+    <Compile Include="tests\unit\test_ui_aesthetics.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
     <Compile Include="tests\unit\test_ui_redesign.py" />
@@ -718,6 +720,7 @@
     <Compile Include="tests\unit\test_worker_calls.py" />
     <Compile Include="tests\unit\test_write_batching.py" />
     <Compile Include="tools\__init__.py" />
+    <Compile Include="tools\bench_results_paint.py" />
     <Compile Include="tools\grab_ui.py" />
     <Compile Include="tools\nightly.py" />
     <Compile Include="tools\nightly_probe.py" />
@@ -848,6 +851,7 @@
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
+    <Content Include="docs\WORKORDER-pst-resilience.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />

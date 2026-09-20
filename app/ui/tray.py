@@ -27,7 +27,7 @@ from typing import Any, Optional
 
 __all__ = [
     "icon_path", "tray_icon_path", "install_window_icon",
-    "set_app_user_model_id", "TrayPresence",
+    "set_app_user_model_id", "set_window_relaunch", "TrayPresence",
     "ICON_FILE", "TRAY_ICON_FILE",
 ]
 
@@ -65,6 +65,45 @@ def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
             app_id)
+        return True
+    except Exception:                             # noqa: BLE001 - cosmetic only
+        return False
+
+
+def set_window_relaunch(window_id: int) -> bool:
+    """Say how Windows should relaunch this window, and with which icon.
+
+    **The running button already has the icon** - checked on 2026-09-20 by
+    reading the real taskbar while the window was open. What was not checked, and
+    is the likely remaining gap, is a *pinned* button: pinning writes a shortcut,
+    and by default a shortcut takes its icon and command from the program it
+    launches, which here is `pythonw.exe`. These four properties on the window are
+    what Windows reads to build that shortcut from Leasha instead.
+    `RelaunchCommand` needs the app id beside it and a display name, so all four
+    are set together.
+
+    Windows-only, and a failure is cosmetic like the icon itself. A pin made
+    before this ran keeps whatever it was created with: unpin it and pin again.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        from win32com.propsys import propsys, pscon
+
+        root = Path(__file__).resolve().parents[2]
+        launcher = root / "leasha.cmd"
+        icon = icon_path()
+        if not launcher.is_file() or icon is None:
+            return False
+        store = propsys.SHGetPropertyStoreForWindow(int(window_id), propsys.IID_IPropertyStore)
+        for key, value in (
+            (pscon.PKEY_AppUserModel_ID, APP_USER_MODEL_ID),
+            (pscon.PKEY_AppUserModel_RelaunchCommand, f'"{launcher}"'),
+            (pscon.PKEY_AppUserModel_RelaunchIconResource, f"{icon},0"),
+            (pscon.PKEY_AppUserModel_RelaunchDisplayNameResource, "Leasha"),
+        ):
+            store.SetValue(key, propsys.PROPVARIANTType(value))
+        store.Commit()
         return True
     except Exception:                             # noqa: BLE001 - cosmetic only
         return False

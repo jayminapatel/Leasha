@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -144,13 +145,21 @@ class OfflineMediaView(QWidget):
         self.help_line.setWordWrap(True)
         self.help_line.setObjectName("offlineMediaHelp")
 
+        # **Text keeps its own height; the table takes the rest.** With the table
+        # hidden (no drive catalogued yet) the four wrapped labels were the only
+        # things that could grow, so the page's spare height was shared out
+        # between them and the intro, buttons and help sat a screen apart.
+        for label in (intro, self.empty, self.status_line, self.help_line):
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
         layout.addLayout(buttons)
         layout.addWidget(self.empty)
-        layout.addWidget(self.tree)
+        layout.addWidget(self.tree, 1)
         layout.addWidget(self.status_line)
         layout.addWidget(self.help_line)
+        layout.addStretch(0)     # the spare height when the table is hidden
 
         self._sync_buttons()
 
