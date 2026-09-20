@@ -368,13 +368,27 @@ class IndexWorker(QRunnable):
         that waiting on it - if the CLI got there first - cannot freeze the
         window; the failure arrives as an ordinary `failed` signal.
         """
+        from app.core.priority import background_thread
         from app.core.run_lock import GUI, IndexRunLock
 
+        def progress(payload: Any) -> None:
+            # **A copy, made here on the run's thread.** The live `IndexStats`
+            # is being written by the walker, the extraction threads and the
+            # consumer while the window reads it to paint - see `snapshot`.
+            snap = getattr(payload, "snapshot", None)
+            _emit(self.signals, "progress", snap() if callable(snap) else payload)
+
+        limits = getattr(getattr(self.pipeline, "config", None), "limits", None)
+        polite = bool(getattr(limits, "low_priority", True))
         try:
             with IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI):
-                stats = self.pipeline.run(
-                    on_progress=lambda payload: _emit(self.signals, "progress", payload)
-                )
+                # **This thread, and every thread the run starts, lowers itself
+                # - the process does not.** The window is in this process, and
+                # lowering the process lowered the window with it. See
+                # `app.core.priority`.
+                with background_thread(polite):
+                    self.pipeline.thread_priority_only = polite
+                    stats = self.pipeline.run(on_progress=progress)
             _emit(self.signals, "finished", stats)
         except Exception as exc:
             error = to_app_error(exc, "ui.index")

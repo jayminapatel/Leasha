@@ -46,6 +46,7 @@ from typing import Any, Iterable, Optional
 
 from app.core.errors import AppErrorException, make_error, raise_error
 from app.core.logging import logger
+from app.core.priority import child_creationflags
 
 __all__ = [
     "ALLOWED_BINARIES",
@@ -374,7 +375,8 @@ def run_media_tool(
             command, capture_output=True, timeout=limit, check=False,
             shell=False, cwd=cwd,
             # No console window flashing up per file on Windows.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                           | child_creationflags()),
         )
     except subprocess.TimeoutExpired:
         raise AppErrorException(make_error(
@@ -511,6 +513,9 @@ def convert(
         finished = subprocess.run(
             command, capture_output=True, timeout=limit, check=False, shell=False,
             cwd=str(outdir),
+            # Below normal while a window's run is active, as the process used
+            # to be: a thread's priority is not inherited by what it starts.
+            creationflags=child_creationflags(),
         )
     except subprocess.TimeoutExpired:
         holder.cleanup()
