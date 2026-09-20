@@ -64,7 +64,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0q | `202626271510` | The results, world class | **SHIPPED** | **25 / 0** | Closed 2026-09-16 - the last §8 item (the pytest-qt scenario sweep) was waiting on 0m's harness, which now exists; `test_gui_scenarios_results.py` closes it and found a real bug along the way (see the order's own dated note: an interim-to-full tier swap never actually kept the selected row, only the isolated widget test did - fixed in `search_view.py`) |
 | 0r | `202626271601` | The splash, and a fast lifecycle | RELEASED | 17 / 1 | §2b's deferral is built (Indexing and Settings are constructed after first paint, joining Mail and Code; Files and Search stay synchronous) but its <1.5 s target has not been measured on the owner's machine, so the item stays open. Known, unfixed: `_apply_theme` runs twice at startup; an F5 or file drop before the deferred build finishes is skipped |
 | 0s | `202626271137` | The seven adoptions — five-AI review | **SHIPPED** | **17 / 0** | Closed 2026-09-07 |
-| 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 24** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
+| 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 0** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
 | 0u | `202626191300` | Indexing that works - the measured causes of "55 days" | RELEASED | **20 / 5** | Built and merged 2026-09-19 in the session that wrote it. Open: 5b needs the owner's one-off `--retry-skipped` (79 `.ppt` rows are already recorded as skipped); 6d needs the next hang's stack dump; 6e needs the M6 vectors-before-marker ordering redesigned; the real-corpus ETA needs the owner's run; `EMBED_QUANTISED` is ON (owner's decision 2026-09-19) - going back costs a rebuild |
 | 0v | `pst-resilience` | PST resilience - an archive that is held open or slightly damaged | RELEASED | **11 / 7** | Raised and built 2026-09-20: a lock is now `ERR_FILE_LOCKED` (retried) not `ERR_FILE_CORRUPT` (settled), `auto` falls back to Outlook when libpff finds the file held, a bad message costs one message, and skipped items are counted (`ERR_PST_PARTIAL`, the CLI `Partial` line). **Open:** 1e and 6c are owner-run - how Outlook holds a `.pst` is unmeasured, and no damaged archive has been tried; 3d/3e (Indexing-tab display, a warning lost on an unchanged last message), 4a (retry a partial read - owner's call), 5a, 6b (full suite) |
 
@@ -283,11 +283,11 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `terabyte-scale` | Indexing 600GB, heading for 1.5TB | HELD *(inferred)* | 16 / 6 | — |
 | `owner-pst-scale-run` | The PST scale run | HELD *(inferred)* | 0 / 4 | Owner-run, not code |
 | `libraries-before-converters` | Libraries first, converters only where none exists | SHIPPED *(doctrine)* | 0 / 8 | Now non-negotiable #12 |
-| `everything-tunable-has-a-ui` | Every tunable has a UI | SHIPPED *(doctrine)* | 0 / 6 | Now non-negotiable #11 |
+| `everything-tunable-has-a-ui` | Every tunable has a UI | SHIPPED *(doctrine)* | 5 / 1 | Now non-negotiable #11. Recounted 2026-09-20 (was written 0 / 6). The one open box is the orphaned `history_cleared` signal - see the order's own note |
 | `zip-archives` | Every file findable, reading inside `.zip` | SHIPPED | **39 / 0** | — |
 | `202626081106` | Wildcards without growing the index | SHIPPED | **29 / 0** | — |
-| `file-types-and-ocr` | Config-driven file types, format editor | SHIPPED | 21 / 1 | — |
-| `scope-change-search-and-chat` | Scope change — plain-English local search | SHIPPED | 8 / 1 | The decision that defines the product |
+| `file-types-and-ocr` | Config-driven file types, format editor | SHIPPED | 22 / 0 | Recounted 2026-09-20 (was written 21 / 1); Status line backfilled in the order |
+| `scope-change-search-and-chat` | Scope change — plain-English local search | SHIPPED | 9 / 0 | The decision that defines the product. Recounted 2026-09-20 (was written 8 / 1) |
 | `202626081439` | A reset must leave nothing behind | SHIPPED *(inferred)* | 0 / 0 | — |
 | `202626081059` | Search does not do what a person expects | SHIPPED *(inferred)* | 0 / 0 | — |
 | `inbound-ui-fixes` | Three finished UI fixes | SHIPPED *(inferred)* | 0 / 0 | — |
