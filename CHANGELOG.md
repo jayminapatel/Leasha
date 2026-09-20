@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.24 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 4.25 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,91 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The outstanding-work pass, 2026-09-20 - what was fixed, built and decided
+
+Twelve agents worked in parallel from the lists in `HANDOFF.md` and the order register; every
+item below has a test that fails without it or a measured number. Orders carry the detail.
+
+**Fixed**
+
+- **`pump /oldest` (one symbol-shaped word plus `/oldest` or `/newest`) came back in relevance
+  order with no notice.** An explicit date sort now wins.
+- **A file-type browse (`type:pdf`, no words) took 80 ms at 200,000 files; it takes 1.4 ms.**
+  A type with no matches stays instant; a rare type pays a small bounded probe first.
+- **A worker that raised an exception could leave an index run polling for ever.** The run now
+  finishes, counts the file as failed, and says so.
+- **A stop in the middle of a batch waited for the whole batch.** It is bounded now.
+- **Closing the main window did not end the app while a pop-out or log window was open.**
+  Every window it owns now closes with it. (One cause of the "window closed, process ran for
+  hours" report; the 2026-09-17 nine-hour case itself is still unexplained.)
+- **A conversion whose LibreOffice was killed at shutdown started a fresh LibreOffice and held
+  the worker for the file's whole timeout.** It fails at once now.
+- **Results: the selected row was lost when the interim results were replaced by the full
+  ones,** so the preview said "Nothing selected". A drive-backed (offline) result never carried
+  its drive, so it previewed, opened and revealed as an ordinary missing file. Both fixed.
+- **A database connection could be waited for without limit.** Bounded now, with a plain
+  `ERR_DB_BUSY`. Choosing a folder as an Offline Media source says "Choose the drive itself,
+  not a folder on it".
+- **Search history cleared in Settings was still offered in the search box** (an unconnected
+  signal). **The theme was applied twice at start-up; an F5 or a dropped file before the
+  deferred pages existed was silently skipped; Escape with the find bar open did the wrong
+  thing; the empty pinned panel took a third of the page; the rail clipped "Reports" at
+  1024x600 and 125%.** All fixed. A stray timer on a destroyed results view is now held weakly.
+- **Building 2,000 result rows: 231,087 text measurements became 32,541** (about 2.6x faster in
+  the measured build), and a page paints about 27% faster than before the redesign.
+- **The Space Report said "No duplicate files were found." when nothing had been compared; the
+  inheritance map dropped each drive's description; a deep timeline page cost 22x a first page.**
+- **`.numbers` dropped every table's strings after the first; `.xlsx` stripped `x005F_` from
+  inline strings; short videos returned no pictures; the CLI crashed printing text a cp1252
+  console cannot draw; the face-duplicate threshold was wrong on real faces; conversations never
+  saved to the real store; the Chat roles grid reset a saved model name.** All fixed.
+- **The `.key` and `.pub` converter rules used a Writer filter and failed 8 of 8 files each**
+  (the same mistake the `.ppt` rule had). Both now read in-process.
+
+**Built**
+
+- **The Life Timeline** - Reports, "Browse your timeline" (and `leasha timeline`): year, month,
+  photos as a band, everything else as rows, offline items badged, from any result's date.
+- **Chat is a conversation.** Local sources first, real multi-turn memory, streamed replies,
+  rendered markdown, copy / regenerate / edit-and-resend, a plain persona; a question your
+  files cannot answer says so and gives a separate "Not from your files" answer. **Optional web
+  augmentation, off by default** (a scope exception recorded in `PROJECT_INSTRUCTIONS.md`):
+  the web is only asked when the files come up thin or you ask, only a short visible query is
+  sent, never a file name or passage; Wikipedia works from here, the other providers are
+  marked unverified.
+- **Video and audio** read through PyAV (no ffmpeg install), queued as a background backlog
+  after everything else, open at the matching moment in VLC / mpv / MPC-HC / PotPlayer, with
+  per-frame pictures and faces on frames. Off by default (about 12x real time on the processor
+  for speech; a 46 GB video folder is hours), each switch in Settings.
+- **Read in-process, in milliseconds instead of seconds:** `.doc` (3 ms) and `.ppt` (11 ms)
+  against 5-10 s through a cold LibreOffice, each falling back to LibreOffice whenever the file's
+  own text totals disagree with what was read; `.pub`, `.key`, `.pages`, `.numbers` (previously
+  failing or 6-13 s); `.mobi`/`.azw` (never indexed before); faster `.docx`, `.pptx`, `.xlsx`.
+  LibreOffice is now a warm, crash-limited fallback with a private profile, no OS error box and
+  no orphan processes. `docs/EXTRACTION_SPEED.md` has the measured table.
+- **The window's index run lowers its own threads, not the whole process** (merged from the
+  UI-responsiveness branch), plus a UI lag monitor. The command line still lowers the process.
+- **Test automation:** real-app UI journeys, an order-by-order scenario coverage table, a
+  measured nightly scale run with pinned floors, and an opt-in scheduled-task installer
+  (`scripts\install-nightly.ps1 -WhatIf`, never registered by us).
+
+**Decided (owner delegated; each is recorded in its order)**
+
+- Packaging: PyInstaller one-folder, per-user, the installer asks where the index goes, no update
+  check inside the app, Windows 11 and 10 22H2, unsigned until the repository is public.
+- **The PySide6 migration must come before any packaged release** (PyQt6 6.11.0's own metadata
+  reads GPL-3.0-only; the project is MIT).
+- A partial PST read is retried on the next pass only when the cause was transient.
+- Chat stays RELEASED; the Life Timeline hold is lifted; a folder is not a valid Offline Media
+  source; video/audio stay off by default.
+
+### Docs
+
+- `ACTIVE_WORK.md` retired as a tracker (the register is the tracker); the 0q session handoff is
+  renamed out of `WORKORDER-*` so its checkboxes stop counting as open orders; five orders'
+  status lines were backfilled and four register rows recounted; `PROJECT_INSTRUCTIONS.md`,
+  `README.md`, `docs/THIRD_PARTY_NOTICES.md` and `docs/EXTRACTION_SPEED.md` added or updated.
 
 ### The window, looked at properly - text in its box, room at the edges
 
