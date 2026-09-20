@@ -282,6 +282,26 @@ SETTINGS: tuple[Setting, ...] = (
              "indexing is slow and the machine is otherwise idle.",
     ),
     Setting(
+        key="CONVERTER_WORKERS", label="Old Office files read at once",
+        kind="int", default=0, group="Tuning", surface="indexing.tuning",
+        minimum=0, maximum=4, unit="copies of LibreOffice",
+        help="Old Word and PowerPoint files are read by Leasha itself, in "
+             "milliseconds. Only the few it cannot read that way - locked, "
+             "damaged, or in a rare format - go to LibreOffice, which Leasha "
+             "keeps running between files instead of starting it again each "
+             "time. 0 chooses for this machine's memory: one copy, or two on a "
+             "machine with plenty. Each copy uses a few hundred megabytes.",
+    ),
+    Setting(
+        key="CONVERTER_TIMEOUT_S", label="Longest for one old Office file",
+        kind="int", default=120, group="Tuning", surface="indexing.tuning",
+        minimum=20, maximum=300, unit="seconds",
+        help="If LibreOffice has not finished one file in this long, Leasha "
+             "stops that copy, skips the file, and carries on with the next - "
+             "the file is still findable by its name. Raise it only if a "
+             "large old file you care about keeps being skipped.",
+    ),
+    Setting(
         key="ONNX_INTRA_OP_THREADS", label="Threads per model call",
         kind="int", default=0, group="Tuning", surface="indexing.tuning",
         minimum=0, maximum=64, unit="threads",
@@ -487,7 +507,8 @@ SETTINGS: tuple[Setting, ...] = (
         help="The model that writes Chat's answers. Leave it empty to use the "
              "Local model above. Any model you have pulled in Ollama; a bigger "
              "one answers better and slower. The Fast / Thoughtful choice in the "
-             "Chat tab sets this.",
+             "Chat tab sets this. It runs on this computer, through Ollama; "
+             "nothing you type or read here is sent anywhere.",
     ),
     Setting(
         key="CHAT_ROUTER_MODEL", label="Chat: model that sorts questions",
@@ -495,14 +516,15 @@ SETTINGS: tuple[Setting, ...] = (
         help="Decides whether a question is a count, a search or a question "
              "about what documents say. Only asked when the plain rules cannot "
              "tell, and its answer is one word - a small, fast model is right. "
-             "Empty means the Chat model.",
+             "Empty means the Chat model. It runs on this computer.",
     ),
     Setting(
         key="CHAT_PLANNER_MODEL", label="Chat: model that plans searches",
         kind="text", default="", group="Models", surface="settings.models",
         help="Suggests other words to search for when the first search finds "
              "too little. Its suggestions are checked before they are used, so a "
-             "small, fast model is right. Empty means the Chat model.",
+             "small, fast model is right. Empty means the Chat model. It runs on "
+             "this computer.",
     ),
     Setting(
         key="CHAT_MAX_ROUNDS", label="Searches Chat may run per question",
@@ -521,6 +543,70 @@ SETTINGS: tuple[Setting, ...] = (
              "is stricter: fewer sentences survive and each one is closer to the "
              "document's own words. Figures, dates, names and quotations are "
              "always checked exactly, whatever this is set to.",
+    ),
+    Setting(
+        key="CHAT_CONTEXT_TOKENS", label="How much of the conversation Chat can hold",
+        kind="int", default=8192, group="Models", surface="settings.models",
+        minimum=2048, maximum=32768, unit="tokens",
+        help="How much text the model reads at once: your recent messages, the "
+             "passages from your files and its own answer. When a conversation "
+             "outgrows it, the oldest messages are shortened to a line each. "
+             "More remembers longer and uses more memory; a model can never "
+             "read more than it was built for, whatever this says.",
+    ),
+    Setting(
+        key="CHAT_STYLE_NOTE", label="Anything Chat should always keep in mind",
+        kind="text", default="", group="Models", surface="settings.models",
+        help="A sentence or two in your own words that Chat reads before every "
+             "conversation - for example \"Keep answers short\" or \"I am a "
+             "beginner, explain simply\". It adds to Chat's own manner and "
+             "does not replace it.",
+    ),
+    # The web is OFF: everything in Leasha is offline unless one of these is
+    # switched on, and only Chat can use it (owner, 2026-09-20).
+    Setting(
+        key="CHAT_WEB_ENABLED", label="Let Chat look things up on the web",
+        kind="bool", default=False, group="Models", surface="settings.models",
+        help="Off, and everything stays on this computer. On, a Web switch appears "
+             "in the Chat box; while a conversation has it on, Chat first searches "
+             "your own files as always and may then search the web for what they do "
+             "not say. What leaves this computer is only a short search phrase "
+             "(shown to you first, if you keep the setting below on) - never a file "
+             "name, a passage, an email or your conversation. Searching and indexing "
+             "never use the web.",
+    ),
+    Setting(
+        key="CHAT_WEB_PROVIDER", label="Web search service",
+        kind="choice", default="auto", group="Models", surface="settings.models",
+        choices=("auto", "duckduckgo", "wikipedia", "searxng", "brave"),
+        help="Which service receives the search phrase. Automatic tries the free "
+             "ones that need no account. SearXNG is your own server (set its "
+             "address below); Brave needs a key you get from Brave.",
+    ),
+    Setting(
+        key="CHAT_WEB_ASK_FIRST", label="Ask before each web search",
+        kind="bool", default=True, group="Models", surface="settings.models",
+        help="Chat shows you the exact phrase it would search for and waits for "
+             "Allow or Skip. Switch this off only if you are happy for it to "
+             "search without asking.",
+    ),
+    Setting(
+        key="CHAT_WEB_SHOW_QUERY", label="Show the exact web search phrase",
+        kind="bool", default=True, group="Models", surface="settings.models",
+        help="Shows the phrase in the conversation whenever a web search happens, "
+             "so you can see exactly what left this computer.",
+    ),
+    Setting(
+        key="CHAT_WEB_SEARXNG_URL", label="Your SearXNG address (optional)",
+        kind="text", default="", group="Models", surface="settings.models",
+        help="For example http://localhost:8080 if you run your own SearXNG. "
+             "Used when the web search service above is SearXNG.",
+    ),
+    Setting(
+        key="CHAT_WEB_BRAVE_KEY", label="Brave Search key (optional)",
+        kind="text", default="", group="Models", surface="settings.models",
+        help="Only used when the web search service above is Brave. Get a key "
+             "from Brave; Leasha never fills this in for you.",
     ),
     # Work order 0i section 3b. OFF by default per the item's own text - a
     # description per photo costs seconds on CPU, corpus-wide that is hours
@@ -565,9 +651,13 @@ SETTINGS: tuple[Setting, ...] = (
              "words and scenes at each moment - found with the same picture "
              "reading that photos get. Off by default: this can take minutes per "
              "film and hours across a family archive, so it is a choice, not "
-             "something Auto-tune turns on. Needs FFmpeg, which is free but not "
-             "included - the box below says whether it was found and how to "
-             "install it. Nothing is downloaded or sent anywhere.",
+             "something Auto-tune turns on. Pictures are taken out of a film "
+             "quickly but each is then read like a photo (several seconds "
+             "each), so a film can take ten to twenty minutes; it is done in the "
+             "background after everything else is indexed. Needs the PyAV "
+             "package (no separate program) - the box below says whether it "
+             "was found and how to install it. Nothing is downloaded or sent "
+             "anywhere.",
     ),
     Setting(
         key="AUDIO_TRANSCRIPTION_ENABLED",
@@ -576,10 +666,11 @@ SETTINGS: tuple[Setting, ...] = (
         restart=True,
         help="Turns speech into searchable text, with the time it was said, for "
              "voice memos, recorded calls and the sound of videos - so a search "
-             "can say 'at 12:41'. Off by default: transcribing takes roughly as "
-             "long as a fraction of the recording itself on this computer's "
-             "processor, done slowly in the background, and it can be stopped and "
-             "resumed without starting the recording again. Needs the "
+             "can say 'at 12:41'. Off by default: measured on a computer with no "
+             "spare graphics card, an hour of recordings takes about 5 minutes "
+             "of the processor when nothing else is running and up to about 25 "
+             "when it is busy. It is done slowly in the background, and can be "
+             "stopped and resumed without starting the recording again. Needs the "
              "faster-whisper package and a speech model downloaded once; Leasha "
              "never downloads anything by itself.",
     ),

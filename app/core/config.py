@@ -271,6 +271,16 @@ class Settings(BaseModel):
     chat_planner_model: str = ""
     chat_max_rounds: int = 3
     chat_verify_strictness: int = 70
+    chat_context_tokens: int = 8192
+    chat_style_note: str = ""
+    #: The web is OFF unless switched on, and only Chat may use it (owner,
+    #: 2026-09-20). See `app/chat/web.py` for what may leave the machine.
+    chat_web_enabled: bool = False
+    chat_web_provider: str = "auto"
+    chat_web_ask_first: bool = True
+    chat_web_show_query: bool = True
+    chat_web_searxng_url: str = ""
+    chat_web_brave_key: str = ""
     #: Work order 0i section 3b. OFF by default - see settings_registry.py's
     #: CAPTION_TRICKLE_ENABLED for the full reasoning.
     caption_trickle_enabled: bool = False
@@ -294,6 +304,16 @@ class Settings(BaseModel):
     video_keyframe_interval_s: int = 60
     #: The most pictures taken from one video.
     video_keyframe_cap: int = 200
+
+    # --- old Office files that LibreOffice still has to read ----------------
+    #
+    # Read by `app.extract.lo_session` (which loads Settings itself, so no
+    # pipeline hook is needed). `.doc` and `.ppt` are read in-process first;
+    # these govern only the LibreOffice fallback and the rare formats.
+    #: How many LibreOffice sessions may run at once. 0 = decided from memory.
+    converter_workers: int = 0
+    #: The longest, in seconds, one file may take before its session is killed.
+    converter_timeout_s: int = 120
 
     # --- indexing: how hard this is allowed to work ------------------------
     #
@@ -450,6 +470,14 @@ SETTING_KEYS: tuple[str, ...] = (
     "CHAT_PLANNER_MODEL",
     "CHAT_MAX_ROUNDS",
     "CHAT_VERIFY_STRICTNESS",
+    "CHAT_CONTEXT_TOKENS",
+    "CHAT_STYLE_NOTE",
+    "CHAT_WEB_ENABLED",
+    "CHAT_WEB_PROVIDER",
+    "CHAT_WEB_ASK_FIRST",
+    "CHAT_WEB_SHOW_QUERY",
+    "CHAT_WEB_SEARXNG_URL",
+    "CHAT_WEB_BRAVE_KEY",
     "CAPTION_TRICKLE_ENABLED",
     "PEOPLE_RECOGNITION_ENABLED",
     "VIDEO_INDEXING_ENABLED",
@@ -457,6 +485,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "TRANSCRIBE_MODEL",
     "VIDEO_KEYFRAME_INTERVAL_S",
     "VIDEO_KEYFRAME_CAP",
+    "CONVERTER_WORKERS",
+    "CONVERTER_TIMEOUT_S",
     "INDEX_TUNING_MODE",
     "INDEX_WORKERS",
     "ONNX_INTRA_OP_THREADS",
@@ -607,6 +637,18 @@ def load_settings(
             chat_max_rounds=_as_int("CHAT_MAX_ROUNDS", values.get("CHAT_MAX_ROUNDS", "3")),
             chat_verify_strictness=_as_int(
                 "CHAT_VERIFY_STRICTNESS", values.get("CHAT_VERIFY_STRICTNESS", "70")),
+            chat_context_tokens=_as_int(
+                "CHAT_CONTEXT_TOKENS", values.get("CHAT_CONTEXT_TOKENS", "8192")),
+            chat_style_note=(values.get("CHAT_STYLE_NOTE") or "").strip(),
+            chat_web_enabled=_as_bool(
+                "CHAT_WEB_ENABLED", values.get("CHAT_WEB_ENABLED", "false")),
+            chat_web_provider=(values.get("CHAT_WEB_PROVIDER") or "auto").strip().lower(),
+            chat_web_ask_first=_as_bool(
+                "CHAT_WEB_ASK_FIRST", values.get("CHAT_WEB_ASK_FIRST", "true")),
+            chat_web_show_query=_as_bool(
+                "CHAT_WEB_SHOW_QUERY", values.get("CHAT_WEB_SHOW_QUERY", "true")),
+            chat_web_searxng_url=(values.get("CHAT_WEB_SEARXNG_URL") or "").strip(),
+            chat_web_brave_key=(values.get("CHAT_WEB_BRAVE_KEY") or "").strip(),
             caption_trickle_enabled=_as_bool(
                 "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
             people_recognition_enabled=_as_bool(
@@ -625,6 +667,10 @@ def load_settings(
                 values.get("VIDEO_KEYFRAME_INTERVAL_S", "60")),
             video_keyframe_cap=_as_int(
                 "VIDEO_KEYFRAME_CAP", values.get("VIDEO_KEYFRAME_CAP", "200")),
+            converter_workers=_as_int(
+                "CONVERTER_WORKERS", values.get("CONVERTER_WORKERS", "0")),
+            converter_timeout_s=_as_int(
+                "CONVERTER_TIMEOUT_S", values.get("CONVERTER_TIMEOUT_S", "120")),
             index_tuning_mode=(
                 values.get("INDEX_TUNING_MODE") or "defaults").strip().lower(),
             index_workers=_as_int("INDEX_WORKERS", values.get("INDEX_WORKERS", "0")),
