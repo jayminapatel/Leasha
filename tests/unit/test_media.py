@@ -365,6 +365,31 @@ def test_a_real_file_gives_one_picture_per_scene_with_its_time(tmp_path):
     assert all(f.path.is_file() and f.path.stat().st_size > 100 for f in found)
 
 
+def test_hand_held_shake_is_not_a_scene_but_a_real_cut_still_is(tmp_path):
+    """Found on the owner's real family clips, and the reason `SCENE_MIN_GAP_S` and
+    `HARD_CUT_THRESHOLD` exist: at `SCENE_THRESHOLD` alone, 40 sampled real phone
+    clips gave 24.6 pictures each and 120 for one 29-second clip, because a shaking
+    hand changes a few percent of the picture between every keyframe. A small change
+    now counts only once `SCENE_MIN_GAP_S` has passed since the last picture kept; a
+    real cut counts at once. Remove either constant from `extract_keyframes` and the
+    first half of this fails."""
+    shake = tuple((100, 100, 100) if i % 2 == 0 else (115, 115, 115) for i in range(20))
+    path = make_real_video(tmp_path / "shake.mp4", colours=shake, seconds_each=1)
+    out = tmp_path / "shake_pics"
+    out.mkdir()
+    found = media_tools.extract_keyframes(path, out, interval_s=600, cap=100, duration_s=20.0)
+    times = [round(f.seconds) for f in found]
+    assert times[0] == 0 and len(times) <= 4, times
+    assert all(b - a >= media_tools.SCENE_MIN_GAP_S - 1 for a, b in zip(times, times[1:]))
+
+    cuts = tuple((0, 0, 0) if i % 2 == 0 else (255, 255, 255) for i in range(12))
+    path = make_real_video(tmp_path / "cuts.mp4", colours=cuts, seconds_each=1)
+    out2 = tmp_path / "cut_pics"
+    out2.mkdir()
+    found = media_tools.extract_keyframes(path, out2, interval_s=600, cap=100, duration_s=12.0)
+    assert len(found) >= 10                                # every real cut is a picture
+
+
 def test_the_gap_setting_adds_a_picture_when_nothing_changes(tmp_path):
     path = make_real_video(tmp_path / "still.mp4", colours=((90, 90, 90),), seconds_each=6)
     out = tmp_path / "pics"
