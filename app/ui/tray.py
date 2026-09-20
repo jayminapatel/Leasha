@@ -109,6 +109,14 @@ def set_window_relaunch(window_id: int) -> bool:
         return False
 
 
+#: `(frozen bundle dir, argv[0])` -> the assets folder found for it. Work order 0r
+#: item 2b: the window asks for this ~40 times while it is built (once per icon
+#: file), and each answer cost three `resolve()` calls and a stat - about a third
+#: of a second in all, on the way to the first paint. Only a *found* folder is
+#: remembered, so a folder that does not exist yet is looked for again.
+_ASSETS_DIR_CACHE: dict[tuple[str, str], Path] = {}
+
+
 def assets_dir() -> Path:
     """Where the icons live, whether running from source or from a build.
 
@@ -116,6 +124,10 @@ def assets_dir() -> Path:
     beside `app/`. Checking both means the icon does not silently vanish the
     first time somebody packages this.
     """
+    key = (getattr(sys, "_MEIPASS", ""), sys.argv[0] if sys.argv else "")
+    cached = _ASSETS_DIR_CACHE.get(key)
+    if cached is not None:
+        return cached
     candidates = [
         Path(getattr(sys, "_MEIPASS", "")) / "assets" if hasattr(sys, "_MEIPASS") else None,
         Path(sys.argv[0]).resolve().parent / "assets",
@@ -123,6 +135,7 @@ def assets_dir() -> Path:
     ]
     for candidate in candidates:
         if candidate and candidate.is_dir():
+            _ASSETS_DIR_CACHE[key] = candidate
             return candidate
     return Path(__file__).resolve().parents[2] / "assets"
 

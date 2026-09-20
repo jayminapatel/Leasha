@@ -289,6 +289,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run.finish(code)
 
 
+def _watch_vector_connect(window: Any, stores: Sequence[Any]) -> None:
+    """Report a vector store that failed to open in the background, once.
+
+    Polled from the GUI thread (a `QTimer` does not fire from a worker) every
+    250 ms until every store has either connected or failed. Nothing is shown
+    when they all connect, which is every normal run.
+    """
+    from PyQt6.QtCore import QTimer
+
+    timer = QTimer(window)
+    timer.setInterval(250)
+
+    def _poll() -> None:
+        pending = False
+        for store in stores:
+            error = store.deferred_error()
+            if error is not None:
+                timer.stop()
+                shown = getattr(error, "error", error)
+                try:
+                    log_app_error(shown)
+                except Exception:                # noqa: BLE001 - logging must not hide it
+                    pass
+                window._show_error(shown)
+                return
+            if not store.connected:
+                pending = True
+        if not pending:
+            timer.stop()
+
+    timer.timeout.connect(_poll)
+    timer.start()
+
+
 def _exit_fast(code: int) -> None:
     r"""Exit without interpreter teardown.
 
@@ -574,8 +608,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         application.processEvents()
         with gui_lock, \
                 SqliteStore(settings.fts_db) as store, \
-                VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
-                ImageVectorStore(settings.vector_path) as image_vectors:
+                VectorStore(settings.vector_path, dim=settings.embed_dim,
+                            deferred=True) as vectors, \
+                ImageVectorStore(settings.vector_path, deferred=True) as image_vectors:
             log.info("startup: stores open, loading the embedding model",
                      model=settings.embed_model, cache=str(settings.model_cache))
             status_reporter("Loading the search engine…")
@@ -632,6 +667,16 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # and guarded inside - see `set_window_relaunch` for what it fixes.
             set_window_relaunch(int(window.winId()))
             startup_timer.record_window_visible()
+            # **Work order 0r item 2b: the vector stores connect now, not before
+            # the window.** Importing LanceDB is the largest single cost between
+            # the splash and the window and nothing the first paint needs it; a
+            # search or an index run started before this finishes simply waits
+            # for it (see `VectorStore.warm`). A store that cannot be opened is
+            # reported once, below - by then the window exists, so it is a box
+            # over it rather than a dialog with nothing behind.
+            vectors.warm()
+            image_vectors.warm()
+            _watch_vector_connect(window, (vectors, image_vectors))
             application.processEvents()  # Ensure window is painted
 
             log.info("startup: warm-up complete")

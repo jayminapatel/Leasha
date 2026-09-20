@@ -35,9 +35,10 @@ from __future__ import annotations
 import math
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Optional, Sequence
 
-import numpy as np
-from typing import Callable, Iterable, Iterator, Optional, Sequence
+if TYPE_CHECKING:                  # numpy is imported where it is used - see `_finish`
+    import numpy as np
 
 from app.core.errors import AppErrorException, make_error
 from app.core.gpu_serialize import (
@@ -519,6 +520,11 @@ class Embedder:
         # wanting a plain list still gets one row at a time from embed_all,
         # each of which is list()-able exactly as before; VectorStore.add
         # takes the block directly.
+        # Imported here, not at module level: numpy costs a fifth of a second and
+        # nothing reaches this line before the first search or index run, so the
+        # window (work order 0r item 2b) no longer pays for it.
+        import numpy as np  # noqa: PLC0415
+
         block = np.asarray(raw, dtype=np.float32)
         if block.ndim != 2:
             raise AppErrorException(make_error(
