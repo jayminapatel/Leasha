@@ -87,7 +87,8 @@ def test_the_reranker_reads_the_new_default_when_settings_lacks_the_field():
 def test_the_toolbar_checkbox_starts_unchecked(qtbot):
     from app.ui.widgets.search_bar import build_rerank
 
+    # A `QAction` since the UI redesign put it in the "..." menu (2026-09-20) -
+    # it is not a widget, so it is not registered with `qtbot.addWidget`.
     box = build_rerank(None, lambda checked: None)
-    qtbot.addWidget(box)
 
     assert box.isChecked() is False

@@ -70,7 +70,10 @@ def main(argv: list[str] | None = None) -> int:
 
     files = find_files(args.files)
     groups = split(files, args.processes)
-    work = Path(tempfile.mkdtemp(prefix="leasha-suite-"))
+    # Not "leasha-...": tests name fixture repositories after the project and
+    # match them by name *and* root-path substring, so a temp folder with the
+    # project's name in it made `repo:leasha` match a second repository.
+    work = Path(tempfile.mkdtemp(prefix="pt-run-"))
     started = time.time()
     print(f"{len(files)} test files, {len(groups)} processes, logs in {work}", flush=True)
 

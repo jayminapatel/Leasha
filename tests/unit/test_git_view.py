@@ -237,7 +237,9 @@ def test_the_pane_shapes_a_branch_into_the_tables_own_rows(monkeypatch):
     assert [row["ext"] for row in rows] == ["cs", "makefile"]
     # Joined to the repository root: `ls-tree` reports a relative path, and the
     # preview pane would report every row as missing.
-    assert all(row["path"].startswith("/repo") for row in rows)
+    # Separators normalised: on Windows `Path("/repo") / "src/Order.cs"` is
+    # `\repo\src\Order.cs`, which is the right path there.
+    assert all(row["path"].replace("\\", "/").startswith("/repo") for row in rows)
     # A branch listing has nothing to say about index status, and "INDEXED"
     # would be a claim.
     assert all(row["status"] == "" for row in rows)

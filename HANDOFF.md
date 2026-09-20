@@ -51,6 +51,58 @@ line, no traceback and no window.
 
 ## 3. Current state
 
+**2026-09-20 - the "known red" list below is superseded: it is down from 57 to 2, and
+most of it was four causes, not 57 problems.** The last full run
+(`scripts/run_suite.py -j 4`) had 8 failures; five of those were fixed after it (project file,
+one repo test, two staging tests, one timing test), which leaves **two**:
+
+- **`test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter`** - a load-bearing
+  guard. `indexing_view.py` was fixed (292 -> 241 code lines; layout and painting moved to
+  `app/ui/widgets/indexing_layout.py`), which showed that **`results_view.py` (294) and
+  `settings_view.py` (475)** had been hiding behind it. `settings_view.py` needs about 226 lines
+  moved (its `__init__` alone is 178), and `test_pages_reorg.py` requires every pre-existing
+  label and tooltip to stay verbatim *in that file*, so only string-free code can move. It is a
+  refactor of the Settings screen and needs the `tools/grab_ui.py` goldens to verify.
+- **`test_ui_redesign.py::test_the_rail_labels_are_the_tab_titles_verbatim`** - an owner
+  decision (section 7).
+
+**What the failures were.** About 22 tests failed because **the developer's home folder is itself
+a git repository** (`C:\Users\JayminPatel(INDEFF)\.git`, created 2026-09-19 11:06, zero commits -
+an aborted `git add` of the home folder for the *separate* JJOB project: 1,611 staged blobs,
+914 MB, and a remote URL spelt `jaymin-patel` that does not exist; the real JJOB repository is
+`D:\LocalSync\GDrive\jjobs`, four commits and level with its remote. **Deleted 2026-09-20 at the
+owner's word**, after checking nothing unique was in it) and Windows' temp
+directory was under it, so "this folder is not a repository" found one; the suite is now bounded at
+its temp tree (`tests/conftest.py`: `enclosing_repo` and `GIT_CEILING_DIRECTORIES`). About ten more
+read the machine (a real LibreOffice, a real captioning model, a clock captured at import, a
+subprocess with no `SYSTEMROOT`/`TEMP`); about ten were stale against deliberate design changes
+(`PARTIAL` status, "try again with fewer words", the reranker's three-failure budget, the QAction
+rerank toggle) and were updated with the reason written in.
+
+**Real bugs this turned up, all fixed with tests:**
+- **An interrupted bulk index run left the word index unable to index again.** `drop_fts_triggers`
+  writes a dirty flag then drops the FTS triggers; the resume-time rebuild repaired the rows already
+  written but **never put the triggers back**, so every chunk indexed after a resume was silently
+  missing from keyword search. Only with `bulk_fts=on`, but silent when it happens
+  (`test_fts_bulk_recovery.py`; `CONTENT_TRIGGERS` in `migrations.py` is pinned to a fresh database).
+- **`leasha --env X open <link>` ignored `--env`.**
+- **Re-staging over an existing install failed on Windows** whenever a shipped file was read-only
+  (`assets\leasha-logo.png` is): `scripts/stage.py` used a bare `rmtree`.
+
+**Open, measured, not fixed - the filter-only browse plan.** `type:pdf` with no terms is planned by
+SQLite as "walk `idx_files_ext`, then sort": **177 ms at 200,000 files** (50% pdf), 92 ms for txt,
+68 ms xlsx, 40 ms dwg, 0.4 ms for a type with no matches. Forcing `idx_files_mtime` gives 0.6 ms for
+pdf but **2.9 s for a type with no matches** (it walks every file), so `INDEXED BY` is not the fix; an
+adaptive query is (bounded newest-first walk, fall back to the ext index).
+`test_query_plans.py::test_filter_only_browse_neither_scans_nor_sorts` is a strict `xfail` carrying
+these numbers and fails loudly once it is fixed.
+
+**Also worth knowing:** `test_prompt_examples`'s length cap moved 1,901 -> 2,100 (the prompt had grown
+to 2,084 from `/on` and the video/audio kind words - raise it again only with a latency
+measurement); the docs-header check now skips `_Knowledge/prompt_log/views` (generated, untracked,
+"never edit it"); timing tests are load-sensitive, so two were rewritten to compare work rather than
+wall clock.
+
 **2026-09-19 (evening) - everything that can be built without the owner's machine is
 built and merged, and the suite now runs to the end.** For whoever picks this up:
 
@@ -294,6 +346,40 @@ at 1k, 10k and 50k commits, and peak memory. Those decide whether it can be a
 mode of the search box or has to be a separate, explicitly slow, cancellable
 job wired to its own button. Building the UI first is how the 300ms budget
 gets lost by accident.
+
+### Session close, 2026-09-20 - PST resilience and the real-window pass
+
+**Two things landed, both merged with `origin/main`.** (1) `WORKORDER-pst-resilience.md`
+(register row 0v, 11 done / 7 open): a `.pst` held open is now `ERR_FILE_LOCKED` (retried),
+not `ERR_FILE_CORRUPT` (settled); `auto` falls back to Outlook when libpff finds it held;
+one bad message costs one message; skipped items are counted (`ERR_PST_PARTIAL`, the CLI
+`Partial` line). (2) The UI Redesign order's 2026-09-20 note: six faults found by grabbing
+the real window at 125% - pill text clipped, a grey box behind every label, an unreadable
+toast, result rows wider than their pane, missing page margins, the taskbar pin. The
+owner decided the rail entry **stays "Offline"** and the test now says so.
+
+**What is now untrue if you read older text:** "Offline Media" on the rail (it is
+"Offline"); the register's old "owner decision waiting" for it (removed); the claim that
+offscreen goldens show what the owner sees (they do not - see the trap "Look at the real
+window"); `test_the_rail_labels_are_the_tab_titles_verbatim` is no longer red.
+
+**What the next thread needs, in the order to do it:**
+
+1. **Owner-run, PST (order 0v):** the owner's archives are probably in `D:\OutlookArchive`
+   (seen on the taskbar; not searched). 1e: with Outlook running and a `.pst` attached, run
+   `app.cli extract "<that.pst>" --limit 50` - how Outlook holds a `.pst` is unmeasured.
+   6c: damage a copy of a `.pst` and index the copy; no damaged archive has ever been tried.
+2. **Code, PST:** 3d (show the `ERR_PST_PARTIAL` count in the Indexing tab, with a pytest-qt
+   scenario), 3e (`pipeline.py`: a warning on an *unchanged* last message is not counted -
+   count warnings before the `_already_current` skip), 5a (key `drain_busy_folders` by store).
+   4a is the owner's call: retry a partial read next pass?
+3. **UI Redesign 9j is the only open box.** `tools/bench_results_paint.py <tree>` against a
+   `git worktree` of `3da478a` and of this tree, three runs each, alternating, on an idle
+   machine; compare the minimum. This machine differed 3-4x run to run, so no verdict was
+   given. Separately noticed and unaddressed: building results costs about 3.5 ms a row
+   (2,000 rows took 7 s, the same before and after the redesign).
+4. **Not done on purpose:** a pinned taskbar button was not observed (the running button
+   was); `set_window_relaunch` is the unverified fix - unpin and re-pin Leasha to test it.
 
 ### What is **Next**
 
@@ -1525,7 +1611,7 @@ Not blockers, but decide them deliberately rather than by accident.
    venv plus a shortcut rather than let packaging block a working app.
 5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
    mean anything. The synthetic corpus is a floor, not a substitute.
-6. **Decisions waiting on the owner (2026-09-19).**
+6. **Decisions waiting on the owner (2026-09-19, added to 2026-09-20).**
    - **The rail says "Offline"; the redesign order asks for the page's own title verbatim
      ("Offline Media").** `test_the_rail_labels_are_the_tab_titles_verbatim` is red until the label
      goes back or the test's expectation is corrected. A label is not reworded without the

@@ -126,3 +126,13 @@ tests/fixtures/corrupt/*
 # scratch every run - committing it would be a second copy of the source that
 # drifts, which is the failure staging exists to prevent.
 /Leasha/
+
+# Local-only folders: other sessions' lane notes, sandbox worktrees, scratch space.
+/.claude/lanes/
+/.worktrees/
+/scratchpad/
+
+# Rendered from the `.jsonl` ledgers by the plugin's `promptlog.py md`; each says
+# "Regenerate it; never edit it". `tests/unit/test_docs_versioned.py` skips it too.
+/_Knowledge/prompt_log/views/
+/_Knowledge/prompt_log/*.local-untracked.jsonl.bak

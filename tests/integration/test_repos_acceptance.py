@@ -301,8 +301,11 @@ def test_t6_a_broken_git_file_is_not_a_repository_and_the_walk_completes(
 
 def test_t7_the_repo_filter_matches_by_name_and_by_root_path(stores, tmp_path):
     root = tmp_path / "corpus"
-    (root / "leasha" / ".git").mkdir(parents=True)
-    (root / "leasha" / "one.py").write_text("a = 1\n", encoding="utf-8")
+    # Named `pumpworks`, not after the project: the filter matches a repository's
+    # root *path* as well as its name, so a temp directory containing the project's
+    # name (a suite run under one called `leasha-...`) matched the other repository.
+    (root / "pumpworks" / ".git").mkdir(parents=True)
+    (root / "pumpworks" / "one.py").write_text("a = 1\n", encoding="utf-8")
     (root / "tools" / ".git").mkdir(parents=True)
     (root / "tools" / "two.py").write_text("b = 2\n", encoding="utf-8")
     (root / "loose").mkdir()
@@ -312,12 +315,12 @@ def test_t7_the_repo_filter_matches_by_name_and_by_root_path(stores, tmp_path):
     index(stores, root)
     store, _ = stores
 
-    assert matching(store, "repo:leasha") == ["one.py"]
-    assert matching(store, "repo:LEASHA") == ["one.py"], "name match is case-sensitive"
-    assert matching(store, f"repo:{root / 'leasha'}") == ["one.py"], "path match failed"
+    assert matching(store, "repo:pumpworks") == ["one.py"]
+    assert matching(store, "repo:PUMPWORKS") == ["one.py"], "name match is case-sensitive"
+    assert matching(store, f"repo:{root / 'pumpworks'}") == ["one.py"], "path match failed"
     # Several at once, ORed - a file is in exactly one repository, so ANDing
     # repeated names could never match anything.
-    assert matching(store, "repo:leasha,tools") == ["one.py", "two.py"]
+    assert matching(store, "repo:pumpworks,tools") == ["one.py", "two.py"]
     # Unknown: empty, never an error.
     assert matching(store, "repo:nosuchproject") == []
 
@@ -631,7 +634,13 @@ def test_a_failed_vector_write_leaves_the_file_pending(stores, tmp_path):
     statuses = store.stats()["files"]
     assert statuses.get("INDEXED", 0) == 0, (
         "a file was marked INDEXED with no vector, and will never be retried")
-    assert statuses.get("PENDING", 0) == 4
+    # 2026-09-20: PARTIAL, not PENDING. Order 0b section 6d gave a file whose chunks
+    # are written (and keyword-searchable) but not yet embedded its own status, and
+    # this is exactly that state. What this test protects is unchanged: never
+    # INDEXED, and retried - `test_the_retry_recovers_it_on_the_next_run` below
+    # proves the retry.
+    assert statuses.get("PARTIAL", 0) == 4
+    assert statuses.get("PENDING", 0) == 0
     assert store.stats()["chunks_embedded"] == 0
 
 
