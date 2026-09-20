@@ -200,19 +200,22 @@ def test_a_checkbox_is_tall_enough_for_its_own_label():
     app = QApplication.instance() or QApplication([])
     # A label with descenders, because those are the pixels that go first.
     label = "Closing the window keeps it running there"
-    try:
-        for scheme in (Theme.LIGHT, Theme.DARK):
-            app.setStyleSheet(stylesheet(scheme))
-            for cls in (QCheckBox, QRadioButton):
-                widget = cls(label)
-                widget.ensurePolished()
-                needed = QFontMetrics(widget.font()).height()
-                assert widget.sizeHint().height() >= needed, (
-                    f"{scheme} {cls.__name__}: {widget.sizeHint().height()}px tall "
-                    f"for text needing {needed}px - the label will be clipped")
-    finally:
-        # Left applied, every later test in this process would inherit it.
-        app.setStyleSheet("")
+    for scheme in (Theme.LIGHT, Theme.DARK):
+        for cls in (QCheckBox, QRadioButton):
+            widget = cls(label)
+            # **On the widget, not on the application.** The sheet's own `QCheckBox`
+            # and `QRadioButton` selectors still match it, so the metrics are the
+            # ones a person sees, and nothing re-polishes every widget alive in the
+            # process - see `test_no_application_stylesheet.py` for the crash that
+            # walk caused three times on 2026-09-20. It also means there is nothing
+            # to undo afterwards: a sheet left on the application would be inherited
+            # by every later test in the process, which is what the old `finally` was for.
+            widget.setStyleSheet(stylesheet(scheme))
+            widget.ensurePolished()
+            needed = QFontMetrics(widget.font()).height()
+            assert widget.sizeHint().height() >= needed, (
+                f"{scheme} {cls.__name__}: {widget.sizeHint().height()}px tall "
+                f"for text needing {needed}px - the label will be clipped")
 
 
 # ---------------------------------------------------------------------------
