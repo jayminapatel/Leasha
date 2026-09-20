@@ -22,6 +22,34 @@ change with a crash at the end of it.
 
 The leak itself is not fixed. This makes the leak harmless rather than fatal, which is
 the honest description: a test that wants themed metrics styles the widget it is testing.
+
+**Note 2026-09-20 - the leak was measured, and deliberately left.** The obvious follow-up
+was an autouse teardown in `tests/conftest.py` deleting every leftover widget between
+tests. It was investigated and not done, on three findings:
+
+1. *The leak is real and large.* Counted with a read-only pytest plugin over six Qt-heavy
+   files: `test_tuning_screen.py` leaves **6 top-level widgets and ~120 widgets** behind on
+   every one of its 13 tests, and 26 of the 238 tests in that subset grew the count.
+   So the problem is not imagined, and it is not one careless file.
+2. *Nothing walks them any more.* The only process-wide widget walk left anywhere in
+   `app/` or `tests/` is `close_windows.py`'s `QApplication.topLevelWidgets()`, which
+   iterates **live** objects and closes them - it cannot reach a corpse. The two guards
+   above keep `setStyleSheet` from coming back, and a grep for `setPalette`/`setFont`/
+   `setStyle` on the application finds none. The mechanism that made the leak fatal is
+   gone, not merely avoided.
+3. *The cure is riskier than the disease, today.* `tests/unit/conftest.py`'s
+   `gui_mainwindow` states plainly that tearing a `MainWindow` down mid-process is itself
+   a crash, and 60 unit modules hold module-scoped Qt fixtures a blanket teardown would
+   have to leave alone. A per-test snapshot handles those correctly - higher-scoped
+   fixtures are built first, so a fixture's window is never new - but it cannot see a
+   widget a test parked in a module-level global for a later test, and that failure mode
+   is a red suite discovered by somebody else, days later.
+
+Verified after the `setStyleSheet` fix: the fifteen-file combination that reproduced the
+crash (`test_timeline_entry_points.py` … `test_ui_aesthetics.py`) now runs **786 passed,
+exit 0**. What exists instead of the blanket fixture is an opt-in one,
+`no_leaked_widgets` in `tests/unit/conftest.py`, so a module that wants the cleanup can
+take it after proving its own file still passes - which is the order this should happen in.
 """
 
 from __future__ import annotations

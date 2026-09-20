@@ -1398,12 +1398,19 @@ class MainWindow(QMainWindow):
                 return
             from app.ui.selection import read_foreground_selection
 
+            # **Owned by the palette, not by this window.** Reading the foreground
+            # selection waits on another application's clipboard, so this lands late
+            # by design; a bare `connect(lambda ...)` has no receiver, and a palette
+            # whose C++ half had gone would be prefilled from inside a Qt slot where
+            # the RuntimeError has nowhere to go. `when_done` ties the call to the
+            # palette's own lifetime - see `app/ui/later.py`.
+            from app.ui.later import when_done
+
             mini = self._mini
             worker = CallableWorker(
                 read_foreground_selection, component="ui.mini.selection")
-            worker.signals.finished.connect(
-                lambda text: mini.offer_prefill(text or ""))
-            worker.signals.failed.connect(lambda _error: None)
+            when_done(mini, worker,
+                      finished=lambda text: mini.offer_prefill(text or ""))
             run(QThreadPool.globalInstance(), worker)
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not read the foreground selection: {}", exc)
