@@ -392,6 +392,16 @@ def cmd_index(args: argparse.Namespace) -> int:
         print("          Their titles and headings are searchable; the pictures are not.")
         print("          Reading them would mean OCR per image - see the OCR work order.")
 
+    partial = stats.warned_by_code.get("ERR_PST_PARTIAL", 0)
+    if partial:
+        # **Said, because "indexed" alone reads as "complete".** An archive with
+        # a few unreadable messages still indexes everything else, and without
+        # this line the run looked identical to one that read every message.
+        print()
+        print(f"Partial   {partial:,} mail archive(s) were only partly readable")
+        print("          Everything readable is searchable. The log names what was missed;")
+        print("          scanpst.exe repairs a damaged archive, then re-run the index.")
+
     held = stats.skipped_by_code.get("ERR_OCR_HELD", 0)
     if held:
         # **Named separately from the failures, because it is not one.** A

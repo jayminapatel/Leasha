@@ -49,6 +49,8 @@ __all__ = [
     "extract",
     "normalise_whitespace",
     "reads_by_ocr",
+    "looks_locked",
+    "with_closing_warning",
     "REGISTRY",
 ]
 
@@ -450,6 +452,61 @@ def reads_externally(path: Path) -> bool:
     """
     extractor = extractor_for(path)
     return bool(getattr(extractor, "reads_externally", False))
+
+
+#: What libpff says when another program holds the file exclusively. Measured
+#: 2026-09-20 against pypff 20231205 on Windows 11: an exclusive hold gives
+#: "...with error: The process cannot access the file because it is being used
+#: by another process", while a damaged file gives "invalid file signature".
+_LOCK_PHRASES = ("used by another process", "sharing violation", "lock violation")
+
+
+def looks_locked(exc: BaseException) -> bool:
+    """True if `exc` means another program has the file, not that it is damaged.
+
+    The two need opposite handling. A lock is retried on the next pass
+    (`pipeline._locked_candidates`); a damaged file is recorded as settled and
+    never looked at again until it changes. Calling a lock "corrupt" therefore
+    dropped an archive from the index for good.
+
+    Python's own `open` raises `PermissionError` for a sharing violation, with
+    no `winerror` set, so the type is checked as well as the Windows code and
+    the text libpff carries in its message.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    if getattr(exc, "winerror", None) in (32, 33):
+        return True
+    text = str(exc).lower()
+    return any(phrase in text for phrase in _LOCK_PHRASES)
+
+
+def with_closing_warning(
+    documents: Iterable[Document],
+    closing: Callable[[], Optional[AppError]],
+) -> Iterator[Document]:
+    """Yield `documents`, then attach `closing()`'s warning to the last one.
+
+    An extractor that skips part of a container has nowhere to say so: it only
+    yields documents. The pipeline already counts every warning on a written
+    document (`warned_by_code`), so the summary rides on the final message.
+    Holding one document back is the whole cost.
+
+    `closing` runs after the source is exhausted and may itself raise
+    `AppErrorException` - the case where nothing at all could be read.
+    """
+    held: Optional[Document] = None
+    for document in documents:
+        if held is not None:
+            yield held
+        held = document
+
+    warning = closing()
+    if held is None:
+        return
+    if warning is not None:
+        held.warnings = (*held.warnings, warning)
+    yield held
 
 
 def reads_by_ocr(path: Path) -> bool:

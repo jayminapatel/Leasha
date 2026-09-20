@@ -47,7 +47,7 @@ from typing import Any, Callable, Iterable, Iterator, Optional, Protocol, Sequen
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
-from app.extract.base import Document, SourceKind, register
+from app.extract.base import Document, SourceKind, looks_locked, register, with_closing_warning
 from app.extract.email_files import build_email_document
 
 __all__ = [
@@ -588,8 +588,11 @@ class Win32ComSession:
             self._namespace.AddStore(str(path))
             self._attached.append(target)
         except Exception as exc:                          # noqa: BLE001
+            # A file another program holds is retried next pass; a damaged one
+            # is settled. Reporting a lock as corruption dropped it for good.
+            code = "ERR_FILE_LOCKED" if looks_locked(exc) else "ERR_FILE_CORRUPT"
             raise AppErrorException(make_error(
-                "ERR_FILE_CORRUPT", "extract.pst",
+                code, "extract.pst",
                 path=str(path),
                 details=f"Outlook refused to open the archive: {exc}",
             )) from exc
@@ -714,12 +717,28 @@ class PstExtractor:
             yield from walk_session(session, include_live=False, only_paths=[str(path)])
             return
 
+        held_open: Optional[AppErrorException] = None
         if choose_backend(path, self.backend) == PstBackend.LIBPFF:
             from app.extract import pst_libpff
 
+            yielded = False
             try:
-                yield from pst_libpff.read_archive(path)
+                for document in pst_libpff.read_archive(path):
+                    yielded = True
+                    yield document
                 return
+            except AppErrorException as exc:
+                # An archive Outlook holds open cannot be read directly, but it
+                # can be read *through* Outlook - that is what having it open
+                # means. Only before the first message: a fallback part-way
+                # through would index the archive twice. Only in `auto`: a
+                # forced backend was a choice, and quietly overriding it hides
+                # that libpff is not doing the job.
+                if (yielded or exc.error.code != "ERR_FILE_LOCKED"
+                        or self.backend != PstBackend.AUTO):
+                    raise
+                held_open = exc
+                _log.warning("{} is held open; trying Outlook instead", path.name)
             except pst_libpff.LibpffUnavailable as exc:
                 if self.backend == PstBackend.LIBPFF:
                     raise_error(
@@ -737,12 +756,43 @@ class PstExtractor:
                 # through to Outlook rather than failing the file.
                 _log.warning("libpff unavailable, falling back to Outlook: {}", exc)
 
-        session = Win32ComSession()
         try:
-            session.attach(path)
-            yield from walk_session(session, include_live=False, only_paths=[str(path)])
+            session = Win32ComSession()
+        except AppErrorException:
+            # No Outlook to fall back on: the lock is the honest reason.
+            if held_open is not None:
+                raise held_open
+            raise
+        try:
+            try:
+                session.attach(path)
+            except AppErrorException:
+                if held_open is not None:
+                    raise held_open
+                raise
+            yield from with_closing_warning(
+                walk_session(session, include_live=False, only_paths=[str(path)]),
+                lambda: _busy_warning(path),
+            )
         finally:
             session.close()
+
+
+def _busy_warning(path: Path) -> Optional[AppError]:
+    """Fold the folders Outlook could not read into one warning for the archive.
+
+    `_BUSY_FOLDERS` was only ever drained by the CLI, so in the app the record
+    of a skipped folder was written and never read.
+    """
+    busy = drain_busy_folders()
+    if not busy:
+        return None
+    return make_error(
+        "ERR_PST_PARTIAL", "extract.pst", path=str(path),
+        reason=f"{len(busy)} folder{'s' if len(busy) != 1 else ''} could not be read "
+               "because Outlook was busy or closed",
+        details="; ".join(str(e.details) for e in busy[:3]),
+    )
 
 
 register(PstExtractor())

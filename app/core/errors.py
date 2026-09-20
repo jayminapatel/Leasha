@@ -567,6 +567,17 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # Work order `pst-resilience`. A warning, never a failure: it rides on the
+    # last message an archive yielded, so it is counted in `warned_by_code`.
+    "ERR_PST_PARTIAL": _Spec(
+        message="Only part of '{path}' could be read: {reason}.",
+        suggestion=(
+            "Everything readable is indexed and searchable. If the archive is damaged, run "
+            "scanpst.exe on it; if Outlook was busy, leave Outlook open. Either way, run "
+            "`app.cli index --force` on its folder afterwards to pick up what was missed."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
 }
 
 

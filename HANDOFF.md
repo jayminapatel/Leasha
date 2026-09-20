@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.6 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 6.7 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -773,6 +773,15 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
   thousands of messages may already be read; losing them would be unforgivable.
 - **Nothing reaches past the Cached Exchange Mode cache.** Coverage is whatever Outlook already
   holds locally, and `store_cached_only` is recorded on every document so the gap is visible.
+- **A held-open archive is a lock, never corruption (2026-09-20, `WORKORDER-pst-resilience.md`).**
+  `looks_locked` (`extract/base.py`) tells the two apart from libpff's message, measured on this
+  machine. `ERR_FILE_LOCKED` is retried every pass; `ERR_FILE_CORRUPT` is settled, so mislabelling
+  a lock dropped the archive from the index for good. In `auto`, a lock on the libpff path falls
+  back to Outlook - only before the first message, or the archive is indexed twice.
+- **Skips are counted, not only logged.** `ERR_PST_PARTIAL` rides on an archive's last message
+  and reaches `warned_by_code` and the CLI's `Partial` line. **Not yet true:** the Indexing tab
+  does not show it, and on an incremental run whose last message is unchanged it is not counted
+  (order 0v, 3d and 3e). How Outlook holds a `.pst` it has attached is unmeasured (1e).
 
 ### Two ways to read a .pst, and when each applies
 
