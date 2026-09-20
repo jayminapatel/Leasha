@@ -59,7 +59,7 @@ class SourcesPane(QWidget):
         self.passage.setVisible(False)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 0, 0, 0)     # off the splitter's hairline
         for part in (self.heading, self.empty):
             layout.addWidget(part)
         layout.addWidget(self.results, stretch=1)

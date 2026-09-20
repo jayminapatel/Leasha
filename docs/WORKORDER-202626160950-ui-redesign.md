@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with
@@ -586,6 +586,56 @@ redo the shell.
   (`qtbot.waitUntil`, 100ms ceiling) — the window is driven while the
   indexer is busy, not before or after. Plus `test_ui_never_blocks.py`
   green across the new files with no new exemptions.
+> **2026-09-20 - the first look at the real window, and what 9j's measurement
+> did and did not settle.** Every capture before this was offscreen at 100%. The
+> owner's screen is 125% (1536x864 logical), and grabbing the real window on the
+> Windows platform (`tools/grab_ui.py` with `QT_QPA_PLATFORM=windows`) showed six
+> faults the goldens could not:
+>
+> 1. **Labels painted a grey box round their text.** `QWidget { background:
+>    window }` reaches every label and check box, so on a card (the settings
+>    groups, the toast, the rail pill) each one drew its own rectangle. One rule -
+>    `QLabel, QCheckBox, QRadioButton { background: transparent }` - fixed the lot.
+> 2. **The toast was unreadable in principle**: its label took the page's text
+>    colour, so dark on dark in one theme and light on light in the other; and the
+>    info dot was navy on the navy toast.
+> 3. **The rail's indexing pill read "p to dat".** "Up to date" is 58px at 125%
+>    and the pill's text had 40. Its headline now wraps ("Up to / date") and is
+>    held to the height its wrapped text needs; the words are unchanged.
+> 4. **With the preview and inspector open, the results list clipped its dates,
+>    paths and snippets** and grew a horizontal scrollbar. `QListView` lays its
+>    rows out once (`ResizeMode.Fixed`): the list narrowed from 269px to 207px and
+>    every row stayed 269. Measured, then fixed with `ResizeMode.Adjust`.
+> 5. **Zero margins on the Indexing page** (the stats card and "Reset index..."
+>    ran to the window's edge), **none inside Chat's splitter**, a native black
+>    focus rectangle round the text of the category and Reports lists, and the
+>    Offline Media page spreading its text a screen apart when empty.
+> 6. **The taskbar**: read from the real taskbar while the window was open - the
+>    button *does* show the Leasha mark, so the icon plumbing works when run as
+>    `leasha.cmd` runs it. Not verified, and the likely remaining gap: a *pinned*
+>    button. `set_window_relaunch` now gives Windows the icon and command to build
+>    that shortcut from; a pin made before this must be unpinned and pinned again.
+>
+> The twelve goldens were regenerated in the commit that changed the look, and
+> read: the pill is whole and no row is clipped at 1024x600 or 1920x1080.
+>
+> **9j: the constructor half is measured, the scroll half is not settled.**
+> `MainWindow(...)` on the Windows platform, three runs each, alternating, against
+> `3da478a` (the last commit before the redesign): before 2.2 / 2.8 / 6.1 s, after
+> 1.9 / 2.4 / 1.8 s - not slower. The results list, minimum of twelve paints at
+> three scroll positions over 2,000 rows, three alternating runs of each of
+> `3da478a`, the committed redesign and today's tree: the quietest run was 106 /
+> 115 / 109 ms (within 8%), but the same code differed 3-4x between runs
+> (`old` 106 to 352 ms), so **no 10% verdict is honest from this machine while it
+> is doing other things.** It was 2,000 rows, not 10,000 - building them costs
+> about 3.5 ms a row and the paint per page does not depend on the count. That
+> building cost is itself worth a look and was the same in all three trees.
+> `tools/bench_results_paint.py <tree>` does the paint half in one command; run it
+> on an idle machine against a `git worktree` of `3da478a` and of this tree, three
+> times each, and compare the minimum.
+>
+> **The "Offline" rail label is still waiting for the owner.** Nothing was changed.
+
 - [ ] **9j** performance, measured not felt: `startup_timing.py`'s
   constructor figure before and after (0r's sandbox baseline is
   180–410ms); a 10,000-row results model scrolled end to end with the new

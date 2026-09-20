@@ -174,6 +174,13 @@ _TEMPLATE = """
    for the two headlines that earn it. A tool somebody keeps open all day wants
    more on screen, not larger letters. */
 QWidget {{ background: {window}; color: {text}; font-size: {body}; }}
+/* **Text draws on whatever is behind it.** The rule above gives every widget the
+   window colour, labels and check boxes included, so on a card (a group box, the
+   toast, the rail pill) each one painted a grey box of its own around its text.
+   Found on 2026-09-20 by grabbing the real window on Windows at 125%: every
+   settings row and the whole of the toast had them. An id rule with its own
+   background still wins over this one. */
+QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 
 /* **The search box is the one control that should feel large.** Everything
    else tightens; this stays roomy because it is where every session starts and
@@ -236,6 +243,13 @@ QTableWidget::item:selected, QTreeWidget::item:selected {{
 QListWidget::item, QListView::item, QTreeWidget::item {{
     padding: 3px 4px; border-radius: {radius_control};
 }}
+/* The native focus rectangle is a black dotted box round the row's text only, and
+   looked like a fault beside the rounded selection (Reports, the category lists).
+   The selected row gets the theme's ring while the list has the keyboard; the
+   transparent border keeps a row the same size with and without it. */
+QListWidget, QTreeWidget {{ outline: 0; }}
+QListWidget::item {{ border: 1px solid transparent; }}
+QListWidget::item:selected:focus {{ border: 1px solid {focus_ring}; }}
 /* A header that reads as a label rather than as a button: no border box, one
    hairline under it, and the small-caps weight tables use to say "this names
    the column, it is not content". */
@@ -371,7 +385,7 @@ QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18p
 #rail QToolButton:focus {{ border-color: {rail_text}; }}
 #railPill {{
     background: {rail_hover}; color: {rail_text}; border: none;
-    border-radius: {radius_control}; padding: 6px 4px; font-size: {small};
+    border-radius: {radius_control}; padding: 6px 0; font-size: {small};
 }}
 #railPill:hover, #railPill[selected="true"] {{ background: {rail_on_bg}; color: {rail_on_text}; }}
 #railPill:focus {{ border: 1px solid {rail_text}; }}
@@ -413,8 +427,14 @@ QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18p
     border: none; border-radius: {radius_control}; padding: 8px 14px;
     font-size: {small};
 }}
+/* The label is a child of the toast, so it needs the toast's text colour said
+   outright: the `QWidget` rule at the top gives it the page's, which on an
+   inverted ground is dark on dark in one theme and light on light in the other. */
+#toastText {{ color: {toast_text}; background: transparent; font-size: {small}; }}
 #toastDot {{ border-radius: 4px; min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px; }}
-#toastDot[level="info"] {{ background: {accent}; }}
+/* Info uses the text colour, not the accent: the accent is navy in the light
+   theme and the toast is navy, so the dot vanished. */
+#toastDot[level="info"] {{ background: {toast_text}; }}
 #toastDot[level="warning"] {{ background: {warning}; }}
 #toastDot[level="danger"] {{ background: {danger}; }}
 
@@ -606,8 +626,14 @@ QComboBox QAbstractItemView {{
 
 /* **CategoryNav** (§8b) takes the rail's selection language - a filled pill
    and a heavier label - so the two navigations read as one family. */
-#categorySidebar {{ border: none; background: transparent; }}
-#categorySidebar::item {{ padding: 6px 10px; border-radius: {radius_control}; }}
+/* `outline: 0` drops the native black focus rectangle, which was drawn round the
+   text alone with the icon outside it. The row gets the theme's own ring when
+   the list has the keyboard instead, so where focus is stays visible. */
+#categorySidebar {{ border: none; background: transparent; outline: 0; }}
+#categorySidebar::item {{
+    padding: 6px 10px; border: 2px solid transparent; border-radius: {radius_control};
+}}
+#categorySidebar::item:selected:focus {{ border: 2px solid {focus_ring}; }}
 #categorySidebar::item:selected {{
     background: {accent_soft}; color: {accent_text}; font-weight: 600;
 }}

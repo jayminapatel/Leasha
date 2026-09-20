@@ -244,7 +244,10 @@ class IndexingView(QWidget):
         self._nav.add_category(CATEGORY_TUNING, scrollable(tuning_page))
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # 9, the margin every other page gets from Qt by default. This was 0, so
+        # the stats card, the progress bar and "Reset index..." ran flush to the
+        # window's right edge and the buttons sat 5px from the bottom.
+        layout.setContentsMargins(9, 9, 9, 9)
         layout.addWidget(self._nav)
 
     # -- running ------------------------------------------------------------

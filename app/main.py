@@ -434,7 +434,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # from the first frame rather than showing pythonw.exe's generic icon -
     # see `set_app_user_model_id`'s docstring for why that happens when
     # running unpackaged, which is every run until L9 ships a real .exe.
-    from app.ui.tray import install_window_icon, set_app_user_model_id
+    from app.ui.tray import (
+        install_window_icon, set_app_user_model_id, set_window_relaunch,
+    )
 
     set_app_user_model_id()  # cosmetic only; failure is not fatal
 
@@ -626,6 +628,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
             log.info("startup: showing the window")
             window.show()
+            # After `show()`: the window has no native handle until then. Cosmetic
+            # and guarded inside - see `set_window_relaunch` for what it fixes.
+            set_window_relaunch(int(window.winId()))
             startup_timer.record_window_visible()
             application.processEvents()  # Ensure window is painted
 

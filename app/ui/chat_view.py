@@ -94,7 +94,9 @@ class ChatView(QWidget):
         head.addWidget(self.speed)
         centre = QWidget()
         column = QVBoxLayout(centre)
-        column.setContentsMargins(0, 0, 0, 0)
+        # 10 a side: the three panes of the splitter met with a hairline between
+        # them, so the footer line, the question box and "Send" all touched it.
+        column.setContentsMargins(10, 0, 10, 0)
         column.addLayout(head)
         column.addWidget(self.speed_note)
         column.addWidget(self.bubbles, stretch=1)

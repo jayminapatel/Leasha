@@ -17,6 +17,27 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The window, looked at properly - text in its box, room at the edges
+
+Found by grabbing the real window on Windows at 125% scaling, which the offscreen
+captures had never shown. Order `202626160950` has the six findings in full.
+
+- **The indexing button on the left now shows its words.** "Up to date" read "p to dat";
+  it now wraps onto two lines. "Needs attention" and "Indexing" fit too.
+- **The notification box at the bottom matches the theme.** Its text sat in a mismatched
+  box (light in the dark theme, dark in the light one) and its dot was invisible on the
+  light theme.
+- **No more grey boxes behind labels.** Every settings row, the Tuning page and the toast
+  had one.
+- **Search results are no longer cut off at the right** when the preview is open, and the
+  sideways scrollbar under them is gone.
+- **Room at the edges**: the Indexing page (the stats card and "Reset index..." ran to the
+  window edge), inside Chat, and the Offline Media page's spread-out text. The black focus
+  box round list items is now the theme's own ring.
+- **Taskbar**: the running button already showed the icon. Windows is now also told which
+  icon and command a *pinned* Leasha should use; unpin it and pin it again to pick it up.
+- `tools/bench_results_paint.py`, for the order's last open measurement.
+
 ### PST resilience - an archive that is held open, or slightly damaged
 
 Work order `pst-resilience`. Most of it is on the direct (libpff) path, where the failures were.
@@ -39,7 +60,8 @@ Work order `pst-resilience`. Most of it is on the direct (libpff) path, where th
 
 ### Docs
 
-- `HANDOFF.md` 6.7, `ORDER_REGISTER.md` 1.35 (row 0v), new `WORKORDER-pst-resilience.md` 1.0.
+- `HANDOFF.md` 6.8, `ORDER_REGISTER.md` 1.36 (row 0v), new `WORKORDER-pst-resilience.md` 1.0,
+  `WORKORDER-202626160950-ui-redesign.md` 1.4 (the 2026-09-20 note).
 
 ## [0.3.3] - 2026-09-19
 
