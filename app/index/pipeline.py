@@ -48,12 +48,13 @@ still does not.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import queue
 import threading
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -61,6 +62,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract.base import extractor_for, reads_externally
+from app.core.priority import lower_this_thread
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
@@ -116,6 +118,13 @@ CHECKPOINT_EVERY = 50
 #: Two seconds is often enough to look alive and rare enough that the cursor
 #: write is free.
 CHECKPOINT_SECONDS = 2.0
+
+#: How late the interface's own timer must be running before the consumer
+#: yields, and the longest single yield. 0.2s is where a keystroke starts to feel
+#: delayed; 0.25s keeps one yield well under the point a run visibly crawls, and
+#: the sleep repeats per item for as long as the lag lasts.
+UI_LAG_YIELD_S = 0.2
+UI_YIELD_MAX_S = 0.25
 
 #: Rows per LanceDB append. From the spec; large enough to amortise the write,
 #: small enough that a crash loses little.
@@ -335,6 +344,26 @@ class IndexStats:
     #: one small tuple every couple of seconds for fifteen minutes - about 450
     #: of them - however long the run lasts.
     recent: list[tuple[float, int, int]] = field(default_factory=list)
+
+    def snapshot(self) -> "IndexStats":
+        r"""A copy the interface can read without racing the run.
+
+        **The live object was being handed across threads.** The walker, every
+        extraction thread and the consumer all mutate these counters and
+        dictionaries while the window iterates them to paint the skip summary;
+        the failure is "dictionary changed size during iteration" inside a
+        slot, which PyQt turns into an abort. Copying on the run's own thread
+        makes that impossible, and costs one shallow copy per checkpoint.
+
+        Each container is copied with a single C-level call, which holds the
+        interpreter lock for its whole duration.
+        """
+        clone = copy.copy(self)
+        for spec in fields(self):
+            value = getattr(clone, spec.name)
+            if isinstance(value, (dict, list, set)):
+                setattr(clone, spec.name, type(value)(value))
+        return clone
 
     @property
     def files_per_minute(self) -> float:
@@ -842,6 +871,15 @@ class Pipeline:
         #: lock. Set by the window to `run_lock.GUI`; the default suits the CLI
         #: and every test that constructs a pipeline directly.
         self.run_owner = COMMAND_LINE
+        #: True when this run shares its process with the interface. Set by
+        #: `IndexWorker`, which also lowers the thread that calls `run`. The
+        #: CPU courtesy is then per thread - every thread this run starts lowers
+        #: itself - instead of lowering the process, which would lower the
+        #: window with it. See `app.core.priority`.
+        self.thread_priority_only = False
+        #: Seconds the interface has recently been late, or None. Set by the
+        #: window to `LagMonitor.recent_lag_s`; `_yield_to_ui` sleeps on it.
+        self.ui_lag: Optional[Callable[[], float]] = None
         self._last_summary = 0.0
         self._stats_ref = IndexStats()
         #: §6a. Built here rather than in `run` so a pipeline constructed and
@@ -931,6 +969,43 @@ class Pipeline:
 
     # -- the run ------------------------------------------------------------
 
+    def _background(self, target: Callable[..., Any]) -> Callable[..., Any]:
+        """`target`, run by a thread that first lowers its own priority.
+
+        Only when `thread_priority_only` is set, which is the window's run; for
+        the command line the process itself was lowered and this hands back
+        `target` untouched.
+        """
+        if not self.thread_priority_only:
+            return target
+
+        def lowered(*args: Any, **kwargs: Any) -> Any:
+            lower_this_thread()          # the thread ends with the run: no restore
+            return target(*args, **kwargs)
+
+        return lowered
+
+    def _yield_to_ui(self) -> None:
+        r"""Give the window a beat when it is running late.
+
+        **A control loop, not a hope.** `ui_lag` reports how late the interface's
+        own timer has been recently. Over `UI_LAG_YIELD_S` this sleeps for about
+        that long before the next item, which lets the consumer's queue back up
+        and, through it, the extraction threads stop competing for the GIL
+        until the window has caught up. Free when nothing is wrong: one call and
+        one comparison. Never raises, and never sleeps past `UI_YIELD_MAX_S`, so
+        it cannot be the reason a run crawls.
+        """
+        probe = self.ui_lag
+        if probe is None:
+            return
+        try:
+            lag = float(probe())
+        except Exception:                        # noqa: BLE001 - advisory
+            return
+        if lag >= UI_LAG_YIELD_S:
+            time.sleep(min(lag, UI_YIELD_MAX_S))
+
     def run(
         self,
         *,
@@ -988,7 +1063,12 @@ class Pipeline:
         # Below-normal CPU and background I/O priority, before a single file is
         # read. The cheapest courtesy available and the most effective: the
         # scheduler simply prefers whatever the person is actually doing.
-        if self.governor.apply_priority():
+        if self.thread_priority_only:
+            # The window is in this process: lower this run's threads, not the
+            # process. `IndexWorker` has already lowered the one calling here.
+            if self.governor.apply_io_priority():
+                self._log.debug("running at background I/O priority")
+        elif self.governor.apply_priority():
             self._log.debug("running at below-normal priority")
 
         self.vectors.ensure_table()
@@ -1042,11 +1122,12 @@ class Pipeline:
         self._seen_paths = set()
         seen_paths = self._seen_paths
         producer = threading.Thread(
-            target=self._produce, args=(work, stats, seen_paths), name="walker", daemon=True
+            target=self._background(self._produce), args=(work, stats, seen_paths),
+            name="walker", daemon=True
         )
         workers = [
-            threading.Thread(target=self._extract_worker, args=(work, results),
-                             name=f"extract-{i}", daemon=True)
+            threading.Thread(target=self._background(self._extract_worker),
+                             args=(work, results), name=f"extract-{i}", daemon=True)
             for i in range(self.config.worker_count())
         ]
         # §6g: `_produce` sends exactly this many `_STOP` markers; every
@@ -1057,7 +1138,8 @@ class Pipeline:
         # same reason the extraction workers are started here rather than in
         # `_produce` - thread lifecycle belongs at the one place that tears
         # every thread down again, in `finally` below.
-        feeder = threading.Thread(target=self._feed_worker, name="feeder", daemon=True)
+        feeder = threading.Thread(target=self._background(self._feed_worker),
+                                  name="feeder", daemon=True)
         self._feeder_thread = feeder
 
         producer.start()
@@ -2262,7 +2344,7 @@ class Pipeline:
         self._last_growth = now
         self._expected_stops += 1
         worker = threading.Thread(
-            target=self._extract_worker, args=(work, results),
+            target=self._background(self._extract_worker), args=(work, results),
             name=f"extract-dynamic-{len(self._dynamic_workers) + 1}", daemon=True)
         self._dynamic_workers.append(worker)
         worker.start()
@@ -2546,6 +2628,9 @@ class Pipeline:
             if item is _STOP:
                 finished += 1
                 continue
+
+            # The window's own timer says it is late: let it catch up first.
+            self._yield_to_ui()
 
             if item.first_of_file and item.error is None:
                 # Attributed on arrival, not on write. Counting it only when the
