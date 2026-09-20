@@ -579,16 +579,54 @@ class SqliteStore:
         # repeatedly is harmless. The rest are per-connection and must be set
         # on every one of them - a worker thread with `foreign_keys` off would
         # silently skip the cascade deletes that keep chunks with their file.
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
+        #
+        # **Bounded, and said in words.** The busy timeout is what stops these
+        # from waiting for ever on a file another process holds; when it runs
+        # out sqlite raises "database is locked", which used to escape as a bare
+        # OperationalError from a worker with `_conns_lock` held - so every other
+        # worker then queued behind it. It is now closed and reported.
+        try:
+            conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA foreign_keys = ON")
+        except sqlite3.OperationalError as exc:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+            raise self._busy_error(str(exc)) from exc
 
         self._open.append(conn)
         return conn
 
+    def _busy_error(self, details: str = "") -> AppErrorException:
+        return AppErrorException(make_error(
+            "ERR_DB_BUSY", "storage.sqlite", seconds=int(self._timeout),
+            details=details or f"Could not get a connection to {self.db_path} within "
+                               f"{self._timeout:g} s.",
+        ))
+
+    @contextmanager
+    def _conns(self) -> Iterator[None]:
+        """`self._conns_lock`, but never for ever.
+
+        The lock is held while a connection is opened (and, on the first call,
+        while the schema is migrated), so one thread stuck there used to leave
+        every other worker waiting on it with no way out - a hung Scan with
+        workers all parked in `_new_connection`. Waiting is now bounded by the
+        store's own timeout, and the wait ends in a plain-words error."""
+        if not self._conns_lock.acquire(timeout=self._timeout):
+            raise self._busy_error(
+                f"Waited {self._timeout:g} s for the lock that hands out connections "
+                f"to {self.db_path}.")
+        try:
+            yield
+        finally:
+            self._conns_lock.release()
+
     def connect(self) -> "SqliteStore":
-        with self._conns_lock:
+        with self._conns():
             self._closed = False
             conn = getattr(self._local, "conn", None)
             if conn is None:
@@ -693,7 +731,7 @@ class SqliteStore:
         if conn is not None:
             return conn
 
-        with self._conns_lock:
+        with self._conns():
             if self._closed:                       # closed while we waited
                 raise AppErrorException(make_error(
                     "ERR_UNEXPECTED", "storage.sqlite",
@@ -1928,6 +1966,22 @@ class SqliteStore:
         self.delete_file(record.id)
         return record.id
 
+    def paths_with_skip_code(self, code: str, *, limit: Optional[int] = None) -> list[str]:
+        """Paths of the ordinary files whose row carries `code`, oldest first.
+
+        Work order 202626270515 (the media backlog): a queue kept as skip rows is
+        read back with one query on `idx_files_skip`, not by iterating every
+        skipped file in Python. `source_kind = 'file'` so a message inside an
+        archive is never offered to something that expects a path on disk.
+        """
+        sql = ("SELECT path FROM files WHERE skip_code = ? AND source_kind = 'file' "
+               "ORDER BY id")
+        params: list[Any] = [code]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return [row["path"] for row in self.conn.execute(sql, params).fetchall()]
+
     def iter_files(
         self, status: Optional[str] = None, *, source_kind: Optional[str] = None,
         volume_id: Optional[int] = None,
@@ -2224,6 +2278,19 @@ class SqliteStore:
             embedding=row["embedding"], pile_id=row["pile_id"],
             confidence=row["confidence"], suggested_pile_id=row["suggested_pile_id"],
         )
+
+    def clear_faces_for_file(self, file_id: int) -> int:
+        """Forget the faces found in one file, so it can be scanned again. Returns rows.
+
+        Work order 202626270515: a video that changed on disk is read again and its
+        pictures are different, so the faces recorded from the old ones are stale.
+        Only ever called for a video - a photograph's faces are left alone by every
+        existing path.
+        """
+        with self.write() as conn:
+            cursor = conn.execute("DELETE FROM faces WHERE file_id = ?", (int(file_id),))
+            conn.execute("DELETE FROM face_scans WHERE file_id = ?", (int(file_id),))
+            return int(cursor.rowcount or 0)
 
     def faces_for_file(self, file_id: int) -> list[FaceRecord]:
         rows = self.conn.execute(

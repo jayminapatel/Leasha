@@ -170,3 +170,70 @@ def test_the_selected_row_survives_the_interim_to_full_swap(gui_mainwindow, qtbo
         f"selection moved from file {selected_file_id} to {after.file_id} across "
         "the interim-to-full swap - the real dispatch path does not preserve it "
         "the way the isolated ResultsView.show_results(keep_scroll=True) test does")
+
+
+# ---------------------------------------------------------------------------
+# The launched app said "Nothing selected" three times out of three when a result
+# was clicked and the preview opened within ~2 s of the rows appearing (order 0m,
+# 2026-09-20 note). The ordering that does it: the rows on screen are replaced by
+# a search for *different text* (a slow typist, or a busy machine, gets the
+# interim tier of "swapproof" and then the full tier of "swapproof alpha"). The
+# selection was kept only when the query text was unchanged, so the click was
+# silently dropped and `current_row()` was None when the pane was switched on.
+# ---------------------------------------------------------------------------
+
+def test_a_clicked_result_is_still_previewed_after_the_rows_are_replaced_by_a_longer_query(
+        gui_mainwindow, qtbot):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QToolButton
+
+    app, window, store, engine = gui_mainwindow
+    view = window.search_view
+
+    for name, text in (
+        ("swapproof-alpha.txt", "swapproof alpha document about valves"),
+        ("swapproof-beta.txt", "swapproof beta document about pumps"),
+    ):
+        file_id = store.upsert_file(
+            f"C:/work/{name}", parent_dir="C:/work", ext="txt", size_bytes=1,
+            mtime_ns=1, status="INDEXED", source_kind="file")
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": text}])
+
+    toggle = [b for b in window.findChildren(QToolButton) if b.objectName() == "toggle_inspector"][0]
+    if toggle.isChecked():                       # the pane must be OFF when the click lands
+        qtbot.mouseClick(toggle, Qt.MouseButton.LeftButton)
+
+    view.input.clear()
+    gui_pump(app)
+    qtbot.keyClicks(view.input, "swapproof")
+    view.search_now()
+    qtbot.waitUntil(lambda: view.results._model.rowCount() >= 2, timeout=5000)
+
+    # Click the beta row (whichever position it has), as a person does.
+    target = None
+    for row in range(view.results._model.rowCount()):
+        view.results._list.setCurrentIndex(view.results._model.index(row, 0))
+        current = view.results.current_row()
+        if current is not None and "beta" in current.path:
+            target = current
+            break
+    assert target is not None
+
+    # The rows are replaced by a search for different text that still finds it.
+    qtbot.keyClicks(view.input, " beta")         # typed on, never cleared - as a person does
+    view.search_now()
+    qtbot.waitUntil(lambda: view._shown_query == "swapproof beta" and len(view.results._rows) >= 1,
+                    timeout=5000)
+    qtbot.wait(700)                              # the metadata redraw lands too
+    gui_pump(app)
+
+    current = view.results.current_row()
+    assert current is not None, "the click was dropped when the rows were replaced"
+    assert "beta" in current.path
+
+    # Now open the preview: it shows the file, not "Nothing selected".
+    qtbot.mouseClick(toggle, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: "beta" in view.preview.title.text().lower(), timeout=4000)
+    assert view.preview.title.text() != "Nothing selected"
+    qtbot.mouseClick(toggle, Qt.MouseButton.LeftButton)   # leave the pane as found
+    view.input.clear()

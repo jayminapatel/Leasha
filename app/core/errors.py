@@ -205,27 +205,30 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_payload=r"venv\Scripts\python.exe -m pip install rapidocr-onnxruntime",
     ),
     # --- video and audio (work order 202626270515) --------------------------
-    # **Four codes, four different fixes.** "ffmpeg missing", "the speech
-    # package missing" and "the speech model not downloaded" are three
+    # **Four codes, four different fixes.** "the video-reading package missing",
+    # "the speech package missing" and "the speech model not downloaded" are three
     # separate things to do, and one code that said "media tools unavailable"
     # would send somebody to install the wrong one. All are SKIP_CONTINUE in
     # effect: the file is still findable by name, and a run never stops.
+    # (2026-09-20: the first build named FFmpeg here. Videos are now read by PyAV,
+    # in-process, so there is no program to install - see media_tools.py.)
     "ERR_MEDIA_TOOLS_MISSING": _Spec(
         message="'{binary}' is needed to read video and audio files and was not found.",
         suggestion=(
-            "Install FFmpeg once and it is picked up automatically - nothing else needs "
+            "Install it once and it is picked up automatically - nothing else needs "
             "changing. Until then video files are findable by name only. After installing, "
             "run indexing again with 'retry skipped' so these files are looked at again."
         ),
         action_type=ActionType.RUN_COMMAND,
-        action_payload="winget install --id Gyan.FFmpeg -e",
+        action_payload=r"venv\Scripts\python.exe -m pip install av==18.1.0",
     ),
     "ERR_MEDIA_PROBE_FAILED": _Spec(
-        message="FFmpeg could not read '{path}' as a video or audio file.",
+        message="'{path}' could not be read as a video or audio file.",
         suggestion=(
             "The file is skipped and indexing continues. If it happens to every file, "
-            "FFmpeg is probably broken - run 'python -m app.cli media --status'; if it "
-            "is one file, that recording is likely damaged or unfinished."
+            "the video-reading package is probably broken - run "
+            "'python -m app.cli media --status'; if it is one file, that recording is "
+            "likely damaged or unfinished."
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
@@ -269,6 +272,19 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "Nothing is wrong and nothing has been lost - this run was asked to index text "
             "only, so videos and recordings are queued rather than read. Run the images pass "
             "to fill them in; they are picked up exactly where this left them."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # **A queue, not a failure**, and the *background* twin of ERR_MEDIA_HELD: a
+    # normal run finds videos and recordings but reads them after everything else
+    # (`app/index/media_backlog.py`), so a file is in this state between "found"
+    # and "read" - and stays in it if the run is stopped, until the next one.
+    "ERR_MEDIA_BACKLOG": _Spec(
+        message="Waiting to be read in the background: '{path}' is a video or recording.",
+        suggestion=(
+            "Nothing is wrong and nothing has been lost. Videos and recordings take a "
+            "long time to read, so they are done after everything else, slowly, and "
+            "carried on from where they stopped. Run indexing again to continue."
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
@@ -440,6 +456,20 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # A worker that cannot get a database connection must say so and stop, not
+    # wait for ever (order 0m: an Offline Media Scan hung with workers blocked in
+    # `SqliteStore._new_connection`). Raised once `SqliteStore`'s bounded wait
+    # runs out - the index file, or the lock that hands connections out, was held
+    # by something else for the whole of it.
+    "ERR_DB_BUSY": _Spec(
+        message="Leasha's index did not answer for {seconds} seconds, so this was stopped instead of waiting for ever.",
+        suggestion=(
+            "Wait a minute and try again. If it keeps happening, close any other "
+            "copy of Leasha and any index run started from the command line, then "
+            "start Leasha again."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # **Not `ERR_DB_LOCKED`, and the difference is the whole point of the
     # split.** "Another copy of the application is running" tells somebody to
     # close their window, which for this is both wrong and annoying: the window
@@ -452,6 +482,20 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "finish, or stop it - the Indexing page has a Stop button, and it "
             "works on a run started from the command line too. Searching is "
             "unaffected and needs no wait."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    # Offline Media catalogues a *volume*, whose identity is the drive's own
+    # GUID (or a share's UNC name) - a folder has neither, and a drive letter is
+    # never stored. Said in words, with the way out, instead of the
+    # "configuration problem with 'path'" a folder used to produce.
+    "ERR_SOURCE_NOT_A_DRIVE": _Spec(
+        message="'{path}' is a folder, and Offline Media can only catalogue a whole drive or a network share.",
+        suggestion=(
+            "Choose the drive itself, not a folder on it - for a USB stick or "
+            "disk that is its top level (for example E:), and for a share its "
+            "\\\\server\\share name. To search a folder that is always "
+            "plugged in, add it on the Indexing page instead."
         ),
         action_type=ActionType.USER_RETRY,
     ),

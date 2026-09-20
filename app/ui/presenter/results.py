@@ -150,6 +150,15 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
         recency=float(getattr(result, "recency", 0.0) or 0.0),
         declares=bool(getattr(result, "declares", False)),
         rerank_score=getattr(result, "rerank_score", None),
+        # **Copied, not just declared** - the same omission `ext` and `mtime_ns`
+        # once had. `ResultRow.volume_id` existed for Offline Media and
+        # nothing filled it, so every row on a catalogued drive looked like an
+        # ordinary file: the preview tried to read its letter-free synthetic
+        # path and said "no longer where it was indexed" instead of showing the
+        # text the index holds, and Open/Reveal could not resolve it either.
+        volume_id=(int(result.volume_id) if getattr(result, "volume_id", None) is not None
+                   else None),
+        relative_path=str(getattr(result, "relative_path", "") or ""),
     )
 
 
