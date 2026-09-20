@@ -109,3 +109,23 @@ def paint_run_panels(view: Any, stats: Any) -> None:
     view.skips.show_skips(stats.skipped_by_code)
     view.archives.show_roots(getattr(stats, "skipped_roots", ()))
     view.show_notices(getattr(stats, "notices", ()))
+
+
+def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
+    """Whether this progress tick should repaint the page; records it if so.
+
+    **At most a few repaints a second.** A fast run checkpoints every fifty
+    documents, which is several times a second, and each tick rebuilds the skip
+    summary, the archived-folder list and the notices on the one thread the
+    person is typing on. A tick dropped here is replaced by the next, and the
+    finished handler always paints the last state. A change in whether the run is
+    paused is never dropped - that is the tick that explains why the bar stopped -
+    and neither is any tick while a stop is being carried out.
+    """
+    paused = bool(getattr(stats, "paused", False))
+    if (now - view._last_paint < min_interval_s
+            and paused == view._last_paused and not view._stopping):
+        return False
+    view._last_paint = now
+    view._last_paused = paused
+    return True

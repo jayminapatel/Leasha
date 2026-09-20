@@ -58,7 +58,7 @@ from app.ui.widgets.archived_roots import ArchivedRoots
 from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.index_stats import IndexStats
-from app.ui.widgets.indexing_layout import assemble_pages, paint_run_panels, paint_totals
+from app.ui.widgets.indexing_layout import assemble_pages, paint_due, paint_run_panels, paint_totals
 from app.ui.widgets.skips_panel import SkipsPanel
 from app.ui.widgets.tuning_box import TuningBox
 from app.ui.workers import CallableWorker, IndexWorker, run
@@ -326,20 +326,10 @@ class IndexingView(QWidget):
         paint_external(self, record, locked=locked)
 
     def _on_progress(self, stats: Any) -> None:
-        # **At most a few repaints a second.** A fast run checkpoints every fifty
-        # documents, which is several times a second, and each tick rebuilds the
-        # skip summary, the archived-folder list and the notices on the one
-        # thread the person is typing on. A tick dropped here is replaced by the
-        # next, and the finished handler always paints the last state. A change
-        # in whether the run is paused is never dropped - that is the tick that
-        # explains why the bar stopped.
-        now = time.monotonic()
-        paused = bool(getattr(stats, "paused", False))
-        if (now - self._last_paint < PROGRESS_PAINT_MIN_S
-                and paused == self._last_paused and not self._stopping):
+        # **At most a few repaints a second** - the rule and its reasons are on
+        # `paint_due`. The interval is read here, at call time, so it can be tuned.
+        if not paint_due(self, stats, time.monotonic(), PROGRESS_PAINT_MIN_S):
             return
-        self._last_paint = now
-        self._last_paused = paused
         # See `presenter.progress_for` for both bugs this has had: the numerator
         # once left out `indexed`, so a fresh corpus sat near zero for hours;
         # then the denominator was `seen`, which a bounded queue keeps close to
