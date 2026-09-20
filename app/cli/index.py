@@ -210,6 +210,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         # the same resolve_for_run call the window uses before it builds a
         # Pipeline.
         gpu_regression_notice=tuned.gpu_regression_notice,
+        # 2026-09-20. The command line's half of the Indexing page's Pause
+        # button - see `add_index_parser` for why it is a file and not a verb.
+        pause_file=(Path(args.pause_file).expanduser()
+                    if getattr(args, "pause_file", None) else None),
     )
 
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
@@ -257,6 +261,15 @@ def cmd_index(args: argparse.Namespace) -> int:
             # command line builds its own line and was not, so a real run sat
             # on an unchanging line for minutes while the governor waited for
             # memory to settle - and was reported as stuck. It was working.
+            #
+            # 2026-09-20: and *whose* pause it is decides what to do about it.
+            # A run the machine paused carries on by itself; a run the person
+            # paused waits for them, and the line says which, in the same
+            # words the button on the Indexing page uses.
+            if getattr(stats, "paused_by_person", False):
+                progress.update(
+                    f"{line}  | PAUSED by you - delete the pause file to carry on")
+                return
             reason = getattr(stats, "pause_reason", "") or "waiting for resources"
             progress.update(f"{line}  | PAUSED - {reason[:70]}")
             return
@@ -336,8 +349,15 @@ def cmd_index(args: argparse.Namespace) -> int:
     if stats.pauses:
         # Said plainly, because a four-hour run that was mostly waiting looks
         # identical to a four-hour run that was slow - and the fix is opposite.
-        print(f"Waited    {stats.paused_seconds / 60:,.1f} min across {stats.pauses} "
+        mine = getattr(stats, "manual_paused_seconds", 0.0) or 0.0
+        machine = max(0.0, stats.paused_seconds - mine)
+        print(f"Waited    {machine / 60:,.1f} min across {stats.pauses} "
               f"pause(s) to stay out of the way")
+        if mine:
+            # Kept out of the line above on purpose: time the person asked for
+            # is not the indexer being polite, and reading it as such would
+            # argue for raising a ceiling that was never the reason.
+            print(f"Paused    {mine / 60:,.1f} min held at your request")
     print(f"          {stats.files_per_minute:,.0f} files/min, {stats.mb_per_minute:,.1f} MB/min")
     if stats.chunks_deduped:
         # §6e's number, said every run. Whether repeated text is worth
@@ -657,6 +677,27 @@ def add_index_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
              "run costs hours. Use this after changing what the machine can do -\n"
              "installing LibreOffice, adding a library, raising a size ceiling.\n"
              "Far cheaper than --force, which re-indexes everything.")
+    # 2026-09-20. **The pause, as a file rather than a verb.**
+    #
+    # Pausing is something you do to a run that is already going, and one
+    # command cannot reach into another command's memory. The only channel
+    # two Leasha processes share is the index database, and its stop flag
+    # lives in `app/core/run_lock.py`, outside this change. A verb -
+    # `app.cli index --pause` - would therefore have had nothing to act on,
+    # and a switch that cannot work is worse than no switch.
+    #
+    # So the run watches a path it was told about: the file appears, the run
+    # holds; the file goes, the run carries on. Anything can make it - the
+    # person, a script, a scheduled task before a meeting - and nothing has
+    # to be installed or listening for it to work.
+    p_index.add_argument(
+        "--pause-file", metavar="PATH",
+        help="hold this run whenever this file exists, and carry on when it\n"
+             "is deleted. Nothing is lost either way: a paused run keeps its\n"
+             "place and picks up where it left off. Use it to get the machine\n"
+             "back for an hour without ending the run:\n"
+             "  type nul > pause.flag   holds it\n"
+             "  del pause.flag          carries on")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
     p_index.set_defaults(func=cmd_index)
 

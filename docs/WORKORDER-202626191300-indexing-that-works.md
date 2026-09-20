@@ -375,3 +375,71 @@ choice, and this order leaves it alone.
   > (`models\BAAI--bge-small-en-v1.5-int8-local`). Switching later invalidates
   > every vector, so **now, with an empty index, is the only free moment.** Left
   > off pending the owner's decision.
+
+---
+
+## 12. A pause button — dated note, 2026-09-20
+
+> **Added, not reworded.** Nothing above changes; this records what was built
+> on top of it and why, per the standing rule on released items.
+
+**Raised by the owner:** *"also on the indexing i dont think there isa pause
+button do add it"*. He was right. `IndexingView`'s docstring had said "Start,
+watch, **pause and resume** an index run" since it was written, and the only
+pausing in the application was `ResourceGovernor`'s: automatic, for memory,
+battery, other people's CPU and disk space. The page *showed* that state and
+offered no control over it. The docstring is now true.
+
+**What a pause means here.** It **holds** the run; it does not end it. Stop
+settles and ends (§6's clean stop, which stays exactly as it was); the
+governor's pause is the machine's own decision and keeps working underneath,
+independently. So there are two reasons a run can be still, and they read
+differently on the page: *"Paused"* — the person is holding it, and it waits
+for them — against the presenter's *"Paused - waiting for the machine"*, which
+ends by itself. Resume while the computer is still busy and the run keeps
+waiting **with the machine's reason shown**, because at that moment that is
+the true one.
+
+**Built on the governor's one wait path rather than beside it.** A manual
+pause is one more `cause` the existing `wait_while_throttled` can be waiting
+for (`app/index/resources.py`: `pause_manually`, `resume`, `manually_paused`,
+`MANUAL_PAUSE_REASON`). That gives it the live `paused`/`pause_reason` pair
+the window already paints, the accounting the summaries already print, and the
+stop check that already runs every poll — instead of a second waiting
+mechanism with its own flags for the UI to merge. The person's pause is
+answered **without probing the machine**: it is not a measurement.
+
+**Held at three boundaries that already existed** (`app/index/pipeline.py`):
+the walker, through that one wait path; every extraction worker, *between
+items and between documents* — checked on every item, never only when the
+queue runs dry, which is the mistake the stop flag made once and cost minutes
+of work after a close; and the consumer, between documents, the only thread
+that commits anything, so a pause can no more land mid-write than a stop can.
+The consumer reports the pause on the way in and on the way out, because while
+it waits nothing else paints and a silent pause is a frozen bar again. It also
+times the pause (`note_manual_pause`), once, for all of them.
+
+**Closing over a paused run still closes.** Every hold checks the stop flag
+each 50ms poll and holds no lock, no batch and no half-written file;
+`request_stop` also lets go of the pause on its way out. Pause-then-Stop and
+pause-then-Close are both tested.
+
+**The command line, before the button (non-negotiable 8).** No new verb:
+pausing acts on a run that is *already going*, one process cannot reach into
+another's memory, and the only channel two Leasha processes share is the index
+database, whose stop flag lives in `app/core/run_lock.py` — outside this
+thread's file scope. A verb that cannot work is worse than none. So
+`app.cli index --pause-file PATH` watches a path: the file appears, the run
+holds; it is deleted, the run carries on. Anything can make it. The progress
+line says which kind of pause is in force, and the summary counts the person's
+seconds apart from the ones spent staying out of somebody's way.
+
+**Tests:** `tests/unit/test_pause_button.py` (governor, a real `Pipeline`
+paused mid-run that makes no further progress and then finishes with exactly
+what an uninterrupted run produced, pause-then-stop, the pause file, and the
+button pressed under pytest-qt). **Still owed:** the close-over-a-paused-run
+scenario, in a child process beside `tests/unit/close_scenario_child.py` — a
+test that closes a real `MainWindow` must never run inside pytest, and there
+was no time left to write its child properly. Pause-then-Stop is covered, and
+pause-then-Close uses the same release path (`request_stop` lets go of the
+pause), but it is not yet pinned by a test.

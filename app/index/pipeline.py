@@ -71,7 +71,13 @@ from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.phash import PhashComputer
-from app.index.resources import ResourceGovernor, ResourceLimits, SystemProbe, Verdict
+from app.index.resources import (
+    MANUAL_PAUSE_REASON,
+    ResourceGovernor,
+    ResourceLimits,
+    SystemProbe,
+    Verdict,
+)
 from app.index.stages import WAITING, StageClock
 from app.index.walker import (
     Candidate,
@@ -222,6 +228,16 @@ class IndexStats:
     #: total. A pause used to freeze the progress bar with no explanation.
     paused: bool = False
     pause_reason: str = ""
+    #: 2026-09-20. **Which kind of pause this is.** "Paused" and "Paused - the
+    #: computer is busy" are different sentences to the person reading them:
+    #: one is waiting for them and one is waiting for the machine, and only
+    #: the first has a button that ends it. `paused` alone could not tell them
+    #: apart, so the flag is carried rather than guessed from the reason text -
+    #: wording is meant to be free to change.
+    paused_by_person: bool = False
+    #: Of `paused_seconds`, the share the person asked for. Reported apart so
+    #: "waited to stay out of the way" stays a true sentence.
+    manual_paused_seconds: float = 0.0
     #: True once the walker has finished finding files, which is the moment
     #: `seen` stops being a running tally and becomes a total. Nothing can show
     #: an honest percentage before it.
@@ -431,6 +447,8 @@ class IndexStats:
             "skipped": self.skipped, "deleted": self.deleted, "chunks": self.chunks,
             "paused_s": round(self.paused_seconds, 1), "pauses": self.pauses,
             "paused": self.paused,
+            "paused_by_person": self.paused_by_person,
+            "paused_by_person_s": round(self.manual_paused_seconds, 1),
             "current": self.current,
             "bytes_read": self.bytes_read, "elapsed_s": round(self.elapsed_s, 2),
             "files_per_minute": round(self.files_per_minute, 1),
@@ -602,6 +620,11 @@ class PipelineConfig:
     #: way to know "last time" (see `resolve._gpu_regression`'s own docstring
     #: for why the cached profile cannot be trusted for this one question).
     gpu_regression_notice: str = ""
+    #: 2026-09-20. A file whose presence holds the run, and whose removal
+    #: resumes it - the command line's half of the pause button (see
+    #: `app/cli/index.py`). `None`, so a run nobody asked to be pausable
+    #: behaves exactly as it always did and stats nothing per file.
+    pause_file: Optional[Path] = None
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -729,6 +752,18 @@ _FEEDER_QUEUE_SIZE = 1
 #: not two, for the same conclusion.
 _GROWTH_WAITING_SHARE = 0.5
 
+#: 2026-09-20. How long a paused worker sleeps between looks. Short, because
+#: this is what "Resume" costs before work restarts, and a paused run has
+#: nothing else to spend. 50ms x four workers is 80 flag reads a second
+#: against a machine doing nothing at all.
+HOLD_POLL_S = 0.05
+
+#: 2026-09-20. Least time between two looks at `PipelineConfig.pause_file`.
+#: Every waiter asks the governor whether the person has paused, and without
+#: this each ask would be a `stat()` - so the answer is cached for half a
+#: second, which is well under the time anybody notices.
+PAUSE_FILE_POLL_S = 0.5
+
 #: §6g. Seconds between growth attempts. Checked at the same checkpoints as
 #: everything else in `_consume`, so this is a ceiling on how often a new
 #: thread can start, not a schedule of its own - a corpus of many tiny files
@@ -816,10 +851,19 @@ class Pipeline:
                     config.embed_batch, exc)
         # Injected in tests with a fake probe, so every pause and resume path is
         # exercised without needing a machine that is actually short of memory.
+        #: When `config.pause_file` was last looked at, and what it said. See
+        #: `PAUSE_FILE_POLL_S`; set before the governor, which reads them.
+        self._pause_file_checked = 0.0
+        self._pause_file_seen = False
         self.governor = governor or ResourceGovernor(
             config.resolved_limits(),
             probe=SystemProbe(lambda: getattr(self.vectors, "uri", None)).read,
             on_state_change=self._on_throttle,
+            # The command line's pause, polled by the one wait path rather
+            # than by each waiter. A governor handed in by a test or by the
+            # window is left exactly as it was built - `pause()` below still
+            # works on it, only the file does not.
+            manual_check=self._pause_file_set,
         )
         self._log = logger.bind(component="index.pipeline")
         #: Skips left alone this run, by code. **Counted so the fix for H1 does
@@ -966,6 +1010,121 @@ class Pipeline:
         """
         self._interrupted = True
         self._stop.set()
+        # **A stop beats a pause, and must leave nothing holding.** Every
+        # waiter already checks the stop flag each poll, so this is not what
+        # releases them - it is what stops a paused run from being re-held on
+        # the way out, and what makes "pause, then close" end the process as
+        # fast as "close" does.
+        self._release_pause()
+
+    # -- the person's pause -------------------------------------------------
+
+    def _person_paused(self) -> bool:
+        """Is the person holding this run? **Never raises, never guesses.**
+
+        `getattr`, because a governor can be a stand-in: several tests hand in
+        an object with only the methods they need, and every one of those runs
+        must behave exactly as it did - "not paused" - rather than failing on
+        a thread nobody is watching.
+        """
+        return bool(getattr(self.governor, "manually_paused", False))
+
+    def pause(self) -> None:
+        r"""Hold the run where it is, without ending it.
+
+        **Distinct from `request_stop`, which settles and ends**: nothing is
+        finalised, no marker is written, no cursor is closed off, and the run
+        is still the same run when it starts moving again. Distinct as well
+        from the governor's own pause, which is the machine's decision and
+        keeps working independently underneath this one - resume while the
+        computer is still busy and the run keeps waiting, with the machine's
+        reason shown, because that is the true one.
+
+        Held at three places, all of them boundaries that already exist: the
+        walker (through `governor.wait_while_throttled`, the one wait path),
+        each extraction worker between items and between documents, and the
+        consumer between documents - which is the only thread that commits
+        anything, so a pause can no more land mid-write than a stop can.
+        """
+        hold = getattr(self.governor, "pause_manually", None)
+        if hold is None:
+            return
+        hold()
+        self._log.info("paused at the person's request")
+
+    def resume(self) -> None:
+        """Let go of the pause. The machine's own ceilings still apply."""
+        self._release_pause()
+        self._log.info("resumed at the person's request")
+
+    def _release_pause(self) -> None:
+        let_go = getattr(self.governor, "resume", None)
+        if let_go is not None:
+            let_go()
+
+    @property
+    def paused_by_person(self) -> bool:
+        """Is the person (or the command line's pause file) holding this run?"""
+        return self._person_paused()
+
+    def _pause_file_set(self) -> bool:
+        """Does `config.pause_file` exist right now? Cached; never raises."""
+        target = self.config.pause_file
+        if target is None:
+            return False
+        now = time.monotonic()
+        if now - self._pause_file_checked >= PAUSE_FILE_POLL_S:
+            self._pause_file_checked = now
+            try:
+                self._pause_file_seen = Path(target).exists()
+            except OSError:                      # noqa: PERF203 - a drive that vanished
+                self._pause_file_seen = False
+        return self._pause_file_seen
+
+    def _hold_if_paused(self) -> bool:
+        """Block while the person holds the run. True if the caller must stop.
+
+        **The stop flag is checked every poll, and nothing is held while
+        waiting that a close would need.** A worker sitting here owns one
+        candidate and no lock; the consumer sitting here owns no half-written
+        batch, because it only ever arrives between documents. So closing the
+        window over a paused run ends the run and the process on exactly the
+        path an unpaused one takes.
+        """
+        if not self._person_paused():
+            return self._stop.is_set()
+        while self._person_paused():
+            if self._stop.is_set():
+                return True
+            time.sleep(HOLD_POLL_S)
+        return self._stop.is_set()
+
+    def _report_pause(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]],
+    ) -> None:
+        """Copy the pause state onto the stats and tell whoever is watching."""
+        self._copy_pause_state(stats)
+        if on_progress is None:
+            return
+        try:
+            on_progress(stats)
+        except Exception as exc:                 # noqa: BLE001 - as elsewhere
+            self._log.warning("progress reporting failed: {}", exc)
+
+    def _copy_pause_state(self, stats: IndexStats) -> None:
+        """The governor's live pause state, onto the stats the UI reads."""
+        held = self._person_paused()
+        stats.paused_seconds = self.governor.paused_seconds
+        stats.pauses = self.governor.pauses
+        stats.paused = self.governor.paused or held
+        stats.paused_by_person = held
+        stats.manual_paused_seconds = float(
+            getattr(self.governor, "manual_paused_seconds", 0.0) or 0.0)
+        if held:
+            stats.pause_reason = MANUAL_PAUSE_REASON
+        else:
+            stats.pause_reason = self.governor.pause_reason
 
     # -- the run ------------------------------------------------------------
 
@@ -1043,6 +1202,12 @@ class Pipeline:
         self._stop.clear()
         self._interrupted = False
         self._embed_abandoned = False
+        # A pause belongs to the run it was asked for. A second run on the
+        # same `Pipeline` starts moving, and a person who wants it held asks
+        # again - a run that sat still for a reason nobody can see is the
+        # failure this whole feature exists to avoid. The command line's
+        # pause file is re-read either way: it is a fact about now.
+        self._release_pause()
         # Work order 202626270515. **Before anything walks**: the walker asks
         # `media.disabled_extensions()` which extensions exist, and
         # `_narrow_to_images` below adds the enabled ones to the images pass.
@@ -1487,10 +1652,7 @@ class Pipeline:
                 # work while everything already in flight keeps draining - which
                 # is what actually brings memory down.
                 verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
-                stats.paused_seconds = self.governor.paused_seconds
-                stats.pauses = self.governor.pauses
-                stats.paused = self.governor.paused
-                stats.pause_reason = self.governor.pause_reason
+                self._copy_pause_state(stats)
                 if verdict.action == "stop":
                     # Say why. Breaking silently here would end the run
                     # reporting complete success having indexed nothing - the
@@ -2212,6 +2374,13 @@ class Pipeline:
             if self._stop.is_set():
                 work.task_done()
                 return
+            # **Noticed on every item, for the same reason the stop flag is.**
+            # The queue is bounded and the walker keeps it full, so a worker
+            # that only looked when the queue ran dry would never look at all -
+            # and a paused run would keep reading a queue-length of files.
+            if self._hold_if_paused():
+                work.task_done()
+                return
             if not getattr(candidate, "readable", True):
                 # **Nothing is opened.** The row is its name, path, size and
                 # date - one INSERT on top of a `stat` the walk already did.
@@ -2264,6 +2433,10 @@ class Pipeline:
                         self._clock.add_worker(
                             "extract", time.perf_counter() - started)
                     if self._stop.is_set():
+                        break
+                    # Between documents, so one 100MB archive does not ignore
+                    # a pause for as long as it takes to read.
+                    if self._hold_if_paused():
                         break
                     self._offer(results, item)
             except BaseException as exc:        # noqa: BLE001 - never let a worker die silently
@@ -2602,6 +2775,25 @@ class Pipeline:
                 # run looks for. Checked here, at the only point that commits
                 # anything, so a stop can never land mid-write.
                 break
+
+            # The person's pause, at the same boundary and for the same
+            # reason. **Reported on the way in and on the way out**, because
+            # while this thread waits nothing else paints - and a pause that
+            # does not say so is the frozen progress bar all over again.
+            if self._person_paused():
+                self._report_pause(stats, on_progress)
+                held_from = time.monotonic()
+                stopped = self._hold_if_paused()
+                # **Timed here and nowhere else.** This thread waits out the
+                # whole pause, so it is the one that can say how long it was;
+                # the walker and the workers are held for the same seconds and
+                # counting theirs as well would report one pause three times.
+                note = getattr(self.governor, "note_manual_pause", None)
+                if note is not None:
+                    note(time.monotonic() - held_from)
+                if stopped:
+                    break
+                self._report_pause(stats, on_progress)
 
             try:
                 # **`waiting` is the honest name for "extraction is the
@@ -4519,10 +4711,7 @@ class Pipeline:
         condition that must end the run rather than delay it.
         """
         found = self.governor.check()
-        stats.paused_seconds = self.governor.paused_seconds
-        stats.pauses = self.governor.pauses
-        stats.paused = self.governor.paused
-        stats.pause_reason = self.governor.pause_reason
+        self._copy_pause_state(stats)
 
         if found.action != "stop":
             return True

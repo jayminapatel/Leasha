@@ -78,6 +78,21 @@ CATEGORY_TUNING = "Tuning"
 #: The fastest a progress tick may repaint the page. See `_on_progress`.
 PROGRESS_PAINT_MIN_S = 0.25
 
+#: 2026-09-20. The two words on the one button. It is one control rather than
+#: two because a run is either held or it is not, and a Resume sitting greyed
+#: out beside a live Pause is a second thing to read for no extra answer.
+PAUSE_LABEL = "Pause"
+RESUME_LABEL = "Resume"
+
+#: What a run the PERSON paused says, as against one the machine paused -
+#: which the presenter already words as "Paused - waiting for the machine".
+#: Two different situations: one of them ends when they press Resume, and the
+#: other ends by itself. A single "Paused" for both leaves somebody waiting
+#: for a run that is waiting for them.
+PAUSED_HEADLINE = "Paused"
+PAUSED_DETAIL = ("Held at your request. Nothing is lost - press Resume and it "
+                 "carries on from here.")
+
 
 class IndexingView(QWidget):
     """Start, watch, pause and resume an index run; review what was skipped."""
@@ -184,6 +199,28 @@ class IndexingView(QWidget):
             on_scan=lambda: self.scan_requested.emit(),
             on_reset=lambda: self.reset_requested.emit())
 
+        # **Beside Stop, and deliberately not instead of it.** The page said it
+        # could "pause and resume an index run" and could not: the only pausing
+        # in the application was the resource governor's, which the person does
+        # not control. Stop keeps its own meaning - it ends the run, cheaply -
+        # and this one holds it without ending anything.
+        self.pause_button = QPushButton(PAUSE_LABEL)
+        self.pause_button.setEnabled(False)
+        self.pause_button.setToolTip(
+            "Hold the run where it is and give the computer back, without "
+            "ending it. Nothing is lost and nothing is redone: it keeps its "
+            "place and carries on from there when you press Resume.\n\n"
+            "Different from Stop, which ends the run. Different again from "
+            "the pausing you may see on this page without pressing anything - "
+            "that is the computer standing aside for itself when it is busy, "
+            "on battery, or short of space, and it starts again on its own.")
+        self.pause_button.clicked.connect(lambda _c=False: self.toggle_pause())
+        # After Stop, before the stretch that pushes Reset to the far side.
+        controls.insertWidget(3, self.pause_button)
+        #: Whether *this person* has the run held. Not the same question as
+        #: `stats.paused`, which is true for the governor's pause as well.
+        self._paused = False
+
         # Both panels are their own widgets: this view had reached the 250-line
         # guard, and the guard is right - a view that keeps growing is a view
         # where logic starts to live.
@@ -280,6 +317,9 @@ class IndexingView(QWidget):
         self.bar.setValue(0)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self._paused = False
+        self.pause_button.setText(PAUSE_LABEL)
+        self.pause_button.setEnabled(True)
         self.headline.setText("Indexing…")
 
         worker = IndexWorker(pipeline)
@@ -314,6 +354,43 @@ class IndexingView(QWidget):
         self.headline.setText("Stopping after the current file…")
         self.detail.setText("Everything indexed so far is kept.")
         self.stop_button.setEnabled(False)
+        # **Stop beats Pause, from a held run as much as from a running one.**
+        # `Pipeline.request_stop` lets go of the pause itself, so this only has
+        # to stop offering a Resume that would now mean nothing.
+        self._paused = False
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText(PAUSE_LABEL)
+
+    def toggle_pause(self) -> None:
+        """Hold the run, or let it go again. What the one button does."""
+        self.resume_run() if self._paused else self.pause_run()
+
+    def pause_run(self) -> None:
+        """Hold the run where it is. Nothing is ended and nothing is lost."""
+        pipeline = getattr(self._worker, "pipeline", None)
+        if pipeline is None or self._stopping:
+            return
+        pipeline.pause()
+        self._paused = True
+        self.pause_button.setText(RESUME_LABEL)
+        # Said now rather than at the next progress tick: the run may already
+        # be between files, and a button that appears to do nothing for two
+        # seconds is a button pressed twice.
+        self.headline.setText(PAUSED_HEADLINE)
+        self.detail.setText(PAUSED_DETAIL)
+
+    def resume_run(self) -> None:
+        """Let the run carry on. The computer's own pauses still apply."""
+        pipeline = getattr(self._worker, "pipeline", None)
+        self._paused = False
+        self.pause_button.setText(PAUSE_LABEL)
+        if pipeline is None:
+            return
+        pipeline.resume()
+        # **Not "Indexing…" - that would be a claim.** The machine may still
+        # be busy, and the governor may keep the run waiting for its own
+        # reasons; the next progress tick says which, truthfully.
+        self.headline.setText("Carrying on…")
 
     def show_external(self, record: Any, *, locked: bool) -> None:
         """Draw a run this window did not start. See `widgets.external_run`.
@@ -348,6 +425,11 @@ class IndexingView(QWidget):
         headline, detail = progress_text(
             stats, total_estimate=self._total_estimate, stopping=self._stopping
         )
+        if getattr(stats, "paused_by_person", False):
+            # The presenter cannot tell the two pauses apart from `paused`
+            # alone, and its sentence - "waiting for the machine" - is the
+            # wrong one here: this run is waiting for the person.
+            headline, detail = PAUSED_HEADLINE, PAUSED_DETAIL
         self.headline.setText(headline)
         self.detail.setText(detail)
         paint_run_panels(self, stats)
@@ -384,8 +466,11 @@ class IndexingView(QWidget):
     def _on_done(self) -> None:
         self._worker = None
         self._stopping = False
+        self._paused = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText(PAUSE_LABEL)
 
     # -- the panels below the bar -------------------------------------------
 
