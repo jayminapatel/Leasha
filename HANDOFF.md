@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 7.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,49 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-20 (closing pass) - four things that said nothing, and a Pause button.** `CHANGELOG.md`
+has the full list; this is what a reader needs to know that is not obvious from it.
+
+*The pattern worth carrying forward.* Four defects closed today were **silent**: the wrong answer
+looked exactly like a right one, so no test and no person could see them.
+`/newest` and `/oldest` were accepted from the command line and dropped (the raw query never
+reached `expand_slashes`, so the sort parsed to empty); `--interpret` was accepted with
+`--builtin` and ignored; the Chat ship floor was measured with **no vectors at all**, so
+meaning-based questions failed before the model was asked and that was reported as the model's
+quality (real figure **84.0%**, not 73.9% - and the floor was NOT lowered to meet it); and the
+picture stack's OCR probe drove the graphics card ungated, which at four threads returned
+**no text from 131 photographs while reporting success**. Each now has a guard that fails loudly.
+When something here looks fine, ask what it would look like if it were broken - three of these
+were found only by checking the *dates* of results, or the *count* of words, not by reading code.
+
+*The crash that killed three suite runs is explained and fixed, and my first answer was wrong.*
+It was not memory. `QApplication.setStyleSheet` re-polishes every widget alive in the process,
+the suite leaks widgets, and the walk reached one already freed. Four sites fixed plus a guard;
+the application itself never does this (it themes its window). A deferred call with a **lambda**
+is the same shape - measured on PyQt6 6.11: a bound method of a QObject is auto-cancelled when
+that object dies, a lambda fires anyway - so `app/ui/later.py` ties them to an owner, and
+`when_done()` does the same for a worker's answer.
+
+*`test_close_ends_the_app.py` is load-sensitive, and that cost real time to establish.* It failed
+three times today and was read, in turn, as order 0u item 6d reproduced, then as a regression from
+the Pause work. It is neither: on a quiet machine it **passes**, and a faulthandler dump showed the
+child starving in `walker.content_hash` at background I/O priority while four agents held the CPU.
+`test_dynamic_workers.py` starves the same way. **6d remains open and unreproduced** - do not read
+a red run of that file on a busy box as the nine-hour incident.
+
+*New and worth knowing:* the Indexing page has a **Pause** button (it holds the run; Stop still
+ends it; the page says whether the pause is yours or the machine's, because it runs through the
+governor as one more reason to wait); `.doc` now reads its WordArt and **counts** what it cannot
+reach inside embedded objects rather than paying LibreOffice for words LibreOffice does not have
+either; the extractor registry loads on first read (38 fewer modules before the window).
+
+*Open, and honest about it:* order 0r 2b is not ticked - the warm minimum was already 1466 ms
+**before** the lazy-registry change, across runs spanning 1466-11159 ms, and that spread cannot
+support the claim either way; it needs a quiet machine. The test-suite widget leak was measured
+(one file leaves ~120 widgets per test) and **deliberately left**: nothing walks all widgets any
+more, and a blanket teardown cannot see a widget parked in a module global. `gpu_exclusive` is
+process-wide only, so two Leasha processes sharing one card are uncoordinated.
 
 **2026-09-20 (late) - the outstanding-work pass: what changed, what was decided, and the short
 list that is still yours.** Read this first; the paragraphs under it are the earlier state of the
