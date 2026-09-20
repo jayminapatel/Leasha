@@ -64,8 +64,19 @@ def test_the_pill_headline_wraps_instead_of_clipping(qapp) -> None:
     from app.ui.rail_state import PillState
     from app.ui.widgets.rail import Rail
 
-    qapp.setStyleSheet(theme.stylesheet("light", detected="light", base_pt=9.0))
+    # **On the rail, not on the application.** `QApplication.setStyleSheet` makes Qt
+    # re-polish every widget alive in the process, and this suite leaks widgets: tests
+    # build real ones and let Python drop them without `deleteLater`, so by the time a
+    # long run reaches this file the walk eventually steps into a C++ object that is
+    # already gone and the process dies with an access violation - three times on
+    # 2026-09-20, always here, at -j 4 and again at -j 3, and never when this file runs
+    # alone. Reproduced deliberately with the fourteen files that precede it, and neither
+    # half of those crashes on its own: it is the number of leaked widgets, not one
+    # culprit. Qt cascades a stylesheet to children, so the pill's labels get the same
+    # metrics from the rail as they did from the application, and nothing global is
+    # touched. The leak itself is the real defect and is recorded in HANDOFF.md's traps.
     rail = Rail()
+    rail.setStyleSheet(theme.stylesheet("light", detected="light", base_pt=9.0))
     rail.resize(72, 600)
     rail.show()
     for headline in _HEADLINES:
