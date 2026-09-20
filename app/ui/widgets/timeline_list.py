@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QListView, QStyle, QStyledItemDelegate, QToolTip,
 )
 
+from app.ui.later import later
 from app.ui.presenter.timeline import BAND_SIZE, Block, photo_tip, row_text
 from app.ui.theme import theme_colours
 from app.ui.thumbnail_loader import decode_thumbnail
@@ -324,7 +325,9 @@ class TimelineList(QListView):
             return self._pictures[path]
         if path not in self._asked:
             self._asked.add(path)
-            QTimer.singleShot(0, lambda p=path: self._start_decode(p))
+            # `later`: a list the person has scrolled away from - or closed - must not
+            # have a picture decoded into it afterwards.
+            later(self, 0, lambda p=path: self._start_decode(p))
         return None
 
     def _start_decode(self, path: str) -> None:
