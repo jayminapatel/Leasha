@@ -442,7 +442,9 @@ def test_no_web_service_is_offered_without_saying_what_was_seen_of_it(chat):
     shown = {combo.itemData(i): combo.itemText(i) for i in range(combo.count())}
     assert set(shown) == {"auto", "duckduckgo", "wikipedia", "searxng", "brave"}
     assert shown["auto"] == "auto"
-    assert "unverified" in shown["duckduckgo"] and "experimental" in shown["duckduckgo"]
+    # 2026-09-20: not "experimental" - that word is on the chat tab's banner deny-list
+    # (`test_no_fixed_string_in_the_tab_is_a_warning_banner`). The note still says what was seen.
+    assert "not confirmed working" in shown["duckduckgo"] and "proof of a person" in shown["duckduckgo"]
     assert "unverified" in shown["searxng"] and "unverified" in shown["brave"]
     assert "works" in shown["wikipedia"] and "unverified" not in shown["wikipedia"]
     assert all(text.startswith(key) for key, text in shown.items())
