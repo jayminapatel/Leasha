@@ -824,7 +824,7 @@ def run_cli(args: Any) -> int:
 
     from app.chat.config import ChatSettings
     from app.chat.engine import ChatEngine
-    from app.chat.testing import keyword_engine
+    from app.chat.testing import keyword_engine, real_engine
     from app.storage.sqlite_store import SqliteStore
 
     try:
@@ -859,7 +859,18 @@ def run_cli(args: Any) -> int:
     folder = Path(tempfile.mkdtemp(prefix="leasha-chat-eval-"))
     with SqliteStore(folder / "chat-eval.db") as store:
         load_into(store)
-        search = keyword_engine(store)
+        # **A real model deserves the real retrieval stack.** `keyword_engine` leaves the
+        # semantic lane dead - right for unit tests, wrong for the number that decides
+        # whether Chat ships, because a question whose answer has to be found by meaning
+        # then fails before the model is ever asked. See `real_engine`'s docstring for the
+        # two times that mistake has now been made in this repository. The deterministic
+        # stand-in keeps keyword-only, so `--chat-fake` stays fast and needs no model.
+        search = real_engine(store, folder, settings) if real else keyword_engine(store)
+        # **Say which retrieval was measured.** This command once ran a real model against
+        # keyword search alone and reported the result as the model's quality - see
+        # `real_engine`. A measurement that does not name its own conditions invites that
+        # mistake again, so the heading carries them.
+        print(f"  retrieval: {'keyword + meaning (the real stack)' if real else 'keyword only'}")
         chat = ChatEngine(search, store, llm, ChatSettings.from_settings(settings, today=TODAY))
 
         def progress(result: CaseResult) -> None:
