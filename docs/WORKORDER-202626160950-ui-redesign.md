@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with
@@ -639,6 +639,52 @@ redo the shell.
 > (`test_the_rail_labels_are_the_tab_titles_verbatim`) now expects the shorter
 > word and says why; the page title and the Go menu are unchanged. Nothing else
 > in this order is waiting on a decision.
+
+> **2026-09-20 (later) - the four small questions decided, what the twelve goldens
+> showed, and a real fault in the rail.** Each has a scenario in
+> `test_ui_redesign_scenarios.py`.
+>
+> - **(a) Kept as they are.** In the search box, Enter on a group of two or more
+>   matches opens its *best* hit (it does not expand); Enter with the results *list*
+>   focused expands it - the box is where you ask for the answer, the list is where you
+>   explore. Ctrl+Enter is Interpret while Interpret is offered and Reveal while it is
+>   not, never both (the shortcut is disabled with the button hidden).
+> - **(b) The empty "Pinned working set" takes no space.** It appears with the first pin
+>   and goes when the list is emptied; its switch still decides whether it may appear at
+>   all. (`result_tools._switches`; the six `search-results` goldens were regenerated
+>   because the look changed.)
+> - **(c) Escape closes an open find bar first.** The window's Escape and the find bar's
+>   own Escape shortcut were two enabled shortcuts for one key, so Qt fired neither and the
+>   box was emptied with the bar left open. The in-window bar no longer registers one
+>   (`attach_find(window_escape=False)`); `MainWindow._clear_search` closes the bar, and only a
+>   second press empties the box. The pop-out window keeps its own shortcut.
+> - **The goldens.** All twelve were read. Confirmed: the empty Pinned panel (fixed, above).
+>   Dismissed: "Storage & maintenance compressed with no scrollbar, clipped text, grey-bar
+>   Environment box" - that was **a window grabbed without ever being shown**, which Qt lays out
+>   at its default 640x480 whatever `resize` says. Shown, on the Windows platform at 100% and
+>   125%, the page has its scrollbar, every box is at least its minimum height and the buttons
+>   are 27/30px. `tools/grab_ui.py --show` now does that; the goldens are made without it, so
+>   they still match. **Confirmed on the real window and fixed:** at 1024x600 and 125% the rail
+>   needs 639px and the window's floor (480) let Qt squeeze its seven fixed-height buttons to
+>   47px where 57 are needed, the last label's descenders cut off by the indexing pill (the
+>   "pill within a few px of Reports" was this). The rail now drops to icons - names stay in the
+>   tooltips and accessible names - when it is shorter than it needs with labels, and its
+>   minimum is what it needs that way; the window's floor is 500. *Not* removed: the floor
+>   itself, because the pages' own minimums then hold the window at 645, taller than a
+>   1366x768 screen at 125%. At 1024x600 and 125% the rail is therefore icon-only; whether that
+>   is preferred to labels is the owner's call.
+> - **Not verified:** a *pinned* taskbar button. `test_the_relaunch_properties_can_be_read_back_from_a_real_window`
+>   proves the four properties are written to and read back from a real window's property
+>   store, and nothing more. Doubts recorded, not settled: the relaunch command is `leasha.cmd`
+>   (a batch file - used because a pinned shortcut has no working directory and the launcher is
+>   what changes into the install), and the display name is a plain string where the property is
+>   documented as resource-style.
+> - **Results building, ~3.5 ms a row: found and fixed.** It was not the build. `show_results`
+>   for 2,000 rows is 0.37 s; the rest was Qt asking the delegate for `sizeHint` on every row,
+>   and `_wrap_ranges` measured every prefix of each snippet from scratch - 231,087
+>   `horizontalAdvance` calls for 2,000 rows, 1.9 of the 2.3 s. A binary search finds the same
+>   line breaks in 32,541 calls (0.38 s). Function counts, not a stopwatch; 9j's paint
+>   comparison is still open.
 
 - [ ] **9j** performance, measured not felt: `startup_timing.py`'s
   constructor figure before and after (0r's sandbox baseline is

@@ -1,6 +1,6 @@
 # Work order: every tunable has a UI, or stops being tunable
 
-**Doc version:** 1.1 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 A new standing rule from the owner, applying **everywhere**, not to one screen:
 
@@ -179,7 +179,20 @@ Then the tests that make the rule real:
       `ERR_CONFIG_INVALID` naming the key for every bad value, parametrised in
       `tests/unit/test_config.py::test_bad_value_names_the_offending_key` (outside this order's
       file scope, so not duplicated here - it already exists and passes).
-- [ ] **No control is orphaned**: every signal declared by a settings panel has a receiver.
+> **2026-09-20 - the last box, closed.** `history_cleared` now has a receiver, and the
+> exemption and its test are deleted. Decision: **add a receiver rather than delete the
+> signal**, because something does show the log: the search box's "recent searches" list is
+> a cached read of the `searches` table that "Clear search history" empties, so until now
+> someone who cleared their history was still offered every search they had just erased,
+> until the next launch. `MainWindow` connects the signal to `SavedSearches.forget_recent`
+> (drops the cached list at once and re-reads, so an already-out fetch cannot put it back).
+> Saved searches are not the log and are untouched. Proven by
+> `test_clearing_the_history_stops_the_search_box_offering_it` in `test_window_opens.py`
+> (fails without the connection) and by `test_every_signal_a_settings_panel_declares_has_a_receiver`,
+> which now has no exemption to hide behind. The paragraph below is the 2026-09-05 record
+> and is left as written.
+
+- [x] **No control is orphaned**: every signal declared by a settings panel has a receiver.
       Static assertion over `app/ui/`.
       **Blocked on scope, one real violation found.** Added
       `test_every_signal_a_settings_panel_declares_has_a_receiver` to

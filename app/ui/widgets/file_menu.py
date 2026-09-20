@@ -47,6 +47,7 @@ class FileActions:
         pin: Optional[Callable[[], None]] = None,
         similar: Optional[Callable[[], None]] = None,
         explain: Optional[Callable[[], None]] = None,
+        same_period: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.open_file = open_file
@@ -67,6 +68,10 @@ class FileActions:
         #: only when the caller passes it, which the caller does only while
         #: the `explain_results` switch is on.
         self.explain = explain
+        #: Order 0n section 4b: "see everything from this month" - opens the
+        #: Life Timeline at the month this file is from. Offered only where a
+        #: caller can honour it; a file with no date simply has nothing to open.
+        self.same_period = same_period
         #: `(label, text)` pairs to offer alongside "Copy path". For mail:
         #: subject and sender are what people actually want on the clipboard,
         #: and a message's "file name" is a synthetic key nobody would
@@ -124,6 +129,14 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
             "words, meaning, how recent it is, whether you have opened it "
             "before. Facts only; it never shows a score.")
         action.triggered.connect(lambda: actions.explain())
+        menu.addAction(action)
+
+    if actions.same_period is not None:
+        action = QAction("See everything from this month", parent)
+        action.setToolTip(
+            "Open your timeline at the month this file is from - photos, files and "
+            "mail from then, wherever they are kept now.")
+        action.triggered.connect(lambda: actions.same_period())
         menu.addAction(action)
 
     menu.addSeparator()

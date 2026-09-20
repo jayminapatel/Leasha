@@ -289,7 +289,9 @@ class PreviewPane(QWidget):
         # search. Ctrl+F over those does nothing rather than something odd.
         from app.ui.widgets.find_bar import attach_find
 
-        self.find = attach_find(self, self.text)
+        # The main window's Escape closes this bar (`MainWindow._clear_search`); a
+        # second Escape shortcut here made the two ambiguous and neither fired.
+        self.find = attach_find(self, self.text, window_escape=False)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)

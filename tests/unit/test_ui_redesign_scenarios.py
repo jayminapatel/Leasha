@@ -892,3 +892,245 @@ def test_a_search_still_out_when_the_box_is_cleared_does_not_come_back(
     qtbot.wait(1200)                                                      # and comes back
     assert _rows(view) == 0 and view.status.text() == ""
     assert view.home.isVisibleTo(view)
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-20 - the four small UI questions the redesign scenarios raised, each
+# decided (see the dated note in WORKORDER-202626160950-ui-redesign.md).
+# ---------------------------------------------------------------------------
+
+def _first_multi_match_row(view) -> int:
+    for i in range(_rows(view)):
+        payload = view.results._model.index(i, 0).data(_payload_role())
+        if getattr(payload, "match_count", 1) > 1:
+            return i
+    raise AssertionError("no multi-match group in the results")
+
+
+def test_enter_in_the_box_on_a_group_of_two_matches_opens_its_best_hit(
+        gui_mainwindow, quokkas, qtbot, monkeypatch):
+    """Decision (a), kept: in the *box*, Enter opens - the group's best hit, not
+    an expansion. Expanding is what Enter does with the *list* focused (the
+    keyboard-alone scenario above), where the person is exploring the rows; the
+    box is where they are asking for the answer."""
+    import app.ui.shell as shell
+    opened: list[tuple] = []
+    monkeypatch.setattr(shell, "open_async",
+                        lambda path, reveal=False, on_error=None: opened.append((path, reveal)))
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    _goto(window, "Search")
+    view = window.search_view
+    view.input.clear()
+    _preview_off(qtbot, app, view)
+    view.focus()
+    _key(qtbot, app, None, text="quokka")
+    qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+    multi = _first_multi_match_row(view)
+    _key(qtbot, app, KEY.Key_Down)
+    while view.results._list.currentIndex().row() != multi:
+        _key(qtbot, app, KEY.Key_Down)
+    group = view.results._model.index(multi, 0).data(_payload_role())
+    rows_before = _rows(view)
+
+    _key(qtbot, app, KEY.Key_Return)
+
+    assert app.focusWidget() is view.input
+    assert opened == [(group.best.path, False)], "Enter in the box must open the best hit"
+    assert _rows(view) == rows_before, "and must not expand the group"
+    view.input.clear()
+
+
+def test_ctrl_enter_is_interpret_when_it_is_on_and_reveal_when_it_is_off(
+        gui_mainwindow, quokkas, qtbot, monkeypatch):
+    """Decision (a), kept: one chord, two meanings, decided by whether Interpret
+    is offered - never both at once (the shortcut is disabled with the button
+    hidden, so it cannot swallow the reveal; see `build_controls`)."""
+    import app.ui.search_view as search_view_module
+    import app.ui.shell as shell
+    interpreted: list[int] = []
+    monkeypatch.setattr(search_view_module, "interpret_into",
+                        lambda _view: interpreted.append(1))
+    revealed: list[tuple] = []
+    monkeypatch.setattr(shell, "open_async",
+                        lambda path, reveal=False, on_error=None: revealed.append((path, reveal)))
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    _goto(window, "Search")
+    view = window.search_view
+    view.input.clear()
+    _preview_off(qtbot, app, view)
+    view.focus()
+    _key(qtbot, app, None, text="quokka")
+    qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+    _key(qtbot, app, KEY.Key_Down)
+    was_on = view.interpret_button.isVisible()
+    try:
+        view.set_interpret_enabled(True)
+        gui_pump(app, 3)
+        _key(qtbot, app, KEY.Key_Return, MOD.ControlModifier)
+        assert interpreted == [1], "Ctrl+Enter must interpret while Interpret is on"
+        assert revealed == [], "and must not also reveal"
+
+        view.set_interpret_enabled(False)
+        gui_pump(app, 3)
+        _key(qtbot, app, KEY.Key_Return, MOD.ControlModifier)
+        assert interpreted == [1], "with Interpret off it must not interpret"
+        assert revealed and revealed[-1][1] is True, "it reveals instead"
+    finally:
+        view.set_interpret_enabled(was_on)
+        view.input.clear()
+
+
+def test_the_pinned_panel_takes_no_room_until_something_is_pinned(
+        gui_mainwindow, quokkas, qtbot):
+    """Decision (b): an empty 'Pinned working set' was a titled box, a blank list
+    and four greyed buttons taking a fifth of the results page. It now appears
+    with the first pin and leaves with the last - and the switch still rules."""
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    _goto(window, "Search")
+    view = window.search_view
+    view.input.clear()
+    view.focus()
+    _key(qtbot, app, None, text="quokka")
+    qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+    outer = view.split
+    panel = outer.widget(1)
+    switch = outer.switches.boxes["pinned"]
+    assert switch.isChecked(), "this scenario needs the panel switched on"
+    panel.clear()
+    gui_pump(app, 3)
+
+    def first_row():
+        return view.results._row_for(view.results._model.index(0, 0).data(_payload_role()))
+
+    assert panel.pins == () and panel.isHidden(), "empty: not drawn"
+    assert outer.widget(0).width() >= outer.width() - 4, (
+        "the results side must have the whole page while nothing is pinned")
+
+    panel.pin(first_row())
+    gui_pump(app, 3)
+    assert panel.isVisible() and panel.width() > 100, "the first pin brings it in"
+
+    panel.clear()
+    gui_pump(app, 3)
+    assert panel.isHidden(), "clearing the list takes it away again"
+
+    panel.pin(first_row())
+    switch.setChecked(False)
+    gui_pump(app, 3)
+    assert panel.isHidden(), "switched off stays off, pins or not"
+    switch.setChecked(True)
+    gui_pump(app, 3)
+    assert panel.isVisible(), "and switching on again shows what was pinned"
+    panel.clear()
+    view.input.clear()
+
+
+def test_escape_closes_the_find_bar_first_and_the_box_only_on_the_second_press(
+        gui_mainwindow, quokkas, qtbot):
+    """Decision (c): with the preview's find bar open, Escape is "close the find
+    bar" whichever of the two has focus, and the search-box behaviour (empty the
+    box) happens only on a second press - closing a little bar must not throw
+    away the search that produced the document being read."""
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    _goto(window, "Search")
+    view = window.search_view
+    view.input.clear()
+    _preview_off(qtbot, app, view)
+    view.focus()
+    _key(qtbot, app, None, text="quokka")
+    qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+    _key(qtbot, app, KEY.Key_Down)
+    _key(qtbot, app, KEY.Key_P, MOD.ControlModifier | MOD.ShiftModifier)
+    assert view.preview.isVisible()
+    try:
+        for focus_in in ("box", "bar"):
+            view.preview.find.focus()
+            gui_pump(app, 3)
+            assert view.preview.find.isVisible()
+            if focus_in == "box":
+                view.input.setFocus()
+                gui_pump(app, 2)
+                assert app.focusWidget() is view.input
+            _key(qtbot, app, KEY.Key_Escape)
+            assert not view.preview.find.isVisible(), (
+                f"Escape with focus in the {focus_in} must close the find bar first")
+            assert view.input.text() == "quokka", (
+                f"and must leave the search alone (focus in the {focus_in})")
+            view.input.setFocus()
+            gui_pump(app, 2)
+            _key(qtbot, app, KEY.Key_Escape)
+            assert view.input.text() == "", "the second Escape empties the box"
+            # Back to a searched state for the second pass.
+            view.focus()
+            _key(qtbot, app, None, text="quokka")
+            qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+            _key(qtbot, app, KEY.Key_Down)
+    finally:
+        if view.preview.isVisible():
+            _key(qtbot, app, KEY.Key_P, MOD.ControlModifier | MOD.ShiftModifier)
+        view.input.clear()
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-20 - the rail must not overlap itself at the smallest window.
+# ---------------------------------------------------------------------------
+
+def _rail_rects(rail) -> list:
+    """Every rail entry that is showing, as (name, rect in column coordinates)."""
+    from PyQt6.QtCore import QRect
+
+    found = []
+    for button in list(rail._buttons.values()) + [rail.pill]:
+        if button.isVisibleTo(rail.column):
+            found.append((getattr(button, "text", lambda: "pill")() or "pill",
+                          QRect(button.mapTo(rail.column, button.rect().topLeft()),
+                                button.size()), button))
+    return found
+
+
+def _assert_rail_whole(rail) -> None:
+    rects = _rail_rects(rail)
+    assert len(rects) >= 8, "the rail lost entries"
+    for name, rect, button in rects:
+        assert rect.height() >= button.minimumSizeHint().height(), (
+            f"{name} was squeezed to {rect.height()}px, below the "
+            f"{button.minimumSizeHint().height()}px it needs")
+        assert rail.column.rect().contains(rect), f"{name} sits outside the rail"
+    for i, (name, rect, _b) in enumerate(rects):
+        for other, other_rect, _o in rects[i + 1:]:
+            assert not rect.intersects(other_rect), f"{name} overlaps {other}"
+
+
+def test_the_rail_never_squeezes_or_overlaps_its_entries_at_the_smallest_window(
+        gui_mainwindow, qtbot):
+    """**Found on the real window at 125% scaling, 1024x600:** the window's floor
+    (480) was lower than the rail needs, so Qt squeezed seven fixed-height
+    buttons to 47px where 57 are needed and the indexing pill sat over the last
+    label. The invariant is independent of scale: at the smallest height the
+    window allows, and at a tall one, every entry has the height it needs and
+    none overlaps another."""
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    rail = window.rail
+    try:
+        window.resize(1100, 200)                       # Qt clamps to the floor
+        gui_pump(app, 5)
+        assert window.height() == window.minimumSize().height() or window.height() > 200
+        _assert_rail_whole(rail)
+        squeezed = rail._compact
+
+        window.resize(1100, 900)
+        gui_pump(app, 5)
+        _assert_rail_whole(rail)
+        assert not rail._compact, "with room to spare the labels come back"
+        assert all(b.toolButtonStyle().name.endswith("TextUnderIcon")
+                   for b in rail._buttons.values())
+        assert squeezed or window.minimumSize().height() >= rail._natural, (
+            "a window shorter than the labelled rail must have gone icon-only")
+    finally:
+        window.resize(1100, 760)
+        gui_pump(app, 3)

@@ -245,11 +245,20 @@ class FindBar(QWidget):
         super().keyPressEvent(event)
 
 
-def attach_find(host: Any, view: Any) -> FindBar:
+def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
     r"""A find bar over `view`, with Ctrl+F and Escape wired to `host`.
 
     Returns the bar, hidden. The caller puts it in a layout - where it sits is
     a decision about that window, and this has no opinion.
+
+    **`window_escape=False` for a bar that lives inside the main window.** The
+    main window already owns Escape (it empties the search box), and two
+    enabled shortcuts for one key are ambiguous: Qt fires neither and hands the
+    key to the box, so Escape emptied the search and left the find bar open.
+    Such a host closes the bar from that one Escape instead - see
+    `MainWindow._clear_search` - so a single press closes the bar and only the
+    next one empties the box. A window of its own (the pop-out) keeps this
+    shortcut: it has no other Escape to collide with.
     """
     from PyQt6.QtGui import QShortcut, QKeySequence
 
@@ -276,8 +285,9 @@ def attach_find(host: Any, view: Any) -> FindBar:
     # armed collides with the window's own Escape (clear the search box), and
     # Qt answers two identical shortcuts by firing neither - so with the
     # preview pane open, Escape did nothing anywhere in the window.
-    away = QShortcut(QKeySequence(Qt.Key.Key_Escape), host)
-    away.setEnabled(False)
-    bar.visibilityChanged.connect(away.setEnabled)
-    away.activated.connect(dismiss)
+    if window_escape:
+        away = QShortcut(QKeySequence(Qt.Key.Key_Escape), host)
+        away.setEnabled(False)
+        bar.visibilityChanged.connect(away.setEnabled)
+        away.activated.connect(dismiss)
     return bar

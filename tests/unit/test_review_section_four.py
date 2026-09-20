@@ -67,7 +67,10 @@ def test_a_result_row_carries_text_for_assistive_technology():
     `AccessibleTextRole` and falls back to `DisplayRole`, and neither was set,
     so there was nothing to fall back to.
     """
-    body = _body("results_view.py", "_append")
+    # The item is built in `widgets/results_items.py` since results_view.py
+    # reached the 250-line guard; `_append` there is one call to it.
+    text = (UI / "widgets" / "results_items.py").read_text(encoding="utf-8")
+    body = text.split("def result_item(")[1].split("\n\n\ndef ")[0]
 
     assert "AccessibleTextRole" in body, (
         "the results list is still invisible to a screen reader")

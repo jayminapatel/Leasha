@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -880,6 +880,18 @@ The owner chose this on a live mock; implement it faithfully.
 > finished is skipped. **To close 2b:** launch three times on the owner's
 > machine, record the window-visible figure from the run log's `startup:
 > timings` line, and tick if it is under 1.5s.
+
+> **2026-09-20 - the two "known costs" of 2b's deferral are fixed** (2b itself stays open: its
+> <1.5 s target has still not been measured on the owner's machine). (1) `_apply_theme` no
+> longer runs twice at startup: the first call (first paint) sets the window's stylesheet, and
+> the deferred pages call `_push_palette` alone - it only tells pixmaps and the log pane the
+> colours - so Qt no longer re-polishes the whole tree, Settings included, to set the same sheet.
+> (2) An F5, a drop or "Index this folder" that arrives before the pages exist is **queued and
+> replayed once** when the build finishes (several become one run: `None` roots covers any named
+> folder; otherwise the folders are merged; a request that names folders brings Indexing
+> forward). Tests: `test_startup_sets_the_window_stylesheet_once_not_twice`,
+> `test_an_f5_in_the_gap_is_replayed_once_the_page_exists`,
+> `test_a_folder_dropped_in_the_gap_is_indexed_and_shown` in `test_window_opens.py`.
 
 ## Done means
 

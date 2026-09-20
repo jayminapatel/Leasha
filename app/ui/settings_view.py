@@ -2,27 +2,18 @@
 
 Layer: L5
 
-Two things here are not conveniences.
-
 **Six sections, and two of them live elsewhere.** `IndexingSettings` holds the
 schedule and the resource ceilings; `EnvironmentBox` holds doctor and session
-recording. Both were split out when this file crossed the 250-line guard, which
-was right to complain: the sections are independent and only shared a
-constructor.
-
-**"Clear search history" exists because the usage log exists.** Layer 4 records
-every search and every result opened, so Layer 10 has evidence to tune from. A
+recording. **"Clear search history" exists because the usage log exists**: a
 record of what someone searched on their own machine is theirs to inspect and
 erase, and a system that collects it with no way to clear it is not one to trust.
 
-**Pages-reorg order, §1: five categories behind a sidebar, not twelve group
-boxes on one scroll.** The owner's report that started it — "too long and
-cluttered" — named the flat list, not any one box, so every box below is
-built exactly as it always was and only *where it lands* changed. See
-`app/ui/widgets/category_nav.py` for the sidebar mechanism (shared with
-Indexing) and `_build_categories` below for which box joined which shelf.
-Every label, tooltip and setting key is unchanged — the standing rule this
-order does not touch.
+Everything that holds no wording - building the boxes, the five category
+shelves, the filter, the store round-trips - is in `widgets/settings_shelves.py`
+(`SettingsShelves`), which this class mixes in. The wording and the signals stay
+here, on purpose: `test_pages_reorg.py` reads every label and tooltip in *this*
+file against the commit before the reorganisation, and
+`test_settings_reachable.py` reads the signals declared in it.
 """
 
 from __future__ import annotations
@@ -31,64 +22,23 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QLabel, QLineEdit,
+    QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.core import settings_registry as reg
 from app.core.logging import logger
-from app.ui.presenter import (
-    history_label_text, pst_status_text, settings_labels,
-)
 from app.ui.widgets.category_nav import CategoryNav
-from app.ui.widgets.chat_box import ChatBox
-from app.ui.widgets.debug_pane import DebugPane
-from app.ui.widgets.defaults import attach_resets, restore_button
-from app.ui.widgets.environment_box import EnvironmentBox
-from app.ui.widgets.file_types import FileTypesEditor
-from app.ui.widgets.code_types_box import CodeTypesBox
-from app.ui.widgets.model_box import ModelBox
-from app.ui.widgets.roots_box import RootsBox
-from app.ui.widgets.editor_box import EditorBox
-from app.ui.widgets.media_box import MediaBox
-from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
-from app.ui.widgets.search_box import SearchBox
-from app.ui.widgets.storage_box import StorageBox
-from app.ui.widgets.window_box import WindowBox
+from app.ui.widgets.settings_shelves import (  # noqa: F401 - re-exported for callers
+    CATEGORY_APPEARANCE, CATEGORY_MODELS, CATEGORY_SEARCH, CATEGORY_STATE_KEY,
+    CATEGORY_STORAGE, CATEGORY_WHATS_INDEXED, SettingsShelves,
+)
 
 __all__ = ["SettingsView"]
 
 _log = logger.bind(component="ui.settings")
 
-#: The five shelves, in display order. A category with no boxes yet is not
-#: possible here - every one is populated the moment it is built - but a
-#: feature order landing a new box picks one of these names rather than
-#: inventing a sixth; see the order's §1a for what belongs where.
-CATEGORY_WHATS_INDEXED = "What's indexed"
-CATEGORY_SEARCH = "Search"
-CATEGORY_MODELS = "Models & AI"
-CATEGORY_APPEARANCE = "Appearance"
-CATEGORY_STORAGE = "Storage & maintenance"
 
-#: The key `set_state`/`get_state` persist the last-open category under - the
-#: "same app-state home as 0p §4's window state" the order asks for: small,
-#: named keys through `SqliteStore.set_state`/`get_state`, the pattern every
-#: other remembered UI choice in this window already uses (`ui:theme`,
-#: `ui:pst_backend`, `ui:window_geometry`, ...).
-CATEGORY_STATE_KEY = "ui:settings_category"
-
-
-class SettingsView(QWidget):
+class SettingsView(SettingsShelves, QWidget):
     roots_changed = pyqtSignal(list)
     #: `{normalised root: "live"|"archive"}` - which folders never change.
     #: See `app/index/archives.py`; the saving this buys on a settled corpus is
@@ -135,56 +85,7 @@ class SettingsView(QWidget):
         super().__init__(parent)
         self._settings = settings
         self._store = store
-
-        # --- roots
-        # Its own widget now that each folder carries a Live/Archive mode: two
-        # columns, a combo per row and a rescan button is more than a view
-        # should hold, and this file is already at the 250-line guard.
-        self.roots_box = RootsBox()
-        self.roots_box.roots_changed.connect(self.roots_changed)
-        self.roots_box.modes_changed.connect(self.root_modes_changed)
-        self.roots_box.cloud_content_changed.connect(self.cloud_content_roots_changed)
-        self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
-
-        # Directly under Folders to index, as asked. It answers a different
-        # question from the File types editor further down - what one tab
-        # *lists*, rather than what is *read* - and says so on itself.
-        self.code_types = CodeTypesBox()
-        self.code_types.changed.connect(self.code_types_changed)
-
-        # --- behaviour
-        # The Search group lives in its own widget: this file crossed the
-        # 250-line guard, and the guard is right - a view that keeps growing is
-        # a view where logic starts to live. The controls are re-exposed below
-        # so callers and tests need not know where they moved to.
-        self.search_box = SearchBox(settings)
-        self.rerank = self.search_box.rerank
-        self.rerank_top_n = self.search_box.rerank_top_n
-        self.rerank_window = self.search_box.rerank_window
-        self.rerank_model = self.search_box.rerank_model
-        self.search_box.changed.connect(self.settings_changed)
-
-        # §1b. What search may do on your behalf, and what each tab does with
-        # it - see `widgets/search_behaviour_box.py` for why the grid is read
-        # only and why the reset button matters more than it looks.
-        self.search_behaviour = SearchBehaviourBox(settings)
-        self.search_behaviour.changed.connect(self.settings_changed)
-
-        # §4b. Kept out of the box above on purpose: that one is the six
-        # behaviours and its reset button promises to restore exactly those.
-        # An editor choice is not a search behaviour and must not be swept up
-        # by a button whose tooltip says what it will not touch.
-        self.editor_box = EditorBox(settings)
-        self.editor_box.changed.connect(self.settings_changed)
-
-        # Work order 202626270611 3e: the few chat settings, built from the
-        # registry - see `widgets/chat_box.py`. Hidden while there are none.
-        self.chat_box = ChatBox(settings)
-        self.chat_box.changed.connect(self.settings_changed)
-        # Work order 202626270515: video and audio, in a module of its own.
-        self.media_box = MediaBox(settings)
-        self.media_box.changed.connect(self.settings_changed)
-        self.rerank.stateChanged.connect(lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
+        self._build_boxes(settings)
 
         self.cloud = QCheckBox("Index cloud-only files (downloads them)")
         self.cloud.setToolTip(
@@ -193,15 +94,6 @@ class SettingsView(QWidget):
             "everything. Off by default for that reason."
         )
         self.cloud.stateChanged.connect(lambda _s: self.cloud_toggled.emit(self.cloud.isChecked()))
-
-        # Index location and the meaning model are flows, not fields - see
-        # StorageBox for why a text box there is a data-loss trap.
-        self.storage_box = StorageBox(settings)
-        self.data_path = self.storage_box.data_path
-        self.storage_box.move_index_requested.connect(self.move_index_requested)
-        self.storage_box.rebuild_vectors_requested.connect(self.rebuild_vectors_requested)
-        self.storage_box.changed.connect(self.settings_changed)
-
 
         # --- Outlook archives
         self.pst_backend = QComboBox()
@@ -232,20 +124,9 @@ class SettingsView(QWidget):
         pst_layout.addWidget(self.pst_status)
         pst_layout.addWidget(convert)
 
-        # Window behaviour is its own group - see widgets/window_box.py for why
-        # both of these were unreachable until now, and why Appearance moved in
-        # there from the indexing panel it was never part of.
-        self.window_box = WindowBox()
-        self.minimise_to_tray = self.window_box.minimise_to_tray
-        self.close_to_tray = self.window_box.close_to_tray
-        self.theme = self.window_box.theme
-        self.window_box.changed.connect(self.tray_changed)
-        self.window_box.theme_changed.connect(self.theme_changed)
-
         behaviour = QGroupBox("Behaviour")
         form = QFormLayout(behaviour)
         form.addRow(self.cloud)
-
 
         # --- privacy
         self.history_label = QLabel("")
@@ -257,12 +138,6 @@ class SettingsView(QWidget):
             "less well ordered for a while.")
         clear.clicked.connect(self._clear_history)
 
-        # **What the console used to show.** The window is launched with
-        # `pythonw.exe` now, which has no console at all - so "is it doing
-        # anything" needs an answer inside the application. It is its own group
-        # box; see `widgets.debug_pane`.
-        self.activity = self.debug_pane = DebugPane()
-
         privacy = QGroupBox("Search history")
         privacy_layout = QVBoxLayout(privacy)
         privacy_layout.addWidget(QLabel(
@@ -271,24 +146,6 @@ class SettingsView(QWidget):
         ))
         privacy_layout.addWidget(self.history_label)
         privacy_layout.addWidget(clear)
-
-        # --- what gets indexed at all
-        self.file_types = FileTypesEditor(settings)
-        self.file_types.error.connect(self.error)
-
-        # --- which Ollama model interprets a sentence (its own widget)
-        #
-        # A factory rather than a client: the URL can change in the box above,
-        # and a client built once at startup would keep asking the old address.
-        self.models = ModelBox(self._make_client)
-        self.models.changed.connect(self.ollama_model_changed)
-        # The address moved into the panel that can test it - see model_box.py.
-        # Re-exposed because `_make_client` reads it to build a client against
-        # whatever is currently typed.
-        self.ollama_url = self.models.url
-        self.ollama_url.setText(str(getattr(settings, "ollama_url", "")))
-        self.models.url_changed.connect(
-            lambda url: self.settings_changed.emit({"OLLAMA_URL": url}))
 
         # --- work order 0i section 3 / 0j: photo descriptions and people ---
         #
@@ -356,21 +213,9 @@ class SettingsView(QWidget):
         photo_people_form.addRow(self.caption_trickle)
         photo_people_form.addRow("Photo description model", self.vision_model)
 
-        # --- environment and diagnostics (its own widget; see the module)
-        self.environment = EnvironmentBox(settings)
-        self.environment.recording_toggled.connect(self.debug_recording_toggled)
+        self._build_late_boxes(settings)
 
-        # **Getting back to a default was a one-way door.** `.env` beats the
-        # code default, so a setting written once is pinned for ever - which is
-        # how a reranker measured 9.2x faster shipped and reached no machine.
-        # One button for all of them, and a right-click on any control for one.
-        # See `widgets/defaults.py`; both send None, which removes the line.
-        self.restore_defaults = restore_button(
-            self, getattr(settings, "env_file", None),
-            lambda values: self.settings_changed.emit(values))
-        attach_resets(self, lambda values: self.settings_changed.emit(values))
-
-        # --- §1b. The filter box, and §1a's five categories -----------------
+        # --- The filter box, and the five categories --------------------------
         #
         # A new control, so its own wording (the standing rule only binds
         # *existing* labels). It walks the registry, not the widgets - see
@@ -415,228 +260,6 @@ class SettingsView(QWidget):
         # indistinguishable from a broken one.
         self.history_label.setText("Counting…")
         self.pst_status.setText("Checking how Outlook archives can be read…")
-
-    # -- roots --------------------------------------------------------------
-
-    def set_roots(
-        self, roots: list[str], modes: Optional[dict] = None,
-        cloud_content: Optional[set] = None,
-    ) -> None:
-        self.roots_box.set_roots(roots, modes, cloud_content)
-
-    def add_root(self, folder: str) -> bool:
-        return self.roots_box.add_root(folder)
-
-    def current_modes(self) -> dict:
-        return self.roots_box.current_modes()
-
-    def current_cloud_content_roots(self) -> set:
-        return self.roots_box.current_cloud_content_roots()
-
-    def _make_client(self):
-        """A fresh OllamaClient against whatever URL is currently in the box.
-
-        Built per call so editing the URL above takes effect without a restart,
-        and so a probe never holds a reference to a client the rest of the app
-        is also using.
-        """
-        from app.llm.ollama import OllamaClient
-
-        url = self.ollama_url.text().strip() or self._settings.ollama_url
-        return OllamaClient(url, self._settings.ollama_model)
-
-    def current_roots(self) -> list[str]:
-        return self.roots_box.current_roots()
-
-    # -- Outlook archives ---------------------------------------------------
-
-    def refresh_slow_labels(self) -> None:
-        """Fill in both labels that need the store or an import. **Worker.**
-
-        Called from `shell._start_background_work`, which is the first moment
-        anything may touch a thread or the store - see the comment where these
-        used to run, in the constructor. §1c's last-open category rides the
-        same moment, for the same reason - see `_restore_last_category`.
-        """
-        from app.ui.workers import CallableWorker, run
-
-        worker = CallableWorker(settings_labels, self._store,
-                                component="ui.settings.labels")
-        worker.signals.finished.connect(self._show_slow_labels)
-        worker.signals.failed.connect(lambda _e: None)
-        run(QThreadPool.globalInstance(), worker)
-        self._restore_last_category()
-
-    def _show_slow_labels(self, found: Any) -> None:
-        """UI thread, no I/O - the worker fetched both."""
-        searches, direct = found
-        self.history_label.setText(history_label_text(int(searches)))
-        self.pst_status.setText(pst_status_text(bool(direct)))
-        self.pst_status.setWordWrap(True)
-
-    # -- §1a categories -------------------------------------------------------
-
-    def _build_categories(self, pst_box: QGroupBox, behaviour: QGroupBox,
-                          privacy: QGroupBox) -> None:
-        """Assemble the five shelves. Every box above is built exactly as it
-        always was; only where it lands changed - see the order's §1a for
-        which box joined which category and why."""
-
-        whats_indexed = QWidget()
-        whats_indexed_layout = QVBoxLayout(whats_indexed)
-        whats_indexed_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.roots_box, self.code_types, pst_box, behaviour,
-                       self.file_types):
-            whats_indexed_layout.addWidget(widget)
-        whats_indexed_layout.addStretch(1)
-
-        search = QWidget()
-        search_layout = QVBoxLayout(search)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.search_box, self.search_behaviour,
-                       self.editor_box, privacy):
-            search_layout.addWidget(widget)
-        search_layout.addStretch(1)
-
-        models = QWidget()
-        models_layout = QVBoxLayout(models)
-        models_layout.setContentsMargins(0, 0, 0, 0)
-        models_layout.addWidget(self.models)
-        models_layout.addWidget(self.photo_people_box)
-        models_layout.addWidget(self.chat_box)
-        models_layout.addWidget(self.media_box)
-        models_layout.addStretch(1)
-
-        # §0 settled decision #2, honoured here: theme relocates to
-        # Appearance verbatim - the control already lives in `WindowBox`
-        # (moved out of the indexing panel by the tuning order's 4c-4), so
-        # this is only where the box now sits, not a second move.
-        appearance = QWidget()
-        appearance_layout = QVBoxLayout(appearance)
-        appearance_layout.setContentsMargins(0, 0, 0, 0)
-        appearance_layout.addWidget(self.window_box)
-        appearance_layout.addStretch(1)
-
-        storage = QWidget()
-        storage_layout = QVBoxLayout(storage)
-        storage_layout.setContentsMargins(0, 0, 0, 0)
-        storage_layout.addWidget(self.storage_box)
-        storage_layout.addWidget(self.activity)
-        storage_layout.addWidget(self.environment, stretch=1)
-        storage_layout.addWidget(self.restore_defaults)
-
-        self._nav.add_category(CATEGORY_WHATS_INDEXED, whats_indexed)
-        self._nav.add_category(CATEGORY_SEARCH, search)
-        self._nav.add_category(CATEGORY_MODELS, models)
-        self._nav.add_category(CATEGORY_APPEARANCE, appearance)
-        self._nav.add_category(CATEGORY_STORAGE, storage)
-
-    def _category_selected(self, name: str) -> None:
-        """A click, not a restore - see `CategoryNav.show_category`'s
-        `persist` argument. Synchronous, like every other small UI-state
-        write in this window (`ui:theme`, `ui:pst_backend`, ...) - a single
-        keyed upsert, not the kind of store work M13 exists to keep off the
-        UI thread."""
-        if self._store is not None:
-            self._store.set_state(CATEGORY_STATE_KEY, name)
-
-    def _restore_last_category(self) -> None:
-        """§1c: which category was open last, read off the UI thread.
-
-        Never during construction (M13) - only reached from
-        `refresh_slow_labels`, which runs once the window is running. No
-        store, or nothing recorded yet, leaves the first category selected -
-        "first run opens the first category".
-        """
-        if self._store is None:
-            return
-        from app.ui.workers import CallableWorker, run
-
-        worker = CallableWorker(
-            self._store.get_state, CATEGORY_STATE_KEY, "",
-            component="ui.settings.category")
-        worker.signals.finished.connect(self._apply_last_category)
-        worker.signals.failed.connect(lambda _e: None)
-        run(QThreadPool.globalInstance(), worker)
-
-    def _apply_last_category(self, name: Any) -> None:
-        """UI thread, no I/O - the worker already read it."""
-        name = str(name or "")
-        if name in self._nav.category_names():
-            self._nav.show_category(name, persist=False)
-
-    # -- §1b the filter box ---------------------------------------------------
-
-    def _apply_filter(self, text: str) -> None:
-        """Walks the registry, not the widgets.
-
-        Every registered setting's control is found by the object name
-        `test_settings_reachable.py` already requires it to carry, so no
-        widget file needs to know filtering exists. A category with at least
-        one hit is shown; the rest hide - "categories auto-expanding to show
-        hits" - and a control that does not match is hidden beside its own
-        form label, so the row leaves no gap shaped like a missing answer.
-        """
-        needle = text.strip().lower()
-        if not needle:
-            self._nav.set_sidebar_enabled(True)
-            self._reveal_all_controls()
-            self._nav.restore_single_view()
-            self.filter_empty.setVisible(False)
-            return
-
-        self._nav.set_sidebar_enabled(False)
-        hits: dict[str, bool] = {name: False for name in self._nav.category_names()}
-        for setting in reg.SETTINGS:
-            widget = self.findChild(QWidget, setting.key)
-            if widget is None:
-                continue
-            category = self._category_of(widget)
-            if category is None:
-                continue
-            haystack = f"{setting.label} {setting.help}".lower()
-            hit = needle in haystack
-            widget.setVisible(hit)
-            label = self._form_label_for(widget)
-            if label is not None:
-                label.setVisible(hit)
-            if hit:
-                hits[category] = True
-
-        visible = {name for name, hit in hits.items() if hit}
-        self._nav.show_all_for_filter(visible)
-        self.filter_empty.setVisible(not visible)
-
-    def _category_of(self, widget: QWidget) -> Optional[str]:
-        for name in self._nav.category_names():
-            page = self._nav.page(name)
-            if page is not None and page.isAncestorOf(widget):
-                return name
-        return None
-
-    def _form_label_for(self, widget: QWidget) -> Optional[QLabel]:
-        parent = widget.parentWidget()
-        while parent is not None:
-            form = parent.layout()
-            if isinstance(form, QFormLayout):
-                label = form.labelForField(widget)
-                if label is not None:
-                    return label
-            parent = parent.parentWidget()
-        return None
-
-    def _reveal_all_controls(self) -> None:
-        """Undo `_apply_filter`'s hiding before the sidebar takes over again -
-        otherwise a control hidden by a search that has since been cleared
-        would stay hidden forever inside a category nobody is filtering."""
-        for setting in reg.SETTINGS:
-            widget = self.findChild(QWidget, setting.key)
-            if widget is None:
-                continue
-            widget.setVisible(True)
-            label = self._form_label_for(widget)
-            if label is not None:
-                label.setVisible(True)
 
     def _convert_pst(self) -> None:
         archive, _filter = QFileDialog.getOpenFileName(

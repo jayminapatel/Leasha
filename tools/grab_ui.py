@@ -54,6 +54,9 @@ SURFACES: dict[str, dict[str, str]] = {
     "chat": {"page": "Chat"},
     "offline-media": {"page": "Offline"},
     "reports": {"page": "Reports"},
+    # Order 0n section 4: the Life Timeline, opened at June 2015 over a small
+    # seeded index (real thumbnails, a drive in a drawer, a burst).
+    "timeline": {"page": "Reports", "state": "timeline"},
     "indexing-status": {"page": "Indexing", "category": "Status"},
     "indexing-schedule": {"page": "Indexing", "category": "Schedule"},
     "indexing-tuning": {"page": "Indexing", "category": "Tuning"},
@@ -175,17 +178,93 @@ def seed(store: Any, root: Path) -> None:
         "Hi, here is the boiler quote I promised. Dave. The flue kit and fitting are included."}])
 
 
+def seed_timeline(store: Any, root: Path) -> None:
+    """June 2015 for the timeline surface: real pictures on disk (so thumbnails
+    are drawn), a burst, a letter, a video, a message, and a photograph on a
+    drive that is in a drawer."""
+    import json
+    from datetime import datetime as _dt
+
+    from PIL import Image, ImageDraw
+
+    def ns(day: int, hour: int = 12, minute: int = 0) -> int:
+        return int(_dt(2015, 6, day, hour, minute).timestamp()) * 1_000_000_000
+
+    folder = root / "pictures"
+    folder.mkdir(parents=True, exist_ok=True)
+    colours = [(196, 92, 60), (60, 140, 196), (90, 170, 100), (200, 170, 60), (140, 90, 190), (60, 60, 70)]
+    base = 0x0F0F0F0F0F0F0F0F
+    for number in range(9):
+        path = folder / f"lake-{number + 1:02d}.jpg"
+        picture = Image.new("RGB", (480, 320 if number % 3 else 640), colours[number % len(colours)])
+        ImageDraw.Draw(picture).ellipse((60, 60, 260, 260), fill=(255, 255, 255))
+        picture.save(path)
+        day = 10 if number < 6 else 14
+        file_id = store.upsert_file(
+            path.as_posix(), parent_dir=folder.as_posix(), ext="jpg", size_bytes=path.stat().st_size,
+            mtime_ns=ns(1) + 4 * 365 * 86400 * 1_000_000_000, status="INDEXED", source_kind="file",
+            taken_at_ns=ns(day, 10 + number // 2, (number % 2) * 20))
+        with store.write() as conn:
+            conn.execute("UPDATE files SET phash = ? WHERE id = ?",
+                         (f"{base ^ (1 << (number % 3)):016x}" if number < 3 else f"{number * 0x1111111111111111 & (2**64 - 1):016x}",
+                          file_id))
+    store.upsert_file(
+        (root / "documents" / "to-the-bank.docx").as_posix(), parent_dir=(root / "documents").as_posix(),
+        ext="docx", size_bytes=48_213, mtime_ns=ns(20, 9, 30), status="INDEXED", source_kind="file")
+    store.upsert_file(
+        (root / "pictures" / "wedding.mp4").as_posix(), parent_dir=(root / "pictures").as_posix(),
+        ext="mp4", size_bytes=88_400_000, mtime_ns=ns(20, 18), status="INDEXED", source_kind="file",
+        taken_at_ns=ns(14, 16, 5))
+    volume = store.upsert_volume("grab-old-wd", kind="drive", name="Old WD", status="OFFLINE")
+    store.upsert_file(
+        f"leasha-volume://{volume}/Holiday/beach.jpg", parent_dir="Holiday", ext="jpg", size_bytes=3_100_000,
+        mtime_ns=ns(1) + 5 * 365 * 86400 * 1_000_000_000, status="INDEXED", source_kind="file",
+        taken_at_ns=ns(14, 11), volume_id=volume, relative_path="Holiday/beach.jpg")
+    message = store.upsert_file(
+        "pst://msg/Wedding plans", parent_dir="pst://msg", size_bytes=1, mtime_ns=ns(1) + 6 * 365 * 86400 * 10**9,
+        status="INDEXED", source_kind="pst_message")
+    with store.write() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO messages (file_id, subject, sender, recipients, sent_at, has_attach) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (message, "Wedding plans", "meera@example.com", json.dumps(["me@example.com"]),
+             ns(25, 8, 15) // 1_000_000_000, 0))
+        conn.execute("UPDATE files SET indexed_at = 1700000000 + id WHERE indexed_at IS NULL")
+
+
+def _show_timeline(app: Any, window: Any) -> None:
+    """Open the timeline at June 2015 and wait until its list and its pictures are there."""
+    from datetime import datetime as _dt
+
+    from app.ui.widgets.timeline_host import show_timeline
+
+    view = window.reports_view.timeline
+    show_timeline(window.reports_view, lambda t: t.browse_month_of(
+        int(_dt(2015, 6, 10, 12).timestamp()) * 1_000_000_000))
+    _wait(app, lambda: not view._loading and view.list.block_count() > 0 and view._overview is not None)
+    view.grab()                                    # painting is what asks for the pictures...
+    _wait(app, lambda: len(view.list._pictures) >= 5, seconds=6.0)   # ...and workers decode them
+
+
 def _pump(app: Any, n: int = 8) -> None:
     for _ in range(n):
         app.processEvents()
 
 
 def build_window(root: Path, *, theme: str = "system", size: str = "1100x760",
-                 seeded: bool = False) -> tuple:
+                 seeded: bool = False, show: bool = False, timeline: bool = False) -> tuple:
     """The real window against a temporary store. Returns `(app, window, closers)`.
 
     `seeded` gives it documents and the real (keyword-only) `SearchEngine`, for
     the surface that needs results; every other surface stays an empty store.
+
+    `show` **shows the window**. A window that was never shown is laid out at
+    Qt's default 640x480 whatever `resize` said, so a tall page grabs
+    *compressed* - buttons squeezed to grey bars, no scrollbar - which is not
+    what anybody sees (measured 2026-09-20 on the Storage page: shown, its
+    scrollbar is there and every box is at its minimum height). The goldens are
+    made without it, so they keep matching; use `--show` when the question is
+    what a page looks like on a screen.
     """
     from PyQt6.QtWidgets import QApplication
 
@@ -209,9 +288,14 @@ def build_window(root: Path, *, theme: str = "system", size: str = "1100x760",
         engine: Any = SearchEngine(store, _NoVectors(), _NoModel(), log_usage=False)
     else:
         engine = _Engine(store)
+    if timeline:
+        seed_timeline(store, root)
     window = MainWindow(settings, store, vectors, engine, debug=False)
     w, h = (int(x) for x in size.lower().split("x"))
     window.resize(w, h)
+    if show:
+        window.show()
+        _pump(app, 20)
     _pump(app)
     return app, window, (store.close, vectors.close)
 
@@ -236,6 +320,8 @@ def _reach(app: Any, window: Any, spec: dict) -> Any:
         _show_results(app, window)
     elif spec.get("state") == "home":
         window.search_view.input.setText("")
+    elif spec.get("state") == "timeline":
+        _show_timeline(app, window)
     _pump(app)
     # A startup toast ("Indexing: Only when you ask.") is still up when the
     # first grabs are taken and sits over whatever is at the bottom of the page.
@@ -285,7 +371,7 @@ def _show_results(app: Any, window: Any) -> None:
 
 
 def grab(names: Iterable[str], out: Path, *, theme: str = "system",
-         size: str = "1100x760") -> list[Path]:
+         size: str = "1100x760", show: bool = False) -> list[Path]:
     """Grab every named surface to `out/<name>.png`. Returns the files written."""
     names = list(names)
     out.mkdir(parents=True, exist_ok=True)
@@ -302,7 +388,9 @@ def grab(names: Iterable[str], out: Path, *, theme: str = "system",
     # tool on it.
     with tempfile.TemporaryDirectory(prefix="leasha-grab-", ignore_cleanup_errors=True) as tmp:
         seeded = any(SURFACES[n].get("state") == "results" for n in names)
-        app, window, closers = build_window(Path(tmp), theme=theme, size=size, seeded=seeded)
+        timeline = any(SURFACES[n].get("state") == "timeline" for n in names)
+        app, window, closers = build_window(Path(tmp), theme=theme, size=size, seeded=seeded,
+                                            show=show, timeline=timeline)
         written: list[Path] = []
         try:
             for name in names:
@@ -338,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--size", default="1100x760", help="WxH, e.g. 1024x600")
     parser.add_argument("--theme", default="system", choices=("system", "light", "dark"))
     parser.add_argument("--out", default=str(ROOT / "outputs" / "screenshots"))
+    parser.add_argument("--show", action="store_true",
+                        help="show the window first, so pages get their real size and scrollbars")
     parser.add_argument("--list", action="store_true", help="print the surface names")
     args = parser.parse_args(argv)
     if args.list:
@@ -350,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     if args.theme != "system":
         out = out / args.theme
-    for path in grab(names, out, theme=args.theme, size=args.size):
+    for path in grab(names, out, theme=args.theme, size=args.size, show=args.show):
         print(path)
     return 0
 
