@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 6.8 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 7.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -51,6 +51,75 @@ line, no traceback and no window.
 
 ## 3. Current state
 
+**2026-09-20 (late) - the outstanding-work pass: what changed, what was decided, and the short
+list that is still yours.** Read this first; the paragraphs under it are the earlier state of the
+same day and are kept for the reasoning.
+
+*What changed.* The full list is in `CHANGELOG.md` ("The outstanding-work pass"). In one breath:
+twelve agents fixed the bugs this file used to list (`/oldest` order, the slow filter-only browse,
+a worker exception hanging a run, the close-window hang, the results selection and offline-row
+bugs, unbounded DB waits, four view/UI faults) and built what was outstanding (the Life Timeline,
+a conversational Chat with optional web, video/audio on PyAV, in-process readers for `.doc`
+`.ppt` `.pub` `.key` `.pages` `.numbers` `.mobi` and faster `.docx` `.pptx` `.xlsx`, a warm
+LibreOffice fallback, a measured nightly, real-app UI journeys). The UI-responsiveness branch from
+another session (`94677e7`) is merged: **the window's index run now lowers its own threads and
+their children, not the whole process, and the command line still lowers the process.**
+Nothing is pushed; the branch is `claude/outstanding-work-bugs-7edba5`.
+
+*Decisions made on the owner's delegation (all recorded in the orders):*
+- **Packaging** (`202626082213`): PyInstaller one-folder; per-user, per-machine optional; the
+  installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against
+  `REQUIRED_FREE_GB`); no update check inside the app; supported Windows 11 and 10 22H2, tested on
+  11 only; unsigned until the repository is public.
+- **PySide6 first.** PyQt6 6.11.0's metadata reads `GPL-3.0-only`; the project is MIT. The
+  migration (`202626270238`, DRAFT, 0/10) is now the first item of Layer 9 and must precede any
+  packaged release. It is not started, and it changes the venv the running app uses, so it wants
+  its own session.
+- **PST 4a:** retry a partial read next pass only when the cause was transient (Outlook busy).
+- **Chat** stays RELEASED and is a conversation (local sources first, receipts kept for claims
+  about your files). **Optional web augmentation is a recorded scope exception** (off by default,
+  only a visible short query leaves, never a file name or passage) - `docs/PROJECT_INSTRUCTIONS.md`.
+- **Video/audio** promoted (the file keeps its `-DRAFT` name), **off by default**: speech is about
+  12x real time on the processor and the owner's `VideosMaster` (1,463 clips, 46 GB, 12.3 h) is
+  hours of work. **PyAV only, no ffmpeg.** x264/x265 GPL DLLs ship inside the `av` wheel (never
+  called): resolve that in `docs/THIRD_PARTY_NOTICES.md` before the venv is ever shipped.
+- **Life Timeline** hold lifted and built. **A folder is not an Offline Media source** (no stable
+  volume identity); the released tab label "Choose a drive or folder to catalogue" now
+  contradicts the refusal - left unreworded, the owner's call.
+- **`ORDER_REGISTER` housekeeping:** `ACTIVE_WORK.md` is retired as a tracker; the 0q session
+  handoff was renamed so its checkboxes stop counting as an open order.
+
+*Owner-run, and only these* (each is something no session here can do or should):
+1. **Real-index run**: start a large index on the real data, type and switch pages while it runs,
+   close the window, and read the log line `shutdown: window responsiveness this session` (beats,
+   p50/p99/worst, stalls) and any "the window has not responded for N ms" dumps; then repeat once
+   with `LEASHA_SWITCH_INTERVAL_MS=5`; keep the 1 ms default only if p99 is no worse and files/min
+   drop little. Also the order 0u real-corpus ETA and the 9-hour "closed but still running"
+   incident (`docs/WORKORDER-202626191300-indexing-that-works.md` 6d): one mechanism is closed
+   (a second visible window), the cause of the 2026-09-17 case is not.
+2. **How Outlook holds a `.pst`** (PST order 1e): needs Outlook left running with a `.pst`
+   attached; a session here started it once and it exited. **Starting Outlook attached every
+   archive in `D:\OutlookArchive` and moved their modified times to about 09:24 on 2026-09-20**, so
+   the indexer will re-read them; nothing in them was written. `SCANPST.EXE` was also running on
+   `2013.pst` and the `.log` files show real damage (FLT row failures, AMap errors).
+3. **Register the nightly**: `scripts\install-nightly.ps1 -WhatIf`, then plain. Not registered.
+4. **The PST scale run and the terabyte survey** (`owner-pst-scale-run`, `terabyte-scale`): hours
+   of real-corpus work. **Offline Media II** hardware items (LTFS tape ordering, a UNC test) need
+   hardware this machine does not have; 2a is out of scope and 2c deferred by the owner.
+5. **Chat quality floor** (order 4b, 85%): no real model measured here reached it (see the chat
+   order's dated notes for the figures); either accept a lower floor or choose a stronger model.
+
+*Traps found this session* (add to §6 below): the app finds its `.env` from **its code's location**,
+so it must never be launched from a worktree (a "Cannot start" box appears: use
+`tests/unit/e2e_support.py::build_scratch_install`); a test that closes a real `MainWindow`
+must run in a child process (`tests/unit/close_scenario_child.py` - it froze the run three
+times); **LibreOffice 26.8 can crash or balloon to 8-11 GB on some real files**, so never loop
+real LibreOffice, and its crashes are silent to the person now (error mode inherited by the
+child); a long single-process Qt run can still die with a native access violation, so use
+`scripts/run_suite.py` and rerun the crashed part's files; `--timeout` on every pytest run,
+because a hung test does not stop by itself; the `WORKORDER-*.md` name is reserved for orders
+(the register counts every match).
+
 **2026-09-20 - the "known red" list below is superseded: it is down from 57 to 2, and
 most of it was four causes, not 57 problems.** The last full run
 (`scripts/run_suite.py -j 4`) had 8 failures; five of those were fixed after it (project file,
@@ -89,13 +158,15 @@ rerank toggle) and were updated with the reason written in.
 - **Re-staging over an existing install failed on Windows** whenever a shipped file was read-only
   (`assets\leasha-logo.png` is): `scripts/stage.py` used a bare `rmtree`.
 
-**Open, measured, not fixed - the filter-only browse plan.** `type:pdf` with no terms is planned by
-SQLite as "walk `idx_files_ext`, then sort": **177 ms at 200,000 files** (50% pdf), 92 ms for txt,
-68 ms xlsx, 40 ms dwg, 0.4 ms for a type with no matches. Forcing `idx_files_mtime` gives 0.6 ms for
-pdf but **2.9 s for a type with no matches** (it walks every file), so `INDEXED BY` is not the fix; an
-adaptive query is (bounded newest-first walk, fall back to the ext index).
-`test_query_plans.py::test_filter_only_browse_neither_scans_nor_sorts` is a strict `xfail` carrying
-these numbers and fails loudly once it is fixed.
+**Fixed 2026-09-20 - the filter-only browse plan** (kept for the reasoning). `type:pdf` with no
+terms was planned by SQLite as "walk `idx_files_ext`, then sort": 177 ms at 200,000 files (50% pdf).
+Forcing `idx_files_mtime` was 0.6 ms for pdf but 2.9 s for a type with no matches, so `INDEXED BY`
+was never the fix. The adaptive query is in `app/search/keyword.py::_filter_only`: take up to `limit`
+matching ids first; if that is every match, read them directly; otherwise walk the newest N files
+(N = max(4 x limit, 400)) and use the result only if the window is full, falling back to the plain
+statement otherwise. Measured at 200,000 rows, limit 100, min of 5: `type:pdf` 80 ms to 1.4 ms,
+`type:txt` 76 to 8 ms, a type with no matches 0.03 ms; `type:xlsx` and `type:dwg` are 10 ms slower
+(they pay a failed 400-row probe first - accepted). The strict `xfail` is now a passing test.
 
 **Also worth knowing:** `test_prompt_examples`'s length cap moved 1,901 -> 2,100 (the prompt had grown
 to 2,084 from `/on` and the video/audio kind words - raise it again only with a latency
@@ -362,6 +433,9 @@ owner decided the rail entry **stays "Offline"** and the test now says so.
 "Offline"); the register's old "owner decision waiting" for it (removed); the claim that
 offscreen goldens show what the owner sees (they do not - see the trap "Look at the real
 window"); `test_the_rail_labels_are_the_tab_titles_verbatim` is no longer red.
+
+**Superseded by the section at the top of section 3 (2026-09-20, late): items 2 and 3 below are done, 1 is
+mostly done (1e and 6c: 6c measured, 1e still needs a live Outlook), and 4 stands.** The original list:
 
 **What the next thread needs, in the order to do it:**
 
@@ -1611,27 +1685,18 @@ Not blockers, but decide them deliberately rather than by accident.
    venv plus a shortcut rather than let packaging block a working app.
 5. **The owner's own twenty sentences.** Deferred until enough is indexed for the answer to
    mean anything. The synthetic corpus is a floor, not a substitute.
-6. **Decisions waiting on the owner (2026-09-19, added to 2026-09-20).**
-   - **The rail says "Offline"; the redesign order asks for the page's own title verbatim
-     ("Offline Media").** `test_the_rail_labels_are_the_tab_titles_verbatim` is red until the label
-     goes back or the test's expectation is corrected. A label is not reworded without the
-     owner's word, so nothing was changed.
-   - **Chat was built on the owner's instruction, which reopens the "chat over the index is a
-     deliberate refusal" decision.** The record is a dated note on
-     `WORKORDER-scope-change-search-and-chat.md`; the order's own status line still says HELD and
-     the register says RELEASED. Say which stands. Chat 4b (the extractive-answer quality floor)
-     is *missed* with real models - 83.9% / 83.3% against 85%, figures from the build brief and
-     not reproduced here.
-   - **Video and audio is built ahead of its DRAFT status, off by default.** The
-     faster-whisper / PyAV licence decision is the owner's, and none of the four promotion items
-     is ticked (ffmpeg was not found on this machine).
-   - **Whether the twelve UI goldens have been "read by a human"** as 9i asks - the regenerating
-     session read them; the owner has not.
-   - **Small UI questions the redesign scenarios raised:** Enter on a group of two matches opens
-     the best hit; Ctrl+Enter is still Interpret when that is on; the empty "Pinned working set"
-     panel takes a third of the results page; Escape collides with the find bar. The Chat page's
-     Fast/Thoughtful control says so when only one model is installed, but has not been tried
-     against a live Ollama.
+6. **Decisions - all taken on 2026-09-20 on the owner's delegation, none waiting.** Recorded in
+   the orders and summarised at the top of section 3. Still the owner's to reconsider:
+   - **Rail entry "Offline"** stays (the owner's own decision, same day).
+   - **Chat is RELEASED and conversational**, with an optional off-by-default web scope
+     exception; the 85% extractive floor is unmet with the real models measured (see the chat
+     order) - choose a stronger model or a lower floor.
+   - **Video/audio** promoted but off by default; the x264/x265 licence question waits for
+     packaging.
+   - **The released "Choose a drive or folder to catalogue" label** contradicts the refusal of a
+     folder as a source; it is a released label, so it was not reworded.
+   - **Whether the twelve UI goldens count as "read by a human"** (9i): a session read all twelve
+     on 2026-09-20 and fixed what it found; the owner has not looked.
 
 ## 8. Where to look
 
