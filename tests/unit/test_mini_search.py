@@ -232,6 +232,12 @@ def test_off_windows_it_says_nothing_is_listening_rather_than_lying():
 
 
 def test_taking_a_shortcut_off_windows_returns_false_and_never_raises():
+    # 2026-09-20: the same guard its sibling above already had. Without it this
+    # asserts the non-Windows answer *on Windows*, where the hotkey really does
+    # register - so it failed on the owner's own machine, in every suite run, for
+    # the one platform the application ships on.
+    if available():                              # pragma: no cover - owner's box
+        pytest.skip("this asserts the non-Windows answer")
     listener = HotkeyListener()
     assert listener.start("Ctrl+Alt+L", lambda: None) is False
     assert listener.registered is False
