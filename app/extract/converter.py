@@ -46,6 +46,7 @@ from typing import Any, Iterable, Optional
 
 from app.core.errors import AppErrorException, make_error, raise_error
 from app.core.logging import logger
+from app.core.priority import child_creationflags
 
 __all__ = [
     "ALLOWED_BINARIES",
@@ -529,7 +530,10 @@ def _run_tree(command: list[str], timeout: float, cwd: str) -> "subprocess.Compl
     with quiet_errors():
         proc = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
-            cwd=cwd, creationflags=0x08000000 if os.name == "nt" else 0,
+            cwd=cwd,
+            # No console window, and below normal while a window's run is active: a
+            # thread's priority is not inherited by what it starts.
+            creationflags=(0x08000000 | child_creationflags()) if os.name == "nt" else 0,
         )
     try:
         stdout, stderr = proc.communicate(timeout=timeout)

@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional, Sequence
 
 from app.core.logging import logger
+from app.core.priority import child_creationflags
 
 __all__ = [
     "ConversionFailed",
@@ -577,7 +578,9 @@ class LoSession:
                     argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
                     errors="replace", bufsize=1, shell=False,
-                    creationflags=_NO_WINDOW if os.name == "nt" else 0,
+                    # Below normal while a window's run is active: a thread's
+                    # priority is not inherited by the process it starts.
+                    creationflags=(_NO_WINDOW | child_creationflags()) if os.name == "nt" else 0,
                 )
         except OSError as exc:
             raise SessionUnavailable(f"could not start the helper: {exc}") from exc
@@ -870,6 +873,15 @@ class SessionPool:
                 result = session.convert(source, target, kind, timeout_s=timeout_s,
                                         should_stop=stopping)
             except SessionCrashed as first:
+                # A pool that is closing (or a run that was told to stop) took
+                # the process away on purpose: retrying would start a brand-new
+                # LibreOffice while the application is trying to leave, and hold
+                # the worker for that file's whole timeout.
+                with self._cond:
+                    closing = self._closed
+                if closing or stopping():
+                    raise ConversionFailed(
+                        "LibreOffice was stopped because the application is closing") from first
                 # Something outside the file - a kill, a crash in a filter -
                 # took the process. One retry on a fresh one; a second death is
                 # the file's, and it is skipped rather than tried a third time.

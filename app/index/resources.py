@@ -442,6 +442,25 @@ class SystemProbe:
             log.debug("could not lower process priority: {}", exc)
             return False
 
+    def lower_io_priority(self) -> bool:
+        """Background I/O priority for the process, and nothing else.
+
+        The half of `lower_priority` a window that shares its process with the
+        run can still use. CPU priority is set per thread there - see
+        `app.core.priority` - because lowering the process lowers the interface
+        with it; disk priority has no per-thread form in `psutil`, and the
+        courtesy to the person's other programs is the same as it always was.
+        """
+        psutil = self._psutil()
+        if psutil is None or not hasattr(psutil, "IOPRIO_LOW"):
+            return False
+        try:
+            psutil.Process().ionice(psutil.IOPRIO_LOW)
+            return True
+        except Exception as exc:                # noqa: BLE001 - not on every Windows build
+            log.debug("could not lower I/O priority: {}", exc)
+            return False
+
 
 #: Seconds between two "busiest right now" samples. A governor flapping every
 #: few seconds must not spend half a second sampling on every flap.
@@ -722,6 +741,15 @@ class ResourceGovernor:
         if isinstance(probe, SystemProbe):
             return probe.lower_priority()
         return SystemProbe().lower_priority()
+
+    def apply_io_priority(self) -> bool:
+        """`apply_priority` for a run that lowers its own threads instead."""
+        if not self.limits.low_priority:
+            return False
+        probe = getattr(self._probe, "__self__", None)
+        if isinstance(probe, SystemProbe):
+            return probe.lower_io_priority()
+        return SystemProbe().lower_io_priority()
 
     def summary(self) -> dict[str, object]:
         return {

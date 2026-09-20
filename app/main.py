@@ -663,9 +663,22 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # never cuts a fast startup's one rotation short.
             splash.hide_and_close()
 
+            # **Measured, not assumed.** The beat starts here, the moment before
+            # the loop does, so start-up work is not counted as a stall. The
+            # indexer reads it through `window.lag_monitor` and yields when the
+            # window runs late; the summary below is how a run's effect on the
+            # window is read afterwards. See `app/ui/lag_monitor.py`.
+            from app.ui import lag_monitor
+            switch = lag_monitor.tighten_switch_interval()
+            window.lag_monitor = lag_monitor.install(application)
+            log.info("startup: window responsiveness is being measured "
+                     "(thread switch interval {} ms)", round(switch * 1000, 2))
+
             log.info("startup: entering the event loop")
             code = application.exec()
             log.info("shutdown: the event loop returned", code=code)
+            log.info("shutdown: window responsiveness this session - {}",
+                     window.lag_monitor.summary())
 
             # §3a: time the tail. The stage log used to end at "engine" close
             # (see `MainWindow.closeEvent`'s own staged teardown) with nothing
