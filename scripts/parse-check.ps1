@@ -24,7 +24,8 @@ $root = Split-Path -Parent $PSScriptRoot
 if (-not $Path -or $Path.Count -eq 0) {
     $Path = @(
         (Join-Path $root "install.ps1"),
-        (Join-Path $root "scripts\parse-check.ps1")
+        (Join-Path $root "scripts\parse-check.ps1"),
+        (Join-Path $root "scripts\install-nightly.ps1")
     )
 }
 

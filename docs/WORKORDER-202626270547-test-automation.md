@@ -1,6 +1,6 @@
 # Work order (One thread): test automation — the GUI clicked for real, the system proven nightly
 
-**Doc version:** 1.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (tests + tooling; app code changes only where a test
 exposes a bug)
 **Status: IN PROGRESS 2026-09-16** - the owner authorized starting this order
@@ -82,14 +82,14 @@ closes the gap in layers, cheapest and most valuable first.
 
 ## 3. pywinauto — five black-box journeys, no more
 
-- [ ] **3a** UIA-driven smoke against the *packaged/launched* app (leasha.cmd
+- [x] **3a** UIA-driven smoke against the *packaged/launched* app (leasha.cmd
   path, real window): launch → window appears; search → result row exists
   (found via accessible names — the accessibility discipline pays here);
   open a result; pop-out + stay-on-top actually stays on top; clean close
   mid-search (the shutdown-race classic, black-box). Marked `e2e`, excluded
   from the default run, executed before releases and after the PySide6
   migration.
-- [ ] **3b** flake discipline: each journey retries once, artifacts a
+- [x] **3b** flake discipline: each journey retries once, artifacts a
   screenshot on failure, and a journey that flakes twice in a month is fixed
   or deleted — a flaky e2e suite is worse than none (recorded as the rule).
 
@@ -104,7 +104,7 @@ closes the gap in layers, cheapest and most valuable first.
 
 ## 5. The nightly system loop (on the owner's machine — the target hardware)
 
-- [ ] **5a** one script: build/refresh the scale fixture → full index run via
+- [x] **5a** one script: build/refresh the scale fixture → full index run via
   CLI → perf floors asserted (chunker, embed rate, ladder, search p95 vs
   pinned numbers) → `evaluate --builtin` recall floors → kill-resume spot
   check → one-line report appended to a log the owner can glance at
@@ -116,6 +116,170 @@ closes the gap in layers, cheapest and most valuable first.
   hypothesis(default profile) on every push; the `e2e`/`jvm`/`slow` markers
   excluded. This is the contributor gate for the open-source future.
 
+> **2026-09-20 (later) - the three findings below, worked; 1b's Offline Media half is now
+> pressed for real.** (1) *Offline Media Scan / Rescan / Delete*:
+> `test_gui_scenarios_orders.py::test_offline_media_scan_rescan_and_delete_pressed_for_real`
+> drives the real button, the real name dialog, the worker, the store, the pipeline, the
+> tree and the confirmation dialog (faked: the OS volume API, the native chooser, the
+> embedder and the machine-wide run-lock mutex). **The hang did NOT reproduce in-process** -
+> Scan and Rescan each finished in under a second. What the code did allow: connection
+> hand-out waited on `_conns_lock` with no limit and let a locked database escape from
+> inside it; both are now bounded by the store's timeout and end in the plain-words
+> `ERR_DB_BUSY` (`test_sqlite_bounded_connection.py`). The launched-app cause is
+> UNCONFIRMED. (2) *An offline file's text in the preview body*: a real bug, found by
+> asserting it - `presenter/results.py::to_row` never copied `volume_id`/`relative_path`,
+> so a drive-backed row previewed as an ordinary missing file (and Open/Reveal could not
+> resolve it). Fixed; the 0k scenario now asserts the body. (3) *Folder as a source*: stays
+> refused (DECISION: a folder has no stable volume identity); the message is now
+> `ERR_SOURCE_NOT_A_DRIVE` - "Choose the drive itself, not a folder on it". The chooser
+> text and the tab intro still say "drive or folder" (released wording, not edited - the
+> owner may want it reconsidered). (4) *"Nothing selected"*: a plausible cause, not seen
+> in the launched app - `ResultsView._rebuild` kept the selection only when the query text
+> was unchanged, so an interim tier for "barn" replaced by the full tier for "barnsley"
+> dropped the click and the pane, opened a moment later, said "Nothing selected". Fixed
+> (the selection now survives whenever the same document is still in the results) with a
+> scenario that fails without it.
+>
+> **2026-09-20 - 3a, 3b and 5a ticked, each proven by a real run on this machine; 5b's
+> script is built and dry-run tested but never registered; 1b is still open and the
+> table below is why.** (Correction to the 2026-09-19 note under this one, which put 3a,
+> 3b and 5b with the owner because they need an interactive desktop: this machine has
+> one, and they were run here.)
+>
+> **3a - the launched app, driven by UIA (`tests/unit/test_e2e_pywinauto.py`,
+> `tests/unit/e2e_support.py`).** Run: `venv\Scripts\python.exe -m pytest
+> tests/unit/test_e2e_pywinauto.py -m e2e --timeout=180 --timeout-method=thread -v` -
+> **7 passed in 67 s** (the last run); the window appeared in 22-48 s across runs (the
+> machine was busy); an earlier run of the same file had one pop-out flake, retried and
+> logged. Journeys: launch (title `Leasha`, all eight rail pages, the search box); search
+> (a result row named for the file; Escape empties the box and the row); selecting a row
+> and opening the preview shows its text; **Pin in a window -> Keep on top really sets
+> `WS_EX_TOPMOST`, clearing it clears the flag, closing the pop-out leaves the main
+> window**; Settings opens; **closing after all of that ends every process in 0.5-1.7 s**
+> (measured after a session, `logs/e2e.log`); closing with a search in flight ends it in
+> 0.4 s. **Order 0u section 6d is therefore not reproduced by a normal close** (that is
+> evidence against the simple case, not a closure - the incident needs the next hang's
+> stack). "Open a result" is deliberately *not* pressed (Enter would launch the real
+> file in Notepad); the preview journey stands in for it. **Isolation is by
+> construction, not by promise:** `app/core/config.py` finds `.env` from the *code's own
+> location*, not the working directory (the old file's docstring said otherwise, and
+> its launched app would have opened the real index), so the app is launched from a
+> scratch copy of `app/`, `assets/`, `config/` with its own `.env`, logs, window state
+> and three seeded documents. **Two traps found:** `tests/conftest.py` sets
+> `QT_QPA_PLATFORM=offscreen` for the pytest process and a child inherits it, so the
+> launched app ran with no window at all (stripped in `e2e_support.LaunchedApp`); and
+> `venv\Scripts\pythonw.exe` is a stub, the window belongs to its *child* process, so
+> "exited" means the whole tree. **Safety:** `click_input`/`type_keys` act on the screen,
+> so nothing is sent until the foreground window belongs to the launched app's own
+> process tree (`FocusLost` otherwise) - a run that took the mouse while another
+> application was in front would otherwise have clicked into it; each launched app also
+> has a 7-minute wall-clock watchdog that kills its own tree only.
+>
+> **3b - enforced, not just written.** A failing journey is screenshotted to
+> `outputs/e2e-failures/` and retried once; passing on the retry is logged as a *flake*
+> in `logs/e2e.log`, and a **second flake of the same journey in the same month fails the
+> run** ("fix it or delete it"). The live tree changes under UIA (`KeyError: None`,
+> `COMError` while enumerating) - `e2e_support.descendants` retries those, which is what
+> removed the one flake seen.
+>
+> **5a - measured, and the floors pinned from the worst of three.** `tools/nightly.py`
+> now builds or refreshes a persistent *scale* corpus (`tests/fixtures/scale_corpus.py`,
+> 300 unique text files, refreshed only when its manifest differs) beside the real-format
+> fixtures, runs one timed index over both (344 files, 326 indexed), measures the OCR
+> **ladder** (rungs 0-1 model-free; rung 2, the detection probe, on the graphics card) as
+> well as chunker, embed and search p95, runs `evaluate --builtin`, and runs the
+> kill-resume stage **mid-flight** in a fresh store (it waits until at least one file is
+> INDEXED, kills, resumes, and requires the same INDEXED count as the uninterrupted run).
+> **Three full runs, all PASS** (`logs/nightly.log`, 6.6 / 8 / 8 minutes on a loaded
+> machine): index 1.62 / 2.07 / 1.02 files/s, chunker 2252 / 1404 / 524 per s, embed
+> 10.95 / 9.73 / 8.13 per s, ladder rungs 0-1 56.9 / 37.9 / 18.5 images/s, rung 2 761 /
+> 829 / 1252 ms per photo, search p95 171 / 252 / 298 ms, recall 0.7 each time,
+> kill-resume killed at 13 / 10 / 10 files and resumed to 325 / 326 / 326 = the reference.
+> **How the margins were chosen** (written beside `PERF_FLOORS`): each floor is 2.5x-3x
+> beyond the worst value ever seen for that metric (rate / 3, latency x 3), the anchor
+> being the worst of at least three runs - here of all eight runs across both days - and
+> every run was on a machine that was busy with someone else's work, so the worst is
+> already pessimistic. No floor came from one run. New floors: index 0.35 files/s (the
+> metric now covers the scale corpus, replacing 0.2), chunker 175/s (was 300), ladder
+> rungs 0-1 6.0 images/s, ladder rung 2 3500 ms, the rest unchanged. The rung-2 figure is
+> several times the "~50-150 ms" in `ocr_ladder.py`'s docstring on this integrated
+> adapter - a measurement to record, not a defect asserted.
+>
+> **5b - the script exists; registration is still the owner's one deliberate act.**
+> `scripts/install-nightly.ps1` (ASCII, BOM, added to `parse-check.ps1`): `-WhatIf` /
+> `-DryRun` print the task name, time, command and working folder and change nothing;
+> a plain run asks first (`ConfirmImpact=High`); `-Time HH:MM`; `-Status` (registered?
+> last run? last `nightly.log` line); `-Uninstall` (asks; with `-WhatIf` it says what it
+> would remove and removes nothing); contradictory switches exit 2; a missing venv refuses
+> with exit 1 before touching the scheduler. It runs under the owner's account while logged
+> on (no password stored, no elevation), `StartWhenAvailable`, a 3-hour limit, `pythonw`.
+> `tests/unit/test_install_nightly_script.py` (11 tests, 24 s) drives every path except
+> the registering one, under a throwaway task name, and proves that name is absent from
+> Task Scheduler afterwards; the dry-run path was also run against an existing task
+> (`Adobe Acrobat Update Task`) under `-Uninstall -WhatIf`, which left it untouched. **Not
+> ticked**: nothing has been registered (by instruction), so "registered as a Windows
+> scheduled task" is unproven end to end. `install.ps1`'s own opt-in step is unchanged.
+> `doctor` already shows the last nightly result.
+>
+> **1b - still open. Coverage table** (built by reading each shipped order's acceptance
+> sentence against the scenario test names and docstrings in `tests/unit/`; the lead's
+> `run_suite.py` is what proves the old ones pass - this pass re-ran only the new file):
+>
+> | Order | Promise | Scenario |
+> |---|---|---|
+> | 0m 1b | type -> interim -> full; Esc; rerank checkbox flips the engine; pop-out opens / stays on top / closes | `test_gui_scenarios.py` (9 tests) |
+> | 0m 1b | pop-out find / rotate / remember rotation | `test_gui_scenarios_journeys.py` (rotate, remembered, Ctrl+F, Esc closes find) |
+> | 0a | `/` popup opens, offers, inserts | `test_gui_scenarios.py::test_slash_popup_opens...` |
+> | 0a | `/` **scoped values** appear and filter | **new** `test_gui_scenarios_orders.py::test_slash_type_then_a_space_offers_the_types_the_index_actually_holds` |
+> | 0c | the eight-year-old journeys as keystrokes | `test_gui_scenarios_journeys.py` (misspelling, whole question, two misspellings, quoted phrase, emptied filter let go of, filter offer, unknown name, Enter opens, last search offered, lands on Search) |
+> | 0e | pop-out, pinned panel, log window, spreadsheet grid, drag-out, global hotkey | pop-out and pinned panel: `test_gui_scenarios*.py`, `test_ui_redesign_scenarios.py`; log window `test_log_window.py`; grid `test_spreadsheet_preview.py`; drag-out `test_drag_out.py`; hotkey `test_mini_search.py` - **widget level only for the last three; a real OS drag and a system-wide hotkey need the desktop and are not pressed** |
+> | 0g | mail findable by sender | `test_gui_scenarios_results.py::test_a_mail_result_is_labelled_by_sender...`; mbox/Takeout indexing itself is headless (`test_email_mbox.py`, integration) |
+> | 0h | a photo found by typing a description | engine level with the real CLIP towers (`test_clip_lane_wiring.py`); **no window-level scenario - needs the real model, network-dependent; listed, not faked** |
+> | 0i | AI-written words marked in the preview | **gap** - no window-level scenario; model-bound |
+> | 0j | the Photo Tagger is reachable | `test_wired_features.py` (Settings button, Go menu) |
+> | 0k | describe a file from memory -> "on Projects 2019 (offline...)" and its text without the drive | **new** `test_gui_scenarios_orders.py::test_a_file_on_an_unplugged_drive_says_which_drive_it_is_on` (first half only: the row names the drive; **the pane showing the offline file's indexed text did not appear within 15 s in the assembled window - unproven, UNCONFIRMED whether by design**) |
+> | 0k / 0m 1b | Offline Media **Scan, Rescan, Delete pressed** | **NOT DONE** - see below. The old test still only asserts `rescan.isEnabled() or delete.isEnabled()` |
+> | 0d | first run offers profile folders, "Add all four" | `test_privacy_defaults.py` at widget level; **no window-level scenario** |
+> | 0f | picture folder indexes, ladder, dates | headless (pipeline / CLI tests) - not a keystroke promise |
+> | 0p | every header sorts; Relevance restorable | `test_table_sorting.py` (27) |
+> | 0q | results read right, list stable, keyboard-driven | `test_gui_scenarios_results.py`, `test_ui_redesign_scenarios.py` |
+> | 0s | why-menu, saved names, chips, prefill, summon | `test_adoption_scenarios.py`; summon-around-selection is `test_mini_search.py` at widget level |
+> | pages reorg | Settings filter, five shelves; Indexing three views | `test_pages_reorg.py` (page level, typed into the filter; not through the assembled window) |
+> | space report / idle tune | Reports surface opens, export, idle-tune rules | `test_idle_tune_and_space_report_ui.py` |
+> | UI redesign | opens on one box; rail; shortcuts; keyboard-only journey | `test_ui_redesign_scenarios.py` (28) |
+> | 0m 3a | the launched app, black-box | `test_e2e_pywinauto.py` (above) |
+>
+> **Offline Media Scan / Rescan / Delete: attempted, not achieved, and what it found.**
+> (1) *A folder cannot be catalogued, only a drive root or a share*: choosing an ordinary
+> folder on `D:` fails with `ERR_CONFIG_INVALID` "could not read a volume or network
+> identity" (`identify_root` answers only for a drive root). The button says "Scan a
+> drive..." but its chooser text and the tab's intro say "drive or folder". Whether folders
+> are meant to be sources is the owner's call; UNCONFIRMED whether this is a bug or the
+> design. (2) The scenario therefore has to present the fixture folder as a volume by
+> replacing the OS volume API, the chooser, the embedder and the machine-wide run-lock
+> mutex (with the real lock, any other index run on the machine - the owner's, or another
+> test process - makes the scan fail with `ERR_INDEX_RUNNING`, correctly). With those
+> replaced the run **hung for the whole timeout** with workers blocked in
+> `_read_external_run` -> `SqliteStore._new_connection`; the cause was not found in the
+> time available and the scenario was removed rather than committed unproven.
+>
+> **Also noticed, not fixed (in files another thread is editing):** in the launched app,
+> clicking a result and opening the preview pane *within about two seconds* of the rows
+> appearing showed "Nothing selected" three times out of three, while the same steps a few
+> seconds later, or with the pane already open, showed the file. It is **not reproduced
+> offscreen** (`test_gui_scenarios_results.py::test_the_selected_row_survives_the_interim_to_full_swap`
+> passes and a direct select-then-toggle probe showed the file), so it is a black-box
+> observation of a timing window around the metadata redraw, UNCONFIRMED as a product bug;
+> the journey waits for the search to settle rather than depend on it. And a toast
+> "Downloading the picture-search model - 13%" stayed on screen for minutes in the scratch
+> app (it had a model cache and network, so a stalled progress toast is the suspect).
+>
+> **Hangs while writing these:** three times a pytest process ran on for many minutes after
+> a failing test with no output. Cause found: pytest formats the failure with
+> `inspect.getmodule`, which `realpath`s every module in `sys.modules` (torch, pyarrow and
+> the rest are loaded in this process) - very slow on a loaded machine. Use `--tb=short` or
+> `--tb=line`, and `--timeout=180 --timeout-method=thread`.
+>
 > **2026-09-19 - nothing new is ticked; here is why, and what the suite learned
 > about itself.** **1b stays open**: the Offline Media Scan half is out of scope
 > (the `test_gui_scenarios_journeys.py` docstring says so), and the

@@ -17,6 +17,14 @@ JSON object on its last line:
   chunker_chars_per_second    the same run, in characters.
   embed_chunks_per_second     `Embedder.embed_all` over chunks that came out of
                               that chunker, after an untimed warm-up batch.
+  ladder_rung01_images_per_second
+                              the OCR ladder's free rungs (filename, then the
+                              256px thumbnail histogram) over a fixed set of
+                              generated images, model-free.
+  ladder_probe_ms             rung 2, the detection-only probe, per image, over
+                              the generated photo-like images - needs the OCR
+                              engine, so it is `null` (with a note) where that
+                              cannot load.
   search_p95_ms / _p50_ms     `SearchEngine.search` over the index the nightly
                               just built from the fixture corpus - reranker
                               off, result cache off, models pre-warmed - the
@@ -94,6 +102,79 @@ def measure_chunker() -> dict:
     }
 
 
+LADDER_IMAGES = 60
+LADDER_PROBE_IMAGES = 12
+
+
+def _ladder_images(folder: Path) -> tuple[list[Path], list[Path]]:
+    """Two kinds, both deterministic: white pages with a few dark lines (rung 1
+    sends these straight to OCR) and busy colour "photos" (they fall through to
+    rung 2). Neutral filenames, so rung 0 - which routes on names - stays out
+    of the way of what is being timed."""
+    import random
+
+    from PIL import Image, ImageDraw
+
+    rng = random.Random(20260920)
+    pages: list[Path] = []
+    photos: list[Path] = []
+    for number in range(LADDER_IMAGES // 2):
+        page = Image.new("RGB", (1240, 1754), "white")
+        draw = ImageDraw.Draw(page)
+        for line in range(12):
+            y = 100 + line * 60
+            draw.rectangle([100, y, 1100 - rng.randrange(400), y + 14], fill="black")
+        path = folder / f"scan-{number:03d}.png"
+        page.save(path)
+        pages.append(path)
+        photo = Image.effect_noise((1600, 1200), 64).convert("RGB")
+        tint = Image.new("RGB", photo.size, (rng.randrange(40, 160), rng.randrange(40, 160),
+                                            rng.randrange(40, 160)))
+        path = folder / f"view-{number:03d}.jpg"
+        Image.blend(photo, tint, 0.5).save(path, quality=85)
+        photos.append(path)
+    return pages, photos
+
+
+def measure_ladder(settings=None) -> dict:
+    """Rungs 0-1 always; rung 2 when the OCR engine loads (see the docstring)."""
+    import tempfile
+
+    from app.extract.ocr_ladder import route
+
+    out: dict = {}
+    with tempfile.TemporaryDirectory(prefix="leasha-ladder-") as tmp:
+        pages, photos = _ladder_images(Path(tmp))
+        everything = pages + photos
+        route(everything[0], detect=None)                 # untimed: imports, caches
+        started = time.perf_counter()
+        for path in everything:
+            route(path, detect=None)
+        elapsed = max(time.perf_counter() - started, 1e-9)
+        out["ladder_rung01_images_per_second"] = round(len(everything) / elapsed, 1)
+
+        try:
+            from app.extract import ocr
+            if settings is not None:
+                ocr.configure_device(settings.embed_device)
+            engine = ocr._load_engine()
+            if engine is None:
+                raise RuntimeError("the OCR engine did not load")
+            detect = ocr._detect_only(engine)
+            sample = photos[:LADDER_PROBE_IMAGES]
+            detect(sample[0])                             # untimed warm-up
+            started = time.perf_counter()
+            for path in sample:
+                route(path, detect=detect)
+            out["ladder_probe_ms"] = round(
+                (time.perf_counter() - started) * 1000.0 / len(sample), 1)
+        except Exception as exc:                          # noqa: BLE001 - report, keep going
+            out["ladder_probe_ms"] = None
+            out.setdefault("notes", []).append(
+                f"ladder rung 2 not measured: {type(exc).__name__}: {exc}")
+    return out
+
+
 def _settings(env: Path):
     from app.core.config import load_settings
     return load_settings(env)
@@ -165,10 +246,13 @@ def main(argv=None) -> int:
     chunker = measure_chunker()
     texts = chunker.pop("_chunks")
     out.update(chunker)
-    for name, fn in (("embed", lambda: measure_embed(settings, texts)),
+    for name, fn in (("ladder", lambda: measure_ladder(settings)),
+                     ("embed", lambda: measure_embed(settings, texts)),
                      ("search", lambda: measure_search(settings))):
         try:
-            out.update(fn())
+            result = fn()
+            out["notes"].extend(result.pop("notes", []))
+            out.update(result)
         except Exception as exc:                          # noqa: BLE001 - report, keep going
             out["notes"].append(f"{name} not measured: {type(exc).__name__}: {exc}")
     print(json.dumps(out))

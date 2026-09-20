@@ -18,16 +18,20 @@ several-fold regression does.
 Stages, each best-effort and each recorded even when a later one fails, so
 one broken stage does not hide whether the others were fine:
 
-  1. Refresh the fixture corpus (`tests/fixtures/generate.py` - the same one
-     the test suite uses; a genuinely GB-scale corpus is a separate, larger
-     asset this script does not generate itself, matching the honest gap
-     named in the work order note - see `docs/WORKORDER-202626270547-test-
-     automation.md`'s dated note).
+  1. Build or refresh the fixture corpora: `tests/fixtures/generate.py` (the
+     ~35 real-format files the test suite uses) and the *scale* corpus,
+     `tests/fixtures/scale_corpus.py` (a few hundred unique text documents in
+     a persistent folder, `logs/nightly-fixture/scale`, so an index run is
+     throughput and not process start-up). Refreshing is free when the
+     manifest already matches. A genuinely GB-scale corpus is still the
+     owner's, not something this script invents - the count is a knob
+     (`--scale-files`, `LEASHA_NIGHTLY_SCALE_FILES`).
   1b. Warm the embedding model into a *persistent* cache (`logs/nightly-models`,
      or `LEASHA_NIGHTLY_MODEL_CACHE`) so a first-ever 65MB download is never
      inside a timed stage - it was, when the cache lived in the temp dir.
   2. A full index run via the CLI, timed.
-  2b. `tools/nightly_probe.py measure`: chunker rate, embed rate and a search
+  2b. `tools/nightly_probe.py measure`: chunker rate, embed rate, the OCR
+     ladder's rungs 0-1 rate and rung 2 (detection probe) time, and a search
      p95 over the index stage 2 just built.
   3. `leasha evaluate --builtin`, parsed for its recall number.
   4. A kill-resume spot check: start a second index run, kill it after a few
@@ -66,40 +70,57 @@ LOG_PATH = ROOT / "logs" / "nightly.log"
 #: Pinned floors - regression tripwires, not targets. `None` means "not
 #: measured on the target machine", and never breaches.
 #:
-#: **What they were measured under.** Five runs on 2026-09-19 (two full, with
-#: kill-resume; three `--quick`) on the owner's machine, Windows 11, while that
-#: machine was busy running a large index of its own - so every observed number
-#: is pessimistic, and the spread between runs is itself large (the index
-#: stage varied 2.5x between back-to-back runs). Each floor sits roughly 2.5x
-#: to 3x beyond the WORST of the five, so machine noise does not trip it and a
-#: genuine several-fold regression does. Tighten them only from a quiet night's
-#: history in `logs/nightly.log`, never from a hunch.
+#: **How the margins were chosen.** Every floor sits 2.5x to 3x beyond the WORST
+#: value ever observed for that metric (a rate is divided by ~3, a latency
+#: multiplied by ~3) - so ordinary machine noise cannot trip it and a genuine
+#: several-fold regression does. The machine is noisy and was noisy for every run:
+#: the owner's machine, Windows 11, running a large index of its own, and (for the
+#: 2026-09-20 runs) other people's test processes and a GUI journey on the same
+#: cores. That makes every observation pessimistic, and the spread between
+#: back-to-back runs is itself large (2x-4x). No floor is taken from a single
+#: run; the worst of at least three is the anchor, and a floor is tightened only
+#: from a quiet night's history in `logs/nightly.log`, never from a hunch.
 #:
-#:   index_files_per_second   observed 0.62 - 1.55, worst 0.62. The fixture
-#:       corpus is ~35 files (~19 readable), so this is dominated by process
-#:       start and model load, not throughput: it guards "the index run did not
-#:       become several times slower", nothing finer. Wall clock of the whole
-#:       `app.cli index` call divided by every file under the fixture root.
-#:   chunker_chunks_per_second   observed 757 - 1188, worst 757. `chunk_text`
-#:       over 120 synthetic 400-word documents, single thread, model-free.
-#:   embed_chunks_per_second   observed 6.9 - 11.4, worst 6.9. bge-small int8
-#:       on CPU, 48 chunks of that synthetic text after an untimed warm-up
-#:       batch, while another process was also using the CPU.
-#:   search_p95_ms   observed 190 - 316 across the five, worst 316 (a sixth
-#:       run, after pinning, gave 396 - still 2.5x inside the floor). 96 searches (8 queries x 12)
-#:       over the ~34-chunk fixture index, reranker OFF, result cache off,
-#:       models pre-warmed. It is a tiny index, so this guards the pipeline's
-#:       fixed cost, not scaling; a p95 over the owner's real index is a
-#:       different (larger) number nobody has measured here yet.
-#:   recall_at_10   observed 0.7 in all five (it is deterministic, so no noise
-#:       margin was needed); floored at 0.6 - one built-in question's worth.
+#: Run history (all PASS):
+#:   2026-09-19  five runs on the small (~35 file) corpus, two full.
+#:   2026-09-20  three FULL runs (with kill-resume) on the scale corpus - 300
+#:               generated text files plus the ~35 real-format fixtures = 344
+#:               files, 326 indexed - back-to-back, on a loaded machine.
 #:
-#: NOT pinned: a "ladder" floor (the order also names one) - nothing in this
-#: script measures it, and a number nobody measured is not a floor.
+#:   index_files_per_second   2026-09-20: 1.62, 2.07, 1.02 (worst 1.02) -> 0.35.
+#:       Wall clock of the whole `app.cli index` call over BOTH corpora divided
+#:       by every file under them, so it includes process start and model load.
+#:       (The floor on the small corpus alone was 0.2; the corpus changed, so
+#:       the metric did, and this replaces it.)
+#:   chunker_chunks_per_second   all eight runs 523.7 - 2251.8 (worst 523.7) -> 175.
+#:       `chunk_text` over 120 synthetic 400-word documents, single thread,
+#:       model-free.
+#:   embed_chunks_per_second   all eight runs 6.9 - 11.4 (worst 6.9) -> 2.5.
+#:       bge-small int8 on CPU, 48 chunks after an untimed warm-up batch.
+#:   ladder_rung01_images_per_second   2026-09-20: 56.9, 37.9, 18.5 (worst 18.5) -> 6.0.
+#:       The OCR ladder's free rungs (filename, then the 256px thumbnail
+#:       histogram) over 60 generated images (1240x1754 pages and 1600x1200
+#:       photos), model-free - decoding the image dominates it.
+#:   ladder_probe_ms   2026-09-20: 761, 829, 1252 (worst 1252) -> 3500.
+#:       Rung 2, the detection-only probe, per photo, on the graphics card via
+#:       DirectML (the machine's real configuration). The module docstring of
+#:       `ocr_ladder.py` says ~50-150 ms; on this integrated adapter it is
+#:       several times that, which is a measurement, not a defect - the floor
+#:       guards "the probe did not become several times slower again".
+#:   search_p95_ms   all eight runs 171 - 396 (worst 396) -> 1000. 96 searches
+#:       (8 queries x 12) over the index the run just built (now ~326 files,
+#:       ~500 chunks), reranker OFF, result cache off, models pre-warmed. It is a
+#:       small index, so this guards the pipeline's fixed cost, not scaling; a
+#:       p95 over the owner's real index is a different (larger) number nobody
+#:       has measured here.
+#:   recall_at_10   0.7 in every run (deterministic - no noise margin needed);
+#:       floored at 0.6, one built-in question's worth.
 PERF_FLOORS: dict[str, Optional[float]] = {
-    "index_files_per_second": 0.2,
-    "chunker_chunks_per_second": 300.0,
+    "index_files_per_second": 0.35,
+    "chunker_chunks_per_second": 175.0,
     "embed_chunks_per_second": 2.5,
+    "ladder_rung01_images_per_second": 6.0,
+    "ladder_probe_ms": 3500.0,
     "search_p95_ms": 1000.0,
     "recall_at_10": 0.6,
 }
@@ -146,23 +167,45 @@ def _run_cli(args: list, *, env_file: Path, timeout: Optional[float] = None) -> 
         cwd=str(ROOT), capture_output=True, text=True, timeout=timeout, check=False)
 
 
-def stage_refresh_fixture() -> dict:
-    """Stage 1. The small corpus `tests/fixtures/generate.py` builds - see
-    the module docstring for why this is not yet the GB-scale one."""
+DEFAULT_SCALE_FILES = 300
+
+
+def _scale_files(requested: Optional[int]) -> int:
+    if requested is not None:
+        return max(1, int(requested))
+    try:
+        return max(1, int(os.environ.get("LEASHA_NIGHTLY_SCALE_FILES", DEFAULT_SCALE_FILES)))
+    except ValueError:
+        return DEFAULT_SCALE_FILES
+
+
+def _scale_dir() -> Path:
+    override = os.environ.get("LEASHA_NIGHTLY_FIXTURE_DIR")
+    return (Path(override) if override else ROOT / "logs" / "nightly-fixture") / "scale"
+
+
+def stage_refresh_fixture(scale_files: Optional[int] = None) -> dict:
+    """Stage 1. The small real-format corpus `tests/fixtures/generate.py`
+    builds, plus the scale corpus `tests/fixtures/scale_corpus.py` builds or
+    refreshes in a persistent folder - see the module docstring."""
     started = time.monotonic()
     try:
         sys.path.insert(0, str(ROOT))
         from tests.fixtures.generate import ensure_fixtures
+        from tests.fixtures.scale_corpus import ensure_scale_corpus
         root = ensure_fixtures()
-        return {"ok": True, "seconds": time.monotonic() - started, "path": str(root)}
+        scale = ensure_scale_corpus(_scale_dir(), _scale_files(scale_files))
+        return {"ok": True, "seconds": time.monotonic() - started, "path": str(root),
+                "scale_path": str(scale["path"]), "scale_files": scale["files"],
+                "scale_refreshed": scale["refreshed"]}
     except Exception as exc:                              # noqa: BLE001
         return {"ok": False, "seconds": time.monotonic() - started, "error": str(exc)}
 
 
-def stage_index_run(env_file: Path, fixture_root: Path) -> dict:
-    """Stage 2. A full index run over the fixture corpus, timed."""
+def stage_index_run(env_file: Path, roots: list) -> dict:
+    """Stage 2. A full index run over the fixture corpora, timed."""
     started = time.monotonic()
-    result = _run_cli(["index", str(fixture_root)], env_file=env_file, timeout=1800)
+    result = _run_cli(["index", *[str(r) for r in roots]], env_file=env_file, timeout=3600)
     elapsed = time.monotonic() - started
     return {
         "ok": result.returncode == 0, "seconds": elapsed, "returncode": result.returncode,
@@ -236,24 +279,75 @@ def stage_evaluate(env_file: Path) -> dict:
     }
 
 
-def stage_kill_resume(env_file: Path, fixture_root: Path, *, kill_after_s: float = 3.0) -> dict:
-    """Stage 4. Kill an index run mid-flight; a second run must resume, not
-    restart - the cursor is the thing under test, not the wall clock."""
+def _indexed_count(env_file: Path) -> int:
+    """`files` rows already INDEXED in the store `env_file` points at - read
+    straight from SQLite, read-only, the authority (non-negotiable #6)."""
+    import re
+    import sqlite3
+
+    match = re.search(r"^FTS_DB=(.+)$", env_file.read_text(encoding="utf-8"), re.M)
+    if not match or not Path(match.group(1).strip()).exists():
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{match.group(1).strip()}?mode=ro", uri=True, timeout=2)
+        try:
+            return int(conn.execute(
+                "SELECT COUNT(*) FROM files WHERE status='INDEXED'").fetchone()[0])
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0
+
+
+def stage_kill_resume(env_file: Path, roots, *, reference_indexed: int,
+                      wait_s: float = 240.0) -> dict:
+    """Stage 4. Kill an index run **mid-flight**, then run it again: the second
+    run must finish the job (same INDEXED count as the uninterrupted run in
+    stage 2) - a crash costs seconds, not the run (non-negotiable #4).
+
+    `env_file` must be a *fresh* store: killing a run over an index that is
+    already complete tests nothing. The kill waits until the fresh store holds
+    at least one INDEXED file and fewer than the reference count, i.e. it is
+    genuinely part-way; `killed_at` records how far it had got."""
     started = time.monotonic()
     proc = subprocess.Popen(
-        [str(PYTHON), "-m", "app.cli", "index", str(fixture_root), "--env", str(env_file)],
-        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(kill_after_s)
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=10)
+        [str(PYTHON), "-m", "app.cli", "index", *[str(r) for r in _as_list(roots)],
+         "--env", str(env_file)],
+        cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    killed_at = 0
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline and proc.poll() is None:
+        killed_at = _indexed_count(env_file)
+        if killed_at > 0:
+            break
+        time.sleep(0.4)
+    finished_before_kill = proc.poll() is not None
+    if not finished_before_kill:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
 
-    resumed = _run_cli(["index", str(fixture_root)], env_file=env_file, timeout=1800)
-    elapsed = time.monotonic() - started
-    return {"ok": resumed.returncode == 0, "seconds": elapsed, "returncode": resumed.returncode}
+    resumed = _run_cli(["index", *[str(r) for r in _as_list(roots)]],
+                       env_file=env_file, timeout=3600)
+    after = _indexed_count(env_file)
+    result = {
+        "seconds": time.monotonic() - started, "returncode": resumed.returncode,
+        "killed_at": killed_at, "indexed_after": after, "reference": reference_indexed,
+        "finished_before_kill": finished_before_kill,
+    }
+    result["ok"] = (resumed.returncode == 0 and after >= reference_indexed > 0
+                    and (finished_before_kill or 0 < killed_at))
+    if not result["ok"]:
+        result["error"] = ("the resumed run did not reach the uninterrupted run's INDEXED count"
+                           if after < reference_indexed else "kill stage did not run mid-flight")
+    return result
+
+
+def _as_list(value) -> list:
+    return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
 def _check_floor(name: str, value: Optional[float], *, higher_is_better: bool) -> Optional[str]:
@@ -266,7 +360,7 @@ def _check_floor(name: str, value: Optional[float], *, higher_is_better: bool) -
     return None
 
 
-def run(*, quick: bool = False) -> dict:
+def run(*, quick: bool = False, scale_files: Optional[int] = None) -> dict:
     with tempfile.TemporaryDirectory(prefix="leasha-nightly-") as tmp:
         root = Path(tmp)
         env_file = root / ".env"
@@ -275,22 +369,31 @@ def run(*, quick: bool = False) -> dict:
             encoding="utf-8")
 
         report: dict[str, Any] = {"started_at": datetime.now(timezone.utc).isoformat()}
-        fixture = stage_refresh_fixture()
+        fixture = stage_refresh_fixture(scale_files)
         report["fixture"] = fixture
         if not fixture["ok"]:
             return _finish(report, ok=False)
 
         fixture_root = Path(fixture["path"])
+        index_roots = [fixture_root, Path(fixture["scale_path"])]
         report["warm"] = stage_warm(env_file)
-        report["index"] = stage_index_run(env_file, fixture_root)
+        report["index"] = stage_index_run(env_file, index_roots)
         report["probe"] = stage_probe(env_file, fixture_root)
         report["evaluate"] = stage_evaluate(env_file)
         if not quick:
-            report["kill_resume"] = stage_kill_resume(env_file, fixture_root)
+            fresh = root / "resume"
+            fresh.mkdir()
+            fresh_env = fresh / ".env"
+            fresh_env.write_text(
+                ENV_TEMPLATE.format(d=fresh.as_posix(), m=_model_cache().as_posix()),
+                encoding="utf-8")
+            report["kill_resume"] = stage_kill_resume(
+                fresh_env, index_roots, reference_indexed=_indexed_count(env_file))
 
         breaches = []
         if report["index"]["ok"] and fixture_root.exists():
-            file_count = sum(1 for _ in fixture_root.rglob("*") if _.is_file())
+            file_count = sum(1 for r in index_roots for _ in r.rglob("*") if _.is_file())
+            report["index"]["files"] = file_count
             rate = file_count / max(report["index"]["seconds"], 0.001)
             report["index"]["files_per_second"] = rate
             msg = _check_floor("index_files_per_second", rate, higher_is_better=True)
@@ -303,6 +406,8 @@ def run(*, quick: bool = False) -> dict:
         probe = report.get("probe", {})
         for name, higher in (("chunker_chunks_per_second", True),
                              ("embed_chunks_per_second", True),
+                             ("ladder_rung01_images_per_second", True),
+                             ("ladder_probe_ms", False),
                              ("search_p95_ms", False)):
             msg = _check_floor(name, probe.get(name), higher_is_better=higher)
             if msg:
@@ -341,6 +446,8 @@ def _append_log_line(report: dict) -> None:
         f"files_per_s={fps if fps is None else round(fps, 2)} "
         f"chunker_per_s={probe.get('chunker_chunks_per_second')} "
         f"embed_per_s={probe.get('embed_chunks_per_second')} "
+        f"ladder01_per_s={probe.get('ladder_rung01_images_per_second')} "
+        f"ladder_probe_ms={probe.get('ladder_probe_ms')} "
         f"search_p95_ms={probe.get('search_p95_ms')} "
         f"search_p50_ms={probe.get('search_p50_ms')}\n"
     )
@@ -358,13 +465,20 @@ def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--quick", action="store_true",
                         help="skip the kill-resume check - the slowest stage")
+    parser.add_argument("--scale-files", type=int, default=None, metavar="N",
+                        help=f"documents in the scale corpus (default {DEFAULT_SCALE_FILES}, "
+                             "or LEASHA_NIGHTLY_SCALE_FILES)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="print the full report even when the run passes")
     args = parser.parse_args(argv)
 
     if not PYTHON.exists():
         print("Leasha is not installed yet. Run run-install.cmd first.")
         return 1
 
-    report = run(quick=args.quick)
+    report = run(quick=args.quick, scale_files=args.scale_files)
+    if args.verbose and report["ok"]:
+        print(json.dumps(report, indent=2, default=str))
     return 0 if report["ok"] else 1
 
 

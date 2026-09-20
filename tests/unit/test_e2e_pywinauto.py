@@ -1,202 +1,295 @@
-r"""Order 0m section 3 - five black-box journeys against the packaged,
-launched app. UIA via pywinauto, no more than these five (S3a's own limit).
+r"""Order 0m section 3 - black-box journeys against the launched app. UIA via
+pywinauto, a real window on a real desktop, no more than these.
 
 **Marked `e2e`, excluded from the default run** (`pyproject.toml`'s `addopts`
-excludes it alongside `jvm`). Run deliberately:
+excludes it alongside `jvm`). Run deliberately, before a release and after any
+change to startup, the window or its shutdown:
 
     venv\Scripts\python.exe -m pytest tests/unit/test_e2e_pywinauto.py -m e2e -v
 
-**Needs a real, interactive desktop** - it launches `leasha.cmd`'s own
-`pythonw.exe -m app.main` as a detached process and drives the real window
-with real UIA mouse/keyboard synthesis, the one thing offscreen `pytest-qt`
-cannot do. It takes the mouse focus for as long as it runs; do not use the
-machine for anything else meanwhile. Before a release, and after the
-PySide6 migration (should that ever happen) - S3a's own words.
+**It takes the mouse and keyboard for as long as it runs** (a few minutes; the
+window's own startup is 12-40 s, and there are two launches). Do not use the
+machine meanwhile. It refuses to run while another Leasha window is open - the
+window holds a machine-wide single-instance mutex, so a second launch would hand
+over to the first and the journeys would be driving the owner's session.
 
-**Isolated fixture environment, never the real index.** `app.main` resolves
-`.env` from the process's working directory (`app/core/config.py`'s
-`load_settings`), so the launched process's `cwd` is a temp directory
-carrying its own `.env` pointing at throwaway paths - never
-`D:\Leasha\Data`. Non-negotiable #10 (read-only against user data) applies
-here as much as anywhere: an e2e journey must not be able to touch the real
-catalogue even by accident.
+**Never the real index.** See `e2e_support.py`: the app is launched from a
+scratch copy of the code with its own `.env`, logs, window state and three
+seeded documents; nothing it does can reach `D:\Leasha\Data`.
 
-**Accessible names, not coordinates.** Every element is found by `auto_id`
-(Qt's `setObjectName()` reaches UIA as `AutomationId`) or by name - the
-"accessibility discipline pays here" the work order names, and also the
-only lookup that survives a window resize or a theme change.
+**Accessible names, not coordinates.** Every element is found by the object name
+the code gave it (Qt reports it to UIA as the tail of the automation id) or by
+its accessible name - the discipline `test_accessible_names.py` enforces, which
+is what makes this possible at all - so a window resize or a theme change does
+not break a journey.
 
-**Flake discipline (S3b), recorded as the rule**: each journey retries once
-on failure and saves a screenshot to `outputs/e2e-failures/` before the
-second attempt; a journey that flakes twice in one calendar month is fixed
-or deleted, never left flaky - a flaky e2e suite is worse than none.
+The journeys (none opens the real file, so nothing launches Notepad):
+
+  1. launch            the window appears; the pages are on the rail
+  2. search            type a word -> a result row named for the file; Esc empties it
+  3. preview           select the row, open the preview pane -> the text is shown
+  4. pop-out           Pin in a window -> Keep on top really sets the OS flag
+  5. settings          the Settings page opens
+  6. close             closing after all of the above ends every process; seconds recorded
+  7. close mid-search  close with a search in flight; the process must still end
+
+**Flake discipline (3b), enforced not just written**: a journey that fails is
+retried once after a screenshot to `outputs/e2e-failures/`; passing on the retry
+is a *flake* and is written to `logs/e2e.log`; a second flake of the same
+journey in the same calendar month fails the run with "fix it or delete it" - a
+flaky e2e suite is worse than none. Timings (window appears, close-to-exit) are
+written to the same log.
 """
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-import tempfile
 import time
-from pathlib import Path
-from typing import Iterator
+from datetime import datetime
 
 import pytest
 
 pytest.importorskip("pywinauto")
+pytest.importorskip("psutil")
+
+from tests.unit import e2e_support as e2e                          # noqa: E402
 
 pytestmark = [pytest.mark.e2e, pytest.mark.windows]
 
-ROOT = Path(__file__).resolve().parents[2]
-PYTHONW = ROOT / "venv" / "Scripts" / "pythonw.exe"
-FAILURE_SHOTS = ROOT / "outputs" / "e2e-failures"
-
-ENV = """\
-DATA_PATH={d}
-VECTOR_PATH={d}/vectors
-FTS_DB={d}/fts/knowledge.db
-CACHE_PATH={d}/cache
-MODEL_CACHE={d}/models
-STATE_PATH={d}/state
-PROJECT_PATH={d}
-LOG_PATH={d}/logs
-
-EMBED_MODEL=BAAI/bge-small-en-v1.5
-EMBED_DIM=384
-RERANK_MODEL=BAAI/bge-reranker-base
-RERANK_ENABLED=false
-
-OLLAMA_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=mistral
-
-MIN_FREE_GB=1
-REQUIRED_FREE_GB=1
-"""
-
-#: How long the real window has to appear - real startup, not offscreen, so
-#: this is generous rather than tight.
-LAUNCH_TIMEOUT_S = 30
+#: The longest a normal close may take before the journey calls it a hang. The
+#: measured figure is recorded either way; order 0u section 6d's incident was a
+#: process still alive *nine hours* later, so this is a hang detector, not a target.
+CLOSE_LIMIT_S = 30.0
 
 
-def _retry_once(journey, *args):
-    """S3b: one retry, a screenshot on the failure that matters."""
+# ---------------------------------------------------------------------------
+# 3b - retry once, screenshot, count the flake, and refuse a habitual one.
+# ---------------------------------------------------------------------------
+
+def run_journey(journey, *args) -> None:
+    name = journey.__name__
     try:
         journey(*args)
-    except Exception:
-        FAILURE_SHOTS.mkdir(parents=True, exist_ok=True)
+        return
+    except pytest.skip.Exception:
+        raise
+    except Exception as first:                                     # noqa: BLE001
+        e2e.screenshot(e2e.FAILURE_SHOTS / f"{name}-{datetime.now():%Y%m%d-%H%M%S}-attempt1.png")
+        earlier = e2e.flakes_this_month(name)
         try:
-            from pywinauto import Desktop
-            Desktop(backend="uia").screenshot().save(
-                str(FAILURE_SHOTS / f"{journey.__name__}-attempt1.png"))
-        except Exception:                              # noqa: BLE001 - best effort
-            pass
-        journey(*args)
+            journey(*args)
+        except Exception:
+            e2e.screenshot(e2e.FAILURE_SHOTS / f"{name}-{datetime.now():%Y%m%d-%H%M%S}-attempt2.png")
+            raise
+        import traceback
+
+        e2e.note({"event": "flake", "journey": name, "error": f"{type(first).__name__}: {first}"[:200],
+                  "where": "".join(traceback.format_tb(first.__traceback__)[-2:])[-400:]})
+        if earlier >= 1:
+            pytest.fail(
+                f"{name} has flaked {earlier + 1} times in {datetime.now():%Y-%m}: fix it or delete it "
+                f"(order 0m 3b). This time: {type(first).__name__}: {first}")
+
+
+# ---------------------------------------------------------------------------
+# Fixtures: one scratch install per module; one running app shared by journeys
+# 1-6 (the last of them closes it); a fresh launch for journey 7. Only one app
+# can run at a time - the window holds a machine-wide mutex - so the order matters.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def scratch_install(tmp_path_factory):
+    if not (e2e.interpreter_dir() / "pythonw.exe").exists():
+        pytest.skip("no pythonw.exe beside the interpreter - install the venv first (run-install.cmd)")
+    if e2e.other_leasha_window_is_open():
+        pytest.skip("a Leasha window is already open on this desktop - close it first (single-instance mutex)")
+    return e2e.build_scratch_install(tmp_path_factory.mktemp("e2e"))
+
+
+@pytest.fixture(scope="module")
+def running(scratch_install):
+    app = e2e.LaunchedApp(scratch_install)
+    try:
+        window = app.find_window()
+        e2e.note({"event": "timing", "what": "window appears", "seconds": round(app.window_seconds, 1)})
+        yield app, window
+    finally:
+        app.kill()
+
+
+def _fresh(scratch_install):
+    """A launch of its own, for a journey that ends by closing the window."""
+    app = e2e.LaunchedApp(scratch_install)
+    try:
+        yield app, app.find_window()
+    finally:
+        app.kill()
 
 
 @pytest.fixture()
-def fixture_app() -> Iterator["object"]:
-    """Launches the real, packaged entry point against an isolated,
-    throwaway `.env` - never the real index - and closes it afterwards even
-    if the journey failed."""
-    if not PYTHONW.exists():
-        pytest.skip("venv not installed - run run-install.cmd first")
-
-    from pywinauto.application import Application
-
-    with tempfile.TemporaryDirectory(prefix="leasha-e2e-") as tmp:
-        root = Path(tmp)
-        (root / ".env").write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(ROOT)
-
-        app = Application(backend="uia").start(
-            f'"{PYTHONW}" -m app.main', work_dir=str(root), timeout=LAUNCH_TIMEOUT_S)
-        try:
-            window = app.window(auto_id="mainWindow", timeout=LAUNCH_TIMEOUT_S) \
-                if _has_auto_id(app) else app.top_window()
-            window.wait("visible", timeout=LAUNCH_TIMEOUT_S)
-            yield app, window
-        finally:
-            try:
-                app.kill(soft=False)
-            except Exception:                          # noqa: BLE001 - best effort
-                pass
+def fresh(scratch_install):
+    yield from _fresh(scratch_install)
 
 
-def _has_auto_id(app) -> bool:
-    try:
-        app.window(auto_id="mainWindow", timeout=1)
-        return True
-    except Exception:                                  # noqa: BLE001
-        return False
+def _home(app, window) -> None:
+    """Back to a known state: the Search page, an empty box, no pop-out open."""
+    from pywinauto import Desktop
+
+    for other in Desktop(backend="uia").windows(class_name="PreviewWindow"):
+        if other.process_id() in app.pids():
+            other.close()
+    app.click(window, e2e.by_name(window, "Search", "CheckBox"))
+    app.type(window, e2e.by_id(window, "searchBox", "Edit"), "^a{BACKSPACE}")
+    time.sleep(0.6)
+
+
+def _type_query(app, window, text: str):
+    box = e2e.by_id(window, "searchBox", "Edit")
+    app.type(window, box, text, with_spaces=True)
+    return box
+
+
+def _result_row(window, timeout: float = 30.0):
+    return e2e.by_name(window, "barnsley-survey.txt", "ListItem", timeout=timeout, prefix=True)
+
+
+def _preview_open(app, window) -> None:
+    toggle = e2e.by_name(window, "Preview pane", "CheckBox")
+    if toggle.get_toggle_state() != 1:
+        app.click(window, toggle)
 
 
 # ---------------------------------------------------------------------------
-# S3a - the five journeys, no more.
+# The journeys
 # ---------------------------------------------------------------------------
 
-def test_launch_and_the_window_appears(fixture_app) -> None:
-    _retry_once(_launch_journey, fixture_app)
+def test_1_launch_and_the_window_appears(running) -> None:
+    run_journey(_launch_journey, running)
 
 
-def _launch_journey(fixture_app) -> None:
-    _app, window = fixture_app
+def _launch_journey(running) -> None:
+    _app, window = running
     assert window.is_visible()
+    assert window.window_text() == "Leasha"
+    rail = set(e2e.names(window, "CheckBox"))
+    for page in ("Search", "Files", "Mail", "Code", "Chat", "Offline", "Reports", "Settings"):
+        assert page in rail, f"{page!r} is missing from the rail: {sorted(rail)}"
+    assert e2e.by_id(window, "searchBox", "Edit").is_visible()
 
 
-def test_search_produces_a_result_row(fixture_app) -> None:
-    _retry_once(_search_journey, fixture_app)
+def test_2_a_search_shows_a_result_row_and_escape_empties_it(running) -> None:
+    run_journey(_search_journey, running)
 
 
-def _search_journey(fixture_app) -> None:
-    _app, window = fixture_app
-    box = window.child_window(auto_id="searchBox", control_type="Edit")
-    box.set_focus()
-    box.type_keys("leasha", with_spaces=True)
-    time.sleep(1.0)                     # past both debounce timers, for real
+def _search_journey(running) -> None:
+    app, window = running
+    _home(app, window)
+    box = _type_query(app, window, e2e.SEARCH_WORD)
+    row = _result_row(window)
+    assert "TXT" in row.element_info.name          # the accessible name carries the kind too
+    # Escape empties the box and the results (the M9 regression, black-box).
+    app.focus(window)
+    box.type_keys("{ESC}")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if not (box.get_value() or "").strip():
+            break
+        time.sleep(0.3)
+    assert not (box.get_value() or "").strip(), "Escape did not empty the search box"
+    time.sleep(0.8)
+    assert not [n for n in e2e.names(window, "ListItem") if n.startswith("barnsley-survey.txt")],         "the result row survived Escape"
 
 
-def test_opening_a_result_does_not_crash_the_window(fixture_app) -> None:
-    _retry_once(_open_result_journey, fixture_app)
+def test_3_selecting_a_result_previews_its_text(running) -> None:
+    run_journey(_preview_journey, running)
 
 
-def _open_result_journey(fixture_app) -> None:
-    _app, window = fixture_app
-    box = window.child_window(auto_id="searchBox", control_type="Edit")
-    box.set_focus()
-    box.type_keys("leasha", with_spaces=True)
-    time.sleep(1.0)
-    box.type_keys("{ENTER}")
-    time.sleep(0.5)
-    assert window.is_visible()
-
-
-def test_pop_out_stays_on_top(fixture_app) -> None:
-    _retry_once(_pop_out_journey, fixture_app)
-
-
-def _pop_out_journey(fixture_app) -> None:
-    pytest.skip(
-        "needs a real search result to pin - the fixture environment above "
-        "has nothing indexed; a future pass should seed one real fixture "
-        "file into the throwaway DATA_PATH before this journey runs")
-
-
-def test_clean_close_mid_search(fixture_app) -> None:
-    _retry_once(_clean_close_journey, fixture_app)
-
-
-def _clean_close_journey(fixture_app) -> None:
-    """The shutdown-race classic, black-box: close while a search is still
-    in flight and the process must exit rather than hang."""
-    app, window = fixture_app
-    box = window.child_window(auto_id="searchBox", control_type="Edit")
-    box.set_focus()
-    box.type_keys("leasha", with_spaces=True)
-    window.close()
-    for _ in range(50):
-        if not app.is_process_running():
+def _preview_journey(running) -> None:
+    app, window = running
+    _home(app, window)
+    _type_query(app, window, e2e.SEARCH_WORD)
+    _result_row(window)
+    e2e.settled(window)
+    app.click(window, _result_row(window))
+    _preview_open(app, window)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if "isolation valves" in e2e.preview_text(window):
             return
-        time.sleep(0.2)
-    raise AssertionError("the process was still running 10s after close()")
+        time.sleep(0.5)
+    name = e2e.by_id(window, "resultName", "Text", timeout=3).element_info.name
+    raise AssertionError(f"the preview pane never showed the document's text (it said {name!r})")
+
+
+def test_4_a_pop_out_keeps_on_top_for_real(running) -> None:
+    run_journey(_pop_out_journey, running)
+
+
+def _pop_out_journey(running) -> None:
+    from pywinauto import Desktop
+
+    app, window = running
+    _home(app, window)
+    _type_query(app, window, e2e.SEARCH_WORD)
+    _result_row(window)
+    e2e.settled(window)
+    app.click(window, _result_row(window))
+    _preview_open(app, window)
+    app.click(window, e2e.by_name(window, "Pin in a window", "Button"))
+
+    popped = None
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and popped is None:
+        for candidate in Desktop(backend="uia").windows(class_name="PreviewWindow"):
+            if candidate.process_id() in app.pids():
+                popped = candidate
+        time.sleep(0.3)
+    assert popped is not None, "Pin in a window opened no pop-out"
+    assert "barnsley-survey.txt" in popped.window_text()
+
+    keep = e2e.by_name(popped, "Keep on top", "CheckBox")
+    assert not e2e.is_topmost(popped)
+    app.click(popped, keep)
+    time.sleep(0.6)
+    assert e2e.is_topmost(popped), "Keep on top was ticked but the window is not topmost"
+    app.click(popped, keep)
+    time.sleep(0.6)
+    assert not e2e.is_topmost(popped), "Keep on top was cleared but the window is still topmost"
+    popped.close()
+    time.sleep(0.6)
+    assert window.is_visible(), "closing the pop-out closed the main window"
+
+
+def test_5_settings_opens(running) -> None:
+    run_journey(_settings_journey, running)
+
+
+def _settings_journey(running) -> None:
+    app, window = running
+    _home(app, window)
+    app.click(window, e2e.by_name(window, "Settings", "CheckBox"))
+    assert e2e.by_id(window, "settingsFilter", "Edit", timeout=20).is_visible()
+    app.click(window, e2e.by_name(window, "Search", "CheckBox"))
+
+
+def test_6_a_normal_close_after_a_real_session_ends_the_process(running) -> None:
+    """Closes the very app journeys 1-5 have been using (a search, a preview, a
+    pop-out and Settings later), which is the close that matters. Not retried:
+    the app is gone once it has closed, so a second attempt would only be
+    the module's own fixture noticing - a failure here is a real hang."""
+    app, window = running
+    seconds = app.close_and_time(window, timeout=CLOSE_LIMIT_S)
+    e2e.note({"event": "timing", "what": "close to exit, after a session", "seconds": round(seconds, 2)})
+    assert seconds < CLOSE_LIMIT_S
+
+
+def test_7_closing_mid_search_still_ends_the_process(fresh) -> None:
+    run_journey(_close_mid_search_journey, fresh)
+
+
+def _close_mid_search_journey(fresh) -> None:
+    """The shutdown race, black-box: a search is in flight when the window goes."""
+    app, window = fresh
+    _type_query(app, window, e2e.SEARCH_WORD + " site survey")
+    seconds = app.close_and_time(window, timeout=CLOSE_LIMIT_S)
+    e2e.note({"event": "timing", "what": "close to exit, mid-search", "seconds": round(seconds, 2)})
+    assert seconds < CLOSE_LIMIT_S
