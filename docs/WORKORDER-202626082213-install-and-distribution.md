@@ -1,9 +1,13 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 0.1 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 0.2 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 **Thread:** the single merged thread
+
+**Decisions made 2026-09-20, on the owner's delegation - see the dated note at the end of this
+file.** All five [FINALISE] questions and the signing question now have an answer, so the gate
+in the paragraph below no longer holds. The paragraph is left as written.
 
 **Status: DRAFT.** Three decisions are made and recorded in §1. Five are open and marked
 **[FINALISE]** in §7 - none of them can be settled from the code, and each changes what gets
@@ -200,3 +204,29 @@ nothing about this changes an install that already exists.
 
 This is a note, not an edit: the [FINALISE] items above are left exactly as the
 owner wrote them.
+
+---
+
+## Note appended 2026-09-20 - the five [FINALISE] questions and the signing question, decided
+
+The owner delegated these ("make a decision and inform"). Each follows the recommendation
+this order already gave unless it says otherwise. A note, not an edit: §7 is left as written.
+
+| | Decision | Why |
+|---|---|---|
+| **[FINALISE 1]** | **PyInstaller, one-folder, for the first release.** | Fewest ways to fail on a machine nobody can see. `uv` plus an embedded Python stays open for later, if download size ever matters more than certainty. |
+| **[FINALISE 2]** | **Per-user by default, per-machine as an option.** | No admin prompt on top of SmartScreen's. Together with the 2026-08-27 note (the index is per-account through the ACLs on `%LOCALAPPDATA%`), the application and its data are then both per-account. |
+| **[FINALISE 3]** | **The packaged installer asks, exactly as `install.ps1` does.** Default `%LOCALAPPDATA%\Leasha\Data`; it checks free space against the configured requirement (`REQUIRED_FREE_GB`, currently 300 on the owner's machine, not the 150 written in §2) and, if C: is short and another fixed drive is not, offers that drive by name. Settings can move it later. | A default that silently fills C: is the failure this order exists to prevent, and a prompt costs one screen. |
+| **[FINALISE 4]** | **No update check inside the application.** Updates arrive through `winget upgrade` only, and the download page and README say so in one sentence. | Leasha's claim is that it is fully offline. An application that reads a whole archive and then phones a server on its own, even to ask a version number, breaks the claim it is sold on. Silence is the chosen posture, stated rather than accidental. |
+| **[FINALISE 5]** | **Supported: Windows 11 and Windows 10 22H2.** Tested: Windows 11 only, until a second machine exists. | winget needs 1809+ with App Installer, so 22H2 is comfortably inside it; saying "tested" and "supported" apart keeps the claim honest. |
+| **Signing** (the 'sixth decision', ORDER_REGISTER §5) | **Stay unsigned for the first release. Revisit only if the repository is made public.** | `LICENSE` is MIT, so the licence half of SignPath's condition is met, but SignPath Foundation also needs the codebase to be public and it is private. Publishing it is the owner's decision, not a packaging one. |
+
+**A sequencing consequence.** The installed `PyQt6 6.11.0` declares `License-Expression:
+GPL-3.0-only` in its own metadata, while `LICENSE` is MIT. The PySide6 order
+(`WORKORDER-202626270238`) already records why this matters: handing a frozen PyQt6 build to
+other people makes the combined work GPL. Nothing is distributed today, so nothing is wrong yet,
+but that order was "deferred behind the working version" with no end date. **It now has one: it
+is the first item of Layer 9 and must be done before the first packaged release, not after it.**
+
+**Not started, and why.** §4 needs the PySide6 order first, and acceptance A1 (a clean Windows
+machine that has never had Python) cannot be met on this machine.

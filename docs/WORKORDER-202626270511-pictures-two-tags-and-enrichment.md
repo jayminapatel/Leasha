@@ -1,7 +1,9 @@
 # Work order (One thread): Pictures II — tags, the enrichment backlog, and places
 
-**Doc version:** 1.6 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (Extract/AI + Index pipeline + Search operators)
+**Status correction, 2026-09-20:** SHIPPED - 14 of 14 items ticked (recounted 2026-09-16 and
+again 2026-09-20). The line below is the original release text, kept as written.
 **Status:** RELEASED by the owner 2026-08-28. Requires 0510. **Scope
 discipline: NO faces (0512), NO video/audio (draft 0515).** This is the order
 where the owner's "dog and man" metadata arrives.

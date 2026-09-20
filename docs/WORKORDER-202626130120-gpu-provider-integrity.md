@@ -1,8 +1,11 @@
 # Work order (One thread): one onnxruntime, and it says which one it is
 
-**Doc version:** 1.1 · **Updated:** 2026-09-15 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (`requirements.txt` + `install.ps1` + `doctor.py` +
 the Indexing tab's notice line)
+**Status correction, 2026-09-20:** SHIPPED - 24 of 24 items ticked, closed 2026-09-15. (The
+register carried this as "24 / 24", which read as 24 open; it is 24 done, 0 open.) The line
+below is the original release text, kept as written.
 **Status:** RELEASED by the owner 2026-09-13, raised from a live fault on the
 owner's machine. **Gap-schedulable** — §2 and §3 are independent of §5 and §6
 and may land first.

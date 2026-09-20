@@ -1,7 +1,9 @@
 # Work order (UI): wire the Space Report and the idle-tune scheduler into the redesigned shell
 
-**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** UI
+**Status correction, 2026-09-20:** SHIPPED - 7 of 7 items ticked 2026-09-16 (the register has said
+so since). The line below is the original release text, kept as written.
 **Status:** RELEASED by the owner 2026-09-16.
 
 ## Context

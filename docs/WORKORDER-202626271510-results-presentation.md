@@ -1,8 +1,10 @@
 # Work order (One thread): the results, world class — every row earns its trust
 
-**Doc version:** 1.2 · **Updated:** 2026-09-16 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 **Thread:** One thread (ResultsView/ResultDelegate/presenter — the painted
 list and the Qt-free text decisions behind it)
+**Status correction, 2026-09-20:** SHIPPED - 25 of 25 items ticked, closed 2026-09-16 (see
+`docs/ORDER_REGISTER.md` row 0q). The line below is the original release text, kept as written.
 **Status:** RELEASED by the owner 2026-08-28. **Gap-schedulable**
 (privacy-defaults pattern) with per-item prerequisites noted. Scope
 boundary: `results_view.py` / `result_delegate.py` / `presenter.py` snippet

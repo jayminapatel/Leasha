@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.2 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -192,3 +192,14 @@ Do not add these without an explicit decision to change scope:
 - **Multi-user, server or web deployment.** Single user, single machine, one process.
 - **Telemetry of any kind.** Nothing leaves the machine.
 - **An LLM anywhere in the search path.** Answers only.
+
+> **Scope exception, 2026-09-20 - the owner's explicit decision, Chat only.** The Chat tab
+> may, **only when the person turns it on and off by default**, augment its answers from the
+> web. The list above is otherwise unchanged and still binds everything else: search,
+> indexing and reading files stay fully offline and nothing about them phones out. The
+> exception is narrow by construction: only a short search query the person can see before it
+> is sent leaves the machine (never file names, paths, passages, mail or conversation
+> history), local sources are always searched first and the web only adds to them, and a
+> guard test fails if a turn with the switch off opens any non-loopback connection. This is
+> not telemetry: nothing is sent unless the person asked a question with the switch on. See
+> `docs/WORKORDER-202626270611-chat-tab.md`'s dated note.
