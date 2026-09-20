@@ -466,11 +466,14 @@ def test_a_previously_locked_file_is_retried(stores, corpus: Path, monkeypatch) 
     real_extract = None
     import app.index.pipeline as pipeline_module
 
-    def locked(path):
+    # `*args, **kwargs`: the pipeline calls `extract(path, resume_from=...)` now
+    # (a `.pst` resumes part-way). A stub that took only `path` raised a
+    # TypeError for every file - twelve `ERR_UNEXPECTED`, not the one lock.
+    def locked(path, *args, **kwargs):
         if path == target:
             from app.core.errors import raise_error
             raise_error("ERR_FILE_LOCKED", "test", path=str(path))
-        return real_extract(path)
+        return real_extract(path, *args, **kwargs)
 
     real_extract = pipeline_module.extract
     monkeypatch.setattr(pipeline_module, "extract", locked)

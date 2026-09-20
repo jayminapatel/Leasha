@@ -17,6 +17,20 @@ import pytest
 from app.extract import converter
 
 
+@pytest.fixture(autouse=True)
+def _no_real_installs_are_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    r"""These tests say what the machine has, so the machine may not add to it.
+
+    The search reads `ProgramFiles`, `ProgramFiles(x86)`, `ProgramW6432` and
+    `LOCALAPPDATA`, and each test used to override only one of them - so on a
+    machine with a real LibreOffice, "genuinely absent" was found in
+    `C:\Program Files` and "a per-user install" resolved to the system one. They
+    passed everywhere LibreOffice was not installed (2026-09-20).
+    """
+    for key in (*converter._WINDOWS_ROOTS, "LOCALAPPDATA"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_path_is_still_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
     """Somebody who has deliberately put a build on PATH means that one."""
     monkeypatch.setattr(converter.shutil, "which", lambda name: r"C:\chosen\soffice.exe")

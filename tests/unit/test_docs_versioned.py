@@ -50,13 +50,24 @@ EXCLUDED = {
     ".worktrees", ".claude",
 }
 
+# Paths (relative to the project root) whose markdown is **generated, not
+# written**. `_Knowledge/prompt_log/views/*.md` are session ledgers rendered from
+# the `.jsonl` ledgers by the plugin's `promptlog.py md`; each says "Regenerate
+# it; never edit it", none is tracked, and the generator lives outside this
+# repository - so no header could be added here that the next render would not
+# remove. They failed fifteen checks a day for as long as they existed (found
+# 2026-09-19). The `.jsonl` ledgers they are drawn from are the record.
+GENERATED = {"_Knowledge/prompt_log/views"}
+
 
 def _tracked_markdown() -> list[Path]:
     found: list[Path] = []
     for directory, subdirectories, filenames in os.walk(PROJECT_ROOT):
+        here = Path(directory).relative_to(PROJECT_ROOT).as_posix()
         subdirectories[:] = [
             name for name in subdirectories
             if name not in EXCLUDED and not name.startswith(("D:", "E:"))
+            and (f"{here}/{name}" if here != "." else name) not in GENERATED
         ]
         found.extend(
             Path(directory) / name for name in filenames if name.lower().endswith(".md")
