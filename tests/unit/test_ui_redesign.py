@@ -255,9 +255,15 @@ def test_no_module_reaches_into_the_icon_folder_except_the_loader():
 
 
 def test_the_rail_labels_are_the_tab_titles_verbatim():
-    """§2b: the strings the window passes are the strings they always were."""
+    """§2b: the strings the window passes are the strings they always were.
+
+    **"Offline", not "Offline Media" - the owner's decision, 2026-09-20.** The
+    rail is 72px wide and "Offline Media" does not fit under an icon without
+    wrapping; the shorter word has been the rail entry since `88ba362`. The
+    page's own title and the Go menu are unchanged.
+    """
     source = (UI / "shell.py").read_text(encoding="utf-8")
-    for title in ("Search", "Files", "Mail", "Code", "Offline Media",
+    for title in ("Search", "Files", "Mail", "Code", "Offline",
                   "Reports", "Indexing", "Settings"):
         assert f'"{title}"' in source, title
     assert '"Drives"' not in source, "the mockup's 'Drives' must not be built"
