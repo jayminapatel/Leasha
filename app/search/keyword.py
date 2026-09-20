@@ -236,12 +236,110 @@ _FILTER_ONLY_COLUMNS = """c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                0.0 AS score"""
 
 
+#: **The bounded newest-first walk `_filter_only` tries first.** The first
+#: window is `max(4 x limit, 400)` files, the widest it will grow to is
+#: `max(24 x limit, 2400)`. Measured 2026-09-20 on 200,000 files, limit 100 -
+#: see `_filter_only`.
+_BROWSE_FIRST_WINDOW = (4, 400)
+_BROWSE_WIDEST_WINDOW = (24, 2400)
+
+
+def _newest_matching(store: Any, where: str, params: list[Any], limit: int,
+                     *, photos: bool) -> list[dict[str, Any]]:
+    """The `limit` newest matching first-chunks of one half of `files`.
+
+    `photos=False` is the files with no shot date, newest by `mtime_ns`;
+    `photos=True` is the ones with a shot date, newest by `taken_at_ns`. See
+    `_filter_only` for why they are two queries.
+
+    **Adaptive, and correct however the guess turns out.** SQLite plans a
+    filter-only browse as one of two things and neither is right for every
+    filter: walk the ext index and sort every match (`type:pdf`, half the
+    files: 177 ms at 200,000), or walk `idx_files_mtime` newest-first and stop
+    at `LIMIT` (0.6 ms for pdf, but **2.9 s** for a type with no matches,
+    because it visits every file looking for one). So this walks the newest
+    files through a *window* first - `limit` rows out of the newest N files is
+    exactly the answer, since anything outside the window is older than all of
+    it - and only when the window is too short does it fall back to the plain
+    statement, which lets SQLite use the ext index. The projection below is
+    only a decision about whether the wider window is worth trying; what is
+    returned is never taken from a window unless it is full or exhaustive.
+    """
+    if photos:
+        window_from = ("SELECT * FROM files WHERE taken_at_ns IS NOT NULL "
+                       "ORDER BY taken_at_ns DESC LIMIT ?")
+        gate, order = "f.taken_at_ns IS NOT NULL", "f.taken_at_ns"
+        size_probe = "SELECT 1 FROM files WHERE taken_at_ns IS NOT NULL LIMIT ?"
+    else:
+        window_from = "SELECT * FROM files ORDER BY mtime_ns DESC LIMIT ?"
+        gate, order = "f.taken_at_ns IS NULL", "f.mtime_ns"
+        size_probe = "SELECT 1 FROM files LIMIT ?"
+
+    def window(size: int) -> list[dict[str, Any]]:
+        rows = store.conn.execute(f"""
+            SELECT {_FILTER_ONLY_COLUMNS}
+            FROM ({window_from}) f
+            JOIN chunks c ON c.file_id = f.id AND c.ordinal = 0
+            WHERE {gate}{where}
+            ORDER BY {order} DESC
+            LIMIT ?
+        """, [size, *params, limit]).fetchall()
+        return [dict(row) for row in rows]
+
+    def whole_branch_fits(size: int) -> bool:
+        """True when every file of this half is inside a window of `size`, so
+        a short window is the complete answer and there is nothing to fall
+        back for (most test databases, and the photo half of nearly every
+        real one)."""
+        row = store.conn.execute(
+            f"SELECT COUNT(*) AS n FROM ({size_probe})", [size + 1]).fetchone()
+        return int(row[0]) <= size
+
+    first = max(_BROWSE_FIRST_WINDOW[0] * limit, _BROWSE_FIRST_WINDOW[1])
+    widest = max(_BROWSE_WIDEST_WINDOW[0] * limit, _BROWSE_WIDEST_WINDOW[1])
+
+    rows = window(first)
+    if len(rows) >= limit or whole_branch_fits(first):
+        return rows
+    if rows:
+        # A rough guess at how far down the list `limit` matches would be. Only
+        # a decision about whether to try; it does not touch what is returned.
+        # Tried only with a 1.5x margin, so a filter sitting on the edge of what
+        # the widest window can reach goes straight to the plain statement
+        # instead of paying for a wide walk that then falls short.
+        projected = -(-limit * first // len(rows))
+        if projected * 3 // 2 <= widest:
+            wider = projected * 3 // 2 + 1
+            rows = window(wider)
+            if len(rows) >= limit or whole_branch_fits(wider):
+                return rows
+    return _plain_filter_only(store, where, params, limit, photos=photos)
+
+
+def _plain_filter_only(store: Any, where: str, params: list[Any], limit: int,
+                       *, photos: bool) -> list[dict[str, Any]]:
+    """The statement with no window: SQLite chooses its own plan (the ext index
+    for `type:`, the mtime index for a date) and it is the answer for every
+    filter that matches few files."""
+    gate, order = (("f.taken_at_ns IS NOT NULL", "f.taken_at_ns") if photos
+                   else ("f.taken_at_ns IS NULL", "f.mtime_ns"))
+    rows = store.conn.execute(f"""
+        SELECT {_FILTER_ONLY_COLUMNS}
+        FROM chunks c
+        JOIN files f ON f.id = c.file_id
+        WHERE c.ordinal = 0 AND {gate}{where}
+        ORDER BY {order} DESC
+        LIMIT ?
+    """, [*params, limit]).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[dict[str, Any]]:
     """`type:pdf after:2024` with no search terms - list what matches.
 
     Ordered newest first, because a query that is purely a filter is a browse,
     and recency is the only ranking signal available without a search term -
-    work order 0f §3a's third clause, "any date display use it", applies
+    work order 0f section 3a's third clause, "any date display use it", applies
     here too: this ordering decides *which* files survive `LIMIT` before
     fusion ever sees them, not only how the survivors get labelled.
 
@@ -254,30 +352,46 @@ def _filter_only(store: Any, where: str, params: list[Any], limit: int) -> list[
     neither_scans_nor_sorts` pins the plan for. Splitting on `taken_at_ns
     IS [NOT] NULL` keeps each half on its own indexed column, so both still
     walk their index in order and stop at `LIMIT`.
+
+    **2026-09-20: and each half walks a bounded window first**
+    (`_newest_matching`). Measured on 200,000 files (50% pdf, 15% txt, 4% xlsx,
+    1% dwg), limit 100, best of 5, on a machine other work was running on:
+
+        filter       before      after
+        type:pdf     265 ms      see the test's docstring
+        type:zzz     0.2 ms      (no matches: never leaves the ext index)
+
+    The gate below is what keeps the no-match case where it was: it asks for
+    up to `limit` matching files by id. Fewer than `limit` means that is
+    *every* match, so they are read directly (one pass, no walk, no second
+    scan for a filter the planner cannot index) - which for `type:` with no
+    matches is a seek on the ext index and nothing else.
     """
-    sql_no_shot_date = f"""
-        SELECT {_FILTER_ONLY_COLUMNS}
-        FROM chunks c
-        JOIN files f ON f.id = c.file_id
-        WHERE c.ordinal = 0 AND f.taken_at_ns IS NULL{where}
-        ORDER BY f.mtime_ns DESC
-        LIMIT ?
-    """
-    sql_shot_date = f"""
-        SELECT {_FILTER_ONLY_COLUMNS}
-        FROM chunks c
-        JOIN files f ON f.id = c.file_id
-        WHERE c.ordinal = 0 AND f.taken_at_ns IS NOT NULL{where}
-        ORDER BY f.taken_at_ns DESC
-        LIMIT ?
-    """
-    no_shot_date = store.conn.execute(sql_no_shot_date, [*params, limit]).fetchall()
-    shot_date = store.conn.execute(sql_shot_date, [*params, limit]).fetchall()
+    if limit <= 0:
+        return []
+    matching = [int(row[0]) for row in store.conn.execute(
+        f"SELECT f.id FROM files f WHERE 1=1{where} LIMIT ?",
+        [*params, limit]).fetchall()]
+    if len(matching) < limit:
+        if not matching:
+            return []
+        # Ids straight from the database, so inlining them is not an injection
+        # route and avoids a bound-variable count that grows with `limit`.
+        listed = ", ".join(str(n) for n in matching)
+        rows = [dict(row) for row in store.conn.execute(f"""
+            SELECT {_FILTER_ONLY_COLUMNS}
+            FROM chunks c
+            JOIN files f ON f.id = c.file_id
+            WHERE c.ordinal = 0 AND f.id IN ({listed})
+        """).fetchall()]
+        return merge_by_date(
+            [row for row in rows if row.get("taken_at_ns") is None],
+            [row for row in rows if row.get("taken_at_ns") is not None],
+            limit=limit, newest_first=True)
     return merge_by_date(
-        [dict(row) for row in no_shot_date],
-        [dict(row) for row in shot_date],
-        limit=limit, newest_first=True,
-    )
+        _newest_matching(store, where, params, limit, photos=False),
+        _newest_matching(store, where, params, limit, photos=True),
+        limit=limit, newest_first=True)
 
 
 def unmatched_terms(store: Any, terms: Sequence[str], *, limit: int = 6) -> tuple[str, ...]:

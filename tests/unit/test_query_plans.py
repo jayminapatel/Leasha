@@ -186,16 +186,6 @@ def test_no_index_exists_that_nothing_uses(store):
 
 # --- the plans ---------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "MEASURED 2026-09-20, 200,000 files (50% pdf, 15% txt, 4% xlsx, 1% dwg), best of 5, "
-    "`_filter_only` limit 100. Today SQLite plans `type:X` as 'walk idx_files_ext, then sort' - "
-    "type:pdf 177 ms, txt 92 ms, xlsx 68 ms, dwg 40 ms, a type with no matches 0.4 ms. Forcing "
-    "idx_files_mtime (what this test pins) gives pdf 0.6 ms, txt 13 ms, xlsx 36 ms - but dwg 166 ms "
-    "and a type with NO matches 2,880 ms, because it walks every file newest-first looking for one. "
-    "Neither plan is right for every type; a common type is ~300x slower than it needs to be. "
-    "The fix is an adaptive query (try a bounded newest-first walk, fall back to the ext index), "
-    "not INDEXED BY - open item in HANDOFF.md. strict=True: when it is fixed this test XPASSes and "
-    "fails loudly, so the marker cannot be forgotten."))
 def test_filter_only_browse_neither_scans_nor_sorts(populated):
     """P6: `WHERE c.ordinal = 0 ORDER BY f.mtime_ns DESC`.
 
@@ -203,7 +193,7 @@ def test_filter_only_browse_neither_scans_nor_sorts(populated):
     The temp B-tree is the tell - it means every matching row was materialised
     and sorted before `LIMIT 20` threw all but twenty away.
 
-    **Now two queries, work order 0f §3a's third clause** - `_filter_only`
+    **Now two queries, work order 0f section 3a's third clause** - `_filter_only`
     splits on `taken_at_ns IS [NOT] NULL` rather than sort a `COALESCE`
     expression no index can serve (see its own docstring and
     `app.storage.filters.merge_by_date` for the 0.011ms-vs-39.5ms
@@ -211,13 +201,181 @@ def test_filter_only_browse_neither_scans_nor_sorts(populated):
     matches nothing - but it must still *plan* as an index seek, not a scan,
     which is exactly what would silently regress if the split were ever
     collapsed back into one `ORDER BY COALESCE(...)` statement.
+
+    **2026-09-20: each half walks a bounded window first**, so every statement
+    that runs for a common type is a walk of an index in order, never a sort.
+    The work done at scale is pinned by the tests below.
     """
     plan = _plan_for(populated, "type:pdf")
 
     assert "idx_files_mtime" in plan, plan
     assert "idx_files_taken_at" in plan, plan
     assert "USE TEMP B-TREE FOR ORDER BY" not in plan, plan
-    assert "SCAN files" not in plan, plan
+    for line in plan.splitlines():
+        assert not (line.startswith("SCAN files") and "USING" not in line), plan
+
+
+# --- the filter-only browse at scale, as work done rather than seconds -------
+#
+# MEASURED 2026-09-20, 200,000 files (50% pdf, 15% txt, 4% xlsx, 1% dwg, the
+# rest docx), `_filter_only` limit 100, best of 5, on a machine other work was
+# running on (so read the ratios, not the milliseconds):
+#
+#     type          before (ext index, sort)     after (bounded walk first)
+#     pdf                     80 ms (up to 265)      1.4 ms
+#     txt                     76 ms                  8 ms
+#     xlsx                    29 ms                 39 ms  (falls back: 4% is
+#                                                          past the widest window)
+#     dwg                     18 ms                 24 ms  (falls back)
+#     no matches              0.1 ms                 0.03 ms
+#
+# Forcing `INDEXED BY idx_files_mtime` instead gives 0.6 ms for pdf but 2.9
+# SECONDS for a type with no matches, which is why neither fixed plan is right
+# and the query adapts. Counting VM steps below rather than timing, because
+# timing is what load changes and steps are what the query does.
+
+
+@pytest.fixture(scope="module")
+def browse_table(tmp_path_factory):
+    """30,000 files, half pdf, with unique mtimes and a few photographs.
+
+    Rows go in with SQL directly and the FTS triggers off: this fixture is about
+    `files` and the first chunk of each, and 30,000 trigger firings would be the
+    slowest thing in the file.
+    """
+    import random
+
+    path = tmp_path_factory.mktemp("browse") / "index.db"
+    with SqliteStore(path) as opened:
+        conn = opened.conn
+        for name in [row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'")]:
+            conn.execute(f"DROP TRIGGER {name}")
+        rng = random.Random(7)
+        kinds = ["pdf"] * 50 + ["txt"] * 15 + ["xlsx"] * 4 + ["dwg"] * 1 + ["docx"] * 30
+        mtimes = rng.sample(range(1_000_000, 900_000_000), 30_000)
+        rows = []
+        for n, mtime in enumerate(mtimes):
+            ext = "rare" if n < 5 else rng.choice(kinds)
+            # One file in twenty is a photograph whose shot date is not its mtime.
+            shot = rng.randrange(1_000_000, 900_000_000) if n % 20 == 1 else None
+            rows.append((f"/d/{n % 300}/f{n}.{ext}", f"/d/{n % 300}", ext, 1000,
+                         mtime, "INDEXED", "file", shot))
+        conn.executemany(
+            "INSERT INTO files (path, parent_dir, ext, size_bytes, mtime_ns, "
+            "status, source_kind, taken_at_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        conn.execute("INSERT INTO chunks (file_id, ordinal, text) "
+                     "SELECT id, 0, 'first' FROM files")
+        conn.execute("INSERT INTO chunks (file_id, ordinal, text) "
+                     "SELECT id, 1, 'second' FROM files")
+        conn.execute("ANALYZE")
+        conn.commit()
+        yield opened
+
+
+def _filter_sql_for(query: str):
+    from app.search.keyword import _filter_sql
+
+    return _filter_sql(parse_query(query))
+
+
+def _legacy_browse(store, query: str, limit: int):
+    """What `_filter_only` returned before the window: the two plain statements
+    and the merge, with SQLite left to plan them."""
+    from app.search import keyword
+    from app.storage.filters import merge_by_date
+
+    where, params = _filter_sql_for(query)
+    return merge_by_date(
+        keyword._plain_filter_only(store, where, params, limit, photos=False),
+        keyword._plain_filter_only(store, where, params, limit, photos=True),
+        limit=limit, newest_first=True)
+
+
+def _vm_steps(store, call):
+    """Run `call()` counting SQLite virtual-machine instructions - the work the
+    query did, which unlike seconds does not depend on what else is running."""
+    steps = [0]
+
+    def tick() -> int:
+        steps[0] += 1
+        return 0
+
+    store.conn.set_progress_handler(tick, 1)
+    try:
+        result = call()
+    finally:
+        store.conn.set_progress_handler(None, 0)
+    return steps[0], result
+
+
+@pytest.mark.parametrize("query", [
+    "type:pdf", "type:txt", "type:xlsx", "type:dwg", "type:docx", "type:rare",
+    "type:nothing", "type:pdf,txt", "type:pdf after:1970-01-10"])
+def test_the_bounded_browse_returns_exactly_what_the_plain_one_did(browse_table, query):
+    """Speed must not change the answer: same files, same order, photographs
+    (which sort by shot date) included."""
+    from app.search.keyword import _filter_only
+
+    where, params = _filter_sql_for(query)
+    got = _filter_only(browse_table, where, params, 100)
+    expected = _legacy_browse(browse_table, query, 100)
+
+    assert [r["file_id"] for r in got] == [r["file_id"] for r in expected], query
+
+
+def test_a_common_type_browse_visits_a_bounded_number_of_files(browse_table):
+    """`type:pdf` is half the files. It used to walk the ext index, fetch every
+    pdf's row and sort them all before `LIMIT 100` discarded nearly everything;
+    now it reads the newest few hundred files and stops."""
+    from app.search.keyword import _filter_only
+
+    where, params = _filter_sql_for("type:pdf")
+    new_steps, got = _vm_steps(
+        browse_table, lambda: _filter_only(browse_table, where, params, 100))
+    old_steps, _ = _vm_steps(
+        browse_table, lambda: _legacy_browse(browse_table, "type:pdf", 100))
+
+    assert len(got) == 100
+    # Measured 16,800 against 216,000 steps (13x) at 30,000 files; the gap widens
+    # with the table, because the new count does not depend on its size.
+    assert new_steps * 8 < old_steps, (new_steps, old_steps)
+
+
+def test_a_type_with_no_matches_browse_is_still_cheap(browse_table):
+    """The reason `INDEXED BY idx_files_mtime` is not the fix: walking the
+    newest-first index for something that is not there visits every file
+    (2.9 s at 200,000). A type nobody has must stay a seek on the ext index."""
+    from app.search.keyword import _filter_only
+
+    where, params = _filter_sql_for("type:nothing")
+    steps, got = _vm_steps(
+        browse_table, lambda: _filter_only(browse_table, where, params, 100))
+
+    assert got == []
+    assert steps < 1_000, steps
+
+
+def test_a_type_with_fewer_files_than_the_limit_lists_them_all(browse_table):
+    from app.search.keyword import _filter_only
+
+    where, params = _filter_sql_for("type:rare")
+    got = _filter_only(browse_table, where, params, 100)
+
+    assert len(got) == 5
+    dates = [int(r["taken_at_ns"] or r["mtime_ns"]) for r in got]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_a_rare_type_falls_back_and_still_fills_the_limit(browse_table):
+    """`dwg` is 1% of the files: 100 of them are not inside any window the walk
+    will try, so the plain statement must take over and deliver the full page."""
+    from app.search.keyword import _filter_only
+
+    where, params = _filter_sql_for("type:dwg")
+    got = _filter_only(browse_table, where, params, 100)
+
+    assert len(got) == 100, len(got)
 
 
 @pytest.mark.parametrize("scope", ["mail", "documents"])

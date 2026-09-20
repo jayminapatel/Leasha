@@ -234,6 +234,62 @@ def test_the_boost_runs_after_the_recency_blend(engine):
         "definitions.boost(fused, symbol)")
 
 
+def _dated_engine():
+    """The same corpus, but each file has its own age.
+
+    The declaring file (`engine.py`) is the NEWEST and the prose file the
+    OLDEST, so relevance-with-the-boost and date order disagree completely:
+    the boost wants `engine.py` first, `/oldest` wants it last.
+    """
+    from app.search.engine import SearchEngine
+    from app.storage.sqlite_store import SqliteStore
+
+    ages = {"docs/DESIGN.md": 100, "tests/test_engine.py": 200,
+            "app/cli.py": 300, "app/ui/shell.py": 400,
+            "app/search/engine.py": 500}
+    store = SqliteStore(pathlib.Path(tempfile.mkdtemp()) / "dated.db").connect()
+    for path, text in _CORPUS.items():
+        file_id = store.upsert_file(
+            f"C:/repo/{path}", parent_dir="C:/repo", ext=path.split(".")[-1],
+            size_bytes=1, mtime_ns=ages[path], status="INDEXED",
+            source_kind="file")
+        store.replace_chunks(file_id, [{"ordinal": 0, "text": text}])
+
+    class _NoVectors:
+        def search(self, *_args, **_kwargs):
+            return []
+
+    class _NoModel:
+        def embed(self, _text):
+            raise RuntimeError("no embedding model in this test")
+
+        def embed_all(self, _texts):
+            raise RuntimeError("no embedding model in this test")
+
+    return SearchEngine(store, _NoVectors(), _NoModel()), ages
+
+
+@pytest.mark.parametrize("word, newest_first", [("/oldest", False),
+                                                  ("/newest", True)])
+def test_an_explicit_date_sort_beats_the_definition_boost(word, newest_first):
+    r"""**`SearchEngine /oldest` came back in relevance order, with no notice.**
+
+    `definitions.boost` runs after the date sort and re-sorts the whole list
+    by `rrf_score`, so a single symbol-shaped word plus `/oldest` or `/newest`
+    quietly lost the date order the person asked for. An explicit date sort
+    abandons relevance on purpose; the boost must stand aside.
+    """
+    built, ages = _dated_engine()
+    try:
+        from app.search.commands import expand_slashes
+        response = built.search(expand_slashes(f"SearchEngine {word}"),
+                                use_cache=False)
+        got = [ages[r.path.replace("C:/repo/", "")] for r in response.results]
+        assert got and got == sorted(got, reverse=newest_first), got
+    finally:
+        built.close()
+
+
 def test_a_sentence_never_reaches_the_boost(engine):
     """Two words is a description. Nothing here should move."""
     response = engine.search("SearchEngine heart", use_cache=False)

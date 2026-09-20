@@ -72,7 +72,7 @@ class MachineCard(QGroupBox):
             "installing a graphics driver, or moving the index to another "
             "drive - the stored answer is only refreshed when something it "
             "watches changes.")
-        self.redetect.clicked.connect(lambda _c=False: self.detect())
+        self.redetect.clicked.connect(lambda _c=False: self.detect(refresh=True))
 
         self.benchmark = QPushButton("Benchmark now")
         self.benchmark.setToolTip(
@@ -103,15 +103,20 @@ class MachineCard(QGroupBox):
 
     # -- detection ----------------------------------------------------------
 
-    def detect(self, index_path: Any = None) -> None:
+    def detect(self, index_path: Any = None, *, refresh: bool = False) -> None:
         """Re-detect, off the UI thread. Safe to call from the first turn of
-        the event loop, which is where the screen calls it."""
+        the event loop, which is where the screen calls it.
+
+        `refresh=True` (the Re-detect button) makes `compute_profile.detect`
+        ask the machine again; without it the two PowerShell probes are the
+        ones this process already ran (2026-09-20: once per process)."""
         self.redetect.setEnabled(False)
         self.line.setText("Looking at this machine…")
 
         from app.core.compute_profile import detect as _detect
 
-        worker = CallableWorker(_detect, index_path, component="ui.tuning")
+        worker = CallableWorker(_detect, index_path, component="ui.tuning",
+                                refresh=refresh)
         worker.signals.finished.connect(self._detected)
         worker.signals.failed.connect(self._failed)
         worker.signals.done.connect(lambda: self.redetect.setEnabled(True))
