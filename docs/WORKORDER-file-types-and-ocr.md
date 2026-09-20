@@ -1,6 +1,9 @@
 # Work order: config-driven file types, format editor, and OCR
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.2
+
+**Status:** SHIPPED - 22 of 22 items ticked (the register said 21 / 1; recounted 2026-09-20).
+This order had no Status line; it is backfilled here as `ORDER_REGISTER.md` asks.
 
 A self-contained brief. Written by a second session that deliberately did not touch the code,
 because `app/extract/` had uncommitted work in flight at the time. Everything needed to build

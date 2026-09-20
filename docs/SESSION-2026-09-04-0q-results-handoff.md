@@ -1,6 +1,13 @@
 # Order 0q: Results Presentation — Session 2 Handoff
 
-**Doc version:** 1.0 · **Updated:** 2026-09-04 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+
+> **Historical - not a work order, and retired 2026-09-20.** This is a session record for
+> order 0q (`WORKORDER-202626271510-results-presentation.md`), which **shipped 25 of 25 on
+> 2026-09-16**. It was renamed from `WORKORDER-0q-SESSION-2-HANDOFF.md` because that name made
+> `ORDER_REGISTER.md` section 4's counting command read its eight "Next Session Checklist"
+> boxes as eight open order items. They are the Session 3 plan of 2026-09-04, every line of
+> it since done or superseded; they are left as written.
 
 **Date:** 2026-09-04  
 **Session:** 2 (Closing)  

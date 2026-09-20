@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 2.0 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 2.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -17,6 +17,11 @@ and offered as you type. Windows 10/11, single user, **fully local**.
 **One process.** SQLite/FTS5 for metadata and keyword search, LanceDB for vectors, FastEmbed
 ONNX for embeddings — all embedded libraries. No services, no ports, no passwords, and
 nothing leaves the machine.
+
+**One exception, off by default and yours to switch on:** the Chat tab can look things up on
+the web to add to what your own files say. Your files always come first, only a short search
+question you can see (never a file name, a passage or your mail) is sent, and search,
+indexing and reading stay fully offline either way.
 
 Ollama is optional and **never touches the retrieval path**. It does one job: turning a
 sentence into the filter syntax the search box already understands, visibly, so you can
