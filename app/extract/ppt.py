@@ -55,7 +55,9 @@ from app.core.errors import raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
-from app.extract.legacy_office import LegacyOfficeUnreadable, clean_text, fall_back
+from app.extract.legacy_office import (
+    ESCHER_OPT, PROP_GTEXT_UNICODE, LegacyOfficeUnreadable, clean_text, fall_back,
+    records as _records, shape_property_text as _shape_property_text)
 
 __all__ = ["PptExtractor", "read_ppt"]
 
@@ -80,9 +82,11 @@ RT_SLIDE_ATOM = 0x03EF
 RT_CLIENT_TEXTBOX = 0xF00D
 
 # Escher property tables (`OfficeArtFOPT` and its two variants), which carry the
-# text of WordArt and of shapes whose text is drawn as geometry.
-RT_ESCHER_OPT = (0xF00B, 0xF121, 0xF122)
-_PROP_GTEXT_UNICODE = 0x00C0
+# text of WordArt and of shapes whose text is drawn as geometry. They live in
+# `legacy_office` because `doc.py` reads the same tables out of a `.doc`'s
+# drawing; the names here are kept so this file still reads as one piece.
+RT_ESCHER_OPT = ESCHER_OPT
+_PROP_GTEXT_UNICODE = PROP_GTEXT_UNICODE
 
 #: `Current User` headerToken for an encrypted presentation.
 _ENCRYPTED_TOKEN = 0xF3D1C4DF
@@ -92,28 +96,6 @@ _ENCRYPTED_TOKEN = 0xF3D1C4DF
 _MAX_DEPTH = 24
 _MAX_EDIT_CHAIN = 4096
 _MAX_TEXT_CHARS = 20_000_000
-
-_HEADER = struct.Struct("<HHI")                  # ver/instance, type, length
-
-
-def _records(data: bytes, start: int, end: int) -> Iterator[tuple[int, int, int, int, int]]:
-    """`(version, instance, type, body_start, body_end)` for each record in a span.
-
-    Stops quietly at a header that does not fit, and raises when a record claims
-    to run past the end of its parent: a length that lies means everything after
-    it is misread, which is worse than not reading.
-    """
-    position = start
-    while position + 8 <= end:
-        ver_instance, record_type, length = _HEADER.unpack_from(data, position)
-        body_start = position + 8
-        body_end = body_start + length
-        if body_end > end:
-            raise LegacyOfficeUnreadable(
-                f"a record at offset {position} runs past the end of its parent")
-        yield ver_instance & 0xF, ver_instance >> 4, record_type, body_start, body_end
-        position = body_end
-
 
 def _text_of(data: bytes, record_type: int, start: int, end: int) -> str:
     body = data[start:end]
@@ -143,32 +125,6 @@ def _walk_text(data: bytes, start: int, end: int, depth: int = 0) -> list[str]:
             found.extend(_shape_property_text(data, body_start, body_end, _instance))
         elif version == 0xF:
             found.extend(_walk_text(data, body_start, body_end, depth + 1))
-    return found
-
-
-def _shape_property_text(data: bytes, start: int, end: int, count: int) -> list[str]:
-    """WordArt text: the `gtextUNICODE` property of a shape's property table.
-
-    A table is `count` six-byte entries (id, value); an entry with the complex
-    bit set has its value as a byte length into the data that follows the whole
-    table, in order. Chemical-plant P&ID style decks, and anything titled with
-    WordArt, keep their words here and nowhere else.
-    """
-    found: list[str] = []
-    table_end = start + count * 6
-    if table_end > end:
-        return found
-    cursor = table_end
-    for index in range(count):
-        ident, value = struct.unpack_from("<HI", data, start + index * 6)
-        if not ident & 0x8000:
-            continue
-        size = value
-        if cursor + size > end:
-            break
-        if ident & 0x3FFF == _PROP_GTEXT_UNICODE:
-            found.append(data[cursor:cursor + (size & ~1)].decode("utf-16-le", "replace").rstrip("\x00"))
-        cursor += size
     return found
 
 

@@ -27,6 +27,18 @@ was already a dependency; nothing new is installed.
 4. Table cell and row marks (`0x07`) become tabs and line ends, the same shape
    `DocxExtractor` gives a table, so a cell stays beside its column header.
 
+5. WordArt - text a shape *draws* rather than holds - is a `gtextUNICODE`
+   property of the Escher drawing in the table stream (`fcDggInfo`), in no text
+   story at all, and is read too: on real files it is the "DRAFT" watermark and
+   the banner somebody titled the front page with.
+6. Embedded Word documents and PowerPoint decks are read by the reader that
+   owns that format. An embedded object whose words this reader cannot reach -
+   a spreadsheet, a Visio drawing, a packaged file - is **counted and reported,
+   not declined**: LibreOffice's own text export does not hold that text either
+   (measured), so the document is indexed at full speed with its own words
+   whole, `embedded_unread` in its metadata says what was left, and the run
+   summary names how many files and of what kind.
+
 **What it refuses.** Encrypted or obfuscated documents, Word 6 and 95 files
 (`nFib` below 0xC1: a different structure with no piece table), a `Clx` that
 does not add up, and anything that is not an OLE2 container - a Word 2007 file,
@@ -47,7 +59,9 @@ from app.core.errors import raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
-from app.extract.legacy_office import LegacyOfficeUnreadable, clean_text, fall_back
+from app.extract.legacy_office import (
+    ESCHER_OPT, LegacyOfficeUnreadable, clean_text, fall_back, note_unread_embedded,
+    records, shape_property_text)
 
 __all__ = ["DocExtractor", "read_doc"]
 
@@ -63,6 +77,13 @@ _FLAG_TABLE_1 = 0x0200
 #: Guard rails on untrusted counts.
 _MAX_PIECES = 5_000_000
 _MAX_CHARS = 200_000_000
+_MAX_DEPTH = 24
+
+#: `fcDggInfo`/`lcbDggInfo`, the Escher drawing, is pair 50 of `FibRgFcLcb97`
+#: ([MS-DOC] 2.5.10). Measured on 388 readable real `.doc`: 311 have an
+#: `OfficeArtDggContainer` (0xF000) at pair 50 in the table stream and no other
+#: pair ever points at one.
+_FC_DGG_INFO = 50
 
 #: A field's opening, separator and closing marks.
 _FIELD_BEGIN, _FIELD_SEP, _FIELD_END = "\x13", "\x14", "\x15"
@@ -97,11 +118,15 @@ def _fib(word: bytes) -> dict[str, int]:
     if cb_fc_lcb < 34:
         raise LegacyOfficeUnreadable("FibRgFcLcb is too short to hold a Clx")
     fc_clx, lcb_clx = struct.unpack_from("<II", word, pairs_start + 33 * 8)
+    fc_dgg, lcb_dgg = (0, 0)
+    if cb_fc_lcb > _FC_DGG_INFO:
+        fc_dgg, lcb_dgg = struct.unpack_from("<II", word, pairs_start + _FC_DGG_INFO * 8)
     return {
         "table1": 1 if flags & _FLAG_TABLE_1 else 0,
         "ccpText": lw[3], "ccpFtn": lw[4], "ccpHdd": lw[5],
         "ccpAtn": lw[7], "ccpEdn": lw[8], "ccpTxbx": lw[9], "ccpHdrTxbx": lw[10],
         "fcClx": fc_clx, "lcbClx": lcb_clx,
+        "fcDggInfo": fc_dgg, "lcbDggInfo": lcb_dgg,
     }
 
 
@@ -201,6 +226,56 @@ def _story_text(raw: str) -> str:
     return text
 
 
+def _shape_text(table: bytes, start: int, end: int, depth: int = 0) -> list[str]:
+    """WordArt text under one Escher container, however deeply grouped."""
+    if depth > _MAX_DEPTH:
+        raise LegacyOfficeUnreadable("the drawing is nested too deeply")
+    found: list[str] = []
+    for version, instance, record_type, body_start, body_end in records(table, start, end):
+        if record_type in ESCHER_OPT:
+            found.extend(shape_property_text(table, body_start, body_end, instance))
+        elif version == 0xF:
+            found.extend(_shape_text(table, body_start, body_end, depth + 1))
+    return found
+
+
+def _drawing_text(table: bytes, fc: int, lcb: int) -> list[str]:
+    r"""The drawing layer's own words: WordArt, in the table stream.
+
+    `OfficeArtContent` ([MS-DOC] 2.9.172) is an `OfficeArtDggContainer` followed
+    by one or more Word drawings, and each of *those* is a single `dgglbl` byte
+    (main document or header) in front of an `OfficeArtDgContainer` - the stray
+    byte is why this walks the span itself instead of handing it to `records`.
+
+    Text a shape *types* is in the textbox story and already read. Text a shape
+    *draws* - a Fontwork or WordArt banner, which is how a 2003 front page was
+    usually titled - is a property of the shape and is in no story at all. A
+    span that does not parse as Escher raises rather than returning what it got:
+    a drawing this reader cannot walk may hold words, and guessing it does not
+    is the one unacceptable outcome.
+    """
+    if lcb <= 0:
+        return []
+    end = fc + lcb
+    if fc < 0 or end > len(table):
+        raise LegacyOfficeUnreadable("the drawing is outside the table stream")
+    found: list[str] = []
+    cursor, first = fc, True
+    while cursor + 8 <= end:
+        if not first:
+            cursor += 1                                   # dgglbl
+            if cursor + 8 > end:
+                break
+        ver_instance, _record_type, length = struct.unpack_from("<HHI", table, cursor)
+        body_start = cursor + 8
+        body_end = body_start + length
+        if ver_instance & 0xF != 0xF or body_end > end:
+            raise LegacyOfficeUnreadable("the drawing's records do not add up")
+        found.extend(_shape_text(table, body_start, body_end))
+        cursor, first = body_end, False
+    return found
+
+
 def read_doc(word: bytes, table_for: dict[int, bytes]) -> dict[str, str]:
     """`{story name: text}` for the body and the stories worth indexing."""
     fib = _fib(word)
@@ -246,7 +321,126 @@ def read_doc(word: bytes, table_for: dict[int, bytes]) -> dict[str, str]:
         # empty document - it is evidence the counts were misread.
         if fib["ccpText"] == 0 and len(everything) > 2:
             raise LegacyOfficeUnreadable("the story lengths do not describe the text")
+
+    drawing: list[str] = []
+    for raw in _drawing_text(table, fib["fcDggInfo"], fib["lcbDggInfo"]):
+        text = clean_text(raw).strip()
+        # A grouped shape's property table can be written twice; the same banner
+        # twice in the index is noise, not evidence.
+        if text and text not in drawing:
+            drawing.append(text)
+    if drawing:
+        stories["drawings"] = "\n".join(drawing)
     return stories
+
+
+#: What an embedded object's own streams say it is. The order matters: a
+#: storage holding a `WordDocument` is a Word document whatever else is in it.
+_EMBEDDED_KINDS = (
+    ("word", ("WordDocument",)),
+    ("powerpoint", ("PowerPoint Document",)),
+    ("excel", ("Workbook", "Book")),
+    ("visio", ("VisioDocument",)),
+    ("package", ("\x01Ole10Native",)),
+)
+#: Objects with no words for a person to search for. An equation is MathType's
+#: own layout bytes (LibreOffice does not put them in its text either), and an
+#: ActiveX control is a widget's state. Neither is silently lost text.
+_EMBEDDED_WORDLESS = ("Equation Native", "\x03OCXDATA", "\x03OCXNAME")
+#: Streams every embedded object has; they say nothing about what it holds.
+#: Every Word document carries an `ObjectPool` storage whether or not anything
+#: is in it, so its name alone says nothing either.
+_EMBEDDED_WRAPPER = ("\x01CompObj", "\x01Ole", "\x03ObjInfo", "\x05SummaryInformation",
+                     "\x05DocumentSummaryInformation", "\x02OlePres000", "\x02OlePres001",
+                     "\x03PRINT", "\x03EPRINT", "\x03META", "\x03PIC", "\x01CompObjStream",
+                     "ObjectPool")
+
+
+def _embedded_kind(streams: set[str]) -> Optional[str]:
+    """What kind of thing an `ObjectPool` storage holds, or `None` for no words."""
+    for kind, markers in _EMBEDDED_KINDS:
+        if any(marker in streams for marker in markers):
+            return kind
+    if any(marker in streams for marker in _EMBEDDED_WORDLESS):
+        return None
+    if all(name in _EMBEDDED_WRAPPER for name in streams):
+        return None
+    return "unknown"
+
+
+#: The streams each readable kind of embedded object needs.
+_EMBEDDED_WANTED = {
+    "word": ("WordDocument", "0Table", "1Table"),
+    "powerpoint": ("PowerPoint Document", "Current User"),
+}
+
+
+def _embedded_streams(ole) -> tuple[list[tuple[str, dict[str, bytes]]], list[str]]:
+    """`([(kind, {stream: bytes})], [kind of each object left unread])`.
+
+    An embedded Word document or PowerPoint deck is read by the reader that
+    owns that format. An object this reader cannot reach into - a spreadsheet,
+    a Visio drawing, a packaged file, an unrecognised object, an embedded
+    document with embedded objects of its own - is **named and counted, not
+    declined**: measured on real files, LibreOffice's own text export does not
+    hold that text either, so handing the document over would cost 5 to 10
+    seconds and return the same words. See `legacy_office.note_unread_embedded`
+    for the measurement the decision rests on.
+    """
+    objects: dict[str, set[str]] = {}
+    nested: set[str] = set()
+    for entry in ole.listdir(streams=True, storages=True):
+        if len(entry) >= 3 and entry[0] == "ObjectPool":
+            objects.setdefault(entry[1], set()).add(entry[2])
+            if len(entry) >= 5 and entry[2] == "ObjectPool":
+                # An embedded document with embedded objects of its own. This
+                # reader goes one level down, so say so rather than read the
+                # outer one and call the document complete.
+                nested.add(entry[1])
+    found: list[tuple[str, dict[str, bytes]]] = []
+    unread: list[str] = []
+    for name, streams in sorted(objects.items()):
+        kind = "unknown" if name in nested else _embedded_kind(streams)
+        if kind is None:
+            continue
+        if kind not in _EMBEDDED_WANTED:
+            unread.append(kind)
+            continue
+        found.append((kind, {
+            stream: ole.openstream(["ObjectPool", name, stream]).read()
+            for stream in _EMBEDDED_WANTED[kind] if stream in streams}))
+    return found, unread
+
+
+def _embedded_text(embedded: list[tuple[str, dict[str, bytes]]]) -> tuple[str, list[str]]:
+    """`(the words inside embedded Word and PowerPoint objects, kinds left unread)`.
+
+    An embedded document is the same format as its host, so the same reader
+    reads it. One that declines is counted like any other embedded object this
+    reader cannot reach: the host's own text is still whole, and LibreOffice
+    has no more of the object's text than this does.
+    """
+    parts: list[str] = []
+    unread: list[str] = []
+    for kind, streams in embedded:
+        try:
+            if kind == "word":
+                tables = {number: streams[f"{number}Table"]
+                          for number in (0, 1) if f"{number}Table" in streams}
+                inner = read_doc(streams.get("WordDocument", b""), tables)
+                parts.extend(text for text in inner.values() if text.strip())
+            else:
+                from app.extract.ppt import read_ppt
+
+                texts, notes, footers = read_ppt(streams.get("PowerPoint Document", b""),
+                                                 streams.get("Current User", b""))
+                parts.extend(text for text in texts if text.strip())
+                parts.extend(text for _slide, text in notes if text.strip())
+                parts.extend(footers)
+        except (LegacyOfficeUnreadable, struct.error, IndexError,
+                ValueError, OverflowError, RecursionError):
+            unread.append(kind)
+    return "\n".join(parts).strip(), unread
 
 
 class DocExtractor:
@@ -277,6 +471,10 @@ class DocExtractor:
         builder = DocumentBuilder(path)
         builder.meta["format"] = "word-97"
         builder.meta["read_by"] = "olefile"
+        # Out of band, not a story: the *absence* is metadata, not text to index.
+        unread = stories.pop("_unread embedded", "")
+        if unread:
+            builder.meta["embedded_unread"] = unread
         for name, text in stories.items():
             body = normalise_whitespace(text)
             if name == "body":
@@ -290,6 +488,8 @@ class DocExtractor:
         import olefile
 
         table_for: dict[int, bytes] = {}
+        embedded: list[tuple[str, dict[str, bytes]]] = []
+        unread_kinds: list[str] = []
         try:
             if not olefile.isOleFile(str(path)):
                 raise LegacyOfficeUnreadable("not an OLE2 container")
@@ -301,6 +501,7 @@ class DocExtractor:
                     name = f"{number}Table"
                     if ole.exists(name):
                         table_for[number] = ole.openstream(name).read()
+                embedded, unread_kinds = _embedded_streams(ole)
         except LegacyOfficeUnreadable:
             raise
         except PermissionError:
@@ -309,7 +510,17 @@ class DocExtractor:
             raise LegacyOfficeUnreadable(f"{type(exc).__name__}: {exc}") from exc
 
         try:
-            return read_doc(word, table_for)
+            stories = read_doc(word, table_for)
+            inner, failed = _embedded_text(embedded)
+            if inner:
+                stories["embedded objects"] = inner
+            unread = [*unread_kinds, *failed]
+            if unread:
+                # Counted, not declined: the file is indexed with its own words
+                # whole, and the run says what was left inside the objects.
+                note_unread_embedded(path, unread)
+                stories["_unread embedded"] = ", ".join(sorted(set(unread)))
+            return stories
         except LegacyOfficeUnreadable:
             raise
         except (struct.error, IndexError, ValueError, OverflowError) as exc:

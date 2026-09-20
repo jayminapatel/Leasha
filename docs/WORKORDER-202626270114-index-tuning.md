@@ -868,6 +868,57 @@ correctness is unproven against a populated database in practice, though
 > table stream), text inside embedded OLE objects, and slide/comment text in
 > `.ppt` beyond what is listed above.
 
+> **Dated note, 2026-09-20 (later still) - the two named `.doc` gaps are closed,
+> one by reading and one by declining.** The note above ends "Not done: WordArt
+> in `.doc` ..., text inside embedded OLE objects". Both are now handled.
+>
+> **WordArt in `.doc`: read in-process.** `FibRgFcLcb97` pair 50
+> (`fcDggInfo`/`lcbDggInfo`) points at the Escher drawing in the table stream -
+> verified, not assumed: on 388 readable real `.doc` copies, 311 hold an
+> `OfficeArtDggContainer` there and no other pair ever does. `doc.py` walks it
+> (`OfficeArtContent` is the Dgg container, then a one-byte `dgglbl` in front of
+> each Word drawing) and reads the same `gtextUNICODE` property `ppt.py` already
+> read; the walker and the property reader now live in `legacy_office.py`, used
+> by both. A drawing span that does not parse raises rather than returning part
+> of itself. Measured: 16 of 362 real files gained words (141 distinct), all of
+> them invisible before - "DRAFT" watermarks, a signature banner, plant tag
+> numbers. **LibreOffice's own `.doc` -> txt does not export WordArt either**:
+> on the nine-file reference set, recall against LibreOffice is unchanged
+> (1.000, one file 0.999) and the gain shows as words LibreOffice missed.
+>
+> **Embedded OLE objects: read where possible, counted where not - and not
+> declined.** An embedded Word document or PowerPoint deck is now read
+> in-process by the reader that owns that format. Everything else with words in
+> it - a spreadsheet, a Visio drawing, a packaged file, an unrecognised object,
+> an embedded document with embedded objects of its own - is **named, counted
+> and reported**, and the file is still indexed at in-process speed with its own
+> words whole. Equations and ActiveX controls hold no prose and are not counted.
+>
+> *Why counting and not the fallback (lead decision, 2026-09-20).* The first
+> build declined those files to LibreOffice, which took the decline rate from 12
+> of 388 real files (3.1%) to 38 (9.8%). Then the measurement: **LibreOffice's
+> own `.doc` -> text export does not contain embedded-object text either** - two
+> real documents with an embedded workbook scored recall 1.000 against
+> LibreOffice *without* the workbook being read at all. Declining therefore paid
+> 5 to 10 seconds a file for exactly the same words. It now logs instead, in the
+> shape `ERR_PST_PARTIAL` already uses for a mail archive read in part: the
+> document carries `embedded_unread` in its metadata, `legacy_office.
+> take_unread_embedded_summary()` gives one line per run - measured on the same
+> 388 files, *"29 files hold text inside embedded objects that was not read:
+> unknown (10); package (9); visio (5); excel (4)"* - and the decline rate is
+> back to 12 of 388 (3.1%), unchanged from before this work, at a median 4.0 ms
+> a file. 39 files gained 168 distinct words they did not have.
+>
+> Declining is kept where the converter genuinely recovers something: a `.doc`
+> whose own text will not parse, a drawing span that will not parse, a non-OLE
+> file renamed `.doc`. No class was found where LibreOffice recovers embedded
+> or WordArt text.
+>
+> Not done: embedded objects in `.ppt`; reading an embedded workbook's own
+> strings (BIFF `SST`) in-process, which is what would actually recover them;
+> and showing the unread-embedded count in the Indexing tab (that wiring lives
+> in `app/index` and `app/ui`, which this work did not own).
+
 - [x] **6i Converter session** (only if 6a shows conversion matters on the
   owner's corpus): persistent soffice listener instead of per-file cold
   starts. Same evidence rule as 6e — numbers or closed.

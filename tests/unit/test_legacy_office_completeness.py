@@ -22,6 +22,7 @@ lines, so each test states exactly the bytes it depends on and nothing else.
 
 from __future__ import annotations
 
+import io
 import struct
 from pathlib import Path
 
@@ -37,7 +38,8 @@ from app.extract.ppt import read_ppt
 
 olefile = pytest.importorskip("olefile")
 
-QUOTE = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_office" / "quote.doc"
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_office"
+QUOTE = FIXTURES / "quote.doc"
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +202,15 @@ def test_a_listed_slide_whose_container_is_missing_declines():
 # ---------------------------------------------------------------------------
 
 
-def _quote() -> tuple[bytes, dict[int, bytes]]:
-    with olefile.OleFileIO(str(QUOTE)) as ole:
+def _streams(path: Path) -> tuple[bytes, dict[int, bytes]]:
+    with olefile.OleFileIO(str(path)) as ole:
         word = ole.openstream("WordDocument").read()
         tables = {n: ole.openstream(f"{n}Table").read() for n in (0, 1) if ole.exists(f"{n}Table")}
     return word, tables
+
+
+def _quote() -> tuple[bytes, dict[int, bytes]]:
+    return _streams(QUOTE)
 
 
 def _cc_offset(word: bytes, index: int) -> int:
@@ -277,3 +283,171 @@ def test_each_fall_back_is_counted_and_the_summary_says_why(tmp_path, monkeypatc
     assert line.startswith("3 legacy Office files went to the slower reader")
     assert "slide N declares N text runs and N were found (2)" in line
     assert legacy_office.take_fallback_summary() == "", "reading the summary resets it"
+
+
+# ---------------------------------------------------------------------------
+# The drawing layer: WordArt in a .doc (owner instruction, 2026-09-20 later)
+# ---------------------------------------------------------------------------
+#
+# `banner.doc` is synthetic. `tests/fixtures/legacy_office/src/banner.fodt` is a
+# hand-written flat-ODF document holding one Fontwork shape and two ordinary
+# paragraphs; LibreOffice converted it once, by hand, with
+# `soffice --headless --convert-to "doc:MS Word 97"`. Nothing of the owner's is
+# in it. Its point: the words "Kirkstall Fontwork Headline" are in the *table*
+# stream, as a `gtextUNICODE` property, and in no text story at all - checked,
+# they do not appear in `WordDocument` in any encoding.
+
+
+BANNER = FIXTURES / "banner.doc"
+
+
+def test_wordart_in_a_doc_is_read_not_silently_dropped():
+    stories = doc_module.DocExtractor._read(BANNER)
+    assert "Kirkstall Fontwork Headline" in stories["drawings"]
+    assert "Alderley boiler tender" in stories["body"]
+
+
+def test_the_wordart_text_is_in_the_table_stream_and_no_story():
+    """The reason this needed a second reader: the body has none of it."""
+    word, tables = _streams(BANNER)
+    assert b"K\x00i\x00r\x00k\x00s\x00t\x00a\x00l\x00l" in tables[doc_module._fib(word)["table1"]]
+    assert b"Kirkstall" not in word and b"K\x00i\x00r\x00k" not in word
+
+
+def test_a_doc_with_no_drawing_reads_no_drawing_text():
+    stories = doc_module.DocExtractor._read(QUOTE)
+    assert "drawings" not in stories
+
+
+def test_a_drawing_span_outside_the_table_stream_declines():
+    with pytest.raises(LegacyOfficeUnreadable, match="outside the table stream"):
+        doc_module._drawing_text(b"\x00" * 32, 16, 64)
+
+
+def test_a_drawing_whose_records_do_not_add_up_declines_rather_than_reading_part():
+    """Half a drawing read is words missing with nobody told."""
+    drawing = struct.pack("<HHI", 0x000F, 0xF000, 32) + b"\x00" * 8
+    with pytest.raises(LegacyOfficeUnreadable, match="do not add up"):
+        doc_module._drawing_text(drawing, 0, len(drawing))
+
+
+def test_wordart_survives_being_grouped_several_shapes_deep():
+    text = "Halifax works".encode("utf-16-le")
+    opt = struct.pack("<HHI", (1 << 4) | 3, 0xF00B, 6 + len(text))
+    opt += struct.pack("<HI", 0x00C0 | 0x8000, len(text)) + text
+    for _ in range(3):                                    # group inside group
+        opt = struct.pack("<HHI", 0x000F, 0xF003, len(opt)) + opt
+    drawing = struct.pack("<HHI", 0x000F, 0xF000, len(opt)) + opt
+    assert doc_module._drawing_text(drawing, 0, len(drawing)) == ["Halifax works"]
+
+
+# ---------------------------------------------------------------------------
+# Embedded OLE objects
+# ---------------------------------------------------------------------------
+
+
+class _StubOle:
+    """The three `olefile` calls `_embedded_streams` makes, over a dict.
+
+    Real embedded objects cannot be written by `olefile` (it only reads), and no
+    synthetic fixture with one may be built from the owner's documents, so the
+    classification is pinned over the stream *names* real objects have - taken
+    from a survey of 390 real `.doc` copies, not invented.
+    """
+
+    def __init__(self, objects: dict[str, dict[str, bytes]]):
+        self._objects = objects
+
+    def listdir(self, streams=True, storages=True):
+        return [["ObjectPool", name, stream]
+                for name, contents in self._objects.items() for stream in contents]
+
+    def openstream(self, path):
+        return io.BytesIO(self._objects[path[1]][path[2]])
+
+
+def test_an_embedded_spreadsheet_is_counted_not_declined():
+    """Lead decision, 2026-09-20: LibreOffice's `.doc` text export does not hold
+    embedded-object text either (measured: two real documents with an embedded
+    workbook scored recall 1.000 against LibreOffice without it being read), so
+    paying the converter 5-10 s for the same words is waste. The words' absence
+    is named and counted instead - the `ERR_PST_PARTIAL` shape."""
+    ole = _StubOle({"_1": {"\x01CompObj": b"", "\x01Ole": b"", "Workbook": b"BIFF"}})
+    found, unread = doc_module._embedded_streams(ole)
+    assert found == [] and unread == ["excel"]
+
+
+def test_an_embedded_visio_drawing_and_a_packaged_file_are_counted_too():
+    for stream, kind in (("VisioDocument", "visio"), ("\x01Ole10Native", "package")):
+        ole = _StubOle({"_1": {"\x03ObjInfo": b"", stream: b"x"}})
+        assert doc_module._embedded_streams(ole)[1] == [kind]
+
+
+def test_a_document_with_an_unreadable_embedded_object_is_still_indexed_whole(tmp_path):
+    """The host's own words stay searchable, at in-process speed."""
+    stories = doc_module.DocExtractor._read(QUOTE)
+    assert "Leeds Boiler Quote Summary" in stories["body"]
+
+
+def test_the_run_says_how_many_files_held_text_it_could_not_read(tmp_path):
+    legacy_office.take_unread_embedded_summary()
+    legacy_office.note_unread_embedded(tmp_path / "tender.doc", ["excel", "excel"])
+    legacy_office.note_unread_embedded(tmp_path / "scope.doc", ["visio"])
+    line = legacy_office.take_unread_embedded_summary()
+    assert line.startswith("2 files hold text inside embedded objects that was not read")
+    assert "excel (1)" in line and "visio (1)" in line
+    assert legacy_office.take_unread_embedded_summary() == "", "reading it resets it"
+
+
+def test_a_file_with_an_unreadable_embedded_object_says_so_in_its_metadata(monkeypatch):
+    """Nothing fails silently: the document itself carries what was left unread."""
+    monkeypatch.setattr(doc_module, "_embedded_streams", lambda ole: ([], ["excel"]))
+    document = next(iter(doc_module.DocExtractor().extract(QUOTE)))
+    assert document.meta["embedded_unread"] == "excel"
+    assert "excel" not in document.text, "the note is metadata, not text to search"
+
+
+def test_an_unreadable_embedded_object_never_reaches_the_converter(monkeypatch):
+    """The whole point of the change: no LibreOffice for words it does not have."""
+    monkeypatch.setattr(doc_module, "_embedded_streams", lambda ole: ([], ["visio"]))
+    monkeypatch.setattr(doc_module, "fall_back",
+                        lambda *a, **k: pytest.fail("the converter was called"))
+    assert list(doc_module.DocExtractor().extract(QUOTE))
+
+
+def test_an_embedded_word_document_is_read_in_process():
+    word, tables = _quote()
+    ole = _StubOle({"_1": {"\x01CompObj": b"", "WordDocument": word,
+                           **{f"{n}Table": data for n, data in tables.items()}}})
+    text, unread = doc_module._embedded_text(doc_module._embedded_streams(ole)[0])
+    assert "Leeds Boiler Quote Summary" in text and unread == []
+
+
+def test_an_embedded_word_document_the_reader_cannot_parse_is_counted_not_raised():
+    ole = _StubOle({"_1": {"WordDocument": b"not a word stream at all"}})
+    text, unread = doc_module._embedded_text(doc_module._embedded_streams(ole)[0])
+    assert text == "" and unread == ["word"]
+
+
+def test_an_equation_an_activex_control_and_an_empty_pool_are_not_text_and_are_not_counted():
+    ole = _StubOle({
+        "_1": {"\x01CompObj": b"", "\x03ObjInfo": b"", "Equation Native": b"\x00"},
+        "_2": {"\x03OCXNAME": b"", "\x03OCXDATA": b""},
+        "_3": {"\x01Ole": b"", "\x01CompObj": b"", "ObjectPool": b""},
+    })
+    assert doc_module._embedded_streams(ole) == ([], [])
+
+
+def test_an_embedded_document_with_embedded_objects_of_its_own_is_counted():
+    """This reader goes one level down. It says so rather than assuming."""
+    class _Nested(_StubOle):
+        def listdir(self, streams=True, storages=True):
+            return [["ObjectPool", "_1", "WordDocument"],
+                    ["ObjectPool", "_1", "ObjectPool", "_2", "Workbook"]]
+
+    assert doc_module._embedded_streams(_Nested({}))[1] == ["unknown"]
+
+
+def test_an_unrecognised_embedded_object_is_counted_rather_than_ignored():
+    ole = _StubOle({"_1": {"\x01Ole": b"", "CONTENTS": b"something with words in it"}})
+    assert doc_module._embedded_streams(ole)[1] == ["unknown"]
