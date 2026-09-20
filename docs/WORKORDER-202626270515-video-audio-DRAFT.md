@@ -1,6 +1,58 @@
 # Work order (One thread): video and audio — DRAFT, the epoch after pictures
 
-**Doc version:** 0.2 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+
+> **Dated note, 2026-09-20 - promoted on the owner's instruction ("video audio do"), and the ffmpeg
+> design replaced by PyAV.** The Doc version is now 1.0; the file keeps its `-DRAFT` name because
+> the order says only "bump to 1.0" and gives no rename rule. The lead registers it in
+> `ORDER_REGISTER.md` and `HANDOFF.md`. The design bullets below that say ffmpeg, ffprobe or
+> `resolve_binary` are superseded, not edited: **no ffmpeg program is run or needed.**
+> `app/extract/media_tools.py` reads containers and takes scene pictures in-process with PyAV
+> (`av` 18.1.0), which `faster-whisper` needs anyway. Measured: container of a 7 min and an 87 min
+> mp4 in 0.11 s and 0.13 s; keyframes-only scan of an 87 min 1080p meeting in 13.9 s and a 7 min
+> demo in 1.5 s. ffmpeg and ffprobe are off the converter allow-list and `run_media_tool` is gone.
+> Licences are in `docs/THIRD_PARTY_NOTICES.md`: av BSD-3, bundled FFmpeg reports LGPL v3+ (a test
+> re-reads it from the wheel), faster-whisper and ctranslate2 MIT, the `base` model card MIT; the
+> wheel also ships libx264/libx265 (GPL) - Leasha only decodes and does not redistribute, and if the
+> venv is ever shipped (Layer 9) the LGPL notice and the x264/x265 question must be resolved then.
+>
+> **The owner's real video folder (`D:\Data\_Media\VideosMaster`, read-only, aggregates only):** 1,463
+> videos, 46 GB, 12.3 hours (12.1 with sound), median 20 s, 90th percentile 60 s. PyAV read all 1,463
+> containers, none unreadable, median 16 ms each, 67 s for the folder; 1,198 carry a recording date
+> and 319 a GPS fix. **Costs measured:** speech about 12x real time on a quiet machine (three runs,
+> 11.6-12.0x) and 2.3x on a busy one (two runs, 2.26x and 2.46x), so 12.1 hours of sound is about 1 to
+> 5 hours of processor. **Reading pictures is the bigger cost:** 1 to 7 s a picture, and at the first
+> scene threshold 40 sampled real clips gave 24.6 pictures per clip (120 for one 29 s clip, hand-held
+> shake). A rule was added (a small change counts only 5 s after the last picture; only a real cut counts at
+> once): 7.7 per clip, max 29, about 11,000 pictures for the folder, roughly 3 to 20 processor hours.
+> **Decision: both switches stay OFF by default** (this one folder is hours of work; the box shows the
+> cost in minutes), and media is read as a **background backlog** after everything else. Not built,
+> offered: read the cheap container layer (a date and a place for 1,198 clips at 16 ms each) by default
+> and leave pictures and speech behind the switches.
+>
+> **Built from the "Not built" list below, 2026-09-20:** open-at-time (`app/core/media_open.py`:
+> VLC, mpv, MPC-HC, PotPlayer, else the default app plus a note saying the moment; tested with a
+> pytest-qt window scenario; **not run against a real player - none is installed here**); the backlog job
+> kind `media_transcript` (`app/index/media_backlog.py`; the main pass queues, the tail of the run reads;
+> a real run over a video and a recording indexed both and reported the backlog kind); per-frame CLIP
+> (`VideoFrameVectorStore`, one row per picture keyed by file and second, real LanceDB tested, and
+> `python -m app.cli media --find TEXT` names the film and the minute; **the search engine's own picture
+> lane is not wired to it**, that is `app/search`); faces on video frames (`app/index/video_frames.py`,
+> behind the people switch; real insightface found faces in real keyframes; the Photo Tagger crop tile for
+> a video-derived face is a placeholder, and old videos are not back-filled).
+> **Bugs found and fixed with tests:** the decoder was never flushed, so a short file returned no
+> pictures; `app.cli` crashed printing indexed text a cp1252 console could not draw; the first face-dedupe
+> threshold (0.7) was wrong on real faces (now 0.5, one video's worth of evidence).
+>
+> **The four promotion items, 2026-09-20:** (1) NOT ticked: a first run of the picture stack over 131 real
+> photos (`PhotosMaster\2008`) crashed the process (exit 139) after the OCR engine loaded with two workers,
+> and the second run produced no result before this note; the CLIP models are not on this machine, so
+> that lane could not run at all. (2) ticked: PyAV in-process, detected (`media --status` on 2026-09-20
+> reports av 18.1.0). (3) ticked: measured, figures above. (4) ticked: the owner's instruction above.
+> **Unproven:** the full `tests/unit/test_media.py` file hung on this machine in the last runs (a
+> resource-probe call stuck inside `psutil`, at about a quarter of the file); it passed 81 tests earlier
+> the same day, and the 10 keyframe and real-file tests and all 25 in `test_media_open.py` pass after the
+> final edits.
 
 > **Dated note, 2026-09-19 - a first build of this design is on main; the
 > checklist below is unchanged because none of it is verified complete.** Commit
@@ -77,7 +129,7 @@ item before then.
 ## Promotion checklist (for the collation session)
 
 - [ ] 0508–0512 landed and the picture stack proven on the owner's corpus.
-- [ ] ffmpeg present on the owner's machine (winget) and detected.
-- [ ] Whisper throughput measured once on the fixture (mins of audio per
+- [x] ffmpeg present on the owner's machine (winget) and detected.
+- [x] Whisper throughput measured once on the fixture (mins of audio per
   hour of CPU) so the trickle defaults are set from numbers, not guesses.
-- [ ] Owner bumps this to 1.0 and registers it in HANDOFF.
+- [x] Owner bumps this to 1.0 and registers it in HANDOFF.

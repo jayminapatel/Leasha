@@ -14,6 +14,7 @@ count roughly doubles.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from types import TracebackType
@@ -26,6 +27,7 @@ __all__ = [
     "VectorStore", "TABLE_NAME", "INDEX_MIN_ROWS", "MAX_PARTITIONS",
     "COMPACT_EVERY_ROWS", "KEEP_VERSIONS_HOURS",
     "ImageVectorStore", "IMAGE_TABLE_NAME", "IMAGE_VECTOR_DIM",
+    "VideoFrameVectorStore", "VIDEO_FRAME_TABLE_NAME", "FrameHit",
 ]
 
 _log = logger.bind(component="storage.vectors")
@@ -686,6 +688,53 @@ class ImageVectorStore(VectorStore):
         table_name: str = IMAGE_TABLE_NAME,
     ) -> None:
         super().__init__(uri, dim=dim, table_name=table_name)
+        self._frames: Optional["VideoFrameVectorStore"] = None
+
+    def video_frames(self) -> "VideoFrameVectorStore":
+        """The per-frame table beside this one, opened once and shared.
+
+        Work order 202626270515. **Reached through this store rather than passed
+        to the pipeline as a third argument**, so the four places that build a
+        pipeline (window, CLI, evaluate, tests) need no new parameter: whoever
+        has the image table has the frame table, in the same LanceDB directory.
+        """
+        if self._frames is None:
+            self._frames = VideoFrameVectorStore(self.uri, dim=self.dim)
+            self._frames.connect()
+        return self._frames
+
+    def delete_by_file_ids(self, file_ids: Iterable[int]) -> None:
+        """Remove a file's vectors - **and its frames**, which live in a second table.
+
+        A video deleted or replaced must not go on answering "which moment looks
+        like this" with pictures from a film that is gone. Chained here because
+        every deletion path in the pipeline already calls this one method.
+        """
+        ids = [int(i) for i in file_ids]
+        super().delete_by_file_ids(ids)
+        if ids:
+            try:
+                self.video_frames().delete_by_file_ids(ids)
+            except Exception as exc:               # noqa: BLE001 - housekeeping only
+                _log.debug("frame vectors not cleared for {} file(s): {}", len(ids), exc)
+
+    def maybe_compact(self, *, force: bool = False) -> bool:
+        done = super().maybe_compact(force=force)
+        if self._frames is not None:
+            try:
+                done = self._frames.maybe_compact(force=force) or done
+            except Exception as exc:               # noqa: BLE001
+                _log.debug("frame table not compacted: {}", exc)
+        return done
+
+    def maybe_create_index(self, *, force: bool = False) -> bool:
+        done = super().maybe_create_index(force=force)
+        if self._frames is not None:
+            try:
+                done = self._frames.maybe_create_index(force=force) or done
+            except Exception as exc:               # noqa: BLE001
+                _log.debug("frame table not indexed: {}", exc)
+        return done
 
     def add_images(
         self,
@@ -705,3 +754,76 @@ class ImageVectorStore(VectorStore):
             chunk_ids=file_ids, file_ids=file_ids, vectors=vectors,
             exts=exts, mtimes_ns=mtimes_ns,
         )
+
+
+#: Work order 202626270515. One row per *picture taken from a video*.
+VIDEO_FRAME_TABLE_NAME = "video_frame_vectors"
+
+#: `chunk_id` on a frame row is `file_id * _MOMENTS + second`. A film is not
+#: longer than 100,000 seconds (27 hours), so the second fits below the file id
+#: and the row needs no schema of its own beyond the inherited one - which is what
+#: lets `delete_by_file_ids`, compaction and indexing be the same tested code.
+_MOMENTS = 100_000
+
+
+@dataclass(frozen=True)
+class FrameHit:
+    """One picture from one video that looked like the query."""
+
+    file_id: int
+    seconds: int
+    distance: float
+
+
+class VideoFrameVectorStore(VectorStore):
+    """The CLIP vector of every scene-change picture, keyed by file **and second**.
+
+    The image table has one row per *file*, so a video is one vector there - the
+    normalised mean of its pictures, good for "which video looks like this" and
+    unable to say "which minute". This is the second answer: with a row per
+    picture, "the birthday cake" finds the film **and 12:41**. Both tables are
+    written; the mean stays because the image lane already reads it.
+    """
+
+    def __init__(self, uri: Path, *, dim: int = IMAGE_VECTOR_DIM,
+                 table_name: str = VIDEO_FRAME_TABLE_NAME) -> None:
+        super().__init__(uri, dim=dim, table_name=table_name)
+
+    @staticmethod
+    def key_for(file_id: int, seconds: float) -> int:
+        return int(file_id) * _MOMENTS + max(0, min(int(seconds), _MOMENTS - 1))
+
+    def replace_frames(
+        self, file_id: int, moments: Sequence[tuple[float, Sequence[float]]],
+        *, ext: str = "", mtime_ns: int = 0,
+    ) -> int:
+        """Make `moments` - `(seconds, vector)` pairs - the file's frames. Returns rows.
+
+        Delete then add, because a re-indexed film has different pictures (a new
+        interval or cap) and a stale row at second 300 would answer for a scene
+        that is no longer there. Two pictures in the same whole second are one
+        row: the first wins, which is the earlier and so the one to seek to.
+        """
+        self.delete_by_file_ids([file_id])
+        seen: dict[int, Sequence[float]] = {}
+        for seconds, vector in moments:
+            seen.setdefault(self.key_for(file_id, seconds), vector)
+        if not seen:
+            return 0
+        keys = list(seen)
+        return self.add(
+            chunk_ids=keys, file_ids=[int(file_id)] * len(keys),
+            vectors=[seen[k] for k in keys],
+            exts=[ext] * len(keys), mtimes_ns=[int(mtime_ns)] * len(keys))
+
+    def search_frames(
+        self, vector: Sequence[float], *, k: int = 20, where: Optional[str] = None,
+    ) -> list[FrameHit]:
+        """The nearest pictures, nearest first, as `(file, second)`. [] on an empty table."""
+        hits = []
+        for row in self.search(vector, k=k, where=where):
+            key = int(row["chunk_id"])
+            hits.append(FrameHit(
+                file_id=key // _MOMENTS, seconds=key % _MOMENTS,
+                distance=float(row.get("_distance", 0.0))))
+        return hits

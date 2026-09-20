@@ -283,17 +283,24 @@ prompt_toolkit==3.0.53
 
 # --- Optional: video and audio (work order 202626270515) -------------------
 # Both features are OFF by default (VIDEO_INDEXING_ENABLED and
-# AUDIO_TRANSCRIPTION_ENABLED in Settings) and need software this file does not
+# AUDIO_TRANSCRIPTION_ENABLED in Settings) and need packages this file does not
 # install. Nothing below is required for the application to start or to index.
+# Licences and where each was verified: docs/THIRD_PARTY_NOTICES.md.
 #
-#   FFmpeg (ffmpeg + ffprobe) - for video: container details, the date a film was
-#   recorded, and scene-change pictures. Not a Python package and not pinned
-#   here: a program, run as a subprocess and never linked, so its licence (LGPL
-#   or GPL depending on the build) never touches this MIT application.
-#       winget install --id Gyan.FFmpeg -e
-#   Detected on PATH and in the standard install folders (app/extract/
-#   converter.py). Without it a video is findable by name only, and the skip
-#   ledger says why.
+#   NO ffmpeg / ffprobe PROGRAM IS NEEDED (decision 2026-09-20, measured): videos
+#   are read in-process by PyAV, which faster-whisper needs anyway.
+#
+#   av==18.1.0 - PyAV, the Python binding to FFmpeg's libraries, BSD-3-Clause; its
+#   wheel bundles the FFmpeg shared libraries (avutil reports "LGPL version 3 or
+#   later") AND libx264 / libx265 DLLs in av.libs, which are GPL - the wheel's
+#   configure line has --enable-libx264 --enable-libx265 without --enable-gpl.
+#   Leasha only DECODES and never calls an encoder. Leasha is MIT and treats this
+#   as a pip dependency it does not redistribute; if the venv is ever shipped
+#   (Layer 9) the FFmpeg LGPL notice and the x264/x265 question must be resolved
+#   THEN. Read a container, or take scene-change pictures, with no other install.
+#   It arrives with faster-whisper (which requires av>=11); listing it first
+#   installs the version this application was measured against.
+#       venv\Scripts\python.exe -m pip install av==18.1.0
 #
 #   faster-whisper==1.2.1 - for speech to text (voice memos, calls, the sound of
 #   a video). MIT. Checked against PyPI 2026-09-19: 1.2.1 is the newest release;
@@ -306,23 +313,25 @@ prompt_toolkit==3.0.53
 #   below). If pip offers to install ANOTHER onnxruntime, stop. After the
 #   install run: venv\Scripts\python.exe -c "import onnxruntime as o;
 #   print(o.get_available_providers())" and confirm DmlExecutionProvider is
-#   still listed. Also note `av` (PyAV) arrives as a dependency and bundles
-#   FFmpeg's libraries under the LGPL, dynamically linked; nothing in Leasha
-#   imports it, and faster-whisper uses it only to decode audio.
+#   still listed.
 #
 #   A speech model, downloaded ONCE by a command you choose to run (Leasha
 #   never downloads while indexing; it loads with local_files_only=True):
 #       venv\Scripts\python.exe -c "from faster_whisper import download_model; download_model('base')"
-#   'tiny' is ~75MB, 'base' ~145MB, 'small' ~480MB, 'medium' ~1.5GB. They are
-#   cached under <DATA_PATH>\models\whisper.
+#   'tiny' is ~75MB, 'base' ~145MB (Systran/faster-whisper-base, MIT per its model
+#   card), 'small' ~480MB, 'medium' ~1.5GB. They are cached under
+#   <DATA_PATH>\models\whisper.
 #
-# Throughput on this machine has NOT been measured (faster-whisper was not
-# installed when this was written). After installing, run
+# Measured 2026-09-20 on this project's CPU-only test machine (model 'base', int8,
+# 4 threads; CTranslate2 reports 0 CUDA devices and has no DirectML back end):
+# 11.6x-12.0x real time on a 199 s clip in three runs, and 7.6x-13.7x on a 600 s
+# slice of a real recording under CPU contention - about 700 minutes of audio per
+# processor-hour. Each run includes the model load. Re-measure on any other
+# machine with:
 #     venv\Scripts\python.exe -m app.cli media --measure FILE --model base
-# once and record the number in docs/WORKORDER-202626270515-video-audio-DRAFT.md.
 #
-# Optional at runtime - app/extract/transcribe.py::available() checks for the
-# package with find_spec and never imports it; app/extract/media_tools.py
-# reports a missing FFmpeg the same way. Both degrade to "findable by name",
-# with an ERR_MEDIA_TOOLS_MISSING / ERR_TRANSCRIBE_UNAVAILABLE line in the skip
-# ledger that names the exact command above.
+# Optional at runtime - app/extract/transcribe.py::available() and
+# app/extract/media_tools.py::available() check for their packages with find_spec
+# and never import them. Both degrade to "findable by name", with an
+# ERR_MEDIA_TOOLS_MISSING / ERR_TRANSCRIBE_UNAVAILABLE line in the skip ledger
+# that names the exact command above.

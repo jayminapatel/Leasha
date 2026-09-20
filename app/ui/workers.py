@@ -229,6 +229,43 @@ def open_async(path: str, *, reveal: bool = False,
     run(QThreadPool.globalInstance(), worker)
 
 
+def open_media_at(path: str, seconds: Any) -> Any:
+    """Worker body for `open_media_async`: an `AppError` or a sentence or None."""
+    from app.core import media_open
+
+    outcome = media_open.open_at(path, seconds)
+    return outcome.error if outcome.error is not None else (outcome.note or None)
+
+
+def open_media_async(path: str, seconds: Any, *, on_error: Any = None,
+                     on_note: Any = None, component: str = "ui.open") -> None:
+    r"""Open a recording at the moment a result is about. Never blocks the UI.
+
+    Work order 202626270515. The same worker discipline as `open_async` (the
+    player lookup is stat calls and the launch a process start), with one more
+    thing to say: when no installed player can be told where to start, the file
+    is opened plainly and `on_note` is handed the sentence that says *which
+    moment* - so a result that cannot seek still tells the person where to look.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    if not path:
+        return
+    worker = CallableWorker(open_media_at, path, seconds, component=component)
+
+    def _done(result: Any) -> None:
+        if isinstance(result, AppError):
+            if on_error is not None:
+                on_error(result)
+        elif result and on_note is not None:
+            on_note(str(result))
+
+    worker.signals.finished.connect(_done)
+    if on_error is not None:
+        worker.signals.failed.connect(on_error)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def open_row_async(store: Any, row: Any, *, reveal: bool = False,
                    on_error: Any = None, component: str = "ui.open") -> None:
     r"""`open_async`, for a result row rather than a bare path.
