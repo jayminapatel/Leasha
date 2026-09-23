@@ -257,6 +257,16 @@ class WalkConfig:
     #: with no number moving anywhere. A count is the difference between "this
     #: corpus has no such files" and "nobody ever looked".
     stat_failures: dict[str, int] = field(default_factory=dict)
+    #: Extension -> how many files were dropped for being over
+    #: `max_file_bytes`. The same sink pattern as `stat_failures`: before this
+    #: existed, a file too big to read and not covered by `size_exempt` hit a
+    #: bare `continue` with no row, no skip code and no log line - which is
+    #: exactly how 17 of 20 `.pst` files in a 128GB Outlook archive vanished
+    #: from a run on 2026-09-23, all of them over 2GB, none of them reported
+    #: anywhere. `.pst`/`.ost` are now in `size_exempt` (see below) so that
+    #: specific case no longer drops files at all; this counter is what keeps
+    #: any *other* oversized type visible instead of silently absent.
+    oversize_dropped: dict[str, int] = field(default_factory=dict)
     #: Roots the walk did not use at all, as `path -> reason`. The same sink
     #: pattern as `stat_failures`, and it exists for the same reason at a much
     #: larger scale.
@@ -601,7 +611,20 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # touches most of its bytes - and a family archive is exactly where the
     # multi-gigabyte files are. Only extensions whose switch is on are exempt.
     from app.extract.media import media_extensions
-    size_exempt = media_extensions() & extensions
+    # **Nor is a `.pst` "too big to read" the way a disk image is.** It is
+    # read message by message through libpff or MAPI, never loaded whole into
+    # memory, so the generic per-file ceiling - sized for a monolithic file
+    # read in one gulp - never applied to it in spirit. It did apply in code:
+    # a `.pst` over `max_file_bytes` (2GB by default) hit the same bare
+    # `continue` as an oversized disk image, and 17 of a 20-file archive went
+    # missing this way with no skip code and no log line. `.ost` gets the
+    # same exemption for the same reason, even though it is read through
+    # Outlook alone.
+    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost"})
+    size_exempt = (
+        (media_extensions() & extensions)
+        | (STREAMED_ARCHIVE_EXTENSIONS & extensions)
+    )
 
     for root in config.roots:
         root = Path(root)
@@ -695,11 +718,17 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 # **Too big or empty means "do not read it", not "pretend it
                 # is not there".** A 40GB disk image and a zero-byte marker are
                 # both real files somebody may go looking for; what they are
-                # not is files worth opening. They become name-only rows, which
-                # is the honest answer and costs nothing.
+                # not is files worth opening. In name-only mode they become
+                # name-only rows; otherwise they are dropped here, and
+                # `oversize_dropped` is what keeps that drop a counted,
+                # logged fact rather than a silent one - see its docstring.
                 too_big = (stat.st_size > config.max_file_bytes
                            and path.suffix.lower() not in size_exempt)
                 if (too_big or stat.st_size == 0) and not config.name_only:
+                    if too_big:
+                        ext = path.suffix.lower() or "(none)"
+                        config.oversize_dropped[ext] = (
+                            config.oversize_dropped.get(ext, 0) + 1)
                     continue
 
                 attributes = getattr(stat, "st_file_attributes", None)

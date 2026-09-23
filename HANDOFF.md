@@ -1046,9 +1046,14 @@ walker can skip it whole next time. Change detection inside an archive hashes th
 each other into a single row. The pipeline makes duplicate keys unique and logs the
 extractor by name rather than losing the data, but that is a safety net, not a design.
 
-**Known gaps:** loose `.eml` files on disk record attachment *names* only. The libpff backend
-does the same; only the Outlook backend extracts attachment *contents*, because reading
-attachment bytes through libpff means walking MAPI record sets and is a job of its own.
+**Known gaps:** loose `.eml` files on disk record attachment *names* only.
+
+**2026-09-23:** the libpff backend used to do the same - names only, no content, because
+reading attachment bytes through libpff means walking a MAPI record set rather than the
+one-line `SaveAsFile` Outlook COM offers. Fixed: `pypff.attachment` exposes `get_size()`
+and `read_buffer(size)`, which is enough. `pst_libpff._attachment_documents` now mirrors
+`email_pst._attachment_documents` - same size cap, same content-hash dedup, same
+`virtual_path`/`meta` shape - so both backends extract attachment contents identically.
 
 **Fixtures are generated, not committed** - `tests/fixtures/generate.py`, called automatically
 by a session fixture in `conftest.py`. Binary test files in git cannot be reviewed in a diff,

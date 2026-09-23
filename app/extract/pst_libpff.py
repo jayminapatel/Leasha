@@ -29,7 +29,9 @@ Outlook for live mail.** Each doing the job it is actually good at.
 from __future__ import annotations
 
 import email.utils
+import hashlib
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -147,6 +149,12 @@ class _Report:
         self.read = 0
         self.messages = 0
         self.folders = 0
+        #: Attachments that could not be opened or extracted. **Not** the
+        #: reason `failed`/`reason()` fire the archive-level `ERR_PST_PARTIAL`
+        #: notice below - one bad attachment is not a partial archive, the
+        #: same way one bad message is not - but it is counted and logged so
+        #: it is a number somewhere rather than only a log line nobody reads.
+        self.attachments = 0
         self.examples: list[str] = []
 
     @property
@@ -160,6 +168,10 @@ class _Report:
     def folder_failed(self, folder_path: str, exc: BaseException) -> None:
         self.folders += 1
         self._note(f"folder {folder_path}", exc)
+
+    def attachment_failed(self, message_key: str, index: int, exc: BaseException) -> None:
+        self.attachments += 1
+        self._note(f"attachment {index} on {message_key}", exc)
 
     def _note(self, where: str, exc: BaseException) -> None:
         _log.warning("{} unreadable: {}: {}", where, type(exc).__name__, exc)
@@ -236,10 +248,11 @@ def read_archive(
     interchangeable: same `Document` shape, same `meta` keys, same conversation
     grouping. Layer 3 cannot tell which one produced a message, and should not.
 
-    **Known gap:** attachment *names* are captured and searchable, but their
-    contents are not yet extracted on this path - the Outlook backend does that.
-    Reading attachment bytes through libpff means walking MAPI record sets, which
-    is a job of its own; it is recorded in HANDOFF.md rather than half-done here.
+    Attachments are extracted too, through the normal registry and deduplicated
+    by content hash within this archive - see `_attachment_documents`. This
+    used to be a known gap (names only, no content, "a job of its own" left to
+    the Outlook backend); `pypff.attachment.read_buffer` turned out to make
+    that job small enough to do here.
     """
     from app.extract.email_pst import DEFAULT_SKIP_FOLDERS
 
@@ -279,9 +292,16 @@ def read_archive(
             details="; ".join(report.examples),
         )
 
+    # **Dedup scope is one archive.** The same reservoir shape `email_pst.
+    # walk_session` gives its own `seen_hashes`: a deck mailed round the team
+    # eight times inside one `.pst` produces one extraction and eight
+    # `content_hash`-identical references, not eight embeddings of the same
+    # bytes.
+    seen_hashes: set[str] = set()
+
     try:
         yield from with_closing_warning(
-            _messages(root, path, store_name, skip, report), closing)
+            _messages(root, path, store_name, skip, report, seen_hashes), closing)
     finally:
         try:
             archive.close()
@@ -291,6 +311,7 @@ def read_archive(
 
 def _messages(
     root: Any, path: Path, store_name: str, skip: frozenset[str], report: _Report,
+    seen_hashes: set[str],
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -321,6 +342,16 @@ def _messages(
             if document is not None:
                 report.read += 1
                 yield document
+                # **After the message, not instead of it.** One bad
+                # attachment must never cost the message itself - `_to_
+                # document` already returned successfully by the time this
+                # runs, so the worst an attachment failure does now is one
+                # missing attachment, logged and counted in `report.
+                # attachments`.
+                yield from _attachment_documents(
+                    message, document.virtual_path or f"pst://{store_name}/{folder_path}/{index}",
+                    seen_hashes, report,
+                )
 
 
 def _to_document(
@@ -395,15 +426,151 @@ def _attachment_names(message: Any) -> list[str]:
     return names
 
 
+#: MAPI property tags carrying an attachment's file name, per [MS-OXPROPS].
+#: Long filename is preferred - the real name, spaces and all - dropping to
+#: the DOS 8.3 short name, then to a name synthesised from the extension
+#: alone, only when nothing better is there.
+_PROP_ATTACH_EXTENSION = 0x3703
+_PROP_ATTACH_FILENAME = 0x3704
+_PROP_ATTACH_LONG_FILENAME = 0x3707
+
+
 def _attachment_name(attachment: Any, index: int) -> str:
-    for accessor in ("get_name", "get_long_filename", "get_filename"):
-        try:
-            value = getattr(attachment, accessor)()
-        except Exception:                        # noqa: BLE001
-            continue
-        if value:
-            return str(value)
+    """The attachment's real file name, read from its own MAPI record set.
+
+    **`get_name`/`get_long_filename`/`get_filename` do not exist on `pypff.
+    attachment`** - `dir()` on a live instance has no such methods. They were
+    a guess at an API libpff-python never had, so every call raised
+    `AttributeError`, was swallowed by the `except Exception` this replaces,
+    and every attachment silently got the synthetic `attachment-N` fallback -
+    which meant `.zip`, `.pdf`, whatever it actually was, was never in the
+    name Layer 3 saw, and content extraction (`_attachment_documents`) could
+    never route an extensionless synthetic name to the right reader either.
+
+    The real name is an ordinary MAPI property, reached by walking the
+    attachment's record set for the entry whose type is one of the three
+    tags above - exactly how `_addresses` and `_sent_at` already read other
+    MAPI properties off a message elsewhere in this file, just one level
+    deeper.
+    """
+    long_name = short_name = extension = ""
+    try:
+        for set_index in range(attachment.get_number_of_record_sets()):
+            record_set = attachment.get_record_set(set_index)
+            for entry_index in range(record_set.get_number_of_entries()):
+                entry = record_set.get_entry(entry_index)
+                try:
+                    tag = entry.get_entry_type()
+                except Exception:                # noqa: BLE001
+                    continue
+                if tag not in (_PROP_ATTACH_LONG_FILENAME, _PROP_ATTACH_FILENAME,
+                               _PROP_ATTACH_EXTENSION):
+                    continue
+                try:
+                    value = entry.get_data_as_string()
+                except Exception:                # noqa: BLE001 - wrong value type, or absent
+                    continue
+                if not value:
+                    continue
+                if tag == _PROP_ATTACH_LONG_FILENAME:
+                    long_name = value
+                elif tag == _PROP_ATTACH_FILENAME:
+                    short_name = value
+                elif tag == _PROP_ATTACH_EXTENSION:
+                    extension = value
+    except Exception:                            # noqa: BLE001 - one bad attachment
+        pass
+
+    if long_name:
+        return long_name
+    if short_name:
+        return short_name
+    if extension:
+        dotted = extension if extension.startswith(".") else f".{extension}"
+        return f"attachment-{index}{dotted}"
     return f"attachment-{index}"
+
+
+def _hash_bytes(data: bytes) -> str:
+    return hashlib.blake2b(data, digest_size=16).hexdigest()
+
+
+def _attachment_documents(
+    message: Any, message_key: str, seen_hashes: set[str], report: _Report,
+) -> Iterator[Document]:
+    """Extract each attachment through the normal registry, deduplicated.
+
+    **This used to be the one thing this backend could not do.** `read_
+    archive`'s own docstring called it out as a known gap: attachment
+    *names* were captured (`_attachment_names`, above), never their content,
+    because reading bytes through libpff means walking a MAPI record set
+    rather than the one-line `SaveAsFile` Outlook COM offers. `pypff.
+    attachment` turns out to expose exactly what is needed for that -
+    `get_size()` and `read_buffer(size)` - so the gap closes without Outlook.
+
+    Mirrors `email_pst._attachment_documents` deliberately: same size cap
+    (`MAX_ATTACHMENT_BYTES`), same content-hash dedup, same `virtual_path`
+    and `meta` shape - so Layer 3 cannot tell, and should not have to,
+    which backend produced an attachment.
+    """
+    from app.extract.base import extract as extract_path
+    from app.extract.email_pst import MAX_ATTACHMENT_BYTES
+
+    try:
+        count = message.get_number_of_attachments()
+    except Exception:                            # noqa: BLE001
+        return
+
+    for index in range(count):
+        try:
+            attachment = message.get_attachment(index)
+        except Exception as exc:                 # noqa: BLE001 - one bad attachment
+            report.attachment_failed(message_key, index, exc)
+            continue
+
+        name = _attachment_name(attachment, index)
+
+        try:
+            size = int(attachment.get_size())
+        except Exception as exc:                 # noqa: BLE001
+            report.attachment_failed(message_key, index, exc)
+            continue
+
+        if size > MAX_ATTACHMENT_BYTES:
+            _log.warning(
+                "attachment '{}' on {} is {:,} bytes, over the {}MB ceiling, "
+                "and was not opened - large attachments are almost always "
+                "media, which hold no text",
+                name, message_key, size, MAX_ATTACHMENT_BYTES // 1_048_576,
+            )
+            continue
+
+        with tempfile.TemporaryDirectory(prefix="lkg_attach_") as scratch:
+            target = Path(scratch) / Path(name).name
+            try:
+                data = attachment.read_buffer(size)
+                target.write_bytes(data)
+            except Exception as exc:             # noqa: BLE001 - one bad attachment
+                report.attachment_failed(message_key, index, exc)
+                continue
+
+            digest = _hash_bytes(data)
+            if digest in seen_hashes:
+                continue          # the same bytes are already indexed somewhere
+            seen_hashes.add(digest)
+
+            try:
+                for document in extract_path(target):
+                    document.virtual_path = f"{message_key}/attachments/{name}"
+                    document.source_kind = SourceKind.PST_MESSAGE
+                    document.meta.setdefault("attachment_of", message_key)
+                    document.meta.setdefault("attachment_name", name)
+                    document.meta.setdefault("content_hash", digest)
+                    document.meta.setdefault("backend", "libpff")
+                    yield document
+            except AppErrorException as exc:
+                # An unreadable attachment is a skip, never the end of the run.
+                report.attachment_failed(message_key, index, exc)
 
 
 # ---------------------------------------------------------------------------
