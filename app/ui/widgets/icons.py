@@ -51,8 +51,8 @@ ICON_NAMES = (
     # §0.3, owner 2026-09-16 - "icons wherever possible": the inspector's
     # buttons, the menus, CategoryNav, the Indexing page's controls.
     "folder-open", "external-link", "file-text", "sliders-horizontal",
-    "palette", "cpu", "clock", "play", "square", "scan-search", "refresh-cw",
-    "trash-2", "circle-help", "keyboard", "eye", "image", "list", "bookmark",
+    "palette", "cpu", "clock", "play", "pause", "square", "scan-search",
+    "refresh-cw", "trash-2", "circle-help", "keyboard", "eye", "image", "list", "bookmark",
     "info", "x-circle", "copy", "sun-moon",
     # The Chat tab (order 202626270611).
     "message-square",
