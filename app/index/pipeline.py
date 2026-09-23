@@ -282,6 +282,11 @@ class IndexStats:
     #: that files invisible to the whole application are at least a number -
     #: see `walker._record_stat_failure`.
     unreachable_by_reason: dict[str, int] = field(default_factory=dict)
+    #: Extension -> how many files were dropped for being over the size
+    #: ceiling, outside a name-only run. **Not skips**, same reasoning as
+    #: `unreachable_by_reason`: these have no row at all. See
+    #: `WalkConfig.oversize_dropped`.
+    oversize_dropped: dict[str, int] = field(default_factory=dict)
     #: Roots the walk could not use, as `path -> reason`. Distinct from
     #: `skipped_roots`, which is a deliberate archival decision: this is a
     #: folder that is missing or shut out, and always wants somebody's
@@ -463,6 +468,7 @@ class IndexStats:
             "vectors_repaired": self.vectors_repaired,
             "enrichment_counts": dict(self.enrichment_counts),
             "unreachable_by_reason": dict(self.unreachable_by_reason),
+            "oversize_dropped": dict(self.oversize_dropped),
             "root_problems": dict(self.root_problems),
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
@@ -1397,6 +1403,26 @@ class Pipeline:
                 sum(unreachable.values()),
                 ", ".join(f"{why} ({count:,})"
                           for why, count in sorted(unreachable.items(),
+                                                   key=lambda kv: -kv[1])),
+            )
+        # **The other way a file goes missing with no row at all.** See
+        # `WalkConfig.oversize_dropped`: `.pst`/`.ost` are exempt from the
+        # size ceiling now, so this fires only for some other oversized type
+        # that still hits it - but when it does, this is the only place that
+        # says so.
+        oversize_dropped = dict(
+            getattr(self.config.walk, "oversize_dropped", {}) or {})
+        if oversize_dropped:
+            stats.oversize_dropped = oversize_dropped
+            self._log.warning(
+                "{} file(s) were over the {:,} byte size ceiling and have no "
+                "row in the index: {}. Formats read incrementally (like "
+                "`.pst`/`.ost`) are exempt from this ceiling; anything else "
+                "this large is dropped rather than opened.",
+                sum(oversize_dropped.values()),
+                self.config.walk.max_file_bytes,
+                ", ".join(f"{ext} ({count:,})"
+                          for ext, count in sorted(oversize_dropped.items(),
                                                    key=lambda kv: -kv[1])),
             )
         stats.settled_by_code = dict(self._settled_skips)

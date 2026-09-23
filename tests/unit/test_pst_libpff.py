@@ -57,12 +57,51 @@ class FakeMessage:
         return self._attachments[index]
 
 
-class FakeAttachment:
-    def __init__(self, name):
-        self._name = name
+class FakeRecordEntry:
+    def __init__(self, entry_type, value):
+        self._entry_type = entry_type
+        self._value = value
 
-    def get_name(self):
-        return self._name
+    def get_entry_type(self):
+        return self._entry_type
+
+    def get_data_as_string(self):
+        return self._value
+
+
+class FakeRecordSet:
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+    def get_number_of_entries(self):
+        return len(self._entries)
+
+    def get_entry(self, index):
+        return self._entries[index]
+
+
+class FakeAttachment:
+    """Mirrors the real `pypff.attachment` shape - see `pst_libpff.
+    _attachment_name`'s docstring for why this is a record set, not the
+    `get_name()`-style accessor this fake used to (wrongly) offer."""
+
+    def __init__(self, name, data=b""):
+        self._data = data
+        self._record_sets = [FakeRecordSet([
+            FakeRecordEntry(pst_libpff._PROP_ATTACH_LONG_FILENAME, name),
+        ])]
+
+    def get_number_of_record_sets(self):
+        return len(self._record_sets)
+
+    def get_record_set(self, index):
+        return self._record_sets[index]
+
+    def get_size(self):
+        return len(self._data)
+
+    def read_buffer(self, size):
+        return self._data[:size]
 
 
 class FakeFolder:
@@ -379,6 +418,20 @@ def test_the_real_library_has_the_api_we_use() -> None:
     for name in ("get_name", "get_number_of_sub_folders", "get_sub_folder",
                  "get_number_of_sub_messages", "get_sub_message"):
         assert hasattr(pypff.folder, name), f"pypff.folder lost {name}"
+
+    # **This is the coverage that was missing.** `get_name`, `get_long_
+    # filename` and `get_filename` were assumed to exist on `pypff.
+    # attachment` and never pinned here - so when they turned out never to
+    # have existed at all, nothing caught it and every attachment silently
+    # got a synthetic name. The real name is a MAPI property, reached by
+    # walking a record set - see `pst_libpff._attachment_name`.
+    for name in ("get_size", "read_buffer", "get_number_of_record_sets",
+                 "get_record_set"):
+        assert hasattr(pypff.attachment, name), f"pypff.attachment lost {name}"
+    for name in ("get_number_of_entries", "get_entry"):
+        assert hasattr(pypff.record_set, name), f"pypff.record_set lost {name}"
+    for name in ("get_entry_type", "get_data_as_string"):
+        assert hasattr(pypff.record_entry, name), f"pypff.record_entry lost {name}"
 
     for name in ("open", "close", "get_root_folder"):
         assert hasattr(pypff.file, name), f"pypff.file lost {name}"
