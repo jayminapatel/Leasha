@@ -42,7 +42,6 @@ from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
     QLabel,
     QProgressBar,
-    QPushButton,
     QWidget,
 )
 
@@ -189,34 +188,17 @@ class IndexingView(QWidget):
         self.notices.setWordWrap(True)
         self.notices.setVisible(False)
 
-        # Four buttons and the sentences that say what each will do - see
+        # Five buttons and the sentences that say what each will do - see
         # `widgets.index_controls`. Out of the view because this file is at the
         # 250-line guard, and because "what happens when I press this" is copy
-        # rather than layout.
-        (self.start_button, self.scan_button, self.stop_button,
-         self.reset_button, controls) = build_controls(
+        # rather than layout. Order is Start, Pause, Stop, Scan, Reset - see
+        # that module for why.
+        (self.start_button, self.pause_button, self.stop_button,
+         self.scan_button, self.reset_button, controls) = build_controls(
             on_stop=self.stop,
+            on_pause=lambda: self.toggle_pause(),
             on_scan=lambda: self.scan_requested.emit(),
             on_reset=lambda: self.reset_requested.emit())
-
-        # **Beside Stop, and deliberately not instead of it.** The page said it
-        # could "pause and resume an index run" and could not: the only pausing
-        # in the application was the resource governor's, which the person does
-        # not control. Stop keeps its own meaning - it ends the run, cheaply -
-        # and this one holds it without ending anything.
-        self.pause_button = QPushButton(PAUSE_LABEL)
-        self.pause_button.setEnabled(False)
-        self.pause_button.setToolTip(
-            "Hold the run where it is and give the computer back, without "
-            "ending it. Nothing is lost and nothing is redone: it keeps its "
-            "place and carries on from there when you press Resume.\n\n"
-            "Different from Stop, which ends the run. Different again from "
-            "the pausing you may see on this page without pressing anything - "
-            "that is the computer standing aside for itself when it is busy, "
-            "on battery, or short of space, and it starts again on its own.")
-        self.pause_button.clicked.connect(lambda _c=False: self.toggle_pause())
-        # After Stop, before the stretch that pushes Reset to the far side.
-        controls.insertWidget(3, self.pause_button)
         #: Whether *this person* has the run held. Not the same question as
         #: `stats.paused`, which is true for the governor's pause as well.
         self._paused = False

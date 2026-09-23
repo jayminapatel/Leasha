@@ -929,12 +929,14 @@ def test_the_delegate_scales_with_the_system_font(scale):
     base.setPointSize(int(round(base_pt * scale)))
     delegate = ResultDelegate()
     name_font, meta_font, body_font = delegate._fonts(base)
-    assert name_font.pointSize() > body_font.pointSize() > 0
-    assert meta_font.pointSize() > 0
-    # The hierarchy is relative to *this* base, not a hard-coded pair of
-    # numbers - scaling the base scales the gap between name and body too.
-    if scale > 1.0:
-        assert name_font.pointSize() > int(round(13 * 1.0)) + 2
+    # 2026-09-24: name and meta used to be sized 2pt bigger / 1pt smaller than
+    # body, on every density - the one list in the app whose text did not
+    # match its own "system font size" preference, which read as "too big"
+    # next to Files and Mail (neither of which bumps anything). All three
+    # now render at exactly the base point size, at every scale; the name
+    # keeps its bold weight below as the only hierarchy cue.
+    assert name_font.pointSize() == meta_font.pointSize() == body_font.pointSize() == base.pointSize() > 0
+    assert name_font.bold() and not body_font.bold()
 
 
 def test_sizehint_grows_with_a_scaled_font_rather_than_clipping():

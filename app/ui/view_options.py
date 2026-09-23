@@ -148,9 +148,20 @@ class Metrics:
     #: How far a chunk row is indented under its document.
     indent: int = 26
     #: Points added to the base font for the name.
-    name_bump: int = 2
-    #: Points removed for the grey lines.
-    meta_drop: int = 1
+    #:
+    #: **0, not 2.** The name used to render two points larger than everything
+    #: else on the page, on every density - `for_density` only ever touched
+    #: padding, never this - so Results was the one list in the app whose text
+    #: did not match its own "system font size" preference. Files and Mail
+    #: draw every cell at exactly the applied font with no per-field bump, and
+    #: a person moving between the three lists felt Results as "too big" for
+    #: exactly that reason. The name keeps its bold weight below - that alone
+    #: is enough hierarchy without also changing size.
+    name_bump: int = 0
+    #: Points removed for the grey lines. **0, to match**: the meta line was a
+    #: point smaller than the same-page body text for the same reason the name
+    #: was two points larger - an old fixed delta `for_density` never revisited.
+    meta_drop: int = 0
 
     @classmethod
     def for_density(cls, density: str) -> "Metrics":
