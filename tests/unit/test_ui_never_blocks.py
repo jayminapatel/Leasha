@@ -198,6 +198,28 @@ def test_nothing_blocks_the_ui_thread(path):
                 )
 
 
+#: A pool wait that is legitimate because it never runs on the UI thread, keyed
+#: by (file, function) so nothing else shares the name. `settle_before_run` lets
+#: an index run wait for settings saved just before Start (bug 3a's queue); the
+#: test below pins its only caller to the run's own thread.
+OFF_THREAD_POOL_WAITS = {("state_writes.py", "settle_before_run")}
+
+
+def test_settle_before_run_is_only_called_from_the_index_workers_thread():
+    """If it were called from the window, the allowance above would be a freeze."""
+    callers = []
+    for path in MODULES:
+        for node in calls_in(path):
+            if called_name(node) == "settle_before_run":
+                callers.append((path.name, enclosing_function(path, node.lineno)))
+    assert callers == [("workers.py", "run")], callers
+    source = (UI / "workers.py").read_text(encoding="utf-8")
+    body = source[source.index("class IndexWorker"):]
+    assert "settle_before_run" in body[:body.index("\ndef ")], (
+        "settle_before_run must be called from IndexWorker.run, the run's thread"
+    )
+
+
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
     """`waitForDone` on the UI thread is a freeze by another name."""
@@ -205,6 +227,8 @@ def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
         if called_name(node) != "waitForDone":
             continue
         where = enclosing_function(path, node.lineno)
+        if (path.name, where) in OFF_THREAD_POOL_WAITS:
+            continue
         assert where in PROCESS_EVENTS_ALLOWED_IN, (
             f"{path.name}:{node.lineno} waits for the thread pool inside "
             f"{where!r}, which freezes the window."

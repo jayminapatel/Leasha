@@ -144,3 +144,44 @@ def test_closing_drains_queued_writes_before_the_store_goes(gui_mainwindow):
         release.set()
         thread.join(5)
     assert store.get_state("test:at_close") == "kept"
+
+
+def test_an_index_run_waits_for_a_setting_saved_just_before_start(tmp_path) -> None:
+    """A setting changed and then Start pressed at once must be on disk first.
+
+    The run reads the archive modes and cloud-content folders itself, from the
+    store. Queued writes (bug 3a) opened a window in which a run could read the
+    value from before the change; `IndexWorker.run` now waits for the queue.
+    """
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui import state_writes
+    from app.ui.workers import CallableWorker, IndexWorker
+
+    store = SqliteStore(tmp_path / "leasha.db").connect()
+    try:
+        seen: dict = {}
+
+        class Pipeline:
+            config = None
+
+            def __init__(self) -> None:
+                self.store = store
+
+            def run(self, on_progress=None):
+                seen["mode"] = store.get_state("ui:root_modes", "")
+                return None
+
+        gate = threading.Event()
+        # Hold the queue with a slow write first, then the one the run needs.
+        state_writes.start(CallableWorker(lambda: gate.wait(5)))
+        state_writes.save_state(store, "ui:root_modes", "changed")
+        releaser = threading.Timer(0.3, gate.set)
+        releaser.start()
+        IndexWorker(Pipeline()).run()
+        releaser.join()
+        assert seen["mode"] == "changed", (
+            "the run started before the setting saved just before it had landed"
+        )
+    finally:
+        state_writes.pool().waitForDone(5_000)
+        store.close()

@@ -42,7 +42,7 @@ from typing import Any
 from app.core.logging import logger
 from app.ui.workers import CallableWorker, run
 
-__all__ = ["pool", "save_state", "save_states", "start"]
+__all__ = ["pool", "save_state", "save_states", "settle_before_run", "start"]
 
 _log = logger.bind(component="ui.state_writes")
 
@@ -115,3 +115,17 @@ def save_state(store: Any, key: str, value: str, *, component: str = "ui.state",
         return None
     worker = CallableWorker(store.set_state, key, value, component=component)
     return start(worker, owner=owner, on_saved=on_saved, on_failed=on_failed)
+
+
+def settle_before_run(timeout_ms: int) -> bool:
+    """Wait, bounded, for every queued write. **Only ever off the UI thread.**
+
+    Its one caller is `IndexWorker.run`, on the index run's own thread: a
+    setting changed a moment before Start must be on disk before the run reads
+    it (the archive modes and cloud-content folders are read by the run
+    itself). On the UI thread this would be the very freeze this module
+    exists to remove - `test_ui_never_blocks` allows the wait here and pins
+    the caller. Returns False when the ceiling was reached; the run then
+    reads whatever is committed, as it always did.
+    """
+    return bool(pool().waitForDone(timeout_ms))
