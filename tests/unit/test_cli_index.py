@@ -338,3 +338,67 @@ def test_the_count_reaches_the_json_summary_too(
 
     assert payload["name_only"] == 1
     assert payload["name_only_by_ext"] == {"mp4": 1}
+
+
+# ---------------------------------------------------------------------------
+# Work order 0w §2d: the run's log, printed as it arrives
+# ---------------------------------------------------------------------------
+
+def test_the_command_line_prints_the_runs_log_with_times(
+        capsys, env: list[str], corpus: Path) -> None:
+    """The same entries and words as the Indexing page's log, each with its
+    time, in the order they happened, and nothing a legacy console chokes on."""
+    import re
+
+    from app.ui.presenter.activity import READING_WORDS
+    from app.ui.presenter.indexing import PHASE_WORDS
+
+    code, out, _err = run(capsys, *env, "index", str(corpus))
+    assert code == 0
+    logged = [line for line in out.splitlines()
+              if re.match(r"^\d\d:\d\d:\d\d  ", line)]
+    words = [line[10:] for line in logged]
+    assert words[0] == PHASE_WORDS["model"].replace("…", "...")
+    assert READING_WORDS.replace("…", "...") in words
+    assert words.index(READING_WORDS.replace("…", "...")) < words.index(
+        PHASE_WORDS["word_index"].replace("…", "..."))
+    assert words[-1] == "Finished."
+    assert all(line.isascii() for line in logged)
+    # Printed before the summary, not after it.
+    assert out.index("Finished.") < out.index("Indexed")
+
+
+def test_the_log_is_not_printed_when_asked_for_quiet_or_json(
+        capsys, env: list[str], corpus: Path) -> None:
+    _code, quiet, _ = run(capsys, *env, "index", str(corpus), "--quiet")
+    assert "Finished." not in quiet
+    _code, as_json, _ = run(capsys, *env, "--json", "index", str(corpus))
+    json.loads(as_json)                          # still nothing but the JSON
+
+
+def test_each_entry_is_printed_once_with_its_recorded_time(capsys) -> None:
+    """Printed at the next tick, with the time it was recorded - not the time
+    it was printed - and never twice."""
+    import time as _time
+
+    from app.cli._progress import ProgressLine
+    from app.cli.index import _ActivityPrinter
+    from app.index.pipeline import IndexStats
+    from app.ui.presenter.activity import clock_time
+
+    say = _ActivityPrinter(ProgressLine(enabled=False))
+    stats = IndexStats()
+    earlier = _time.mktime((2026, 9, 27, 8, 15, 0, 0, 0, -1))
+    stats.activity.record("phase", "model", at=earlier)
+    say(stats)
+    say(stats)
+    stats.add_notice("40GB free on the index drive – worth freeing space…")
+    say(stats.snapshot())
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "08:15:00  Getting the search model ready..."
+    assert out[1] == (f"{clock_time(stats.notice_times[0])}  40GB free on the "
+                      "index drive - worth freeing space...")
+    assert len(out) == 2
+
+    say(IndexStats())                            # a new run starts afresh
+    assert capsys.readouterr().out == ""        # ...and has nothing to say yet
