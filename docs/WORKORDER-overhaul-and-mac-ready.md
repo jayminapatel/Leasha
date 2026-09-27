@@ -330,6 +330,23 @@ label, and gets its own pytest-qt scenario.
 - [x] **9g** Settings and Indexing category names shown in full
 - [x] **9h** Timeline controls wrap instead of being cut off or overlapping (`widgets/flow_layout.py`)
 - [x] **9i** Chat's Fast/Thoughtful box no longer stretches across the pane
+- [x] **9j** Indexing › Status says "N documents ready to search." before any run when the index has
+      documents - the Search page's own sentence, no new text
+- [x] **9k** Suggested searches wrap whole instead of being cut mid-text (`FlowLayout` `centred`; the page
+      sizes the box itself, since Qt's height-for-width cost about 1 ms on every resize)
+- [x] **9l** Reports names no longer carry a blank indent (key under `UserRole`, `timeline_host.REPORT_KEY`);
+      the Recent activity card keeps the style's margins
+- [x] **9m** Files and Mail open with their Name/From columns at their own width: a fit over an empty
+      table no longer uses up the table's one fit while no widths are saved; saved widths behave exactly
+      as before, pinned by a test that passes both before and after
+
+> **2026-09-27 (later): four of the review's proposed items built**, each with a scenario in
+> `test_ui_review_0x9.py` that fails before its fix. One consequence to settle on Windows:
+> `test_grab_ui.py`'s `search-home` golden at 1024x600 now drifts past its tolerance in the Linux
+> sandbox (14 against 12), because the sandbox's wider font makes the pills wrap there - the fix
+> working. The goldens were captured on the Windows venv, where the pills should stay on one line at
+> that width **(UNCONFIRMED)**. Run it there; regenerate the three `search-home` goldens only if it
+> drifts on Windows too. Not regenerated from Linux.
 
 ## 10. Close-out
 

@@ -26,6 +26,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - The timeline's months and dates wrap onto a second line instead of disappearing or overlapping, and
   Settings shows every category name in full.
 - Closing the window while a search or a `/` suggestion was still loading could crash Leasha. Fixed.
+- The Indexing page no longer says "Nothing indexed yet." above a count of your documents.
+- The suggested searches wrap onto a second line on a narrow window instead of being cut in half.
+- Files and Mail open with the name and sender columns wide enough to read, until you set your own.
 
 ### Indexing can run in its own process (off for now)
 
