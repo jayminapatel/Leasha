@@ -39,6 +39,7 @@ from app.ui.presenter import (
     code_summary, repo_empty_state, repo_file_rows, repo_root_for, with_date_problems,
 )
 from app.ui.widgets.repo_health_note import RepoHealthNote
+from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button
 from app.ui.widgets.code_commands import (
     CODE_CATALOGUE, code_command_for, code_matching, git_values,
@@ -47,7 +48,7 @@ from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.git_tree import (
     GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
-    paint_repo_state, start_git_search,
+    git_search_running, paint_repo_state, start_git_search, stop_git_search,
 )
 from app.ui.workers import CallableWorker, run, stop_timers
 
@@ -130,6 +131,9 @@ class CodeView(QWidget):
         self.results.open_requested.connect(self.open_requested)
         self.results.reveal_requested.connect(self.reveal_requested)
         self.results.search_repo_requested.connect(self.search_repo_requested)
+        # Order 0y §1c: the row menu's "Ignore this repository".
+        self.results.ignore_repo_requested.connect(
+            lambda name: ignore_repository(self, name))
         self.results.view_menu_requested.connect(
             lambda at: self.view_button.show_menu(at))
         self.preview = self.results.preview        # re-exposed for callers
@@ -255,7 +259,12 @@ class CodeView(QWidget):
         self._typed()
 
     def start(self) -> None:
-        """Enter: run whatever the line asks for, including the slow one."""
+        """Enter: run whatever the line asks for, including the slow one.
+
+        While a history search runs the same button reads Stop (order 0y §1b).
+        """
+        if stop_git_search(self):
+            return
         route = code_route(self.input.text())
         if route.engine == "git":
             start_git_search(self, route)
@@ -285,6 +294,7 @@ class CodeView(QWidget):
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""
         if generation == self._generation:
+            git_search_running(self, False)
             draw_git_result(self, found)
 
     def _show_state(self) -> None:
