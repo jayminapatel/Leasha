@@ -168,7 +168,16 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 5. Indexing speed, measured one change at a time
 
-- [ ] **5a** A repeatable benchmark: a synthetic corpus with a large mbox, a zip with
+> **2026-09-27, 5a built:** `app.cli bench-pipeline` (`app/index/synthetic_corpus.py`,
+> `app/index/pipeline_bench.py`): a seeded, byte-identical corpus on every platform, the real
+> pipeline into a throwaway data folder, and a report that carries its conditions (corpus digest,
+> REAL/FAKE embedder, machine, commit). `--probe` is 2d's instrument: the lag monitor's own heartbeat
+> on the main thread while the pipeline runs on a worker. First figures, **Linux sandbox, fake
+> embedder, not representative**: medium corpus (3,002 files, 13,900 documents) 115 s, 1,563
+> files/min; heartbeat p99 4-6 ms, worst 46-120 ms, no stalls. With the model out, the SQLite
+> write stage is 87-96% of the run and grows faster than the corpus (about 4 ms a document small,
+> 7 ms medium) - the first lead for 5d, not yet diagnosed.
+- [x] **5a** A repeatable benchmark: a synthetic corpus with a large mbox, a zip with
       hundreds of members, and ordinary documents; figures recorded per stage.
 - [ ] **5b** Reading across several processes where reading is CPU-bound, feeding one
       writer. Lands only with a measured gain.
