@@ -416,3 +416,22 @@ def test_every_pill_state_has_a_dot_colour_from_the_theme() -> None:
     assert states["Up to date"].tone == "done"
     assert states["Needs attention"].tone == "failed"
     assert states["Paused"].tone == states["Stopped"].tone == "held"
+
+
+def test_switching_the_theme_redraws_the_button_icons_on_the_real_window(shown) -> None:
+    """Icons are pictures: without a redraw, the dark theme's lavender primary
+    ink would stay on the light theme's navy "Start indexing"."""
+    app, window = shown
+    button = window.indexing_view.start_button
+    before = window._theme_preference
+    try:
+        window._theme_preference = "light"
+        window._apply_theme()
+        light = button.property("buttonPainted")
+        window._theme_preference = "dark"
+        window._apply_theme()
+        assert button.property("buttonPainted") != light
+        assert theme.PALETTES["dark"]["accent_on"] in button.property("buttonPainted")
+    finally:
+        window._theme_preference = before
+        window._apply_theme()
