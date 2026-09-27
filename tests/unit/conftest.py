@@ -173,7 +173,16 @@ def no_leaked_widgets():
     from PyQt6.QtWidgets import QApplication
 
     app = QApplication.instance()
-    before = set() if app is None else {id(w) for w in QApplication.topLevelWidgets()}
+    # **The widgets, kept alive, not just their ids.** A widget Qt owns but
+    # Python holds no reference to (a leaked menu, an earlier test's window)
+    # gets a brand-new wrapper object from every `topLevelWidgets()` call. A
+    # set of ids let those wrappers be freed at once, and the widgets this
+    # test then built were given the same memory - the same ids - so they
+    # looked as if they had been there before and were never deleted. That
+    # only happens in a long run with such widgets about, which is why
+    # `test_worker_signal_owner.py` failed in the full suite and passed alone.
+    # Holding each wrapper in the dict keeps its id taken until the sweep.
+    before = {} if app is None else {id(w): w for w in QApplication.topLevelWidgets()}
     yield
     if app is None:
         return
