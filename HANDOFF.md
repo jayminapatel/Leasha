@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.11 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.12 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -79,6 +79,17 @@ Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on
 - **Never run `scripts/regen_vs_project.py` mid-merge without the fix now in it**: with conflicts
   unresolved, `git ls-files` lists a path once per stage, which is how three docs came to be listed
   three times each. It now de-duplicates.
+- **`SqliteStore.close()` used to crash the process if a reader was mid-query on another thread**
+  (a native -11 / 0xC0000005 with no traceback; the write lock covered writers, not readers).
+  Connections are now `_GuardedConnection`: every call into SQLite is counted, and `close()` retires,
+  `interrupt()`s, waits (5 s cap) and only then closes. A cut-short reader gets "was closed while a
+  worker was using it", which workers treat as shutdown. Pinned by `test_close_during_read.py` (child
+  process). **Trap:** never reach SQLite except through the store's connection and cursor methods - a
+  raw `sqlite3.Cursor(conn)` bypasses the count and brings the crash back. Cost: about 2 us more per tiny
+  query and 0.7 us per row when iterating a cursor; `fetchall` and `executemany` unchanged.
+- **Theme (0x §9):** `radius_pill` is 11 px, not 999 (Qt draws no rounding past half a widget's
+  height); new token `accent_on`; `text_faint` darkened in light and lightened in dark to reach WCAG AA
+  (old values noted beside the new); new `widgets/flow_layout.py`.
 - **Any new "have we seen this file" set must use `osbridge.path_key`, never `.lower()`** (0x §7).
   The walker and the prune pass share one set; mixing keys drops or duplicates files on a
   case-sensitive disk. On Windows `path_key` is `str.lower()` byte for byte.
@@ -144,6 +155,16 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       reading …", the next open shows the interrupted notice, and Start carries on. Close the window
       mid-run: no Leasha process remains. Then `app.cli bench-pipeline --probe --size medium`, with
       and without `--child-process`, on the real machine - that settles whether it becomes the default.
+- [ ] **UI review fixes (0x §9).** At 125%, shrink the window to about 600 px tall: the rail shows icons
+      only. Light theme: the chosen rail icon is navy; dark: the Open button's text is dark on lavender.
+      Chips have round ends. Settings shows "Storage & maintenance" in full. Reports › Browse your
+      timeline at about 800 px wide wraps its months. `text_faint` still reads quieter than `text_dim`.
+      **Two answers wanted:** are unticked checkboxes visible in Settings › Appearance on Windows 11?
+      And does Indexing › Status ever say "Nothing indexed yet." with documents present on the real
+      index? Each decides a proposed fix.
+- [ ] **Close while a search is loading.** During a large index, open the `/` popup, keep typing and
+      close the window: a clean exit, nothing in `crash.log`. The log's `shutdown: sqlite store closed`
+      stays well under a second.
 - [ ] **Where it is inside an archive.** Index a real `.pst` (libpff) and a large `.mbox`: the page
       shows the folder and "message n of m" (for a PST, n of m within the folder), one line per
       reader, and "last activity" keeps moving. Check folder names read naturally ("Inbox/...", not

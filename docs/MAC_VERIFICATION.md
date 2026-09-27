@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.6 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -140,6 +140,16 @@ it, or write what happened underneath with the date. Anything marked
 - [ ] **9.3** A folder on an exFAT or FAT32 USB drive: `case_sensitive` prints `False`.
 - [ ] **9.4** Index a git repository and search a term from its history: the result's path reads
       `/Users/.../repo/src/file.py` with no backslashes, and Open and Show in Finder work.
+
+## 10. Look and feel (order 0x §9)
+
+- [ ] **10.1** Shrink the window to its minimum height: the rail shows icons only, no label is cut, and
+      the arrow keys still move between pages. **(UNCONFIRMED on macOS)**
+- [ ] **10.2** Reports › Browse your timeline at the narrowest window: months wrap, date boxes do not
+      overlap, report names are shown in full.
+- [ ] **10.3** Settings: every category name is shown in full in SF Pro, with no sideways scrollbar.
+- [ ] **10.4** Suggested searches and filter chips have rounded ends in the macOS style.
+- [ ] **10.5** Unticked checkboxes are visible in Settings › Appearance with the native macOS style.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 
