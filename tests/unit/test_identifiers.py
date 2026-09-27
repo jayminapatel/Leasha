@@ -138,7 +138,7 @@ def _symbol_tokens_before_5d(text: str, *, limit: int = 4_000) -> str:
 # Letters of both cases, digits, the punctuation that separates words, and some
 # non-ASCII letters (which `_WORD` does not count as letters) - the characters
 # where a scan that finds words differently would show it.
-_ALPHABET = "aAbBxXyYzZ09 1_.-'(\n\téÉßİıΣ中"
+_ALPHABET = "aAbBxXyYzZ09 1_.-'(\n\téÉßİıΣ中"  # noqa: RUF001 - deliberate look-alikes
 
 
 @given(st.text(alphabet=_ALPHABET, max_size=200),
