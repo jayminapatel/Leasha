@@ -160,6 +160,7 @@ def test_the_document_and_the_table_come_from_the_same_findings():
 pytest.importorskip("PyQt6.QtWidgets")
 
 from PyQt6.QtCore import QPoint, Qt  # noqa: E402
+from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 
 from app.ui.widgets.sortable_item import SORT_ROLE  # noqa: E402
 from app.ui.widgets.space_table import SpaceTables  # noqa: E402
@@ -276,7 +277,7 @@ def space_window(gui_mainwindow, qtbot):
     view._space_document = ""
     window.resize(1100, 700)
     window.show()
-    view.list.setCurrentRow([view.list.item(i).data(1) for i in range(view.list.count())]
+    view.list.setCurrentRow([view.list.item(i).data(REPORT_KEY) for i in range(view.list.count())]
                             .index("space"))
     window._show(view)
     view.refresh()                     # the tab switch does this too - explicit, so a

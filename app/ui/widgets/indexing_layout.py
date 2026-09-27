@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     finished_text, index_summary, part_read_rows, progress_for, progress_text,
-    unfinished_run_rows, when_text,
+    resting_headline, unfinished_run_rows, when_text,
 )
 from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
@@ -33,8 +33,8 @@ from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
 __all__ = [
-    "assemble_pages", "paint_finished", "paint_progress", "paint_run_panels",
-    "paint_totals", "repaint_totals",
+    "assemble_pages", "paint_finished", "paint_progress", "paint_resting_headline",
+    "paint_run_panels", "paint_totals", "repaint_totals",
 ]
 
 
@@ -58,6 +58,11 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     status_layout.setContentsMargins(0, 0, 0, 0)
     status_layout.setSpacing(8)
     status_layout.addWidget(view.headline)
+    # The words the view opened with, read off the label rather than copied,
+    # so `paint_totals` can tell "no run has been shown yet" without a flag
+    # the view would have to maintain (it is at its line guard). See
+    # `paint_resting_headline`.
+    view._starting_headline = view._resting_headline = view.headline.text()
     # 0x §4b: what the run is doing now, straight under the counts it explains.
     status_layout.addWidget(view.now_line)
     status_layout.addWidget(view.totals)
@@ -154,11 +159,42 @@ def paint_totals(view: Any, payload: dict) -> None:
         warned=payload.get("warned"),
     )
     view.stats_box.show_rows(rows)
+    paint_resting_headline(view, payload, running=running)
     stats = payload.get("stats") or {}
     try:
         view.totals_shown.emit(int(stats.get("files_total", 0) or 0))
     except (AttributeError, TypeError, ValueError):
         pass
+
+
+def paint_resting_headline(view: Any, payload: dict, *, running: bool) -> None:
+    """Make the headline agree with the counts, until a run takes it over.
+
+    Order 0x section 9, review finding 10: "Nothing indexed yet." stayed above
+    "Documents 17" whenever the page was opened with no run this session,
+    because only a run ever changed it. The words come from
+    `presenter.resting_headline`.
+
+    **Only a headline this module put there is replaced** - the view's
+    starting one, or the one this function last wrote. Anything a run, a
+    Stop, a failure or another process's run wrote is left alone: those say
+    something more specific than a count. Nothing changes while a run is going,
+    or when the read failed (a failed read is not evidence the index is empty,
+    and the stats panel already says it failed).
+    """
+    starting = getattr(view, "_starting_headline", None)
+    if starting is None or running or payload.get("error"):
+        return
+    try:
+        current = view.headline.text()
+    except RuntimeError:                         # the C++ side has gone
+        return
+    if current not in (starting, getattr(view, "_resting_headline", starting)):
+        return
+    text = resting_headline(payload.get("stats")) or starting
+    if text != current:
+        view.headline.setText(text)
+    view._resting_headline = text
 
 
 def repaint_totals(view: Any) -> None:

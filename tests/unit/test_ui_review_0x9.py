@@ -410,6 +410,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     controls overlap. A month is then chosen with the mouse, as a person
     would."""
     from PyQt6.QtCore import QRect
+    from app.ui.widgets.timeline_host import REPORT_KEY
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, *size)
     reports = window.reports_view
@@ -417,7 +418,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app, 4)
     names = reports.list
-    row = next(r for r in range(names.count()) if names.item(r).data(1) == "timeline")
+    row = next(r for r in range(names.count()) if names.item(r).data(REPORT_KEY) == "timeline")
     qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton,
                      pos=names.visualItemRect(names.item(row)).center())
     timeline = reports.timeline
@@ -503,3 +504,202 @@ def test_the_fast_or_thoughtful_box_stays_the_size_of_its_words(gui_mainwindow, 
     finally:
         chat.speed_changed.disconnect(chosen.append)
         window.rail.setCurrentIndex(0)
+
+
+# ---------------------------------------------------------------------------
+# Items the review proposed and did not build, built afterwards the same day.
+# ---------------------------------------------------------------------------
+
+def test_the_indexing_headline_agrees_with_the_document_count(gui_mainwindow, qtbot):
+    r"""**Before** (review finding 10): with no run this session, Indexing ›
+    Status read "Nothing indexed yet." directly above "Documents 17" - the
+    starting headline, which only a run ever replaced. Grab:
+    `after-final-1100x760/light/indexing-status.png`.
+
+    Now a mouse click on the rail's pill opens the page, its totals are read as
+    they always were, and the headline says the Search page's own sentence for
+    that count. A run's own headline is never overwritten by a later count."""
+    from tests.unit.conftest import GUI_DOCUMENTS
+    from app.ui.widgets.indexing_layout import paint_totals
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    view = window.indexing_view
+    count = len(GUI_DOCUMENTS)
+    try:
+        qtbot.mouseClick(window.rail.pill, Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert window.rail.tabText(window.rail.currentIndex()) == "Indexing"
+        qtbot.waitUntil(
+            lambda: view.headline.text() == f"{count:,} documents ready to search.",
+            timeout=4000)
+        assert "Nothing indexed yet" not in view.headline.text()
+
+        # Something a run said is more specific than a count, and stays.
+        view.headline.setText("Finished: 3 indexed, 0 skipped, 0 removed")
+        paint_totals(view, dict(view._totals_payload))
+        assert view.headline.text() == "Finished: 3 indexed, 0 skipped, 0 removed"
+    finally:
+        view.headline.setText(getattr(view, "_resting_headline", "Nothing indexed yet."))
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("size", [(1100, 760), (760, 560)])
+def test_the_suggested_searches_are_shown_whole_at_any_width(gui_mainwindow, qtbot, size):
+    r"""**Before** (review finding 14): at 760 wide the four suggested searches
+    under the empty box were squeezed into one row and cut in the middle -
+    "the pdf …e boiler", "photos fr… District". Grab:
+    `after-final-760x560/light/search-home.png`.
+
+    Now Escape empties the box, and every suggestion is at least as wide as
+    its own words, none overlaps another or runs off the page, and a click
+    on one still searches for it."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtWidgets import QWidget
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, *size)
+    view = window.search_view
+    try:
+        window.rail.setCurrentIndex(window.rail.indexOf(view))
+        view.input.setFocus()
+        qtbot.keyClicks(view.input, "leeds")
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 8)
+        pills = [w for w in view.findChildren(QWidget)
+                 if w.objectName() == "suggestion" and w.isVisible()]
+        assert len(pills) == 4, "the home page shows its four suggested searches"
+        cut = [f"{p.text()}: {p.width()} < {p.sizeHint().width()}"
+               for p in pills if p.width() < p.sizeHint().width()]
+        assert cut == [], size
+        page = QRect(view.mapToGlobal(view.rect().topLeft()), view.size())
+        boxes = [QRect(p.mapToGlobal(p.rect().topLeft()), p.size()) for p in pills]
+        assert all(page.contains(b) for b in boxes), size
+        assert not any(a.intersects(b) for i, a in enumerate(boxes) for b in boxes[i + 1:]), size
+
+        qtbot.mouseClick(pills[0], Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert view.input.text().strip() != ""
+    finally:
+        view.input.clear()
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
+        gui_mainwindow, qtbot, scheme):
+    r"""**Before** (review finding 13): each report name on Reports sat behind
+    a ~36px blank indent, because its key was stored as `setData(1, key)` and
+    role 1 is the item's *icon* - the list reserved an icon's width for a
+    string it could not draw. And on Settings › Storage & maintenance, the
+    "Recent activity" card's caption and log box ran hard against the card's
+    edge. Grabs: `after-final-1100x760/light/reports.png` and
+    `settings-storage.png`.
+
+    Now the Reports list is opened with the mouse, no entry carries an icon,
+    the first painted pixel of an unselected name is within a few pixels of the
+    row's left edge, and a click on "The Space Report" still opens it (the key
+    is read back from its new role). Then Settings is opened with Ctrl+, and
+    Storage & maintenance clicked: the card's caption and log box are inset
+    from its edge like every other card's contents."""
+    from PyQt6.QtGui import QColor
+    from app.ui.widgets.timeline_host import REPORT_KEY
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    reports = window.reports_view
+    with _Theme(window, scheme):
+        try:
+            button = next(b for b in window.rail._buttons.values() if b.text() == "Reports")
+            qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+            gui_pump(app, 4)
+            names = reports.list
+            assert REPORT_KEY == Qt.ItemDataRole.UserRole
+            assert all(names.item(r).data(Qt.ItemDataRole.DecorationRole) is None
+                       for r in range(names.count()))
+            names.setCurrentRow(0)
+            gui_pump(app, 4)
+            space = next(r for r in range(names.count())
+                         if names.item(r).data(REPORT_KEY) == "space")
+            rect = names.visualItemRect(names.item(space))
+            image = names.viewport().grab().toImage()
+            ground = image.pixelColor(rect.left() + 1, rect.top() + 1)
+
+            def differs(c: QColor) -> bool:
+                return max(abs(c.red() - ground.red()), abs(c.green() - ground.green()),
+                           abs(c.blue() - ground.blue())) > 60
+
+            first = next(x for x in range(rect.left(), rect.right())
+                         if any(differs(image.pixelColor(x, y))
+                                for y in range(rect.top(), rect.bottom())))
+            assert first - rect.left() <= 16, (scheme, first - rect.left())
+
+            qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+            gui_pump(app, 6)
+            assert reports._selected_key() == "space"
+
+            qtbot.keyClick(window, KEY.Key_Comma, Qt.KeyboardModifier.ControlModifier)
+            gui_pump(app, 6)
+            nav = window.settings_view._nav
+            sidebar = nav.sidebar
+            item = next(sidebar.item(r) for r in range(sidebar.count())
+                        if sidebar.item(r).text() == "Storage & maintenance")
+            qtbot.mouseClick(sidebar.viewport(), Qt.MouseButton.LeftButton,
+                             pos=sidebar.visualItemRect(item).center())
+            gui_pump(app, 6)
+            card = window.settings_view.debug_pane
+            assert card.isVisible()
+            caption = card.layout().itemAt(0).widget()
+            for inside in (caption, card.view):
+                assert inside.geometry().left() >= 6, (scheme, inside.geometry())
+                assert card.width() - inside.geometry().right() >= 6, (scheme, inside.geometry())
+        finally:
+            window.settings_view._nav.show_category("What's indexed", persist=False)
+            window.rail.setCurrentIndex(0)
+            gui_pump(app, 4)
+
+
+def test_files_opens_with_names_at_their_own_width_and_a_drag_is_still_the_one_kept(
+        gui_mainwindow, qtbot):
+    r"""**Before** (review finding 3): the Files table opened with every column
+    at its heading's width - Name 63px over names three times that, "12 Mar
+    ..." cut short - and Folder taking the rest, because the table's one fit
+    ran in `__init__`, before its rows existed. Grab:
+    `after-final-1100x760/light/files.png` (Mail the same, `mail.png`).
+
+    Now the Files page is opened with the mouse; with nothing saved, Name is
+    as wide as its names (up to the 40% cap) and **nothing was written** - the
+    fit is not a choice. Then a column dragged the way a person does is the
+    width that is saved, as always."""
+    from app.ui.view_options import _available_width, column_cap
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    files = window.files_view
+    table = files.results
+    try:
+        button = next(b for b in window.rail._buttons.values() if b.text() == "Files")
+        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: table.rowCount() > 0, timeout=4000)
+        gui_pump(app, 6)
+        assert dict(files.view_button.prefs.widths) == {}, "nothing saved going in"
+        content = table.sizeHintForColumn(0)
+        cap = column_cap(_available_width(table))
+        heading = table.horizontalHeader().sectionSizeHint(0)
+        assert content > heading, "the fixture's names are wider than 'Name'"
+        assert table.columnWidth(0) >= min(content, cap) - 1, (
+            table.columnWidth(0), content, cap)
+
+        qtbot.wait(1400)                         # two of the watcher's looks
+        assert dict(files.view_button.prefs.widths) == {}, (
+            "a fitted width was saved as though somebody had dragged it")
+
+        table.horizontalHeader().resizeSection(0, 222)
+        qtbot.waitUntil(lambda: dict(files.view_button.prefs.widths).get("name") == 222,
+                        timeout=4000)
+    finally:
+        files.view_button.refit()
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)
