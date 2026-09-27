@@ -200,6 +200,9 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         dedup_chunks=settings.embed_dedup,
         two_phase=settings.index_two_phase,
         bulk_fts=settings.index_bulk_fts,
+        # 0x §5b: "Read files in separate processes". The window's child
+        # indexer runs through here too, so it honours the same switch.
+        read_processes=bool(getattr(settings, "index_read_processes", False)),
         caption_trickle_enabled=settings.caption_trickle_enabled,
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,

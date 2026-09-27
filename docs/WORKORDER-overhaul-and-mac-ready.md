@@ -1,6 +1,6 @@
 # Work order (One thread): a window that never waits, an indexer that shows its work, and code that is ready for a Mac
 
-**Doc version:** 1.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread, run as a master thread that coordinates helper threads (each in
 its own git worktree) and merges their work
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build all of it.
@@ -248,7 +248,24 @@ The design was agreed in conversation first. The owner confirmed every recommend
 > state and in-process test fakes are per process, so it needs its own careful change, off by default.
 > **5c** not landed: no model here to prove vectors identical; padding is an estimated 32-35% of the
 > model's work and grouping by length would cut about 27-30%.
-- [ ] **5b** Reading across several processes where reading is CPU-bound, feeding one
+> **2026-09-27, 5b built and measured; landed behind a switch, off by default.**
+> `app/index/read_process.py`: each extraction thread gets one reader process, started with the
+> thread and kept for the run (`python -m app.index.read_process`, an argument list, the window's own
+> interpreter). Files go to it one at a time and the documents come back **one at a time, as they are
+> read** - nothing is buffered whole, and a full pipe holds the child back exactly as the bounded
+> queue holds a thread back. Only readers that are pure file parsing move (`PROCESS_READERS`: text,
+> Office Open XML, ODF, RTF, `.eml`/`.msg`/`.mbox`/`.emlx`/`.olm`, EPUB, FB2); OCR, PDF, zip, PST,
+> LibreOffice and media stay on the thread, where their process-wide state lives. Inner progress
+> still shows (the child sends its frame stack four times a second); a reader that dies costs one
+> file (`ERR_READER_PROCESS_ENDED`) and a fresh child reads the next. The setting is "Read files in
+> separate processes" (`INDEX_READ_PROCESSES`, Indexing › Tuning), plus `bench-pipeline
+> --read-processes`. **Measured**, Linux sandbox (4 CPUs), fake embedder, `--full-speed`, three runs
+> each way interleaved: small 12.8 s -> 6.6 s (-49%), medium 63.4 s -> 34.8 s (-45%, 2,840 -> 5,180
+> files/min); identical documents, passages and vectors both times; one reader process peaked at
+> 40 MB over the whole medium corpus. **Off by default** until the owner's Windows run (HANDOFF
+> checklist): Windows starts processes more slowly than Linux, and the real model changes the
+> balance. `tests/unit/test_read_process.py` pins same-answer, crash, abandon and end-to-end.
+- [x] **5b** Reading across several processes where reading is CPU-bound, feeding one
       writer. Lands only with a measured gain.
 - [ ] **5c** Embedding: group texts of similar length in a batch so less padding is wasted.
       Lands only with a measured gain and identical vectors.

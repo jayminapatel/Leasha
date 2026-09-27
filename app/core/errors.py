@@ -502,6 +502,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # Work order 0x §5b. One file's reader ran in a process of its own
+    # (`app/index/read_process.py`) and that process ended before the file was
+    # finished - a native fault in a reader library on a damaged file, most
+    # likely. It costs this file only: the run carries on with a fresh reader.
+    # Settled like any other skip, so it is not re-read every run while the
+    # file stays the same; a changed file is read again.
+    "ERR_READER_PROCESS_ENDED": _Spec(
+        message="Reading '{path}' stopped unexpectedly, so it was skipped.",
+        suggestion=(
+            "Everything else carried on and is indexed. The file may be damaged: "
+            "try opening it in its usual program. If it opens and has changed, "
+            "the next run reads it again."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # Offline Media catalogues a *volume*, whose identity is the drive's own
     # GUID (or a share's UNC name) - a folder has neither, and a drive letter is
     # never stored. Said in words, with the way out, instead of the
