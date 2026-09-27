@@ -20,7 +20,9 @@ from typing import Any
 
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-from app.ui.presenter import index_summary, unfinished_run_rows, when_text
+from app.ui.presenter import (
+    index_summary, part_read_rows, unfinished_run_rows, when_text,
+)
 from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.run_log import RunLog
@@ -99,6 +101,8 @@ def paint_totals(view: Any, payload: dict) -> None:
     running = getattr(view, "_worker", None) is not None or bool(
         getattr(view, "_external", None))
     rows = unfinished_run_rows(payload.get("unfinished"), running=running)
+    # 3c: then any archive a run stopped inside, kept apart from the damage row.
+    rows += part_read_rows(payload.get("part_read"), running=running)
     rows += index_summary(
         payload.get("stats"),
         payload.get("vectors"),

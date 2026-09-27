@@ -43,6 +43,7 @@ __all__ = [
     "ACTIVITY_LIMIT",
     "ActivityEntry",
     "ActivityLog",
+    "KIND_ARCHIVE",
     "KIND_FINISHED",
     "KIND_LARGE_FILE",
     "KIND_NOTICE",
@@ -72,6 +73,9 @@ KIND_WARNING = "warning"      # text: a plain sentence, already worded
 KIND_NOTICE = "notice"        # text: the notice, exactly as `IndexStats.notices` holds it
 KIND_STOPPING = "stopping"    # text: ""
 KIND_FINISHED = "finished"    # text: "" for a whole run, "stopped" for one that was not
+#: 0w 3b/3c. text: the archive's file name; detail: "resumed" (carrying on at
+#: the folder an earlier run reached) or "part_read" (this run stopped in it).
+KIND_ARCHIVE = "archive"
 
 #: **What counts as a large file**, and so earns a line of its own when a
 #: worker starts it. The point of the line is the one file that holds a worker

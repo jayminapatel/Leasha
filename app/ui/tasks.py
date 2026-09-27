@@ -520,9 +520,11 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
 
     # Work order `dates-live-log-and-interrupted-runs` 3a. Here, on the worker,
     # because it probes the run mutex as well as reading a row. Never raises.
-    from app.index.interrupted import read_unfinished_run
+    from app.index.interrupted import read_part_read_archives, read_unfinished_run
 
     payload["unfinished"] = read_unfinished_run(store)
+    # 3c: archives a run stopped inside. Stats each one, so on the worker too.
+    payload["part_read"] = read_part_read_archives(store)
 
     if settings is None:
         return payload

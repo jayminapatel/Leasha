@@ -31,7 +31,13 @@ from typing import Any, Optional
 
 from app.core.logging import logger
 
-__all__ = ["read_unfinished_run"]
+__all__ = ["ARCHIVE_RESUME_PREFIX", "read_part_read_archives", "read_unfinished_run"]
+
+#: `index_state` key prefix of an archive's folder cursor (0w 3b), written by
+#: `Pipeline._persist_resume_progress` and read here for 3c. Declared here,
+#: and imported by the pipeline, so the Indexing page's worker never has to
+#: import the pipeline to know what to look for.
+ARCHIVE_RESUME_PREFIX = "resume:archive:"
 
 _log = logger.bind(component="index.interrupted")
 
@@ -109,3 +115,40 @@ def read_unfinished_run(store: Any, *, lock_dir: Any = None) -> Optional[dict[st
         if total > seen:
             found["not_reached"] = total - seen
     return found
+
+
+def read_part_read_archives(store: Any) -> list[dict[str, Any]]:
+    """Mail archives a run stopped inside, which the next run carries on with.
+
+    Work order `dates-live-log-and-interrupted-runs` 3c. **Interruption, not
+    damage** - the "Mail archives partly read" row is damage, and is a
+    different fact from a different record (`warned_by_code`). This one is the
+    folder cursor an archive keeps until it has been read to the end
+    (`ARCHIVE_RESUME_PREFIX`): present means "not finished yet", and the
+    archive's completion marker is what removes it.
+
+    `[{"path", "name"}]`, sorted by path. An archive that is no longer on disk
+    is left out: nothing will ever carry on with it, and its cursor is simply
+    an orphan (a reset clears it). Never raises.
+    """
+    import json
+    import os
+
+    try:
+        state = store.all_state()
+    except Exception as exc:                     # noqa: BLE001 - one row, never the page
+        _log.debug("could not read the archive cursors: {}", exc)
+        return []
+
+    found: list[dict[str, Any]] = []
+    for key, raw in state.items():
+        if not str(key).startswith(ARCHIVE_RESUME_PREFIX):
+            continue
+        try:
+            path = str(json.loads(raw).get("path") or "")
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if not path or not os.path.exists(path):
+            continue
+        found.append({"path": path, "name": os.path.basename(path) or path})
+    return sorted(found, key=lambda entry: entry["path"].lower())
