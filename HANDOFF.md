@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.5 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -90,6 +90,38 @@ numbers from a real run (the owner-run step further down this section). What is 
 **Not verified on the owner's machine:** none of this has run on Windows with real data. Worth one
 real run: switch pages during a large index, type "mail from 2017", watch the bar and the log
 through a full run, then end Leasha from Task Manager mid-archive and relaunch.
+
+**Owner testing to do later (on Windows, with the real index).** Deferred by the owner
+2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated
+note under it. Everything above passed offscreen tests in a Linux sandbox and the Windows CI.
+None of it has met a real display, real data, a real PST or Outlook.
+
+- [ ] **Page switch while indexing.** Start a large index and click round every page on the
+      rail. No freeze. Afterwards, read the log's `shutdown: window responsiveness this session`
+      line (beats, p50/p99/worst, stalls) and any `unresponsive for N ms` lines. Record them here:
+      they are also the measurement general jerkiness (item 3b of the feedback) is waiting for.
+- [ ] **Settings survive a quick Start.** Change an archive mode or cloud folder, press Start
+      at once, and check the run used the new setting.
+- [ ] **"mail from 2017".** The Search tab shows mail only, sent in 2017, newest first, with
+      removable chips. Remove a chip and the words come back as search terms. Try "invoice 2017"
+      too: 2017 should stay a search word.
+- [ ] **Schema v27 on the real index.** First open after updating: note how long the backfill
+      took (logged) and that Outlook mail now shows its sent date.
+- [ ] **Dates in every box.** `date:2017-03..2017-06`, `date:..2017`,
+      `after:2017-03-01T10:00` and `/date` in Search, Files, Mail, Code and the mini-search. Then
+      a bad one, `date:2017-13`, which should say what is wrong. On the Mail tab, check
+      `before:2024` now includes 31 December.
+- [ ] **The progress bar and the live log through a whole run.** The bar visibly animates
+      during warm-up, planning and tidying (there was once a "frozen full bar"). "What the run is
+      doing" has a time on every line, stays put when scrolled up, and follows at the bottom.
+      Check it at 125% display scaling.
+- [ ] **An interrupted run.** End Leasha from Task Manager part-way through a large `.pst` and
+      relaunch. The Indexing page should say the last run did not finish, and list the archive as
+      not finished. Start again: that archive carries on from its folder (libpff), and the final
+      message count equals an uninterrupted run. Repeat once with a pulled plug if you can.
+- [ ] **A normal Stop or Pause is not reported as "did not finish".**
+- [ ] **`app.cli index` and `app.cli stats`** print the timestamped lines and the
+      did-not-finish note in the Windows console, with no stray characters.
 
 **2026-09-27 - the branches were folded back into main; two fixes had been left behind.**
 Every `claude/*` branch on origin was checked against `main` by patch, not by hash (a
