@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from app.core.logging import logger
+from app.core.osbridge.priority import lower_process_priority
 
 __all__ = [
     "ResourceLimits",
@@ -451,15 +452,11 @@ class SystemProbe:
         if psutil is None:
             return False
         try:
-            process = psutil.Process()
-            if hasattr(psutil, "BELOW_NORMAL_PRIORITY_CLASS"):
-                process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-                try:
-                    process.ionice(psutil.IOPRIO_LOW)
-                except Exception:               # noqa: BLE001 - not on every Windows build
-                    pass
-            else:
-                process.nice(10)                # POSIX
+            # The per-system part (Windows' priority class and low disk
+            # priority, or the Unix "nice" number) now lives with the other
+            # operating-system code in `app.core.osbridge` (work order 0x §1b).
+            # Same calls in the same order; a failure still lands here.
+            lower_process_priority(psutil)
             return True
         except Exception as exc:                # noqa: BLE001
             log.debug("could not lower process priority: {}", exc)

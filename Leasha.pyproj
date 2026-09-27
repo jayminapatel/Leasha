@@ -48,6 +48,7 @@
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />
     <Folder Include="app\core" />
+    <Folder Include="app\core\osbridge" />
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
@@ -152,6 +153,13 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\osbridge\__init__.py" />
+    <Compile Include="app\core\osbridge\_platform.py" />
+    <Compile Include="app\core\osbridge\cloudfs.py" />
+    <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\paths.py" />
+    <Compile Include="app\core\osbridge\priority.py" />
+    <Compile Include="app\core\osbridge\programs.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
@@ -677,6 +685,8 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_osbridge.py" />
+    <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
