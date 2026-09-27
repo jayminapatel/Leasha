@@ -350,7 +350,7 @@ label, and gets its own pytest-qt scenario.
 
 ## 10. Close-out
 
-- [ ] **10a** `LOCAL_KNOWLEDGE_GRAPH_V2.md`: the indexer process and the osbridge package
+- [x] **10a** `LOCAL_KNOWLEDGE_GRAPH_V2.md`: the indexer process and the osbridge package
       described for a beginner.
 - [ ] **10b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` brought up to date.
 - [ ] **10c** `docs/MAC_VERIFICATION.md` complete and ordered for a first session on a Mac.
