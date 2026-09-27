@@ -43,6 +43,7 @@ from typing import Any, Optional
 
 from PyQt6.QtWidgets import QWidget
 
+from app.ui.widgets.buttons import refresh_icon
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.indexing_headline import show_now
 
@@ -108,6 +109,12 @@ class IndexControls(QWidget):
                  self.scan_button, self.reset_button)
         for first, second in zip(order, order[1:]):
             QWidget.setTabOrder(first, second)
+        #: The buttons left to right, as the row reads. **The one place this
+        #: order is written down**: the page's layout reads it from here when
+        #: it slots the run log in before the row. It used to keep its own
+        #: copy, and when the row was reordered (Start, Pause, Stop - 3ddb128)
+        #: the copy still said Start, Scan, Stop, Pause and overrode this.
+        self.in_order = order
 
         #: Whether *this person* has the run held. Not the same question as
         #: `stats.paused`, which is true for the governor's pause as well.
@@ -121,6 +128,7 @@ class IndexControls(QWidget):
         self.stop_button.setEnabled(True)
         self.paused = False
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
         self.pause_button.setEnabled(True)
 
     def show_stopping(self) -> None:
@@ -134,6 +142,7 @@ class IndexControls(QWidget):
         self.paused = False
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
 
     def show_idle(self) -> None:
         """No run: Start is live again, Stop and Pause are not."""
@@ -142,11 +151,14 @@ class IndexControls(QWidget):
         self.stop_button.setEnabled(False)
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
 
     def show_held(self, held: bool) -> None:
         """Pause was pressed (`held`) or Resume was: flip the one button's word."""
         self.paused = bool(held)
         self.pause_button.setText(RESUME_LABEL if held else PAUSE_LABEL)
+        # Resume shows the play icon, Pause the pause one (buttons.py's table).
+        refresh_icon(self.pause_button)
 
 
 # -- what pressing Pause and Resume does -------------------------------------

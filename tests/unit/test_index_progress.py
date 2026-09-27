@@ -147,7 +147,22 @@ def test_the_button_says_stop_because_that_is_what_it_does():
     people stop trusting."""
     text = source()
     assert 'QPushButton("Stop")' in text
-    assert 'QPushButton("Pause")' not in text
+    # 2026-09-27 note: this used to assert that no button says "Pause" at all.
+    # Since 2026-09-20 there is a real Pause - it holds the run and Resume
+    # carries on - and 3ddb128 built it beside Stop in `index_controls.py`, so
+    # that assertion began failing on a correct button. What this test guards
+    # is unchanged: the button that *ends* the run says Stop, and a button that
+    # says Pause is one that pauses. Checked from the wiring, not the word count.
+    import re
+
+    def wired_to(label: str) -> str:
+        name = re.search(r'(\w+) = QPushButton\("' + label + r'"\)', text).group(1)
+        return re.search(name + r"\.clicked\.connect\(lambda _c=False: (\w+)\(\)\)",
+                         text).group(1)
+
+    assert wired_to("Stop") == "on_stop"
+    if 'QPushButton("Pause")' in text:
+        assert wired_to("Pause") == "on_pause"
 
 
 def test_stopping_keeps_saying_what_it_is_doing():

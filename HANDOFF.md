@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.13 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.15 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -94,6 +94,15 @@ Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on
 - **Theme (0x §9):** `radius_pill` is 11 px, not 999 (Qt draws no rounding past half a widget's
   height); new token `accent_on`; `text_faint` darkened in light and lightened in dark to reach WCAG AA
   (old values noted beside the new); new `widgets/flow_layout.py`.
+- **Button system (2026-09-27):** every action button goes through `widgets/buttons.py`; `BUTTONS`
+  holds each button's words, icon and kind (primary, secondary, danger); `theme.BUTTON` sizes give 28 px
+  buttons. A new QPushButton needs a table entry or `test_button_system` goes red; flat buttons and
+  `buttonSystem="exempt"` are skipped. The Indexing pill is an icon, a status dot (`PillState.tone`) and
+  one word; the count is in its tooltip.
+- **Schema v28 (0x 5d):** `chunks_au` fires only on `UPDATE OF text, symbols`. During a run the
+  writing thread's connection holds up to 256 MB of page cache (a quarter of the file) and gives it back
+  at the end. Documents are written in groups of up to 256 / 0.1 s, always committed before a resume
+  cursor. A new migration must be numbered after 28.
 - **Any new "have we seen this file" set must use `osbridge.path_key`, never `.lower()`** (0x §7).
   The walker and the prune pass share one set; mixing keys drops or duplicates files on a
   case-sensitive disk. On Windows `path_key` is `str.lower()` byte for byte.
@@ -170,6 +179,17 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       drifts on `search-home` at 1024x600 in the Linux sandbox because the pills now wrap there (wider
       font). If it passes on Windows, nothing to do; if it drifts there too, look at the grab and, if it
       is right, regenerate the three `search-home` goldens with `tools/grab_ui.py`.
+- [ ] **Indexing speed (0x 5d) and schema v28.** Open the real index once with the new build:
+      `schema_version` reads 28 and search still works. Then, alternating `ea8ce87` and this build, 3
+      runs each: `venv\Scripts\python.exe -m app.cli bench-pipeline --size medium --corpus
+      D:\LeashaBench\medium --embedder real --full-speed --out D:\LeashaBench\<commit>-N.json`.
+- [ ] **Maximised stays maximised.** Maximise, close to the tray, bring it back: still maximised. Quit
+      fully while maximised and start again: opens maximised.
+- [ ] **Buttons and the pill.** Look round every page, light and dark, at 100% and 125%: buttons their
+      own width with icons, one height; Start filled, Reset and Clear logs red. The pill reads "Up to
+      date" on one line with Windows' font (it wraps on Linux). Then regenerate the 12 goldens in
+      `tests/golden/ui-redesign/` on Windows with `tools/grab_ui.py` - they drift by design (the pill and
+      the preview buttons); never regenerate them on Linux.
 - [ ] **Close while a search is loading.** During a large index, open the `/` popup, keep typing and
       close the window: a clean exit, nothing in `crash.log`. The log's `shutdown: sqlite store closed`
       stays well under a second.

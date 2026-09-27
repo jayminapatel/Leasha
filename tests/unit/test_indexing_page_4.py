@@ -532,9 +532,10 @@ def test_the_new_log_controls_are_labelled_for_a_screen_reader(qtbot) -> None:
 
 def test_tab_reaches_the_log_controls_before_the_buttons_below_them(qtbot) -> None:
     view = _view(qtbot, show=False)
+    # The row as it reads since 3ddb128: Start, Pause, Stop, Scan, Reset.
     chain = [view.run_log.filter, view.run_log.copy_button, view.run_log.view,
-             view.start_button, view.scan_button, view.stop_button,
-             view.pause_button, view.reset_button]
+             view.start_button, view.pause_button, view.stop_button,
+             view.scan_button, view.reset_button]
     for first, second in zip(chain, chain[1:]):
         assert _tab_after(first) is second, (type(first).__name__,
                                              type(second).__name__)

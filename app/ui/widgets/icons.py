@@ -56,6 +56,14 @@ ICON_NAMES = (
     "info", "x-circle", "copy", "sun-moon",
     # The Chat tab (order 202626270611).
     "message-square",
+    # The button system (widgets/buttons.py, owner 2026-09-27: every action
+    # button carries an icon). Lucide 1.48.0, same licence and stroke.
+    "folder-plus", "folder-minus", "list-checks", "list-x", "plus",
+    "rotate-ccw", "rotate-cw", "save", "arrow-right-left", "eraser",
+    "flask-conical", "gauge", "users", "brain", "stethoscope", "circle-check",
+    "package", "history", "pencil", "send", "globe", "check", "zoom-in",
+    "zoom-out", "move-horizontal", "printer", "chevron-up", "calendar",
+    "split", "file-down", "git-branch",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

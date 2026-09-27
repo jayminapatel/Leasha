@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.7 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.8 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -150,6 +150,13 @@ it, or write what happened underneath with the date. Anything marked
 - [ ] **10.3** Settings: every category name is shown in full in SF Pro, with no sideways scrollbar.
 - [ ] **10.4** Suggested searches and filter chips have rounded ends in the macOS style.
 - [ ] **10.5** Unticked checkboxes are visible in Settings › Appearance with the native macOS style.
+
+## 11. Buttons and the pill
+
+- [ ] **11.1** Every button shows its icon and its words on one line, the same height everywhere, in
+      light and dark, with SF Pro.
+- [ ] **11.2** The Indexing pill shows its icon, a coloured dot and "Up to date"; hovering shows the
+      file count; clicking it opens the Indexing page.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 

@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.search.saved import clean_name, suggest_name
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["ask_to_save", "SavedSearchesDialog"]
 
@@ -103,6 +104,9 @@ class SavedSearchesDialog(QDialog):
         layout.addLayout(buttons)
         self.list.itemSelectionChanged.connect(self._sync)
         self.reload()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def reload(self) -> None:
         """Redraw from what `SavedSearches` currently holds."""

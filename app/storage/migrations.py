@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 27
+CURRENT_VERSION = 28
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -354,7 +354,9 @@ CONTENT_TRIGGERS: tuple[str, ...] = (
         INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
         VALUES ('delete', old.id, old.text, old.symbols);
     END""",
-    """CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+    # Schema v28 (work order 0x item 5d): only an UPDATE that names a column
+    # the keyword index holds. See `_v28_chunk_index_follows_its_columns`.
+    """CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE OF text, symbols ON chunks BEGIN
         INSERT INTO chunks_fts(chunks_fts, rowid, text, symbols)
         VALUES ('delete', old.id, old.text, old.symbols);
         INSERT INTO chunks_fts(rowid, text, symbols)
@@ -1476,6 +1478,43 @@ def _v27_mail_sent_date(conn: sqlite3.Connection) -> None:
     )
 
 
+def _v28_chunk_index_follows_its_columns(conn: sqlite3.Connection) -> None:
+    r"""The keyword index is rewritten only when a passage's words change.
+
+    Work order 0x item 5d. **Marking a passage embedded used to re-index its
+    words.** `chunks_au` fired on *any* UPDATE of a `chunks` row, and the
+    commonest UPDATE by far is the embedding thread's
+    `UPDATE chunks SET embedded = 1`, once for every passage the indexer
+    writes. Each one told the keyword index to delete the passage and add it
+    again - the same words, twice the index work, and a delete marker left
+    behind in the index until a merge cleared it. `mark_all_unembedded`
+    (re-embed everything) did the same to the whole index at once.
+
+    Now the trigger fires only for `UPDATE OF text, symbols` - the two columns
+    `chunks_fts` holds. An UPDATE that changes neither cannot change what the
+    index should contain, so nothing any search can see is different. An
+    UPDATE that names either column (the v10 backfill of `symbols` did) is
+    mirrored exactly as before.
+
+    Measured 2026-09-27, Linux sandbox: writing the medium benchmark corpus's
+    19,077 passages into a fresh store on one thread, with the embedding
+    thread's updates replayed every 256 passages - 1.45 ms a document with the
+    old trigger, 1.11 ms with this one (the same writes with no updates at all
+    cost 1.16 ms). End to end, `app.cli bench-pipeline --full-speed`, fake
+    embedder, same sandbox and day, interleaved with the version before:
+    medium corpus 85.8 s -> 60.8 s median over 3 runs each (-29.1%); small
+    13.07 s -> 12.36 s over 5 each (-5.4%); the same documents, passages and
+    vectors.
+
+    Only a trigger is replaced: no row is read or written, so this is instant
+    on any size of index. Idempotent.
+    """
+    conn.execute("DROP TRIGGER IF EXISTS chunks_au")
+    for statement in CONTENT_TRIGGERS:
+        if "chunks_au" in statement:
+            conn.execute(statement)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1503,6 +1542,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     25: _v25_partial_status,
     26: _v26_chat_sessions,
     27: _v27_mail_sent_date,
+    28: _v28_chunk_index_follows_its_columns,
 }
 
 

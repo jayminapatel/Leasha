@@ -1004,6 +1004,24 @@ PAUSE_FILE_POLL_S = 0.5
 #: checkpoints often, and nothing here should turn that into a thread storm.
 _GROWTH_COOLDOWN_S = 10.0
 
+#: Work order 0x item 5d. **Documents written back to back share one SQLite
+#: transaction**, up to this many of them - see `_begin_write_group` for the
+#: whole story. A ceiling, not a target: a group is committed as soon as the
+#: consumer runs out of ready documents, so on a run where reading is the
+#: bottleneck it is usually one or two documents. 256 is far past the point
+#: where BEGIN/COMMIT stop showing in a profile (they are two statements per
+#: group, so at 256 documents they are under 1% of the statements).
+WRITE_GROUP_MAX_DOCS = 256
+
+#: Work order 0x item 5d. The longest one shared transaction stays open, in
+#: seconds. **This is how long another writer can be kept waiting**: the
+#: embedding thread's "these passages have vectors now", a window setting
+#: saved from the queued writer, or - once the indexer is its own process -
+#: the window's own writes, which then wait on SQLite's lock. A tenth of a
+#: second is well under the 0.25 s the lag monitor calls a stall, and long
+#: enough that commits are no longer a measurable share of the run.
+WRITE_GROUP_MAX_S = 0.1
+
 
 def _is_transient_partial(warning: Any) -> bool:
     """Was this an `ERR_PST_PARTIAL` whose cause will pass on its own?
@@ -1146,6 +1164,15 @@ class Pipeline:
         #: The sink's keys, longest first. Rebuilt only when the sink grows.
         self._repo_order: list[str] = []
         self._throttle: Optional[Verdict] = None
+        #: Work order 0x item 5d. The shared transaction the consumer is
+        #: writing documents into, or None when there is none open. See
+        #: `_begin_write_group`. Only ever touched on the consumer's thread.
+        self._write_group: Any = None
+        self._write_group_opened = 0.0
+        self._write_group_docs = 0
+        #: Video and audio extensions, looked up once per run rather than
+        #: once per document. See `_media_work_ahead`.
+        self._media_exts: Optional[frozenset[str]] = None
         #: Work order 0w §2a. A log to record into instead of the run's own -
         #: set by `media_backlog.drain` on the pipeline that reads the queued
         #: recordings, so the page's log carries straight on through that
@@ -1489,6 +1516,9 @@ class Pipeline:
         except Exception:                        # noqa: BLE001 - advisory
             return
         if lag >= UI_LAG_YIELD_S:
+            # 0x 5d: never sleep holding the write lock - the window may be
+            # late precisely because it is waiting to save something.
+            self._commit_write_group()
             time.sleep(min(lag, UI_YIELD_MAX_S))
 
     def run(
@@ -1652,9 +1682,22 @@ class Pipeline:
 
         # Back to counting: `progress_for` draws a real bar from here on.
         self._announce_phase(stats, on_progress, PHASE_READING)
+        # 0x 5d: a second run on the same `Pipeline` starts with no shared
+        # transaction open - see `_begin_write_group`.
+        self._write_group = None
+        self._write_group_docs = 0
         try:
             self._consume(results, workers, stats, on_progress, work=work)
         finally:
+            # 0x 5d. **First, before anything else in teardown.** `_consume`
+            # commits its shared transaction on every way out it takes on
+            # purpose (the final `_feed_sync` does it). If one is still open
+            # here, `_consume` raised part-way through a document, and that
+            # half-written document must not be committed - so the whole
+            # group is rolled back. See `_abandon_write_group`.
+            self._abandon_write_group()
+            # 0x 5d: and give back the page cache `_consume` asked for.
+            self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
             _drain(work)
             _drain(results)
@@ -2731,20 +2774,32 @@ class Pipeline:
         consumer's loop); an abnormal one sends its own, and the reason is logged.
         """
         clean = False
-        # 0x 3c: this thread's own line on the page, and the list its readers
-        # write their position into (`app.extract.progress.attach`). Opened
-        # once per thread; see `live_progress.WorkerBoard`.
-        board = getattr(self._stats_ref, "board", None)
-        slot = board.open_slot() if board is not None else None
-        if slot is not None:
-            reader_progress.attach(slot.frames)
-        self._worker_slots().slot = slot
+        board = slot = None
         try:
+            # 0x 3c: this thread's own line on the page, and the list its
+            # readers write their position into (`app.extract.progress.attach`).
+            # Opened once per thread; see `live_progress.WorkerBoard`.
+            #
+            # **Inside the `try`, and asked for with `getattr`.** 2026-09-27:
+            # this used to sit above the `try` and read `self._stats_ref`
+            # directly. A pipeline whose `run()` had not set it (the bare one
+            # `test_close_waits_for_index_run` builds without `__init__`) then
+            # raised `AttributeError` here, before the `finally` below existed
+            # for it - so the thread died without the `_STOP` marker this
+            # method promises, and the test passed only because a dead thread
+            # is also "not alive". Now a missing board means no line on the
+            # page, exactly as a board of `None` always did.
+            board = getattr(getattr(self, "_stats_ref", None), "board", None)
+            slot = board.open_slot() if board is not None else None
+            if slot is not None:
+                reader_progress.attach(slot.frames)
+            self._worker_slots().slot = slot
             self._extract_worker_loop(work, results)
             clean = True
         except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
-            self._log.error("an extraction worker ended unexpectedly: {}: {}",
-                            type(exc).__name__, exc)
+            log = getattr(self, "_log", None) or logger.bind(component="index.pipeline")
+            log.error("an extraction worker ended unexpectedly: {}: {}",
+                      type(exc).__name__, exc)
             raise
         finally:
             if slot is not None and board is not None:
@@ -3217,6 +3272,12 @@ class Pipeline:
         self._last_summary = last_checkpoint
         stats.sample(now=last_checkpoint)          # the window's first point
         pending_vectors: list[tuple[int, int, str]] = []
+        # 0x 5d: this thread does the writing, so its connection gets a page
+        # cache sized to the database - see `SqliteStore.size_write_cache` for
+        # why that is what kept writes slowing down as the index grew. Asked
+        # again at every checkpoint below, as the file grows; given back in
+        # `run()`'s teardown.
+        self._size_write_cache()
         # §6f: Drop FTS triggers if bulk mode is enabled, before processing
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
@@ -3235,6 +3296,9 @@ class Pipeline:
             # while this thread waits nothing else paints - and a pause that
             # does not say so is the frozen progress bar all over again.
             if self._person_paused():
+                # 0x 5d: nothing may sit uncommitted, holding the write lock,
+                # for however long the person keeps the run paused.
+                self._commit_write_group()
                 self._report_pause(stats, on_progress)
                 held_from = time.monotonic()
                 stopped = self._hold_if_paused()
@@ -3257,8 +3321,20 @@ class Pipeline:
                 # over 100. What the consumer waits for is what would go
                 # faster if more readers were added - which is the question
                 # the tuning screen is actually asked. See `index/stages.py`.
-                with self._clock.stage(WAITING):
-                    item = results.get(timeout=0.25)
+                #
+                # 0x 5d: **a document that is ready is taken without waiting**,
+                # and only when none is does the shared transaction commit
+                # before the wait. So documents that arrive back to back are
+                # written in one transaction (the case where writing is the
+                # bottleneck, and the only one where commits cost anything),
+                # and nothing written ever waits uncommitted - holding the
+                # write lock - while the consumer waits for the readers.
+                try:
+                    item = results.get_nowait()
+                except queue.Empty:
+                    self._commit_write_group()
+                    with self._clock.stage(WAITING):
+                        item = results.get(timeout=0.25)
             except queue.Empty:
                 # Nothing has finished, but a worker may be minutes into a large
                 # archive. Say so, rather than leaving a blank screen that reads
@@ -3292,7 +3368,9 @@ class Pipeline:
                 stats.bytes_read += item.candidate.size_bytes
 
             if item.name_only:
+                self._begin_write_group()
                 self._write_name_only(item)
+                self._end_grouped_document()
                 stats.name_only += 1
                 extension = indexed_ext(item.candidate.path) or "(none)"
                 stats.name_only_by_ext[extension] = (
@@ -3349,7 +3427,9 @@ class Pipeline:
                 continue
 
             if item.error is not None:
+                self._begin_write_group()
                 self._record_skip(item)
+                self._end_grouped_document()
                 stats.skipped += 1
                 stats.skipped_by_code[item.error.code] = (
                     stats.skipped_by_code.get(item.error.code, 0) + 1
@@ -3357,7 +3437,9 @@ class Pipeline:
             else:
                 stats.stage = STAGE_WRITING      # 0x 3a
                 with self._clock.stage("write"):
+                    self._begin_write_group()
                     pending_vectors.extend(self._write_one(item))
+                    self._end_grouped_document(timed=False)
                 stats.stage = ""
                 stats.indexed += 1
                 stats.chunks += len(item.chunks)
@@ -3396,6 +3478,13 @@ class Pipeline:
             if due:
                 since_checkpoint = 0
                 last_checkpoint = now
+                # 0x 5d: the checkpoint tells another process (the window)
+                # how far the run has got, and a reader there sees only what
+                # is committed - so everything counted so far is committed
+                # first, and the published count is true.
+                self._commit_write_group()
+                # 0x 5d: the file has grown since the cache was sized.
+                self._size_write_cache()
                 # **Reporting must never cost the flush.** None of this was
                 # guarded, and all of it can raise: `_checkpoint` writes to
                 # SQLite, and `on_progress` is the caller's - the CLI's version
@@ -3577,6 +3666,12 @@ class Pipeline:
         next batch immediately - while this one embeds and writes on the
         feeder thread instead of blocking the consumer.
         """
+        # 0x 5d. **Committed before the hand-off, always.** The feeder thread
+        # marks these passages embedded on its own connection, which cannot
+        # see rows this thread has not committed - and it takes the same
+        # write lock this thread holds while a group is open, so handing it
+        # work first could leave each waiting on the other.
+        self._commit_write_group()
         self._raise_if_feeder_failed()
         if not pending:
             return
@@ -3596,6 +3691,11 @@ class Pipeline:
         already handed off asynchronously and has not finished yet, and only
         the queue join - not the local list - knows that.
         """
+        # 0x 5d: committed first, for the reasons `_feed_async` gives - and
+        # because every caller of this goes on to write something that must
+        # never be durable before the documents it describes: an archive's
+        # completion marker, or a resume cursor.
+        self._commit_write_group()
         self._raise_if_feeder_failed()
         if pending:
             batch = list(pending)
@@ -4370,6 +4470,168 @@ class Pipeline:
                 self._stats_ref.warned_by_code[code] = (
                     self._stats_ref.warned_by_code.get(code, 0) + 1)
 
+    # -- 0x 5d: many documents, one transaction -----------------------------
+
+    def _begin_write_group(self) -> None:
+        r"""Open the shared transaction the next documents are written into.
+
+        Work order 0x item 5d. **Why this exists, measured.** With the model
+        taken out of the picture (the fake embedder), the `write` stage was
+        87-96% of `app.cli bench-pipeline`'s run - about 4 ms a document on
+        the small corpus and 7 ms on the medium one (Linux sandbox, 4 CPUs,
+        2026-09-27). The same writes on a thread of their own cost about 1 ms a
+        document; with two threads doing pure-Python work beside them, 20-100
+        ms (a stand-alone test script, same machine and day).
+
+        **Most of that time is waiting for Python's interpreter lock, not
+        SQLite working.** The whole run used one processor core out of four
+        (process CPU time divided by wall time: 0.98), which is what a run
+        limited by the interpreter lock looks like. Every SQLite statement
+        lets go of the lock while SQLite works and must get it back
+        afterwards, and a reader thread busy parsing mail only hands it back
+        when the interpreter makes it (every 5 ms by default) - so the
+        `write` stage mostly measures the readers' Python work, seen from the
+        writer's side. Fewer statements per document means fewer of those
+        waits. A document was about eleven statements; `BEGIN` and `COMMIT`
+        were two of them, and the per-document bookkeeping
+        (`index_generation`) two more.
+
+        **So consecutive documents share one transaction**: one `BEGIN` and one
+        `COMMIT` for up to `WRITE_GROUP_MAX_DOCS` documents or
+        `WRITE_GROUP_MAX_S` seconds, and `SqliteStore` bumps the generation
+        once per transaction instead of twice per document. Each document's
+        own `store.batch()` in `_write_one` simply joins the open one (the
+        store counts the nesting). Measured 2026-09-27, same sandbox, fake
+        embedder, `--full-speed`, runs interleaved with the version before:
+        medium corpus 118.6 s -> 110.6 s median over 3 runs each (-6.7%, the
+        ranges do not overlap); small corpus 14.4 s -> 14.1 s over 5 each
+        (-2.2%, inside the noise). Same documents, passages and vectors.
+
+        **What stays exactly as it was:**
+
+        * *Nothing is durable earlier than before, and nothing that depends on
+          a document is durable before it.* The group is committed before
+          every hand-off to the embedding thread (`_feed_async`,
+          `_feed_sync`), so before any archive marker and any resume cursor;
+          before each checkpoint; before a pause, a yield to the window, a
+          wait for the readers, and any picture or video work.
+        * *A crash loses no more than it did.* A document whose transaction
+          had not committed was always redone by the next run; the most that
+          can be redone now is one group (a tenth of a second of writing).
+          Its resume position was never written, because cursors are only
+          written after a `_feed_sync`, which commits first.
+        * *Other writers wait no longer than a tenth of a second* - see
+          `WRITE_GROUP_MAX_S`.
+
+        Consumer thread only. A no-op when a group is already open.
+        """
+        if getattr(self, "_write_group", None) is not None:
+            return
+        group = self.store.batch()
+        group.__enter__()
+        self._write_group = group
+        self._write_group_opened = time.monotonic()
+        self._write_group_docs = 0
+
+    def _end_grouped_document(self, *, timed: bool = True) -> None:
+        """One document is written into the group; commit if the group is full.
+
+        Full means `WRITE_GROUP_MAX_DOCS` documents or `WRITE_GROUP_MAX_S`
+        seconds open, whichever comes first. `timed=False` when the caller is
+        already inside the `write` stage's clock, so a commit is not counted
+        twice.
+        """
+        if getattr(self, "_write_group", None) is None:
+            return
+        self._write_group_docs += 1
+        if (self._write_group_docs >= WRITE_GROUP_MAX_DOCS
+                or time.monotonic() - self._write_group_opened >= WRITE_GROUP_MAX_S):
+            self._commit_write_group(timed=timed)
+
+    def _commit_write_group(self, *, timed: bool = True) -> None:
+        """Commit the shared transaction, if one is open. Safe to call any time.
+
+        Counted as `write` time in the stage report, since committing is part
+        of writing (it used to happen inside each document's own write) -
+        unless `timed=False`, which a caller already inside that clock passes.
+
+        `getattr`, because `_yield_to_ui` calls this and several tests drive
+        that on a pipeline built without `__init__`
+        (`test_ui_stays_responsive`); such a pipeline has no group, which is
+        the answer `getattr` gives.
+        """
+        group = getattr(self, "_write_group", None)
+        if group is None:
+            return
+        # Cleared first: if the commit raises, the group is over either way
+        # (the store has already rolled it back), and nothing may try to
+        # commit it a second time.
+        self._write_group = None
+        if not timed:
+            group.__exit__(None, None, None)
+            return
+        with self._clock.stage("write"):
+            group.__exit__(None, None, None)
+
+    def _abandon_write_group(self) -> None:
+        """Roll back a shared transaction left open by an error. Never raises.
+
+        Called from `run()`'s teardown. A group still open there means
+        `_consume` raised, possibly half-way through writing one document -
+        and the store's nested `batch()` does not roll back just that
+        document's part - so the whole group is rolled back. Every document in
+        it is still unfinished as far as the database is concerned, and is
+        read again next run: exactly what happened before 5d to a document
+        whose own transaction failed. None of them had been handed to the
+        embedding thread or had a resume position written (both commit the
+        group first).
+        """
+        group = getattr(self, "_write_group", None)
+        if group is None:
+            return
+        self._write_group = None
+        failure = RuntimeError("index run ended with a write group still open")
+        try:
+            group.__exit__(RuntimeError, failure, None)
+        except Exception as exc:                 # noqa: BLE001 - teardown, never mask
+            # The store's own rollback re-raises the exception it was given;
+            # that one is expected. Anything else is logged, because the run
+            # is already ending on the error that brought us here.
+            if exc is not failure:
+                self._log.warning("could not roll back the last write group: {}", exc)
+
+    def _size_write_cache(self) -> None:
+        """`SqliteStore.size_write_cache`, tolerating a store double without it.
+
+        Half the test suite hands the pipeline stand-in stores; requiring the
+        method would make every one of them declare a cache it does not have
+        (the same courtesy `_warm_embedder` extends to embedders).
+        """
+        sizer = getattr(self.store, "size_write_cache", None)
+        if callable(sizer):
+            sizer()
+
+    def _restore_write_cache(self) -> None:
+        """`SqliteStore.restore_write_cache`, with the same tolerance."""
+        restore = getattr(self.store, "restore_write_cache", None)
+        if callable(restore):
+            restore()
+
+    def _media_work_ahead(self, candidate: Candidate) -> bool:
+        """Might `_write_one`'s picture/video steps do real work for this file?
+
+        Asked with the same two tests those steps ask first - "is this read by
+        OCR" (a picture) and "is this a video or audio file" - so a `False`
+        here means every one of them returns at its first line. Plain
+        documents and mail, which is nearly everything, answer `False`.
+        """
+        from app.extract.base import reads_by_ocr
+
+        if getattr(self, "_media_exts", None) is None:
+            self._media_exts = frozenset(_media_extensions())
+        path = candidate.path
+        return path.suffix.lower() in self._media_exts or reads_by_ocr(path)
+
     def _write_one(self, item: _Extracted) -> list[tuple[int, int, list[float]]]:
         """Chunks and vectors first, INDEXED last.
 
@@ -4484,6 +4746,12 @@ class Pipeline:
         # open across it would block every other writer for no reason - the
         # same argument `_embed_pending`'s comment makes for the LanceDB
         # delete below.
+        if self._media_work_ahead(candidate):
+            # 0x 5d: the four steps below can be real work - a picture's
+            # vector, its hash, its faces, a video's frames - and none of it
+            # may run holding the write lock. This document's rows commit now,
+            # with any written before it.
+            self._commit_write_group(timed=False)   # inside the write clock already
         self._maybe_embed_image(candidate, file_id)
         # Work order 0h §2a. Independent of the CLIP call just above - see
         # `_maybe_compute_phash`'s docstring for why a pHash is computed and
@@ -4982,6 +5250,11 @@ class Pipeline:
         raised - those photos stay searchable by every route except CLIP
         similarity, and nothing here can fail the run those images belong to.
         """
+        if self._pending_images or self._pending_phashes:
+            # 0x 5d: a LanceDB write is slow next to a SQLite statement, so
+            # the consumer's shared transaction is committed rather than held
+            # open across it - the same rule `store.batch()` states.
+            self._commit_write_group()
         self._flush_pending_phashes()
 
         if self.image_vectors is None or not self._pending_images:

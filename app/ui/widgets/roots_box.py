@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
 
 from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
+from app.ui.widgets.buttons import style_button
 from app.ui.widgets.result_table import align_headers
 
 __all__ = ["RootsBox"]
@@ -168,6 +169,9 @@ class RootsBox(QGroupBox):
         self._suggested = suggested_roots()
         for folder in self._suggested:
             button = QPushButton(folder)
+            # Named after a folder, so the button table cannot list it: its
+            # icon and kind are said here (the button system, buttons.py).
+            style_button(button, "folder-plus", "secondary")
             button.setToolTip(f"Add {folder} to the folders Leasha indexes.")
             button.clicked.connect(
                 lambda _checked=False, path=folder: self._accept_suggestion(path))
