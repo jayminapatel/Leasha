@@ -55,7 +55,13 @@ PALETTES: dict[str, dict[str, str]] = {
         "divider": "#26282b",
         "text": "#e4e6e8",
         "text_dim": "#a0a6ac",
-        "text_faint": "#71777e",
+        # **Faint, but still readable** (order 0x section 9, 2026-09-27). This
+        # was #71777e: 3.6 to 1 on a card and 3.9 on the window, and it is the
+        # colour of every result count, hint, table header and "Nothing logged
+        # yet" - small text that WCAG AA asks to reach 4.5. Lifted just far
+        # enough: 5.1 on a card, 5.4 on the window, still clearly quieter than
+        # `text_dim`. Was #71777e, if the old look is ever wanted back.
+        "text_faint": "#8a9097",
         # **The accent is the brand navy, lifted for a dark ground.** The old
         # blue read as "any Qt app"; the UI Redesign order (202626160950 §0.1)
         # made the splash's navy the one colour the shell owns. On black the
@@ -127,7 +133,10 @@ PALETTES: dict[str, dict[str, str]] = {
         "divider": "#ebecef",
         "text": "#1b1d20",
         "text_dim": "#585e66",
-        "text_faint": "#858b93",
+        # Darkened for the same reason as the dark palette's (0x section 9):
+        # #858b93 was 3.4 to 1 on white and 3.2 on the window. This is 4.9 and
+        # 4.6, and still lighter than `text_dim`. Was #858b93.
+        "text_faint": "#6b7178",
         # Navy-derived (202626160950 §1a). Dark enough to be text on white;
         # the soft ground is the same hue at a whisper.
         "accent": "#2b1a7a",
