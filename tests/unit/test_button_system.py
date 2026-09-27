@@ -226,3 +226,91 @@ def test_indexing_row_is_one_system_start_primary_reset_danger(shown) -> None:
     finally:
         view.controls.show_held(False)
     assert view.pause_button.property("buttonIcon") == "pause"
+
+
+def _page_list(window) -> list:
+    """Every page and category of the real window, as (page, category)."""
+    pages = [(window.rail.tabText(i), "") for i in range(window.rail.count())
+             if window.rail.tabText(i) not in ("Indexing", "Settings")]
+    pages += [("Indexing", name) for name in window.indexing_view._nav.category_names()]
+    pages += [("Settings", name) for name in window.settings_view._nav.category_names()]
+    return pages
+
+
+def _action_buttons(root) -> list:
+    from app.ui.widgets.buttons import is_exempt
+
+    return [b for b in root.findChildren(QPushButton) if not is_exempt(b)]
+
+
+def _rule_breaks(buttons, *, visible_to) -> list[str]:
+    """What is wrong with each button, in words, per the rules in
+    `widgets/buttons.py`'s docstring. Empty means every one follows them."""
+    from app.ui.widgets.buttons import ICON_PX, ROLES
+
+    broken = []
+    for button in buttons:
+        name = button.text() or button.accessibleName() or button.objectName()
+        if button.property("buttonRole") not in ROLES:
+            broken.append(f"{name!r} is not in the button system (no kind)")
+            continue
+        if button.icon().isNull() or button.iconSize().height() != ICON_PX:
+            broken.append(f"{name!r} has no {ICON_PX}px icon")
+        if not (button.text() or button.accessibleName()):
+            broken.append(f"{name!r} has no words for a screen reader")
+        if button.isVisibleTo(visible_to) and button.width() > button.sizeHint().width():
+            broken.append(f"{name!r} is stretched to {button.width()}px "
+                          f"(its natural width is {button.sizeHint().width()}px)")
+    return broken
+
+
+def test_every_page_every_action_button_follows_the_rules(shown) -> None:
+    """**The owner's sentence, as a walk:** every page and every category of
+    the real window, and on each one every action button has a kind, a 16px
+    icon, its words, and its natural width; and every one of them in the whole
+    window is the same height."""
+    app, window = shown
+    broken: list[str] = []
+    heights: dict[int, list[str]] = {}
+    for page, category in _page_list(window):
+        _open(app, window, page, category)
+        here = window.rail.widget(window.rail.currentIndex())
+        buttons = _action_buttons(here)
+        where = f"{page}{' > ' + category if category else ''}"
+        broken += [f"{where}: {line}" for line in _rule_breaks(buttons, visible_to=window)]
+        for button in buttons:
+            if button.isVisibleTo(window):
+                heights.setdefault(button.height(), []).append(f"{where}: {button.text()}")
+    assert not broken, "\n".join(broken)
+    assert len(heights) == 1, {h: names[:4] for h, names in heights.items()}
+    seen = sum(len(names) for names in heights.values())
+    assert seen >= 40, f"only {seen} buttons were on screen - the walk missed pages"
+
+
+def test_the_dialogs_and_pop_outs_follow_the_rules_too(qapp, shown) -> None:
+    """Dialogs style themselves as they are built. OK is the dialog's primary,
+    Cancel secondary, "Forget this source" danger - and their row stays where
+    the operating system puts it."""
+    from app.ui.widgets.offline_media_dialogs import (
+        DeleteVolumeDialog, RenameSuggestionDialog, ScanNameDialog,
+    )
+    from app.ui.widgets.pinned_panel import PinnedPanel
+    from app.ui.widgets.report_export_dialog import SourceSelectionDialog
+
+    built = [ScanNameDialog("/media/usb"), RenameSuggestionDialog("Holiday disk"),
+             DeleteVolumeDialog("Holiday disk", 12), SourceSelectionDialog([]),
+             PinnedPanel()]
+    try:
+        for dialog in built:
+            dialog.show()                   # laid out, as a person sees it
+            qapp.processEvents()
+            broken = _rule_breaks(_action_buttons(dialog), visible_to=dialog)
+            dialog.hide()
+            assert not broken, f"{type(dialog).__name__}: {broken}"
+        kinds = {b.text(): b.property("buttonRole") for b in _action_buttons(built[2])}
+        assert "danger" in kinds.values(), kinds
+        assert {b.property("buttonRole") for b in _action_buttons(built[0])} == {
+            "primary", "secondary"}
+    finally:
+        for dialog in built:
+            dialog.deleteLater()

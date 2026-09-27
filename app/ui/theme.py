@@ -286,11 +286,8 @@ QPushButton {{
     background: {surface_alt}; border: 1px solid {border};
     border-radius: {radius_control}; padding: 5px 11px; color: {text};
 }}
-/* The one filled button on a surface - "Open" in the inspector. */
-QPushButton[primary="true"] {{
-    background: {accent}; border-color: {accent}; color: {accent_on};
-}}
-QPushButton[primary="true"]:hover {{ background: {accent_bar}; }}
+/* (The filled "Open" button's rule, `primary="true"`, became the button
+   system's `buttonRole="primary"` below, 2026-09-27.) */
 QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
 QPushButton:pressed {{ background: {surface}; }}
 QPushButton:focus {{ border: 1px solid {focus_ring}; }}

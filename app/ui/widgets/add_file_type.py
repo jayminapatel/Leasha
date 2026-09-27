@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["AddFileTypeWizard", "TIER_ROUTE", "TIER_CONVERT", "TIER_CODE"]
 
@@ -107,6 +108,9 @@ class AddFileTypeWizard(QDialog):
         layout.addWidget(self.buttons)
 
         self._refresh()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     # -- tier 1 --------------------------------------------------------------
 
@@ -439,6 +443,9 @@ class ConfirmScaffoldDialog(QDialog):
         layout.addWidget(heading)
         layout.addWidget(listing, 1)
         layout.addWidget(buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
 
 def _describe(scaffold: Any) -> str:

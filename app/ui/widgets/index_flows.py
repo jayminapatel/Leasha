@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.buttons import style_all
 
 __all__ = [
     "IndexLocationDialog", "RebuildVectorsDialog", "LocationChoice",
@@ -202,6 +203,9 @@ class IndexLocationDialog(QDialog):
         layout.addWidget(self.buttons)
 
         self._refresh()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def _browse(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
@@ -379,6 +383,9 @@ class RebuildVectorsDialog(QDialog):
         self._chunks = max(0, int(chunk_count))
         self._current_dim = int(current_dim) or 384
         self._refresh()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def chosen_model(self) -> str:
         r"""The identifier alone - the dimensions shown beside it are for the

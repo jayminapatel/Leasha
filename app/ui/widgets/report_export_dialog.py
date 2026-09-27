@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["SourceSelectionDialog"]
 
@@ -65,6 +66,9 @@ class SourceSelectionDialog(QDialog):
         layout.addWidget(intro)
         layout.addWidget(self._list)
         layout.addWidget(self.buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def excluded_names(self) -> set:
         """The names left unchecked - `ReportsView._export_to`'s own
