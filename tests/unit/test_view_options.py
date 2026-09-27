@@ -776,6 +776,76 @@ def test_columns_are_measured_once_per_table_not_once_per_fill(monkeypatch):
         f"turn every redraw into a full re-fit")
 
 
+def _empty_then_filled(app, prefs, text: str):
+    """A table applied once while empty - as Files and Mail do in `__init__`,
+    before their first query lands - then filled and applied again."""
+    from PyQt6.QtWidgets import QTableWidgetItem
+
+    from app.ui.view_options import apply_to_table, remember_widths
+
+    table = _table(app)
+    table.setRowCount(0)
+    recorded: list = []
+
+    class _Button:                           # what `remember_widths` writes to
+        def remember_width(self, key, pixels):
+            recorded.append((key, pixels))
+
+    remember_widths(table, _Button(), COLUMNS_3)
+    apply_to_table(table, prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+    table.setRowCount(3)
+    for row in range(3):
+        for column in range(3):
+            table.setItem(row, column, QTableWidgetItem(text if column == 0 else "x"))
+    apply_to_table(table, prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+    return table, recorded
+
+
+def test_a_fit_over_no_rows_waits_for_the_rows_when_nothing_is_saved():
+    r"""**Order 0x section 9, review finding 3.** Files and Mail apply their
+    view in `__init__`, before any rows exist, and that spent the table's one
+    fit on the headings: Name opened 63px wide over names three times that.
+
+    With nothing saved, the first fill *with rows* is the one that fits - and
+    the watcher records none of it as a width somebody chose."""
+    from app.ui.view_options import ViewPreferences, _available_width, column_cap
+
+    app = _qt()
+    long_name = "a-file-name-long-enough-to-need-room.txt"
+    table, recorded = _empty_then_filled(app, ViewPreferences(), long_name)
+    content = table.sizeHintForColumn(0)
+    cap = column_cap(_available_width(table))
+    assert table.columnWidth(0) >= min(content, cap) - 1, (table.columnWidth(0), content, cap)
+    assert table.columnWidth(0) <= cap
+    for _ in range(2):                        # two ticks: moved, then settled
+        for child in table.children():
+            if type(child).__name__ == "QTimer":
+                child.timeout.emit()
+    assert recorded == [], "a fitted width was saved as though it had been dragged"
+
+
+def test_with_a_saved_width_an_empty_first_fill_still_counts_as_the_fit(monkeypatch):
+    r"""The other side of the finding-3 change, pinned so it cannot drift: a
+    table with **any** saved width is fitted once, on its first apply, rows or
+    not - exactly as before. Only a table nobody has sized waits for rows."""
+    from app.ui.view_options import ViewPreferences
+
+    app = _qt()
+    calls: list[int] = []
+    original = type(_table(app)).resizeColumnsToContents
+
+    def counting(self):
+        calls.append(self.rowCount())
+        original(self)
+
+    monkeypatch.setattr(type(_table(app)), "resizeColumnsToContents", counting, raising=False)
+    saved = ViewPreferences(widths=(("path", 240),))
+    table, recorded = _empty_then_filled(app, saved, "tiny")
+    assert calls == [0], f"fitted at row counts {calls}; with a saved width only the first apply fits"
+    assert table.columnWidth(1) == 240
+    assert recorded == []
+
+
 # ---------------------------------------------------------------------------
 # The cap governs fitting, not choosing
 #
