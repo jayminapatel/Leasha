@@ -1,6 +1,6 @@
 # Work order (One thread): a window that never waits, an indexer that shows its work, and code that is ready for a Mac
 
-**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread, run as a master thread that coordinates helper threads (each in
 its own git worktree) and merges their work
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build all of it.
@@ -366,8 +366,17 @@ label, and gets its own pytest-qt scenario.
 
 - [x] **10a** `LOCAL_KNOWLEDGE_GRAPH_V2.md`: the indexer process and the osbridge package
       described for a beginner.
-- [ ] **10b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` brought up to date.
-- [ ] **10c** `docs/MAC_VERIFICATION.md` complete and ordered for a first session on a Mac.
+- [x] **10b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` brought up to date.
+- [x] **10c** `docs/MAC_VERIFICATION.md` complete and ordered for a first session on a Mac.
+
+> **2026-09-27, close-out.** 46 + 2 items done; four stay open by decision, each with its reason in
+> its own dated note: **2d** (whether the separate indexing process becomes the default - the owner's
+> real-index comparison), **5b** (reading in several processes - prototyped, needs its own careful
+> change), **5c** (length-grouped embedding - needs the model to prove identical vectors) and **6d**
+> (semantic search - waits for the owner's example). After the order, at the owner's request: every
+> action button follows one system (`widgets/buttons.py`: natural width, one height, a 16 px icon,
+> primary / secondary / danger), the Indexing pill reads as a rail button, and a maximised window
+> stays maximised.
 
 ## P. Parked: hardware-specific macOS work
 
