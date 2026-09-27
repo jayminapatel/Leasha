@@ -178,3 +178,53 @@ def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, q
         icon_box = QRect(QPoint(left, 4), size + size / 2).intersected(image.rect())
         assert _most_contrasting(image, icon_box, ground) >= 3.0, scheme
     window.rail.setCurrentIndex(0)
+
+
+def _show_preview_with_a_result(app, window, qtbot) -> object:
+    """Type a real search with the keyboard, walk into the results, and have
+    the preview showing with its "Open" button ready. Returns the pane."""
+    from PyQt6.QtCore import Qt as _Qt
+
+    window.rail.setCurrentIndex(window.rail.indexOf(window.search_view))
+    view = window.search_view
+    view.input.clear()
+    view.input.setFocus()
+    qtbot.keyClicks(view.input, "barnsley")
+    qtbot.waitUntil(lambda: view.results._model.rowCount() > 0, timeout=4000)
+    if view.preview.isHidden():
+        qtbot.keyClick(view.input, KEY.Key_P,
+                       _Qt.KeyboardModifier.ControlModifier | _Qt.KeyboardModifier.ShiftModifier)
+        gui_pump(app, 4)
+    view.results._list.setFocus()
+    qtbot.keyClick(view.results._list, KEY.Key_Home)
+    qtbot.waitUntil(lambda: view.preview.open_button.isEnabled(), timeout=4000)
+    gui_pump(app, 4)
+    return view.preview
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_open_button_label_is_readable_on_its_own_fill(gui_mainwindow, qtbot, scheme):
+    r"""**Before:** in the dark theme the filled "Open" button was white text
+    on the light lavender accent - 2.8 to 1, under the 4.5 WCAG asks of body
+    text. Grab: `before-1100x760/dark/search-results.png`, bottom of the
+    preview.
+
+    Now a search is typed, a result chosen from the keyboard, the preview's
+    button grabbed, and its label must reach 4.5 to 1 against the fill."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QColor
+    from app.ui import theme
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    with _Theme(window, scheme):
+        pane = _show_preview_with_a_result(app, window, qtbot)
+        button = pane.open_button
+        assert button.isVisible() and button.text() == "Open"
+        image = button.grab().toImage()
+        fill = QColor(theme.theme_colours()["accent"])
+        # The middle band of the button: the icon and the word, clear of the
+        # rounded corners and the border.
+        inside = QRect(6, image.height() // 3, image.width() - 12, image.height() // 3)
+        assert _most_contrasting(image, inside, fill) >= 4.5, scheme
+    window.search_view.input.clear()
