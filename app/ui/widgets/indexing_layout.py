@@ -120,12 +120,17 @@ def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
     person is typing on. A tick dropped here is replaced by the next, and the
     finished handler always paints the last state. A change in whether the run is
     paused is never dropped - that is the tick that explains why the bar stopped -
-    and neither is any tick while a stop is being carried out.
+    and neither is any tick while a stop is being carried out. Nor is a change
+    of phase: the pipeline announces one with a single tick, often a few
+    milliseconds after the last, and it may be the only tick for minutes.
     """
     paused = bool(getattr(stats, "paused", False))
+    phase = str(getattr(stats, "phase", "") or "")
     if (now - view._last_paint < min_interval_s
-            and paused == view._last_paused and not view._stopping):
+            and paused == view._last_paused and not view._stopping
+            and phase == getattr(view, "_last_phase", "")):
         return False
     view._last_paint = now
     view._last_paused = paused
+    view._last_phase = phase
     return True

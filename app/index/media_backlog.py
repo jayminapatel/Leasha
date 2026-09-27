@@ -144,6 +144,12 @@ def _backlog_pipeline_class() -> type:
             # store one hour later would only be the same query returning nothing.
             return None
 
+        def _announce_phase(self, stats: Any, on_progress: Any, phase: str) -> None:
+            # The outer run has already said "reading videos and recordings";
+            # this run's own model load and tidying are part of that, and
+            # announcing them again would read as the whole run starting over.
+            return None
+
     return BacklogPipeline
 
 
@@ -188,6 +194,9 @@ def drain(
         return
 
     log.info("reading {} video/recording file(s) in the background", len(queued))
+    from app.index.pipeline import PHASE_MEDIA
+
+    pipeline._announce_phase(stats, on_progress, PHASE_MEDIA)
     sub_config = dataclasses.replace(
         config,
         ocr_mode="images",
