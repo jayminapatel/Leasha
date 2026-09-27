@@ -659,3 +659,47 @@ def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
             window.settings_view._nav.show_category("What's indexed", persist=False)
             window.rail.setCurrentIndex(0)
             gui_pump(app, 4)
+
+
+def test_files_opens_with_names_at_their_own_width_and_a_drag_is_still_the_one_kept(
+        gui_mainwindow, qtbot):
+    r"""**Before** (review finding 3): the Files table opened with every column
+    at its heading's width - Name 63px over names three times that, "12 Mar
+    ..." cut short - and Folder taking the rest, because the table's one fit
+    ran in `__init__`, before its rows existed. Grab:
+    `after-final-1100x760/light/files.png` (Mail the same, `mail.png`).
+
+    Now the Files page is opened with the mouse; with nothing saved, Name is
+    as wide as its names (up to the 40% cap) and **nothing was written** - the
+    fit is not a choice. Then a column dragged the way a person does is the
+    width that is saved, as always."""
+    from app.ui.view_options import _available_width, column_cap
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    files = window.files_view
+    table = files.results
+    try:
+        button = next(b for b in window.rail._buttons.values() if b.text() == "Files")
+        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: table.rowCount() > 0, timeout=4000)
+        gui_pump(app, 6)
+        assert dict(files.view_button.prefs.widths) == {}, "nothing saved going in"
+        content = table.sizeHintForColumn(0)
+        cap = column_cap(_available_width(table))
+        heading = table.horizontalHeader().sectionSizeHint(0)
+        assert content > heading, "the fixture's names are wider than 'Name'"
+        assert table.columnWidth(0) >= min(content, cap) - 1, (
+            table.columnWidth(0), content, cap)
+
+        qtbot.wait(1400)                         # two of the watcher's looks
+        assert dict(files.view_button.prefs.widths) == {}, (
+            "a fitted width was saved as though somebody had dragged it")
+
+        table.horizontalHeader().resizeSection(0, 222)
+        qtbot.waitUntil(lambda: dict(files.view_button.prefs.widths).get("name") == 222,
+                        timeout=4000)
+    finally:
+        files.view_button.refit()
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)

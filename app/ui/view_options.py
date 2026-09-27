@@ -1038,6 +1038,15 @@ def apply_font(widget: Any, font_pt: int) -> None:
     widget.setStyleSheet(f"font-size: {size}pt;" if size > 0 else "")
 
 
+def _has_rows(table: Any) -> bool:
+    """Does the table hold any rows to measure? True when it cannot say, so
+    an unfamiliar table keeps the old once-and-done fitting."""
+    try:
+        return int(table.rowCount()) > 0
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return True
+
+
 def _apply_widths(table: Any, prefs: ViewPreferences,
                   order: Sequence[str], shown: Sequence[str]) -> None:
     """Restore dragged widths; fit the rest to their contents.
@@ -1132,9 +1141,29 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         # The flag is now cleared by the button before it calls back, which is
         # the honest expression of "somebody asked for a fit": an explicit
         # request, not a state the restore code has to infer.
+        #
+        # **Dated note, 2026-09-27 (order 0x section 9, review finding 3) -
+        # "once per table" was spent on an empty table.** Files and Mail apply
+        # their preferences in `__init__`, before their first query returns, so
+        # the one fit measured nothing but the headings and set `FITTED`; the
+        # rows arrived a moment later and were never measured. Every column
+        # opened at its heading's width - Name 63px, "12 Mar ..." cut short -
+        # while the stretched last column took the rest (probed on the grab
+        # fixture: fit at 0 rows, widths [63, 52, 83, 56, 754]).
+        #
+        # So a fit over **no rows** does not use the table's one fit up -
+        # **but only while nothing has been saved for this table.** With a
+        # saved width, the flag is set exactly as before, rows or not, so a
+        # table somebody has sized behaves identically to how it always has;
+        # that is the whole of the scope this was allowed. The fit that then
+        # happens on the first fill runs here, under `APPLYING` and with the
+        # header's signals blocked, and `apply_to_table` resyncs the watcher's
+        # baseline afterwards - so it is never recorded as a width somebody
+        # chose. `_cap_columns` below still holds any fitted column to 40%.
         if not table.property(FITTED):
             table.resizeColumnsToContents()
-            table.setProperty(FITTED, True)
+            if prefs.widths or _has_rows(table):
+                table.setProperty(FITTED, True)
 
         saved = dict(prefs.widths)
         room = _available_width(table)
