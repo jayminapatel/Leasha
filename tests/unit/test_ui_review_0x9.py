@@ -393,3 +393,67 @@ def test_every_settings_category_name_is_shown_whole(gui_mainwindow, qtbot, size
     finally:
         nav.show_category("What's indexed", persist=False)
         window.rail.setCurrentIndex(0)
+
+
+@pytest.mark.parametrize("size", [(1100, 760), (760, 560)])
+def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwindow, qtbot, size):
+    r"""**Before**, on Reports -> Browse your timeline: the report list was
+    squeezed to about sixty pixels ("Digi", "The", "Brow"); the year box read
+    "2015   (1"; "Whole year" read "Who...ear"; and on a narrow window every
+    month button was squeezed to nothing and the two date boxes were drawn on
+    top of each other. Grabs: `before-1100x760/light/timeline.png` and
+    `before-760x560/light/timeline.png`.
+
+    Now Reports is opened and the timeline chosen with the mouse, and at both
+    sizes: the list is as wide as its longest name, the year box as wide as
+    its longest year, every month button as wide as its word, and no two
+    controls overlap. A month is then chosen with the mouse, as a person
+    would."""
+    from PyQt6.QtCore import QRect
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, *size)
+    reports = window.reports_view
+    button = next(b for b in window.rail._buttons.values() if b.text() == "Reports")
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+    gui_pump(app, 4)
+    names = reports.list
+    row = next(r for r in range(names.count()) if names.item(r).data(1) == "timeline")
+    qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton,
+                     pos=names.visualItemRect(names.item(row)).center())
+    timeline = reports.timeline
+    picker = timeline.picker
+    reports.refresh()
+    qtbot.waitUntil(lambda: timeline._overview is not None and picker.year_box.count() > 0,
+                    timeout=20000)
+    picker.year_box.setCurrentIndex(0)
+    gui_pump(app, 10)
+    try:
+        assert timeline.isVisible()
+        assert names.viewport().width() >= names.sizeHintForColumn(0), "a report name is cut"
+        assert picker.year_box.width() >= picker.year_box.sizeHint().width(), "the year is cut"
+        for month in picker.month_buttons:
+            assert month.isVisible() and month.width() >= month.sizeHint().width(), month.text()
+
+        def box(widget) -> QRect:
+            return QRect(widget.mapTo(picker, widget.rect().topLeft()), widget.size())
+
+        placed = [*picker.month_buttons, picker.range_from, picker.range_to, picker.range_go]
+        for i, first in enumerate(placed):
+            for second in placed[i + 1:]:
+                assert not box(first).intersects(box(second)), (first.objectName() or
+                                                                getattr(first, "text", str)(),
+                                                                getattr(second, "text", str)())
+        # Every control is inside the picker, none pushed off its right edge.
+        for widget in placed:
+            assert picker.rect().contains(box(widget)), getattr(widget, "text", str)()
+
+        enabled = next(b for b in picker.month_buttons[1:] if b.isEnabled())
+        qtbot.mouseClick(enabled, Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert enabled.isChecked()
+    finally:
+        from PyQt6.QtCore import QThreadPool
+        QThreadPool.globalInstance().waitForDone(5000)
+        names.setCurrentRow(0)
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)
