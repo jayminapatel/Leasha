@@ -23,10 +23,10 @@ than refusing.
 
 from __future__ import annotations
 
-import os
 import shutil
-from pathlib import Path
 from typing import Optional, Sequence
+
+from app.core.osbridge import programs as _programs
 
 __all__ = [
     "EDITORS", "command_for", "detect", "installed", "copyable", "AUTO",
@@ -57,52 +57,35 @@ EDITORS: tuple = (
 
 #: Where these install on Windows when they are not on `PATH`, relative to a
 #: program-files root. Same shape and same reason as the converters' table.
-_WINDOWS_LOCATIONS: dict = {
-    "code": (("Microsoft VS Code",), "Code.exe"),
-    "cursor": (("Cursor",), "Cursor.exe"),
-    "codium": (("VSCodium",), "VSCodium.exe"),
-    "subl": (("Sublime Text", "Sublime Text 3"), "subl.exe"),
-    "notepad++": (("Notepad++",), "notepad++.exe"),
-    "idea": (("JetBrains",), "idea64.exe"),
-    "pycharm": (("JetBrains",), "pycharm64.exe"),
-}
+#:
+#: **Moved to `app/core/osbridge/programs.py` (work order 0x §1b)**, with the
+#: search below; these are the same objects under their old names, so
+#: `editors._WINDOWS_LOCATIONS` reads exactly as it did.
+_WINDOWS_LOCATIONS: dict = _programs.EDITOR_WINDOWS_LOCATIONS
 
 #: Where an executable sits inside its install folder. `""` is the folder
 #: itself; VS Code puts its CLI shim in `bin`.
-_WINDOWS_SUBDIRS = ("", "bin")
+_WINDOWS_SUBDIRS = _programs.EDITOR_WINDOWS_SUBDIRS
 
 
 def _program_roots() -> list:
     """The folders Windows installs programs into, most-specific first."""
-    found = []
-    for name in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)",
-                 "ProgramW6432"):
-        value = os.environ.get(name)
-        if not value:
-            continue
-        found.append(Path(value))
-        if name == "LOCALAPPDATA":
-            found.append(Path(value) / "Programs")
-    return found
+    return _programs.editor_program_roots()
 
 
 def _installed_on_windows(executable: str) -> Optional[str]:
     """The path of an editor that did not put itself on `PATH`. Never raises."""
-    entry = _WINDOWS_LOCATIONS.get(executable)
-    if not entry:
-        return None
-    folders, filename = entry
-    for root in _program_roots():
-        for folder in folders:
-            for sub in _WINDOWS_SUBDIRS:
-                parts = [root, folder] + ([sub] if sub else []) + [filename]
-                try:
-                    candidate = Path(*parts)
-                    if candidate.is_file():
-                        return str(candidate)
-                except OSError:                    # a drive that is not there
-                    continue
-    return None
+    return _programs.find_editor_on_windows(executable)
+
+
+def _installed_on_macos(executable: str) -> Optional[str]:
+    """Where a Mac keeps this editor when it is not on `PATH`, or None.
+
+    Always None off a Mac. On a Mac it looks inside `/Applications` app bundles
+    and Homebrew's folders, which Leasha - started from Finder, not a terminal -
+    does not have on its `PATH`. (UNCONFIRMED on macOS.)
+    """
+    return _programs.find_editor_on_macos(executable)
 
 
 def installed(name: str) -> Optional[str]:
@@ -115,7 +98,10 @@ def installed(name: str) -> Optional[str]:
     if not executable:
         return None
     try:
-        return shutil.which(executable) or _installed_on_windows(executable)
+        # 2026-09-27 (work order 0x §1a): the Mac look comes last and returns
+        # None at once anywhere else, so Windows answers exactly as before.
+        return (shutil.which(executable) or _installed_on_windows(executable)
+                or _installed_on_macos(executable))
     except Exception:                              # noqa: BLE001 - a lookup
         return None
 
