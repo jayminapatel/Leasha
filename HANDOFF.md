@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.12 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.13 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -87,6 +87,10 @@ Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on
   process). **Trap:** never reach SQLite except through the store's connection and cursor methods - a
   raw `sqlite3.Cursor(conn)` bypasses the count and brings the crash back. Cost: about 2 us more per tiny
   query and 0.7 us per row when iterating a cursor; `fetchall` and `executemany` unchanged.
+- **`view_options._apply_widths` (0x 9m):** a fit over an empty table no longer marks the table as
+  fitted *while no widths are saved*; with any saved width it behaves exactly as before. Reports list
+  keys are read with `timeline_host.REPORT_KEY` (UserRole), never role 1. On the Search home,
+  `FlowLayout(height_for_width=False)` plus the page sizing the box itself avoids Qt's ~1 ms per resize.
 - **Theme (0x §9):** `radius_pill` is 11 px, not 999 (Qt draws no rounding past half a widget's
   height); new token `accent_on`; `text_faint` darkened in light and lightened in dark to reach WCAG AA
   (old values noted beside the new); new `widgets/flow_layout.py`.
@@ -162,6 +166,10 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       **Two answers wanted:** are unticked checkboxes visible in Settings › Appearance on Windows 11?
       And does Indexing › Status ever say "Nothing indexed yet." with documents present on the real
       index? Each decides a proposed fix.
+- [ ] **The UI goldens.** `venv\Scripts\python.exe -m pytest tests/unit/test_grab_ui.py` on Windows. It
+      drifts on `search-home` at 1024x600 in the Linux sandbox because the pills now wrap there (wider
+      font). If it passes on Windows, nothing to do; if it drifts there too, look at the grab and, if it
+      is right, regenerate the three `search-home` goldens with `tools/grab_ui.py`.
 - [ ] **Close while a search is loading.** During a large index, open the `/` popup, keep typing and
       close the window: a clean exit, nothing in `crash.log`. The log's `shutdown: sqlite store closed`
       stays well under a second.
