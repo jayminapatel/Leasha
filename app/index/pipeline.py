@@ -88,6 +88,7 @@ from app.index.walker import (
     repo_kind_at,
     walk,
 )
+from app.storage.filters import MAIL_KINDS
 from app.storage.sqlite_store import FileStatus, SqliteStore
 from app.storage.vector_store import ImageVectorStore, VectorStore
 
@@ -3831,6 +3832,9 @@ class Pipeline:
                 taken_at_ns, taken_at_is_hint = int(item.meta["media_created_ns"]), False
             if place is None and item.meta.get("media_place"):
                 place = str(item.meta["media_place"])
+            if taken_at_ns is None and item.source_kind in MAIL_KINDS:
+                taken_at_ns = _sent_at_ns(item.meta.get("sent_at"))
+                taken_at_is_hint = False
         # **One transaction for the three writes, not three.**
         #
         # `upsert_file`, `replace_chunks` and `set_message` each committed
@@ -4977,6 +4981,31 @@ def _media_extensions() -> frozenset[str]:
     from app.extract.media import media_extensions
 
     return media_extensions()
+
+
+def _sent_at_ns(seconds: Any) -> Optional[int]:
+    r"""A message's sent date as `files.taken_at_ns`, or None. Never raises.
+
+    **Why a message's date goes in the photo column.** `taken_at_ns` means
+    "the date this is *from*" (see `app/storage/filters.py::_date_clause`), and
+    `after:`/`before:` read it before `mtime_ns`. A message read out of a
+    `.pst` has no file of its own, so its row carries the *archive's*
+    `mtime_ns` - the day the mail client last touched the archive - and ten
+    thousand letters from 2009-2019 all filtered as "last week". The owner's
+    "mail from 2017" found nothing for exactly that reason. The sent date is
+    the fact a person means by "from 2017", so it is written where the filter
+    already looks; `mtime_ns` stays the archive's real mtime, which change
+    detection depends on (the reason `_v18_photo_taken_at` gave the shot date
+    a column of its own applies unchanged).
+
+    Nothing reads this column as "is a photograph": the timeline's camera
+    branch and the Files tab restrict to `source_kind = 'file'`, and mail has
+    its own timeline branch on `messages.sent_at`. Pinned by
+    `tests/unit/test_mail_sent_date_filter.py`.
+    """
+    from app.storage.filters import sent_at_ns
+
+    return sent_at_ns(seconds)
 
 
 def _text_digest(chunks: list[dict[str, Any]]) -> str:

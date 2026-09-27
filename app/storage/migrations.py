@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 26
+CURRENT_VERSION = 27
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1418,6 +1418,64 @@ def _v26_chat_sessions(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v27_mail_sent_date(conn: sqlite3.Connection) -> None:
+    r"""Every message's sent date, backfilled into `files.taken_at_ns`.
+
+    **The owner's "mail from 2017" found no 2017 mail, and this is why.**
+    `after:`/`before:` compare `taken_at_ns` when a row has one and
+    `mtime_ns` otherwise (`app/storage/filters.py::_date_clause`). A message
+    read out of a `.pst` has no file of its own, so the pipeline wrote it with
+    the *archive's* `mtime_ns` - and an archive the mail client touched last
+    week made every letter in it "last week". Loose `.eml`/`.msg` files had
+    the milder form of the same fault: a saved copy's mtime is the day it was
+    saved. `messages.sent_at` always held the right answer; only the Mail tab
+    read it.
+
+    **Why this column, rather than joining `messages` in the filter.**
+    `taken_at_ns` already means "the date this is from" - it is what the
+    filter, the result date, recency, version folding and a filter-only
+    browse all read before `mtime_ns` - so writing the sent date there fixes
+    every one of them at once, and the filter keeps the two-index shape it
+    was measured with. A join would have fixed the filter alone and added a
+    third branch to it; measured, it was no faster (see `_range_clause`).
+    The readers that must *not* see a message as a photograph already exclude
+    mail: the timeline's camera branch and the Files tab both require
+    `source_kind = 'file'`, and mail has its own timeline branch on
+    `messages.sent_at`. `mtime_ns` is left alone - change detection compares
+    it against the archive, exactly as `_v18_photo_taken_at` explains.
+
+    **A sent date is a fact, so it replaces a folder-year guess** (`taken_at_
+    is_hint = 1`, which `apply_batch_era` can write onto any row under a
+    folder) and is written with the flag cleared, so a later era hint can
+    never overwrite it. A real camera date on a mail row cannot exist - the
+    pipeline only reads EXIF for images - so nothing a fact wrote is replaced.
+
+    Messages with no sent date, or one past what nanoseconds can hold
+    (`SENT_AT_LIMIT_S`), keep NULL and go on falling back to `mtime_ns` -
+    no date is better than a wrong one. New messages get the same value at
+    index time (`pipeline._sent_at_ns`); this is only for the ones already
+    indexed, so nobody has to rebuild a mailbox index to benefit.
+
+    Idempotent: a second run finds every row already equal to its message.
+    One `UPDATE`. Measured 2026-09-27 on a Linux sandbox against a
+    200,000-row `files` table holding 60,000 messages: 167 ms, once.
+    """
+    from app.storage.filters import MAIL_KINDS, SENT_AT_LIMIT_S
+
+    marks = ", ".join("?" for _ in MAIL_KINDS)
+    conn.execute(
+        f"""UPDATE files
+               SET taken_at_ns = (SELECT m.sent_at * 1000000000 FROM messages m
+                                  WHERE m.file_id = files.id),
+                   taken_at_is_hint = 0
+             WHERE source_kind IN ({marks})
+               AND (taken_at_ns IS NULL OR taken_at_is_hint = 1)
+               AND id IN (SELECT file_id FROM messages
+                          WHERE sent_at > 0 AND sent_at <= ?)""",
+        (*MAIL_KINDS, SENT_AT_LIMIT_S),
+    )
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1444,6 +1502,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     24: _v24_content_hash_index,
     25: _v25_partial_status,
     26: _v26_chat_sessions,
+    27: _v27_mail_sent_date,
 }
 
 

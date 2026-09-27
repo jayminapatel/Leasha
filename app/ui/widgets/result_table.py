@@ -367,7 +367,7 @@ def align_headers(view: Any, aligns: Optional[Sequence[str]] = None) -> None:
         return
 
 
-def offer_filters(view: Any, notices: Any, generation: int) -> None:
+def offer_filters(view: Any, notices: Any, generation: int, response: Any = None) -> None:
     """Add the filters the typed sentence contains to the notice bar, as offers.
 
     The read is a store query, so it runs on a worker (`filter_offers_async`)
@@ -375,15 +375,24 @@ def offer_filters(view: Any, notices: Any, generation: int) -> None:
     Here, beside `redraw_with_details`, because it is the same kind of thing -
     a second paint of a page that was drawn a moment ago - and `search_view.py`
     is at its line guard.
+
+    **The filters the search already applied are drawn first, as chips**
+    (`response.applied`, see `presenter.auto_filters`), and are not offered
+    again: "only 2017?" beside a page already limited to 2017 is noise.
     """
     from app.ui.workers import filter_offers_async
+
+    applied = tuple(getattr(response, "applied", ()) or ())
+    chips = getattr(view, "chips", None)
+    if chips is not None and hasattr(chips, "show_applied"):
+        chips.show_applied(applied)
 
     def landed(offers: Any) -> None:
         if offers and generation == view._shown_generation:
             view.notices.show_notices([*notices, *offers])
 
     filter_offers_async(getattr(view._engine, "store", None), view.input.text(),
-                        view._search_preferences, landed)
+                        view._search_preferences, landed, applied)
 
 
 def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,

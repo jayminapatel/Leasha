@@ -350,6 +350,8 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
 
     view.input.textChanged.connect(on_text)
     chips.text_edited.connect(view.input.setText)
+    # An applied chip removed: the box is unchanged, so re-run explicitly.
+    chips.declined_changed.connect(view.search_now)
     show_home(True)
     return notices
 

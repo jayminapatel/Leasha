@@ -459,6 +459,14 @@ class SearchResponse:
     #: message string to decide anything.
     notices: tuple[Notice, ...] = ()
 
+    #: Filters the window read out of the typed sentence and applied before
+    #: calling `search` ("mail from 2017" runs as `type:mail` and a 2017
+    #: range). **Never filled here** - the engine does not read sentences, and
+    #: must not (see `test_the_search_engine_cannot_reach_the_translator`). The
+    #: search worker sets it so the chips travel with the results they
+    #: describe. Opaque to this layer.
+    applied: tuple = ()
+
     def __len__(self) -> int:
         return len(self.results)
 

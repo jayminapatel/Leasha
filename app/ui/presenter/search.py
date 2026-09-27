@@ -106,7 +106,8 @@ def file_query(raw: str) -> Any:
 
 
 def search_options(tier: str, *, scope: str, rerank: bool,
-                   surface: str = "search", preferences: Any = None) -> dict:
+                   surface: str = "search", preferences: Any = None,
+                   declined: Any = None) -> dict:
     r"""What to pass the engine for one tier.
 
     `rerank` is only meaningful on the full tier - the interim one is BM25 with
@@ -128,6 +129,12 @@ def search_options(tier: str, *, scope: str, rerank: bool,
     }
     if tier == Tier.FULL:
         options["rerank"] = bool(rerank)
+    # **Both tiers**, so the keyword glance and the full search answer the
+    # same question - otherwise "mail from 2017" would flip between the words
+    # and the filters as the second tier landed. `SearchWorker` takes this key
+    # off before the engine sees the options (see `auto_filters`).
+    if declined is not None and options["policy"].auto_chips:
+        options["declined"] = tuple(declined)
     return options
 
 
@@ -523,3 +530,49 @@ def chips_for(store: Any, sentence: str, policy: Any = None) -> tuple:
     except Exception as exc:                       # noqa: BLE001 - a helper
         _log.debug("no filter chips for this query: {}", exc)
         return ()
+
+
+def auto_filters(store: Any, sentence: str, policy: Any = None,
+                 declined: Any = ()) -> tuple[str, tuple]:
+    r"""`(query to run, filters applied)` for a typed sentence. **Worker only,
+    never raises.**
+
+    **Owner decision 2026-09-27: "mail from 2017" applies its filters.** It
+    used to run as the words `"mail" OR "2017"`, with the right filters only
+    offered on the notice bar - see `translate_rules.apply` for exactly which
+    readings are confident enough to act on and why "invoice 2017" is not one.
+    The box keeps what was typed; the query that runs loses the words a filter
+    consumed and gains the filter, and the window draws each applied filter as
+    a removable chip (`ChipRow.show_applied`). Removing one adds its key to
+    `declined`, and those words go back to being ordinary search terms.
+
+    Here, on the presenter side, for the reason `chips_for` is: the engine may
+    not know translation exists. `auto_chips` decides, as it does for the
+    offers, so the power surfaces (off by default) keep their words as typed.
+    Called from `SearchWorker.run`, because the reading asks the store for its
+    senders and file types - a query, so never on the interface thread.
+    """
+    text = str(sentence or "")
+    if policy is not None and not getattr(policy, "auto_chips", True):
+        return text, ()
+    try:
+        from app.search.translate_rules import apply
+
+        applied = apply(text, store, declined=tuple(declined or ()))
+        return applied.query, tuple(applied.filters)
+    except Exception as exc:                       # noqa: BLE001 - a helper
+        _log.debug("no filters applied to this query: {}", exc)
+        return text, ()
+
+
+#: Which offered chip fields an applied filter already answers, so the bar
+#: does not offer "only 2017?" beside a search already limited to 2017.
+_ANSWERED_BY = {"type": ("type",), "date": ("after", "before"),
+                "person": ("from", "to")}
+
+
+def unanswered(chips: Any, applied: Any) -> tuple:
+    """The offered `chips` no applied filter already covers."""
+    covered = {field for chosen in applied or ()
+               for field in _ANSWERED_BY.get(getattr(chosen, "kind", ""), ())}
+    return tuple(chip for chip in chips or () if chip.field not in covered)

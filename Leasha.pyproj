@@ -633,6 +633,7 @@
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
+    <Compile Include="tests\unit\test_mail_sent_date_filter.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_media_open.py" />
