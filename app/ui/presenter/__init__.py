@@ -36,6 +36,7 @@ The package is split by domain; this file re-exports every name so that
   code        the Code tab's routing, git rows and wording
   indexing    progress, runs started elsewhere, skips, index summary
   interrupted a run that did not finish, in words
+  live_progress  each reader's place inside a file, and the heartbeat
   settings    Settings-page text and suggested folders
   offline     catalogued drives and online-only files
 
@@ -168,6 +169,21 @@ from app.ui.presenter.interrupted import (
     unfinished_reach,
     unfinished_run_rows,
     unfinished_run_line,
+)
+from app.ui.presenter.live_progress import (
+    LiveProgress,
+    QUIET_AFTER_S,
+    STAGE_WORDS,
+    TRAIL_SEPARATOR,
+    heartbeat_line,
+    inner_trail,
+    live_headline,
+    live_view,
+    position_text,
+    since_text,
+    stage_words,
+    worker_lines,
+    writer_line,
 )
 from app.ui.presenter.offline import (
     offline_volume_note,
