@@ -315,19 +315,39 @@ def test_a_filter_that_empties_the_page_is_let_go_of_and_named(journeys, qtbot):
     assert any("pdf" in label for label in view.chips.labels())
 
 
-def test_a_sentence_with_a_known_name_offers_that_name_as_a_filter(journeys, qtbot):
-    r"""3a/3b. "the email Dave sent about the school trip": Dave is a sender in
-    the index, so the page offers `from dave.smith@acme.com` - beside what she
-    typed, never instead of it. Clicking the offer adds the filter and keeps
-    her words."""
+def test_a_sentence_with_a_known_name_applies_that_name_as_a_filter(journeys, qtbot):
+    r"""3a, as the owner decided on 2026-09-27: recognised filters are
+    *applied*, not only offered. "the email Dave sent about the school trip":
+    Dave is a sender in the index and "email" means mail, so the search runs
+    as `from dave.smith@acme.com` and mail, each shown as a chip - and the box
+    still says exactly what she typed.
+
+    Removing the person chip puts "Dave" back as a word and the filter
+    returns to being an offer on the bar; clicking the offer adds the filter
+    to the box, as it always did. (This scenario used to assert the offer
+    alone - order 0c §3b's "chips, not rewrites", reversed by that decision.)
+    """
+    from PyQt6.QtWidgets import QToolButton
+
     app, window, *_ = journeys
     view = window.search_view
     sentence = "the email Dave sent about the school trip"
     _type(qtbot, app, view, sentence)
 
-    _wait_for_bar(qtbot, view, "dave.smith@acme.com")
+    qtbot.waitUntil(lambda: "from dave.smith@acme.com" in view.chips.labels(), timeout=4000)
+    qtbot.waitUntil(lambda: "dad-school-trip.eml" in _names(view), timeout=4000)
+    assert "mail" in view.chips.labels()
+    assert view.input.text() == sentence
+    assert "apply:from:" not in _bar(view)          # applied, so not offered too
+
+    person = next(button for button in view.chips.findChildren(QToolButton, "chip")
+                  if button.text().startswith("from dave.smith@acme.com"))
+    qtbot.mouseClick(person, Qt.MouseButton.LeftButton)
+    gui_pump(app)
+    assert "from dave.smith@acme.com" not in view.chips.labels()
     assert view.input.text() == sentence
 
+    _wait_for_bar(qtbot, view, "dave.smith@acme.com")
     # A QLabel link cannot be hit by coordinate without its layout, so the
     # click is the label's own `linkActivated` - the signal Qt emits for one.
     view.notices.label.linkActivated.emit(_offer_href(view))

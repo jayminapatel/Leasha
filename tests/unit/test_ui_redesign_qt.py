@@ -147,10 +147,16 @@ def test_keyboard_moves_the_rail(window):
 
 def test_the_last_page_is_remembered_under_ui_page(window):
     app, built, store = window
+    from app.ui.state_writes import pool
+
     built.rail.setCurrentIndex(1)
     _pump(app)
+    # Queued on the ordered state writer since bug 3a - wait for it, and for
+    # the switch back below, so neither lands on top of "Reports".
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:page", "") == "Files"
     built.rail.setCurrentIndex(0)
+    assert pool().waitForDone(5000)
     store.set_state("ui:page", "Reports")
     built._restore_last_page()
     assert built.rail.tabText(built.rail.currentIndex()) == "Reports"

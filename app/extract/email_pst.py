@@ -43,7 +43,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Optional, Protocol, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Protocol, Sequence
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
@@ -734,10 +734,30 @@ class PstExtractor:
     #: Which route to take. Settings writes this; `auto` prefers libpff.
     backend: str = PstBackend.AUTO
 
+    #: Work order `dates-live-log-and-interrupted-runs` 3b. An interrupted
+    #: archive carries on at the folder it was in - **through libpff only.**
+    #: See `app/extract/base.py`'s `Extractor` for the protocol and
+    #: `pst_libpff.read_archive` for what the cursor means.
+    #:
+    #: 2026-09-27, the Outlook path, and why it takes no cursor: its folder
+    #: numbering is not provably the same between two reads. `walk_session`
+    #: walks MAPI's `Folders` collections, whose order Outlook does not promise
+    #: and which is a live view that Outlook itself changes (a folder added,
+    #: a search folder built); and attaching an archive to Outlook writes to
+    #: it and moves its modified time (seen on this machine, `WORKORDER-pst-
+    #: resilience.md` §0), so a cursor checked against size and time would be
+    #: thrown away by the very read that wanted it. An Outlook read therefore
+    #: starts from the top, as before, and skips what is already indexed by
+    #: its text (`Pipeline._already_current`).
+    supports_resume = True
+
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
 
-    def extract(self, path: Path) -> Iterable[Document]:
+    def extract(
+        self, path: Path, *, resume_from: int = 0,
+        resume_extra: Optional[Mapping[str, Any]] = None,
+    ) -> Iterable[Document]:
         if self.session_factory is not None:
             session = self.session_factory()
             yield from walk_session(session, include_live=False, only_paths=[str(path)])
@@ -748,8 +768,12 @@ class PstExtractor:
             from app.extract import pst_libpff
 
             yielded = False
+            extra = dict(resume_extra or {})
             try:
-                for document in pst_libpff.read_archive(path):
+                for document in pst_libpff.read_archive(
+                        path, resume_from=resume_from,
+                        seen_attachments=extra.get("seen") or (),
+                        read_before=int(extra.get("read", 0) or 0)):
                     yielded = True
                     yield document
                 return
