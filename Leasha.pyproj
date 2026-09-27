@@ -401,6 +401,7 @@
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
     <Compile Include="app\ui\widgets\find_bar.py" />
+    <Compile Include="app\ui\widgets\flow_layout.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\history_pass.py" />
@@ -851,6 +852,7 @@
     <Compile Include="tests\unit\test_ui_redesign_qt.py" />
     <Compile Include="tests\unit\test_ui_redesign_scenarios.py" />
     <Compile Include="tests\unit\test_ui_responsiveness.py" />
+    <Compile Include="tests\unit\test_ui_review_0x9.py" />
     <Compile Include="tests\unit\test_ui_stays_responsive.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
