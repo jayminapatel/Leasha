@@ -792,7 +792,16 @@ RADIUS: dict[str, str] = {
     "radius_input": "5px",
     "radius_control": "8px",
     "radius_box": "10px",
-    "radius_pill": "999px",
+    # **Not 999px: Qt draws no rounding at all when the radius is more than
+    # half the widget's height** - it does not clamp the way a browser does.
+    # 999px therefore gave every "pill" square corners: the suggested
+    # searches, the filter chips, the chat chips (seen in the 2026-09-27
+    # review, order 0x section 9, and checked on plain buttons: 13px rounds a
+    # 26px button, 14px leaves it square). The smallest pill measured is 22px
+    # tall, so 11px is the most that rounds every one of them; taller ones get
+    # softly rounded ends rather than full semicircles, which is still a pill
+    # to the eye. Qt stylesheets cannot say "half the height".
+    "radius_pill": "11px",
 }
 
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built
