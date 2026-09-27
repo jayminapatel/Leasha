@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -51,7 +51,7 @@ line, no traceback and no window.
 
 ## 3. Current state
 
-**2026-09-27 (later) - the owner's feedback: three bugs fixed, order 0w built.** Seven items came
+**2026-09-27 (later) - the owner's feedback: three bugs fixed, order 0w built and SHIPPED.** Seven items came
 in. Three were bugs with a verified cause and were fixed directly. Three became order 0w
 (`docs/WORKORDER-dates-live-log-and-interrupted-runs.md`), released and built the same day. The
 seventh, general jerkiness, has no measured cause and is not ordered. It needs the lag-monitor
@@ -77,6 +77,13 @@ numbers from a real run (the owner-run step further down this section). What is 
 - **Interrupted runs** (`app/index/interrupted.py`), read from the `run:active` record without
   its mutex. **PST folder resume** for libpff through `resume:archive:<path hash>` keys (under
   `resume:`, so a reset clears them). Outlook is deliberately not resumable; see the 0w 3b note.
+- **Dates** (0w §1): `date:` ranges and times of day are parsed in `app/search/query.py` into the
+  same `after`/`before` every box already used. Bad dates land in `ParsedQuery.date_problems`
+  *and* stay in `unknown_operators`. The Mail tab's `before` now includes its last day. In Code,
+  `after:` still means git history; `/date` means the index.
+- **The timeline's "near the bottom?" check flushes pending layout first**
+  (`TimelineList._more_once_laid_out`). Without it, `main` fetched an unrequested second page
+  about half the time.
 - `Leasha.pyproj` is regenerated and `test_vs_project` is green again.
   `scripts/regen_vs_project.py` runs on Linux too.
 
