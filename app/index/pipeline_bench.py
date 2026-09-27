@@ -769,8 +769,6 @@ def _index_in_child_and_report(options: BenchOptions, manifest: CorpusManifest,
       is a machine-wide name, so a real Leasha index running at the same time
       would refuse this run - which the report would show as an error.
     """
-    import os
-
     from app.index.child_run import CHILD_STDERR_NAME, ChildIndexRun, child_command
     from app.storage.sqlite_store import SqliteStore
 

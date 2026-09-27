@@ -375,22 +375,6 @@ def _redirect_stdout():
         return events
 
 
-def cmd_index(args: argparse.Namespace) -> int:
-    """Build or update the index. Layer 3's entry point.
-
-    Unlike `extract`, this one writes - so it takes the single-instance lock.
-    Two copies indexing into one SQLite file is exactly the corruption the
-    mutex exists to prevent.
-
-    With `--events jsonl` it is the window's child process (work order 0x §2):
-    machine-readable events on standard output, commands on standard input,
-    and every error reported as a `finished` event rather than printed.
-    """
-    if getattr(args, "events", None):
-        return _cmd_index_events(args)
-    return _cmd_index(args, None)
-
-
 def _cmd_index_events(args: argparse.Namespace) -> int:
     """`cmd_index` as a child: events out, commands in, errors as events."""
     from app.core.errors import AppErrorException, to_app_error
@@ -399,7 +383,7 @@ def _cmd_index_events(args: argparse.Namespace) -> int:
     session.writer.start()
     session.listen(sys.stdin)
     try:
-        return _cmd_index(args, session)
+        return cmd_index(args, session)
     except AppErrorException as exc:
         session.writer.finish(error=exc.error, exit_code=EXIT_ERROR)
         return EXIT_ERROR
@@ -410,8 +394,22 @@ def _cmd_index_events(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
 
-def _cmd_index(args: argparse.Namespace, events: "_EventSession | None") -> int:
-    """The body of `cmd_index`. `events` is None for the ordinary command."""
+def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -> int:
+    """Build or update the index. Layer 3's entry point.
+
+    Unlike `extract`, this one writes - so it takes the single-instance lock.
+    Two copies indexing into one SQLite file is exactly the corruption the
+    mutex exists to prevent.
+
+    With `--events jsonl` it is the window's child process (work order 0x §2):
+    machine-readable events on standard output, commands on standard input,
+    and every error reported as a `finished` event rather than printed.
+    `_cmd_index_events` sets that up and calls back in with `events`; `None`
+    is the ordinary command.
+    """
+    if events is None and getattr(args, "events", None):
+        return _cmd_index_events(args)
+
     from app.core.errors import AppErrorException
     from app.core.run_lock import GUI
     from app.index.clip_embedder import ClipImageEmbedder
