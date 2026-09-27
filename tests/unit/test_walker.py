@@ -754,3 +754,24 @@ def test_own_paths_survives_a_settings_missing_a_field():
     from app.index.walker import own_paths
 
     assert own_paths(object()) == frozenset()
+
+
+def test_a_mail_archive_over_the_ceiling_is_still_read(tmp_path: Path) -> None:
+    """**A mail archive is read one message at a time, never whole.** So the
+    size ceiling - which exists because hashing a 40GB disk image yields
+    nothing - must not apply to it. A 10GB Google Takeout `.mbox` or a large
+    Outlook for Mac `.olm` export used to be dropped here unread, while an
+    ordinary oversized file next to it is still refused as before."""
+    make_tree(tmp_path, {
+        "Takeout.mbox": "From x\n" + "y" * 5000,
+        "export.olm": "z" * 5000,
+        "big.txt": "y" * 5000,
+    })
+    config = WalkConfig(
+        roots=[tmp_path], extensions=frozenset({".txt", ".mbox", ".olm"}),
+        max_file_bytes=1000,
+    )
+    found = list(walk(config))
+
+    assert readable(found) == {"Takeout.mbox", "export.olm"}
+    assert names(found) == {"Takeout.mbox", "export.olm", "big.txt"}

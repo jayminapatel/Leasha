@@ -19,6 +19,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### Getting ready for a Mac, without changing anything on Windows
 
+- **A Google Takeout mailbox over 2 GB was skipped without being read.** Leasha reads an
+  `.mbox` one message at a time, but the general file-size limit dropped big ones before the
+  reader saw them. They are now read, like `.pst` files.
+- **Mail from a Mac can be searched.** Apple Mail's `.emlx` files and Outlook for Mac's
+  `.olm` exports are now read as mail, one message at a time. An `.olm` export carries on where
+  it stopped if indexing is interrupted. (Checked here with sample files; a real Apple Mail
+  folder and a real export are first on the Mac checklist.)
 - Installing Leasha's requirements on a Mac no longer stops at the first Windows-only
   package: `pywin32` and `pywinauto` now install on Windows only. Windows installs exactly
   what it did before.

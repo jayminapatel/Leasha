@@ -203,11 +203,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 8. Mail files from a Mac
 
-- [ ] **8a** Apple Mail `.emlx` reader (one message per file plus its partial-download
+> **2026-09-27, 8a-8c built** (`app/extract/email_emlx.py`, `app/extract/email_olm.py`, 28 tests).
+> `.emlx` goes through the same `document_from_message` as `.eml`, so the two are identical in
+> shape. `.olm` streams one message at a time through `archive.py`'s own guards and resumes like
+> mbox. Two limits differ from a plain zip on purpose: the member cap is the scan's 200,000 (an
+> export has a member per message and per attachment), and archive.py's 512MB total budget is not
+> applied (it would stop a real mailbox part-way, silently). **The whole `.olm` XML layout is
+> (UNCONFIRMED)** - taken from public descriptions, parsed defensively, and first checked on the
+> owner's Mac (`docs/MAC_VERIFICATION.md` §6). Found on the way and fixed: `.mbox` (like `.olm`)
+> was dropped unread by the walker's 2GB ceiling although it is streamed, so a Google Takeout
+> export over 2GB never reached the reader; `test_a_mail_archive_over_the_ceiling_is_still_read`.
+- [x] **8a** Apple Mail `.emlx` reader (one message per file plus its partial-download
       variant), producing the same mail document as `.eml`.
-- [ ] **8b** Outlook for Mac `.olm` export reader (a zip of per-message XML), streamed one
+- [x] **8b** Outlook for Mac `.olm` export reader (a zip of per-message XML), streamed one
       message at a time with a resume position, like mbox.
-- [ ] **8c** Built and tested against fixtures made here; checking against a real export is
+- [x] **8c** Built and tested against fixtures made here; checking against a real export is
       listed in `docs/MAC_VERIFICATION.md` **(UNCONFIRMED on macOS)**.
 
 ## 9. UI improvements
