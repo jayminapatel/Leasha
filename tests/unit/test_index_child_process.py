@@ -207,3 +207,18 @@ def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
     with SqliteStore(setup["db"]) as store:
         # It stopped cleanly rather than dying, so nothing reads as interrupted.
         assert read_unfinished_run(store, lock_dir=setup["locks"]) is None
+
+
+def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(tmp_path) -> None:
+    """Order 0x §2d's "after" number: `bench-pipeline --child-process` indexes
+    the same corpus through `ChildIndexRun` and says so in its report."""
+    from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
+
+    report = run_pipeline_bench(BenchOptions(
+        corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
+        child_process=True, full_speed=True, work_dir=tmp_path / "work"))
+    results = report["results"]
+    assert results["documents"] == results["expected_documents"]
+    assert "CHILD process" in report["conditions"]["pipeline"]["entry"]
+    assert report["conditions"]["pipeline"]["memory_of"].startswith("the child")
+    assert "CHILD PROCESS" in report["label"]

@@ -311,6 +311,12 @@ class _EventSession:
 
         from app.index.run_events import parse_command
 
+        if stream is None:
+            # No standard input at all (a `pythonw` started with none): there
+            # is nobody to take commands from, and no pipe whose end could
+            # mean "the window has gone". The run goes on as a plain run.
+            return
+
         def read() -> None:
             try:
                 for line in stream:
