@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional
 
 from app.core.logging import logger
+from app.core.osbridge.pathnames import path_key
 from app.index.walker import Candidate
 
 if TYPE_CHECKING:                                   # pragma: no cover
@@ -134,7 +135,9 @@ def _backlog_pipeline_class() -> type:
         def _candidates(self) -> Iterator[Candidate]:
             seen = self._seen_paths
             for candidate in self._queued:
-                key = str(candidate.path).lower()
+                # The same key the walker and the clean-up pass use (order 0x
+                # 7b): `str(path).lower()` on Windows, byte for byte.
+                key = path_key(candidate.path)
                 if key not in seen:
                     seen.add(key)
                     yield candidate

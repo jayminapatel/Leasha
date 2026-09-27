@@ -23,7 +23,11 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["**"]
+  # Started by hand from the Actions tab (Run workflow), and once a week:
+  # the macOS job runs only on these two (see its `if:` below).
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"   # Mondays 03:17 UTC
 
 # A newer push to the same branch cancels the run still going for the old
 # one: only the newest commit's result is ever read.
@@ -33,6 +37,9 @@ concurrency:
 
 jobs:
   test:
+    # The Windows job is the everyday gate; it does not need to repeat on the
+    # weekly schedule, which exists for the macOS job.
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     # 2026-09-27 (order 0x): one run on this branch sat in the test step for
     # 50 minutes with no output, where a normal run takes about 12. A ceiling
@@ -74,6 +81,12 @@ jobs:
   # moves into a blocking subset; the counts land in the job summary so the
   # trend is visible on every run.
   test-macos:
+    # 2026-09-27: macOS minutes bill at about ten times the Windows rate on a
+    # private repository, and a run takes about 50 minutes - so running it on
+    # every commit used the account's Actions allowance up in an afternoon and
+    # every job, Windows included, was then refused. It now runs only when
+    # started by hand (Actions -> CI -> Run workflow) or on the weekly schedule.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: macos-14
     continue-on-error: true
     timeout-minutes: 90

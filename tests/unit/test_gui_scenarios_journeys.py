@@ -421,6 +421,32 @@ def test_clearing_the_box_offers_what_she_searched_for_last(journeys, qtbot):
     qtbot.waitUntil(offered, timeout=4000)
 
 
+def test_the_idle_timer_runs_the_full_search_even_when_it_fires_early(journeys, monkeypatch):
+    r"""Why the scenarios above failed about one run in two: Qt's default timers
+    may fire up to 5% early, so the 400ms idle timer went off at 380-399ms,
+    the measured gap read "not idle yet", and only the keyword glance ran -
+    no spelling help, no notices, nothing in her recent searches. Here the
+    timer fires the instant after her last key, which is as early as it gets.
+    """
+    import time
+
+    app, window, *_ = journeys
+    view = window.search_view
+    tiers: list[str] = []
+    monkeypatch.setattr(view, "_dispatch", tiers.append)
+    view._interim_timer.stop()
+    view._full_timer.stop()
+    view.input.blockSignals(True)
+    try:
+        view.input.setText("rivers")
+    finally:
+        view.input.blockSignals(False)
+    view._last_keystroke = time.monotonic()
+
+    view._full_timer.timeout.emit()
+    assert tiers == ["full"]
+
+
 def test_every_scenario_here_ran_without_a_model(journeys):
     """The harness's embedder raises on any call; if any scenario above had
     needed a model it would have failed, not passed on a machine that has one."""

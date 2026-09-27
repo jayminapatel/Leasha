@@ -42,6 +42,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from app.core.logging import logger
+from app.core.osbridge.pathnames import join_under
 from app.search.engine import SearchResult
 from app.search.gitquery import parse_git_query, wants_git
 
@@ -192,11 +193,15 @@ def _join(root: Any, relative: str) -> str:
     the rest of this application stores backslashes, and this is the seam between
     them. That mistake has now been found seven times in this project; it is not
     worth an eighth.
+
+    **The joining itself now lives in `osbridge.join_under`** (order 0x section
+    7a). On Windows it is the very same expression this function used to hold,
+    so every path it returns there is unchanged, character for character. On a
+    Mac the repository sits at `/Users/.../repo`, and gluing a backslash on
+    would have produced `/Users/.../repo\src\b.cs` - one file name with
+    backslashes in it, which nothing can open; there it joins with `/`.
     """
-    base = str(root).rstrip("\\/")
-    if not relative:
-        return base
-    return base + "\\" + relative.replace("/", "\\").lstrip("\\")
+    return join_under(root, relative)
 
 
 def _ext_of(relative: str) -> str:

@@ -529,9 +529,24 @@ class StrategyBox(QGroupBox):
             "After-run leaves the rest of the index usable while the images\n"
             "are done, which on a scanned corpus is days of difference.")
 
+        # Work order 0x §2e. **Where the run happens, not how fast it goes** -
+        # but it is on this shelf because it is watched here: somebody whose
+        # window catches while an index runs is looking at this page. A new
+        # label, reworded nowhere else. Off keeps the run on threads inside
+        # the window's process, exactly as before; on runs it as a child
+        # process (`app/index/child_run.py`). Read at Start, so a change
+        # applies from the next run and never to the one in flight.
+        self.separate_process = QCheckBox("Index in a separate process")
+        self.separate_process.setObjectName("INDEX_SEPARATE_PROCESS")
+        self.separate_process.setToolTip(
+            "Runs the indexer as its own program beside the window, so a busy\n"
+            "index can never make the window catch or stutter. Pause, Stop and\n"
+            "the progress on this page work the same either way. Takes effect\n"
+            "from the next Start.")
+
         self._save = Debounced(lambda: self.changed.emit(self.values()),
                                parent=self)
-        for widget in (self.two_phase, self.dedup):
+        for widget in (self.two_phase, self.dedup, self.separate_process):
             widget.stateChanged.connect(lambda _s: self._save())
         for widget in (self.bulk_fts, self.ocr_pass):
             widget.currentIndexChanged.connect(lambda _i: self._save())
@@ -541,18 +556,22 @@ class StrategyBox(QGroupBox):
         form.addRow(self.dedup)
         form.addRow("Word index", self.bulk_fts)
         form.addRow("Read images", self.ocr_pass)
+        form.addRow(self.separate_process)
 
         if settings is not None:
             self.load(settings)
 
     def load(self, settings: Any) -> None:
-        widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass)
+        widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass,
+                   self.separate_process)
         for widget in widgets:
             widget.blockSignals(True)
         try:
             self.two_phase.setChecked(
                 bool(getattr(settings, "index_two_phase", True)))
             self.dedup.setChecked(bool(getattr(settings, "embed_dedup", True)))
+            self.separate_process.setChecked(
+                bool(getattr(settings, "index_separate_process", False)))
             for combo, name, fallback in (
                 (self.bulk_fts, "index_bulk_fts", "auto"),
                 (self.ocr_pass, "index_ocr_pass", "with-run"),
@@ -570,6 +589,7 @@ class StrategyBox(QGroupBox):
             "EMBED_DEDUP": bool(self.dedup.isChecked()),
             "INDEX_BULK_FTS": str(self.bulk_fts.currentData() or "auto"),
             "INDEX_OCR_PASS": str(self.ocr_pass.currentData() or "with-run"),
+            "INDEX_SEPARATE_PROCESS": bool(self.separate_process.isChecked()),
         }
 
     def flush(self) -> None:
