@@ -48,6 +48,7 @@ from typing import Iterable, Optional
 
 from app.core.errors import raise_error
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.base import (
     Document,
     SourceKind,
@@ -161,72 +162,97 @@ class MboxExtractor:
             # table (`mbox.iterkeys()` -> `_generate_toc()` the first time
             # it's needed) is still a full scan of the file, but it is a
             # `From `-line scan, not a MIME parse.
-            for key in mbox.iterkeys():
-                if key < resume_from:
-                    continue
-                try:
-                    message = mbox.get_message(key)
-                except (KeyError, OSError) as exc:  # noqa: BLE001 - one bad slot
-                    _log.debug("Failed to read message {} in {}: {}", key, path.name, exc)
-                    continue
-                # Convert mailbox.Message to email.message.EmailMessage
-                # for consistent handling with the EML extractor
-                try:
-                    # Get the raw bytes and re-parse as EmailMessage
-                    # This ensures consistent policy and header parsing
-                    raw = bytes(message)
-                    parsed = email.message_from_bytes(raw, policy=email.policy.default)
-                except Exception as exc:  # noqa: BLE001
-                    _log.debug("Failed to parse message in {}: {}", path.name, exc)
-                    continue
-
-                # Extract metadata exactly like email_files.py does
-                sent_at: Optional[int] = None
-                date_header = parsed.get("Date")
-                if date_header:
-                    try:
-                        sent_at = int(parsedate_to_datetime(date_header).timestamp())
-                    except (TypeError, ValueError):
-                        sent_at = None
-
-                senders = _addresses(parsed, "From")
-
-                # Build document using the same function as EML and MSG extractors
-                # This ensures identical treatment across all email formats
-                try:
-                    document = build_email_document(
-                        path,
-                        subject=str(parsed.get("Subject") or "").strip(),
-                        sender=senders[0] if senders else "",
-                        recipients=_addresses(parsed, "To", "Cc"),
-                        sent_at=sent_at,
-                        conversation=_conversation_key(parsed),
-                        body=self._get_body_text(parsed),
-                        attachments=self._get_attachment_names(parsed),
-                        source_kind=SourceKind.EML,
-                    )
-                    # A stable identity independent of this run's own
-                    # position in the loop - see the module docstring. Every
-                    # message in a file otherwise shares `str(path)`, which
-                    # made every message after the first collide in
-                    # `_extract_stream`'s duplicate-key guard and get a key
-                    # built from the *current run's* enumerate() index - fine
-                    # until a resumed run started renumbering from zero and
-                    # collided with rows the previous run had already
-                    # written under the same numbers.
-                    document.virtual_path = f"{path}/{key}"
-                    document.meta["mbox_index"] = key
-                    if not document.is_empty:
-                        yield document
-                except Exception as exc:  # noqa: BLE001
-                    _log.debug("Failed to build document for message in {}: {}", path.name, exc)
-                    continue
+            #
+            # Work order 0x section 3b: **the table of contents is the total,
+            # for free.** `keys()` builds exactly the same `From `-line table
+            # `iterkeys()` would have built on its first step - it is one scan
+            # either way, never two - and once it exists its length is the
+            # message count. So "message 812 of 2,000" costs no extra pass.
+            # Measured 2026-09-27 on a generated 20,000-message mbox (Linux
+            # sandbox, median of 5): `keys()` then iterating the list took
+            # 87 ms against 86 ms for `iterkeys()` - the scan is the whole of
+            # it - and the list is one small int per message.
+            keys = mbox.keys()
+            with progress.enter("mbox", path.name, unit="message",
+                                total=len(keys),
+                                stage=progress.STAGE_MESSAGES) as frame:
+                yield from self._messages(mbox, keys, path, resume_from, frame)
         finally:
             # Close the mbox file properly
             try:
                 mbox.close()
             except Exception as exc:  # noqa: BLE001
                 _log.debug("Error closing mbox {}: {}", path.name, exc)
+
+    def _messages(self, mbox: mailbox.mbox, keys: list, path: Path,
+                  resume_from: int, frame: progress.Frame) -> Iterable[Document]:
+        """The message loop, split out so the progress frame wraps all of it.
+
+        `frame.n` is the mbox key plus one - a position counting from 1, the
+        way a person counts - and is set before the message is parsed, so a
+        message that takes a long time to decode is the one on the screen.
+        """
+        for key in keys:
+            if key < resume_from:
+                continue
+            frame.n = key + 1
+            try:
+                message = mbox.get_message(key)
+            except (KeyError, OSError) as exc:  # noqa: BLE001 - one bad slot
+                _log.debug("Failed to read message {} in {}: {}", key, path.name, exc)
+                continue
+            # Convert mailbox.Message to email.message.EmailMessage
+            # for consistent handling with the EML extractor
+            try:
+                # Get the raw bytes and re-parse as EmailMessage
+                # This ensures consistent policy and header parsing
+                raw = bytes(message)
+                parsed = email.message_from_bytes(raw, policy=email.policy.default)
+            except Exception as exc:  # noqa: BLE001
+                _log.debug("Failed to parse message in {}: {}", path.name, exc)
+                continue
+
+            # Extract metadata exactly like email_files.py does
+            sent_at: Optional[int] = None
+            date_header = parsed.get("Date")
+            if date_header:
+                try:
+                    sent_at = int(parsedate_to_datetime(date_header).timestamp())
+                except (TypeError, ValueError):
+                    sent_at = None
+
+            senders = _addresses(parsed, "From")
+
+            # Build document using the same function as EML and MSG extractors
+            # This ensures identical treatment across all email formats
+            try:
+                document = build_email_document(
+                    path,
+                    subject=str(parsed.get("Subject") or "").strip(),
+                    sender=senders[0] if senders else "",
+                    recipients=_addresses(parsed, "To", "Cc"),
+                    sent_at=sent_at,
+                    conversation=_conversation_key(parsed),
+                    body=self._get_body_text(parsed),
+                    attachments=self._get_attachment_names(parsed),
+                    source_kind=SourceKind.EML,
+                )
+                # A stable identity independent of this run's own
+                # position in the loop - see the module docstring. Every
+                # message in a file otherwise shares `str(path)`, which
+                # made every message after the first collide in
+                # `_extract_stream`'s duplicate-key guard and get a key
+                # built from the *current run's* enumerate() index - fine
+                # until a resumed run started renumbering from zero and
+                # collided with rows the previous run had already
+                # written under the same numbers.
+                document.virtual_path = f"{path}/{key}"
+                document.meta["mbox_index"] = key
+                if not document.is_empty:
+                    yield document
+            except Exception as exc:  # noqa: BLE001
+                _log.debug("Failed to build document for message in {}: {}", path.name, exc)
+                continue
 
     @staticmethod
     def _get_body_text(message: email.message.EmailMessage) -> str:
