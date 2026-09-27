@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.15 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -160,6 +160,10 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       2024-13-01` says what is wrong. In Code, `/range v1..v2` still runs git.
 - [ ] **Plain-English ranges.** "letters between March and June 2024" offers after 2024-03-01 and
       before 2024-06-30; "from 1 Oct to 5 Nov" offers nothing.
+
+> **2026-09-27:** the owner decided the setting stays optional and configurable for good; the
+> in-process path is never retired. This check now decides only the default.
+
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
@@ -1509,6 +1513,7 @@ Dated, because several of them supersede an earlier position.
 | 2026-08-28 | **Slow scans of photo and video drives are accepted** — "expected, small price to pay" | Owner | Never trade corpus coverage for speed on media drives. The ladder and trickle enrichment manage the cost; they do not cut the corpus | — |
 | 2026-08-28 | **mbox is a must; bookmarks are withdrawn; calendar and contacts dropped** | Owner | One stdlib extractor unlocks Takeout Gmail, Thunderbird and Unix mail. Sync products own the bookmark space | — |
 | 2026-08-28 | **History search is its own job, not a mode of the search box** | Backend measurement, ratified by owner | `git log -S` cost 1.59s over 75 commits against a 300ms budget, and the cost is proportional to history. Not a marginal call | Option 1 and option 3 of `HANDOFF-ui-to-backend.md` B4 |
+| 2026-09-27 | **Indexing in a separate process stays optional for good.** The setting (Indexing › Tuning › Strategy) is permanent; the in-process path is kept. The 2d measurement decides only the default | Owner | The user keeps the choice either way | Order 0x item 2e's "then retired in a later change" |
 | 2026-08-26 | **`LICENSE` added: MIT** | Owner | — | **Reopens a closed question.** `202626082213` concluded free SignPath code signing was unavailable *because* the repository had no OSS licence. That premise no longer holds — see `docs/ORDER_REGISTER.md` §5 |
 
 ## 6. Traps
