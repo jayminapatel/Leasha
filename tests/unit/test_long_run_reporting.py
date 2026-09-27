@@ -187,7 +187,10 @@ def test_a_run_stopped_part_way_resumes_where_it_stopped(tmp_path):
             PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
                            checkpoint_every=1, prune_missing=False),
         )
-        first.run(on_progress=lambda _s: first.request_stop())
+        # The first tick with something indexed, not the first tick: since
+        # bug 2b the run announces each phase with a tick, and the first of
+        # those comes before a single file is read.
+        first.run(on_progress=lambda s: s.indexed and first.request_stop())
 
         done_after_first = sum(
             1 for record in store.iter_files(source_kind="file")
@@ -226,7 +229,8 @@ def test_the_cursor_survives_the_interruption(tmp_path):
             PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
                            checkpoint_every=1, prune_missing=False),
         )
-        pipeline.run(on_progress=lambda _s: pipeline.request_stop())
+        # The first tick with something indexed - see the test above.
+        pipeline.run(on_progress=lambda s: s.indexed and pipeline.request_stop())
 
         assert int(store.get_state("cursor:indexed", "0") or 0) > 0
         assert store.get_state("cursor:last_path", "")

@@ -81,6 +81,38 @@ def group_skips(
 # feel right" is the only symptom anybody can report.
 # ---------------------------------------------------------------------------
 
+#: What the detail line says while the run is in a stretch it cannot count,
+#: keyed by `pipeline.PHASE_*`. A phase absent from here - `reading`, or none
+#: yet - is drawn from the counts as usual.
+#:
+#: **Every one of these used to be a bar that did not move.** Loading the
+#: model, catching up on a previous run, building the vector index at the end:
+#: minutes each on a large index, with no tick at all, so the page showed
+#: whatever it showed last and the run was taken for a hang. A busy bar with a
+#: sentence beside it is the honest picture - something is happening, this is
+#: what, and nobody can say how long.
+PHASE_WORDS: dict[str, str] = {
+    "model": "Getting the search model ready…",
+    "word_index_check": "Checking the word index…",
+    "catch_up": "Finishing what the last run left undone…",
+    "planning": "Working out which folders to read…",
+    "media": "Reading videos and recordings…",
+    "tidying": "Tidying up the index…",
+    "vector_index": "Organising the index so searches stay quick…",
+    "word_index": "Tidying the word index so searches stay quick…",
+}
+
+#: Said the moment Start is pressed, before any run exists. The window works
+#: out the tuning numbers first, which on a cold cache means asking Windows
+#: about the disk and the graphics card - seconds, sometimes more.
+PREPARING_WORDS = "Getting ready to index…"
+
+
+def phase_words(stats: Any) -> str:
+    """The sentence for the phase `stats` is in, or "" when it is counting."""
+    return PHASE_WORDS.get(str(getattr(stats, "phase", "") or ""), "")
+
+
 def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     """`(value, maximum)` for the bar, given a progress tick.
 
@@ -97,7 +129,12 @@ def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     goes. Honest, and it moves - unlike a fixed total nobody can know before the
     walk completes, or an indeterminate bar that spins forever and reads as
     stuck.
+
+    A phase with nothing to count (`phase_words`) is always indeterminate:
+    whatever the numbers say, none of them are moving.
     """
+    if phase_words(stats):
+        return 0, 0
     done = (
         int(getattr(stats, "indexed", 0) or 0)
         + int(getattr(stats, "unchanged", 0) or 0)
@@ -257,6 +294,17 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
             "it will continue on its own.",
         )
 
+    headline = (
+        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
+        f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
+        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
+    )
+    # Counts stay in the headline - they are still true - and the detail says
+    # what is happening instead of a rate that is not being earned.
+    doing = phase_words(stats)
+    if doing:
+        return headline, doing
+
     done, _total = progress_for(stats, total_estimate=total_estimate)
 
     # **The rate over the last quarter of an hour, not since the start.**
@@ -278,12 +326,6 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
         eta = format_eta(max(0, total_estimate - done), files_per_minute=rate)
     else:
         eta = "time remaining unknown - run `app.cli scan` for a real estimate"
-
-    headline = (
-        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
-        f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
-        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
-    )
 
     current = getattr(stats, "current", "") or ""
     # **Say when it is OCR.** A run reading text moves at hundreds of files a

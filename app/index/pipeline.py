@@ -66,10 +66,24 @@ from app.core.priority import lower_this_thread
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
+from app.index.activity import (
+    KIND_ARCHIVE,
+    KIND_FINISHED,
+    KIND_LARGE_FILE,
+    KIND_NOTICE,
+    KIND_PAUSE,
+    KIND_PHASE,
+    KIND_RESUME,
+    KIND_STOPPING,
+    KIND_WARNING,
+    ActivityLog,
+    large_file_kind,
+)
 from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
+from app.index.interrupted import ARCHIVE_RESUME_PREFIX
 from app.index.phash import PhashComputer
 from app.index.resources import (
     MANUAL_PAUSE_REASON,
@@ -88,6 +102,7 @@ from app.index.walker import (
     repo_kind_at,
     walk,
 )
+from app.storage.filters import MAIL_KINDS
 from app.storage.sqlite_store import FileStatus, SqliteStore
 from app.storage.vector_store import ImageVectorStore, VectorStore
 
@@ -148,6 +163,34 @@ RESUME_POSITION_META_KEY = "mbox_index"
 #: Also matched by `SqliteStore.clear_index()`'s reset delete.
 RESUME_STATE_PREFIX = "resume:"
 
+#: Work order `dates-live-log-and-interrupted-runs` 3b. The folder cursor an
+#: archive extractor (`pst_libpff.read_archive`) stamps on each document, and
+#: the message count before that folder. Spelt the same as there; not imported,
+#: because importing the libpff reader here would load it for every run.
+ARCHIVE_FOLDER_META_KEY = "pst_folder"
+ARCHIVE_READ_META_KEY = "pst_read_before"
+
+# `ARCHIVE_RESUME_PREFIX` (imported above) is the `index_state` key prefix for
+# an archive's folder cursor. **Keyed on the archive's path, not a content
+# hash**: an archive is read externally (`reads_externally`) and never hashed,
+# so there is no digest to key on. The cursor records the archive's size and
+# modified time instead and is used only while both still match - a changed
+# archive starts from the top and overwrites it. Under `RESUME_STATE_PREFIX`, so
+# a reset clears it too. Declared beside its reader, `app/index/interrupted.py`
+# (3c: the Indexing page lists these), which must not import this module.
+
+#: The most often an archive's folder cursor is written *during* a run, at a
+#: folder boundary. **What a pulled plug costs**, at most: the folders finished
+#: since the last write are re-parsed (their messages are skipped by text hash,
+#: so nothing is embedded twice). Each write first waits for the embedding
+#: thread to catch up - the cursor may only point past what is durable - so
+#: writing at every boundary would give up the overlap between reading and
+#: embedding on an archive of many small folders. Thirty seconds bounds the
+#: loss to seconds of parsing and the cost to one short wait a half-minute.
+#: A fixed constant (non-negotiable #11): nobody could choose it better than
+#: this, and a slower machine only makes the same trade in the same place.
+RESUME_PERSIST_S = 30.0
+
 #: Chunks per embedding call. The single biggest throughput lever in the whole
 #: pipeline: ONNX is efficient on large batches and spends its time on call
 #: overhead on small ones.
@@ -196,6 +239,25 @@ RATE_WINDOW_S = 15 * 60
 #: review afterwards in under a minute.
 SUMMARY_EVERY_S = 24 * 60 * 60
 
+#: The stretches of a run, in the order `run` enters them. Announced on
+#: `IndexStats.phase` with a progress tick as each one starts.
+#:
+#: **Only `PHASE_READING` has anything to count.** The rest - loading the
+#: model, catching up on an earlier run, planning the roots, building the
+#: vector index - can each take minutes on a big index and used to emit no
+#: tick at all, so the bar sat still on whatever it last showed and the run
+#: was reported as stalled. The words for each live in the presenter
+#: (`PHASE_WORDS`); these are only the keys.
+PHASE_MODEL = "model"
+PHASE_WORD_INDEX_CHECK = "word_index_check"
+PHASE_CATCH_UP = "catch_up"
+PHASE_PLANNING = "planning"
+PHASE_READING = "reading"
+PHASE_MEDIA = "media"
+PHASE_TIDYING = "tidying"
+PHASE_VECTOR_INDEX = "vector_index"
+PHASE_WORD_INDEX = "word_index"
+
 
 @dataclass
 class IndexStats:
@@ -242,6 +304,9 @@ class IndexStats:
     #: `seen` stops being a running tally and becomes a total. Nothing can show
     #: an honest percentage before it.
     walk_complete: bool = False
+    #: Which `PHASE_*` the run is in, or "" before the first. Only the one
+    #: thread that runs `Pipeline.run` writes it.
+    phase: str = ""
     #: What a worker is reading right now, and for how long. Set from the
     #: extraction threads and read from the consumer - a plain string swap,
     #: which is atomic enough for something only ever displayed.
@@ -311,6 +376,18 @@ class IndexStats:
     #: week should say what it can see coming at the start of it, not at hour
     #: sixty when the disk fills.
     notices: list[str] = field(default_factory=list)
+    #: Work order 0w §2c. When each of `notices` was said, as `time.time()`,
+    #: index for index. **A parallel list rather than a change of type**, so
+    #: every reader of `notices` - the CLI, the finished panel, the run
+    #: record, a dozen tests - still gets the plain strings it always did.
+    #: Filled by `add_notice`; a notice appended directly is stamped by
+    #: `stamp_notices` at the next snapshot instead, so none goes untimed.
+    notice_times: list[float] = field(default_factory=list)
+    #: Work order 0w §2a. The run's own timestamped story - see
+    #: `app/index/activity.py`. Not in `as_dict`: the run record is written
+    #: into the store every run and has no use for a few hundred lines.
+    activity: ActivityLog = field(default_factory=ActivityLog, repr=False,
+                                  compare=False)
     #: Warning code -> how many documents carried it.
     #:
     #: Warnings live on documents that indexed *successfully*, so none of them
@@ -379,12 +456,45 @@ class IndexStats:
         Each container is copied with a single C-level call, which holds the
         interpreter lock for its whole duration.
         """
+        self.stamp_notices()
         clone = copy.copy(self)
         for spec in fields(self):
             value = getattr(clone, spec.name)
             if isinstance(value, (dict, list, set)):
                 setattr(clone, spec.name, type(value)(value))
+        # Its own lock, not the interpreter's: see `ActivityLog.copy`.
+        clone.activity = self.activity.copy()
         return clone
+
+    def add_notice(self, text: str) -> None:
+        """Say a notice, and remember when. Work order 0w §2c.
+
+        The text is stored exactly as given - the time goes beside it, never
+        into it - and the same moment becomes the notice's line in the log.
+        """
+        with self.activity.lock:
+            at = time.time()
+            self.notices.append(text)
+            self.notice_times.append(at)
+            self.activity.record(KIND_NOTICE, text, at=at)
+
+    def stamp_notices(self) -> None:
+        """Time and log any notice that was appended without `add_notice`.
+
+        **A safety net, not the way in.** `notices` is a public list and a
+        caller that appends to it directly - an older path, or a change made
+        without knowing about this one - would otherwise leave a notice with
+        no time and no log line. One length comparison when there is nothing
+        to do, which is every tick but the one after such an append.
+        """
+        if len(self.notice_times) >= len(self.notices):
+            return
+        with self.activity.lock:
+            now = time.time()
+            while len(self.notice_times) < len(self.notices):
+                text = self.notices[len(self.notice_times)]
+                self.notice_times.append(now)
+                self.activity.record(KIND_NOTICE, str(text), at=now)
 
     @property
     def files_per_minute(self) -> float:
@@ -690,6 +800,11 @@ class _Extracted:
     #: nothing to compare against and re-reads the whole archive on every run
     #: forever - destroying the one property the incremental design exists for.
     file_marker: bool = False
+    #: Work order `dates-live-log-and-interrupted-runs` 3b. The `index_state`
+    #: key of this file's archive folder cursor (`ARCHIVE_RESUME_PREFIX`), or
+    #: None for anything that has none. Set on every item from such a file,
+    #: including its marker, which is what clears the cursor.
+    resume_key: Optional[str] = None
 
     @property
     def row_key(self) -> str:
@@ -713,6 +828,16 @@ class _Extracted:
         if self.key:
             return self.key
         return _candidate_row_key(self.candidate)
+
+
+def _archive_resume_key(path: Path) -> str:
+    """The `index_state` key of one archive's folder cursor (0w 3b).
+
+    A hash of the lower-cased path rather than the path itself: a key is a
+    short identifier, and Windows paths differ only in case.
+    """
+    digest = hashlib.blake2b(str(path).lower().encode("utf-8"), digest_size=16)
+    return f"{ARCHIVE_RESUME_PREFIX}{digest.hexdigest()}"
 
 
 def _candidate_row_key(candidate: "Candidate") -> str:
@@ -891,6 +1016,16 @@ class Pipeline:
         #: cursor is no longer needed. See the two for why this only ever
         #: holds *confirmed-embedded* positions, never merely-chunked ones.
         self._resume_progress: dict[str, tuple[str, int]] = {}
+        #: Work order `dates-live-log-and-interrupted-runs` 3b. The same idea
+        #: for an archive read by folders: `path -> cursor dict` (see
+        #: `_note_archive_progress`). Consumer thread only, like the above.
+        self._archive_cursors: dict[str, dict[str, Any]] = {}
+        #: Cursors a worker found and resumed from, handed to the consumer so
+        #: the attachments it names are carried into the next write. Written by
+        #: extraction workers, taken by the consumer; a plain dict's single
+        #: assignment and `pop` are atomic, which is all this needs.
+        self._archive_resumed: dict[str, dict[str, Any]] = {}
+        self._last_resume_persist = 0.0
         #: Every path this run has covered, lowercased. **One set, shared**
         #: between the walker, `_candidates` and `_produce` - see M17 in
         #: `_candidates`. Replaced at the start of each run.
@@ -908,6 +1043,19 @@ class Pipeline:
         #: The sink's keys, longest first. Rebuilt only when the sink grows.
         self._repo_order: list[str] = []
         self._throttle: Optional[Verdict] = None
+        #: Work order 0w §2a. A log to record into instead of the run's own -
+        #: set by `media_backlog.drain` on the pipeline that reads the queued
+        #: recordings, so the page's log carries straight on through that
+        #: tail rather than starting again empty.
+        self.activity_into: Optional[ActivityLog] = None
+        #: Warning codes already given a line in the log this run. Written by
+        #: the consumer only. See `_note_warnings`.
+        self._warned_codes: set[str] = set()
+        #: Which pause the log last said had started - "manual", "machine" or
+        #: "" - so each is said once however many threads notice it, and
+        #: "carrying on" is said only after a pause that was said.
+        self._pause_said = ""
+        self._pause_said_lock = threading.Lock()
         #: What `_plan_roots` decided this run. Read again at the end, to record
         #: a pass for every archival root that was walked in full.
         self._plans: tuple[Any, ...] = ()
@@ -1006,6 +1154,48 @@ class Pipeline:
         from one that has hung, and the person watching will kill it.
         """
         self._throttle = found if found.action != "run" else None
+        self._say_pause(found)
+
+    def _record(self, kind: str, text: str = "", **extra: Any) -> None:
+        """One entry in this run's log (`IndexStats.activity`). Never raises.
+
+        Through `_stats_ref`, the one object every thread of the run already
+        shares; `getattr`, because several tests build a bare pipeline with
+        only the attributes the method under test needs.
+        """
+        activity = getattr(getattr(self, "_stats_ref", None), "activity", None)
+        if activity is not None:
+            activity.record(kind, text, **extra)
+
+    def _say_pause(self, found: Verdict) -> None:
+        """Work order 0w §2a: a pause, its reason, and the end of it, in the log.
+
+        **Once each, however many threads ask.** The governor reports a change
+        of state from whichever thread noticed it, and the person's own pause
+        is also said by `pause()` the moment the button is pressed - so the
+        last thing said is remembered, and repeating it is a no-op. A stop
+        from the governor (the disk floor) is a warning: it ends the run, and
+        its reason is the fix. Never raises.
+        """
+        try:
+            activity = self._stats_ref.activity
+            action = getattr(found, "action", "")
+            if action == "stop":
+                activity.record(KIND_WARNING, getattr(found, "reason", "") or "")
+                return
+            cause = "manual" if getattr(found, "cause", "") == "manual" else "machine"
+            with self._pause_said_lock:
+                if action == "pause":
+                    if self._pause_said == cause:
+                        return
+                    self._pause_said = cause
+                    activity.record(KIND_PAUSE, getattr(found, "reason", "") or "",
+                                    detail=cause)
+                elif action == "run" and self._pause_said:
+                    self._pause_said = ""
+                    activity.record(KIND_RESUME)
+        except Exception as exc:                 # noqa: BLE001 - a log line
+            self._log.debug("could not note a pause in the run log: {}", exc)
 
     def request_stop(self) -> None:
         """Ask the run to finish the file in flight and return cleanly.
@@ -1014,6 +1204,10 @@ class Pipeline:
         point of stopping cleanly is that the cursor and every completed file
         survive, so resuming costs nothing.
         """
+        # Said once, by the run that owns the log: the media tail's pipeline
+        # is stopped through this too, straight after the outer one.
+        if not self._interrupted and getattr(self, "activity_into", None) is None:
+            self._record(KIND_STOPPING)
         self._interrupted = True
         self._stop.set()
         # **A stop beats a pause, and must leave nothing holding.** Every
@@ -1056,11 +1250,15 @@ class Pipeline:
         if hold is None:
             return
         hold()
+        # Said now, not when a waiter next asks the governor: after the walk
+        # has finished nothing asks it, and the pause would go unrecorded.
+        self._say_pause(Verdict("pause", MANUAL_PAUSE_REASON, cause="manual"))
         self._log.info("paused at the person's request")
 
     def resume(self) -> None:
         """Let go of the pause. The machine's own ceilings still apply."""
         self._release_pause()
+        self._say_pause(Verdict("run"))
         self._log.info("resumed at the person's request")
 
     def _release_pause(self) -> None:
@@ -1111,6 +1309,25 @@ class Pipeline:
     ) -> None:
         """Copy the pause state onto the stats and tell whoever is watching."""
         self._copy_pause_state(stats)
+        if on_progress is None:
+            return
+        try:
+            on_progress(stats)
+        except Exception as exc:                 # noqa: BLE001 - as elsewhere
+            self._log.warning("progress reporting failed: {}", exc)
+
+    def _announce_phase(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]], phase: str,
+    ) -> None:
+        """Say which stretch of the run is starting. See `PHASE_MODEL`.
+
+        Guarded like every other report: telling somebody what is happening
+        must never be the reason it stops happening.
+        """
+        stats.phase = phase
+        stats.activity.record(KIND_PHASE, phase)
+        self._log.debug("phase: {}", phase)
         if on_progress is None:
             return
         try:
@@ -1177,7 +1394,11 @@ class Pipeline:
         on_progress: Optional[Callable[[IndexStats], None]] = None,
     ) -> IndexStats:
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
+        if self.activity_into is not None:
+            stats.activity = self.activity_into
         self._stats_ref = stats          # workers announce the file they are on
+        self._warned_codes = set()
+        self._pause_said = ""
         # Work order 202626130120 (0t) section 6. First thing, before a
         # single file is read or the embedder loads - "before the run
         # starts" means before either of those, not after them. Persisted on
@@ -1202,8 +1423,12 @@ class Pipeline:
         # `_extract_stream`'s lookup) rather than trusting a prior run's
         # object state.
         self._resume_progress = {}
+        self._archive_cursors = {}
+        self._archive_resumed = {}
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
+        # The first mid-run cursor write waits a full interval, like the rest.
+        self._last_resume_persist = self._run_started
         self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
@@ -1242,6 +1467,7 @@ class Pipeline:
         elif self.governor.apply_priority():
             self._log.debug("running at below-normal priority")
 
+        self._announce_phase(stats, on_progress, PHASE_MODEL)
         self.vectors.ensure_table()
         if self.image_vectors is not None:
             self.image_vectors.ensure_table()
@@ -1263,14 +1489,17 @@ class Pipeline:
         self._warm_embedder()
         # Check if FTS was marked dirty by an interrupted bulk run and rebuild
         # if needed. This must happen before extraction starts.
+        self._announce_phase(stats, on_progress, PHASE_WORD_INDEX_CHECK)
         self.store.check_and_rebuild_fts_if_dirty()
         # **Anything left without a vector by a previous run is filled first.**
         # See `_drain_unembedded`. Work order 0i section 2a: now one of the
         # registered enrichment-backlog kinds - see `_run_enrichment_drains`.
+        self._announce_phase(stats, on_progress, PHASE_CATCH_UP)
         self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
+        self._announce_phase(stats, on_progress, PHASE_PLANNING)
         self._preflight_disk(stats)
         self._plan_roots(stats)
         # The images pass walks only the image types. Before the producer, or
@@ -1318,6 +1547,8 @@ class Pipeline:
             worker.start()
         feeder.start()
 
+        # Back to counting: `progress_for` draws a real bar from here on.
+        self._announce_phase(stats, on_progress, PHASE_READING)
         try:
             self._consume(results, workers, stats, on_progress, work=work)
         finally:
@@ -1339,6 +1570,14 @@ class Pipeline:
             # to ask it to stop.
             self._stop_feeder(feeder)
 
+        # 0w 3c: an archive this run stopped inside says so in the run's log.
+        # The Indexing page's summary says it too, from the cursor, for as long
+        # as it stays true - this is the moment it became true.
+        if self._interrupted:
+            for cursor in list(self._archive_cursors.values()):
+                stats.activity.record(
+                    KIND_ARCHIVE, Path(cursor["path"]).name, detail="part_read")
+
         # Work order 202626270515: videos and recordings the run only found are
         # read now, after everything else - see `app/index/media_backlog.py`.
         self._drain_media_backlog(stats, on_progress)
@@ -1351,6 +1590,7 @@ class Pipeline:
         # corpus - and while `exists()` would save them, it would do so at the
         # cost of one syscall per row for nothing. Same reasoning as a run
         # restricted to one root, which has always been excluded.
+        self._announce_phase(stats, on_progress, PHASE_TIDYING)
         if (self.config.prune_missing and not self._interrupted
                 and self.config.ocr_mode != "images"):
             stats.deleted = self._prune_missing(seen_paths)
@@ -1396,6 +1636,9 @@ class Pipeline:
         unreachable = dict(getattr(self.config.walk, "stat_failures", {}) or {})
         if unreachable:
             stats.unreachable_by_reason = unreachable
+            stats.activity.record(KIND_WARNING, (
+                f"{sum(unreachable.values()):,} file(s) could not be looked at "
+                "at all, so they are not in the index."), detail="unreachable")
             self._log.warning(
                 "{} file(s) could not be read at all and have no row in the "
                 "index: {}. A count over 260 characters means Windows long-path "
@@ -1414,6 +1657,9 @@ class Pipeline:
             getattr(self.config.walk, "oversize_dropped", {}) or {})
         if oversize_dropped:
             stats.oversize_dropped = oversize_dropped
+            stats.activity.record(KIND_WARNING, (
+                f"{sum(oversize_dropped.values()):,} file(s) were too large to "
+                "open, so they are not in the index."), detail="oversize")
             self._log.warning(
                 "{} file(s) were over the {:,} byte size ceiling and have no "
                 "row in the index: {}. Formats read incrementally (like "
@@ -1440,6 +1686,7 @@ class Pipeline:
         self._say_if_nothing_was_walked(stats)
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
+        self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
         # that added 4,000 chunks would otherwise never compact at all, and a
@@ -1452,6 +1699,7 @@ class Pipeline:
         if self.image_vectors is not None:
             self.image_vectors.maybe_create_index()
             self.image_vectors.maybe_compact(force=True)
+        self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
         self._optimise_keyword_index(stats)
         self._write_completions()
         from app.extract.legacy_office import take_fallback_summary
@@ -1460,6 +1708,13 @@ class Pipeline:
         if slower:
             self._log.info("{}", slower)
         self._log.info("index run: {}", stats.as_dict())
+        # The last line of the run's story. Not for a run reading into another
+        # run's log (the media tail): that run is not finished when this is.
+        if self.activity_into is None:
+            stats.stamp_notices()
+            stats.activity.record(
+                KIND_FINISHED,
+                "stopped" if (self._interrupted or stats.stopped_early) else "")
         return stats
 
     def _report_gpu_regression(self, stats: IndexStats) -> None:
@@ -1476,7 +1731,7 @@ class Pipeline:
             notice = getattr(self.config, "gpu_regression_notice", "") or ""
             if not notice:
                 return
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             self._log.warning("{}", notice)
         except Exception as exc:                    # noqa: BLE001 - a notice
             self._log.debug("could not report the lost graphics-card provider: {}", exc)
@@ -1513,7 +1768,7 @@ class Pipeline:
                 notice += (
                     " Nothing in them is in the index. If that is a removable "
                     "or network drive, connect it and index again.")
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             self._log.warning("{}", notice)
         except Exception as exc:                    # noqa: BLE001 - a notice
             self._log.debug("could not describe the unusable roots: {}", exc)
@@ -1570,7 +1825,7 @@ class Pipeline:
                     "read and held no files Leasha can index - if that is a "
                     "removable or network drive, check it is connected.")
 
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             # WARNING, not INFO: a run that indexed nothing and said nothing is
             # the report this exists to prevent.
             self._log.warning("{}", notice)
@@ -1772,7 +2027,7 @@ class Pipeline:
             f"nothing indexed is lost - but on a corpus this size it is worth "
             f"freeing space before starting rather than at hour sixty."
         )
-        stats.notices.append(notice)
+        stats.add_notice(notice)
         self._log.warning("{}", notice)
 
     # -- the two passes ------------------------------------------------------
@@ -2617,6 +2872,14 @@ class Pipeline:
             yield _Extracted(candidate, digest, error=held)
             return
 
+        # Work order 0w §2a. After the gate, not before it: a video the gate
+        # queues for the tail is not being read now, and a line saying it was
+        # would be the kind of thing that makes a log untrustworthy.
+        large = large_file_kind(candidate.path, candidate.size_bytes)
+        if large:
+            self._record(KIND_LARGE_FILE, candidate.path.name,
+                         size=candidate.size_bytes, detail=large)
+
         # Work order 202626270509, item 1b. Only asked of extractors that
         # opt in (`extractor_for(...).supports_resume`); the lookup and the
         # `int()` parse are both guarded, because a resume cursor is an
@@ -2624,6 +2887,8 @@ class Pipeline:
         # whole file from message 0 exactly as it always did if this fails
         # or finds nothing, which is always still correct, only slower.
         resume_from = 0
+        resume_extra: Optional[dict[str, Any]] = None
+        resume_key: Optional[str] = None
         if digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
@@ -2637,6 +2902,14 @@ class Pipeline:
                         candidate.path.name, exc,
                     )
                     resume_from = 0
+        elif reads_externally(candidate.path):
+            # Work order `dates-live-log-and-interrupted-runs` 3b: an archive,
+            # which has no digest - see `ARCHIVE_RESUME_PREFIX`.
+            extractor = extractor_for(candidate.path)
+            if extractor is not None and getattr(extractor, "supports_resume", False):
+                resume_key = _archive_resume_key(candidate.path)
+                resume_from, resume_extra = self._load_archive_cursor(
+                    candidate, resume_key)
 
         produced = 0
         seen_keys: set[str] = set()
@@ -2645,7 +2918,8 @@ class Pipeline:
         retry_next_pass = False
         try:
             for index, document in enumerate(
-                extract(candidate.path, resume_from=resume_from)
+                extract(candidate.path, resume_from=resume_from,
+                        resume_extra=resume_extra)
             ):
                 if any(_is_transient_partial(w) for w in document.warnings):
                     retry_next_pass = True
@@ -2708,6 +2982,7 @@ class Pipeline:
                     source_kind=document.source_kind,
                     warnings=document.warnings,
                     first_of_file=(index == 0),
+                    resume_key=resume_key,
                 )
         except AppErrorException as exc:
             # A failure part-way through an archive costs the rest of that
@@ -2747,6 +3022,7 @@ class Pipeline:
                 candidate=candidate, content_hash=digest,
                 key=default_key, source_kind="archive",
                 first_of_file=False, file_marker=True,
+                resume_key=resume_key,
             )
 
     # -- stage 3: embed and write (one thread: this one) --------------------
@@ -2911,7 +3187,8 @@ class Pipeline:
                 # that wrote it, and a warning on every unchanged message would
                 # repeat on every incremental pass.
                 self._note_warnings(item, log=False)
-                self._note_resume_progress(item)
+                if self._note_resume_progress(item):
+                    self._persist_at_folder_boundary(pending_vectors)
                 continue
 
             if item.error is not None:
@@ -2931,13 +3208,17 @@ class Pipeline:
             # to the feeder - so both are candidates to advance the resume
             # cursor once the feeder actually confirms them; see
             # `_note_resume_progress` and `_persist_resume_progress`.
-            self._note_resume_progress(item)
+            crossed_folder = self._note_resume_progress(item)
 
             if len(pending_vectors) >= self.config.embed_batch:
                 # §6b: handed off, not embedded here - the consumer moves
                 # straight on to the next batch while the feeder thread does
                 # this one. See `_feed_async`, and the module docstring.
                 self._feed_async(pending_vectors)
+
+            if crossed_folder:
+                # 0w 3b: an archive moved on to its next folder. See there.
+                self._persist_at_folder_boundary(pending_vectors)
 
             if len(self._pending_images) >= self.config.embed_batch:
                 # Work order 0h, H7 pattern: flushed in a batch on its own
@@ -3672,8 +3953,16 @@ class Pipeline:
                 self.store.delete_state(f"{RESUME_STATE_PREFIX}{item.content_hash}")
             except Exception as exc:        # noqa: BLE001 - H4
                 self._log.debug("could not clear resume cursor: {}", exc)
+        # 0w 3b: and an archive's folder cursor, for the same reason. Popped
+        # first, so the end of the run cannot write it back.
+        self._archive_cursors.pop(str(candidate.path), None)
+        if item.resume_key:
+            try:
+                self.store.delete_state(item.resume_key)
+            except Exception as exc:        # noqa: BLE001 - H4
+                self._log.debug("could not clear the archive's folder cursor: {}", exc)
 
-    def _note_resume_progress(self, item: _Extracted) -> None:
+    def _note_resume_progress(self, item: _Extracted) -> bool:
         """Remember the furthest position an extractor's `meta` has reported.
 
         In-memory only, and cheap: a dict update on the consumer's own
@@ -3681,20 +3970,139 @@ class Pipeline:
         - see `_persist_resume_progress` for why that has to wait until a
         flush actually confirms the vectors exist, not merely that the
         chunks were handed to `_write_one`.
+
+        True when an archive read by folders has just moved on to a later
+        folder (0w 3b) - the moment a cursor written now would save the most
+        re-reading. See `_persist_at_folder_boundary`.
         """
+        if item.resume_key and ARCHIVE_FOLDER_META_KEY in item.meta:
+            return self._note_archive_progress(item)
         position = item.meta.get(RESUME_POSITION_META_KEY)
         if position is None or item.content_hash is None:
-            return
+            return False
         try:
             position = int(position)
         except (TypeError, ValueError):
-            return
+            return False
         path_key = str(item.candidate.path)
         current = self._resume_progress.get(path_key)
         if current is None or current[0] != item.content_hash:
             self._resume_progress[path_key] = (item.content_hash, position)
         elif position > current[1]:
             self._resume_progress[path_key] = (item.content_hash, position)
+        return False
+
+    def _note_archive_progress(self, item: _Extracted) -> bool:
+        r"""Work order `dates-live-log-and-interrupted-runs` 3b, for one document.
+
+        **The cursor is the folder of the furthest settled document**, and a
+        resumed read re-reads that folder whole. Documents reach this thread in
+        the order the extractor yielded them (one worker per file, one queue),
+        so once a document from folder *g* has settled, every document from
+        every folder before *g* has settled too - which is exactly what "skip
+        the folders before *g*" needs, once a flush has made them durable.
+        What a resumed read finds again in folder *g* itself is already
+        indexed and is skipped by its text hash (`_already_current`), so it
+        costs a parse and never a duplicate.
+
+        Carried with it: the message count before *g*, so the partial-read
+        summary still covers the whole archive; and the content hash of every
+        attachment that settled, so an attachment first seen in a skipped
+        folder is still deduplicated as an uninterrupted read would. Seeded
+        from the cursor this read resumed from, if any, so a run interrupted
+        twice forgets nothing the first run knew.
+        """
+        try:
+            folder = int(item.meta[ARCHIVE_FOLDER_META_KEY])
+            read = int(item.meta.get(ARCHIVE_READ_META_KEY, 0) or 0)
+        except (TypeError, ValueError):
+            return False
+        path_key = str(item.candidate.path)
+        cursor = self._archive_cursors.get(path_key)
+        crossed = False
+        if cursor is None or cursor["key"] != item.resume_key:
+            earlier = self._archive_resumed.pop(path_key, None) or {}
+            cursor = {
+                "key": item.resume_key,
+                "path": str(item.candidate.path),
+                "size": int(item.candidate.size_bytes),
+                "mtime_ns": int(item.candidate.mtime_ns),
+                "folder": folder,
+                "read": read,
+                "seen": set(earlier.get("seen") or ()),
+            }
+            self._archive_cursors[path_key] = cursor
+        elif folder > cursor["folder"]:
+            cursor["folder"], cursor["read"] = folder, read
+            crossed = True
+        if item.meta.get("attachment_of") and item.meta.get("content_hash"):
+            cursor["seen"].add(str(item.meta["content_hash"]))
+        return crossed
+
+    def _load_archive_cursor(
+        self, candidate: Candidate, key: str,
+    ) -> tuple[int, Optional[dict[str, Any]]]:
+        """`(resume_from, resume_extra)` for an archive, or `(0, None)`.
+
+        Worker thread. **Used only if the archive is the size and age it was**
+        when the cursor was written: folder numbers describe one archive's
+        tree, and after Outlook or anybody else has written to it they may
+        describe another. Anything unreadable is a read from the top, which is
+        always correct and only slower - the cursor is an optimisation, never
+        a correctness requirement (H4).
+        """
+        import json
+
+        try:
+            raw = self.store.get_state(key)
+            if not raw:
+                return 0, None
+            cursor = json.loads(raw)
+            if (int(cursor.get("size", -1)) != int(candidate.size_bytes)
+                    or int(cursor.get("mtime_ns", -1)) != int(candidate.mtime_ns)):
+                self._log.info(
+                    "{} has changed since it was read part-way; reading it from "
+                    "the start", candidate.path.name)
+                return 0, None
+            folder = int(cursor.get("folder", 0) or 0)
+            extra = {"seen": [str(h) for h in cursor.get("seen") or ()],
+                     "read": int(cursor.get("read", 0) or 0)}
+        except Exception as exc:                     # noqa: BLE001 - H4
+            self._log.debug(
+                "folder cursor unreadable for {}, starting from the top: {}",
+                candidate.path.name, exc)
+            return 0, None
+        if folder <= 0:
+            return 0, None
+        self._archive_resumed[str(candidate.path)] = extra
+        self._log.info(
+            "{} was read part-way before; carrying on at folder {}",
+            candidate.path.name, folder)
+        self._record(KIND_ARCHIVE, candidate.path.name, detail="resumed")
+        return folder, extra
+
+    def _persist_at_folder_boundary(self, pending: list[tuple[int, int, str]]) -> None:
+        """Write the resume cursors now, if it has been a while. See
+        `RESUME_PERSIST_S`: this is what makes a pulled plug cost seconds.
+
+        **Durable first, then the cursor** - the same order the end of
+        `_consume` keeps, for the same reason: a cursor pointing past a message
+        whose vectors never landed would skip it on resume, which is loss.
+        `_feed_sync` raises if the embedding thread failed, exactly as it does
+        before an archive's marker.
+        """
+        now = time.monotonic()
+        if now - self._last_resume_persist < RESUME_PERSIST_S:
+            return
+        self._last_resume_persist = now
+        self._flush_pending_images()
+        self._feed_sync(pending)
+        if self._embed_abandoned:
+            return
+        try:
+            self._persist_resume_progress()
+        except Exception as exc:            # noqa: BLE001 - H4: never the run
+            self._log.warning("could not persist an archive's folder cursor: {}", exc)
 
     def _persist_resume_progress(self) -> None:
         """Flush every tracked resume position to `index_state`, at once.
@@ -3709,12 +4117,23 @@ class Pipeline:
         vector never actually made it to LanceDB, which is silent data loss,
         not a slower resume.
         """
-        if not self._resume_progress:
-            return
-        self.store.set_states({
+        import json
+
+        values = {
             f"{RESUME_STATE_PREFIX}{content_hash}": str(position + 1)
             for content_hash, position in self._resume_progress.values()
-        })
+        }
+        # 0w 3b. The folder itself, not `+ 1`: the folder may not be finished,
+        # and it is re-read whole - see `_note_archive_progress`.
+        for cursor in self._archive_cursors.values():
+            values[cursor["key"]] = json.dumps({
+                "path": cursor["path"], "size": cursor["size"],
+                "mtime_ns": cursor["mtime_ns"], "folder": cursor["folder"],
+                "read": cursor["read"], "seen": sorted(cursor["seen"]),
+            })
+        if not values:
+            return
+        self.store.set_states(values)
 
     def _already_current(self, item: _Extracted) -> bool:
         """Has this exact document already been indexed, unchanged?
@@ -3757,6 +4176,16 @@ class Pipeline:
             # line per archive, and the only place the log names what was missed.
             if log or code == "ERR_PST_PARTIAL":
                 self._log.warning("{} | {}", warning.message, warning.suggestion)
+            # Work order 0w §2a. **The first of each code, and every partial
+            # archive.** A warning is counted per document and 400 decks can
+            # carry the same one; four hundred identical lines would push
+            # everything else out of the log. A partial archive is one line
+            # per archive already, and each one names a different file.
+            said = self.__dict__.setdefault("_warned_codes", set())
+            if code == "ERR_PST_PARTIAL" or (code and code not in said):
+                said.add(code)
+                self._record(KIND_WARNING,
+                             str(getattr(warning, "message", "") or code), detail=code)
             if code:
                 self._stats_ref.warned_by_code[code] = (
                     self._stats_ref.warned_by_code.get(code, 0) + 1)
@@ -3782,6 +4211,9 @@ class Pipeline:
                 taken_at_ns, taken_at_is_hint = int(item.meta["media_created_ns"]), False
             if place is None and item.meta.get("media_place"):
                 place = str(item.meta["media_place"])
+            if taken_at_ns is None and item.source_kind in MAIL_KINDS:
+                taken_at_ns = _sent_at_ns(item.meta.get("sent_at"))
+                taken_at_is_hint = False
         # **One transaction for the three writes, not three.**
         #
         # `upsert_file`, `replace_chunks` and `set_message` each committed
@@ -4709,7 +5141,8 @@ class Pipeline:
             "cursor:indexed": str(stats.indexed),
         })
         publish(self.store, owner=self.run_owner,
-                started_at=self._run_started_wall, stats=stats)
+                started_at=self._run_started_wall, stats=stats,
+                roots=self.config.walk.roots)
 
         # **A stop asked for by somebody else.** The Stop button in the window
         # has to work on this run even when the window did not start it, and the
@@ -4928,6 +5361,31 @@ def _media_extensions() -> frozenset[str]:
     from app.extract.media import media_extensions
 
     return media_extensions()
+
+
+def _sent_at_ns(seconds: Any) -> Optional[int]:
+    r"""A message's sent date as `files.taken_at_ns`, or None. Never raises.
+
+    **Why a message's date goes in the photo column.** `taken_at_ns` means
+    "the date this is *from*" (see `app/storage/filters.py::_date_clause`), and
+    `after:`/`before:` read it before `mtime_ns`. A message read out of a
+    `.pst` has no file of its own, so its row carries the *archive's*
+    `mtime_ns` - the day the mail client last touched the archive - and ten
+    thousand letters from 2009-2019 all filtered as "last week". The owner's
+    "mail from 2017" found nothing for exactly that reason. The sent date is
+    the fact a person means by "from 2017", so it is written where the filter
+    already looks; `mtime_ns` stays the archive's real mtime, which change
+    detection depends on (the reason `_v18_photo_taken_at` gave the shot date
+    a column of its own applies unchanged).
+
+    Nothing reads this column as "is a photograph": the timeline's camera
+    branch and the Files tab restrict to `source_kind = 'file'`, and mail has
+    its own timeline branch on `messages.sent_at`. Pinned by
+    `tests/unit/test_mail_sent_date_filter.py`.
+    """
+    from app.storage.filters import sent_at_ns
+
+    return sent_at_ns(seconds)
 
 
 def _text_digest(chunks: list[dict[str, Any]]) -> str:

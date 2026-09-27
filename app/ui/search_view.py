@@ -256,7 +256,7 @@ class SearchView(QWidget):
 
         self._generation += 1
         options = search_options(tier, scope=self.current_scope(), rerank=self.rerank_toggle.isChecked(),
-                                 surface="search", preferences=self._search_preferences)
+                                 surface="search", preferences=self._search_preferences, declined=self.chips.declined)
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )
@@ -322,7 +322,7 @@ class SearchView(QWidget):
         self.notices.show_notices(notices)
         # Offers for the filters the sentence contains arrive from a worker and
         # join the bar - see `presenter.filter_offers`. Only if still current.
-        offer_filters(self, notices, generation)
+        offer_filters(self, notices, generation, response)
         self._shown_anything = self._shown_anything or bool(response.results)
         self.status.setText(status)
         # The shape of the search, never its text - see `debug_recorder.py`.

@@ -20,11 +20,15 @@ from typing import Any
 
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-from app.ui.presenter import index_summary, when_text
+from app.ui.presenter import (
+    index_summary, part_read_rows, unfinished_run_rows, when_text,
+)
+from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
-__all__ = ["assemble_pages", "paint_run_panels", "paint_totals"]
+__all__ = ["assemble_pages", "paint_run_panels", "paint_totals", "repaint_totals"]
 
 
 def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) -> CategoryNav:
@@ -52,6 +56,10 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     status_layout.addWidget(view.bar)
     status_layout.addWidget(view.detail)
     status_layout.addWidget(view.notices)
+    # Work order 0w §2b. Made here rather than in the view, which is over its
+    # line guard: `view.run_log` is set on the view exactly as if it had been.
+    view.run_log = RunLog()
+    status_layout.addWidget(view.run_log)
     status_layout.addLayout(controls)
     status_layout.addWidget(view.archives)
     status_layout.addWidget(view.skips, stretch=1)
@@ -85,7 +93,17 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
 
 def paint_totals(view: Any, payload: dict) -> None:
     """Paint the index summary from a worker's payload. UI thread, no I/O."""
-    rows = index_summary(
+    # Kept, so `repaint_totals` can redraw without a second read - see there.
+    view._totals_payload = payload
+    # Work order `dates-live-log-and-interrupted-runs` 3a. First, because it
+    # is the one row that answers "what happened while I was away" - and it
+    # is dropped while any run is going, since that run is the carrying on.
+    running = getattr(view, "_worker", None) is not None or bool(
+        getattr(view, "_external", None))
+    rows = unfinished_run_rows(payload.get("unfinished"), running=running)
+    # 3c: then any archive a run stopped inside, kept apart from the damage row.
+    rows += part_read_rows(payload.get("part_read"), running=running)
+    rows += index_summary(
         payload.get("stats"),
         payload.get("vectors"),
         data_path=payload.get("data_path", ""),
@@ -103,12 +121,34 @@ def paint_totals(view: Any, payload: dict) -> None:
         pass
 
 
+def repaint_totals(view: Any) -> None:
+    """Redraw the summary from the last payload, with no store read.
+
+    Called as a run starts. The summary was read before the run took the lock,
+    so a "did not finish" row painted then would otherwise stay on screen for
+    the whole of the run that is carrying on - and the next read, at the end
+    of the run, is hours away. Nothing to do before the first read.
+    """
+    payload = getattr(view, "_totals_payload", None)
+    if isinstance(payload, dict):
+        paint_totals(view, payload)
+
+
 def paint_run_panels(view: Any, stats: Any) -> None:
     """What a progress tick and a finished run both draw beneath the bar: the
-    skip summary, the archived folders, and the run's notices."""
+    skip summary, the archived folders, the run's notices and its log.
+
+    The log appends only what arrived since it was last painted, so a tick
+    `paint_due` dropped loses nothing - its lines come with the next one.
+    """
     view.skips.show_skips(stats.skipped_by_code)
     view.archives.show_roots(getattr(stats, "skipped_roots", ()))
-    view.show_notices(getattr(stats, "notices", ()))
+    # Work order 0w §2c: each notice with the time it was said, in front of
+    # its unchanged words. `show_notices` itself is untouched.
+    view.show_notices(timed_notices(stats))
+    run_log = getattr(view, "run_log", None)
+    if run_log is not None:
+        run_log.show_activity(getattr(stats, "activity", None))
 
 
 def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
@@ -120,12 +160,17 @@ def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
     person is typing on. A tick dropped here is replaced by the next, and the
     finished handler always paints the last state. A change in whether the run is
     paused is never dropped - that is the tick that explains why the bar stopped -
-    and neither is any tick while a stop is being carried out.
+    and neither is any tick while a stop is being carried out. Nor is a change
+    of phase: the pipeline announces one with a single tick, often a few
+    milliseconds after the last, and it may be the only tick for minutes.
     """
     paused = bool(getattr(stats, "paused", False))
+    phase = str(getattr(stats, "phase", "") or "")
     if (now - view._last_paint < min_interval_s
-            and paused == view._last_paused and not view._stopping):
+            and paused == view._last_paused and not view._stopping
+            and phase == getattr(view, "_last_phase", "")):
         return False
     view._last_paint = now
     view._last_paused = paused
+    view._last_phase = phase
     return True

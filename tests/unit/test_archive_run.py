@@ -251,7 +251,10 @@ def test_an_interrupted_run_records_no_pass(tmp_path, corpus):
         )
         # Stopped part-way, the way the Stop button and the disk guard stop it.
         # `run()` clears the flag on entry, so it has to be set from inside.
-        pipeline.run(on_progress=lambda _stats: pipeline.request_stop())
+        # The first tick with something indexed, not the first tick: since
+        # bug 2b the run announces each phase with a tick, and the first of
+        # those comes before a single file is read.
+        pipeline.run(on_progress=lambda s: s.indexed and pipeline.request_stop())
         records = load_records(store.get_state(RECORD_STATE_KEY, "") or "")
 
     assert records == {}

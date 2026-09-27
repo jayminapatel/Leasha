@@ -144,6 +144,12 @@ def _backlog_pipeline_class() -> type:
             # store one hour later would only be the same query returning nothing.
             return None
 
+        def _announce_phase(self, stats: Any, on_progress: Any, phase: str) -> None:
+            # The outer run has already said "reading videos and recordings";
+            # this run's own model load and tidying are part of that, and
+            # announcing them again would read as the whole run starting over.
+            return None
+
     return BacklogPipeline
 
 
@@ -188,6 +194,9 @@ def drain(
         return
 
     log.info("reading {} video/recording file(s) in the background", len(queued))
+    from app.index.pipeline import PHASE_MEDIA
+
+    pipeline._announce_phase(stats, on_progress, PHASE_MEDIA)
     sub_config = dataclasses.replace(
         config,
         ocr_mode="images",
@@ -204,6 +213,9 @@ def drain(
         phash_computer=pipeline.phash_computer,
         queued=queued,
     )
+    # Work order 0w §2a: the tail is part of this run's story, told in the
+    # same log, so the page's log carries on rather than starting again.
+    sub.activity_into = stats.activity
 
     # The person's Stop reaches the outer pipeline only. Forward it, or a two-hour
     # recording would ignore the button it was promised would work. **Two ways,
@@ -266,10 +278,10 @@ def _merge(stats: "IndexStats", done: "IndexStats", *, before: int, remaining: i
     for code, count in done.warned_by_code.items():
         stats.warned_by_code[code] = stats.warned_by_code.get(code, 0) + count
     if done.indexed:
-        stats.notices.append(
+        stats.add_notice(
             f"{done.indexed} video/recording file(s) were read in the background "
             f"after everything else.")
     if remaining:
-        stats.notices.append(
+        stats.add_notice(
             f"{remaining} video/recording file(s) are still waiting - run indexing "
             f"again and they carry on from where they stopped.")

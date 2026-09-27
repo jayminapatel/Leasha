@@ -22,6 +22,13 @@ same `CallableWorker` and `run`; nothing here may touch the store or the disk
 on the UI thread that the method did not already, and
 `test_ui_never_blocks` scans this module with the same rules as the rest of
 `app/ui`.
+
+**Keyed state goes through `state_writes`** (bug 3a). Every `ui:*` choice
+saved here used to be a synchronous `set_state`, which waits for the store's
+write lock - the one an index run holds for every batch - so changing a
+setting mid-run froze the window. They are queued on the ordered state writer
+now; where something must follow the write (the Code tab re-reading its file
+types) or a failure must be said out loud, that rides `on_saved`/`on_failed`.
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ from PyQt6.QtWidgets import QDialog
 
 from app.core.errors import to_app_error
 from app.core.logging import logger
+from app.ui.state_writes import save_state, save_states
 from app.ui.workers import CallableWorker, run
 
 _log = logger.bind(component="ui.shell")
@@ -60,7 +68,8 @@ class SettingsController(QObject):
         and the whole point of the feature is a file somebody else can follow
         from the top.
         """
-        self._w._store.set_state("ui:debug_recording", "on" if on else "off")
+        save_state(self._w._store, "ui:debug_recording", "on" if on else "off",
+                   component="ui.settings")
         if on and not self._w.recorder.enabled:
             self._w.settings_view.environment.set_recording_status(
                 "Recording starts the next time you open the app. "
@@ -95,7 +104,8 @@ class SettingsController(QObject):
             settings_box.blockSignals(True)
             settings_box.setChecked(bool(enabled))
             settings_box.blockSignals(False)
-        self._w._store.set_state("ui:rerank_enabled", "on" if enabled else "off")
+        save_state(self._w._store, "ui:rerank_enabled", "on" if enabled else "off",
+                   component="ui.settings")
 
     def _set_toolbar_rerank(self, enabled: bool) -> None:
         """Show `enabled` on the search bar's box without re-emitting."""
@@ -197,7 +207,8 @@ class SettingsController(QObject):
             self._w._show_error(to_app_error(exc, "ui.settings"))
             return
 
-        self._w._store.set_state("index:rebuild_vectors", "pending")
+        save_state(self._w._store, "index:rebuild_vectors", "pending",
+                   component="ui.settings")
         if dialog.chosen_dim() != current_dim:
             self._w.notify(
                 f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
@@ -295,10 +306,10 @@ class SettingsController(QObject):
         """
         self._w.tray.minimise_to_tray = bool(minimise)
         self._w.tray.close_to_tray = bool(close)
-        self._w._store.set_states({
+        save_states(self._w._store, {
             "ui:tray_minimise": "on" if minimise else "off",
             "ui:tray_close": "on" if close else "off",
-        })
+        }, component="ui.settings")
 
         if (minimise or close) and not self._w.tray.installed and not self._w.tray.install():
             self._w.tray.minimise_to_tray = self._w.tray.close_to_tray = False
@@ -316,7 +327,8 @@ class SettingsController(QObject):
         ignored. In `index_state` rather than `.env`: it is a decision about how
         this window starts a run, and the walker takes it as a parameter.
         """
-        self._w._store.set_state("ui:index_cloud", "on" if enabled else "off")
+        save_state(self._w._store, "ui:index_cloud", "on" if enabled else "off",
+                   component="ui.settings")
 
     def _limits_changed(self, values: dict) -> None:
         r"""Persist the resource ceilings. They take effect on the next run.
@@ -377,11 +389,11 @@ class SettingsController(QObject):
         """
         self._w._translator.reconfigure(
             model=model or None, timeout_s=float(timeout_s), enabled=enabled)
-        self._w._store.set_states({
+        save_states(self._w._store, {
             "ui:ollama_enabled": "on" if enabled else "off",
             "ui:ollama_model": model,
             "ui:ollama_timeout_s": str(int(timeout_s)),
-        })
+        }, component="ui.settings")
         # The button appears and disappears with the setting, rather than
         # sitting there greyed out - an Interpret button that cannot interpret
         # is a permanent question with no answer on screen.
@@ -441,7 +453,7 @@ class SettingsController(QObject):
 
     def _theme_changed(self, preference: str) -> None:
         self._w._theme_preference = preference
-        self._w._store.set_state("ui:theme", preference)
+        save_state(self._w._store, "ui:theme", preference, component="ui.settings")
         self._w._apply_theme()
 
     def _refresh_link_scheme(self) -> None:
@@ -514,24 +526,30 @@ class SettingsController(QObject):
     def _save_code_types(self, preset: str, groups: list) -> None:
         from app.core.code_types import STATE_KEY, dump_choice
 
-        try:
-            self._w._store.set_state(STATE_KEY, dump_choice(preset, groups))
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("code file types not saved: {}", exc)
+        def not_saved(error: Any) -> None:
+            _log.warning("code file types not saved: {}", error)
             self._w.notify(
                 "That Code file-type choice was not saved.", 8_000)
-            return
-        # The Code tab reads this per search, so it takes effect on the next
-        # keystroke - but it is already on screen, so redraw it now.
-        #
-        # Guarded: Order 0r item 2b builds Code a beat after the window
-        # appears, and changing this Settings control in that gap would
-        # otherwise raise on an attribute that does not exist yet. Nothing
-        # is lost - Code reads this from the store on its own next search
-        # regardless of whether it is redrawn immediately here.
-        code_view = getattr(self._w, "code_view", None)
-        if code_view is not None:
-            code_view.refresh()
+
+        def saved() -> None:
+            # The Code tab reads this per search, so it takes effect on the next
+            # keystroke - but it is already on screen, so redraw it now.
+            #
+            # Guarded: Order 0r item 2b builds Code a beat after the window
+            # appears, and changing this Settings control in that gap would
+            # otherwise raise on an attribute that does not exist yet. Nothing
+            # is lost - Code reads this from the store on its own next search
+            # regardless of whether it is redrawn immediately here.
+            #
+            # **After the write, not beside it** (bug 3a): the write is queued
+            # now, and a redraw that ran first would re-read the old choice.
+            code_view = getattr(self._w, "code_view", None)
+            if code_view is not None:
+                code_view.refresh()
+
+        save_state(self._w._store, STATE_KEY, dump_choice(preset, groups),
+                   component="ui.settings", owner=self,
+                   on_saved=saved, on_failed=not_saved)
 
     def _load_root_modes(self) -> dict:
         """Which folders the owner has declared static. See `index/archives.py`."""
@@ -546,13 +564,14 @@ class SettingsController(QObject):
     def _save_root_modes(self, modes: dict) -> None:
         from app.index.archives import MODE_STATE_KEY, dump_modes
 
-        try:
-            self._w._store.set_state(MODE_STATE_KEY, dump_modes(modes))
-        except Exception as exc:                     # noqa: BLE001
+        def not_saved(error: Any) -> None:
             # **Said out loud.** A mode that silently failed to save looks like
             # it worked until the next run walks 1.5TB anyway, and by then
             # nobody connects the two.
-            _log.warning("index root modes not saved: {}", exc)
+            _log.warning("index root modes not saved: {}", error)
+
+        save_state(self._w._store, MODE_STATE_KEY, dump_modes(modes),
+                   component="ui.settings", owner=self, on_failed=not_saved)
 
     def _load_cloud_content_roots(self) -> set:
         """202626270514 §2b: which folders may hydrate cloud placeholders.
@@ -569,12 +588,14 @@ class SettingsController(QObject):
     def _save_cloud_content_roots(self, roots: set) -> None:
         from app.index.walker import CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots
 
-        try:
-            self._w._store.set_state(CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots(roots))
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("cloud content roots not saved: {}", exc)
+        def not_saved(error: Any) -> None:
+            _log.warning("cloud content roots not saved: {}", error)
             self._w.notify(
                 "That folder's Live/Archive setting was not saved.", 8_000)
+
+        save_state(self._w._store, CLOUD_CONTENT_STATE_KEY,
+                   dump_cloud_content_roots(roots),
+                   component="ui.settings", owner=self, on_failed=not_saved)
 
     def _file_types_saved(self, changes: dict) -> None:
         """A file-type mapping changed - bump the generation, then say so.
@@ -608,10 +629,10 @@ class SettingsController(QObject):
             "They apply to the next index run.", 12_000)
 
     def _save_pst_backend(self, backend: str) -> None:
-        try:
-            self._w._store.set_state("ui:pst_backend", backend)
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("PST backend choice not saved: {}", exc)
+        save_state(self._w._store, "ui:pst_backend", backend,
+                   component="ui.settings", owner=self,
+                   on_failed=lambda error: _log.warning(
+                       "PST backend choice not saved: {}", error))
         self._w._apply_pst_backend(backend)
 
     def _apply_pst_backend(self, backend: str) -> None:
@@ -627,7 +648,10 @@ class SettingsController(QObject):
             # the command line and the window index the same thing. Named
             # rather than spelled out twice - see `cli.ROOTS_STATE_KEY`.
             from app.cli import ROOTS_STATE_KEY
-
-            self._w._store.set_state(ROOTS_STATE_KEY, "|".join(roots))
         except Exception as exc:                 # noqa: BLE001
             _log.warning("index roots not saved: {}", exc)
+            return
+        save_state(self._w._store, ROOTS_STATE_KEY, "|".join(roots),
+                   component="ui.settings", owner=self,
+                   on_failed=lambda error: _log.warning(
+                       "index roots not saved: {}", error))

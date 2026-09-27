@@ -146,9 +146,22 @@ class Period:
     @classmethod
     def between(cls, after: Optional[date], before: Optional[date]) -> "Period":
         r"""From the first moment of `after` to the last moment of `before`
-        (both whole days, both included). None leaves that side open."""
-        start = _day_start_ns(after) if after is not None else -_FAR
-        end = _day_start_ns(before + timedelta(days=1)) if before is not None else _FAR
+        (both whole days, both included). None leaves that side open.
+
+        **A `datetime` is a moment, not a day** - a time typed in a range box
+        (`2015-06-01T09:00`, order "dates" §1b). It arrives already resolved
+        to the edge meant (`query._parse_moment`), so it is used as it is:
+        rounded to its day it would quietly widen the range by up to a day
+        on each side. The end is half-open, so one microsecond past the last
+        moment included."""
+        if isinstance(after, datetime):
+            start = _local_ns(after)
+        else:
+            start = _day_start_ns(after) if after is not None else -_FAR
+        if isinstance(before, datetime):
+            end = _local_ns(before) + 1_000
+        else:
+            end = _day_start_ns(before + timedelta(days=1)) if before is not None else _FAR
         return cls(start, end, after, before)
 
     @classmethod
@@ -172,13 +185,15 @@ class Period:
         None when a side was given but is not a date: the caller says so, this
         never guesses a range from something it could not read.
         """
-        from app.search.query import _parse_date
+        from app.search.query import _instant, _parse_date
 
         first = _parse_date(after, today=today) if str(after or "").strip() else None
         last = _parse_date(before, today=today, end=True) if str(before or "").strip() else None
         if (str(after or "").strip() and first is None) or (str(before or "").strip() and last is None):
             return None
-        if first is not None and last is not None and first > last:
+        # `_instant`, because a time typed on one side makes that side a
+        # `datetime`, which Python refuses to compare with a plain date.
+        if first is not None and last is not None and _instant(first) > _instant(last, end=True):
             # Typed backwards: swap the *words*, not the dates, so "2015-08 to
             # 2015-06" is June to August whole rather than 30 June to 1 August.
             return cls.from_words(before, after, today=today)

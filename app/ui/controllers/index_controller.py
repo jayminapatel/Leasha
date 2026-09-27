@@ -43,9 +43,11 @@ from app.ui.scheduler import IndexScheduler
 # reads these files and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import (
-    _read_external_run, _scan_and_save, cleared_message, index_bytes,
-    offline_media_run_summary,
+    PREPARING_WORDS, _read_external_run, _scan_and_save, cleared_message,
+    index_bytes, offline_media_run_summary,
 )
+from app.ui.state_writes import save_states
+from app.ui.widgets.indexing_layout import repaint_totals
 from app.ui.workers import CallableWorker, run
 
 _log = logger.bind(component="ui.shell")
@@ -114,11 +116,13 @@ class IndexController(QObject):
         that silently rewrites configuration is how hand-written comments and
         overrides disappear. `.env` remains the default; this is the override.
         """
-        self._w._store.set_states({
+        # Queued (bug 3a): a schedule is most often changed while a run is
+        # going, which is exactly when a synchronous write waits on its batch.
+        save_states(self._w._store, {
             "ui:index_schedule": policy.mode,
             "ui:index_interval_hours": str(policy.interval_hours),
             "ui:index_daily_at": f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}",
-        })
+        }, component="ui.schedule")
         self._w.scheduler.set_policy(policy)
         self._w.indexing_view.schedule_box.set_schedule_status(self._w.scheduler.status())
 
@@ -134,6 +138,9 @@ class IndexController(QObject):
             return None
 
     def _save_last_index_time(self, when: datetime) -> None:
+        # A worker body already: `IndexScheduler.notify_finished` hands this
+        # to a `CallableWorker`, which is why it is named in
+        # `test_ui_never_blocks.OFF_THREAD` rather than queued again here.
         self._w._store.set_state("index:last_run", when.isoformat(timespec="seconds"))
 
     # -- the tuning screen's evidence ---------------------------------------
@@ -618,6 +625,11 @@ class IndexController(QObject):
         self._w._resolving_index = True
         self._w.indexing_view.start_button.setEnabled(False)
         self._w.notify("Checking your hardware…", 30_000)
+        # **The bar moves from the click, not from the first tick.** Nothing
+        # exists yet to report progress, and a cold hardware check can take
+        # the best part of a minute - a bar sitting still at zero over that
+        # read as a Start button that had done nothing.
+        self._show_preparing(True)
 
         # **The same resolution the tuning screen shows.** One function, so a
         # run started from the window and one started from the command line
@@ -743,6 +755,8 @@ class IndexController(QObject):
         if monitor is not None:
             pipeline.ui_lag = monitor.recent_lag_s
         self._w.indexing_view.start(pipeline, total_estimate=self._w._scan_total(chosen))
+        # 0w 3a: this run is the carrying on, so "did not finish" comes down now.
+        repaint_totals(self._w.indexing_view)
 
     def _index_resolve_failed(self, error: Any) -> None:
         """`resolve_for_run` does not raise by contract - see its own docstring -
@@ -750,8 +764,20 @@ class IndexController(QObject):
         and surfaces the error exactly as a synchronous failure would have."""
         self._w._resolving_index = False
         self._w.toast.clear()
+        self._show_preparing(False)
         self._w.indexing_view.start_button.setEnabled(True)
         self._w._show_error(error)
+
+    def _show_preparing(self, busy: bool) -> None:
+        """A busy bar and a sentence while the run is being prepared, or neither.
+
+        Here rather than in `IndexingView`, which is over its length guard; the
+        view's own `start` and first progress tick take over from this.
+        """
+        view = self._w.indexing_view
+        view.bar.setRange(0, 0 if busy else 1)
+        view.bar.setValue(0)
+        view.detail.setText(PREPARING_WORDS if busy else "")
 
     def _reset_index(self) -> None:
         """Delete everything indexed, after asking, and never the documents.

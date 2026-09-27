@@ -34,7 +34,7 @@ import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
@@ -237,10 +237,26 @@ def _open_error(path: Path, exc: BaseException) -> AppErrorException:
     ))
 
 
+#: `Document.meta` keys for the folder cursor. Work order
+#: `dates-live-log-and-interrupted-runs` 3b; the pipeline reads them by these
+#: names (`app/index/pipeline.py`), so they are spelt once, here.
+#:
+#: `pst_folder` is the folder's place in `_walk_folders`' depth-first order,
+#: counting every folder including the skipped ones - the one numbering that is
+#: the same on every read of the same bytes, whatever the settings say.
+FOLDER_META_KEY = "pst_folder"
+#: How many messages had been read before this document's folder began, so a
+#: resumed read can still say "(412 were)" about the whole archive.
+READ_BEFORE_META_KEY = "pst_read_before"
+
+
 def read_archive(
     path: Path,
     *,
     skip_folders: Optional[frozenset[str]] = None,
+    resume_from: int = 0,
+    seen_attachments: Iterable[str] = (),
+    read_before: int = 0,
 ) -> Iterator[Document]:
     """Every message in a `.pst`, as Documents. No Outlook involved.
 
@@ -253,6 +269,23 @@ def read_archive(
     used to be a known gap (names only, no content, "a job of its own" left to
     the Outlook backend); `pypff.attachment.read_buffer` turned out to make
     that job small enough to do here.
+
+    **Resuming at a folder** (work order `dates-live-log-and-interrupted-runs`
+    3b). `resume_from` skips every folder numbered below it without reading a
+    message in it - the folder tree is still walked, because that walk is the
+    numbering. The two things a folder number cannot carry come back with it:
+    `seen_attachments`, the content hashes of attachments already read, so an
+    attachment whose first copy was in a skipped folder is still deduplicated
+    exactly as an uninterrupted read would; and `read_before`, so the partial-
+    read summary still counts the whole archive.
+
+    Every document carries `FOLDER_META_KEY` and `READ_BEFORE_META_KEY` for
+    the pipeline to persist - **until anything fails to read.** From then on
+    they are left off, so no cursor can move past the first failure: a resumed
+    read always walks back over it, counts it again, and `ERR_PST_PARTIAL`
+    stays true of the whole archive rather than only of the part read last.
+    A damaged archive therefore resumes only from before its first damage,
+    which costs a re-parse of what follows it and nothing else.
     """
     from app.extract.email_pst import DEFAULT_SKIP_FOLDERS
 
@@ -276,6 +309,7 @@ def read_archive(
         )) from exc
 
     report = _Report()
+    report.read = max(0, int(read_before or 0))
 
     def closing() -> Optional[AppError]:
         if not report.failed:
@@ -297,11 +331,12 @@ def read_archive(
     # eight times inside one `.pst` produces one extraction and eight
     # `content_hash`-identical references, not eight embeddings of the same
     # bytes.
-    seen_hashes: set[str] = set()
+    seen_hashes: set[str] = set(seen_attachments or ())
 
     try:
         yield from with_closing_warning(
-            _messages(root, path, store_name, skip, report, seen_hashes), closing)
+            _messages(root, path, store_name, skip, report, seen_hashes,
+                      resume_from=max(0, int(resume_from or 0))), closing)
     finally:
         try:
             archive.close()
@@ -311,7 +346,7 @@ def read_archive(
 
 def _messages(
     root: Any, path: Path, store_name: str, skip: frozenset[str], report: _Report,
-    seen_hashes: set[str],
+    seen_hashes: set[str], *, resume_from: int = 0,
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -319,11 +354,16 @@ def _messages(
     fetched fine but broke `_to_document` used to raise out of the generator and
     end the archive - every message after it never read. One bad message now
     costs one message.
+
+    `resume_from` and the two cursor keys: see `read_archive`.
     """
-    for folder_path, folder in _walk_folders(root, report=report):
+    for ordinal, (folder_path, folder) in enumerate(_walk_folders(root, report=report)):
+        if ordinal < resume_from:
+            continue
         leaf = folder_path.rsplit("/", 1)[-1].strip().lower()
         if leaf in skip:
             continue
+        read_before = report.read
 
         try:
             count = folder.get_number_of_sub_messages()
@@ -341,6 +381,7 @@ def _messages(
 
             if document is not None:
                 report.read += 1
+                _mark_folder(document, report, ordinal, read_before)
                 yield document
                 # **After the message, not instead of it.** One bad
                 # attachment must never cost the message itself - `_to_
@@ -348,10 +389,25 @@ def _messages(
                 # runs, so the worst an attachment failure does now is one
                 # missing attachment, logged and counted in `report.
                 # attachments`.
-                yield from _attachment_documents(
+                for attached in _attachment_documents(
                     message, document.virtual_path or f"pst://{store_name}/{folder_path}/{index}",
                     seen_hashes, report,
-                )
+                ):
+                    _mark_folder(attached, report, ordinal, read_before)
+                    yield attached
+
+
+def _mark_folder(document: Document, report: _Report, ordinal: int, read_before: int) -> None:
+    """Stamp the folder cursor on a document - unless something has failed.
+
+    See `read_archive` for why a failure freezes the cursor where it is. An
+    attachment that failed is not a failure of the archive (`report.failed`
+    ignores it, as `ERR_PST_PARTIAL` always has), so it freezes nothing.
+    """
+    if report.failed:
+        return
+    document.meta[FOLDER_META_KEY] = ordinal
+    document.meta[READ_BEFORE_META_KEY] = read_before
 
 
 def _to_document(

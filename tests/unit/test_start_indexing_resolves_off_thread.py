@@ -439,3 +439,50 @@ def test_a_resolution_failure_shows_the_same_error_dialog_a_synchronous_one_woul
         resolve_module.resolve_for_run = real
         store.close()
         vectors.close()
+
+
+# --- the bar during the resolve step ------------------------------------------
+
+
+def test_the_bar_is_busy_from_the_click_and_settles_if_the_resolve_fails(
+    tmp_path
+) -> None:
+    r"""Bug 2b: between the click and the first progress tick nothing reported
+    anything, so a slow hardware check left the bar sitting still at zero - the
+    shape of a Start button that did nothing. It goes busy on the click, with a
+    sentence, and comes back to rest if no run follows."""
+    from app.ui.presenter import PREPARING_WORDS
+
+    app, built, store, vectors = _window(tmp_path)
+    built._show_error = lambda error: None
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_then_broken(settings, store):
+        entered.set()
+        release.wait(5)
+        raise RuntimeError("the hardware probe blew up")
+
+    import app.index.resolve as resolve_module
+
+    real = resolve_module.resolve_for_run
+    resolve_module.resolve_for_run = slow_then_broken
+    try:
+        folder = tmp_path / "corpus"
+        folder.mkdir()
+        built._start_indexing(roots=[str(folder)])
+
+        assert entered.wait(5), "the worker never called the resolver"
+        app.processEvents()
+        bar = built.indexing_view.bar
+        assert bar.maximum() == 0, "the bar must be busy while the run is prepared"
+        assert built.indexing_view.detail.text() == PREPARING_WORDS
+
+        release.set()
+        _pump(app)
+        assert bar.maximum() > 0, "a failed resolve must not leave the bar spinning"
+        assert built.indexing_view.detail.text() != PREPARING_WORDS
+    finally:
+        resolve_module.resolve_for_run = real
+        store.close()
+        vectors.close()

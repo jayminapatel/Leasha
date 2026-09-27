@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
-    Any, Callable, Iterable, Iterator, Optional, Protocol, Sequence,
+    Any, Callable, Iterable, Iterator, Mapping, Optional, Protocol, Sequence,
     runtime_checkable,
 )
 
@@ -352,6 +352,12 @@ class Extractor(Protocol):
     #: extractor - none of which have any use for it - would have to declare
     #: it too. `email_mbox.MboxExtractor` is the one implementation.
     #: supports_resume: bool
+    #:
+    #: Work order `dates-live-log-and-interrupted-runs` 3b: `email_pst.
+    #: PstExtractor` is the second, at folder granularity, and it also takes
+    #: `resume_extra` - what a folder number alone cannot carry back (the
+    #: attachments already read, and how many messages were) - see
+    #: `pst_libpff.read_archive`.
 
 
 #: True once `app.extract._readers` has been imported and every extractor has
@@ -687,7 +693,10 @@ def _try_converter(path: Path) -> Optional[Iterator[Document]]:
     return iter(extract_via_converter(path, rule))
 
 
-def extract(path: Path, *, resume_from: int = 0) -> Iterator[Document]:
+def extract(
+    path: Path, *, resume_from: int = 0,
+    resume_extra: Optional[Mapping[str, Any]] = None,
+) -> Iterator[Document]:
     """Extract one path through the registry.
 
     Raises `AppErrorException` with a precise code - `ERR_UNSUPPORTED_TYPE`,
@@ -702,6 +711,10 @@ def extract(path: Path, *, resume_from: int = 0) -> Iterator[Document]:
     See `email_mbox.MboxExtractor` for the one that uses it: a resumed run
     skips straight to the message index a prior run last confirmed durable,
     instead of re-parsing everything before it.
+
+    `resume_extra` rides with it, under the same opt-in, and only when there
+    is something in it - so `MboxExtractor`, which takes no such argument, is
+    never handed one.
     """
     extractor = extractor_for(path)
     if extractor is None:
@@ -725,6 +738,8 @@ def extract(path: Path, *, resume_from: int = 0) -> Iterator[Document]:
     extract_kwargs: dict[str, Any] = {}
     if resume_from and getattr(extractor, "supports_resume", False):
         extract_kwargs["resume_from"] = resume_from
+        if resume_extra:
+            extract_kwargs["resume_extra"] = resume_extra
 
     produced = False
     for document in extractor.extract(path, **extract_kwargs):
