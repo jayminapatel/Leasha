@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.40 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.41 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -287,7 +287,7 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `terabyte-scale` | Indexing 600GB, heading for 1.5TB | HELD *(inferred)* | 16 / 6 | — |
 | `owner-pst-scale-run` | The PST scale run | HELD *(inferred)* | 0 / 4 | Owner-run, not code |
 | `libraries-before-converters` | Libraries first, converters only where none exists | SHIPPED *(doctrine)* | 0 / 8 | Now non-negotiable #12 |
-| `everything-tunable-has-a-ui` | Every tunable has a UI | SHIPPED *(doctrine)* | 5 / 1 | Now non-negotiable #11. Recounted 2026-09-20 (was written 0 / 6). The one open box is the orphaned `history_cleared` signal - see the order's own note |
+| `everything-tunable-has-a-ui` | Every tunable has a UI | SHIPPED *(doctrine)* | **6 / 0** | Row corrected 2026-09-27: the order's own 2026-09-20 note closed the last box (`history_cleared` now has a receiver in `shell.py`, proven by `test_clearing_the_history_stops_the_search_box_offering_it`); this row still read 5 / 1. As written before: Now non-negotiable #11. Recounted 2026-09-20 (was written 0 / 6). The one open box is the orphaned `history_cleared` signal - see the order's own note |
 | `zip-archives` | Every file findable, reading inside `.zip` | SHIPPED | **39 / 0** | — |
 | `202626081106` | Wildcards without growing the index | SHIPPED | **29 / 0** | — |
 | `file-types-and-ocr` | Config-driven file types, format editor | SHIPPED | 22 / 0 | Recounted 2026-09-20 (was written 21 / 1); Status line backfilled in the order |
