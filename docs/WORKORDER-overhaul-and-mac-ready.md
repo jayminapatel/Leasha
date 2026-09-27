@@ -167,15 +167,24 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 4. The Indexing page
 
-- [ ] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
+> **2026-09-27, 4a-4c and 4e built.** 4a: the row is its own widget and the guard is green at
+> 244/250 without raising it or editing a test. 4b: the "now" line's slot is built on 0w's
+> existing wording (`READING_WORDS`) and waits for §3's presenter function at the adapter point in
+> `widgets/indexing_headline.py`. 4c: the bar glides over one paint interval in 50 ms steps, never
+> backwards on the same total, busy when the total is unknown, and stops when the page is hidden
+> or minimised; measured offscreen at about 3.7 ms of UI-thread time a second more than jumping
+> (noisy, shared machine). 4e: All / Warnings and errors, and Copy of the visible lines with their
+> times. Found and fixed on the way: Tab now moves through the buttons left to right, and the log's
+> caption no longer floats above its box when the skipped-files panel is hidden.
+- [x] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
       is over its 250-line guard; the guard is not raised).
-- [ ] **4b** One plain headline sentence for what is happening now, from §3's stages.
-- [ ] **4c** A progress bar that glides between updates instead of jumping, and moves as a
+- [x] **4b** One plain headline sentence for what is happening now, from §3's stages.
+- [x] **4c** A progress bar that glides between updates instead of jumping, and moves as a
       busy bar when the total is not known yet. Animation costs are measured: no more than
       the existing 0.25 s paint throttle allows.
 - [ ] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
       a per-file bar for archives only.
-- [ ] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
+- [x] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
 
 ## 5. Indexing speed, measured one change at a time
 
