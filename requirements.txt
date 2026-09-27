@@ -62,7 +62,11 @@ pymupdf==1.28.2
 python-docx==1.2.0
 openpyxl==3.1.5
 python-pptx==1.0.2
-pywin32==312          # Outlook MAPI for PST ingestion (Windows only)
+# 2026-09-27 (order 0x §0b): the marker after `;` tells pip to install pywin32 on
+# Windows only. Without it `pip install -r requirements.txt` stops dead on a Mac,
+# because pywin32 publishes no macOS wheel. On Windows the line installs exactly
+# what it did before.
+pywin32==312; sys_platform == "win32"   # Outlook MAPI for PST ingestion (Windows only)
 extract-msg==0.56.1   # single .msg items only - NEVER .pst (see email_files.py)
 xlrd==2.0.2           # legacy .xls only - see below
 striprtf==0.0.33      # .rtf, replacing a LibreOffice round-trip

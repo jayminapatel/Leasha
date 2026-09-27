@@ -42,3 +42,71 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e and not slow"
+
+  # Order 0x section 0c (2026-09-27). The same suite on a real Mac (Apple
+  # Silicon, macOS 14 - the oldest macOS onnxruntime 1.24.4 ships a wheel
+  # for). Nobody on the project has a Mac, so this runner is the only place
+  # the code meets macOS before the owner's own session on one.
+  #
+  # **Non-blocking for now** (`continue-on-error`): many tests were written
+  # for Windows and have never run on a Mac, so a red result here is a
+  # report, not a verdict. Each section of order 0x that is made to pass here
+  # moves into a blocking subset; the counts land in the job summary so the
+  # trend is visible on every run.
+  test-macos:
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install dependencies
+        # The requirements files carry `sys_platform` markers, so the
+        # Windows-only packages (pywin32, pywinauto) are skipped here.
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/python -m pip install -r requirements.txt
+          venv/bin/python -m pip install -r requirements-dev.txt
+
+      - name: Run the suite (offscreen Qt, excluding e2e/jvm/slow)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          venv/bin/python -m pytest tests -q -m "not jvm and not e2e and not slow" \
+            -p no:cacheprovider --timeout=600 --junitxml=macos-junit.xml
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Summarise the macOS run
+        if: always()
+        run: |
+          venv/bin/python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          try:
+              root = ET.parse("macos-junit.xml").getroot()
+          except (OSError, ET.ParseError) as exc:
+              line = f"macOS run produced no report ({exc}) - the process probably died."
+          else:
+              suites = root.iter("testsuite")
+              t = f = e = s = 0
+              for suite in suites:
+                  t += int(suite.get("tests", 0)); f += int(suite.get("failures", 0))
+                  e += int(suite.get("errors", 0)); s += int(suite.get("skipped", 0))
+              line = (f"macOS: {t} tests, {t - f - e - s} passed, {f} failed, "
+                      f"{e} errors, {s} skipped")
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(line + "\n")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-junit
+          path: macos-junit.xml

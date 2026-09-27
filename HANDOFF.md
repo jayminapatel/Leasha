@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,19 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-27 (later) - order 0x is active, run as a master thread.** The owner released
+`docs/WORKORDER-overhaul-and-mac-ready.md`: the indexer moves into its own process so the
+window never waits on it; the Indexing page says what it is doing down to the message inside
+an archive; indexing speed work, measured; `/between` and plain-English date ranges in every
+box; and every line written or moved made to work on macOS too. Its §D holds the owner's
+decisions: indexer as a child process (no FastAPI, no port), Windows first and Mac second,
+nothing may degrade, and a `macos-14` CI job (non-blocking at first). It overrides "working
+version first" and the Mac parking for its own scope only; hardware-specific Mac work stays
+parked in its §P. **It builds on 0w**, which another session was still building on
+`claude/brave-cori-qe54kp` at the time: any 0x section touching a 0w file waits for 0w to
+reach `main`. The owner's real-Mac checks accumulate in `docs/MAC_VERIFICATION.md`.
+Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on a Mac).
 
 **2026-09-27 - the branches were folded back into main; two fixes had been left behind.**
 Every `claude/*` branch on origin was checked against `main` by patch, not by hash (a

@@ -1,6 +1,6 @@
 # Parked ideas
 
-**Doc version:** 1.1 · **Updated:** 2026-09-13 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Ideas the owner has approved in discussion but **not ordered**. Nothing here may be
 started, and nothing here may become a work order without the owner asking for one.
@@ -76,6 +76,13 @@ this collection unprompted. He will collate.
 ---
 
 ## 6. Leasha on macOS — parked 2026-09-13, with the census that sizes it
+
+> **2026-09-27 - partly unparked by the owner.** Order 0x
+> (`WORKORDER-overhaul-and-mac-ready.md`) makes every line it writes or moves work on macOS,
+> ahead of the Windows release, for its own scope only. The hardware-specific rows below
+> (CoreML, the hardware probe, Offline Media drives, hotkey/selection, packaging and
+> signing, live mailboxes) stay parked, listed in that order's §P. Everything below is kept
+> as written.
 
 Asked as a scope question, answered with a count rather than a feeling, and parked
 rather than ordered. **Nothing here may be started.**
