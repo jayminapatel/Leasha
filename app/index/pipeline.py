@@ -64,6 +64,7 @@ from app.extract import chunk_document, extract
 from app.extract import progress as reader_progress
 from app.extract.base import extractor_for, reads_externally
 from app.core.priority import lower_this_thread
+from app.core.osbridge.pathnames import path_key
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
@@ -931,8 +932,14 @@ def _archive_resume_key(path: Path) -> str:
 
     A hash of the lower-cased path rather than the path itself: a key is a
     short identifier, and Windows paths differ only in case.
+
+    **Hashed from `path_key` (order 0x section 7b).** On Windows that is
+    `str(path).lower()`, byte for byte, so every cursor already saved on the
+    owner's machine is still found. In a case-sensitive Mac or Linux folder the
+    case is kept, so `Mail.pst` and `mail.pst` - two archives there - cannot
+    share one cursor and resume from each other's place.
     """
-    digest = hashlib.blake2b(str(path).lower().encode("utf-8"), digest_size=16)
+    digest = hashlib.blake2b(path_key(path).encode("utf-8"), digest_size=16)
     return f"{ARCHIVE_RESUME_PREFIX}{digest.hexdigest()}"
 
 
@@ -2019,7 +2026,7 @@ class Pipeline:
                 # removed, because `_produce` is also called with a private set
                 # by tests, and a set that is only *sometimes* filled is the
                 # kind of thing that makes a prune pass delete a live file.
-                seen.add(str(candidate.path).lower())
+                seen.add(path_key(candidate.path))
                 stats.seen += 1
 
                 # Per-root file counts, so a skipped archive can say how many
@@ -2425,6 +2432,10 @@ class Pipeline:
         if len(self._repo_order) != len(self._repo_roots):
             self._repo_order = sorted(self._repo_roots, key=len, reverse=True)
 
+        # Letter case ignored on every system, as before (order 0x 7b, kept):
+        # this decides only which repository a file is *attributed* to, never
+        # whether it is indexed, so a case-sensitive disk cannot lose or
+        # duplicate a file here.
         text = str(path).lower()
         for root in self._repo_order:
             prefix = root.lower().rstrip("\\/")
@@ -2496,7 +2507,9 @@ class Pipeline:
         yield from walk(self.config.walk, seen)
 
         for candidate in (*retry, *scanned):
-            key = str(candidate.path).lower()
+            # `path_key`, the walker's own key (order 0x 7b) - see
+            # `app/core/osbridge/pathnames.py`. `str(path).lower()` on Windows.
+            key = path_key(candidate.path)
             if key not in seen:
                 seen.add(key)
                 yield candidate
@@ -5406,10 +5419,16 @@ class Pipeline:
         # Collected before deleting rather than deleted while iterating: a
         # cursor being read while its table is written underneath it is exactly
         # the kind of thing that works until it does not.
+        #
+        # **Looked up with `path_key`, the same function that filled `seen`**
+        # (order 0x 7b). If this side lower-cased while the walker kept the
+        # case of a case-sensitive folder, every file there with a capital
+        # letter would look unseen - and be deleted if its row's spelling no
+        # longer existed. On Windows both sides are `.lower()`, as before.
         doomed = [
             record.id
             for record in self.store.iter_files(source_kind="file")
-            if str(record.path).lower() not in seen
+            if path_key(record.path) not in seen
             and (not archived or files_under(record.path, archived) is None)
             and _volume_row_is_missing(record)
         ]
@@ -5471,7 +5490,7 @@ class Pipeline:
         for file_id, path in containers:
             if Path(path).exists():
                 continue                      # still here; its members are fine
-            if path.lower() in seen:
+            if path_key(path) in seen:
                 continue                      # this walk covered it; the walk decides
             if archived and files_under(path, archived) is not None:
                 continue                      # inside a folder this run skipped
