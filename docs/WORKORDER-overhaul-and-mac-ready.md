@@ -99,7 +99,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 1. One home for platform code (`app/core/osbridge/`)
 
-- [ ] **1a** The package, with a plain-English module docstring explaining why it exists.
+> **2026-09-27, §1 built:** `app/core/osbridge/` (`launch`, `priority`, `programs`, `paths`,
+> `cloudfs`), with the Windows code moved unchanged and every old name still working. The guard
+> `test_no_windows_only_call_outside_osbridge` reads the code with Python's own parser (comments and
+> docstrings never count), is on the load-bearing table, and its allow-list is shrink-only - a second
+> test fails when a listed file no longer needs its entry. After 0w merged, `workers.open_in_explorer`
+> moved too (Finder `open -R` on a Mac) and left the list; the walker now carries the stat's BSD flags
+> so an iCloud file that is not downloaded is recognised without being opened. Still on the list:
+> `email_pst.py` (Outlook COM is Windows-only by nature), the parked §P files, `lo_session`/`lo_server`
+> job objects and `single_instance`'s named mutex. 58 branch tests run every Mac path with the
+> platform faked. Deliberately not built: per-thread priority on a Mac (QoS classes, UNCONFIRMED);
+> the process is lowered with `nice` instead. `config.py` still requires `DATA_PATH`.
+- [x] **1a** The package, with a plain-English module docstring explaining why it exists.
       Operations: open a file with its default app; show a file in Explorer or Finder;
       lower the priority of the current process and of a thread; find an installed
       program (LibreOffice, its Python, Tesseract, DWG converters, editors, media
@@ -107,18 +118,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
       (`%LOCALAPPDATA%\Leasha` on Windows, `~/Library/Application Support/Leasha` on a
       Mac); whether a file is a cloud placeholder (OneDrive attributes on Windows, the
       iCloud "dataless" flag on a Mac); the interpreter path shown in messages.
-- [ ] **1b** Move the existing Windows code behind it with **identical behaviour on
+- [x] **1b** Move the existing Windows code behind it with **identical behaviour on
       Windows**: `core/priority.py`, `core/media_open.py`, `ui/workers.open_in_explorer`,
       `extract/converter.resolve_binary`'s Windows locations, `ui/editors.py`'s lookup,
       `core/winfs.py`. Callers keep their names; only the implementation moves.
-- [ ] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
+- [x] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
       `ctypes.windll`/`WinDLL`, `winreg`, `win32com`, `pythoncom`, `msvcrt`,
       `os.startfile`, `explorer`, `powershell` subprocess, `.exe` lookup or hard-coded
       `"\\"` path join outside `app/core/osbridge/`. Files not yet moved are listed in an
       allow-list **that may only shrink**, each with the section that will move it. Seen to
       fail against a deliberate violation before it lands. Added to the load-bearing table
       in `WORKORDER-CONVENTIONS.md` §0.
-- [ ] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
+- [x] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
       system calls faked, so the Mac logic is exercised on every run.
 
 ## 2. The indexer in its own process

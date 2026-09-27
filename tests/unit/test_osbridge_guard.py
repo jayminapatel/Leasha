@@ -63,12 +63,13 @@ OSBRIDGE = "app/core/osbridge/"
 #: A path is relative to the repository root, with forward slashes.
 ALLOWED: dict[str, str] = {
     # --- Owned by order 0w while it is being built; moved after it merges. ---
-    "app/ui/workers.py":
-        "moved after 0w merges: open_in_explorer's explorer /select, and "
-        "os.startfile -> osbridge.show_in_file_manager (already built, §1a)",
+    # 2026-09-27: workers.py left this list once 0w merged (open_in_explorer
+    # now goes through osbridge.show_in_file_manager).
     "app/extract/email_pst.py":
-        "moved after 0w merges: Outlook MAPI through pythoncom/win32com is "
-        "Windows-only by nature; the import belongs behind osbridge",
+        "Outlook MAPI through pythoncom/win32com is Windows-only by nature: "
+        "there is no Mac Outlook COM to bridge to. On a Mac the reader already "
+        "uses libpff for a .pst file when it is installed; the COM half stays "
+        "Windows-only",
     # --- Parked hardware-specific Mac work (order 0x §P). ---
     "app/core/compute_profile.py":
         "parked (§P): hardware detection - PowerShell DXGI adapter probe and "
