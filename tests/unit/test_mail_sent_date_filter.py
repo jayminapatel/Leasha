@@ -153,6 +153,31 @@ def test_the_mail_tab_reads_date_on_the_sent_column_and_keeps_the_last_day(index
     assert mail_tab("date:2017-06-16..") == set()
 
 
+def test_a_time_of_day_narrows_to_the_minute_a_message_was_sent(indexed):
+    """Order "dates" §1b. The 2017 letter was sent at 10:30 local time, and a
+    time on `after:`/`before:`/`date:` reaches both mail paths as that moment
+    rather than as its whole day."""
+    from app.search.commands import expand_slashes
+    from app.ui.presenter import mail_filters
+
+    def mail_tab(query: str) -> set:
+        filters = mail_filters(parse_query(expand_slashes(query)))
+        return {row["subject"] for row in indexed.browse_messages(**filters)}
+
+    for query, found in (
+        ("type:mail date:2017-06-15T10:30", {"Letter E2017"}),
+        # Bounded, because the letter with no sent date keeps the archive's
+        # own (recent) date and is rightly "after" anything in 2017.
+        ("type:mail after:2017-06-15T10:30 before:2017-12", {"Letter E2017"}),
+        ("type:mail after:2017-06-15T10:31 before:2017-12", set()),
+        ('type:mail before:"2017-06-15 10:30"', {"Letter E2017", "Letter E2012"}),
+        ("type:mail date:2017-06-15T10:29..2017-06-15", {"Letter E2017"}),
+        ("type:mail date:2017-06-15..2017-06-15T10:29", set()),
+    ):
+        assert _subjects(indexed, query) == found, query
+        assert mail_tab(query.replace("type:mail ", "")) == found, query
+
+
 def test_a_message_with_no_sent_date_keeps_the_container_date(indexed):
     """No sent date is no date to prefer: the row falls back to `mtime_ns`
     exactly as before, rather than to 1970."""

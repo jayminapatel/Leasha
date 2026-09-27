@@ -14,7 +14,7 @@ parseable in the first place, by running it against a real FTS5 table.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from hypothesis import given
@@ -249,6 +249,85 @@ def test_date_is_the_same_query_as_the_two_operators_it_stands_for() -> None:
 def test_a_reversed_date_range_covers_both_periods_whole() -> None:
     q = parse_query("date:2018..2017", today=TODAY)
     assert (q.after, q.before) == (date(2017, 1, 1), date(2018, 12, 31))
+
+
+# --- times of day (order "dates" §1b) ---------------------------------------
+
+@pytest.mark.parametrize(
+    "raw,after,before",
+    [
+        # `after:` takes the first moment of the minute, `before:` the last -
+        # the same rule a partial date follows, one step finer.
+        ("after:2017-03-01T10:00", datetime(2017, 3, 1, 10, 0), None),
+        ("before:2017-03-01T10:00", None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("after:2017-03-01T10:00:30", datetime(2017, 3, 1, 10, 0, 30), None),
+        ("before:2017-03-01T10:00:30", None, datetime(2017, 3, 1, 10, 0, 30, 999999)),
+        ("after:2017-03-01T9:05", datetime(2017, 3, 1, 9, 5), None),
+        ("after:2017-03-01t10:00", datetime(2017, 3, 1, 10, 0), None),
+        # Quoted, so the space survives the tokeniser.
+        ('after:"2017-03-01 10:00"', datetime(2017, 3, 1, 10, 0), None),
+        ('before:"2017-03-01 10:00"', None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ('/before "2017-03-01 10:00"', None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("/after 2017-03-01T10:00", datetime(2017, 3, 1, 10, 0), None),
+        # `date:` with a time is that minute, and a range of times is a range.
+        ("date:2017-03-01T10:00", datetime(2017, 3, 1, 10, 0),
+         datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("date:2017-03-01T09:00..2017-03-01T17:30", datetime(2017, 3, 1, 9, 0),
+         datetime(2017, 3, 1, 17, 30, 59, 999999)),
+        ('date:"2017-03-01 09:00..2017-03-01 17:30"', datetime(2017, 3, 1, 9, 0),
+         datetime(2017, 3, 1, 17, 30, 59, 999999)),
+        # A time on one end, a whole day on the other.
+        ("date:2017-03-01T09:00..2017-03-02", datetime(2017, 3, 1, 9, 0),
+         date(2017, 3, 2)),
+    ],
+)
+def test_time_of_day_forms(raw: str, after, before) -> None:
+    from app.search.commands import expand_slashes
+
+    q = parse_query(expand_slashes(raw), today=TODAY)
+    assert (q.after, q.before) == (after, before)
+    assert q.unknown_operators == () and q.terms == ()
+
+
+def test_a_date_without_a_time_is_still_a_whole_day() -> None:
+    """§1b's other half: nothing about a date-only value changed."""
+    q = parse_query("after:2017-03-01 before:2017-03-01", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 3, 1), date(2017, 3, 1))
+    assert type(q.after) is date and type(q.before) is date
+
+
+def test_a_range_mixing_a_time_and_a_day_is_ordered_without_raising() -> None:
+    """Python refuses to compare a `datetime` with a `date`, and the swap for
+    a reversed range compares them - `parse_query` must never raise."""
+    q = parse_query("after:2017-03-01T10:00 before:2017-02", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 2, 1), datetime(2017, 3, 1, 10, 0, 59, 999999))
+    ordered = parse_query("after:2017-03-01 before:2017-03-01T10:00", today=TODAY)
+    assert ordered.after == date(2017, 3, 1)
+
+
+@pytest.mark.parametrize("raw", [
+    "after:2017-03-01T25:00", "after:2017-03-01T10:60", "after:2017-02-30T10:00",
+    "after:2017-03T10:00", "before:2017T10:00", "date:2017-03-01T10",
+])
+def test_a_time_that_is_not_on_the_clock_is_reported(raw: str) -> None:
+    q = parse_query(f"{raw} report", today=TODAY)
+    assert (q.after, q.before) == (None, None)
+    assert q.unknown_operators == (raw,)
+
+
+def test_a_time_reaches_the_sql_as_that_moment_on_the_local_clock() -> None:
+    """`epoch_ns` used `datetime.combine`, which takes a `datetime` as a
+    plain date and drops the time. The moment has to survive to the SQL, on
+    the same local clock a whole day is read on."""
+    from app.storage.filters import epoch_ns, file_filter_sql
+
+    moment = datetime(2017, 3, 1, 10, 0)
+    assert epoch_ns(moment) == int(moment.timestamp() * 1_000_000_000)
+    assert epoch_ns(date(2017, 3, 1)) == int(datetime(2017, 3, 1).timestamp() * 1_000_000_000)
+    _where, params = file_filter_sql(parse_query("date:2017-03-01T10:00", today=TODAY))
+    start, end = params[0], params[1]
+    assert start == int(moment.timestamp() * 1_000_000_000)
+    assert end - start == 59_999_999_000                  # the minute, inclusive
 
 
 def test_an_unreadable_date_value_is_reported_not_searched_for() -> None:
