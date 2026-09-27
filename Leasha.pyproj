@@ -497,6 +497,7 @@
     <Compile Include="tests\unit\test_archives.py" />
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
+    <Compile Include="tests\unit\test_between_dates.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
     <Compile Include="tests\unit\test_cell_locators.py" />
@@ -553,6 +554,7 @@
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
+    <Compile Include="tests\unit\test_date_forms_every_box.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />

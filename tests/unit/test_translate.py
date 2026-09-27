@@ -437,7 +437,9 @@ def test_the_prompt_only_mentions_operators_that_exist() -> None:
 
     prompt = build_prompt("anything", today=TODAY)
     for command in COMMANDS:
-        assert f"{command.name}:" in prompt
+        # Order 0x §6a: a spelling row (`between:`) is told to the model under
+        # the name of the filter it spells (`date:`), once.
+        assert f"{command.alias_of or command.name}:" in prompt
     assert "colour:" not in prompt and "author:" not in prompt
 
 

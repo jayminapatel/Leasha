@@ -50,6 +50,25 @@ def qapp():
     yield QApplication.instance() or QApplication([])
 
 
+def _release(widget) -> None:
+    r"""Delete a view's window object now, rather than when the collector
+    gets round to it.
+
+    **2026-09-27, order 0x §6c.** A view here takes part in reference cycles
+    (its View button's closures, its tables' column-width watcher), so
+    letting go of it at the end of a test leaves it to the cyclic collector
+    - and a watcher timer can then tick into a closure the collector has
+    already cleared. That crashed this file natively, inside
+    `test_the_cli_search_applies_date`, depending only on how many objects
+    earlier test files had allocated. Deleting the widget here takes its
+    timers with it, at a point that is not inside anything else.
+    """
+    from PyQt6 import sip
+
+    if not sip.isdeleted(widget):
+        sip.delete(widget)
+
+
 def _pump(ms: int = 5_000) -> None:
     app = QApplication.instance()
     QThreadPool.globalInstance().waitForDone(ms)
@@ -152,6 +171,7 @@ def test_search_offers_date_and_applies_it(qapp, engine):
         assert [Path(row.path).name for row in view.results._rows] == ["march report.txt"]
     finally:
         view.shutdown()
+        _release(view)
 
 
 # --- Files -------------------------------------------------------------------
@@ -174,6 +194,7 @@ def test_files_offers_date_and_applies_it(qapp, store):
             "march report.txt", "july report.txt", "march.py"}
     finally:
         view.shutdown()
+        _release(view)
 
 
 # --- Mail --------------------------------------------------------------------
@@ -198,6 +219,7 @@ def test_mail_offers_date_and_applies_it_to_the_sent_date(qapp, store):
         assert [row.subject for row in view._rows] == ["May quote"]
     finally:
         view.shutdown()
+        _release(view)
 
 
 # --- Code --------------------------------------------------------------------
@@ -218,6 +240,7 @@ def test_code_offers_date_and_applies_it_to_repository_files(qapp, store):
         assert _table_names(view.results.table) == {"march.py"}
     finally:
         view.shutdown()
+        _release(view)
 
 
 # --- The mini-search ---------------------------------------------------------
@@ -344,6 +367,7 @@ def test_search_says_what_was_wrong_on_the_notice_bar(qapp, engine):
         assert SAID in view.notices.label.text()
     finally:
         view.shutdown()
+        _release(view)
 
 
 @pytest.mark.parametrize("tab", ["files", "mail", "code"])
@@ -363,6 +387,7 @@ def test_the_other_tabs_say_it_on_their_summary_line(qapp, store, tab):
         assert view.summary.text().startswith(f"⚠ {SAID}")
     finally:
         view.shutdown()
+        _release(view)
 
 
 def test_the_notice_comes_first_and_cannot_inject_markup():
