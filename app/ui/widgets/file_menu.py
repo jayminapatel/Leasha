@@ -49,6 +49,7 @@ class FileActions:
         explain: Optional[Callable[[], None]] = None,
         same_period: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
+        extra: Optional[list[tuple[str, str, Callable[[], None]]]] = None,
     ) -> None:
         self.open_file = open_file
         self.reveal = reveal
@@ -77,6 +78,10 @@ class FileActions:
         #: and a message's "file name" is a synthetic key nobody would
         #: recognise, let alone want to paste anywhere.
         self.copy = copy or []
+        #: `(label, tooltip, callback)` for actions only one list has - the
+        #: Code tab's "Ignore this repository" (order 0y §1c). Offered last,
+        #: after a separator, because each is about more than this one file.
+        self.extra = extra or []
 
 
 def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
@@ -156,6 +161,14 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
         copy_name = QAction("Copy file name", parent)
         copy_name.triggered.connect(lambda: _copy(Path(path).name))
         menu.addAction(copy_name)
+
+    if actions.extra:
+        menu.addSeparator()
+        for label, tip, callback in actions.extra:
+            action = QAction(label, parent)
+            action.setToolTip(tip)
+            action.triggered.connect(lambda _checked=False, run=callback: run())
+            menu.addAction(action)
 
     if not exists and actions.reindex is not None:
         menu.addSeparator()

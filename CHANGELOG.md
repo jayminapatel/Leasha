@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.30 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.31 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Code tab: no console flash, a Stop for history, and "Ignore this repository"
+
+- Searching history no longer flashes a black console window on Windows.
+- A history search can be stopped: the button reads "Stop" while it runs, and Esc does the same.
+- Right-click a file in a repository › "Ignore this repository" when a folder is not really a
+  repository. Its files stay indexed and searchable; they just stop counting as code. "Undo" puts it
+  back straight away.
 
 ### Indexing in a separate process stays a choice
 

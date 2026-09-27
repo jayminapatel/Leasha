@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.17 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -164,6 +164,11 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 > **2026-09-27:** the owner decided the setting stays optional and configurable for good; the
 > in-process path is never retired. This check now decides only the default.
 
+- [ ] **Code tab fixes (order 0y §1).** Run a history search (`/repo <name> something /history`):
+      no black console window flashes up. Start one on a large repository and press Esc (or the
+      button, which reads "Stop"): it ends at once and says "History search stopped". Right-click a
+      file in a repository › "Ignore this repository": its files leave the Code list and stay
+      searchable elsewhere; "Undo" in the note brings them straight back.
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not

@@ -72,6 +72,8 @@ class CodeResults(QWidget):
     open_requested = pyqtSignal(str)
     reveal_requested = pyqtSignal(str)
     search_repo_requested = pyqtSignal(str)
+    #: Order 0y §1c: "Ignore this repository", with the repository's name.
+    ignore_repo_requested = pyqtSignal(str)
     #: Somebody right-clicked the header. The view owns the View button.
     view_menu_requested = pyqtSignal(object)
 
@@ -173,4 +175,9 @@ class CodeResults(QWidget):
             search_inside=((lambda: self.search_repo_requested.emit(name))
                            if name else None),
             copy=[("Copy repository name", name), ("Copy full path", path)],
+            extra=[("Ignore this repository",
+                    "This folder is not really a repository. Its files stay "
+                    "indexed and searchable; they stop counting as code. "
+                    "You can undo it.",
+                    lambda: self.ignore_repo_requested.emit(name))] if name else [],
         ))
