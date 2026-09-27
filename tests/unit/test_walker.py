@@ -775,3 +775,23 @@ def test_a_mail_archive_over_the_ceiling_is_still_read(tmp_path: Path) -> None:
 
     assert readable(found) == {"Takeout.mbox", "export.olm"}
     assert names(found) == {"Takeout.mbox", "export.olm", "big.txt"}
+
+
+def test_an_icloud_file_that_is_not_downloaded_is_a_placeholder(tmp_path: Path) -> None:
+    """Order 0x section 1: a Mac marks an iCloud file whose contents are still
+    in the cloud with `SF_DATALESS` in the stat's flags. The walker carries
+    those flags from the stat it already made, so the check never opens the
+    file (opening it would download it). Windows attribute bits keep working
+    exactly as before, and a file with neither is not a placeholder."""
+    from app.core.osbridge.cloudfs import SF_DATALESS
+    from app.core.winfs import FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+    from app.index.walker import Candidate
+
+    def candidate(**extra):
+        return Candidate(path=tmp_path / "a.txt", size_bytes=1, mtime_ns=0,
+                         priority=0, **extra)
+
+    assert candidate(flags=SF_DATALESS).is_cloud_placeholder
+    assert candidate(attributes=FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).is_cloud_placeholder
+    assert not candidate().is_cloud_placeholder
+    assert not candidate(flags=0x1).is_cloud_placeholder, "another flag is not iCloud"

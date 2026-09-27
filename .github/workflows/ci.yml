@@ -15,14 +15,30 @@ name: CI
 # PR should not wait on a 130MB fetch to get a result).
 
 on:
+  # 2026-09-27 (order 0x): pushes to a branch with an open pull request used
+  # to run everything twice - once for the push, once for the pull request -
+  # and the macOS job bills at about ten times the Windows rate. `main` still
+  # runs on push; every other branch runs through its pull request only.
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
     branches: ["**"]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still going for the old
+# one: only the newest commit's result is ever read.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: windows-latest
+    # 2026-09-27 (order 0x): one run on this branch sat in the test step for
+    # 50 minutes with no output, where a normal run takes about 12. A ceiling
+    # on the job, and a per-test timeout below that names the test that hung
+    # instead of a silent wait.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +61,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e and not slow"
+          venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e and not slow" --timeout=600
 
   # Order 0x section 0c (2026-09-27). The same suite on a real Mac (Apple
   # Silicon, macOS 14 - the oldest macOS onnxruntime 1.24.4 ships a wheel

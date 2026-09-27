@@ -437,6 +437,11 @@ def filter_offers(chips: Any, raw: str) -> list[Any]:
         # `date:` sets both edges, so it has already said what either would.
         if chip.field in ("after", "before") and ("date:" in typed or "/date" in typed):
             continue
+        # So does `between:`, which is `date:` under another name (order 0x
+        # §6a). A separate test rather than a longer one above, so the line
+        # `date:` has always been answered by is left exactly as it was.
+        if chip.field in ("after", "before") and ("between:" in typed or "/between" in typed):
+            continue
         shown = html.escape(chip.label())
         offers.append(_Hint(
             NOTICE_FILTER_OFFER,

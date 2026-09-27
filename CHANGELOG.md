@@ -17,6 +17,29 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Date ranges you can type the way you say them
+
+- `/between 2024-03-01 and 2024-06-30` (or `… to …`) works in every search box, and gives exactly
+  what `/date 2024-03-01..2024-06-30` gives. `/range` in the Code tab still means git.
+- Typing "letters between March and June 2024" or "from 1 January 2024 to 5 February 2024" now
+  offers those dates as filters you can accept. Leasha does not guess: a range without a year that
+  could mean two different years is left as words.
+
+### The Indexing page, easier to read while a run is going
+
+- **Inside a big mail archive or zip, the page now says where it is:** "Reading Archive2019.pst ›
+  Inbox/Projects — message 4,512 of 18,300", or "backup.zip › mail.mbox — message 812 of 2,000".
+  Before, a two-hour archive showed only a running count, which looked the same as a stuck one.
+- One line for each file being read at the same time, each with how long it has been on it.
+- "Working · last activity 2 s ago" underneath, and after a quiet minute a plain note of what can
+  normally take that long (a large scan being read with OCR, a very large attachment).
+- The progress bar now glides between updates instead of jumping, and never moves backwards.
+  While Leasha does not yet know how much there is to do, it shows a moving block.
+- A line under the counts says what the run is doing right now.
+- The run log can show only warnings and errors, and has a Copy button that copies what you
+  can see, with the times.
+- Tab now moves through the Start, Stop, Pause and Reset buttons left to right.
+
 ### Getting ready for a Mac, without changing anything on Windows
 
 - **A Google Takeout mailbox over 2 GB was skipped without being read.** Leasha reads an

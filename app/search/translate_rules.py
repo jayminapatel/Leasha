@@ -310,6 +310,132 @@ def _i_am_the_sender(lowered: Sequence[str]) -> bool:
     return False
 
 
+#: Short month names [TUNE]. Order 0x §6b: "from 1 Jan to 5 Feb".
+#:
+#: **Read only inside a range phrase, never on their own.** "may", "mar" and
+#: "jun" are ordinary words or bits of names, so the lone-month rule below
+#: keeps to the full names it has always read. Between "from 1" and "to 5
+#: Feb" there is nothing else "jan" could be.
+_MONTHS_SHORT = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+                 "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12}
+
+#: Any month name, full or short, as a regex alternative. Longest first, so
+#: "september" is not read as "sep" followed by the letters "tember".
+_MONTH_ALTERNATIVES = "|".join(sorted({*_MONTHS, *_MONTHS_SHORT}, key=len, reverse=True))
+
+
+def _range_end(tag: str) -> str:
+    r"""One end of a range: `[day] month [year]`, each group named for `tag`.
+
+    `1 Jan`, `1st January 2024`, `March`, `Jun. 2024`. The day may carry an
+    ordinal ending; a full stop after a short month is allowed because people
+    write "5 Feb." as often as "5 Feb".
+    """
+    return (rf"(?:(?P<{tag}day>\d{{1,2}})(?:st|nd|rd|th)?\s+)?"
+            rf"(?P<{tag}month>{_MONTH_ALTERNATIVES})\.?"
+            rf"(?:\s+(?P<{tag}year>(?:19|20)\d{{2}}))?")
+
+
+#: "between March and June 2024", "from 1 January 2024 to 5 February 2024",
+#: "from 1 Jan to 5 Feb" [TUNE]. Order 0x §6b.
+#:
+#: **The opening word and the joining word come as a pair**: "between ... and"
+#: or "from ... to". Those are the two ways English marks both ends of a span
+#: as ends. "March and June" alone is two months somebody mentioned, and
+#: "2016 to 2017" alone could be a version number or a score, so neither is
+#: read - the rest of this file's rule, applied to ranges.
+_MONTH_RANGE = re.compile(
+    rf"\b(?:between\s+{_range_end('a')}\s+and\s+{_range_end('b')}"
+    rf"|from\s+{_range_end('c')}\s+to\s+{_range_end('d')})\b")
+
+#: "between 2019 and 2021", "from 2016 to 2017" [TUNE]. Order 0x §6b.
+_YEAR_RANGE = re.compile(
+    r"\b(?:between\s+(?P<a>(?:19|20)\d{2})\s+and\s+(?P<b>(?:19|20)\d{2})"
+    r"|from\s+(?P<c>(?:19|20)\d{2})\s+to\s+(?P<d>(?:19|20)\d{2}))\b")
+
+
+def _last_day(year: int, month: int) -> int:
+    """How many days `month` has in `year` - 28 or 29 for February."""
+    following = date(year + month // 12, month % 12 + 1, 1)
+    return (following - date(year, month, 1)).days
+
+
+def _range_chips(text: str, *, today: date) -> Optional[list]:
+    r"""`after:`/`before:` chips for a date range in `text`.
+
+    `None` when there is no range phrase at all, so the other date rules may
+    look. `[]` when there is one but reading it would need a guess - and then
+    **nothing** is read, not even part of it: "between November and February
+    2024" must not quietly become November alone.
+
+    Order 0x §6b. `text` is already lower-case. Four shapes are read, and
+    each end of a month range may carry its own day and year:
+
+    * "between 2019 and 2021" / "from 2016 to 2017" - two whole years.
+    * "between March and June 2024" - the year written once, at the end,
+      belongs to both months, which is how English says it.
+    * "from 1 January 2024 to 5 February 2024" - two exact days.
+    * "from 1 Jan to 5 Feb" - no year at all; see below.
+
+    **When nothing is read, and why.** Each of these would need a guess, and a
+    wrong date filter hides documents without a word, so none is made:
+
+    * **An end that is not a real day** ("31 February") - no chip, rather than
+      a nearby day nobody typed.
+    * **A range that runs backwards once its years are filled in** - "between
+      November and February 2024" is probably November 2023 to February 2024,
+      but "probably" is a guess. With both years typed, backwards is backwards.
+    * **No year anywhere, and the range is not plainly this year's.** The
+      lone-month rule has always read "June" as this June, so "from 1 Jan to
+      5 Feb" is this year's January and February - but only while that is in
+      the past or includes today. Typed in September, "from 1 Oct to 5 Nov"
+      could only mean last year's (this year's has not happened) or next
+      year's plans, and a range crossing New Year ("from 1 Dec to 5 Feb") has
+      two years in it and says neither. Those stay as words.
+    """
+    years = _YEAR_RANGE.search(text)
+    if years:
+        first = years.group("a") or years.group("c")
+        last = years.group("b") or years.group("d")
+        if int(first) > int(last):
+            return []                              # backwards: see above
+        source = years.group(0)
+        return [Chip("after", f"{first}-01-01", source),
+                Chip("before", f"{last}-12-31", source)]
+
+    found = _MONTH_RANGE.search(text)
+    if found is None:
+        return None
+    # Whichever pair matched - "between ... and" (a, b) or "from ... to" (c, d).
+    one, two = ("a", "b") if found.group("amonth") else ("c", "d")
+
+    def month_of(tag: str) -> int:
+        word = found.group(f"{tag}month")
+        return _MONTHS.get(word) or _MONTHS_SHORT[word]
+
+    first_year, last_year = found.group(f"{one}year"), found.group(f"{two}year")
+    guessed_year = not (first_year or last_year)
+    # A year written once serves both ends: "between March and June 2024",
+    # and equally "from March 2024 to June".
+    first_year = int(first_year or last_year or today.year)
+    last_year = int(last_year or first_year)
+    first_month, last_month = month_of(one), month_of(two)
+    first_day = int(found.group(f"{one}day") or 1)
+    last_day = int(found.group(f"{two}day") or 0) or _last_day(last_year, last_month)
+    try:
+        start = date(first_year, first_month, first_day)
+        end = date(last_year, last_month, last_day)
+    except ValueError:
+        return []                                  # "31 February": not a day
+    if start > end:
+        return []                                  # backwards: see above
+    if guessed_year and start > today:
+        return []                                  # not plainly this year's
+    source = found.group(0)
+    return [Chip("after", start.isoformat(), source),
+            Chip("before", end.isoformat(), source)]
+
+
 def _dates(sentence: str, *, today: date) -> list:
     """`after:`/`before:` chips from the date phrases people actually type.
 
@@ -321,6 +447,13 @@ def _dates(sentence: str, *, today: date) -> list:
     """
     text = str(sentence or "").lower()
     found: list = []
+
+    # **A range first** (order 0x §6b), because it contains the other shapes:
+    # "between March and June 2024" read by the rules below would become
+    # March alone. See `_range_chips` for the ones deliberately not read.
+    ranged = _range_chips(text, today=today)
+    if ranged is not None:
+        return ranged
 
     if "last year" in text:
         year = today.year - 1

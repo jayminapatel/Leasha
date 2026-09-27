@@ -99,7 +99,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 1. One home for platform code (`app/core/osbridge/`)
 
-- [ ] **1a** The package, with a plain-English module docstring explaining why it exists.
+> **2026-09-27, §1 built:** `app/core/osbridge/` (`launch`, `priority`, `programs`, `paths`,
+> `cloudfs`), with the Windows code moved unchanged and every old name still working. The guard
+> `test_no_windows_only_call_outside_osbridge` reads the code with Python's own parser (comments and
+> docstrings never count), is on the load-bearing table, and its allow-list is shrink-only - a second
+> test fails when a listed file no longer needs its entry. After 0w merged, `workers.open_in_explorer`
+> moved too (Finder `open -R` on a Mac) and left the list; the walker now carries the stat's BSD flags
+> so an iCloud file that is not downloaded is recognised without being opened. Still on the list:
+> `email_pst.py` (Outlook COM is Windows-only by nature), the parked §P files, `lo_session`/`lo_server`
+> job objects and `single_instance`'s named mutex. 58 branch tests run every Mac path with the
+> platform faked. Deliberately not built: per-thread priority on a Mac (QoS classes, UNCONFIRMED);
+> the process is lowered with `nice` instead. `config.py` still requires `DATA_PATH`.
+- [x] **1a** The package, with a plain-English module docstring explaining why it exists.
       Operations: open a file with its default app; show a file in Explorer or Finder;
       lower the priority of the current process and of a thread; find an installed
       program (LibreOffice, its Python, Tesseract, DWG converters, editors, media
@@ -107,18 +118,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
       (`%LOCALAPPDATA%\Leasha` on Windows, `~/Library/Application Support/Leasha` on a
       Mac); whether a file is a cloud placeholder (OneDrive attributes on Windows, the
       iCloud "dataless" flag on a Mac); the interpreter path shown in messages.
-- [ ] **1b** Move the existing Windows code behind it with **identical behaviour on
+- [x] **1b** Move the existing Windows code behind it with **identical behaviour on
       Windows**: `core/priority.py`, `core/media_open.py`, `ui/workers.open_in_explorer`,
       `extract/converter.resolve_binary`'s Windows locations, `ui/editors.py`'s lookup,
       `core/winfs.py`. Callers keep their names; only the implementation moves.
-- [ ] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
+- [x] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
       `ctypes.windll`/`WinDLL`, `winreg`, `win32com`, `pythoncom`, `msvcrt`,
       `os.startfile`, `explorer`, `powershell` subprocess, `.exe` lookup or hard-coded
       `"\\"` path join outside `app/core/osbridge/`. Files not yet moved are listed in an
       allow-list **that may only shrink**, each with the section that will move it. Seen to
       fail against a deliberate violation before it lands. Added to the load-bearing table
       in `WORKORDER-CONVENTIONS.md` §0.
-- [ ] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
+- [x] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
       system calls faked, so the Mac logic is exercised on every run.
 
 ## 2. The indexer in its own process
@@ -142,29 +153,51 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 3. Progress you can read, inside one file too
 
-- [ ] **3a** A fixed list of stages, each with plain words the page shows: finding files,
+> **2026-09-27, 3a-3d built, and 4d with them.** Readers report where they are through per-thread
+> frames (`app/extract/progress.py`): one attribute store per message (about 5 ns), no lock, no
+> formatting, no pipeline import. mbox counts message n of m from the table of contents it already
+> builds (measured: no second pass), zip member n of m and its name, `.olm` n of m, and a libpff
+> PST its folder ("Inbox/Projects") and message n of m **within that folder** - a whole-archive
+> total would need a second walk, so there is none. Nesting reads `backup.zip › mail.mbox › message
+> 812`. `IndexStats.workers` holds one line per reader (numbered 1..N), `last_activity` moves only when
+> something changed, and the writer reports "batch n of m". OCR marks its reader's line "OCR" for
+> the length of the call. The page shows a headline, a line per reader with its own clock, and a
+> heartbeat that says "last activity 2 s ago" and, after a minute with nothing new, what could
+> normally take that long - never that the run has hung. Not wired: the Outlook (COM) reader, whose
+> folder walk reports nothing inside the archive yet. Trap: `.olm` and PST readers yield one message
+> ahead of what the pipeline has received (`with_closing_warning`).
+- [x] **3a** A fixed list of stages, each with plain words the page shows: finding files,
       opening an archive, reading a folder, reading messages, extracting attachments,
       reading inside a zip, OCR, chunking, embedding (batch n of m), writing, saving the
       resume point.
-- [ ] **3b** Readers report where they are inside one file: PST folder and message n of
+- [x] **3b** Readers report where they are inside one file: PST folder and message n of
       m (libpff's per-folder counts; the Outlook reader where it can), mbox message n of m,
       zip member n of m and its name, with nesting shown as `backup.zip › mail.mbox ›
       message 812`.
-- [ ] **3c** Several files at once: one line per worker, not one shared name.
-- [ ] **3d** A heartbeat once a second, so the page can say "working, last activity 2 s
+- [x] **3c** Several files at once: one line per worker, not one shared name.
+- [x] **3d** A heartbeat once a second, so the page can say "working, last activity 2 s
       ago" and warn in plain words when nothing has happened for a while.
 
 ## 4. The Indexing page
 
-- [ ] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
+> **2026-09-27, 4a-4c and 4e built.** 4a: the row is its own widget and the guard is green at
+> 244/250 without raising it or editing a test. 4b: the "now" line's slot is built on 0w's
+> existing wording (`READING_WORDS`) and waits for §3's presenter function at the adapter point in
+> `widgets/indexing_headline.py`. 4c: the bar glides over one paint interval in 50 ms steps, never
+> backwards on the same total, busy when the total is unknown, and stops when the page is hidden
+> or minimised; measured offscreen at about 3.7 ms of UI-thread time a second more than jumping
+> (noisy, shared machine). 4e: All / Warnings and errors, and Copy of the visible lines with their
+> times. Found and fixed on the way: Tab now moves through the buttons left to right, and the log's
+> caption no longer floats above its box when the skipped-files panel is hidden.
+- [x] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
       is over its 250-line guard; the guard is not raised).
-- [ ] **4b** One plain headline sentence for what is happening now, from §3's stages.
-- [ ] **4c** A progress bar that glides between updates instead of jumping, and moves as a
+- [x] **4b** One plain headline sentence for what is happening now, from §3's stages.
+- [x] **4c** A progress bar that glides between updates instead of jumping, and moves as a
       busy bar when the total is not known yet. Animation costs are measured: no more than
       the existing 0.25 s paint throttle allows.
-- [ ] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
+- [x] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
       a per-file bar for archives only.
-- [ ] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
+- [x] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
 
 ## 5. Indexing speed, measured one change at a time
 
@@ -189,12 +222,26 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 6. Search in every box
 
-- [ ] **6a** `/between` as an alias of 0w's `/date`, accepting `X and Y` and `X to Y`
+> **2026-09-27, 6a-6c built.** `/between` is `/date` under another name: `between:A and B` and
+> `A to B` are joined into `A..B` before parsing (`query.join_between_words`), so it reaches the same
+> after/before everywhere, Mail's sent date included, and is offered in every box's `/` menu.
+> **One behaviour change to note:** `between` used to be a second spelling of git's `/range` in the
+> Code tab; kept, it would have hidden `/range` from the menus and sent a date range to git as a
+> commit range. `/range v5.0..v6.0` works as before. Only ISO values work (the date parser has no
+> month names). Plain English: "between March and June 2024", "from 1 Jan 2024 to 5 Feb 2024" and
+> year ranges are *offered* as chips, never applied; anything that needs a guess (a year-less range
+> in the future or across New Year, a backwards range, an impossible day) stays as words. The audit
+> (Search, Files, Mail, Code, mini-search, Timeline, Chat) found three larger gaps, left as they are:
+> the Timeline takes single values per box by 0w's design, Chat has no source search box, and the
+> mini-search has nowhere to explain a mistyped date. Found on the way: the Files, Mail and Code views
+> sit in Python reference cycles once let go, which can crash a test run when a column-width timer
+> fires into a collected closure; tests now delete them explicitly, the cause is not yet fixed.
+- [x] **6a** `/between` as an alias of 0w's `/date`, accepting `X and Y` and `X to Y`
       (decision D2), offered wherever `/date` is.
-- [ ] **6b** Plain English: "between March and June 2024", "from 1 Jan to 5 Feb", "since
+- [x] **6b** Plain English: "between March and June 2024", "from 1 Jan to 5 Feb", "since
       last Easter" is *not* guessed (an ambiguous date filter hides documents silently).
       Only unambiguous phrases become filters, as `translate_rules` already insists.
-- [ ] **6c** An audit of every search box (Search, Files, Mail, Code, Timeline, the
+- [x] **6c** An audit of every search box (Search, Files, Mail, Code, Timeline, the
       mini-search, Chat's source search) proving each uses the same parser and offers the
       same date forms, with a pytest-qt scenario per box.
 - [ ] **6d** Semantic search: fixed from the owner's evidence (a failing query, what was

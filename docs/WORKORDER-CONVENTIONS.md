@@ -1,6 +1,6 @@
 # How work orders work now
 
-**Doc version:** 2.3 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 2.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 ## One thread, from 2026-08-25
 
@@ -46,6 +46,7 @@ is deleted, which is the only day it matters.
 | `test_every_control_that_cannot_label_itself_is_labelled` | `test_accessible_names.py` | Unnamed controls | A window a screen reader cannot describe |
 | `test_every_plain_setting_has_a_control` | `test_settings_reachable.py` | A tunable with no control | Non-negotiable #11, which nothing else enforces |
 | `test_no_tab_offers_a_command_it_cannot_honour` | `test_command_subsets.py` | An offered `/` command a tab cannot honour | Menus that promise what they do not deliver |
+| `test_no_windows_only_call_outside_osbridge` | `test_osbridge_guard.py` | A Windows-only call (`ctypes.windll`, `winreg`, `os.startfile`, a PowerShell or Explorer subprocess, an `.exe` name, a `"\\"` path join) outside `app/core/osbridge/` | Code that crashes, or silently does nothing, on a Mac (order 0x §1c; its allow-list may only shrink) |
 
 `test_the_load_bearing_tests_all_exist` (`test_docs_versioned.py`) reads this
 table and asserts every name in it is a real test in the file named beside it.
