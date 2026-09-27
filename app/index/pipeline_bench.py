@@ -53,7 +53,7 @@ import threading
 import time
 import zlib
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +119,11 @@ class BenchOptions:
     #: The same switch as `app.cli index --full-speed`: no CPU ceiling, no
     #: pausing on battery, normal priority.
     full_speed: bool = False
+    #: Work order 0x §2d, the "after" number: run the index as a child process
+    #: (`app.cli index --events jsonl`, supervised by `app.index.child_run`,
+    #: exactly as the window does with "Index in a separate process" on), and
+    #: keep only the heartbeat - and the stand-in window - in this process.
+    child_process: bool = False
     #: The person's own `.env`, read only to find the downloaded model and (with
     #: `my_settings`) their tuning. Never written to.
     env_file: Path | None = None
@@ -191,12 +196,20 @@ class _PeakMemory:
     the numbers are simply absent from the report, never made up.
     """
 
-    def __init__(self) -> None:
-        """Prepare, but do not start, the sampler."""
+    def __init__(self, pid: Callable[[], int | None] | None = None) -> None:
+        """Prepare, but do not start, the sampler.
+
+        `pid`, when given, is asked on every sample for the process to measure
+        instead of this one - the indexer's child process in a
+        `child_process` run, whose id is only known once it has started.
+        Until it answers, nothing is sampled.
+        """
         self.start_mb: float | None = None
         self.peak_mb: float | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._pid = pid
+        self._followed: Any = None
         try:
             import psutil
 
@@ -204,12 +217,29 @@ class _PeakMemory:
         except Exception:                        # noqa: BLE001 - optional
             self._process = None
 
+    def _target(self) -> Any:
+        """The process to read: this one, or the followed child once known."""
+        if self._pid is None or self._process is None:
+            return self._process
+        pid = self._pid()
+        if pid is None:
+            return None
+        if self._followed is None or self._followed.pid != pid:
+            try:
+                import psutil
+
+                self._followed = psutil.Process(pid)
+            except Exception:                    # noqa: BLE001 - it may have ended
+                return None
+        return self._followed
+
     def _read_mb(self) -> float | None:
         """Current RSS in megabytes, or None if it cannot be read."""
-        if self._process is None:
+        target = self._target()
+        if target is None:
             return None
         try:
-            return self._process.memory_info().rss / 1_048_576
+            return target.memory_info().rss / 1_048_576
         except Exception:                        # noqa: BLE001
             return None
 
@@ -217,6 +247,8 @@ class _PeakMemory:
         """The sampling loop: read, keep the largest, sleep, repeat."""
         while not self._stop.wait(RSS_SAMPLE_S):
             value = self._read_mb()
+            if value is not None and self.start_mb is None:
+                self.start_mb = value
             if value is not None and (self.peak_mb is None or value > self.peak_mb):
                 self.peak_mb = value
 
@@ -225,6 +257,8 @@ class _PeakMemory:
         self.start_mb = self._read_mb()
         self.peak_mb = self.start_mb
         if self._process is not None:
+            # (A followed child that has not started yet reads as None here;
+            # its first sample in `_loop` then becomes its starting figure.)
             self._thread = threading.Thread(target=self._loop, name="bench-rss",
                                             daemon=True)
             self._thread.start()
@@ -353,61 +387,22 @@ def _pipeline_config(settings: Any, store: Any, corpus_root: Path,
                      options: BenchOptions) -> tuple[Any, Any]:
     """The `PipelineConfig` `app.cli index` would build for this corpus.
 
-    **A copy of `cmd_index`'s construction, not a call to it.** `cmd_index`
-    builds its config inline and also builds the real embedder, which a fake
-    run must not do, so there is nothing to call. The fields below are the
-    ones `cmd_index` sets, taken from the same settings through the same
-    helpers (`limits_from_settings`, `resolve_for_run`, `_ocr_mode`), with the
-    command's flag defaults (hash checks on, pruning on, archives honoured).
-    If `cmd_index` gains a field, this must gain it too - the report's
-    `conditions.pipeline` lists what was used so a drift can be seen.
+    **The same function `app.cli index` calls** (`build_pipeline_config`),
+    since work order 0x §2: this used to be a copy of `cmd_index`'s inline
+    construction, kept in step by a comment, and a benchmark that measures a
+    configuration no real run uses is measuring the wrong thing. The command's
+    flag defaults apply (hash checks on, pruning on, archives honoured); only
+    `--workers` and `--full-speed` are passed through.
 
     Returns `(config, resolved tuning)`.
     """
-    import argparse
-
-    from app.cli.index import _ocr_mode
-    from app.extract.media import MediaConfig
-    from app.index.pipeline import PipelineConfig
+    from app.cli.index import build_pipeline_config
     from app.index.resolve import resolve_for_run
-    from app.index.resources import limits_from_settings
-    from app.index.walker import WalkConfig, own_paths
 
     tuned = resolve_for_run(settings, store)
-    limits = replace(limits_from_settings(settings), workers=tuned.workers)
-    if options.workers:
-        limits = replace(limits, workers=options.workers)
-    if options.full_speed:
-        limits = replace(limits, cpu_percent=0, pause_on_battery=False,
-                         low_priority=False,
-                         workers=options.workers or max(1, (os.cpu_count() or 2) - 1))
-
-    config = PipelineConfig(
-        walk=WalkConfig(
-            roots=[corpus_root],
-            exclude_paths=own_paths(settings),
-            name_only=settings.index_name_only,
-            cloud_content_cap_bytes=settings.cloud_content_cap_mb * 1024 * 1024,
-        ),
-        limits=limits,
-        min_free_gb=settings.min_free_gb,
-        required_free_gb=settings.required_free_gb,
-        verify_hash=True,
-        prune_missing=True,
-        ocr_mode=_ocr_mode(argparse.Namespace(), settings),
-        archives=True,
-        recheck_days=settings.archive_recheck_days,
-        embed_batch=tuned.embed_batch,
-        dedup_chunks=settings.embed_dedup,
-        two_phase=settings.index_two_phase,
-        bulk_fts=settings.index_bulk_fts,
-        caption_trickle_enabled=settings.caption_trickle_enabled,
-        ollama_url=settings.ollama_url,
-        ollama_vision_model=settings.ollama_vision_model,
-        people_recognition_enabled=settings.people_recognition_enabled,
-        media=MediaConfig.from_settings(settings),
-        gpu_regression_notice=tuned.gpu_regression_notice,
-    )
+    config = build_pipeline_config(settings, [corpus_root], tuned=tuned,
+                                   workers=options.workers,
+                                   full_speed=options.full_speed)
     return config, tuned
 
 
@@ -680,6 +675,11 @@ def _index_and_report(options: BenchOptions, manifest: CorpusManifest,
     setup_logging(settings.log_path, console_level="CRITICAL", force=True)
 
     corpus_root = Path(options.corpus_folder) / CORPUS_DIR
+    if options.child_process:
+        return _index_in_child_and_report(
+            options, manifest, corpus_how, work, settings, env_path, corpus_root,
+            use_real=use_real, model_name=model_name, cache_detail=cache_detail,
+            env_source=env_source, note=note)
     memory = _PeakMemory()
     probe_report: dict[str, Any] | None = None
     load_seconds = 0.0
@@ -734,6 +734,106 @@ def _index_and_report(options: BenchOptions, manifest: CorpusManifest,
     return report
 
 
+def _index_in_child_and_report(options: BenchOptions, manifest: CorpusManifest,
+                               corpus_how: str, work: Path, settings: Any,
+                               env_path: Path, corpus_root: Path, *, use_real: bool,
+                               model_name: str, cache_detail: str, env_source: str,
+                               note: Callable[[str], None]) -> dict[str, Any]:
+    r"""Work order 0x §2d's "after": the same corpus, indexed by a child process.
+
+    **Exactly the window's arrangement with "Index in a separate process" on.**
+    `app.index.child_run.ChildIndexRun` starts `app.cli index --events jsonl`
+    with the same interpreter, reads its events on a worker thread, and hands
+    each rebuilt `IndexStats` to the stand-in window - while the heartbeat
+    runs on this process's main thread, which now shares its interpreter lock
+    with nothing but that reading thread. Same corpus, same throwaway `.env`,
+    and the same `PipelineConfig` (the child builds it with
+    `build_pipeline_config`, as `_pipeline_config` does here for the report).
+
+    Three differences from the in-process run, all said in the report:
+
+    * **Memory is the child's** (the indexer's), sampled by its process id.
+    * **A real model loads inside the child**, so its load time is part of
+      the wall time rather than timed apart (with the fake embedder there is
+      nothing to load).
+    * **The child takes the run lock** like any `app.cli index`. Its lock file
+      is kept in the throwaway folder on macOS and Linux; on Windows the lock
+      is a machine-wide name, so a real Leasha index running at the same time
+      would refuse this run - which the report would show as an error.
+    """
+    import os
+
+    from app.index.child_run import CHILD_STDERR_NAME, ChildIndexRun, child_command
+    from app.storage.sqlite_store import SqliteStore
+
+    # The configuration the child will build, for the report's conditions.
+    # Closed again before the child starts, so the two never share a handle.
+    with SqliteStore(settings.fts_db) as store:
+        config, tuned = _pipeline_config(settings, store, corpus_root, options)
+
+    extra = []
+    if not use_real:
+        extra.append("--fake-embedder-for-bench")
+    if options.full_speed:
+        extra.append("--full-speed")
+    argv = child_command([corpus_root], env_file=env_path,
+                         workers=int(options.workers or 0), extra=extra)
+    env = dict(os.environ, TMPDIR=str(work))
+    child = ChildIndexRun(argv, env=env, cwd=Path(__file__).resolve().parents[2],
+                          stderr_path=Path(settings.log_path) / CHILD_STDERR_NAME,
+                          low_priority=bool(config.limits.low_priority))
+    memory = _PeakMemory(pid=lambda: child.pid)
+    probe_report: dict[str, Any] | None = None
+    clock: dict[str, float] = {}
+
+    def run(on_progress: Callable[[Any], None] | None) -> Any:
+        """Index the corpus once in the child, timing the whole call."""
+        memory.start()
+        clock["start"] = time.perf_counter()
+        try:
+            return child.run(on_progress=on_progress)
+        finally:
+            clock["end"] = time.perf_counter()
+            memory.stop()
+
+    note("indexing in a child process" + (" under the responsiveness probe"
+                                           if options.probe else "") + "...")
+    if options.probe:
+        stats, probe_report = _run_with_probe(run, child, options)
+    else:
+        stats = run(None)
+    wall = clock["end"] - clock["start"]
+    ran_on = "n/a (fake)" if not use_real else str(
+        (getattr(stats, "resolved", {}) or {}).get("device", "unknown"))
+
+    report = _build_report(
+        options, manifest, corpus_how, stats, wall, memory, probe_report,
+        use_real=use_real, model_name=model_name, ran_on=ran_on,
+        load_seconds=0.0, cache_detail=cache_detail,
+        env_source=env_source, config=config, tuned=tuned, settings=settings,
+        work=work)
+    report["conditions"]["pipeline"]["entry"] = (
+        "app.cli index --events jsonl in a CHILD process, supervised by "
+        "app.index.child_run.ChildIndexRun (config from build_pipeline_config)")
+    report["conditions"]["pipeline"]["memory_of"] = "the child (indexer) process"
+    report["conditions"]["pipeline"]["image_lane"] = (
+        "built by app.cli index (lazy; the corpus has no pictures)")
+    if use_real:
+        report["conditions"]["embedder"]["note"] = (
+            "the model loads inside the child, so its load time is in wall_s")
+    if report.get("responsiveness"):
+        # Nothing to yield to: the child has its own interpreter lock, and the
+        # heartbeat's lateness never reaches it. Said so the table is not read
+        # as "the pipeline was being polite".
+        report["responsiveness"]["pipeline_yields_to_window"] = False
+        report["responsiveness"]["method"] = (
+            "app.ui.lag_monitor.install() on the main thread (50 ms beat, stall "
+            "watcher on); the Pipeline in a CHILD process, its events read on one "
+            "worker thread here; a stand-in window (label + busy bar) repainted "
+            "from progress - NOT the real Indexing page")
+    return report
+
+
 def _per_minute(count: float, seconds: float) -> float:
     """`count` per minute over `seconds`, or 0.0 for a zero-length run."""
     return round(count / seconds * 60, 1) if seconds > 0 else 0.0
@@ -758,6 +858,7 @@ def _build_report(options: BenchOptions, manifest: CorpusManifest, corpus_how: s
         f"{config.limits.workers or 'auto'} workers"
         + (" · full speed" if options.full_speed else "")
         + (" · your .env tuning" if options.my_settings else " · app defaults")
+        + (" · CHILD PROCESS" if options.child_process else " · in process")
     )
     stages = dict(getattr(stats, "stages", {}) or {})
     documents = int(stats.indexed)
