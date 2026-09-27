@@ -622,8 +622,11 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # Outlook alone. `.olm` (an Outlook for Mac export, work order 0x §8b)
     # joins them: it is read one message at a time out of the zip by
     # `app/extract/email_olm.py`, never whole, and a real mailbox export is
-    # routinely larger than the ceiling.
-    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".olm"})
+    # routinely larger than the ceiling. `.mbox` too (2026-09-27, found while
+    # building `.olm`): `email_mbox.py` reads one message at a time and its own
+    # docstring promises a 10GB Google Takeout mbox is indexed - but until now a
+    # Takeout export over the ceiling was dropped here before it was ever read.
+    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".olm", ".mbox"})
     size_exempt = (
         (media_extensions() & extensions)
         | (STREAMED_ARCHIVE_EXTENSIONS & extensions)

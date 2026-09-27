@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.0 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -71,6 +71,33 @@ it, or write what happened underneath with the date. Anything marked
       priority and the machine stays responsive. **(UNCONFIRMED on macOS)**
 - [ ] **4.6** With no `DATA_PATH` chosen, the index goes to
       `~/Library/Application Support/Leasha`. **(UNCONFIRMED on macOS)**
+
+## 6. Mail files from a Mac (order 0x §8)
+
+- [ ] **6.1 Apple Mail folder.** Give Terminal (or the Python that runs Leasha) Full Disk
+      Access in System Settings → Privacy & Security, then add `~/Library/Mail/V10/` (or
+      whichever `V*` exists) as a folder and index it. Expect: `.emlx` files indexed as mail;
+      sender, recipients, subject and date match Mail.app for five sampled messages; a reply's
+      quoted thread is stripped; a subject word finds the message.
+- [ ] **6.2 Without Full Disk Access.** Revoke it and index again. Expect: the files are
+      recorded as `ERR_FILE_LOCKED` skips - not a crash, not silence.
+- [ ] **6.3 Partial messages.** Find a `*.partial.emlx` (an account set to download
+      attachments "None" or "Recent"). Expect: its text is searchable, attachment names
+      appear, and the run counts `ERR_MAIL_ATTACHMENTS_NOT_DOWNLOADED`.
+- [ ] **6.4 `.emlxpart`.** Note whether any exist under `~/Library/Mail`; they are not read
+      yet.
+- [ ] **6.5 A real `.olm` export.** Outlook for Mac → File → Export (mail only). Run
+      `unzip -l export.olm | head -50` and record the real member paths; open one
+      `message_*.xml` and record the element names for subject, from, to, cc, sent time,
+      body, HTML body, attachments, message id, in-reply-to and references. Compare them
+      with the table in `app/extract/email_olm.py`'s docstring. **(UNCONFIRMED on macOS)**
+- [ ] **6.6 Index the export.** Expect: message count roughly matches the exported folders;
+      five sampled messages show the right sender, recipients, subject, date (check the time
+      zone) and body; HTML-only mail reads as text; the folder name is shown.
+- [ ] **6.7 Resume.** Stop the indexer part-way through the `.olm` and start again. Expect:
+      it carries on near where it stopped, not at the first message, with no duplicates.
+- [ ] **6.8 A big export.** Index an `.olm` over 2GB. Expect: it is read, not dropped by the
+      file-size ceiling.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 
