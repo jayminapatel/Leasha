@@ -26,15 +26,34 @@ checkbox: the scrollbar is already the control, and the debug pane's
 All wording is in `app/ui/presenter/activity.py`; the few words that are the
 widget's own - its caption, tooltip and placeholder - are here, because
 `indexing_layout.py` holds none.
+
+**Work order 0x §4e: a filter and a Copy button**, on the caption's row.
+
+* *The filter* ("All" / "Warnings and errors") answers "did anything go wrong?"
+  without reading a run's whole story. Which lines count is decided in the
+  Qt-free `presenter/log_filter.py`. To be able to change its mind, the widget
+  keeps the entries it is showing (at most `LOG_LINES_SHOWN`, the same cap as
+  the box) as `(entry, line)` pairs; switching the filter redraws the box from
+  those once, and from then on new lines are appended only if they pass - so
+  the append-only rule above still holds for every progress tick.
+* *Copy* puts exactly the lines on screen - after the filter, each with its
+  time - on the clipboard as plain text, for pasting into an email or a bug
+  report. Selecting text by hand still works as it always did; the button is
+  for "all of it" without a scroll-and-drag.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Optional
 
-from PyQt6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QApplication, QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
+    QSizePolicy, QVBoxLayout, QWidget,
+)
 
-from app.ui.presenter.activity import LOG_LINES_SHOWN, activity_lines
+from app.ui.presenter.activity import LOG_LINES_SHOWN, activity_line
+from app.ui.presenter.log_filter import LOG_FILTER_ALL, LOG_FILTERS, shown_under
 
 __all__ = ["RunLog", "FOLLOW_SLACK"]
 
@@ -68,16 +87,92 @@ class RunLog(QWidget):
         self.view.setMinimumHeight(96)
         self.view.setMaximumHeight(150)
 
+        # 0x §4e. The filter: a drop-down rather than two buttons, because it
+        # is one question with two answers and it takes the least room on a
+        # row that already holds the caption.
+        self.filter = QComboBox()
+        for key, words in LOG_FILTERS:
+            self.filter.addItem(words, key)
+        self.filter.setAccessibleName("Which lines the run log shows")
+        self.filter.setToolTip(
+            "Show every line, or only the warnings and errors - the lines "
+            "that may need you to do something.")
+        self.filter.currentIndexChanged.connect(lambda _i: self._refilter())
+
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setAccessibleName("Copy the run log")
+        self.copy_button.setToolTip(
+            "Copy the lines shown here, each with its time, as plain text - "
+            "ready to paste into an email or a note.")
+        self.copy_button.clicked.connect(lambda _c=False: self.copy_lines())
+
+        # Caption on the left, the two controls on the right, on one row, so
+        # the log box keeps all of its height for lines.
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(self.caption)
+        header.addStretch(1)
+        header.addWidget(self.filter)
+        header.addWidget(self.copy_button)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        layout.addWidget(self.caption)
+        layout.addLayout(header)
         layout.addWidget(self.view)
+
+        # **Tab follows the eye: filter, Copy, then the log.** Qt's default is
+        # the order the widgets were made in, which put the log box first.
+        QWidget.setTabOrder(self.filter, self.copy_button)
+        QWidget.setTabOrder(self.copy_button, self.view)
+
+        # Only ever as tall as its caption row and box: any spare height on the
+        # page is not this widget's to hand out as a gap between the two.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         #: The run whose lines are showing, and the last entry shown from it.
         self._run: Any = None
         self._seq = 0
+        #: 0x §4e. Every entry the box could show, as `(entry, line)`, newest
+        #: last, capped like the box. What the filter redraws from.
+        self._kept: deque = deque(maxlen=LOG_LINES_SHOWN)
         self.setVisible(False)
+
+    # -- 0x §4e: the filter and Copy --------------------------------------
+
+    def choice(self) -> str:
+        """The filter's key: `log_filter.LOG_FILTER_ALL` or `..._WARNINGS`."""
+        return str(self.filter.currentData() or LOG_FILTER_ALL)
+
+    def _refilter(self) -> None:
+        """Redraw the box from the kept entries under the new filter choice.
+
+        The one place the whole box is rewritten, and only when the person
+        changes the filter - never on a progress tick. The reader is put back
+        at the bottom, following, because the lines they were reading may not
+        be in the new view at all.
+        """
+        choice = self.choice()
+        shown = [line for entry, line in self._kept if shown_under(entry, choice)]
+        self.view.setPlainText("\n".join(shown))
+        # The empty box says why it is empty, which differs by choice.
+        self.view.setPlaceholderText(
+            "Nothing has happened in this run yet." if choice == LOG_FILTER_ALL
+            else "No warnings or errors in this run.")
+        bar = self.view.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
+    def copy_lines(self) -> str:
+        """Put the lines on screen on the clipboard; returns what was copied.
+
+        Plain text, one line per entry, each starting with its time - exactly
+        what the box shows under the current filter, and nothing it does not.
+        """
+        text = self.view.toPlainText()
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+        return text
 
     def following(self) -> bool:
         """Is the reader at (or within `FOLLOW_SLACK` of) the bottom?"""
@@ -102,22 +197,37 @@ class RunLog(QWidget):
         run = getattr(log, "run", None)
         if run != self._run:
             self.view.clear()
+            self._kept.clear()
             self._run, self._seq = run, 0
         fresh = log.since(self._seq)
         if not fresh:
             return
         self._seq = fresh[-1].seq
 
+        # Every new entry is kept, whatever the filter, so switching back to
+        # "All" shows it; only those the filter lets through are drawn now.
+        choice = self.choice()
+        lines = []
+        for entry in fresh:
+            line = activity_line(entry)
+            self._kept.append((entry, line))
+            if shown_under(entry, choice):
+                lines.append(line)
+        # The log exists as soon as the run has said anything, even if the
+        # filter hides all of it - otherwise the filter could never be changed
+        # back, because it would be hidden along with the box.
+        self.setVisible(True)
+        if not lines:
+            return
+
         bar = self.view.verticalScrollBar()
         follow = self.following()
         kept = bar.value()
         before = self.view.blockCount() if self.view.toPlainText() else 0
-        lines = activity_lines(fresh)
 
         # One append for the lot: each call is a layout pass, and a tick after
         # a dropped paint can bring several lines at once.
         self.view.appendPlainText("\n".join(lines))
-        self.setVisible(True)
 
         if follow:
             bar.setValue(bar.maximum())
