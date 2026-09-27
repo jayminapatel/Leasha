@@ -174,6 +174,29 @@ class ActivityLog:
         except Exception:                        # noqa: BLE001 - see docstring
             return
 
+    def adopt(self, entry: ActivityEntry) -> None:
+        """Store an entry that was recorded **in another process**, as it was.
+
+        Work order 0x §2. When the indexer runs as a child process, its log
+        lives over there and reaches the window a few lines at a time, inside
+        each progress event (`app/index/run_events.py`). The window keeps its
+        own copy of the story by adopting those lines here - with the child's
+        own sequence number and time, not new ones - so `since` and every
+        reader of it behave exactly as they do for a run in this process.
+
+        An entry no newer than the last one held is ignored: the same line
+        can never be told twice, whatever order a reader asks in. Never
+        raises, like `record`.
+        """
+        try:
+            with self.lock:
+                if int(entry.seq) <= self._seq:
+                    return
+                self._seq = int(entry.seq)
+                self._entries.append(entry)
+        except Exception:                        # noqa: BLE001 - see `record`
+            return
+
     @property
     def last_seq(self) -> int:
         """The sequence number of the newest entry ever recorded, or 0."""
