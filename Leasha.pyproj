@@ -157,6 +157,7 @@
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
     <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\pathnames.py" />
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
     <Compile Include="app\core\osbridge\programs.py" />
@@ -706,6 +707,7 @@
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_osbridge.py" />
     <Compile Include="tests\unit\test_osbridge_guard.py" />
+    <Compile Include="tests\unit\test_osbridge_pathnames.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
