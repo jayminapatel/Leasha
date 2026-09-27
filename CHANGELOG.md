@@ -17,6 +17,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Easier to read, and nothing cut off
+
+- On a short window the page names down the left are no longer cut in half; they become icons.
+- An empty index no longer says it is up to date.
+- Faint text, the chosen page's icon in the light theme and the dark theme's Open button are easier
+  to read.
+- The timeline's months and dates wrap onto a second line instead of disappearing or overlapping, and
+  Settings shows every category name in full.
+- Closing the window while a search or a `/` suggestion was still loading could crash Leasha. Fixed.
+
 ### Indexing can run in its own process (off for now)
 
 - A new switch, **Index in a separate process** (Indexing › Tuning › Strategy), runs the index as a

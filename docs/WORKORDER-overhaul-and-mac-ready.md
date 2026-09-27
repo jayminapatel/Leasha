@@ -307,9 +307,29 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 9. UI improvements
 
+> **2026-09-27: review done** - every page grabbed in light and dark at 1100x760 and 760x560, and
+> text contrast measured against WCAG AA. Fourteen findings; nine built, each with a pytest-qt
+> scenario in `tests/unit/test_ui_review_0x9.py` that fails before its fix. Page grabs timed the same
+> before and after, within noise. Proposed, not built: Files and Mail columns squashed on first open
+> (in `view_options.py`, the five-times-fixed area - only when nothing is saved); Indexing › Status
+> saying "Nothing indexed yet." above a document count; unticked checkboxes invisible under the Fusion
+> style (needs Windows 11 evidence first - the rule that causes it fixed a Windows problem); the
+> preview crowding narrow search results; two small alignment items.
+
+
 Found by a review of the running window once §4 lands, and added here as dated items
 before they are built. Each one must be measured no slower, must not reword an existing
 label, and gets its own pytest-qt scenario.
+
+- [x] **9a** Short window: the rail shows icons instead of labels cut in half
+- [x] **9b** Light theme: the chosen page's rail icon can be seen (was 1.24:1)
+- [x] **9c** Dark theme: the Open button's text 2.8:1 to 6.5:1 (new token `accent_on`)
+- [x] **9d** `text_faint` reaches WCAG AA in both themes
+- [x] **9e** An empty index no longer says "Up to date" (new wording: "Nothing yet")
+- [x] **9f** Suggested searches and chips have round ends (`radius_pill` 999 to 11 px; Qt draws none past half the height)
+- [x] **9g** Settings and Indexing category names shown in full
+- [x] **9h** Timeline controls wrap instead of being cut off or overlapping (`widgets/flow_layout.py`)
+- [x] **9i** Chat's Fast/Thoughtful box no longer stretches across the pane
 
 ## 10. Close-out
 
