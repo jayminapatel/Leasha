@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.1 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 7.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,31 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-27 - the branches were folded back into main; two fixes had been left behind.**
+Every `claude/*` branch on origin was checked against `main` by patch, not by hash (a
+shallow clone makes them all look hundreds of commits ahead - `git fetch --unshallow`
+first). All but seven commits were already in main. Of those seven, five had been
+superseded by main's own later versions (the minimize/restore repaint, 0q's last items,
+0r's deferred page construction, the archive-key separator normalisation, the converter
+tests mocking `resolve_binary`), and the `.svg`/`qt`-marker collection fix was a
+regenerated `GitSearch.txt` and solution files. Two were genuinely missing and are now
+ported, originally from `thread-cleanup-commits` (2026-09-16):
+
+- **Start could come back mid-resolve.** The 4-second external-run poll
+  (`IndexController._poll_external_run` → `_show_external_run` → `_go_idle`) had no
+  notion of `_resolving_index`; `IndexingView.is_running()` is False for the whole
+  resolve, so a tick landing then re-enabled Start and invited the second click
+  non-negotiable #5 forbids. Both methods now check the flag.
+  `test_the_watch_timers_poll_does_not_re_enable_start_while_resolving` fails on the
+  unfixed controller and passes on the fixed one (offscreen, Linux sandbox - not yet
+  seen on a real display).
+- **`test_docs_versioned.py` walked pytest's own basetemp.** `--basetemp=.pytest_tmp`
+  lives inside the project, so another test's header-less fixture markdown could fail
+  the version checks. Directories starting `.pytest_tmp` are now pruned.
+
+After the merge, the stale branches are deleted; nothing on them is lost that main
+does not now carry.
 
 **2026-09-20 (closing pass) - four things that said nothing, and a Pause button.** `CHANGELOG.md`
 has the full list; this is what a reader needs to know that is not obvious from it.

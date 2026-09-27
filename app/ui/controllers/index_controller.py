@@ -359,6 +359,15 @@ class IndexController(QObject):
         """
         if self._w.indexing_view.is_running() and self._w.indexing_view._worker is not None:
             return                       # our own run; the live signal is better
+        if self._w._resolving_index:
+            # A resolve dispatched by `_start_indexing` has no Pipeline yet,
+            # so `is_running()` above cannot see it - the very thing this
+            # method exists to catch (a run belonging to another process) is
+            # indistinguishable, from here, from "nothing is running yet
+            # because we are still resolving our own". Skipping the read
+            # entirely is cheap and correct: the next tick, four seconds
+            # later, sees the truth once resolution has actually finished.
+            return
 
         worker = CallableWorker(_read_external_run, self._w._store,
                                 component="ui.index.watch")
@@ -366,8 +375,17 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _show_external_run(self, payload: dict) -> None:
-        self._w.indexing_view.show_external(
-            payload.get("record"), locked=bool(payload.get("locked")))
+        # The guard in `_poll_external_run` closes most of the window, but
+        # this read was dispatched asynchronously - a resolve can begin
+        # *after* the dispatch and still be in flight when this result comes
+        # back. `IndexingView._go_idle` (via `paint_external`) has no notion
+        # of `_resolving_index` and would otherwise re-enable Start here,
+        # exactly the second-click invitation non-negotiable #5 and this
+        # button's own disable-on-click logic exist to prevent. `_run_link`
+        # is unrelated to the run display and still runs either way.
+        if not self._w._resolving_index:
+            self._w.indexing_view.show_external(
+                payload.get("record"), locked=bool(payload.get("locked")))
         self._w._run_link(payload.get("link"))
         if payload.get("front_requested"):
             self._w._front_self()
