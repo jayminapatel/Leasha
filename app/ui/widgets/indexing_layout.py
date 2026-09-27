@@ -131,9 +131,13 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
 
 
 def _row(controls: Any) -> tuple:
-    """The button row's buttons, left to right, for the tab order."""
-    return (controls.start_button, controls.scan_button, controls.stop_button,
-            controls.pause_button, controls.reset_button)
+    """The button row's buttons, left to right, for the tab order.
+
+    Read from the row itself (`IndexControls.in_order`) rather than listed
+    again here: a second copy of the order went stale when the row was
+    reordered, and this chain, set last, silently undid the row's own.
+    """
+    return tuple(controls.in_order)
 
 
 def paint_totals(view: Any, payload: dict) -> None:
