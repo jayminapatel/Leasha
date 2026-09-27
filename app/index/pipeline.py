@@ -61,6 +61,7 @@ from typing import Any, Callable, Iterator, Optional
 from app.core.errors import AppError, AppErrorException, make_error, to_app_error
 from app.core.logging import logger
 from app.extract import chunk_document, extract
+from app.extract import progress as reader_progress
 from app.extract.base import extractor_for, reads_externally
 from app.core.priority import lower_this_thread
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
@@ -84,6 +85,16 @@ from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
 from app.index.interrupted import ARCHIVE_RESUME_PREFIX
+from app.index import live_progress
+from app.index.live_progress import (
+    STAGE_CHUNKING,
+    STAGE_EMBEDDING,
+    STAGE_READING,
+    STAGE_SAVING_RESUME,
+    STAGE_WRITING,
+    STAGES,  # noqa: F401 - re-exported: `pipeline.STAGES` is the one ordered list
+    WorkerBoard,
+)
 from app.index.phash import PhashComputer
 from app.index.resources import (
     MANUAL_PAUSE_REASON,
@@ -257,6 +268,20 @@ PHASE_MEDIA = "media"
 PHASE_TIDYING = "tidying"
 PHASE_VECTOR_INDEX = "vector_index"
 PHASE_WORD_INDEX = "word_index"
+
+#: Seconds between progress ticks while the run is waiting on a reader. Work
+#: order 0x section 3d: "a heartbeat once a second".
+#:
+#: **Only the waiting branch uses it.** When documents are flowing, ticks come
+#: from `checkpoint_every`/`checkpoint_seconds` as they always have, and
+#: activity is obvious anyway. The quiet stretch - one reader deep inside a
+#: 4GB archive, nothing finished yet - is exactly when the page needs a fresh
+#: "message 4,512 of 18,300" and a fresh "last activity" every second, and it
+#: used to get one every `CHECKPOINT_SECONDS`. A tick is one shallow copy of
+#: the stats and one signal, so once a second is free. A constant, not a
+#: setting (non-negotiable 11): nobody would tune it, and the page's own
+#: repaint limit already stops faster ticks costing anything.
+HEARTBEAT_SECONDS = 1.0
 
 
 @dataclass
@@ -443,6 +468,64 @@ class IndexStats:
     #: of them - however long the run lasts.
     recent: list[tuple[float, int, int]] = field(default_factory=list)
 
+    #: Work order 0x section 3c. **One line per reader**, as plain values:
+    #: `{"1": {"file", "path", "started_at", "stage", "item", "inner"}, ...}`,
+    #: where `inner` is the reader's frame stack from `app.extract.progress`
+    #: (outermost first; each frame `{"kind", "name", "unit", "n", "total",
+    #: "where", "stage", "detail"}`). Filled from the live `WorkerBoard` each
+    #: time a snapshot is taken, so the per-message cost is zero and the
+    #: result is JSON as it stands. `current`/`current_item` above are still
+    #: written exactly as before, for everything that reads them.
+    workers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Work order 0x section 3d. **When anything last moved**, as wall-clock
+    #: `time.time()`; 0.0 before the first snapshot. Moved forward at snapshot
+    #: time when the run's signature changed - see `live_progress` for why it
+    #: is not stamped per message. The presenter turns it into "last activity
+    #: 2 s ago" against its own clock.
+    last_activity: float = 0.0
+    #: What the consumer thread is doing when it is not simply taking the next
+    #: document: `STAGE_WRITING` or `STAGE_SAVING_RESUME`, or "". The one
+    #: thread that runs `_consume` writes it.
+    stage: str = ""
+    #: "Embedding, batch n of m" (0x section 3a). `embed_batch` is the batch
+    #: the model is on now, counting from 1, and 0 when it is idle;
+    #: `embed_batches` is how many batches have been handed to it this run,
+    #: so m grows while the run reads - it is the honest total so far, not a
+    #: forecast. Written by the consumer (m) and the feeder thread (n).
+    embed_batch: int = 0
+    embed_batches: int = 0
+
+    def __post_init__(self) -> None:
+        # The live board is an attribute, not a field: see `WorkerBoard`.
+        # `None` on a snapshot (set in `snapshot`), so refreshing a snapshot
+        # can never wipe the `workers` it was taken with.
+        self.board: Optional[WorkerBoard] = WorkerBoard()
+
+    def refresh_live(self, *, now: Optional[float] = None) -> None:
+        """Copy the readers' live positions onto `workers`, and beat the heart.
+
+        Called at every snapshot - about once a second while a reader is busy -
+        on the run's own thread. Does nothing on a snapshot (no board). Never
+        raises: this is reporting, and reporting must never cost the run.
+        """
+        board = self.board
+        if board is None:
+            return
+        try:
+            workers = board.workers()
+            self.workers = workers
+            counters = (
+                self.seen, self.indexed, self.skipped, self.unchanged,
+                self.unchanged_documents, self.chunks, self.vectors,
+                self.deleted, self.name_only, self.phase, self.stage,
+                self.embed_batch, self.embed_batches, self.walk_complete,
+            )
+            if board.moved(live_progress.signature(counters, workers)):
+                self.last_activity = (now if now is not None
+                                      else live_progress.now_wall())
+        except Exception:                        # noqa: BLE001 - reporting only
+            return
+
     def snapshot(self) -> "IndexStats":
         r"""A copy the interface can read without racing the run.
 
@@ -457,6 +540,7 @@ class IndexStats:
         interpreter lock for its whole duration.
         """
         self.stamp_notices()
+        self.refresh_live()
         clone = copy.copy(self)
         for spec in fields(self):
             value = getattr(clone, spec.name)
@@ -464,6 +548,11 @@ class IndexStats:
                 setattr(clone, spec.name, type(value)(value))
         # Its own lock, not the interpreter's: see `ActivityLog.copy`.
         clone.activity = self.activity.copy()
+        # 0x 3c: one level deeper than the loop above, so no worker's dict or
+        # frame list is shared with the live object; and no board, so the
+        # snapshot is plain data through and through.
+        clone.workers = live_progress.plain_copy(self.workers)
+        clone.board = None
         return clone
 
     def add_notice(self, text: str) -> None:
@@ -592,6 +681,13 @@ class IndexStats:
             **({"worker_seconds": dict(self.worker_seconds)}
                if self.worker_seconds else {}),
             **({"resolved": dict(self.resolved)} if self.resolved else {}),
+            # 0x 3c/3d. Only while there is something to say, like the
+            # three above: a finished run has no readers, and the run record
+            # written into the store every run has no use for an empty map.
+            **({"workers": live_progress.plain_copy(self.workers)}
+               if self.workers else {}),
+            **({"last_activity": self.last_activity}
+               if self.last_activity else {}),
         }
 
 
@@ -1569,6 +1665,10 @@ class Pipeline:
             # already ended itself having recorded the error. This only has
             # to ask it to stop.
             self._stop_feeder(feeder)
+            # 0x 3c: every reader has ended and closed its slot, so this
+            # empties `workers` - a finished run must not go on showing the
+            # last files it was reading, whoever reads `stats` next.
+            stats.refresh_live()
 
         # 0w 3c: an archive this run stopped inside says so in the run's log.
         # The Indexing page's summary says it too, from the cursor, for as long
@@ -2618,6 +2718,14 @@ class Pipeline:
         consumer's loop); an abnormal one sends its own, and the reason is logged.
         """
         clean = False
+        # 0x 3c: this thread's own line on the page, and the list its readers
+        # write their position into (`app.extract.progress.attach`). Opened
+        # once per thread; see `live_progress.WorkerBoard`.
+        board = getattr(self._stats_ref, "board", None)
+        slot = board.open_slot() if board is not None else None
+        if slot is not None:
+            reader_progress.attach(slot.frames)
+        self._worker_slots().slot = slot
         try:
             self._extract_worker_loop(work, results)
             clean = True
@@ -2626,13 +2734,29 @@ class Pipeline:
                             type(exc).__name__, exc)
             raise
         finally:
+            if slot is not None and board is not None:
+                board.close_slot(slot)
+                reader_progress.detach()
+            self._worker_slots().slot = None
             if not clean:
                 try:
                     results.put(_STOP, timeout=5)
                 except Exception:                       # noqa: BLE001 - nobody left to tell
                     pass
 
+    def _worker_slots(self) -> threading.local:
+        """Each extraction thread's `WorkerSlot`, found without passing it about.
+
+        Made on first use rather than in `__init__`, so a pipeline built by a
+        test without running `__init__` (several are) still has one.
+        """
+        slots = self.__dict__.get("_worker_slot_local")
+        if slots is None:
+            slots = self.__dict__.setdefault("_worker_slot_local", threading.local())
+        return slots
+
     def _extract_worker_loop(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
+        slot = getattr(self._worker_slots(), "slot", None)
         while True:
             try:
                 _priority, _sequence, candidate, digest = work.get(timeout=0.25)
@@ -2692,6 +2816,8 @@ class Pipeline:
             self._stats_ref.current = candidate.path.name
             self._stats_ref.current_since = time.monotonic()
             self._stats_ref.current_item = 0
+            if slot is not None:
+                slot.begin(candidate.path)       # 0x 3c: once per file
             try:
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
@@ -2730,6 +2856,8 @@ class Pipeline:
             finally:
                 self._stats_ref.current = ""
                 self._stats_ref.current_item = 0
+                if slot is not None:
+                    slot.end()
                 work.task_done()
 
     def _maybe_grow_workers(
@@ -2913,6 +3041,9 @@ class Pipeline:
 
         produced = 0
         seen_keys: set[str] = set()
+        #: 0x 3a/3c. This thread's slot, or None outside a pipeline worker (a
+        #: test calling this directly). Looked up once per file, not per message.
+        slot = getattr(self._worker_slots(), "slot", None)
         #: Work order `pst-resilience` 4a. Set when the archive came up short
         #: for a reason that will pass (Outlook was busy) - see below.
         retry_next_pass = False
@@ -2924,6 +3055,10 @@ class Pipeline:
                 if any(_is_transient_partial(w) for w in document.warnings):
                     retry_next_pass = True
                 chunks: list[dict[str, Any]] = []
+                # 0x 3a: "chunking" while the text is cut into passages. Two
+                # plain stores per document; nothing is formatted here.
+                if slot is not None:
+                    slot.stage = STAGE_CHUNKING
                 for ordinal, chunk in enumerate(chunk_document(document)):
                     chunks.append({
                         "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
@@ -2932,6 +3067,8 @@ class Pipeline:
                         # spreadsheet, which is nearly every document.
                         "label": chunk.label,
                     })
+                if slot is not None:
+                    slot.stage = STAGE_READING
 
                 if not chunks:
                     # One empty message in an archive is ordinary and silent.
@@ -2973,6 +3110,8 @@ class Pipeline:
 
                 produced += 1
                 self._stats_ref.current_item = produced
+                if slot is not None:
+                    slot.item = produced
                 yield _Extracted(
                     candidate=candidate,
                     content_hash=digest,
@@ -3111,8 +3250,13 @@ class Pipeline:
                 # Nothing has finished, but a worker may be minutes into a large
                 # archive. Say so, rather than leaving a blank screen that reads
                 # as a crash.
+                #
+                # 0x 3d: at least once a second (`HEARTBEAT_SECONDS`), so the
+                # page's "message 4,512 of 18,300" and "last activity" stay
+                # fresh while one reader is deep inside a large archive.
                 now = time.monotonic()
-                if on_progress is not None and (now - last_checkpoint) >= self.config.checkpoint_seconds:
+                beat = min(self.config.checkpoint_seconds, HEARTBEAT_SECONDS)
+                if on_progress is not None and (now - last_checkpoint) >= beat:
                     last_checkpoint = now
                     try:
                         on_progress(stats)
@@ -3198,8 +3342,10 @@ class Pipeline:
                     stats.skipped_by_code.get(item.error.code, 0) + 1
                 )
             else:
+                stats.stage = STAGE_WRITING      # 0x 3a
                 with self._clock.stage("write"):
                     pending_vectors.extend(self._write_one(item))
+                stats.stage = ""
                 stats.indexed += 1
                 stats.chunks += len(item.chunks)
 
@@ -3290,9 +3436,12 @@ class Pipeline:
             # never written - persisting them would skip those messages on
             # resume, which is silent loss rather than a slower resume.
             if not self._embed_abandoned:
+                stats.stage = STAGE_SAVING_RESUME        # 0x 3a
                 self._persist_resume_progress()
         except Exception as exc:            # noqa: BLE001 - H4: never the run
             self._log.warning("could not persist mbox resume progress: {}", exc)
+        finally:
+            stats.stage = ""
         if on_progress is not None:
             try:
                 on_progress(stats)
@@ -3349,12 +3498,16 @@ class Pipeline:
         still right; it is just no longer the first thing a flaky driver
         meets.
         """
+        # 0x 3a: "embedding, batch n of m". `done` is this thread's own
+        # count; `embed_batches` (m) is counted by whoever hands batches over.
+        done = 0
         while True:
             batch = self._feeder_queue.get()
             if batch is _STOP:
                 self._feeder_queue.task_done()
                 return
             self._embedding_now.set()
+            self._stats_ref.embed_batch = done + 1
             try:
                 self._embed_pending(batch)
             except BaseException as exc:              # noqa: BLE001 - reraised, not lost
@@ -3363,6 +3516,8 @@ class Pipeline:
                 return
             finally:
                 self._embedding_now.clear()
+                self._stats_ref.embed_batch = 0
+            done += 1
             self._feeder_queue.task_done()
 
     def _raise_if_feeder_failed(self) -> None:
@@ -3396,6 +3551,7 @@ class Pipeline:
                 return
             try:
                 self._feeder_queue.put(batch, timeout=0.5)
+                self._stats_ref.embed_batches += 1   # 0x 3a: the m in "n of m"
                 return
             except queue.Full:
                 continue
@@ -3668,6 +3824,10 @@ class Pipeline:
                 # Found running this session, work order 0i section 2a - see
                 # the dated note on the item.
                 batch_size = len(pending)
+                # 0x 3a: "embedding, batch n". No m: `iter_unembedded` is a
+                # generator, and counting what it will yield would be a second
+                # query for a number only the progress line wants.
+                stats.embed_batch += 1
                 self._embed_pending(pending)
                 filled += batch_size
         except Exception as exc:                 # noqa: BLE001
@@ -3682,6 +3842,7 @@ class Pipeline:
         # their old `if filled:` gate unchanged - this is additive, not a
         # behaviour change to what already existed.
         stats.enrichment_counts["unembedded_chunk"] = filled
+        stats.embed_batch = 0
         if filled:
             stats.vectors_repaired = filled
             self._log.info(
@@ -4095,14 +4256,20 @@ class Pipeline:
         if now - self._last_resume_persist < RESUME_PERSIST_S:
             return
         self._last_resume_persist = now
-        self._flush_pending_images()
-        self._feed_sync(pending)
-        if self._embed_abandoned:
-            return
+        # 0x 3a: "saving the resume point". The wait for the embedder below
+        # can take a few seconds, and this is what the page says meanwhile.
+        self._stats_ref.stage = STAGE_SAVING_RESUME
         try:
-            self._persist_resume_progress()
-        except Exception as exc:            # noqa: BLE001 - H4: never the run
-            self._log.warning("could not persist an archive's folder cursor: {}", exc)
+            self._flush_pending_images()
+            self._feed_sync(pending)
+            if self._embed_abandoned:
+                return
+            try:
+                self._persist_resume_progress()
+            except Exception as exc:            # noqa: BLE001 - H4: never the run
+                self._log.warning("could not persist an archive's folder cursor: {}", exc)
+        finally:
+            self._stats_ref.stage = ""
 
     def _persist_resume_progress(self) -> None:
         """Flush every tracked resume position to `index_state`, at once.

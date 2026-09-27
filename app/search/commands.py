@@ -108,6 +108,16 @@ class Command:
     #: answer - and `1e` offers the unscoped list rather than an empty menu
     #: when the scope removes everything.
     scoped_by: tuple[str, ...] = ()
+    #: The command this one is another spelling of, or "" for a filter in its
+    #: own right. Order 0x §6a, decision D2.
+    #:
+    #: **Why a row of its own and not simply an alias.** An alias is matched
+    #: silently: typing `/bet` would have shown the `/date` row, with
+    #: `/date`'s summary, and nothing on screen would say that `between`
+    #: takes "X and Y". A row of its own can say so. The model prompt is the
+    #: one place that does *not* want it - two spellings of one filter cost
+    #: tokens and teach nothing - so `grammar_for_model` leaves these out.
+    alias_of: str = ""
 
     @property
     def spellings(self) -> tuple[str, ...]:
@@ -224,6 +234,26 @@ COMMANDS: tuple[Command, ...] = (
         # `last month` is left out on purpose: here it would read as "during
         # last month", and it means the last thirty-one days.
         values=("today", "yesterday", "7d", "30d", "90d", "1y"),
+    ),
+    Command(
+        name="between",
+        aliases=(),
+        # Order 0x §6a, decision D2: `/date` under the name the owner first
+        # asked for, which also takes its two ends joined by "and" or "to".
+        # The parser joins them into `A..B` (`query.join_between_words`), so
+        # everything `date:` does - the sent date for mail, the CLI, the
+        # problem sentences - follows without a line of its own.
+        summary="Only things from between two dates",
+        example="/between 2024-03-01 and 2024-06-30",
+        value_hint="2024-03 and 2024-06, 2024-03-01 to 2024-06-30, 2019..2021",
+        is_date=True,
+        icon="▦",
+        # `/date`'s own list, so the two spellings offer the same periods.
+        # Ranges are typed rather than picked: a value with a space in it
+        # would be quoted by the menu, and "2024-01 and 2024-06" inside
+        # quotes is one value, not two ends.
+        values=("today", "yesterday", "7d", "30d", "90d", "1y"),
+        alias_of="date",
     ),
     Command(
         name="path",
@@ -528,6 +558,12 @@ def grammar_for_model() -> str:
 
     lines = ["Operators (use only these):"]
     for command in COMMANDS:
+        if command.alias_of:
+            # Another spelling of a filter already listed (`between:` is
+            # `date:`). The prompt is paid for on every translation and sits
+            # within a few characters of its ceiling; telling the model one
+            # filter twice would buy nothing for that.
+            continue
         allowed = closed.get(command.name)
         if command.name in _TERSE_FOR_MODEL:
             lines.append(f"  {command.name}:{_TERSE_FOR_MODEL[command.name]}")

@@ -48,6 +48,7 @@
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />
     <Folder Include="app\core" />
+    <Folder Include="app\core\osbridge" />
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
@@ -152,6 +153,13 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\osbridge\__init__.py" />
+    <Compile Include="app\core\osbridge\_platform.py" />
+    <Compile Include="app\core\osbridge\cloudfs.py" />
+    <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\paths.py" />
+    <Compile Include="app\core\osbridge\priority.py" />
+    <Compile Include="app\core\osbridge\programs.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
@@ -200,6 +208,7 @@
     <Compile Include="app\extract\places.py" />
     <Compile Include="app\extract\plaintext.py" />
     <Compile Include="app\extract\ppt.py" />
+    <Compile Include="app\extract\progress.py" />
     <Compile Include="app\extract\pst_libpff.py" />
     <Compile Include="app\extract\publisher.py" />
     <Compile Include="app\extract\quoting.py" />
@@ -221,6 +230,7 @@
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\interrupted.py" />
+    <Compile Include="app\index\live_progress.py" />
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
@@ -322,6 +332,8 @@
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
     <Compile Include="app\ui\presenter\interrupted.py" />
+    <Compile Include="app\ui\presenter\live_progress.py" />
+    <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -393,7 +405,11 @@
     <Compile Include="app\ui\widgets\index_controls.py" />
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
+    <Compile Include="app\ui\widgets\indexing_bar.py" />
+    <Compile Include="app\ui\widgets\indexing_controls.py" />
+    <Compile Include="app\ui\widgets\indexing_headline.py" />
     <Compile Include="app\ui\widgets\indexing_layout.py" />
+    <Compile Include="app\ui\widgets\indexing_workers.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
@@ -485,6 +501,7 @@
     <Compile Include="tests\unit\test_archives.py" />
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
+    <Compile Include="tests\unit\test_between_dates.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
     <Compile Include="tests\unit\test_cell_locators.py" />
@@ -541,6 +558,7 @@
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
+    <Compile Include="tests\unit\test_date_forms_every_box.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
@@ -632,8 +650,10 @@
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />
     <Compile Include="tests\unit\test_index_tuning_acceptance.py" />
+    <Compile Include="tests\unit\test_indexing_page_4.py" />
     <Compile Include="tests\unit\test_indexing_partial_row.py" />
     <Compile Include="tests\unit\test_indexing_that_works.py" />
+    <Compile Include="tests\unit\test_indexing_workers_panel.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_interrupted_runs.py" />
@@ -644,6 +664,7 @@
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
+    <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
@@ -677,6 +698,8 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_osbridge.py" />
+    <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />

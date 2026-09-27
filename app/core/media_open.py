@@ -30,16 +30,21 @@ finder and the launcher are parameters.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from app.core.errors import AppError, make_error
 from app.core.logging import logger
+# `Player` and `KNOWN_PLAYERS` moved to the platform package with the install
+# search (their `.exe` names and Program Files folders are Windows install
+# knowledge); they are imported back under the same names, so
+# `media_open.Player` and `media_open.KNOWN_PLAYERS` work as they always did.
+from app.core.osbridge import launch as _launch_os
+from app.core.osbridge import programs as _programs
+from app.core.osbridge.programs import KNOWN_PLAYERS, Player
 from app.extract.timecode import format_timecode, parse_timecode
 
 __all__ = [
@@ -53,34 +58,6 @@ __all__ = [
 ]
 
 log = logger.bind(component="core.media_open")
-
-
-@dataclass(frozen=True)
-class Player:
-    """A player that can be told where to start, and how to say so."""
-
-    name: str
-    #: Executable names to look for on `PATH`.
-    executables: tuple[str, ...]
-    #: Folders under a Program Files root that it installs into.
-    folders: tuple[str, ...]
-    #: Arguments. `{file}`, `{s}` (whole seconds), `{ms}` and `{hms}` are filled
-    #: in; each stays ONE argument, which is the property a shell would destroy.
-    args: tuple[str, ...]
-
-
-KNOWN_PLAYERS: tuple[Player, ...] = (
-    Player("VLC", ("vlc", "vlc.exe"), ("VideoLAN\\VLC",),
-           ("--start-time={s}", "{file}")),
-    Player("mpv", ("mpv", "mpv.exe"), ("mpv",), ("--start={s}", "{file}")),
-    Player("MPC-HC", ("mpc-hc64", "mpc-hc64.exe", "mpc-hc", "mpc-hc.exe"),
-           ("MPC-HC", "K-Lite Codec Pack\\MPC-HC64"), ("{file}", "/start", "{ms}")),
-    Player("PotPlayer", ("PotPlayerMini64.exe", "PotPlayerMini.exe"),
-           ("DAUM\\PotPlayer", "PotPlayer"), ("{file}", "/seek={hms}")),
-)
-
-#: Roots a player installs under, in order of preference.
-_ROOT_VARIABLES = ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432")
 
 
 @dataclass(frozen=True)
@@ -107,25 +84,15 @@ def seconds_for_result(label: object) -> Optional[int]:
 
 
 def _executable_in_folders(player: Player) -> Optional[str]:
-    """A known Windows install of `player`, or None. Never raises."""
-    roots = [os.environ.get(name) for name in _ROOT_VARIABLES]
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        roots.append(os.path.join(local, "Programs"))
-    wanted = {name.lower() for name in player.executables if name.lower().endswith(".exe")}
-    for root in roots:
-        if not root:
-            continue
-        for folder in player.folders:
-            base = Path(root) / folder
-            for name in sorted(wanted):
-                try:
-                    candidate = base / name
-                    if candidate.is_file():
-                        return str(candidate)
-                except OSError:                    # a drive that is not there
-                    continue
-    return None
+    """A known Windows install of `player`, or None. Never raises.
+
+    2026-09-27 (work order 0x §1b): the search itself moved to
+    `app.core.osbridge.programs`, unchanged. On a Mac it also looks in
+    `/Applications` and Homebrew's folders (UNCONFIRMED on macOS); on Windows
+    that second look is skipped at once, so nothing changes there.
+    """
+    return (_programs.find_player_on_windows(player)
+            or _programs.find_player_on_macos(player))
 
 
 def find_player(
@@ -178,10 +145,11 @@ def _launch(command: list[str]) -> None:
 
 
 def _system_open(path: str) -> None:
-    if sys.platform == "win32":
-        os.startfile(path)                          # type: ignore[attr-defined]
-    else:
-        subprocess.Popen(["xdg-open", path])
+    # "Open it with whatever the system uses for this kind of file". The
+    # per-system commands (Windows' `os.startfile`, the Mac's `open`, Linux's
+    # `xdg-open`) live in `app.core.osbridge.launch` since work order 0x §1b;
+    # Windows and Linux run exactly what they ran here before.
+    _launch_os.open_with_default_app(path)
 
 
 def open_at(

@@ -483,8 +483,6 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
     were happening inline, which is why opening a result felt slow when the
     work itself is nearly free - see `MainWindow._open_result`.
     """
-    import subprocess
-    import sys
     from pathlib import Path
 
     from app.core.errors import make_error
@@ -499,15 +497,13 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
         )
 
     try:
-        if sys.platform == "win32":
-            if select:
-                subprocess.Popen(["explorer", "/select,", str(target)])
-            else:
-                import os
+        # Order 0x section 1b (2026-09-27): the platform-specific part lives in
+        # `app.core.osbridge` now. On Windows it sends exactly what this
+        # function always sent (`explorer /select,` or `os.startfile`); on a
+        # Mac it uses Finder's `open -R`; elsewhere `xdg-open` as before.
+        from app.core.osbridge import show_in_file_manager
 
-                os.startfile(str(target))        # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(["xdg-open", str(target if not select else target.parent)])
+        show_in_file_manager(target, select=select)
         return None
     except Exception as exc:
         return to_app_error(exc, "ui.open", path=str(target))
