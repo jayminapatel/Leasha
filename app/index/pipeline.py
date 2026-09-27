@@ -1696,6 +1696,8 @@ class Pipeline:
             # half-written document must not be committed - so the whole
             # group is rolled back. See `_abandon_write_group`.
             self._abandon_write_group()
+            # 0x 5d: and give back the page cache `_consume` asked for.
+            self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
             _drain(work)
             _drain(results)
@@ -3270,6 +3272,12 @@ class Pipeline:
         self._last_summary = last_checkpoint
         stats.sample(now=last_checkpoint)          # the window's first point
         pending_vectors: list[tuple[int, int, str]] = []
+        # 0x 5d: this thread does the writing, so its connection gets a page
+        # cache sized to the database - see `SqliteStore.size_write_cache` for
+        # why that is what kept writes slowing down as the index grew. Asked
+        # again at every checkpoint below, as the file grows; given back in
+        # `run()`'s teardown.
+        self._size_write_cache()
         # §6f: Drop FTS triggers if bulk mode is enabled, before processing
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
@@ -3475,6 +3483,8 @@ class Pipeline:
                 # is committed - so everything counted so far is committed
                 # first, and the published count is true.
                 self._commit_write_group()
+                # 0x 5d: the file has grown since the cache was sized.
+                self._size_write_cache()
                 # **Reporting must never cost the flush.** None of this was
                 # guarded, and all of it can raise: `_checkpoint` writes to
                 # SQLite, and `on_progress` is the caller's - the CLI's version
@@ -4584,6 +4594,23 @@ class Pipeline:
             # is already ending on the error that brought us here.
             if exc is not failure:
                 self._log.warning("could not roll back the last write group: {}", exc)
+
+    def _size_write_cache(self) -> None:
+        """`SqliteStore.size_write_cache`, tolerating a store double without it.
+
+        Half the test suite hands the pipeline stand-in stores; requiring the
+        method would make every one of them declare a cache it does not have
+        (the same courtesy `_warm_embedder` extends to embedders).
+        """
+        sizer = getattr(self.store, "size_write_cache", None)
+        if callable(sizer):
+            sizer()
+
+    def _restore_write_cache(self) -> None:
+        """`SqliteStore.restore_write_cache`, with the same tolerance."""
+        restore = getattr(self.store, "restore_write_cache", None)
+        if callable(restore):
+            restore()
 
     def _media_work_ahead(self, candidate: Candidate) -> bool:
         """Might `_write_one`'s picture/video steps do real work for this file?
