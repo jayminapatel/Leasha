@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.10 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.11 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -79,6 +79,9 @@ Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on
 - **Never run `scripts/regen_vs_project.py` mid-merge without the fix now in it**: with conflicts
   unresolved, `git ls-files` lists a path once per stage, which is how three docs came to be listed
   three times each. It now de-duplicates.
+- **Any new "have we seen this file" set must use `osbridge.path_key`, never `.lower()`** (0x §7).
+  The walker and the prune pass share one set; mixing keys drops or duplicates files on a
+  case-sensitive disk. On Windows `path_key` is `str.lower()` byte for byte.
 - **The child indexer** (0x §2, off by default): a new monotonic-clock field in IndexStats must go in
   `run_events.MONOTONIC_FIELDS`; commands reach the pipeline only from its first progress tick; closing
   the child's stdin means Stop then exit after 60 s, so never run `--events` in-process with stdin at
