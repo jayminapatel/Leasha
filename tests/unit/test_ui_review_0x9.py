@@ -410,6 +410,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     controls overlap. A month is then chosen with the mouse, as a person
     would."""
     from PyQt6.QtCore import QRect
+    from app.ui.widgets.timeline_host import REPORT_KEY
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, *size)
     reports = window.reports_view
@@ -417,7 +418,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app, 4)
     names = reports.list
-    row = next(r for r in range(names.count()) if names.item(r).data(1) == "timeline")
+    row = next(r for r in range(names.count()) if names.item(r).data(REPORT_KEY) == "timeline")
     qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton,
                      pos=names.visualItemRect(names.item(row)).center())
     timeline = reports.timeline
@@ -584,3 +585,77 @@ def test_the_suggested_searches_are_shown_whole_at_any_width(gui_mainwindow, qtb
         view.input.clear()
         qtbot.keyClick(view.input, KEY.Key_Escape)
         gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
+        gui_mainwindow, qtbot, scheme):
+    r"""**Before** (review finding 13): each report name on Reports sat behind
+    a ~36px blank indent, because its key was stored as `setData(1, key)` and
+    role 1 is the item's *icon* - the list reserved an icon's width for a
+    string it could not draw. And on Settings › Storage & maintenance, the
+    "Recent activity" card's caption and log box ran hard against the card's
+    edge. Grabs: `after-final-1100x760/light/reports.png` and
+    `settings-storage.png`.
+
+    Now the Reports list is opened with the mouse, no entry carries an icon,
+    the first painted pixel of an unselected name is within a few pixels of the
+    row's left edge, and a click on "The Space Report" still opens it (the key
+    is read back from its new role). Then Settings is opened with Ctrl+, and
+    Storage & maintenance clicked: the card's caption and log box are inset
+    from its edge like every other card's contents."""
+    from PyQt6.QtGui import QColor
+    from app.ui.widgets.timeline_host import REPORT_KEY
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    reports = window.reports_view
+    with _Theme(window, scheme):
+        try:
+            button = next(b for b in window.rail._buttons.values() if b.text() == "Reports")
+            qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+            gui_pump(app, 4)
+            names = reports.list
+            assert REPORT_KEY == Qt.ItemDataRole.UserRole
+            assert all(names.item(r).data(Qt.ItemDataRole.DecorationRole) is None
+                       for r in range(names.count()))
+            names.setCurrentRow(0)
+            gui_pump(app, 4)
+            space = next(r for r in range(names.count())
+                         if names.item(r).data(REPORT_KEY) == "space")
+            rect = names.visualItemRect(names.item(space))
+            image = names.viewport().grab().toImage()
+            ground = image.pixelColor(rect.left() + 1, rect.top() + 1)
+
+            def differs(c: QColor) -> bool:
+                return max(abs(c.red() - ground.red()), abs(c.green() - ground.green()),
+                           abs(c.blue() - ground.blue())) > 60
+
+            first = next(x for x in range(rect.left(), rect.right())
+                         if any(differs(image.pixelColor(x, y))
+                                for y in range(rect.top(), rect.bottom())))
+            assert first - rect.left() <= 16, (scheme, first - rect.left())
+
+            qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+            gui_pump(app, 6)
+            assert reports._selected_key() == "space"
+
+            qtbot.keyClick(window, KEY.Key_Comma, Qt.KeyboardModifier.ControlModifier)
+            gui_pump(app, 6)
+            nav = window.settings_view._nav
+            sidebar = nav.sidebar
+            item = next(sidebar.item(r) for r in range(sidebar.count())
+                        if sidebar.item(r).text() == "Storage & maintenance")
+            qtbot.mouseClick(sidebar.viewport(), Qt.MouseButton.LeftButton,
+                             pos=sidebar.visualItemRect(item).center())
+            gui_pump(app, 6)
+            card = window.settings_view.debug_pane
+            assert card.isVisible()
+            caption = card.layout().itemAt(0).widget()
+            for inside in (caption, card.view):
+                assert inside.geometry().left() >= 6, (scheme, inside.geometry())
+                assert card.width() - inside.geometry().right() >= 6, (scheme, inside.geometry())
+        finally:
+            window.settings_view._nav.show_category("What's indexed", persist=False)
+            window.rail.setCurrentIndex(0)
+            gui_pump(app, 4)
