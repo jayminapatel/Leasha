@@ -216,7 +216,9 @@ COMMANDS: tuple[Command, ...] = (
         # every tab - including a message's sent date.
         summary="Only things from this year, month or day - or between two dates",
         example="/date 2017-03",
-        value_hint="2017, 2017-03, 2017-03-14, 2017-01..2017-06, ..2017",
+        # A range first: the menu cuts this at 32 characters, and `A..B` is
+        # the one form nobody would guess.
+        value_hint="2017-03, 2017-01..2017-06, ..2017, 2017, 2017-03-14",
         is_date=True,
         icon="▦",
         # `last month` is left out on purpose: here it would read as "during

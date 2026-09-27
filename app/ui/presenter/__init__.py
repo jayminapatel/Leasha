@@ -105,6 +105,7 @@ from app.ui.presenter.commands import (
     set_volume_filter,
     volume_picker_options,
     resolved_date,
+    resolved_period,
     scope_key,
     _scope_repo,
     _takes_repo,

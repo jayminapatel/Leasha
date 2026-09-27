@@ -480,6 +480,13 @@ class SearchResponse:
             "search_id": self.search_id,
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
+            # The date range the query applied, whichever operator set it -
+            # `date:2017` and `after:2017 before:2017` read the same here, so
+            # a headless check sees the filter the window would have used.
+            "dates": {
+                "after": _iso(self.parsed.after) if self.parsed else None,
+                "before": _iso(self.parsed.before) if self.parsed else None,
+            },
             "unmatched_terms": list(self.unmatched),
             "spelling": (self.spelling.suggestion
                          if self.spelling is not None else None),
@@ -488,6 +495,10 @@ class SearchResponse:
             "notices": [notice.as_dict() for notice in self.notices],
             "results": [result.as_dict() for result in self.results],
         }
+
+
+def _iso(value: Any) -> Optional[str]:
+    return value.isoformat() if value is not None else None
 
 
 class SearchEngine:

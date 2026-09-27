@@ -536,6 +536,7 @@
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
+    <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
