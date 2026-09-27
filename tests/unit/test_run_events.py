@@ -362,3 +362,44 @@ def test_the_error_of_a_run_that_could_not_start_is_an_event() -> None:
     last = stream.events()[-1]
     assert last["event"] == "finished" and last["exit"] == 1
     assert ev.from_json_safe(last["error"]) == error
+
+
+# --- order 0x §3's reader lines, across the pipe --------------------------------
+
+def test_the_reader_lines_read_the_same_from_the_child_as_in_process() -> None:
+    """Child JSON -> rebuilt stats -> `live_headline` / `worker_lines` must say
+    exactly what the same snapshot says in the window's own process - and keep
+    saying it after `IndexWorker` takes its own `snapshot()` of the copy."""
+    from app.extract import progress
+    from app.ui.presenter.live_progress import heartbeat_line, live_headline, worker_lines
+
+    stats = IndexStats(phase="reading", indexed=40, embed_batch=2, embed_batches=5,
+                       stage="writing")
+    pst = stats.board.open_slot()
+    pst.begin(Path("Archive2019.pst"))
+    frame = progress.Frame("pst", "Archive2019.pst", unit="message", total=18_300)
+    frame.n, frame.where = 4512, "Inbox/Projects"
+    pst.frames.append(frame)
+    zipped = stats.board.open_slot()
+    zipped.begin(Path("backup.zip"))
+    outer = progress.Frame("zip", "backup.zip", unit="member", total=900)
+    outer.n = 12
+    inner = progress.Frame("mbox", "mail.mbox", unit="message", total=2000)
+    inner.n = 812
+    zipped.frames.extend([outer, inner])
+    stats.board.open_slot()                      # a third reader, waiting
+
+    here = stats.snapshot()
+    payload, _ = ev.encode_stats(here)
+    there = ev.StatsRebuilder().rebuild(_across(payload))
+    again = there.snapshot()                     # what IndexWorker hands the page
+
+    now = here.last_activity + 3.0
+    for copy in (there, again):
+        assert copy.workers == here.workers
+        assert copy.last_activity == here.last_activity
+        assert live_headline(copy) == live_headline(here)
+        assert worker_lines(copy, now=now) == worker_lines(here, now=now)
+        assert heartbeat_line(copy, now=now) == heartbeat_line(here, now=now)
+    assert "message 4,512 of 18,300" in live_headline(there)
+    assert len(worker_lines(there, now=now)) == 3
