@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.41 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.42 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -70,6 +70,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0v | `pst-resilience` | PST resilience - an archive that is held open or slightly damaged | RELEASED | **17 / 1** | 4a decided 2026-09-20 (retry a partial read next pass only when the cause was transient); 3d, 3e, 5a built; 6c measured on damaged scratch copies of a real archive (no fix needed); 6b ticked with the whole suite run and its failures fixed. **Open:** 1e only (owner-run: how Outlook holds a `.pst` needs an Outlook left running with one attached). **Known, unfixed:** the last block of test files died twice with a native crash in one Qt test when four test processes share a memory-starved machine - see the order's 6b note |
 | 0w | `dates-live-log-and-interrupted-runs` | Date ranges in every box, a live index log, and runs that say they were interrupted | **SHIPPED** | **14 / 0** | Released and built 2026-09-27 from the owner's structured feedback, in the same session. The three verified bugs in that feedback (page-switch freeze, mail dates, silent progress phases) were fixed directly, not ordered. PST folder resume is libpff only (Outlook reason in the order's 3b note). **Not run on the owner's machine** - see `HANDOFF.md` §3, 2026-09-27 (later)
 | 0x | `overhaul-and-mac-ready` | A window that never waits, an indexer that shows its work, and code ready for a Mac | **ACTIVE** *(owner, 2026-09-27)* | 48 / 4 | Builds on 0w (`dates-live-log-and-interrupted-runs`), which shipped and was merged into this branch on 2026-09-27. Overrides "working version first" and the macOS parking for its own scope only (owner decision D4); hardware-specific Mac work stays parked (§P). Run as a master thread with helper threads in worktrees |
+| 0y | `code-and-mail-world-class` | The Code tab and the mail preview, world class | **RELEASED** *(owner, 2026-09-27)* | 0 / 15 | Designed and released in one instruction ("design it ... and build straight away"), for a developer and for everyday people. Starts from what 081149 and 081801 already built. Fixes first (§1), then search inside the code as you type (§2), the mail preview (§4), streaming history (§3) - one PR each |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
@@ -282,8 +283,8 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `space-report-and-idle-tune-ui-wiring` | Wire the Space Report and the idle-tune scheduler into the redesigned shell | **SHIPPED** | **7 / 0** | Raised 2026-09-16 by the crash-recovery session; both wirings built the same day in the redesign session (`reports_view.py`, `shell.py`); ticked 2026-09-16 by the same session's Windows run (`pytest tests/unit/test_idle_tune_and_space_report_ui.py -v`, 10 passed) — see the order's own dated note |
 | `202626271328` | The pages reorg | **SHIPPED** | **13 / 0** | Row corrected 2026-09-16: the order's own file has said RELEASED and delivered 2026-09-05, every item ticked, since that date; this row still read DRAFT 0/13 — the "finished or lying" case §4 names, found while registering the UI Redesign draft |
 | `202626081052` | OCR where it pays | **SUPERSEDED** | 10 / 7 | By `202626270508`'s ladder (decided 2026-09-20). Its seven open boxes are measurement steps for a design that was not built; left unticked as written |
-| `202626081149` | The Code tab | PARKED *(inferred)* | 0 / 0 | — |
-| `202626081801` | Git sharpness and mail preview | PARKED *(inferred)* | 0 / 0 | — |
+| `202626081149` | The Code tab | **SUPERSEDED** *(corrected 2026-09-27; was PARKED (inferred))* | 0 / 0 | Row corrected 2026-09-27: not parked - §2 and §3 shipped (`CHANGELOG.md`, "Fixed — repository attribution can be undone, and the Code tab says what it hides"; HANDOFF lists it closed). The document has no checkboxes, hence 0 / 0. What was left (the row action for ignoring a repository, §2 item 1) is carried into `code-and-mail-world-class` §1c. As written before: — |
+| `202626081801` | Git sharpness and mail preview | **SUPERSEDED** *(corrected 2026-09-27; was PARKED (inferred))* | 0 / 0 | Row corrected 2026-09-27: not parked - §1 `/message`, §2 tree filtering and §3 the mail preview all shipped (`CHANGELOG.md`, "Fixed — the git tree listed every repository whatever you typed" and "Fixed — mail previews now show the message rather than the index"). No checkboxes, hence 0 / 0. The next step for both surfaces is `code-and-mail-world-class`. As written before: — |
 | `terabyte-scale` | Indexing 600GB, heading for 1.5TB | HELD *(inferred)* | 16 / 6 | — |
 | `owner-pst-scale-run` | The PST scale run | HELD *(inferred)* | 0 / 4 | Owner-run, not code |
 | `libraries-before-converters` | Libraries first, converters only where none exists | SHIPPED *(doctrine)* | 0 / 8 | Now non-negotiable #12 |
