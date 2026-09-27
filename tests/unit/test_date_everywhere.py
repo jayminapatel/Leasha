@@ -143,6 +143,10 @@ def test_search_offers_date_and_applies_it(qapp, engine):
     try:
         _offers_date(view.commands)
         view.input.setText("report /date 2017-03")
+        # The typing debounce would fire mid-wait on a slow machine and race
+        # this search with an interim one; Enter is what is being tested.
+        view._interim_timer.stop()
+        view._full_timer.stop()
         view.search_now()
         _pump()
         assert [Path(row.path).name for row in view.results._rows] == ["march report.txt"]
@@ -308,8 +312,9 @@ def test_the_cli_search_applies_date(tmp_path, capsys):
         ["search", "date:2017", "--json", "--no-rerank", "--env", env]))
     payload = json.loads(capsys.readouterr().out)
 
-    assert code == cli.EXIT_OK
-    assert [Path(hit["path"]).name for hit in payload["results"]] == ["march report.txt"]
+    assert code == cli.EXIT_OK, payload
+    assert [Path(hit["path"]).name for hit in payload["results"]] == [
+        "march report.txt"], payload
     assert payload["dates"] == {"after": "2017-01-01", "before": "2017-12-31"}
 
 
@@ -330,6 +335,10 @@ def test_search_says_what_was_wrong_on_the_notice_bar(qapp, engine):
     view = SearchView(engine)
     try:
         view.input.setText(f"report {BAD}")
+        # The typing debounce would fire mid-wait on a slow machine and race
+        # this search with an interim one; Enter is what is being tested.
+        view._interim_timer.stop()
+        view._full_timer.stop()
         view.search_now()
         _pump()
         assert SAID in view.notices.label.text()
