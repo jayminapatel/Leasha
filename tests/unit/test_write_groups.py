@@ -171,3 +171,65 @@ def test_a_failure_part_way_through_a_group_keeps_nothing_half_written(tmp_path)
     assert len(vectors.rows) == FILES, "a message lost its vector"
     assert counts["chunks_total"] == FILES
     assert _indexed(counts) >= FILES
+
+
+# --- the writer's page cache (0x 5d) -------------------------------------------
+
+def _cache_kib(store) -> int:
+    return -int(store.conn.execute("PRAGMA cache_size").fetchone()[0])
+
+
+def test_the_write_cache_is_a_quarter_of_the_file_within_its_bounds(store, monkeypatch):
+    from app.storage import sqlite_store as module
+
+    default = _cache_kib(store)
+    assert store.size_write_cache() == module.WRITE_CACHE_FLOOR_KIB   # a new file is tiny
+    assert _cache_kib(store) == module.WRITE_CACHE_FLOOR_KIB
+
+    class TenGigabytes:
+        """Stands in for the file's path: only `stat` is asked of it here."""
+
+        def stat(self):
+            return type("Stat", (), {"st_size": 10 * 1024 ** 3})()
+
+    monkeypatch.setattr(store, "db_path", TenGigabytes())
+    assert store.size_write_cache() == module.WRITE_CACHE_CEILING_KIB    # capped
+    assert _cache_kib(store) == module.WRITE_CACHE_CEILING_KIB
+    monkeypatch.undo()
+
+    store.restore_write_cache()
+    assert _cache_kib(store) == default
+
+
+def test_the_write_cache_is_this_threads_alone(store):
+    """Search and the window keep the default: the setting is per connection."""
+    import threading
+
+    default = _cache_kib(store)
+    store.size_write_cache()
+    seen = {}
+    thread = threading.Thread(target=lambda: seen.setdefault("kib", _cache_kib(store)))
+    thread.start()
+    thread.join()
+    assert seen["kib"] == default
+    store.restore_write_cache()
+
+
+def test_restoring_without_sizing_first_changes_nothing(store):
+    default = _cache_kib(store)
+    store.restore_write_cache()
+    assert _cache_kib(store) == default
+
+
+def test_a_run_gives_the_cache_back(tmp_path):
+    vectors = RecordingVectors()
+    db, root = tmp_path / "i.db", _corpus(tmp_path, archive=True)
+    with SqliteStore(db) as store:
+        default = _cache_kib(store)
+        config = PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
+                                limits=ResourceLimits(pause_on_battery=False, cpu_percent=0))
+        model = Model()
+        pipeline = Pipeline(store, vectors, model.embedder(), config)
+        model.pipeline = pipeline
+        pipeline.run()
+        assert _cache_kib(store) == default
