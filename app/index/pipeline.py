@@ -196,6 +196,25 @@ RATE_WINDOW_S = 15 * 60
 #: review afterwards in under a minute.
 SUMMARY_EVERY_S = 24 * 60 * 60
 
+#: The stretches of a run, in the order `run` enters them. Announced on
+#: `IndexStats.phase` with a progress tick as each one starts.
+#:
+#: **Only `PHASE_READING` has anything to count.** The rest - loading the
+#: model, catching up on an earlier run, planning the roots, building the
+#: vector index - can each take minutes on a big index and used to emit no
+#: tick at all, so the bar sat still on whatever it last showed and the run
+#: was reported as stalled. The words for each live in the presenter
+#: (`PHASE_WORDS`); these are only the keys.
+PHASE_MODEL = "model"
+PHASE_WORD_INDEX_CHECK = "word_index_check"
+PHASE_CATCH_UP = "catch_up"
+PHASE_PLANNING = "planning"
+PHASE_READING = "reading"
+PHASE_MEDIA = "media"
+PHASE_TIDYING = "tidying"
+PHASE_VECTOR_INDEX = "vector_index"
+PHASE_WORD_INDEX = "word_index"
+
 
 @dataclass
 class IndexStats:
@@ -242,6 +261,9 @@ class IndexStats:
     #: `seen` stops being a running tally and becomes a total. Nothing can show
     #: an honest percentage before it.
     walk_complete: bool = False
+    #: Which `PHASE_*` the run is in, or "" before the first. Only the one
+    #: thread that runs `Pipeline.run` writes it.
+    phase: str = ""
     #: What a worker is reading right now, and for how long. Set from the
     #: extraction threads and read from the consumer - a plain string swap,
     #: which is atomic enough for something only ever displayed.
@@ -1118,6 +1140,24 @@ class Pipeline:
         except Exception as exc:                 # noqa: BLE001 - as elsewhere
             self._log.warning("progress reporting failed: {}", exc)
 
+    def _announce_phase(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]], phase: str,
+    ) -> None:
+        """Say which stretch of the run is starting. See `PHASE_MODEL`.
+
+        Guarded like every other report: telling somebody what is happening
+        must never be the reason it stops happening.
+        """
+        stats.phase = phase
+        self._log.debug("phase: {}", phase)
+        if on_progress is None:
+            return
+        try:
+            on_progress(stats)
+        except Exception as exc:                 # noqa: BLE001 - as elsewhere
+            self._log.warning("progress reporting failed: {}", exc)
+
     def _copy_pause_state(self, stats: IndexStats) -> None:
         """The governor's live pause state, onto the stats the UI reads."""
         held = self._person_paused()
@@ -1242,6 +1282,7 @@ class Pipeline:
         elif self.governor.apply_priority():
             self._log.debug("running at below-normal priority")
 
+        self._announce_phase(stats, on_progress, PHASE_MODEL)
         self.vectors.ensure_table()
         if self.image_vectors is not None:
             self.image_vectors.ensure_table()
@@ -1263,14 +1304,17 @@ class Pipeline:
         self._warm_embedder()
         # Check if FTS was marked dirty by an interrupted bulk run and rebuild
         # if needed. This must happen before extraction starts.
+        self._announce_phase(stats, on_progress, PHASE_WORD_INDEX_CHECK)
         self.store.check_and_rebuild_fts_if_dirty()
         # **Anything left without a vector by a previous run is filled first.**
         # See `_drain_unembedded`. Work order 0i section 2a: now one of the
         # registered enrichment-backlog kinds - see `_run_enrichment_drains`.
+        self._announce_phase(stats, on_progress, PHASE_CATCH_UP)
         self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
+        self._announce_phase(stats, on_progress, PHASE_PLANNING)
         self._preflight_disk(stats)
         self._plan_roots(stats)
         # The images pass walks only the image types. Before the producer, or
@@ -1318,6 +1362,8 @@ class Pipeline:
             worker.start()
         feeder.start()
 
+        # Back to counting: `progress_for` draws a real bar from here on.
+        self._announce_phase(stats, on_progress, PHASE_READING)
         try:
             self._consume(results, workers, stats, on_progress, work=work)
         finally:
@@ -1351,6 +1397,7 @@ class Pipeline:
         # corpus - and while `exists()` would save them, it would do so at the
         # cost of one syscall per row for nothing. Same reasoning as a run
         # restricted to one root, which has always been excluded.
+        self._announce_phase(stats, on_progress, PHASE_TIDYING)
         if (self.config.prune_missing and not self._interrupted
                 and self.config.ocr_mode != "images"):
             stats.deleted = self._prune_missing(seen_paths)
@@ -1440,6 +1487,7 @@ class Pipeline:
         self._say_if_nothing_was_walked(stats)
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
+        self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
         # that added 4,000 chunks would otherwise never compact at all, and a
@@ -1452,6 +1500,7 @@ class Pipeline:
         if self.image_vectors is not None:
             self.image_vectors.maybe_create_index()
             self.image_vectors.maybe_compact(force=True)
+        self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
         self._optimise_keyword_index(stats)
         self._write_completions()
         from app.extract.legacy_office import take_fallback_summary

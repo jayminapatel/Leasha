@@ -43,8 +43,8 @@ from app.ui.scheduler import IndexScheduler
 # reads these files and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import (
-    _read_external_run, _scan_and_save, cleared_message, index_bytes,
-    offline_media_run_summary,
+    PREPARING_WORDS, _read_external_run, _scan_and_save, cleared_message,
+    index_bytes, offline_media_run_summary,
 )
 from app.ui.state_writes import save_states
 from app.ui.workers import CallableWorker, run
@@ -624,6 +624,11 @@ class IndexController(QObject):
         self._w._resolving_index = True
         self._w.indexing_view.start_button.setEnabled(False)
         self._w.notify("Checking your hardware…", 30_000)
+        # **The bar moves from the click, not from the first tick.** Nothing
+        # exists yet to report progress, and a cold hardware check can take
+        # the best part of a minute - a bar sitting still at zero over that
+        # read as a Start button that had done nothing.
+        self._show_preparing(True)
 
         # **The same resolution the tuning screen shows.** One function, so a
         # run started from the window and one started from the command line
@@ -756,8 +761,20 @@ class IndexController(QObject):
         and surfaces the error exactly as a synchronous failure would have."""
         self._w._resolving_index = False
         self._w.toast.clear()
+        self._show_preparing(False)
         self._w.indexing_view.start_button.setEnabled(True)
         self._w._show_error(error)
+
+    def _show_preparing(self, busy: bool) -> None:
+        """A busy bar and a sentence while the run is being prepared, or neither.
+
+        Here rather than in `IndexingView`, which is over its length guard; the
+        view's own `start` and first progress tick take over from this.
+        """
+        view = self._w.indexing_view
+        view.bar.setRange(0, 0 if busy else 1)
+        view.bar.setValue(0)
+        view.detail.setText(PREPARING_WORDS if busy else "")
 
     def _reset_index(self) -> None:
         """Delete everything indexed, after asking, and never the documents.

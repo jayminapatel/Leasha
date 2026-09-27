@@ -78,6 +78,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
+    from app.ui.presenter import phase_words
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -272,6 +273,15 @@ def cmd_index(args: argparse.Namespace) -> int:
                 return
             reason = getattr(stats, "pause_reason", "") or "waiting for resources"
             progress.update(f"{line}  | PAUSED - {reason[:70]}")
+            return
+
+        # The stretches with nothing to count - loading the model, building
+        # the vector index at the end - in the same words the Indexing page
+        # uses. Without them this line sat unchanged for minutes, which is
+        # what a hang looks like. ASCII dots: this is a Windows console.
+        doing = phase_words(stats).replace("…", "...")
+        if doing:
+            progress.update(f"{line}  | {doing}")
             return
 
         recent = getattr(stats, "recent_files_per_minute", None)
