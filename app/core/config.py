@@ -362,6 +362,11 @@ class Settings(BaseModel):
     embed_dedup: bool = True
     #: `with-run | after-run | manual`. When the images pass happens.
     index_ocr_pass: str = "with-run"
+    #: Work order 0x §2e. Run the window's index in a child process of its
+    #: own (`app/index/child_run.py`) rather than on threads inside the
+    #: window's process. Kept as a switch until the before-and-after
+    #: measurement (§2d) is confirmed on the owner's real index.
+    index_separate_process: bool = False
 
     # --- indexing: when it runs --------------------------------------------
     #: manual | startup | interval | daily
@@ -496,6 +501,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_BULK_FTS",
     "EMBED_DEDUP",
     "INDEX_OCR_PASS",
+    "INDEX_SEPARATE_PROCESS",
     "INDEX_MEMORY_MB",
     "INDEX_CPU_PERCENT",
     "INDEX_PAUSE_ON_BATTERY",
@@ -687,6 +693,9 @@ def load_settings(
             embed_dedup=_as_bool("EMBED_DEDUP", values.get("EMBED_DEDUP", "true")),
             index_ocr_pass=(
                 values.get("INDEX_OCR_PASS") or "with-run").strip().lower(),
+            index_separate_process=_as_bool(
+                "INDEX_SEPARATE_PROCESS",
+                values.get("INDEX_SEPARATE_PROCESS", "false")),
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
