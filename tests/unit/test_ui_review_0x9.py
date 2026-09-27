@@ -146,7 +146,17 @@ def _most_contrasting(image, rect, ground) -> float:
     best = 1.0
     for x in range(rect.left(), rect.right() + 1):
         for y in range(rect.top(), rect.bottom() + 1):
-            best = max(best, _contrast(QColor(image.pixel(x, y)), ground))
+            # **Laid over the ground first.** A widget with a transparent
+            # background grabs as transparent pixels, and read without their
+            # alpha those are black - which against a light window is a
+            # perfect 19 to 1 that nobody sees. Blending by alpha gives the
+            # colour a person would actually be looking at.
+            pixel = QColor.fromRgba(image.pixel(x, y))
+            a = pixel.alphaF()
+            seen = QColor(round(pixel.red() * a + ground.red() * (1 - a)),
+                          round(pixel.green() * a + ground.green() * (1 - a)),
+                          round(pixel.blue() * a + ground.blue() * (1 - a)))
+            best = max(best, _contrast(seen, ground))
     return best
 
 
@@ -228,3 +238,37 @@ def test_the_open_button_label_is_readable_on_its_own_fill(gui_mainwindow, qtbot
         inside = QRect(6, image.height() // 3, image.width() - 12, image.height() // 3)
         assert _most_contrasting(image, inside, fill) >= 4.5, scheme
     window.search_view.input.clear()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_quiet_text_still_reaches_wcag_aa(gui_mainwindow, qtbot, scheme):
+    r"""**Before:** the faint text colour - result counts, hints, table headers,
+    "Nothing logged yet" - measured 3.2 to 3.9 to 1 on its grounds, under the
+    4.5 WCAG AA asks of body text. Grab: `before-1100x760/light/files.png`,
+    "15 file names indexed." under the box.
+
+    Now the Files page is opened with the mouse, a search typed into its box,
+    and the line under the box - painted in that colour - is grabbed. Its text
+    must reach 4.5 to 1 against the window, in both themes."""
+    from PyQt6.QtGui import QColor
+    from app.ui import theme
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    with _Theme(window, scheme):
+        button = next(b for b in window.rail._buttons.values() if b.text() == "Files")
+        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+        view = window.files_view
+        qtbot.waitUntil(lambda: bool(view.summary.text()), timeout=4000)
+        view.input.setFocus()
+        qtbot.keyClicks(view.input, "leeds")
+        gui_pump(app, 10)
+        label = view.summary
+        assert label.isVisible() and label.text()
+        colours = theme.theme_colours()
+        assert label.palette().color(label.foregroundRole()).name() == colours["text_faint"]
+        image = label.grab().toImage()
+        ground = QColor(colours["window"])
+        assert _most_contrasting(image, image.rect(), ground) >= 4.5, (scheme, label.text())
+        view.input.clear()
+    window.rail.setCurrentIndex(0)
