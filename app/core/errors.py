@@ -622,6 +622,35 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # Work order 0x, section 8 (mail files from a Mac). Both are warnings that
+    # ride on a document that *was* indexed - never a reason to skip a file.
+    #
+    # Apple Mail writes `NNN.partial.emlx` when it kept the message text but
+    # did not download the attachments. The text is indexed; this says, in the
+    # skip ledger's own terms, that the attachments are not in the index
+    # because they were never on this computer to read.
+    "ERR_MAIL_ATTACHMENTS_NOT_DOWNLOADED": _Spec(
+        message="'{path}' was indexed without its attachments: {reason}.",
+        suggestion=(
+            "The message itself is searchable. Its attachments were never downloaded "
+            "to this computer, so there was nothing to read. Open the message in Apple "
+            "Mail so it downloads them, then index that folder again to pick them up."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # One Outlook for Mac `.olm` export, or one `.emlx` cut short, read in part.
+    # The same shape as `ERR_PST_PARTIAL`, without the PST-only advice
+    # (scanpst.exe does nothing for an export from a Mac).
+    "ERR_MAIL_PARTIAL": _Spec(
+        message="Only part of '{path}' could be read: {reason}.",
+        suggestion=(
+            "Everything readable is indexed and searchable. If the file was copied, "
+            "copy it again; if it is an Outlook for Mac export, export the mailbox "
+            "again. Then run `app.cli index --force` on its folder to pick up what "
+            "was missed."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
 }
 
 
