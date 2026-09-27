@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
@@ -43,6 +42,7 @@ from app.ui.presenter import (
     logs_cleared_message,
     logs_summary,
 )
+from app.ui.widgets.buttons import button_row, style_button
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["EnvironmentBox"]
@@ -146,20 +146,25 @@ class EnvironmentBox(QGroupBox):
         open_logs.setToolTip("Open the logs folder in Explorer.")
         open_logs.clicked.connect(lambda _c=False: self._open_folder(self.logs_folder()))
 
-        logs_row = QHBoxLayout()
-        logs_row.addWidget(self.clear_logs_button)
-        logs_row.addWidget(open_logs)
-        logs_row.addStretch(1)
+        # **The button system** (widgets/buttons.py, owner 2026-09-27): each
+        # button is its own width with an icon, never stretched across the
+        # page. The three checks sit in one row, because they answer one
+        # question - "is something wrong?" - and the logs' two in another.
+        for button in (self.run_doctor_button, self.check_button, self.bundle_button,
+                       open_folder, self.clear_logs_button, open_logs):
+            style_button(button)
+        checks_row = button_row(self.run_doctor_button, self.check_button,
+                                self.bundle_button)
+        folder_row = button_row(open_folder)
+        logs_row = button_row(self.clear_logs_button, open_logs)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.run_doctor_button)
-        layout.addWidget(self.check_button)
-        layout.addWidget(self.bundle_button)
+        layout.addLayout(checks_row)
         layout.addWidget(self.bundle_status)
         layout.addWidget(self.links)
         layout.addWidget(self.recording)
         layout.addWidget(self.recording_status)
-        layout.addWidget(open_folder)
+        layout.addLayout(folder_row)
         layout.addWidget(self.logs_status)
         layout.addLayout(logs_row)
         layout.addWidget(self.output)

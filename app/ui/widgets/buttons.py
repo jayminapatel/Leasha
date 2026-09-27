@@ -57,11 +57,13 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from PyQt6.QtCore import QSize
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QDialogButtonBox, QHBoxLayout, QPushButton, QSizePolicy, QWidget,
 )
 
+from app.ui.widgets.icons import ICON_PX as ICON_RENDER_PX
 from app.ui.widgets.icons import icon as themed_icon
 
 __all__ = [
@@ -234,11 +236,59 @@ def _ink(role: str, colours: dict[str, str]) -> str:
     return colours.get("text_dim", "#888888")
 
 
+#: Extra room between the icon and the words, in pixels. Qt leaves only about
+#: four, which at 16px reads as the icon touching the first letter; there is
+#: no stylesheet setting for it, so the icon's picture carries a transparent
+#: strip this wide on its right-hand side instead.
+ICON_GAP = 3
+
+_spaced_cache: dict[tuple[str, str, str], QIcon] = {}
+
+
+def _spaced_pixmap(glyph: str, colour: str) -> Optional[QPixmap]:
+    plain = themed_icon(glyph, colour)
+    if plain.isNull():
+        return None
+    side = ICON_RENDER_PX
+    gap = round(side * ICON_GAP / ICON_PX)
+    canvas = QPixmap(side + gap, side)
+    canvas.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(canvas)
+    painter.drawPixmap(0, 0, plain.pixmap(side, side))
+    painter.end()
+    return canvas
+
+
+def _spaced_icon(glyph: str, colour: str, faint: str) -> QIcon:
+    """The glyph with `ICON_GAP` of empty space after it. Cached.
+
+    **The greyed-out picture is drawn too**, in `faint`. Qt would otherwise
+    make one by fading the normal picture - and a primary button's icon is
+    white in the light theme, so on a disabled button's pale ground it
+    faded to nothing ("Save file types" before anything has changed).
+    """
+    key = (glyph, colour, faint)
+    found = _spaced_cache.get(key)
+    if found is not None:
+        return found
+    result = QIcon()
+    normal = _spaced_pixmap(glyph, colour)
+    if normal is not None:
+        result.addPixmap(normal, QIcon.Mode.Normal)
+        greyed = _spaced_pixmap(glyph, faint)
+        if greyed is not None:
+            result.addPixmap(greyed, QIcon.Mode.Disabled)
+    _spaced_cache[key] = result
+    return result
+
+
 def _paint_icon(button: QPushButton, colours: dict[str, str]) -> None:
     glyph = button.property("buttonIcon")
     if glyph:
-        button.setIcon(themed_icon(str(glyph), _ink(str(button.property("buttonRole")), colours)))
-        button.setIconSize(QSize(ICON_PX, ICON_PX))
+        colour = _ink(str(button.property("buttonRole")), colours)
+        faint = colours.get("text_faint", "#888888")
+        button.setIcon(_spaced_icon(str(glyph), colour, faint))
+        button.setIconSize(QSize(ICON_PX + ICON_GAP, ICON_PX))
 
 
 def style_button(button: QPushButton, glyph: Optional[str] = None,

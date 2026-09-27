@@ -81,7 +81,7 @@ def test_a_column_of_buttons_is_not_stretched_and_every_one_is_one_height(qapp, 
             assert button.width() <= button.sizeHint().width(), button.text()
             assert button.x() == buttons[0].x(), f"{button.text()} is not at the left"
             assert not button.icon().isNull(), f"{button.text()} has no icon"
-            assert button.iconSize().width() == 16
+            assert button.iconSize().height() == 16
         kinds = {b.text(): b.property("buttonRole") for b in buttons}
         assert kinds["Start indexing"] == "primary"
         assert kinds["Clear logs"] == "danger"
@@ -135,3 +135,65 @@ def test_an_unknown_kind_is_refused(qapp) -> None:
 
     with pytest.raises(ValueError):
         action_button("Run doctor", "stethoscope", "loud")
+
+
+# ---------------------------------------------------------------------------
+# The real window (`gui_mainwindow`)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def shown(gui_mainwindow):
+    """The real window, shown at 1100x760, and hidden again afterwards - a
+    window left showing takes the clicks aimed at the next module's."""
+    from tests.unit.conftest import gui_pump
+
+    app, window, *_ = gui_mainwindow
+    window.resize(1100, 760)
+    window.show()
+    gui_pump(app, 20)
+    yield app, window
+    window.hide()
+
+
+def _open(app, window, page: str, category: str = "") -> None:
+    """Bring a rail page, and a category on it, forward - the same route
+    `tools/grab_ui.py` takes."""
+    from tests.unit.conftest import gui_pump
+
+    rail = window.rail
+    for index in range(rail.count()):
+        if rail.tabText(index) == page:
+            rail.setCurrentIndex(index)
+            break
+    gui_pump(app, 3)
+    if category:
+        for view in (window.settings_view, window.indexing_view):
+            here = rail.widget(rail.currentIndex())
+            if view is here or view.isAncestorOf(here) or here.isAncestorOf(view):
+                view._nav.show_category(category, persist=False)
+    gui_pump(app, 5)
+
+
+def test_storage_page_buttons_are_their_own_width_with_an_icon(shown) -> None:
+    """**Before:** "Run doctor", "Check that search works", "Save a support
+    bundle…" and "Open the recordings folder" ran the whole width of the page,
+    "Clear logs" beside them did not, and none had an icon.
+
+    Now each is as wide as its words and icon, the three checks share one row
+    at the left, and "Clear logs" is marked as the one that deletes."""
+    app, window = shown
+    _open(app, window, "Settings", "Storage & maintenance")
+    box = window.settings_view.environment
+    buttons = [box.run_doctor_button, box.check_button, box.bundle_button,
+               box.clear_logs_button]
+    for button in buttons:
+        assert button.isVisible(), button.text()
+        assert button.width() <= button.sizeHint().width(), (
+            f"{button.text()} is stretched to {button.width()}px")
+        assert button.width() < box.width() // 2, button.text()
+        assert not button.icon().isNull(), f"{button.text()} has no icon"
+    row = {b.y() for b in buttons[:3]}
+    assert len(row) == 1, "the three checks share one row"
+    assert box.run_doctor_button.x() < box.check_button.x() < box.bundle_button.x()
+    assert box.clear_logs_button.property("buttonRole") == "danger"
+    assert len({b.height() for b in buttons}) == 1
