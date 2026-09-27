@@ -148,6 +148,10 @@ def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app)
     assert _page(first) == "Files"
+    # The save is queued on the ordered state writer since the page-switch fix
+    # (bug 3a) - wait for it, as the window's own close does before its store goes.
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:page", "") == "Files"
 
     second = launch()                     # the same store: a second launch
