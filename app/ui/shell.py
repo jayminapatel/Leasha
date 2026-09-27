@@ -2267,6 +2267,13 @@ class MainWindow(QMainWindow):
         if photo_tagger is not None:
             stage("photo tagger", photo_tagger.close)
         stage("workers", self._drain_workers)
+        # Work order 0x §2c. **An indexer in a child process must not outlive
+        # the window.** It was asked to stop with everything else above, and
+        # the drain gave its run the index grace to finish; one still going
+        # now is given a few seconds more and then ended. Nothing to do (and
+        # nothing imported that is not already loaded) on a normal close.
+        from app.index.child_run import end_all_children
+        stage("index process", end_all_children)
         stage("recorder", self.recorder.close)
         stage("engine", self._engine.close)
 
