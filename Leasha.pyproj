@@ -401,6 +401,7 @@
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
     <Compile Include="app\ui\widgets\find_bar.py" />
+    <Compile Include="app\ui\widgets\flow_layout.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\history_pass.py" />
