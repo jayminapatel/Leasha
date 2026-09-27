@@ -304,6 +304,11 @@ class ParsedQuery:
     sort: str = ""
 
     unknown_operators: tuple[str, ...] = field(default_factory=tuple)
+    #: One sentence per date in `unknown_operators` that could not be read:
+    #: what was wrong and what would work (non-negotiable #2). A box shows
+    #: these where it already shows its notices, instead of the bare
+    #: `Ignored: date:2017-13` that says what happened and not why.
+    date_problems: tuple[str, ...] = ()
 
     @property
     def has_filters(self) -> bool:
@@ -574,6 +579,72 @@ def _parse_span(value: str, *, today: Optional[date] = None) -> Optional[tuple]:
     return first, last, text, text
 
 
+_DASH = " — "
+_MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December")
+_YEAR_MONTH = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})$")
+_YEAR_MONTH_DAY = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$")
+
+
+def _date_problem(op: str, value: str, *, today: Optional[date] = None) -> str:
+    r"""What was wrong with a date somebody typed, and what would work.
+
+    Non-negotiable #2, for the search box. `after:banana` has always been
+    reported - as `Ignored: after:banana`, which says *that* and not *why* -
+    and before `date:` existed a mistyped `date:2017-13` was not an operator
+    at all: it became the search words `date` and `2017-13`, and the person
+    got a list that looked like an answer to the question they asked.
+
+    The suggestion is built from what was typed wherever it can be, because
+    "try date:2017-12" is something to type and "use a valid date" is not.
+    Plain words, one sentence, no jargon: an eight-year-old types these.
+    """
+    text = value.strip().strip('"').strip()
+    typed = f'{op}:"{text}"' if " " in text else f"{op}:{text}"
+    if op != "date" and _RANGE in text:
+        spelled = f'date:"{text}"' if " " in text else f"date:{text}"
+        return f"{typed} is two dates, and {op}: takes one{_DASH}for a range, try {spelled}"
+    if op == "date" and _RANGE in text:
+        start, _sep, finish = (part.strip() for part in text.partition(_RANGE))
+        if not start and not finish:
+            return (f"{typed} has no dates in it{_DASH}try date:2017-01..2017-06, "
+                    f"or leave one side open: date:2017..")
+        bad = start if start and _parse_date(start, today=today) is None else finish
+        return _one_date_problem(typed, bad, op)
+    return _one_date_problem(typed, text, op)
+
+
+def _one_date_problem(typed: str, bad: str, op: str) -> str:
+    """The sentence for one unreadable date, `bad`, inside what was `typed`."""
+    lowered = bad.lower()
+    timed = _WITH_TIME.match(lowered)
+    if timed and _parse_day(timed.group("day")) is not None:
+        day = timed.group("day")
+        return (f"{typed} has a time that isn't on the clock{_DASH}"
+                f"try {op}:{day}T10:00; hours run from 00 to 23, minutes from 00 to 59")
+    whole = _YEAR_MONTH.match(lowered)
+    if whole:
+        year, month = whole.group("year"), int(whole.group("month"))
+        nearest = "12" if month > 12 else "01"
+        return (f"{typed} isn't a date{_DASH}there is no month {month}. "
+                f"Try {op}:{year}-{nearest} or date:{year}-01..{year}-06")
+    full = _YEAR_MONTH_DAY.match(lowered)
+    if full:
+        year, month = int(full.group("year")), int(full.group("month"))
+        if 1 <= month <= 12:
+            last = _end_of(year, month).day
+            name = _MONTH_NAMES[month - 1]
+            return (f"{typed} isn't a date{_DASH}{name} {year} has {last} days. "
+                    f"Try {op}:{year}-{month:02d}-{last:02d} or {op}:{year}-{month:02d}")
+        return (f"{typed} isn't a date{_DASH}there is no month {month}. "
+                f"Try {op}:{year}-12-{int(full.group('day')):02d} or {op}:{year}")
+    if op == "date":
+        return (f"{typed} isn't a date Leasha can read{_DASH}try date:2017, "
+                f"date:2017-03, date:2017-03-14 or a range, date:2017-01..2017-06")
+    return (f"{typed} isn't a date Leasha can read{_DASH}try {op}:2017-03-14, "
+            f"{op}:2017, {op}:2017-03-14T10:00 or {op}:30d")
+
+
 def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     """Decompose a raw search string. Never raises, whatever is thrown at it."""
     if raw is None:
@@ -616,6 +687,8 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     sizes: list[tuple[str, int]] = []
     has_attachment: Optional[bool] = None
     unknown: list[str] = []
+    #: Plain-words reasons for the dates in `unknown` - see `_date_problem`.
+    problems: list[str] = []
     sort_order = ""
     after: Optional[date] = None
     before: Optional[date] = None
@@ -752,6 +825,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 raw_after = val
             else:
                 unknown.append(match.group(0))
+                problems.append(_date_problem("after", val, today=today))
         elif fld == "before":
             # `end=True`: `before:2024` means the end of 2024, not its start.
             parsed = _parse_date(val, today=today, end=True)
@@ -760,6 +834,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 raw_before = val
             else:
                 unknown.append(match.group(0))
+                problems.append(_date_problem("before", val, today=today))
         elif fld == "date":
             # **The same two fields, not a third.** `after`/`before` are what
             # the SQL builder, the sent-date rule for mail, the Mail tab and
@@ -768,6 +843,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             span = _parse_span(val, today=today)
             if span is None:
                 unknown.append(match.group(0))
+                problems.append(_date_problem("date", val, today=today))
             else:
                 first, last, raw_first, raw_last = span
                 if first is not None:
@@ -896,6 +972,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         has_attachment=has_attachment,
         sort=sort_order,
         unknown_operators=tuple(unknown),
+        date_problems=tuple(problems),
     )
 
 

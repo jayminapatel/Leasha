@@ -311,3 +311,74 @@ def test_the_cli_search_applies_date(tmp_path, capsys):
     assert code == cli.EXIT_OK
     assert [Path(hit["path"]).name for hit in payload["results"]] == ["march report.txt"]
     assert payload["dates"] == {"after": "2017-01-01", "before": "2017-12-31"}
+
+
+# --- §1d: a mistyped date is said where each box already says things --------
+
+BAD = "date:2017-13"
+SAID = ("date:2017-13 isn't a date — there is no month 13. "
+        "Try date:2017-12 or date:2017-01..2017-06")
+
+
+def test_search_says_what_was_wrong_on_the_notice_bar(qapp, engine):
+    r"""The notice bar is where the Search tab already says a search was not
+    what it looked like. Not only the status line's `Ignored: date:2017-13`,
+    which says what happened and not why - and is only shown when there are
+    results at all."""
+    from app.ui.search_view import SearchView
+
+    view = SearchView(engine)
+    try:
+        view.input.setText(f"report {BAD}")
+        view.search_now()
+        _pump()
+        assert SAID in view.notices.label.text()
+    finally:
+        view.shutdown()
+
+
+@pytest.mark.parametrize("tab", ["files", "mail", "code"])
+def test_the_other_tabs_say_it_on_their_summary_line(qapp, store, tab):
+    from app.ui.code_view import CodeView
+    from app.ui.files_view import FilesView
+    from app.ui.mail_view import MailView
+
+    view = {"files": FilesView, "mail": MailView, "code": CodeView}[tab](store)
+    try:
+        if tab == "code":
+            view.refresh()                   # the summary needs the repositories
+            _pump()
+        view.input.setText(BAD)
+        (view._typed if tab == "code" else view._run)()
+        _pump()
+        assert view.summary.text().startswith(f"⚠ {SAID}")
+    finally:
+        view.shutdown()
+
+
+def test_the_notice_comes_first_and_cannot_inject_markup():
+    r"""The bar draws rich text and the sentence quotes what was typed, so the
+    value is escaped; and the date comes first, because a filter that is not
+    there is the whole explanation for the list beneath it."""
+    from app.search.query import parse_query
+    from app.ui.presenter import NOTICE_DATE_PROBLEM, window_notices, with_date_problems
+
+    parsed = parse_query("report type:pdf date:<b>soon</b>")
+    (hint, *_rest) = window_notices("report type:pdf date:<b>soon</b>", parsed)
+    assert hint.code == NOTICE_DATE_PROBLEM
+    assert "<b>" not in hint.message and "&lt;b&gt;" in hint.message
+    assert with_date_problems("3 files", parse_query(BAD)) == f"⚠ {SAID}  ·  3 files"
+    assert with_date_problems("3 files", parse_query("date:2017")) == "3 files"
+
+
+def test_the_cli_says_it_too(tmp_path, capsys):
+    from app import cli
+    from tests.unit.test_cli_wiring import env_file, parser_for
+
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+    cli.cmd_search(parser_for(["search", "report", BAD, "--no-rerank", "--env", env]))
+    out = capsys.readouterr().out
+    assert f"  ! {SAID}" in out
+    assert "(ignored: date:2017-13)" in out
