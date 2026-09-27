@@ -483,6 +483,7 @@
     <Compile Include="tests\unit\test_archives.py" />
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
+    <Compile Include="tests\unit\test_between_dates.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
     <Compile Include="tests\unit\test_cell_locators.py" />
@@ -539,6 +540,7 @@
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
+    <Compile Include="tests\unit\test_date_forms_every_box.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
@@ -857,12 +859,8 @@
     <Content Include="AGENTS.md" />
     <Content Include="BUILD_SPEC_V2.md" />
     <Content Include="CHANGELOG.md" />
-    <Content Include="CHANGELOG.md" />
-    <Content Include="CHANGELOG.md" />
     <Content Include="CLAUDE.md" />
     <Content Include="GitSearch.txt" />
-    <Content Include="HANDOFF.md" />
-    <Content Include="HANDOFF.md" />
     <Content Include="HANDOFF.md" />
     <Content Include="LOCAL_KNOWLEDGE_GRAPH_V2.md" />
     <Content Include="README.md" />
@@ -928,8 +926,6 @@
     <Content Include="docs\HANDOFF-github.md" />
     <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\MAC_VERIFICATION.md" />
-    <Content Include="docs\ORDER_REGISTER.md" />
-    <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\PARKED-IDEAS.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
