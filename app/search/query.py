@@ -52,6 +52,7 @@ _FIELD_ALIASES = {
     "type": "ext", "ext": "ext", "kind": "ext",
     "after": "after", "since": "after",
     "before": "before", "until": "before",
+    "date": "date",
     "path": "path", "folder": "path", "dir": "path",
     "repo": "repo", "repository": "repo", "project": "repo",
     "on": "volume", "volume": "volume", "drive": "volume",
@@ -450,6 +451,58 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     return None
 
 
+def _is_relative(value: str) -> bool:
+    """True for `today`, `7d`, `last month` - a moment counted back from now."""
+    v = value.strip().strip('"').lower()
+    if v in _RELATIVE_DAYS or _RELATIVE_SPAN.match(v):
+        return True
+    return v.startswith("last") and v.replace("last", "", 1).strip(" -_") in _RELATIVE_DAYS
+
+
+#: The separator between the two ends of a `date:` range.
+_RANGE = ".."
+
+
+def _parse_span(value: str, *, today: Optional[date] = None) -> Optional[tuple]:
+    r"""`date:`'s value as `(first, last, raw_first, raw_last)`. None if unreadable.
+
+    **One period, both edges.** `date:2017` is `after:2017 before:2017` - the
+    whole year - because `_parse_date` already knows which edge of a partial
+    date each side means. Writing it out again here would be a second set of
+    date rules, and the first one has been corrected twice.
+
+    `A..B` is a range and either end may be empty: `date:..2017` has no start
+    and `date:2017..` no end, which is `None` on that side - no limit, rather
+    than a limit invented for it. A relative value on its own is "since then":
+    `date:30d` is the last thirty days, not the single day thirty days ago,
+    which nobody would type `date:` to mean. `today` and `yesterday` are the
+    exceptions, because they already name one whole day.
+
+    The raw text of each end is returned so a reversed range can be resolved
+    again against the correct edge, exactly as `after:`/`before:` are.
+    """
+    text = value.strip().strip('"').strip()
+    if _RANGE in text:
+        start, _sep, finish = (part.strip() for part in text.partition(_RANGE))
+        if not start and not finish:
+            return None
+        first = _parse_date(start, today=today) if start else None
+        last = _parse_date(finish, today=today, end=True) if finish else None
+        if (start and first is None) or (finish and last is None):
+            return None
+        return first, last, start, finish
+    if not text:
+        return None
+    if _is_relative(text) and text.lower() not in ("today", "yesterday"):
+        first = _parse_date(text, today=today)
+        return (first, None, text, "") if first is not None else None
+    first = _parse_date(text, today=today)
+    last = _parse_date(text, today=today, end=True)
+    if first is None or last is None:
+        return None
+    return first, last, text, text
+
+
 def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     """Decompose a raw search string. Never raises, whatever is thrown at it."""
     if raw is None:
@@ -636,6 +689,20 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 raw_before = val
             else:
                 unknown.append(match.group(0))
+        elif fld == "date":
+            # **The same two fields, not a third.** `after`/`before` are what
+            # the SQL builder, the sent-date rule for mail, the Mail tab and
+            # the CLI already read, so `date:` needs nothing downstream of
+            # this line. An open end leaves that side as it was.
+            span = _parse_span(val, today=today)
+            if span is None:
+                unknown.append(match.group(0))
+            else:
+                first, last, raw_first, raw_last = span
+                if first is not None:
+                    after, raw_after = first, raw_first
+                if last is not None:
+                    before, raw_before = last, raw_last
         return " "                                  # remove from the free text
 
     working = _OPERATOR.sub(_take_operator, working)

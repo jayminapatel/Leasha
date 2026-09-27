@@ -34,6 +34,15 @@ def test_a_filter_the_person_already_typed_is_not_offered_again():
                          "school trip from:dave") == []
 
 
+def test_a_typed_date_answers_both_edges_so_neither_is_offered():
+    """`date:` sets `after` and `before` both (order "dates" §1a), so a
+    year chip beside it would offer a filter the box already has."""
+    chips = [Chip("after", "2016-01-01", "2016"), Chip("before", "2016-12-31", "2016")]
+    for typed in ("report 2016 date:2017", "report 2016 /date 2017"):
+        assert filter_offers(chips, typed) == [], typed
+    assert len(filter_offers(chips, "report 2016")) == 2
+
+
 def test_no_chips_no_offers():
     assert filter_offers((), "volcanoes") == []
     assert filter_offers(None, "volcanoes") == []

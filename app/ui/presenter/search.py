@@ -432,6 +432,9 @@ def filter_offers(chips: Any, raw: str) -> list[Any]:
         operator = chip.as_filter()
         if f"{chip.field}:" in typed:
             continue
+        # `date:` sets both edges, so it has already said what either would.
+        if chip.field in ("after", "before") and ("date:" in typed or "/date" in typed):
+            continue
         shown = html.escape(chip.label())
         offers.append(_Hint(
             NOTICE_FILTER_OFFER,

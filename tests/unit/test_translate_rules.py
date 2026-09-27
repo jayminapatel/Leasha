@@ -444,6 +444,19 @@ def test_quotes_and_typed_operators_are_never_consumed():
     assert typed.after is None                     # and a bare year is no longer mail's
 
 
+def test_a_typed_date_operator_wins_over_the_year_rule():
+    """Order "dates" §1a. `date:` fills `after`/`before`, so the rule that
+    reads "in 2017" steps aside exactly as it does for a typed `after:` -
+    and the mail filter it did not contradict still applies."""
+    for typed in ("date:2016", "date:2016-03..2016-06", "date:..2016"):
+        applied = _applied(f"mail in 2017 {typed}")
+        parsed = parse_query(applied.query)
+        assert not any(f.kind == "date" for f in applied.filters), typed
+        assert parsed.after != date(2017, 1, 1), typed
+        assert typed in applied.query
+        assert set(parsed.ext) == {"msg", "eml", "pst"}
+
+
 def test_a_declined_filter_puts_its_words_back():
     """Removing a chip restores normal behaviour for that part, and only that
     part: the mail filter stays, and "2017" is a search word again."""

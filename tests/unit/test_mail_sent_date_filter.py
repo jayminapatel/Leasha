@@ -120,6 +120,39 @@ def test_the_same_filter_with_words_still_uses_the_sent_date(indexed):
         "Letter E2017"}
 
 
+def test_date_finds_a_message_by_its_sent_date_on_every_path(indexed):
+    """Order "dates" §1a: `date:` sets the fields `after:`/`before:` set, so
+    the sent-date rule follows it for free - the filter-only browse, the
+    keyword path, and a range whose months hold the letter."""
+    assert _subjects(indexed, "type:mail date:2017") == {"Letter E2017"}
+    assert _subjects(indexed, "boiler date:2017-06") == {"Letter E2017"}
+    assert _subjects(indexed, "type:mail date:2017-03..2017-06") == {"Letter E2017"}
+    assert _subjects(indexed, "type:mail date:..2012") == {"Letter E2012"}
+    assert _subjects(indexed, "type:mail date:2017-07..2017-12") == set()
+
+
+def test_the_mail_tab_reads_date_on_the_sent_column_and_keeps_the_last_day(indexed):
+    r"""The Mail tab filters `m.sent_at` through `mail_filters`, not the
+    shared SQL - and `before` is the last day **included** there too.
+
+    It used to pass the midnight *starting* that day to a `sent_at < ?`
+    comparison, so a letter sent on 15 June fell out of `date:2017-06-15`
+    and `before:2017-06-15`, which both say "on or before" everywhere else.
+    """
+    from app.search.commands import expand_slashes
+    from app.ui.presenter import mail_filters
+
+    def mail_tab(query: str) -> set:
+        filters = mail_filters(parse_query(expand_slashes(query)))
+        return {row["subject"] for row in indexed.browse_messages(**filters)}
+
+    assert mail_tab("/date 2017") == {"Letter E2017"}
+    assert mail_tab("date:2017-06-15") == {"Letter E2017"}
+    assert mail_tab("before:2017-06-15") == {"Letter E2017", "Letter E2012"}
+    assert mail_tab("date:2017-03..2017-06") == {"Letter E2017"}
+    assert mail_tab("date:2017-06-16..") == set()
+
+
 def test_a_message_with_no_sent_date_keeps_the_container_date(indexed):
     """No sent date is no date to prefer: the row falls back to `mtime_ns`
     exactly as before, rather than to 1970."""
