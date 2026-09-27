@@ -503,3 +503,42 @@ def test_the_fast_or_thoughtful_box_stays_the_size_of_its_words(gui_mainwindow, 
     finally:
         chat.speed_changed.disconnect(chosen.append)
         window.rail.setCurrentIndex(0)
+
+
+# ---------------------------------------------------------------------------
+# Items the review proposed and did not build, built afterwards the same day.
+# ---------------------------------------------------------------------------
+
+def test_the_indexing_headline_agrees_with_the_document_count(gui_mainwindow, qtbot):
+    r"""**Before** (review finding 10): with no run this session, Indexing ›
+    Status read "Nothing indexed yet." directly above "Documents 17" - the
+    starting headline, which only a run ever replaced. Grab:
+    `after-final-1100x760/light/indexing-status.png`.
+
+    Now a mouse click on the rail's pill opens the page, its totals are read as
+    they always were, and the headline says the Search page's own sentence for
+    that count. A run's own headline is never overwritten by a later count."""
+    from tests.unit.conftest import GUI_DOCUMENTS
+    from app.ui.widgets.indexing_layout import paint_totals
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    view = window.indexing_view
+    count = len(GUI_DOCUMENTS)
+    try:
+        qtbot.mouseClick(window.rail.pill, Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert window.rail.tabText(window.rail.currentIndex()) == "Indexing"
+        qtbot.waitUntil(
+            lambda: view.headline.text() == f"{count:,} documents ready to search.",
+            timeout=4000)
+        assert "Nothing indexed yet" not in view.headline.text()
+
+        # Something a run said is more specific than a count, and stays.
+        view.headline.setText("Finished: 3 indexed, 0 skipped, 0 removed")
+        paint_totals(view, dict(view._totals_payload))
+        assert view.headline.text() == "Finished: 3 indexed, 0 skipped, 0 removed"
+    finally:
+        view.headline.setText(getattr(view, "_resting_headline", "Nothing indexed yet."))
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)
