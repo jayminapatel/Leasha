@@ -108,6 +108,12 @@ class IndexControls(QWidget):
                  self.scan_button, self.reset_button)
         for first, second in zip(order, order[1:]):
             QWidget.setTabOrder(first, second)
+        #: The buttons left to right, as the row reads. **The one place this
+        #: order is written down**: the page's layout reads it from here when
+        #: it slots the run log in before the row. It used to keep its own
+        #: copy, and when the row was reordered (Start, Pause, Stop - 3ddb128)
+        #: the copy still said Start, Scan, Stop, Pause and overrode this.
+        self.in_order = order
 
         #: Whether *this person* has the run held. Not the same question as
         #: `stats.paused`, which is true for the governor's pause as well.

@@ -932,6 +932,7 @@
     <Content Include="assets\icons\move.svg" />
     <Content Include="assets\icons\palette.svg" />
     <Content Include="assets\icons\panel-right.svg" />
+    <Content Include="assets\icons\pause.svg" />
     <Content Include="assets\icons\pin.svg" />
     <Content Include="assets\icons\play.svg" />
     <Content Include="assets\icons\refresh-cw.svg" />
