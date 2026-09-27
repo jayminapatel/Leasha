@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.28 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.29 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -41,9 +41,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   ready, working out which folders to read, catching up on the last run and tidying the index
   afterwards sent no progress at all. In those stretches the bar now shows it is busy, and
   one line says what is happening.
+- **A Mail tab range dropped its last day.** `before:2024` on the Mail tab missed everything
+  from 31 December. It now includes it, as the Search tab and `/before`'s own words ("on or
+  before") always said.
+- **The timeline sometimes fetched a second page nobody had scrolled to.** It checked whether
+  you were near the bottom before the new rows had been laid out, so the answer was always yes.
+  It now waits for the layout.
+- **The mini-search's `/` commands were searched for as words.** `/after 2017` there looked for
+  the words "after" and "2017". It now has the same `/` menu as the other boxes, and uses it.
 
 **New**
 
+- **Dates and times in every search box.** `date:2017`, `date:2017-03`, `date:2017-03-14`, and
+  ranges: `date:2017-01..2017-06`, or with one side open, `date:..2017` or `date:2017..`.
+  `after:` and `before:` take a time too (`after:2017-03-01T10:00`). `/date` offers them in the
+  `/` menu of Search, Files, Mail, Code and the mini-search. Type a date that cannot be read and
+  Leasha says what was wrong and what would work ("date:2017-13 isn't a date - there is no
+  month 13. Try date:2017-12 or date:2017-01..2017-06"), instead of quietly searching for it
+  as a word.
 - **A live log on the Indexing page**, headed "What the run is doing". Every line has its
   time: each step, each large archive or video as it is opened, pauses and why, warnings, and
   how the run ended. Scroll up to read, and it stays where you left it. The run's notices
