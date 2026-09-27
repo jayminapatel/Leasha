@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.4 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 2.5 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -75,6 +75,50 @@ V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAP
 ```
 
 **Search pipeline:** FTS5 BM25 + LanceDB ANN in parallel → reciprocal rank fusion → (optional) cross-encoder rerank of top 30 → results. No LLM in the search hot path.
+
+### 2026-09-27 additions (order 0x) - read this if you are new here
+
+Three things were added around the picture above. None of them changes the one-process,
+no-services rule for what the person uses: the window and search are still one process with no
+ports and no server.
+
+**1. The indexer can run as a second process** (`app/index/child_run.py`, `app/index/run_events.py`).
+Python lets only one thread run Python code at a time (the "global interpreter lock"), so an index
+running on threads inside the window's process takes turns with the window, however carefully it is
+threaded. With the setting *Index in a separate process* on, the window starts
+`python -m app.cli index --events jsonl` as a child process instead:
+
+```
+Window process                                   Child process (app.cli index)
+  IndexingView  <- stats rebuilt from JSON  <---  stdout: one JSON line per event
+  ChildIndexRun (reads lines on the page's        (progress, heartbeat, finished)
+                 existing index thread)     --->  stdin: pause / resume / stop
+```
+
+Each line is plain JSON, so the page reads the child's progress exactly as it reads an in-process
+run. If the child dies, the page says so and names the file it was reading; the child takes the run
+lock itself, so an interrupted run carries on next time; and when the window goes, the child's
+stdin closes, which it treats as Stop. The setting is **off by default** until it has been measured
+on a real index (order 0x item 2d).
+
+**2. Progress inside one file** (`app/extract/progress.py`, `app/index/live_progress.py`,
+`app/ui/presenter/live_progress.py`). A mail archive or a zip is one file with thousands of things in
+it. Each reader keeps a small per-thread "frame" saying where it is - `Archive2019.pst › Inbox ›
+message 4,512 of 18,300` - and updates it with one assignment per message (no locking, no text
+formatting). The pipeline copies those frames into `IndexStats.workers` about once a second, and the
+presenter turns them into the sentences on the Indexing page: a headline, one line per reader, and a
+heartbeat ("last activity 2 s ago").
+
+**3. One home for platform code** (`app/core/osbridge/`). Everything that differs between Windows and
+macOS - opening a file, showing it in Explorer or Finder, lowering priority, finding installed
+programs, the default data folder, cloud placeholders, path separators and letter case - lives here,
+with a Windows version and a macOS/POSIX version of each. Windows is platform one: its versions are the
+code that was already there, moved unchanged. The load-bearing test
+`test_no_windows_only_call_outside_osbridge` fails if a Windows-only call appears anywhere else.
+
+Also worth knowing: every SQLite connection is now a `_GuardedConnection` that counts calls in
+flight, so closing the store never closes a connection another thread is still reading from (that
+was a native crash).
 
 ---
 
