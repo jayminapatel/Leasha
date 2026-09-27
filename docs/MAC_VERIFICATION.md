@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -119,6 +119,15 @@ it, or write what happened underneath with the date. Anything marked
 
 - [ ] **7.5** Index a large `.mbox` and a zip of documents: the page names the archive and "message
       n of m" / "member n of m", one line per reader, and "last activity" keeps moving.
+
+## 8. The indexer in its own process (order 0x §2)
+
+- [ ] **8.1** Turn on Indexing › Tuning › Strategy › "Index in a separate process" and start an index.
+      Activity Monitor shows a second `python` at lower priority (nice 10); Pause, Resume and Stop
+      reach it. **(UNCONFIRMED on macOS)**
+- [ ] **8.2** Force-quit Leasha mid-run: the second `python` exits within 60 seconds.
+- [ ] **8.3** `venv/bin/python -m app.cli bench-pipeline --probe --child-process --size small`
+      completes and reports the child's memory.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 
