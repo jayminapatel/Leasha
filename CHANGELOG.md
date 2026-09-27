@@ -27,6 +27,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### The Indexing page, easier to read while a run is going
 
+- **Inside a big mail archive or zip, the page now says where it is:** "Reading Archive2019.pst ›
+  Inbox/Projects — message 4,512 of 18,300", or "backup.zip › mail.mbox — message 812 of 2,000".
+  Before, a two-hour archive showed only a running count, which looked the same as a stuck one.
+- One line for each file being read at the same time, each with how long it has been on it.
+- "Working · last activity 2 s ago" underneath, and after a quiet minute a plain note of what can
+  normally take that long (a large scan being read with OCR, a very large attachment).
 - The progress bar now glides between updates instead of jumping, and never moves backwards.
   While Leasha does not yet know how much there is to do, it shows a moving block.
 - A line under the counts says what the run is doing right now.

@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -116,6 +116,9 @@ it, or write what happened underneath with the date. Anything marked
 - [ ] **7.3** Run log → Copy, then paste into TextEdit: every line starts with its HH:MM:SS time.
 - [ ] **7.4** Tab through the Status shelf (turn on System Settings → Keyboard → Keyboard
       navigation first): filter, Copy, log, Start, Scan, Stop, Pause, Reset.
+
+- [ ] **7.5** Index a large `.mbox` and a zip of documents: the page names the archive and "message
+      n of m" / "member n of m", one line per reader, and "last activity" keeps moving.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 

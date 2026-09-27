@@ -576,3 +576,25 @@ def test_live_view_puts_it_all_together_against_one_clock() -> None:
     assert view.workers[0].endswith("· 3 min 20 s")
     assert view.heartbeat == "Working · last activity 1 s ago" and not view.quiet
     assert view.writer == "Making text searchable by meaning, batch 1 of 2"
+
+
+def test_ocr_marks_the_reader_it_runs_inside_as_ocr_and_puts_it_back() -> None:
+    """Order 0x §3: OCR is seconds a page, so while it runs the reader's line
+    must say "OCR" rather than look stuck on an item. The fake engine records
+    the stage it sees mid-call; afterwards the frame's own stage is back."""
+    from app.extract import ocr, progress
+
+    seen: list = []
+
+    def engine(_image):
+        seen.append(progress.frames()[-1].stage)
+        return ([], 0.0)
+
+    with progress.enter("zip", "scans.zip", unit="member", total=1) as frame:
+        before = frame.stage
+        ocr.ocr_image("fake-source", engine=engine)
+        assert frame.stage == before
+
+    assert seen == [progress.STAGE_OCR]
+    # Outside any reader it is a plain call - no frame, nothing to mark.
+    ocr.ocr_image("fake-source", engine=lambda _i: ([], 0.0))

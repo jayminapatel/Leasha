@@ -153,16 +153,29 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 3. Progress you can read, inside one file too
 
-- [ ] **3a** A fixed list of stages, each with plain words the page shows: finding files,
+> **2026-09-27, 3a-3d built, and 4d with them.** Readers report where they are through per-thread
+> frames (`app/extract/progress.py`): one attribute store per message (about 5 ns), no lock, no
+> formatting, no pipeline import. mbox counts message n of m from the table of contents it already
+> builds (measured: no second pass), zip member n of m and its name, `.olm` n of m, and a libpff
+> PST its folder ("Inbox/Projects") and message n of m **within that folder** - a whole-archive
+> total would need a second walk, so there is none. Nesting reads `backup.zip › mail.mbox › message
+> 812`. `IndexStats.workers` holds one line per reader (numbered 1..N), `last_activity` moves only when
+> something changed, and the writer reports "batch n of m". OCR marks its reader's line "OCR" for
+> the length of the call. The page shows a headline, a line per reader with its own clock, and a
+> heartbeat that says "last activity 2 s ago" and, after a minute with nothing new, what could
+> normally take that long - never that the run has hung. Not wired: the Outlook (COM) reader, whose
+> folder walk reports nothing inside the archive yet. Trap: `.olm` and PST readers yield one message
+> ahead of what the pipeline has received (`with_closing_warning`).
+- [x] **3a** A fixed list of stages, each with plain words the page shows: finding files,
       opening an archive, reading a folder, reading messages, extracting attachments,
       reading inside a zip, OCR, chunking, embedding (batch n of m), writing, saving the
       resume point.
-- [ ] **3b** Readers report where they are inside one file: PST folder and message n of
+- [x] **3b** Readers report where they are inside one file: PST folder and message n of
       m (libpff's per-folder counts; the Outlook reader where it can), mbox message n of m,
       zip member n of m and its name, with nesting shown as `backup.zip › mail.mbox ›
       message 812`.
-- [ ] **3c** Several files at once: one line per worker, not one shared name.
-- [ ] **3d** A heartbeat once a second, so the page can say "working, last activity 2 s
+- [x] **3c** Several files at once: one line per worker, not one shared name.
+- [x] **3d** A heartbeat once a second, so the page can say "working, last activity 2 s
       ago" and warn in plain words when nothing has happened for a while.
 
 ## 4. The Indexing page
@@ -182,7 +195,7 @@ The design was agreed in conversation first. The owner confirmed every recommend
 - [x] **4c** A progress bar that glides between updates instead of jumping, and moves as a
       busy bar when the total is not known yet. Animation costs are measured: no more than
       the existing 0.25 s paint throttle allows.
-- [ ] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
+- [x] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
       a per-file bar for archives only.
 - [x] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
 
