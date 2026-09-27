@@ -1092,6 +1092,10 @@ def test_dragging_one_column_does_not_shrink_the_last_column_on_restart(tmp_path
             "the last column was never dragged; nothing should be saved for it")
         _settle_stretch(first)
         last_width_live = first.columnWidth(2)
+        # Queued on the ordered state writer since bug 3a - it must land before
+        # this store closes, as `MainWindow._drain_workers` makes it at exit.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
 
     second = _table(app)
     with SqliteStore(database) as store:
