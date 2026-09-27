@@ -429,20 +429,27 @@ QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18p
     background: {rail_on_bg}; color: {rail_on_text}; font-weight: 600;
 }}
 #rail QToolButton:focus {{ border-color: {rail_text}; }}
+/* **The indexing pill looks like the rail buttons around it** (owner,
+   2026-09-27: "the indexing pill looks big and out of place"). It was a filled
+   card with a bold headline; now it has no fill until the pointer is on it or
+   its page is open, and its word is the same size, weight and colour as a
+   button's label - chosen, it turns heavier, as a button's does. */
 #railPill {{
-    background: {rail_hover}; color: {rail_text}; border: none;
+    background: transparent; color: {rail_text}; border: 1px solid transparent;
     border-radius: {radius_control}; padding: 6px 0; font-size: {small};
 }}
-#railPill:hover, #railPill[selected="true"] {{ background: {rail_on_bg}; color: {rail_on_text}; }}
+#railPill:hover {{ background: {rail_hover}; }}
+#railPill[selected="true"] {{ background: {rail_on_bg}; }}
 #railPill:focus {{ border: 1px solid {rail_text}; }}
-#railPillHeadline {{ color: {rail_on_text}; font-weight: 600; font-size: {small}; }}
+#railPillHeadline {{ color: {rail_text}; font-size: {small}; }}
+#railPillHeadline[chosen="true"] {{ color: {rail_on_text}; font-weight: 600; }}
 #railPillDetail {{ color: {rail_text}; font-size: {small}; }}
 #railPill QProgressBar {{
-    background: {rail_on_bg}; border: none; border-radius: 2px;
-    max-height: 3px; min-height: 3px;
+    background: {rail_hover}; border: none; border-radius: 1px;
+    max-height: 2px; min-height: 2px;
 }}
 #railPill QProgressBar::chunk {{
-    background: {kind_code}; border-radius: 2px; width: 6px; margin: 0;
+    background: {accent}; border-radius: 1px; width: 6px; margin: 0;
 }}
 
 /* **The empty Search page** (§3a): the headline is the one use of the

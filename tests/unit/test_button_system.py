@@ -314,3 +314,105 @@ def test_the_dialogs_and_pop_outs_follow_the_rules_too(qapp, shown) -> None:
     finally:
         for dialog in built:
             dialog.deleteLater()
+
+
+# ---------------------------------------------------------------------------
+# The indexing pill
+# ---------------------------------------------------------------------------
+
+def test_the_pill_reads_as_a_rail_button_and_still_says_state_and_count(shown, qtbot) -> None:
+    """**Before:** the pill at the rail's foot was a filled card - a bold
+    two-line "Up to date", a bar and "17 files" - the heaviest thing on the
+    rail, taller than any page button around it.
+
+    Now it is the rail buttons' width, no taller than two of their labels
+    would make it, unfilled until chosen; its state is a word under an icon
+    with a coloured dot; the count is in its tooltip and accessible name; a
+    mouse click still opens the Indexing page."""
+    from PyQt6.QtCore import Qt
+
+    from app.ui.rail_state import FINISHED, RUNNING, pill_text
+    from tests.unit.conftest import gui_pump
+
+    app, window = shown
+    _open(app, window, "Search")
+    rail, pill = window.rail, window.rail.pill
+    settings_button = next(b for b in rail._buttons.values() if b.text() == "Settings")
+
+    rail.show_pill(pill_text(FINISHED, documents=17), None)
+    gui_pump(app, 3)
+    assert pill.headline.isVisible() and pill.headline.text() == "Up to date"
+    assert not pill.detail.isVisible(), "the figures moved to the tooltip"
+    assert "17 files" in pill.toolTip() and "Open the Indexing page" in pill.toolTip()
+    assert "17 files" in pill.accessibleName()
+    assert pill.glyph.pixmap() is not None and not pill.glyph.pixmap().isNull()
+    assert not pill.bar.isVisible(), "the bar only shows while a run moves it"
+    assert pill.width() == settings_button.width()
+    line = pill.headline.fontMetrics().lineSpacing()
+    assert pill.height() <= settings_button.height() + line + 2, (
+        f"pill {pill.height()}px against a {settings_button.height()}px button")
+    assert pill.property("selected") is not True
+
+    rail.show_pill(pill_text(RUNNING, indexed=1234), None)
+    gui_pump(app, 3)
+    assert pill.headline.text() == "Indexing"
+    assert "1,234 so far" in pill.toolTip()
+    assert pill.bar.isVisible()
+
+    qtbot.mouseClick(pill, Qt.MouseButton.LeftButton)
+    gui_pump(app, 3)
+    assert rail.widget(rail.currentIndex()) is window.indexing_view or \
+        window.indexing_view.isAncestorOf(rail.widget(rail.currentIndex())) or \
+        rail.widget(rail.currentIndex()).isAncestorOf(window.indexing_view)
+    assert pill.property("selected") is True
+    rail.show_pill(pill_text(FINISHED, documents=17), None)
+    _open(app, window, "Search")
+
+
+def test_a_short_window_leaves_the_pill_as_an_icon(shown) -> None:
+    """0x section 9's short-window rule, for the pill too: below the height the
+    labelled rail needs, the buttons go to icons alone and so does the pill -
+    its word stays in the tooltip - and both come back when there is room."""
+    from tests.unit.conftest import gui_pump
+
+    app, window = shown
+    rail, pill = window.rail, window.rail.pill
+    try:
+        window.resize(1100, 200)                 # Qt stops at the window's floor
+        gui_pump(app, 8)
+        assert rail._compact or window.minimumSize().height() >= rail._natural
+        if rail._compact:
+            assert not pill.headline.isVisible()
+            assert pill.glyph.isVisible()
+            assert pill.headline.text() in pill.toolTip()
+        window.resize(1100, 900)
+        gui_pump(app, 8)
+        assert not rail._compact
+        assert pill.headline.isVisible()
+    finally:
+        window.resize(1100, 760)
+        gui_pump(app, 5)
+
+
+def test_every_pill_state_has_a_dot_colour_from_the_theme() -> None:
+    """The dot's colour is decided without Qt, like the words, and is always
+    a real token in both palettes."""
+    from app.ui.rail_state import FAILED, FINISHED, IDLE, RUNNING, TONES, pill_text
+
+    states = {
+        "Up to date": pill_text(FINISHED, documents=3),
+        "Indexing": pill_text(RUNNING, indexed=5),
+        "Paused": pill_text(RUNNING, indexed=5, paused=True),
+        "Stopped": pill_text(FINISHED, indexed=5, stopped_early=True),
+        "Needs attention": pill_text(FAILED, error="disk full"),
+        "Nothing yet": pill_text(IDLE, documents=0),
+        "Index": pill_text(IDLE, documents=None),
+    }
+    for headline, state in states.items():
+        assert state.headline == headline
+        assert state.tone in TONES, headline
+        for palette in theme.PALETTES.values():
+            assert TONES[state.tone] in palette, (headline, TONES[state.tone])
+    assert states["Up to date"].tone == "done"
+    assert states["Needs attention"].tone == "failed"
+    assert states["Paused"].tone == states["Stopped"].tone == "held"
