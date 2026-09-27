@@ -403,7 +403,11 @@ class TestMboxKillAndResume:
 
             # --- Run 1: killed partway through -------------------------
             first = _pipeline()
-            stats1 = first.run(on_progress=lambda _stats: first.request_stop())
+            # The first tick with something indexed, not the first tick:
+            # since bug 2b the run announces each phase with a tick, and the
+            # first of those comes before a single message is read.
+            stats1 = first.run(
+                on_progress=lambda s: s.indexed and first.request_stop())
 
             assert 0 < stats1.indexed < total_messages, (
                 "the run must have been interrupted genuinely partway "

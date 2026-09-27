@@ -123,7 +123,10 @@ def period_words(period: Any) -> str:
     if (after is not None and before is not None and (after.month, after.day) == (1, 1)
             and (before.month, before.day) == (12, 31) and after.year == before.year):
         return f"{after.year}"
-    short = lambda d: f"{d.day} {d:%b} {d.year}"                  # noqa: E731
+    # A typed time of day (order "dates" §1b) is said, or a range of two hours
+    # would read as the same day twice.
+    short = lambda d: f"{d.day} {d:%b} {d.year}" + (           # noqa: E731
+        f" {d:%H:%M}" if isinstance(d, datetime) else "")
     if after is None:
         return f"Everything up to {short(before)}"
     if before is None:

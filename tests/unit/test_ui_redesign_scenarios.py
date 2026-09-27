@@ -148,6 +148,10 @@ def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app)
     assert _page(first) == "Files"
+    # The save is queued on the ordered state writer since the page-switch fix
+    # (bug 3a) - wait for it, as the window's own close does before its store goes.
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:page", "") == "Files"
 
     second = launch()                     # the same store: a second launch
@@ -750,6 +754,9 @@ def test_the_text_size_preference_reaches_the_results_list(gui_mainwindow, paint
         assert heights["small"] < heights["large"], heights
         # And it is the saved preference, so it is there next launch.
         _set_prefs(window, density="compact", font_pt=16)
+        # Saved on the ordered state writer since bug 3a - wait for it.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
         state = store.all_state()
         assert state["ui:results:font_pt"] == "16" and state["ui:results:density"] == "compact"
     finally:

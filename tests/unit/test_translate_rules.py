@@ -333,3 +333,209 @@ def test_the_tables_are_marked_for_the_deferred_tuning_pass():
 
     source = pathlib.Path(rules.__file__ or "").read_text(encoding="utf-8")
     assert source.count("[TUNE]") >= 5
+
+
+# --------------------------------------------------------------------------
+# Applied, not only offered (owner decision 2026-09-27)
+# --------------------------------------------------------------------------
+#
+# "mail from 2017" typed into the Search tab ran as `"mail" OR "2017"`. The
+# owner decided that the readings the rules are sure of are *applied*: the
+# words become real filters (shown as removable chips) and leave the search
+# terms. `read()` above is unchanged - these are `apply()`.
+
+from app.search.query import parse_query  # noqa: E402
+from app.search.translate_rules import apply  # noqa: E402
+
+TODAY_APPLY = date(2026, 9, 27)
+
+
+class _OneJohn:
+    """A store that knows exactly one John, and holds mail and documents."""
+
+    def distinct_values(self, kind, limit=40, **_):
+        return {
+            "sender": ["john.smith@acme.com", "dave.smith@acme.com"],
+            "recipient": ['["me@acme.com"]'],
+            "ext": ["pst", "eml", "pdf", "docx"],
+        }.get(kind, [])
+
+
+def _applied(sentence, store=None, **kwargs):
+    return apply(sentence, store if store is not None else _OneJohn(),
+                 today=TODAY_APPLY, **kwargs)
+
+
+def _year_2017(parsed):
+    return parsed.after == date(2017, 1, 1) and parsed.before == date(2017, 12, 31)
+
+
+@pytest.mark.parametrize("sentence", ["mail from 2017", "emails from 2017",
+                                      "mail in 2017", "email 2017", "messages from 2017"])
+def test_mail_from_a_year_is_a_filter_only_query(sentence):
+    """**The owner's report.** Every spelling of it becomes the same query:
+    mail - msg, eml *and* pst, exactly what typed `type:mail` means - sent in
+    2017, and no search words at all, so it lists that year's mail newest
+    first instead of hunting for the word "mail"."""
+    parsed = parse_query(_applied(sentence).query)
+    assert set(parsed.ext) == {"msg", "eml", "pst"}
+    assert _year_2017(parsed)
+    assert parsed.terms == () and not parsed.has_text
+    assert parsed.has_filters
+
+
+def test_mail_from_a_known_person_in_a_year_applies_all_three():
+    applied = _applied("mail from John in 2017")
+    parsed = parse_query(applied.query)
+    assert parsed.senders == ("john.smith@acme.com",)
+    assert set(parsed.ext) == {"msg", "eml", "pst"}
+    assert _year_2017(parsed)
+    assert parsed.terms == ()
+    assert [f.label for f in applied.filters] == [
+        "mail", "from john.smith@acme.com", "in 2017"]
+
+
+def test_a_person_the_index_does_not_know_stays_a_word():
+    parsed = parse_query(_applied("mail from Mortimer in 2017").query)
+    assert parsed.senders == ()
+    assert "Mortimer" in parsed.terms
+    assert _year_2017(parsed)
+
+
+def test_invoice_2017_keeps_the_year_as_a_word():
+    r"""**Decided conservatively, and this is the line.** A bare year beside a
+    document word stays a search term: an invoice's only date is often the
+    day it was copied (`mtime_ns`) while its name says 2017, so a 2017 filter
+    would hide the very file asked for. It is still offered as a chip; one
+    click applies it. "from 2017" / "in 2017" say it is a date, so they apply.
+    """
+    applied = _applied("invoice 2017")
+    assert applied.query == "invoice 2017" and applied.filters == ()
+    parsed = parse_query(_applied("invoice from 2017").query)
+    assert _year_2017(parsed) and parsed.terms == ("invoice",)
+
+
+def test_before_and_after_a_year_are_its_edges():
+    assert parse_query(_applied("mail before 2015").query).before == date(2014, 12, 31)
+    assert parse_query(_applied("mail after 2015").query).after == date(2016, 1, 1)
+
+
+def test_two_years_is_a_range_the_rules_do_not_read():
+    parsed = parse_query(_applied("mail from 2016 to 2017").query)
+    assert parsed.after is None and parsed.before is None
+    assert "2017" in parsed.terms
+
+
+def test_what_the_rules_do_not_recognise_stays_as_typed():
+    applied = _applied("volcano homework essay")
+    assert applied.query == "volcano homework essay" and not applied.changed
+
+
+def test_leftover_words_that_say_something_stay_as_search_terms():
+    parsed = parse_query(_applied("emails about the boiler from 2017").query)
+    assert "boiler" in parsed.terms
+    assert _year_2017(parsed) and set(parsed.ext) == {"msg", "eml", "pst"}
+
+
+def test_quotes_and_typed_operators_are_never_consumed():
+    assert _applied('"mail from 2017"').query == '"mail from 2017"'
+    typed = parse_query(_applied("emails type:pdf 2017").query)
+    assert typed.ext == ("pdf",)                  # the typed type wins
+    assert typed.after is None                     # and a bare year is no longer mail's
+
+
+def test_a_typed_date_operator_wins_over_the_year_rule():
+    """Order "dates" §1a. `date:` fills `after`/`before`, so the rule that
+    reads "in 2017" steps aside exactly as it does for a typed `after:` -
+    and the mail filter it did not contradict still applies."""
+    for typed in ("date:2016", "date:2016-03..2016-06", "date:..2016"):
+        applied = _applied(f"mail in 2017 {typed}")
+        parsed = parse_query(applied.query)
+        assert not any(f.kind == "date" for f in applied.filters), typed
+        assert parsed.after != date(2017, 1, 1), typed
+        assert typed in applied.query
+        assert set(parsed.ext) == {"msg", "eml", "pst"}
+
+
+def test_a_typed_date_that_does_not_parse_still_keeps_the_year_rule_away():
+    """Order "dates" §1d. The person asked for a date filter and mistyped it;
+    the box says what is wrong, and quietly applying "in 2017" instead would
+    answer a question they did not ask."""
+    applied = _applied("mail in 2017 date:2017-13")
+    assert not any(f.kind == "date" for f in applied.filters)
+    parsed = parse_query(applied.query)
+    assert parsed.after is None and parsed.before is None
+    assert parsed.date_problems
+
+
+def test_a_declined_filter_puts_its_words_back():
+    """Removing a chip restores normal behaviour for that part, and only that
+    part: the mail filter stays, and "2017" is a search word again."""
+    first = _applied("mail from 2017")
+    date_chip = next(f for f in first.filters if f.kind == "date")
+    again = parse_query(_applied("mail from 2017", declined=[date_chip.key]).query)
+    assert again.after is None and again.before is None
+    assert "2017" in again.terms
+    assert set(again.ext) == {"msg", "eml", "pst"}
+
+
+def test_mail_is_only_applied_when_the_corpus_holds_mail():
+    class _NoMail(_OneJohn):
+        def distinct_values(self, kind, limit=40, **_):
+            return ["pdf", "docx"] if kind == "ext" else []
+
+    assert "type:mail" not in _applied("mail from 2017", _NoMail()).query
+
+
+def test_a_store_that_raises_still_applies_what_needs_no_store():
+    class _Broken:
+        def distinct_values(self, *_a, **_k):
+            raise RuntimeError("the index is locked")
+
+    parsed = parse_query(_applied("mail from 2017", _Broken()).query)
+    assert set(parsed.ext) == {"msg", "eml", "pst"} and _year_2017(parsed)
+
+
+def test_applying_asks_the_store_only_what_could_change_the_query():
+    r"""**This runs before every search, keystrokes included.** Asking for
+    every sender, recipient and extension up front measured 58 ms on 200,000
+    files (see `_apply`); "mail from 2017" now needs one `holds_ext` seek, and
+    a capitalised word is only looked up when it could become a filter."""
+    asked: list = []
+
+    class Counting(_OneJohn):
+        def holds_ext(self, extensions):
+            asked.append(("holds_ext", tuple(extensions)))
+            return True
+
+        def distinct_values(self, kind, limit=40, **kw):
+            asked.append(("distinct", kind))
+            return super().distinct_values(kind, limit=limit, **kw)
+
+    _applied("mail from 2017", Counting())
+    assert asked == [("holds_ext", ("msg", "eml", "pst"))]
+    asked.clear()
+    _applied("Budget Dave 2017", Counting())       # no mail, no preposition
+    assert asked == []
+    asked.clear()
+    assert "from:john.smith@acme.com" in _applied("mail from John", Counting()).query
+    assert ("distinct", "sender") in asked and ("distinct", "ext") not in asked
+
+
+def test_holds_ext_is_a_real_answer(tmp_path):
+    from app.storage.sqlite_store import SqliteStore
+
+    s = SqliteStore(tmp_path / "h.db").connect()
+    assert not s.holds_ext(("msg", "eml", "pst"))
+    s.upsert_file("C:/a.pst#1", parent_dir="C:/", ext="pst", size_bytes=1, mtime_ns=1,
+                  status="INDEXED", source_kind="pst_message")
+    assert s.holds_ext(("msg", "eml", "pst")) and not s.holds_ext(("pdf",))
+    assert not s.holds_ext(())
+    s.close()
+
+
+def test_every_mail_word_offers_the_same_mail_type_as_typing_it():
+    """`emails` offered `type:eml` - the first of two extensions - which is
+    not what `type:mail` means and missed every Outlook message."""
+    for word in ("mail", "email", "emails", "messages"):
+        assert _field(f"{word} about the boiler", "type", _OneJohn()) == "mail", word

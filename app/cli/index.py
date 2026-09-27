@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +65,47 @@ def _print_vector_coverage(stats) -> None:
     print("          `app.cli reembed` fills the gap without re-reading anything.")
 
 
+class _ActivityPrinter:
+    r"""Work order 0w §2d: the run's log, printed as it arrives.
+
+    The same entries, the same `HH:MM:SS` and the same words as the Indexing
+    page's log (non-negotiable #8), because both come from
+    `presenter.activity`. **Printed on the progress callback**, which runs on
+    the run's own thread, so there is no second thread writing to the
+    console; an entry recorded between two ticks is printed at the next one
+    with the time it was recorded, not the time it was printed. Each line
+    goes above the progress line - `clear`, print, `repaint` - the way the
+    log sink already does it, so neither mangles the other. ASCII-safe for a
+    console left at a legacy code page, as the phase words already were.
+    """
+
+    def __init__(self, progress: ProgressLine) -> None:
+        self._progress = progress
+        self._run: object = None
+        self._seq = 0
+
+    def __call__(self, stats: object) -> None:
+        from app.ui.presenter.activity import activity_lines, console_safe
+
+        log = getattr(stats, "activity", None)
+        if log is None:
+            return
+        # A notice appended without `add_notice` gets its time here too.
+        stamp = getattr(stats, "stamp_notices", None)
+        if callable(stamp):
+            stamp()
+        if log.run != self._run:
+            self._run, self._seq = log.run, 0
+        fresh = log.since(self._seq)
+        if not fresh:
+            return
+        self._seq = fresh[-1].seq
+        self._progress.clear()
+        for line in activity_lines(fresh):
+            print(console_safe(line, sys.stdout.encoding), flush=True)
+        self._progress.repaint()
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build or update the index. Layer 3's entry point.
 
@@ -78,6 +120,8 @@ def cmd_index(args: argparse.Namespace) -> int:
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
+    from app.ui.presenter import phase_words, unfinished_run_line
+    from app.ui.presenter.activity import console_safe, timed_notices
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -137,8 +181,16 @@ def cmd_index(args: argparse.Namespace) -> int:
     # function, so the two cannot drift.
     from app.index.resolve import resolve_for_run
 
+    from app.index.interrupted import read_unfinished_run
+
     with SqliteStore(settings.fts_db) as _store:
         tuned = resolve_for_run(settings, _store)
+        # Work order `dates-live-log-and-interrupted-runs` 3a. **Read before
+        # this run takes the lock**, because taking it replaces the record a
+        # run that died left behind - the only evidence that one did.
+        unfinished = read_unfinished_run(_store)
+    if unfinished and not args.json:
+        print(unfinished_run_line(unfinished, carrying_on=True))
     limits = replace(limits, workers=tuned.workers)
     _tuning_log = logger.bind(component="cli.index")
     for key, why in tuned.why.items():
@@ -248,9 +300,12 @@ def cmd_index(args: argparse.Namespace) -> int:
             format="{time:HH:mm:ss} {level: <7} {message}",
         )
 
+    say = _ActivityPrinter(progress)
+
     def show(stats) -> None:
         if args.json:
             return
+        say(stats)
         line = (f"  {stats.indexed:>7,} docs  {stats.unchanged:>6,} unchanged  "
                 f"{stats.unchanged_documents:>7,} already current  "
                 f"{stats.chunks:>8,} chunks")
@@ -272,6 +327,15 @@ def cmd_index(args: argparse.Namespace) -> int:
                 return
             reason = getattr(stats, "pause_reason", "") or "waiting for resources"
             progress.update(f"{line}  | PAUSED - {reason[:70]}")
+            return
+
+        # The stretches with nothing to count - loading the model, building
+        # the vector index at the end - in the same words the Indexing page
+        # uses. Without them this line sat unchanged for minutes, which is
+        # what a hang looks like. ASCII dots: this is a Windows console.
+        doing = phase_words(stats).replace("…", "...")
+        if doing:
+            progress.update(f"{line}  | {doing}")
             return
 
         recent = getattr(stats, "recent_files_per_minute", None)
@@ -310,9 +374,15 @@ def cmd_index(args: argparse.Namespace) -> int:
 
     payload = stats.as_dict()
     if args.json:
+        if unfinished:
+            payload["interrupted_before"] = unfinished
         print(json.dumps(payload, indent=2))
         return EXIT_ERROR if stats.stopped_early else EXIT_OK
 
+    # What arrived after the last tick - the vector index, the word index,
+    # the last line - before the summary, not lost behind it.
+    if not args.quiet:
+        say(stats)
     progress.finish()
     print()
     # Documents, not files. A .pst is one file and thousands of messages, and
@@ -325,9 +395,10 @@ def cmd_index(args: argparse.Namespace) -> int:
     if stats.unchanged_documents:
         print(f"          {stats.unchanged_documents:,} document(s) inside them were "
               f"already up to date")
-    for notice in getattr(stats, "notices", ()):
+    # Work order 0w §2c: with the time each was said, as the page shows them.
+    for notice in timed_notices(stats):
         print()
-        print(f"Note      {notice}")
+        print(console_safe(f"Note      {notice}", sys.stdout.encoding))
     if stats.skipped_roots:
         # **Said before the totals, not after.** A run that indexed 40 files
         # because three of its four folders were skipped needs to say so where

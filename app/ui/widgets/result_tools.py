@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui import drag_out
 from app.ui.results_view import ResultsView
+from app.ui.state_writes import save_state, save_states
 from app.ui.widgets import pinned_panel as _pinned_mod
 from app.ui.widgets import preview_window as _preview_window_mod
 from app.ui.widgets import thumbnail_grid as _grid_mod
@@ -63,12 +64,10 @@ def _read_flag(store: Any, key: str, *, default: bool) -> bool:
 
 
 def _write_flag(store: Any, key: str, value: bool) -> None:
-    if store is None:
-        return
-    try:
-        store.set_state(key, "on" if value else "off")
-    except Exception:                            # noqa: BLE001 - a preference
-        pass
+    # Queued on the ordered state writer (bug 3a): a switch flipped mid-index
+    # must not wait for the indexer's batch. A failure is logged there, which
+    # the bare `except: pass` this replaced never did.
+    save_state(store, key, "on" if value else "off", component="ui.results")
 
 
 def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineStrip,
@@ -224,11 +223,8 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
             return {}
 
     def _remember(values: dict) -> None:
-        if store is not None:
-            try:
-                store.set_states(values)
-            except Exception:                    # noqa: BLE001 - a preference
-                pass
+        # Fired on every pixel of a move or resize - queued, never waited for.
+        save_states(store, values, component="ui.lightbox")
 
     def _open(row: Any, siblings: Any) -> None:
         sibling_list = list(siblings or ())
@@ -292,11 +288,8 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     preview, split = attach_preview(results, on_opened, on_error, store=store)
 
     def remember(values: dict) -> None:
-        if store is not None:
-            try:
-                store.set_states(values)
-            except Exception:                    # noqa: BLE001 - a preference
-                pass
+        # Queued, never waited for - see `_write_flag`.
+        save_states(store, values, component="ui.results")
 
     def open_all(paths: Any) -> None:
         for path in paths:
