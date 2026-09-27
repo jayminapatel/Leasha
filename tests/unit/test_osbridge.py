@@ -33,6 +33,31 @@ from app.core.osbridge import priority as bridge_priority
 ROOT = Path(__file__).resolve().parents[2]
 
 
+
+def native(posix_path: str) -> str:
+    """The string a `Path` built from `posix_path` gives on *this* machine.
+
+    These tests pretend to be a Mac or Linux by switching `sys.platform`, but
+    the `Path` class underneath is still the real machine's: on the Windows CI a
+    path built from "/Users/a/Folder" prints as "\\Users\\a\\Folder". What
+    the tests check is which program is started with which item, not the host's
+    separator, so the expected text is built the same way the code builds it.
+    On a real Mac this is the plain POSIX text.
+    """
+    return str(Path(posix_path))
+
+
+def home_is(monkeypatch: pytest.MonkeyPatch, folder: Path) -> None:
+    """Make `folder` this process's home folder, on every system.
+
+    `Path.home()` and `os.path.expanduser` read `HOME` on macOS and Linux but
+    `USERPROFILE` on Windows, so a test that set only `HOME` changed nothing on
+    the Windows CI. Setting both is what "pretend the home folder is here"
+    means everywhere.
+    """
+    monkeypatch.setenv("HOME", str(folder))
+    monkeypatch.setenv("USERPROFILE", str(folder))
+
 @pytest.fixture()
 def on(monkeypatch):
     """`on("darwin")` makes this test believe it runs on that system."""
@@ -90,13 +115,13 @@ def test_mac_opens_with_open(on, spawned):
 def test_mac_reveals_with_open_dash_r(on, spawned):
     on("darwin")
     launch.show_in_file_manager("/Users/a/Report.pdf")
-    assert spawned.popen.calls == [((["open", "-R", "/Users/a/Report.pdf"],), {})]
+    assert spawned.popen.calls == [((["open", "-R", native("/Users/a/Report.pdf")],), {})]
 
 
 def test_mac_without_select_opens_the_item_itself(on, spawned):
     on("darwin")
     launch.show_in_file_manager("/Users/a/Folder", select=False)
-    assert spawned.popen.calls == [((["open", "/Users/a/Folder"],), {})]
+    assert spawned.popen.calls == [((["open", native("/Users/a/Folder")],), {})]
 
 
 def test_a_hostile_file_name_stays_one_argument(on, spawned):
@@ -132,7 +157,7 @@ def test_linux_keeps_xdg_open(on, spawned):
     launch.open_with_default_app("/home/a/r.pdf")
     launch.show_in_file_manager("/home/a/r.pdf")
     assert [args[0] for args, _ in spawned.popen.calls] == [
-        ["xdg-open", "/home/a/r.pdf"], ["xdg-open", "/home/a"]]
+        ["xdg-open", "/home/a/r.pdf"], ["xdg-open", native("/home/a")]]
 
 
 def test_media_open_hands_the_plain_open_to_the_bridge(on, spawned):
@@ -364,7 +389,7 @@ def test_mac_finds_nothing_that_is_not_there(mac_disk):
 def test_the_per_user_applications_folder_is_searched(monkeypatch, tmp_path, on):
     """`~/Applications`, the Mac's per-user install place, with `~` expanded."""
     on("darwin")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    home_is(monkeypatch, tmp_path)
     monkeypatch.setattr(programs, "MAC_EXTRA_BIN_FOLDERS", ())
     cursor = tmp_path / "Applications" / "Cursor.app" / "Contents" / "Resources" / "app" / "bin" / "cursor"
     cursor.parent.mkdir(parents=True)
@@ -503,14 +528,14 @@ def test_windows_data_folder_is_what_the_installer_proposes(on, monkeypatch):
 def test_windows_data_folder_without_the_variable(on, monkeypatch, tmp_path):
     on("win32")
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    home_is(monkeypatch, tmp_path)
     assert paths.default_data_folder() == tmp_path / "AppData" / "Local" / "Leasha"
 
 
 def test_mac_data_folder_is_application_support(on, monkeypatch, tmp_path):
     """(UNCONFIRMED on macOS) - Apple's documented place for app data."""
     on("darwin")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    home_is(monkeypatch, tmp_path)
     assert paths.default_data_folder() == (
         tmp_path / "Library" / "Application Support" / "Leasha")
 
@@ -520,7 +545,7 @@ def test_linux_data_folder_follows_xdg(on, monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     assert paths.default_data_folder() == tmp_path / "xdg" / "Leasha"
     monkeypatch.delenv("XDG_DATA_HOME")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    home_is(monkeypatch, tmp_path)
     assert paths.default_data_folder() == tmp_path / ".local" / "share" / "Leasha"
 
 
