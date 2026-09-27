@@ -70,6 +70,7 @@
     <Folder Include="tests\fixtures\corrupt" />
     <Folder Include="tests\fixtures\email" />
     <Folder Include="tests\fixtures\legacy_office" />
+    <Folder Include="tests\fixtures\legacy_office\src" />
     <Folder Include="tests\fixtures\office" />
     <Folder Include="tests\fixtures\pdf" />
     <Folder Include="tests\fixtures\plaintext" />
@@ -161,6 +162,7 @@
     <Compile Include="app\core\volumes_win.py" />
     <Compile Include="app\core\winfs.py" />
     <Compile Include="app\extract\__init__.py" />
+    <Compile Include="app\extract\_readers.py" />
     <Compile Include="app\extract\archive.py" />
     <Compile Include="app\extract\base.py" />
     <Compile Include="app\extract\cad.py" />
@@ -562,6 +564,7 @@
     <Compile Include="tests\unit\test_exit_placement.py" />
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
+    <Compile Include="tests\unit\test_extract_lazy_registry.py" />
     <Compile Include="tests\unit\test_face_clustering.py" />
     <Compile Include="tests\unit\test_fast_pptx.py" />
     <Compile Include="tests\unit\test_fast_readers.py" />
@@ -632,6 +635,7 @@
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_media_open.py" />
+    <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
@@ -659,6 +663,7 @@
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
+    <Compile Include="tests\unit\test_pause_button.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
@@ -809,6 +814,7 @@
     <Compile Include="tests\unit\test_winfs.py" />
     <Compile Include="tests\unit\test_wired_features.py" />
     <Compile Include="tests\unit\test_worker_calls.py" />
+    <Compile Include="tests\unit\test_worker_signal_owner.py" />
     <Compile Include="tests\unit\test_write_batching.py" />
     <Compile Include="tests\unit\timeline_env.py" />
     <Compile Include="tools\__init__.py" />
@@ -827,6 +833,7 @@
     <Content Include=".vscode\settings.json" />
     <Content Include=".vscode\tasks.json" />
     <Content Include="ACTIVE_WORK.md" />
+    <Content Include="AGENTS.md" />
     <Content Include="BUILD_SPEC_V2.md" />
     <Content Include="CHANGELOG.md" />
     <Content Include="CLAUDE.md" />
@@ -895,6 +902,7 @@
     <Content Include="docs\GLOSSARY.md" />
     <Content Include="docs\HANDOFF-github.md" />
     <Content Include="docs\HANDOFF-thread-merge.md" />
+    <Content Include="docs\MAC_VERIFICATION.md" />
     <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\PARKED-IDEAS.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
@@ -946,6 +954,8 @@
     <Content Include="docs\WORKORDER-git-search-ui.md" />
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
+    <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
+    <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
@@ -954,6 +964,7 @@
     <Content Include="docs\WORKORDER-ui-shell-and-results.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
+    <Content Include="finish-cleanup.ps1" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
     <Content Include="pyproject.toml" />
