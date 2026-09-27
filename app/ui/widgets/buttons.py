@@ -288,8 +288,15 @@ def _paint_icon(button: QPushButton, colours: dict[str, str]) -> None:
     if glyph:
         colour = _ink(str(button.property("buttonRole")), colours)
         faint = colours.get("text_faint", "#888888")
+        # Already drawn in exactly these colours: nothing to do. The window
+        # asks for a redraw each time a late page arrives, not only when the
+        # theme changes, and setting an icon makes Qt lay the button out again.
+        painted = f"{glyph}|{colour}|{faint}"
+        if button.property("buttonPainted") == painted:
+            return
         button.setIcon(_spaced_icon(str(glyph), colour, faint))
         button.setIconSize(QSize(ICON_PX + ICON_GAP, ICON_PX))
+        button.setProperty("buttonPainted", painted)
 
 
 def style_button(button: QPushButton, glyph: Optional[str] = None,
@@ -393,6 +400,9 @@ def style_all(root: QWidget, *, only_new: bool = False) -> int:
     return count
 
 
+_last_retint: tuple = ()
+
+
 def retint_all(colours: dict[str, str], roots: Optional[Iterable[QWidget]] = None) -> None:
     """Redraw every system button's icon in the theme's colours.
 
@@ -400,7 +410,15 @@ def retint_all(colours: dict[str, str], roots: Optional[Iterable[QWidget]] = Non
     reach them by hand - the same reason the rail has its own `retint`.
     Every open window by default, pop-outs and dialogs included.
     """
+    global _last_retint
     if roots is None:
+        # Every button is drawn in the current colours when it is styled, so
+        # a walk of every window is only needed when the colours have changed
+        # since the last one - not each time the window adds a page.
+        key = tuple(sorted(colours.items()))
+        if key == _last_retint:
+            return
+        _last_retint = key
         app = QApplication.instance()
         roots = list(app.topLevelWidgets()) if app is not None else []
     for root in roots:
