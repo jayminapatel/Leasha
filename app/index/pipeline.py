@@ -4525,7 +4525,7 @@ class Pipeline:
 
         Consumer thread only. A no-op when a group is already open.
         """
-        if self._write_group is not None:
+        if getattr(self, "_write_group", None) is not None:
             return
         group = self.store.batch()
         group.__enter__()
@@ -4541,7 +4541,7 @@ class Pipeline:
         already inside the `write` stage's clock, so a commit is not counted
         twice.
         """
-        if self._write_group is None:
+        if getattr(self, "_write_group", None) is None:
             return
         self._write_group_docs += 1
         if (self._write_group_docs >= WRITE_GROUP_MAX_DOCS
@@ -4554,8 +4554,13 @@ class Pipeline:
         Counted as `write` time in the stage report, since committing is part
         of writing (it used to happen inside each document's own write) -
         unless `timed=False`, which a caller already inside that clock passes.
+
+        `getattr`, because `_yield_to_ui` calls this and several tests drive
+        that on a pipeline built without `__init__`
+        (`test_ui_stays_responsive`); such a pipeline has no group, which is
+        the answer `getattr` gives.
         """
-        group = self._write_group
+        group = getattr(self, "_write_group", None)
         if group is None:
             return
         # Cleared first: if the commit raises, the group is over either way
@@ -4581,7 +4586,7 @@ class Pipeline:
         embedding thread or had a resume position written (both commit the
         group first).
         """
-        group = self._write_group
+        group = getattr(self, "_write_group", None)
         if group is None:
             return
         self._write_group = None
@@ -4622,7 +4627,7 @@ class Pipeline:
         """
         from app.extract.base import reads_by_ocr
 
-        if self._media_exts is None:
+        if getattr(self, "_media_exts", None) is None:
             self._media_exts = frozenset(_media_extensions())
         path = candidate.path
         return path.suffix.lower() in self._media_exts or reads_by_ocr(path)
