@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.27 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.28 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,47 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The owner's feedback, 2026-09-27 - search that finds mail by year, and an index run you can watch
+
+**Things that were wrong**
+
+- **Switching pages while an index ran froze the whole window.** Every click on the rail
+  saved "last page" to the database on the window's own thread. That save waited for the
+  indexer to finish whatever it was writing. It now happens in the background, one save at a
+  time and in order, and so do all the other remembered choices (theme, column widths,
+  settings). In a test holding the indexer's lock, a page switch took 2 seconds before and
+  under a tenth of a second after. A run started straight after you change a setting waits
+  for that setting to be saved first.
+- **"mail from 2017" found no 2017 mail.** Two reasons. Dates in a search compared each
+  file's modified date, and every message in an Outlook archive carried the archive's own
+  date. So a `.pst` touched last week made every letter in it "last week". Mail is now dated
+  by when it was sent, for new and already-indexed mail alike (schema v27 fills it in on first
+  open: 167 ms for 60,000 messages on a test index). And the words were only ever *offered*
+  as filters beside the results. On the Search tab, "mail", a year, or a sender Leasha knows
+  now become filters straight away, each shown as a chip you can remove. What you typed is
+  never changed. "invoice 2017" keeps 2017 as a word, because a document's file date is
+  often just the day it was copied.
+- **The progress bar sat still for whole stretches of a run.** Getting the search model
+  ready, working out which folders to read, catching up on the last run and tidying the index
+  afterwards sent no progress at all. In those stretches the bar now shows it is busy, and
+  one line says what is happening.
+
+**New**
+
+- **A live log on the Indexing page**, headed "What the run is doing". Every line has its
+  time: each step, each large archive or video as it is opened, pauses and why, warnings, and
+  how the run ended. Scroll up to read, and it stays where you left it. The run's notices
+  now show the time they happened, and `app.cli index` prints the same lines.
+- **A run that did not finish says so.** After a crash, a power cut or the app being ended,
+  the Indexing page says when the last run stopped, roughly how far it had got, and that
+  starting again carries on with nothing lost. A normal Stop or Pause is not reported this
+  way. `app.cli stats` says the same.
+- **A mail archive carries on where it stopped.** An interrupted `.pst` read by Leasha's own
+  reader restarts at the folder it was in, not the first message. Its place is saved at least
+  every 30 seconds. The page lists any archive a run stopped inside. Archives read through
+  Outlook still start again from the top, skipping what is already indexed. Outlook does not
+  promise the order of its folders, and attaching an archive changes its date.
 
 ### Start no longer invites a second click during a slow hardware detection
 

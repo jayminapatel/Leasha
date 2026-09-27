@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,39 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-27 (later) - the owner's feedback: three bugs fixed, order 0w built.** Seven items came
+in. Three were bugs with a verified cause and were fixed directly. Three became order 0w
+(`docs/WORKORDER-dates-live-log-and-interrupted-runs.md`), released and built the same day. The
+seventh, general jerkiness, has no measured cause and is not ordered. It needs the lag-monitor
+numbers from a real run (the owner-run step further down this section). What is new and load-bearing:
+
+- **UI state writes are queued, not synchronous** (`app/ui/state_writes.py`). The page-switch
+  freeze was `set_state` on the UI thread waiting on `SqliteStore._write_lock`, which the indexer
+  holds for every batch. Every UI-side `set_state`/`set_states` now goes through `save_state`/
+  `save_states`: one thread, in order, fire-and-forget. `test_ui_never_blocks` no longer exempts
+  them; only `closeEvent`'s geometry save may stay synchronous. `_drain_workers` drains the queue
+  before the store closes. `IndexWorker.run` waits for it (`settle_before_run`, 5 s cap) before
+  a run reads its settings. **Trap:** a test that closes its store straight after a UI write
+  must drain `state_writes.pool()` first, or it reads the old value on Windows CI.
+- **Mail is dated by when it was sent.** `files.taken_at_ns` now holds a message's sent date,
+  written at index time and backfilled by **schema v27**. `after:`/`before:`, result dates,
+  recency and browse all use it. The Search tab **applies** recognised filters
+  (`translate_rules.apply`), which reverses order 0c 3b (dated note in that order).
+- **Progress phases** (`IndexStats.phase`, `Pipeline._announce_phase`). `on_progress` is now
+  called *before* the first file is read. A test that stops "on the first tick" must stop on the
+  first tick with something indexed.
+- **A run log** (`IndexStats.activity`, `app/index/activity.py`). New notice sites must use
+  `IndexStats.add_notice`, which records the time.
+- **Interrupted runs** (`app/index/interrupted.py`), read from the `run:active` record without
+  its mutex. **PST folder resume** for libpff through `resume:archive:<path hash>` keys (under
+  `resume:`, so a reset clears them). Outlook is deliberately not resumable; see the 0w 3b note.
+- `Leasha.pyproj` is regenerated and `test_vs_project` is green again.
+  `scripts/regen_vs_project.py` runs on Linux too.
+
+**Not verified on the owner's machine:** none of this has run on Windows with real data. Worth one
+real run: switch pages during a large index, type "mail from 2017", watch the bar and the log
+through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 
 **2026-09-27 - the branches were folded back into main; two fixes had been left behind.**
 Every `claude/*` branch on origin was checked against `main` by patch, not by hash (a
