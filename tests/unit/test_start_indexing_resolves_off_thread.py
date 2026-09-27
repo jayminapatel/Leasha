@@ -23,6 +23,7 @@ is `test_index_tuning_acceptance.py`'s and the integration suite's job.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -286,6 +287,107 @@ def test_a_second_click_while_resolving_does_not_dispatch_a_second_worker(
         assert call_count["n"] == 1, (
             f"resolve_for_run ran {call_count['n']} times for one Start click "
             "- the in-flight guard did not hold"
+        )
+    finally:
+        resolve_module.resolve_for_run = real
+        store.close()
+        vectors.close()
+
+
+def test_the_watch_timers_poll_does_not_re_enable_start_while_resolving(
+    tmp_path
+) -> None:
+    r"""The real race: `_poll_external_run` runs on the 4-second `_watch_timer`
+    and has no notion of `_resolving_index`. `IndexingView.is_running()` stays
+    False for the whole resolve phase (no Pipeline exists yet - it is the very
+    thing still being resolved), so nothing in the existing poll guard stops
+    it concluding "nothing is indexing" and re-enabling Start mid-resolve -
+    inviting the exact second click non-negotiable #5 and this button's own
+    disable-on-click logic exist to prevent.
+
+    Exercises the real interaction rather than isolating around it:
+    `_watch_timer` is left running (never stopped), and `_poll_external_run`
+    is called directly - exactly what the timer's own `timeout` signal does -
+    rather than mocked away or skipped.
+    """
+    app, built, store, vectors = _window(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_resolve(settings, store):
+        entered.set()
+        # A generous safety net, not a value meant to matter: the real signal
+        # is `release.set()` below. `_start_background_work`'s own hardware
+        # detection runs synchronously inside the single `processEvents()`
+        # call just below and can itself take several real seconds under
+        # load - a short wait here would race that unpredictably, exactly
+        # the flakiness this test exists to replace.
+        release.wait(30)
+        return Resolved(workers=1, onnx_threads=1, embed_batch=8)
+
+    import app.index.resolve as resolve_module
+
+    real = resolve_module.resolve_for_run
+    resolve_module.resolve_for_run = slow_resolve
+    built.indexing_view.start = lambda pipeline, **kw: None
+    try:
+        folder = tmp_path / "corpus"
+        folder.mkdir()
+        built._start_indexing(roots=[str(folder)])
+        assert entered.wait(5), "the worker never called the resolver"
+        app.processEvents()
+        assert not built.indexing_view.start_button.isEnabled(), (
+            "Start must be disabled once resolution has begun"
+        )
+        assert built._watch_timer.isActive(), (
+            "the watch timer must still be running for this to be the real "
+            "interaction, not an isolated one"
+        )
+
+        # What the 4-second timer would do on its own - called directly so the
+        # test is deterministic rather than sleeping for real seconds, but it
+        # is the exact same call the timer's timeout signal makes, against the
+        # real, still-running _watch_timer.
+        built._poll_external_run()
+
+        # The dispatched _read_external_run worker runs on the global pool
+        # alongside the still-blocked resolve worker; poll for it to signal
+        # back without a full QThreadPool.waitForDone, which would hang until
+        # `release` is set. Kept well under slow_resolve's own 5s release.wait
+        # timeout - racing the two would make this test itself flaky, timing
+        # out into the *legitimate* re-enable that happens once resolution
+        # genuinely completes, rather than proving anything about the poll.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            app.processEvents()
+            if built.indexing_view.start_button.isEnabled():
+                break
+            time.sleep(0.05)
+
+        assert not built.indexing_view.start_button.isEnabled(), (
+            "the watch timer's poll spuriously re-enabled Start while a "
+            "resolve was still in flight - inviting a second click mid-resolve"
+        )
+
+        release.set()
+        _pump(app)
+        # `indexing_view.start` is stubbed to a no-op above (as the sibling
+        # "disabled while resolving" test also does), so no real `_worker`
+        # ever gets set - nothing re-enables the button on its own once
+        # `_resolving_index` clears. The real window relies on exactly the
+        # next watch-timer tick for that (see `_go_idle`'s docstring); calling
+        # it here, deterministically, is that tick rather than a guess at how
+        # much wall-clock time `_pump` happens to consume.
+        built._poll_external_run()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            app.processEvents()
+            if built.indexing_view.start_button.isEnabled():
+                break
+            time.sleep(0.05)
+        assert built.indexing_view.start_button.isEnabled(), (
+            "the button must still come back once resolution has genuinely "
+            "finished"
         )
     finally:
         resolve_module.resolve_for_run = real
