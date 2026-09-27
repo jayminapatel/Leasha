@@ -545,6 +545,7 @@
     <Compile Include="tests\unit\test_clip_embedder.py" />
     <Compile Include="tests\unit\test_clip_lane_pipeline.py" />
     <Compile Include="tests\unit\test_clip_lane_wiring.py" />
+    <Compile Include="tests\unit\test_close_during_read.py" />
     <Compile Include="tests\unit\test_close_ends_the_app.py" />
     <Compile Include="tests\unit\test_close_waits_for_index_run.py" />
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
