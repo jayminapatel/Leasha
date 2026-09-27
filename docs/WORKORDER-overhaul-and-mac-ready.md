@@ -268,10 +268,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 7. Paths and letter case, ready for a Mac
 
-- [ ] **7a** Code that hard-codes `\` when joining or splitting paths uses the system's own
+> **2026-09-27, §7 built** (`app/core/osbridge/pathnames.py`). `federate` joins with `/` on a Mac;
+> on Windows it runs the old expression, pinned against a verbatim copy over 84 root/path pairs. The
+> walker, the pipeline's seen/prune/retry sets, `media_backlog`, `scan` and the archive resume key use
+> `path_key`, which is exactly `str.lower()` on Windows and never touches the disk there; on a Mac or
+> Linux it follows a per-folder probe (a case-swapped `lstat` compared by device and inode, cached).
+> A real case-sensitive folder holding `Report.txt` and `report.txt` now keeps both rows through a
+> full index and a rerun; with the old key put back, three of those tests fail. Kept in the Windows
+> format on every system, because they are stored keys: `archives.normalise`, the cloud-content
+> opt-in, the repos table's `COLLATE NOCASE` (two repositories differing only by case would share a
+> row on a case-sensitive disk - attribution, not a lost file). Cost on Windows: about 20 ns a call in
+> a micro-benchmark. **(UNCONFIRMED on macOS:** the APFS probe, and Unicode normalisation.)
+- [x] **7a** Code that hard-codes `\` when joining or splitting paths uses the system's own
       separator. **Paths already stored in an index are not changed**, so nothing on the
       owner's machine is reindexed or migrated.
-- [ ] **7b** Whether a drive compares names with or without regard to letter case is
+- [x] **7b** Whether a drive compares names with or without regard to letter case is
       decided per indexed folder, by probing it when it is added. Windows behaviour is
       unchanged (case-insensitive); a case-sensitive Mac volume is respected.
 
