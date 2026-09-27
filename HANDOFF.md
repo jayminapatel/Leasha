@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.8 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.9 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -111,6 +111,10 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       2024-13-01` says what is wrong. In Code, `/range v1..v2` still runs git.
 - [ ] **Plain-English ranges.** "letters between March and June 2024" offers after 2024-03-01 and
       before 2024-06-30; "from 1 Oct to 5 Nov" offers nothing.
+- [ ] **Where it is inside an archive.** Index a real `.pst` (libpff) and a large `.mbox`: the page
+      shows the folder and "message n of m" (for a PST, n of m within the folder), one line per
+      reader, and "last activity" keeps moving. Check folder names read naturally ("Inbox/...", not
+      "Top of Personal Folders/..."), also on a non-English Outlook if you have one.
 - [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
       bar glides during a scanned run and shows a moving block before the total is known; minimise
       and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
