@@ -73,6 +73,13 @@ NAME_MIN_CHARS = 2
 #: question nobody should have to answer twice.
 NO_REPO = -1
 
+#: Work order 0x item 5d. The page cache the indexer's writing thread asks for:
+#: a quarter of the database file, never less than the floor and never more
+#: than the ceiling below (in KiB, SQLite's unit). See
+#: `SqliteStore.size_write_cache` for the measurement behind these numbers.
+WRITE_CACHE_FLOOR_KIB = 16 * 1024
+WRITE_CACHE_CEILING_KIB = 256 * 1024
+
 
 #: Scheme prefix for a volume-backed file's synthetic `files.path`. Never a
 #: real URL and never opened as one - `resolve.py` recognises the prefix and
@@ -867,6 +874,87 @@ class SqliteStore:
                 self._migrated = True
         return self
 
+    def size_write_cache(self) -> int:
+        r"""Give this thread's connection a page cache big enough to write with.
+
+        Work order 0x item 5d. **This is why writing got slower as the index
+        grew.** SQLite keeps recently used pages of the database in a cache
+        per connection, 2MB by default. Writing a passage updates the keyword
+        index (`chunks_fts`), and keeping that index in order means reading
+        back parts of it that grow with the index. Once those no longer fit in
+        2MB, pages are read again and again. Measured 2026-09-27 on the Linux
+        sandbox by writing the medium benchmark corpus's 19,077 passages into
+        a fresh store on one thread (a 68MB database at the end):
+
+        * 2MB (the default): 3.65 ms a document on average, rising from 0.74
+          to 4.94 as the file grew - the "grows faster than the corpus" in
+          the 5a note;
+        * 4MB: 3.25 ms; 8MB: 1.58 ms; 16MB: 1.16 ms, rising only from 0.72 to
+          1.21; 64MB: 1.22 ms - no better than 16MB.
+
+        Four copies of that corpus (a 256MB database): 16MB of cache gave
+        10.96 ms a document and 64MB 2.85 ms; 128MB, 2.67 ms. So the cache
+        stops mattering at about **a quarter of the database file**, which is
+        the size asked for here - at least `WRITE_CACHE_FLOOR_KIB`, at most
+        `WRITE_CACHE_CEILING_KIB` (256MB: a large index keeps some of the
+        slowdown rather than let one connection hold more memory than that).
+
+        End to end, `app.cli bench-pipeline --full-speed`, fake embedder, same
+        sandbox and day, runs interleaved with the version before: medium
+        corpus 110.5 s -> 85.3 s median over 3 runs each (-22.8%, the ranges
+        do not overlap), peak memory about 13MB higher (278 -> 291MB); small
+        corpus 13.45 s -> 12.97 s over 5 each (-3.6%).
+
+        **Only for the calling thread's connection**, because the setting
+        belongs to a connection: the indexer's writing thread calls this, and
+        the window's connections, the readers and search keep the default.
+        The memory is only used as pages are actually read, and
+        `restore_write_cache` gives it back. Asked again as the file grows
+        (the pipeline does, at each checkpoint): a first index starts from an
+        empty file. Nothing about what is written changes - only how much of
+        the file SQLite keeps in memory while writing it.
+
+        Returns the cache size now set, in KiB. Never raises: a failure here
+        costs speed, never the run.
+        """
+        try:
+            size = self.db_path.stat().st_size
+        except OSError:
+            size = 0
+        kib = max(WRITE_CACHE_FLOOR_KIB, min(WRITE_CACHE_CEILING_KIB, size // 4 // 1024))
+        local = self._local
+        if getattr(local, "write_cache_kib", None) == kib:
+            return kib
+        try:
+            conn = self.conn
+            if getattr(local, "cache_before", None) is None:
+                row = conn.execute("PRAGMA cache_size").fetchone()
+                local.cache_before = int(row[0]) if row else -2000
+            conn.execute(f"PRAGMA cache_size = -{int(kib)}")
+            local.write_cache_kib = kib
+        except Exception as exc:                  # noqa: BLE001 - speed only
+            _log.debug("could not size the write cache: {}", exc)
+        return kib
+
+    def restore_write_cache(self) -> None:
+        """Put this thread's page cache back as it was, and free the memory.
+
+        The other half of `size_write_cache`, called when an index run ends.
+        Never raises, for the same reason.
+        """
+        local = self._local
+        before = getattr(local, "cache_before", None)
+        if before is None:
+            return
+        local.cache_before = None
+        local.write_cache_kib = None
+        try:
+            conn = self.conn
+            conn.execute(f"PRAGMA cache_size = {int(before)}")
+            conn.execute("PRAGMA shrink_memory")
+        except Exception as exc:                  # noqa: BLE001 - speed only
+            _log.debug("could not restore the page cache: {}", exc)
+
     def optimize_query_planner(self) -> bool:
         r"""Run `PRAGMA optimize`, refreshing the query planner's statistics.
 
@@ -1069,6 +1157,9 @@ class SqliteStore:
             conn = self.conn
             conn.execute("BEGIN IMMEDIATE")
             self._local.batch_depth = 1
+            # 0x 5d: this transaction has not moved the generation yet. See
+            # `_bump_generation`.
+            self._local.bumped = False
             try:
                 yield conn
             except BaseException:
@@ -4237,6 +4328,26 @@ class SqliteStore:
     # -- generation (search cache invalidation) ------------------------------
 
     def _bump_generation(self, conn: sqlite3.Connection) -> None:
+        r"""Move the generation on, so the search cache drops what it holds.
+
+        Work order 0x item 5d. **Once per `batch()` transaction, not once per
+        call inside it.** Another connection only ever sees a transaction
+        whole - WAL gives each reader a snapshot of *committed* data - so the
+        search cache, which reads the number from another thread, can never
+        tell one bump from five inside the same transaction: either way the
+        number it sees has changed exactly when the rows it is keyed on have.
+        The extra statements were pure cost - two per indexed document
+        (`upsert_file` and `replace_chunks` each bumped), and every statement
+        pays to get Python's interpreter lock back afterwards, which is what
+        made the indexer's writes slow (see `Pipeline._begin_write_group`).
+
+        Outside a batch, every `write()` is its own transaction and bumps as
+        it always did.
+        """
+        if getattr(self._local, "batch_depth", 0):
+            if getattr(self._local, "bumped", False):
+                return
+            self._local.bumped = True
         conn.execute("UPDATE index_generation SET generation = generation + 1 WHERE id = 1")
 
     def bump_generation(self) -> None:

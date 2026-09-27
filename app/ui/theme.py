@@ -25,7 +25,7 @@ from typing import Optional
 
 __all__ = [
     "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
-    "theme_colours", "RADIUS",
+    "theme_colours", "RADIUS", "BUTTON",
 ]
 
 SCHEMES = ("system", "light", "dark")
@@ -286,11 +286,8 @@ QPushButton {{
     background: {surface_alt}; border: 1px solid {border};
     border-radius: {radius_control}; padding: 5px 11px; color: {text};
 }}
-/* The one filled button on a surface - "Open" in the inspector. */
-QPushButton[primary="true"] {{
-    background: {accent}; border-color: {accent}; color: {accent_on};
-}}
-QPushButton[primary="true"]:hover {{ background: {accent_bar}; }}
+/* (The filled "Open" button's rule, `primary="true"`, became the button
+   system's `buttonRole="primary"` below, 2026-09-27.) */
 QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
 QPushButton:pressed {{ background: {surface}; }}
 QPushButton:focus {{ border: 1px solid {focus_ring}; }}
@@ -299,6 +296,35 @@ QPushButton:checked {{
 }}
 QPushButton:disabled {{
     color: {text_faint}; background: {surface}; border-color: {divider};
+}}
+
+/* **The button system** (`widgets/buttons.py`, owner 2026-09-27: "all buttons
+   should be consistent throughout the app"). Every action button carries a
+   `buttonRole` of primary, secondary or danger, and these rules give all of
+   them one height and one padding. The height is a floor on the space inside
+   the padding, big enough for the 16px icon every one of them carries, so a
+   button with a taller font still grows with it.
+   Written after the plain QPushButton rules on purpose: a rule of equal weight
+   that comes later wins, which is also why the primary and danger kinds say
+   what they look like when disabled - otherwise a greyed-out primary would
+   still look filled and pressable. */
+QPushButton[buttonRole="primary"], QPushButton[buttonRole="secondary"],
+QPushButton[buttonRole="danger"] {{
+    padding: {button_pad_y} {button_pad_right} {button_pad_y} {button_pad_left};
+    min-height: {button_min_h}; border-radius: {radius_control};
+}}
+QPushButton[buttonRole="primary"] {{
+    background: {accent}; border: 1px solid {accent}; color: {accent_on};
+    font-weight: 600;
+}}
+QPushButton[buttonRole="primary"]:hover {{ background: {focus_ring}; border-color: {focus_ring}; }}
+QPushButton[buttonRole="primary"]:pressed {{ background: {accent}; }}
+QPushButton[buttonRole="primary"]:focus {{ border-color: {text}; }}
+QPushButton[buttonRole="danger"] {{ color: {danger}; }}
+QPushButton[buttonRole="danger"]:hover {{ border-color: {danger}; }}
+QPushButton[buttonRole="primary"]:disabled, QPushButton[buttonRole="danger"]:disabled {{
+    color: {text_faint}; background: {surface}; border-color: {divider};
+    font-weight: normal;
 }}
 
 /* **The scrollbars were never styled**, so every pane carried the chunky
@@ -403,20 +429,27 @@ QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18p
     background: {rail_on_bg}; color: {rail_on_text}; font-weight: 600;
 }}
 #rail QToolButton:focus {{ border-color: {rail_text}; }}
+/* **The indexing pill looks like the rail buttons around it** (owner,
+   2026-09-27: "the indexing pill looks big and out of place"). It was a filled
+   card with a bold headline; now it has no fill until the pointer is on it or
+   its page is open, and its word is the same size, weight and colour as a
+   button's label - chosen, it turns heavier, as a button's does. */
 #railPill {{
-    background: {rail_hover}; color: {rail_text}; border: none;
+    background: transparent; color: {rail_text}; border: 1px solid transparent;
     border-radius: {radius_control}; padding: 6px 0; font-size: {small};
 }}
-#railPill:hover, #railPill[selected="true"] {{ background: {rail_on_bg}; color: {rail_on_text}; }}
+#railPill:hover {{ background: {rail_hover}; }}
+#railPill[selected="true"] {{ background: {rail_on_bg}; }}
 #railPill:focus {{ border: 1px solid {rail_text}; }}
-#railPillHeadline {{ color: {rail_on_text}; font-weight: 600; font-size: {small}; }}
+#railPillHeadline {{ color: {rail_text}; font-size: {small}; }}
+#railPillHeadline[chosen="true"] {{ color: {rail_on_text}; font-weight: 600; }}
 #railPillDetail {{ color: {rail_text}; font-size: {small}; }}
 #railPill QProgressBar {{
-    background: {rail_on_bg}; border: none; border-radius: 2px;
-    max-height: 3px; min-height: 3px;
+    background: {rail_hover}; border: none; border-radius: 1px;
+    max-height: 2px; min-height: 2px;
 }}
 #railPill QProgressBar::chunk {{
-    background: {kind_code}; border-radius: 2px; width: 6px; margin: 0;
+    background: {accent}; border-radius: 1px; width: 6px; margin: 0;
 }}
 
 /* **The empty Search page** (§3a): the headline is the one use of the
@@ -804,6 +837,19 @@ RADIUS: dict[str, str] = {
     "radius_pill": "11px",
 }
 
+#: **Every action button's size, in one place** (the button system,
+#: `widgets/buttons.py`). 4px above and below, and a floor of 18px inside that
+#: - room for the 16px icon - makes a 28px button with its 1px border, the
+#: height the old plain buttons were at the Windows default font. 10px before
+#: the icon and 12px after the words: the icon's own transparent margin makes
+#: the two sides look equal. Sizes, not colours, so kept out of `PALETTES`.
+BUTTON: dict[str, str] = {
+    "button_pad_y": "4px",
+    "button_pad_left": "10px",
+    "button_pad_right": "12px",
+    "button_min_h": "18px",
+}
+
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built
 #: before the app exists. 9pt is the Windows default.
 DEFAULT_POINT_SIZE = 9.0
@@ -850,4 +896,4 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS)
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS, **BUTTON)

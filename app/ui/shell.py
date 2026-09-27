@@ -52,7 +52,7 @@ from app.ui.theme import detect_scheme, stylesheet
 from app.ui.tray import TrayPresence
 from app.ui.state_writes import pool as state_write_pool, save_state, save_states
 from app.ui.view_options import load_prefs, save_prefs_later
-from app.ui.window_state import restore_window_state, save_window_state
+from app.ui.window_state import bring_forward, restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.rail import Rail
 from app.ui.widgets.restart_note import mark_restart_needed
@@ -1419,9 +1419,8 @@ class MainWindow(QMainWindow):
     def _search_from_mini(self, query: str) -> None:
         """"Show me all of it": bring the window up with this query in it."""
         try:
-            self.showNormal()
-            self.raise_()
-            self.activateWindow()
+            # Keeps a maximised window maximised - see `bring_forward`.
+            bring_forward(self)
             self._show(self.search_view)
             self.search_view.input.setText(str(query or ""))
             self.search_view.search_now()
@@ -1548,21 +1547,9 @@ class MainWindow(QMainWindow):
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)
-        # §0.3: the Indexing page's controls carry icons too - all five of
-        # them (2026-09-24: pause and reset were missing here, so those two
-        # were the only buttons on the page with no icon). Done here rather
-        # than in `indexing_view.py`, which is past its line guard.
-        from PyQt6.QtCore import QSize as _QSize
-
-        from app.ui.widgets.icons import icon as _icon
-
-        for name, glyph in (("start_button", "play"), ("pause_button", "pause"),
-                            ("stop_button", "square"), ("scan_button", "scan-search"),
-                            ("reset_button", "trash-2")):
-            button = getattr(indexing_view, name, None)
-            if button is not None and hasattr(button, "setIcon"):
-                button.setIcon(_icon(glyph, colours.get("text_dim", "#888888")))
-                button.setIconSize(_QSize(16, 16))
+        # §0.3: the Indexing page's five controls carry icons - now drawn by
+        # the button system with the rest (`_style_buttons`, below), so Start
+        # takes the primary's ink rather than every icon the same grey.
         for view in (self.files_view, getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
                      indexing_view, settings_view):
@@ -1570,6 +1557,23 @@ class MainWindow(QMainWindow):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
                     retint(colours)
+        self._style_buttons(colours)
+
+    def _style_buttons(self, colours: dict) -> None:
+        """The button system (`widgets/buttons.py`, owner 2026-09-27).
+
+        Every action button on the pages built so far gets its icon, its kind
+        and its natural width - buttons already done are skipped, so running
+        this again when the late pages arrive only touches the new ones - and
+        then every button icon in every open window is redrawn in this
+        palette, because icons are pictures and never see the stylesheet.
+        """
+        from app.ui.widgets.buttons import retint_all, style_all
+
+        # The whole window: every page, the preview pane, the find and notice
+        # bars. Pop-outs and dialogs style themselves as they are built.
+        style_all(self, only_new=True)
+        retint_all(colours)
 
     def _pin_document(self, row: Any, provider: Any = None) -> None:
         r"""Open this document in a window of its own. Workspace §2.
@@ -1964,9 +1968,7 @@ class MainWindow(QMainWindow):
         ends on, pulled out because a plain "somebody double-clicked the
         icon again" carries no query to run first.
         """
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        bring_forward(self)       # keeps a maximised window maximised
 
 
     def _run_link(self, request: Any) -> None:

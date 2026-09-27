@@ -32,8 +32,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QProgressBar, QSizePolicy,
     QStackedWidget, QToolButton, QVBoxLayout, QWidget,
@@ -72,7 +72,23 @@ def _forget_sizes(layout: Any) -> None:
 
 
 class _Pill(QFrame):
-    """The indexing pill: a frame that behaves like a button."""
+    """The indexing pill: a frame that behaves like a button.
+
+    **Shaped like a rail button, not a block** (owner, 2026-09-27: *"the
+    indexing pill looks big and out of place"*). It was a filled card - a bold
+    two-line headline, a bar and a line of figures - the heaviest thing on
+    the rail, heavier than the page buttons it sat among. Now it is what they
+    are: an icon over one short word, the same width, no fill until the
+    pointer is on it or its page is open.
+
+    *What* it says is unchanged. The state is the word ("Up to date",
+    "Indexing", "Paused" ...), and a coloured dot on the icon says the same
+    at a glance - green for done, the accent while working, amber when held
+    or stopped, red when something needs attention. The count ("17 files",
+    "1,234 so far") moved into the tooltip and the accessible name, where a
+    screen reader already found it. The thin bar shows only while a run is
+    going, because that is the only time it moves.
+    """
 
     activated = pyqtSignal()
 
@@ -84,52 +100,119 @@ class _Pill(QFrame):
         self.setToolTip("Open the Indexing page")
         self.setAccessibleName("Indexing")
         self._compact = False
+        self._selected = False
+        self._tone = "quiet"
+        self._busy = False
+        self._colours: dict[str, str] = {}
         layout = QVBoxLayout(self)
-        # 3px, not 6, and no side padding in the stylesheet either: the rail is
-        # 72 wide and the pill 60, so the old 6 + 4 a side left 40 for the
-        # headline - "Up to date" is 58px at 125% scaling, "Indexing" 48 - and it
-        # was cut to "p to dat".
-        layout.setContentsMargins(3, 6, 3, 6)
+        # No margins of its own: the stylesheet's `padding: 6px 0` gives the
+        # same room above and below as a rail button's 7 + 5, and the full
+        # 60px width is left for the word.
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(3)
+        #: The icon with its status dot, drawn by `_draw_glyph`.
+        self.glyph = QLabel()
+        self.glyph.setObjectName("railPillGlyph")
+        self.glyph.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.glyph.setFixedHeight(ICON_SIZE)
         self.headline = QLabel("Index")
         self.headline.setObjectName("railPillHeadline")
         self.headline.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        # Wraps rather than clips: the headline is one of "Up to date",
-        # "Needs attention", "Indexing", "Paused", "Stopped", "Index" and the
-        # first two are wider than the pill at any scaling above 100%.
+        # Wraps rather than clips: "Needs attention" and "Up to date" are
+        # wider than 60px at a large font.
         self.headline.setWordWrap(True)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
         self.bar.setRange(0, 1)
         self.bar.setValue(0)
-        self.bar.setFixedHeight(3)
+        self.bar.setFixedHeight(2)
+        self.bar.setVisible(False)
+        # Kept, with its words, for everything that reads it - but never on
+        # show: the figures live in the tooltip now (see the class docstring).
         self.detail = QLabel("")
         self.detail.setObjectName("railPillDetail")
-        self.detail.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.detail.setWordWrap(True)
-        for w in (self.headline, self.bar, self.detail):
-            layout.addWidget(w)
+        self.detail.setVisible(False)
+        bar_row = QHBoxLayout()
+        bar_row.setContentsMargins(12, 0, 12, 0)
+        bar_row.addWidget(self.bar)
+        layout.addWidget(self.glyph)
+        layout.addWidget(self.headline)
+        layout.addLayout(bar_row)
+
+    # -- what it shows ---------------------------------------------------------
 
     def set_compact(self, compact: bool) -> None:
-        """Drop the bar and the detail line - the headline is the state."""
+        """The icon alone, as the rail buttons do when the window is short -
+        the word stays in the tooltip and the accessible name."""
         self._compact = compact
-        self.bar.setVisible(not compact)
-        self.detail.setVisible(bool(self.detail.text()) and not compact)
+        self.headline.setVisible(not compact)
+        self.bar.setVisible(self._busy and not compact)
 
     def show_state(self, state: PillState, fraction: Optional[float]) -> None:
         self.headline.setText(state.headline)
         self.detail.setText(state.detail)
-        self.detail.setVisible(bool(state.detail) and not self._compact)
+        self._tone = getattr(state, "tone", "quiet") or "quiet"
+        self._busy = bool(state.busy)
+        self.bar.setVisible(self._busy and not self._compact)
         if state.busy and fraction is None:
             self.bar.setRange(0, 0)               # Qt's moving bar
         else:
             self.bar.setRange(0, 1000)
             self.bar.setValue(int(round((fraction or (0.0 if state.busy else 1.0)) * 1000)))
         self.setAccessibleName(f"Indexing. {state.headline}. {state.detail}".strip())
+        # The figures the pill no longer shows, first; what clicking does, after.
+        said = f"{state.headline}: {state.detail}" if state.detail else state.headline
+        self.setToolTip(f"{said}\n\nOpen the Indexing page")
+        self._draw_glyph()
         self._fit_wrapped_text()
 
+    def set_selected(self, selected: bool) -> None:
+        """Its page is open: the rail's "chosen" look, as a button has."""
+        self._selected = selected
+        self.setProperty("selected", selected)
+        self.headline.setProperty("chosen", selected)
+        for widget in (self, self.headline):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self._draw_glyph()
+
+    def retint(self, colours: dict[str, str]) -> None:
+        self._colours = dict(colours)
+        self._draw_glyph()
+
+    def _draw_glyph(self) -> None:
+        """The database icon in the rail's text colour, with the status dot
+        at its lower right, ringed in the rail's own colour so it reads as
+        sitting on the icon rather than touching it."""
+        if not self._colours:
+            return
+        from app.ui.rail_state import TONES
+
+        colours = self._colours
+        ink = colours.get("rail_on_text" if self._selected else "rail_text", "#888888")
+        ground = colours.get("rail_on_bg" if self._selected else "rail", "#000000")
+        dot = colours.get(TONES.get(self._tone, "text_faint"), ink)
+        scale = 2                                  # sharp on a high-DPI screen
+        side = (ICON_SIZE + 4) * scale
+        canvas = QPixmap(side, ICON_SIZE * scale)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        glyph = themed_icon("database", ink).pixmap(ICON_SIZE * scale, ICON_SIZE * scale)
+        painter.drawPixmap(2 * scale, 0, glyph)
+        radius = 4.5 * scale
+        centre = QPointF(side - radius - 1.5 * scale, ICON_SIZE * scale - radius - 0.5 * scale)
+        painter.setPen(QPen(QColor(ground), 2 * scale))
+        painter.setBrush(QColor(dot))
+        painter.drawEllipse(centre, radius, radius)
+        painter.end()
+        canvas.setDevicePixelRatio(scale)
+        self.glyph.setPixmap(canvas)
+
+    # -- sizes -----------------------------------------------------------------
+
     def _fit_wrapped_text(self) -> None:
-        """Give each wrapped label the height its wrapped text needs.
+        """Give the wrapped headline the height its wrapped text needs.
 
         A word-wrapped label inside a frame inside the rail's column reports the
         height of *one* line to the layouts above it, so a headline that wrapped
@@ -137,10 +220,10 @@ class _Pill(QFrame):
         the width it actually has, and holding it to that, does not depend on
         how far up the height-for-width request gets.
         """
-        for label in (self.headline, self.detail):
-            width = label.width()
-            if width > 0 and label.wordWrap():
-                label.setMinimumHeight(label.heightForWidth(width))
+        label = self.headline
+        width = label.width()
+        if width > 0 and label.wordWrap():
+            label.setMinimumHeight(label.heightForWidth(width))
 
     def resizeEvent(self, event: Any) -> None:                 # noqa: N802
         super().resizeEvent(event)
@@ -295,9 +378,9 @@ class Rail(QWidget):
     def show_pill(self, state: PillState, fraction: Optional[float]) -> None:
         headline = self.pill.headline.text()
         self.pill.show_state(state, fraction)
-        # "Index" is one line; "Up to date" wraps to two and brings a detail
-        # line with it, so the pill grows by about thirty pixels and the rail's
-        # sums go stale. Measure again - but only when the headline word
+        # "Index" is one line; "Up to date" may wrap to two at a large font,
+        # and a run brings the bar with it, so the pill changes height and the
+        # rail's sums go stale. Measure again - but only when the headline word
         # changes, which is a handful of times a run, never on every progress
         # tick, and on the next turn of the event loop so the pill's own new
         # height has been worked out first.
@@ -314,6 +397,7 @@ class Rail(QWidget):
         """Re-render every icon in the rail's own text colours."""
         self._colours = dict(colours)
         self._retint_buttons()
+        self.pill.retint(colours)
 
     def _retint_buttons(self) -> None:
         if not self._colours:
@@ -367,7 +451,7 @@ class Rail(QWidget):
             self._measure()
 
     def _set_compact(self, compact: bool) -> None:
-        """Icons alone, and a pill with no detail line."""
+        """Icons alone - the pill's too."""
         self._compact = compact
         style = (Qt.ToolButtonStyle.ToolButtonIconOnly if compact
                  else Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
@@ -435,9 +519,7 @@ class Rail(QWidget):
                 self.group.setExclusive(False)
                 checked.setChecked(False)
                 self.group.setExclusive(True)
-        self.pill.setProperty("selected", index == self._pill_index)
-        self.pill.style().unpolish(self.pill)
-        self.pill.style().polish(self.pill)
+        self.pill.set_selected(index == self._pill_index)
 
     def _column_key(self, event: Any) -> None:
         order = sorted(self._buttons)

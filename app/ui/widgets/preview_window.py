@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.view_of_file import View, read_turn
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["PreviewWindow", "GEOMETRY_KEY", "ON_TOP_KEY", "TEXT_ONLY_NOTE",
            "DWG_PREVIEW_ENABLED_KEY", "enabled_checkbox"]
@@ -142,6 +143,9 @@ class PreviewWindow(QWidget):
         self._build()
         self._restore(state)
         self.reload()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def _title_for(self, row: Any) -> str:
         """The filename, plus "(2 of 5)" when this window can navigate.

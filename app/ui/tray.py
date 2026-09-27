@@ -239,9 +239,11 @@ class TrayPresence:
             self.restore()
 
     def restore(self) -> None:
-        self._window.showNormal()
-        self._window.raise_()
-        self._window.activateWindow()
+        # `bring_forward`, not `showNormal()`: the latter also un-maximises, so
+        # a maximised window hidden to the tray used to come back small.
+        from app.ui.window_state import bring_forward
+
+        bring_forward(self._window)
 
     def restore_and_search(self) -> None:
         self.restore()

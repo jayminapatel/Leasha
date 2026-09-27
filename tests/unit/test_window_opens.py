@@ -510,6 +510,10 @@ def test_a_second_launch_brings_the_window_forward(window):
 
     _app, built = window
 
+    # 2026-09-27: `_front_self` goes through `window_state.bring_forward`,
+    # which raises and activates as before but no longer calls `showNormal()`
+    # - that un-maximised a maximised window (owner report). The window still
+    # comes forward; it just keeps its size.
     with patch.object(built, "showNormal") as show, \
             patch.object(built, "raise_") as raise_, \
             patch.object(built, "activateWindow") as activate:
@@ -517,9 +521,9 @@ def test_a_second_launch_brings_the_window_forward(window):
             {"locked": False, "record": None, "link": None,
              "front_requested": True})
 
-    show.assert_called_once()
     raise_.assert_called_once()
     activate.assert_called_once()
+    show.assert_not_called()
 
 
 def test_an_ordinary_poll_does_not_steal_focus(window):

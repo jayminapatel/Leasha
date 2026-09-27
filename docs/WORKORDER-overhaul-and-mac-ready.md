@@ -1,6 +1,6 @@
 # Work order (One thread): a window that never waits, an indexer that shows its work, and code that is ready for a Mac
 
-**Doc version:** 1.0 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread, run as a master thread that coordinates helper threads (each in
 its own git worktree) and merges their work
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build all of it.
@@ -230,11 +230,25 @@ The design was agreed in conversation first. The owner confirmed every recommend
 > 7 ms medium) - the first lead for 5d, not yet diagnosed.
 - [x] **5a** A repeatable benchmark: a synthetic corpus with a large mbox, a zip with
       hundreds of members, and ordinary documents; figures recorded per stage.
+> **2026-09-27, 5d built; 5b and 5c measured, not landed.** Fake embedder, Linux sandbox (4 CPUs),
+> interleaved runs: medium corpus 126.7 s -> 66.3 s (-47.7%), small 16.41 s -> 13.25 s (-19.3%),
+> identical documents, chunks and vectors. **Correction to 5a's note:** its "SQLite write stage
+> 87-96%" was mostly the writing thread waiting for Python's interpreter lock (the run used under one
+> core of four); the real per-document growth was SQLite's 2 MB default page cache. What landed, each
+> measured against its parent: camelCase splitting only in words that can split; documents arriving
+> back to back share one transaction (256 documents or 0.1 s, committed before every resume cursor,
+> so a crash redoes at most one group); the writing thread's page cache sized to a quarter of the file
+> (16-256 MB, given back after the run); **schema v28**, whose `chunks_au` trigger re-indexes a passage
+> only when its text changes (marking it embedded used to re-index every word). **5b** - reading in
+> spawned processes - prototyped at -30% to -43%, not landed: progress frames, OCR/media/LibreOffice
+> state and in-process test fakes are per process, so it needs its own careful change, off by default.
+> **5c** not landed: no model here to prove vectors identical; padding is an estimated 32-35% of the
+> model's work and grouping by length would cut about 27-30%.
 - [ ] **5b** Reading across several processes where reading is CPU-bound, feeding one
       writer. Lands only with a measured gain.
 - [ ] **5c** Embedding: group texts of similar length in a batch so less padding is wasted.
       Lands only with a measured gain and identical vectors.
-- [ ] **5d** Database writes: larger transactions and bulk inserts on the one writer; bigger
+- [x] **5d** Database writes: larger transactions and bulk inserts on the one writer; bigger
       vector-store appends. Lands only with a measured gain and the resume guarantees
       intact.
 
@@ -352,8 +366,17 @@ label, and gets its own pytest-qt scenario.
 
 - [x] **10a** `LOCAL_KNOWLEDGE_GRAPH_V2.md`: the indexer process and the osbridge package
       described for a beginner.
-- [ ] **10b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` brought up to date.
-- [ ] **10c** `docs/MAC_VERIFICATION.md` complete and ordered for a first session on a Mac.
+- [x] **10b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` brought up to date.
+- [x] **10c** `docs/MAC_VERIFICATION.md` complete and ordered for a first session on a Mac.
+
+> **2026-09-27, close-out.** 46 + 2 items done; four stay open by decision, each with its reason in
+> its own dated note: **2d** (whether the separate indexing process becomes the default - the owner's
+> real-index comparison), **5b** (reading in several processes - prototyped, needs its own careful
+> change), **5c** (length-grouped embedding - needs the model to prove identical vectors) and **6d**
+> (semantic search - waits for the owner's example). After the order, at the owner's request: every
+> action button follows one system (`widgets/buttons.py`: natural width, one height, a 16 px icon,
+> primary / secondary / danger), the Indexing pill reads as a rail button, and a maximised window
+> stays maximised.
 
 ## P. Parked: hardware-specific macOS work
 
