@@ -358,7 +358,7 @@ def test_search_images_reports_a_mid_life_cache_empty_download(
                 (target / f"part{chunk}.bin").write_bytes(b"x" * 4_000_000)
                 time.sleep(0.35)
 
-        def embed(self, texts):
+        def embed(self, texts, **_options):     # fastembed also takes batch_size
             return [[0.1, 0.2, 0.3] for _ in texts]
 
     monkeypatch.setattr("fastembed.TextEmbedding", FakeTextEmbedding)
