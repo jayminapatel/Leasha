@@ -2772,20 +2772,32 @@ class Pipeline:
         consumer's loop); an abnormal one sends its own, and the reason is logged.
         """
         clean = False
-        # 0x 3c: this thread's own line on the page, and the list its readers
-        # write their position into (`app.extract.progress.attach`). Opened
-        # once per thread; see `live_progress.WorkerBoard`.
-        board = getattr(self._stats_ref, "board", None)
-        slot = board.open_slot() if board is not None else None
-        if slot is not None:
-            reader_progress.attach(slot.frames)
-        self._worker_slots().slot = slot
+        board = slot = None
         try:
+            # 0x 3c: this thread's own line on the page, and the list its
+            # readers write their position into (`app.extract.progress.attach`).
+            # Opened once per thread; see `live_progress.WorkerBoard`.
+            #
+            # **Inside the `try`, and asked for with `getattr`.** 2026-09-27:
+            # this used to sit above the `try` and read `self._stats_ref`
+            # directly. A pipeline whose `run()` had not set it (the bare one
+            # `test_close_waits_for_index_run` builds without `__init__`) then
+            # raised `AttributeError` here, before the `finally` below existed
+            # for it - so the thread died without the `_STOP` marker this
+            # method promises, and the test passed only because a dead thread
+            # is also "not alive". Now a missing board means no line on the
+            # page, exactly as a board of `None` always did.
+            board = getattr(getattr(self, "_stats_ref", None), "board", None)
+            slot = board.open_slot() if board is not None else None
+            if slot is not None:
+                reader_progress.attach(slot.frames)
+            self._worker_slots().slot = slot
             self._extract_worker_loop(work, results)
             clean = True
         except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
-            self._log.error("an extraction worker ended unexpectedly: {}: {}",
-                            type(exc).__name__, exc)
+            log = getattr(self, "_log", None) or logger.bind(component="index.pipeline")
+            log.error("an extraction worker ended unexpectedly: {}: {}",
+                      type(exc).__name__, exc)
             raise
         finally:
             if slot is not None and board is not None:
