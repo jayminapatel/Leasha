@@ -209,12 +209,26 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 6. Search in every box
 
-- [ ] **6a** `/between` as an alias of 0w's `/date`, accepting `X and Y` and `X to Y`
+> **2026-09-27, 6a-6c built.** `/between` is `/date` under another name: `between:A and B` and
+> `A to B` are joined into `A..B` before parsing (`query.join_between_words`), so it reaches the same
+> after/before everywhere, Mail's sent date included, and is offered in every box's `/` menu.
+> **One behaviour change to note:** `between` used to be a second spelling of git's `/range` in the
+> Code tab; kept, it would have hidden `/range` from the menus and sent a date range to git as a
+> commit range. `/range v5.0..v6.0` works as before. Only ISO values work (the date parser has no
+> month names). Plain English: "between March and June 2024", "from 1 Jan 2024 to 5 Feb 2024" and
+> year ranges are *offered* as chips, never applied; anything that needs a guess (a year-less range
+> in the future or across New Year, a backwards range, an impossible day) stays as words. The audit
+> (Search, Files, Mail, Code, mini-search, Timeline, Chat) found three larger gaps, left as they are:
+> the Timeline takes single values per box by 0w's design, Chat has no source search box, and the
+> mini-search has nowhere to explain a mistyped date. Found on the way: the Files, Mail and Code views
+> sit in Python reference cycles once let go, which can crash a test run when a column-width timer
+> fires into a collected closure; tests now delete them explicitly, the cause is not yet fixed.
+- [x] **6a** `/between` as an alias of 0w's `/date`, accepting `X and Y` and `X to Y`
       (decision D2), offered wherever `/date` is.
-- [ ] **6b** Plain English: "between March and June 2024", "from 1 Jan to 5 Feb", "since
+- [x] **6b** Plain English: "between March and June 2024", "from 1 Jan to 5 Feb", "since
       last Easter" is *not* guessed (an ambiguous date filter hides documents silently).
       Only unambiguous phrases become filters, as `translate_rules` already insists.
-- [ ] **6c** An audit of every search box (Search, Files, Mail, Code, Timeline, the
+- [x] **6c** An audit of every search box (Search, Files, Mail, Code, Timeline, the
       mini-search, Chat's source search) proving each uses the same parser and offers the
       same date forms, with a pytest-qt scenario per box.
 - [ ] **6d** Semantic search: fixed from the owner's evidence (a failing query, what was

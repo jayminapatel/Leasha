@@ -17,6 +17,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Date ranges you can type the way you say them
+
+- `/between 2024-03-01 and 2024-06-30` (or `… to …`) works in every search box, and gives exactly
+  what `/date 2024-03-01..2024-06-30` gives. `/range` in the Code tab still means git.
+- Typing "letters between March and June 2024" or "from 1 January 2024 to 5 February 2024" now
+  offers those dates as filters you can accept. Leasha does not guess: a range without a year that
+  could mean two different years is left as words.
+
 ### The Indexing page, easier to read while a run is going
 
 - The progress bar now glides between updates instead of jumping, and never moves backwards.
