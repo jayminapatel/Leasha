@@ -359,3 +359,37 @@ def test_the_suggested_searches_and_filter_chips_are_round_not_square(gui_mainwi
         assert theme.RADIUS["radius_pill"] != "999px"
         qtbot.keyClick(view.input, KEY.Key_Escape)
         gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("size", [(1100, 760), (760, 560)])
+def test_every_settings_category_name_is_shown_whole(gui_mainwindow, qtbot, size):
+    r"""**Before:** the Settings sidebar was squeezed to its 120-pixel floor by
+    the wide Search page and read "What's index" and "Storage & m"; on
+    Appearance, at its 190 ceiling, "Storage & maintenance" was a few pixels
+    too wide and a sideways scrollbar sat under the list. Grabs:
+    `before-1100x760/light/settings-search.png` and `settings-appearance.png`.
+
+    Now Ctrl+, opens Settings, each category is clicked with the mouse, and on
+    every one the list is at least as wide as its widest name, with no
+    sideways scrollbar - at a normal and a narrow window."""
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, *size)
+    window.activateWindow()
+    qtbot.keyClick(window, KEY.Key_Comma, Qt.KeyboardModifier.ControlModifier)
+    gui_pump(app, 6)
+    assert window.rail.tabText(window.rail.currentIndex()) == "Settings"
+    nav = window.settings_view._nav
+    sidebar = nav.sidebar
+    try:
+        for row in range(sidebar.count()):
+            item = sidebar.item(row)
+            rect = sidebar.visualItemRect(item)
+            qtbot.mouseClick(sidebar.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+            gui_pump(app, 6)
+            assert nav.current_category() == item.text()
+            widest = sidebar.sizeHintForColumn(0)
+            assert sidebar.viewport().width() >= widest, (item.text(), sidebar.viewport().width(), widest)
+            assert not sidebar.horizontalScrollBar().isVisible(), item.text()
+    finally:
+        nav.show_category("What's indexed", persist=False)
+        window.rail.setCurrentIndex(0)
