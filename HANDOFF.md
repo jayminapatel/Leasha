@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -152,6 +152,11 @@ Nothing is pushed; the branch is `claude/outstanding-work-bugs-7edba5`.
   installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against
   `REQUIRED_FREE_GB`); no update check inside the app; supported Windows 11 and 10 22H2, tested on
   11 only; unsigned until the repository is public.
+- *2026-09-27 note - the item below is reversed. The owner dropped the PySide6 migration
+  (`202626270238`, now DROPPED in the register): Leasha stays on PyQt6. Packaging no longer
+  waits on the migration; it waits on an open owner decision about which licence a
+  distributed build carries, since PyQt6 is GPL-3.0-only and `LICENSE` is MIT. Do not start
+  or promote the order.*
 - **PySide6 first.** PyQt6 6.11.0's metadata reads `GPL-3.0-only`; the project is MIT. The
   migration (`202626270238`, DRAFT, 0/10) is now the first item of Layer 9 and must precede any
   packaged release. It is not started, and it changes the venv the running app uses, so it wants
@@ -302,7 +307,7 @@ built and merged, and the suite now runs to the end.** For whoever picks this up
   because `indexing_view.py` is 292 lines against a 250-line guard, which predates all of this.
 - **Deliberately not built:** pywinauto black-box journeys and the scheduled nightly task
   (0m 3a/3b/5b - they need the owner's desktop); the Life Timeline (0n section 4, held);
-  the PySide6 migration (held); cloud volumes and cloud connectors (removed from scope);
+  the PySide6 migration (held; *dropped by the owner 2026-09-27*); cloud volumes and cloud connectors (removed from scope);
   install and distribution (`202626082213`); on-tape ordering and the UNC test (0l - need the
   hardware); the OCR order's section 3 measurement; terabyte-scale and PST owner runs.
 - **Built but not measured on the owner's machine:** 0r 2b (<1.5 s window-visible), 0n 3c
