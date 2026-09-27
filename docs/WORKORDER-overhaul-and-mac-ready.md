@@ -138,21 +138,35 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 2. The indexer in its own process
 
-- [ ] **2a** `app.cli index` gains a machine-readable mode that writes one JSON line per
+> **2026-09-27, 2a-2c and 2e built; 2d measured, not yet confirmed.** `app.cli index --events jsonl`
+> streams one JSON line per event (`app/index/run_events.py`); IndexStats crosses by value type, so
+> fields other sections add travel on their own, and a test shows the page's headline and reader lines
+> read the same from the child as in-process. `app/index/child_run.py` runs it with `Popen` on the
+> page's existing one-thread index pool - not QProcess, which would have meant changing the view -
+> and turns a crash or a silent exit into `ERR_INDEX_PROCESS_ENDED` naming the file it was reading.
+> The child takes the run lock as "the window", so 0w's interrupted-run notice works unchanged; it
+> lowers its own priority through the CLI's existing path; closing its stdin means Stop, then exit
+> after 60 s, so it never outlives the window. The setting is "Index in a separate process"
+> (`INDEX_SEPARATE_PROCESS`), **off by default**. 2d, Linux sandbox, fake embedder, shared noisy
+> machine: the window's heartbeat p99 improved (21 → 8 ms small, 10.5 → 4 ms medium), throughput was
+> equal on the medium corpus (1,488 vs 1,486 files/min) and 16% lower on the small one (the child's
+> 2-3 s start-up), and the longest stall did not improve on medium (55 vs 54 ms). That is not enough to
+> switch it on for everyone: 2d stays open until the owner's real-index comparison (HANDOFF checklist).
+- [x] **2a** `app.cli index` gains a machine-readable mode that writes one JSON line per
       event to standard output (progress, activity, heartbeat, finished) and reads
       commands (pause, resume, stop) on standard input. The existing human-readable output
       is unchanged.
-- [ ] **2b** A supervisor in the window starts that process, reads its lines without ever
+- [x] **2b** A supervisor in the window starts that process, reads its lines without ever
       blocking the interface thread, and turns them into the same `IndexStats` updates the
       page already draws. Pause and Stop reach the child. The run lock, the external-run
       watch and the schedule keep working.
-- [ ] **2c** Crash handling: if the child dies, the page says so in plain words, the run
+- [x] **2c** Crash handling: if the child dies, the page says so in plain words, the run
       carries on from its last saved position when started again (0w's interrupted-run
       notice), and the file it was reading is named.
 - [ ] **2d** Measured, before and after, on the same synthetic corpus: the window's
       longest stall and p99 (the lag monitor) while indexing, files per minute, and memory.
       The change lands only if the window is better and throughput is no worse.
-- [ ] **2e** The in-process path is kept behind a setting until 2d is confirmed on the
+- [x] **2e** The in-process path is kept behind a setting until 2d is confirmed on the
       owner's real index, then retired in a later change.
 
 ## 3. Progress you can read, inside one file too

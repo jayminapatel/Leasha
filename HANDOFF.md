@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.9 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.10 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,28 @@ version first" and the Mac parking for its own scope only; hardware-specific Mac
 parked in its §P. **It builds on 0w**, which shipped the same day and is merged into the
 0x branch. The owner's real-Mac checks accumulate in `docs/MAC_VERIFICATION.md`.
 Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on a Mac).
+**2026-09-27 (later still) - traps found while clearing the red tests, and the child indexer.**
+- **Qt's default timers can fire up to 5% early.** `SearchView`'s 400 ms idle timer fired at
+  379-399 ms, the view re-measured the gap, decided "interim", and the full search (the one that
+  logs to `searches`, corrects spelling and writes notices) never ran until Enter. Each timer now
+  passes the interval its own firing proves. This was not a 0w regression; it happened before too.
+- **The `view_options.py` timer crash is fixed** (the "open" trap above): `remember_widths`' `look`
+  closure and its timer formed a cycle the garbage collector cleared while the C++ timer lived, so a
+  tick called a function with no globals (seen in a core dump). A module-level `_WATCHERS` keeps each
+  running `look` reachable while its timer exists.
+- **`gui_mainwindow` hides its window before closing the store.** Qt 6's `app.quit()` sends a close
+  event to every *visible* top-level window, and a leaked visible window's `closeEvent` then saved its
+  geometry to a closed store.
+- **`scripts/run_suite.py` names "the last file it started" even when every test finished** and the
+  crash came from garbage collection at exit - read the per-test results before blaming that file.
+- **Never run `scripts/regen_vs_project.py` mid-merge without the fix now in it**: with conflicts
+  unresolved, `git ls-files` lists a path once per stage, which is how three docs came to be listed
+  three times each. It now de-duplicates.
+- **The child indexer** (0x §2, off by default): a new monotonic-clock field in IndexStats must go in
+  `run_events.MONOTONIC_FIELDS`; commands reach the pipeline only from its first progress tick; closing
+  the child's stdin means Stop then exit after 60 s, so never run `--events` in-process with stdin at
+  end-of-file (under pytest it stops the run and later calls `os._exit`).
+
 **2026-09-27 (later) - the owner's feedback: three bugs fixed, order 0w built and SHIPPED.** Seven items came
 in. Three were bugs with a verified cause and were fixed directly. Three became order 0w
 (`docs/WORKORDER-dates-live-log-and-interrupted-runs.md`), released and built the same day. The
@@ -111,6 +133,14 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       2024-13-01` says what is wrong. In Code, `/range v1..v2` still runs git.
 - [ ] **Plain-English ranges.** "letters between March and June 2024" offers after 2024-03-01 and
       before 2024-06-30; "from 1 Oct to 5 Nov" offers nothing.
+- [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
+      start a large index, click round every page, then compare the log's `shutdown: window
+      responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
+      "did not finish". End the window from Task Manager mid-run: the child `pythonw` goes within a
+      minute. End only the child: the page says "The indexing process stopped unexpectedly while
+      reading …", the next open shows the interrupted notice, and Start carries on. Close the window
+      mid-run: no Leasha process remains. Then `app.cli bench-pipeline --probe --size medium`, with
+      and without `--child-process`, on the real machine - that settles whether it becomes the default.
 - [ ] **Where it is inside an archive.** Index a real `.pst` (libpff) and a large `.mbox`: the page
       shows the folder and "message n of m" (for a PST, n of m within the folder), one line per
       reader, and "last activity" keeps moving. Check folder names read naturally ("Inbox/...", not
