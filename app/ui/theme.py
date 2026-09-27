@@ -25,7 +25,7 @@ from typing import Optional
 
 __all__ = [
     "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
-    "theme_colours", "RADIUS",
+    "theme_colours", "RADIUS", "BUTTON",
 ]
 
 SCHEMES = ("system", "light", "dark")
@@ -299,6 +299,35 @@ QPushButton:checked {{
 }}
 QPushButton:disabled {{
     color: {text_faint}; background: {surface}; border-color: {divider};
+}}
+
+/* **The button system** (`widgets/buttons.py`, owner 2026-09-27: "all buttons
+   should be consistent throughout the app"). Every action button carries a
+   `buttonRole` of primary, secondary or danger, and these rules give all of
+   them one height and one padding. The height is a floor on the space inside
+   the padding, big enough for the 16px icon every one of them carries, so a
+   button with a taller font still grows with it.
+   Written after the plain QPushButton rules on purpose: a rule of equal weight
+   that comes later wins, which is also why the primary and danger kinds say
+   what they look like when disabled - otherwise a greyed-out primary would
+   still look filled and pressable. */
+QPushButton[buttonRole="primary"], QPushButton[buttonRole="secondary"],
+QPushButton[buttonRole="danger"] {{
+    padding: {button_pad_y} {button_pad_right} {button_pad_y} {button_pad_left};
+    min-height: {button_min_h}; border-radius: {radius_control};
+}}
+QPushButton[buttonRole="primary"] {{
+    background: {accent}; border: 1px solid {accent}; color: {accent_on};
+    font-weight: 600;
+}}
+QPushButton[buttonRole="primary"]:hover {{ background: {focus_ring}; border-color: {focus_ring}; }}
+QPushButton[buttonRole="primary"]:pressed {{ background: {accent}; }}
+QPushButton[buttonRole="primary"]:focus {{ border-color: {text}; }}
+QPushButton[buttonRole="danger"] {{ color: {danger}; }}
+QPushButton[buttonRole="danger"]:hover {{ border-color: {danger}; }}
+QPushButton[buttonRole="primary"]:disabled, QPushButton[buttonRole="danger"]:disabled {{
+    color: {text_faint}; background: {surface}; border-color: {divider};
+    font-weight: normal;
 }}
 
 /* **The scrollbars were never styled**, so every pane carried the chunky
@@ -804,6 +833,19 @@ RADIUS: dict[str, str] = {
     "radius_pill": "11px",
 }
 
+#: **Every action button's size, in one place** (the button system,
+#: `widgets/buttons.py`). 4px above and below, and a floor of 18px inside that
+#: - room for the 16px icon - makes a 28px button with its 1px border, the
+#: height the old plain buttons were at the Windows default font. 10px before
+#: the icon and 12px after the words: the icon's own transparent margin makes
+#: the two sides look equal. Sizes, not colours, so kept out of `PALETTES`.
+BUTTON: dict[str, str] = {
+    "button_pad_y": "4px",
+    "button_pad_left": "10px",
+    "button_pad_right": "12px",
+    "button_min_h": "18px",
+}
+
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built
 #: before the app exists. 9pt is the Windows default.
 DEFAULT_POINT_SIZE = 9.0
@@ -850,4 +892,4 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS)
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS, **BUTTON)
