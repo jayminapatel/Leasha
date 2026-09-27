@@ -1069,6 +1069,9 @@ class SqliteStore:
             conn = self.conn
             conn.execute("BEGIN IMMEDIATE")
             self._local.batch_depth = 1
+            # 0x 5d: this transaction has not moved the generation yet. See
+            # `_bump_generation`.
+            self._local.bumped = False
             try:
                 yield conn
             except BaseException:
@@ -4237,6 +4240,26 @@ class SqliteStore:
     # -- generation (search cache invalidation) ------------------------------
 
     def _bump_generation(self, conn: sqlite3.Connection) -> None:
+        r"""Move the generation on, so the search cache drops what it holds.
+
+        Work order 0x item 5d. **Once per `batch()` transaction, not once per
+        call inside it.** Another connection only ever sees a transaction
+        whole - WAL gives each reader a snapshot of *committed* data - so the
+        search cache, which reads the number from another thread, can never
+        tell one bump from five inside the same transaction: either way the
+        number it sees has changed exactly when the rows it is keyed on have.
+        The extra statements were pure cost - two per indexed document
+        (`upsert_file` and `replace_chunks` each bumped), and every statement
+        pays to get Python's interpreter lock back afterwards, which is what
+        made the indexer's writes slow (see `Pipeline._begin_write_group`).
+
+        Outside a batch, every `write()` is its own transaction and bumps as
+        it always did.
+        """
+        if getattr(self._local, "batch_depth", 0):
+            if getattr(self._local, "bumped", False):
+                return
+            self._local.bumped = True
         conn.execute("UPDATE index_generation SET generation = generation + 1 WHERE id = 1")
 
     def bump_generation(self) -> None:
