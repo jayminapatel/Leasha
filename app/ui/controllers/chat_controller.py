@@ -49,6 +49,7 @@ from app.ui.presenter.chat import (
     FAILED_LINE, plain_answer_text, speed_note, title_from_question,
 )
 from app.ui.tasks import first_chunk_id
+from app.ui.state_writes import save_state
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ChatController", "SPEED_KEY"]
@@ -452,7 +453,7 @@ class ChatController(QObject):
         self._w.search_view.results.similar_requested.emit(found)
 
     def _speed_changed(self, value: str) -> None:
-        self._w._store.set_state(SPEED_KEY, value)
+        save_state(self._w._store, SPEED_KEY, value, component="ui.chat")
 
     # -- the message actions -----------------------------------------------------------
     def _rewind_to_last_question(self) -> str:

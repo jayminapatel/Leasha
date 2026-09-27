@@ -46,6 +46,7 @@ from app.ui.presenter import (
     _read_external_run, _scan_and_save, cleared_message, index_bytes,
     offline_media_run_summary,
 )
+from app.ui.state_writes import save_states
 from app.ui.workers import CallableWorker, run
 
 _log = logger.bind(component="ui.shell")
@@ -114,11 +115,13 @@ class IndexController(QObject):
         that silently rewrites configuration is how hand-written comments and
         overrides disappear. `.env` remains the default; this is the override.
         """
-        self._w._store.set_states({
+        # Queued (bug 3a): a schedule is most often changed while a run is
+        # going, which is exactly when a synchronous write waits on its batch.
+        save_states(self._w._store, {
             "ui:index_schedule": policy.mode,
             "ui:index_interval_hours": str(policy.interval_hours),
             "ui:index_daily_at": f"{policy.daily_at[0]:02d}:{policy.daily_at[1]:02d}",
-        })
+        }, component="ui.schedule")
         self._w.scheduler.set_policy(policy)
         self._w.indexing_view.schedule_box.set_schedule_status(self._w.scheduler.status())
 
@@ -134,6 +137,9 @@ class IndexController(QObject):
             return None
 
     def _save_last_index_time(self, when: datetime) -> None:
+        # A worker body already: `IndexScheduler.notify_finished` hands this
+        # to a `CallableWorker`, which is why it is named in
+        # `test_ui_never_blocks.OFF_THREAD` rather than queued again here.
         self._w._store.set_state("index:last_run", when.isoformat(timespec="seconds"))
 
     # -- the tuning screen's evidence ---------------------------------------

@@ -750,6 +750,9 @@ def test_the_text_size_preference_reaches_the_results_list(gui_mainwindow, paint
         assert heights["small"] < heights["large"], heights
         # And it is the saved preference, so it is there next launch.
         _set_prefs(window, density="compact", font_pt=16)
+        # Saved on the ordered state writer since bug 3a - wait for it.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
         state = store.all_state()
         assert state["ui:results:font_pt"] == "16" and state["ui:results:density"] == "compact"
     finally:
