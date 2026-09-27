@@ -179,6 +179,7 @@ from app.ui.presenter.live_progress import (
     inner_trail,
     live_headline,
     live_view,
+    now_headline,
     position_text,
     since_text,
     stage_words,
