@@ -218,6 +218,7 @@
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\index_bench.py" />
+    <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
@@ -316,6 +317,7 @@
     <Compile Include="app\ui\presenter\explain.py" />
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
+    <Compile Include="app\ui\presenter\interrupted.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -469,6 +471,7 @@
     <Compile Include="tests\unit\close_scenario_child.py" />
     <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\e2e_support.py" />
+    <Compile Include="tests\unit\interrupted_run_child.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
@@ -626,6 +629,7 @@
     <Compile Include="tests\unit\test_indexing_that_works.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
+    <Compile Include="tests\unit\test_interrupted_runs.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
@@ -668,6 +672,7 @@
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
+    <Compile Include="tests\unit\test_part_read_archives.py" />
     <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
     <Compile Include="tests\unit\test_pause_button.py" />
@@ -696,6 +701,7 @@
     <Compile Include="tests\unit\test_preview_window.py" />
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
+    <Compile Include="tests\unit\test_pst_folder_resume.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
     <Compile Include="tests\unit\test_pst_partial_pipeline.py" />
     <Compile Include="tests\unit\test_pst_resilience.py" />
