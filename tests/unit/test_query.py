@@ -200,6 +200,67 @@ def test_reversed_date_range_is_swapped() -> None:
     assert (q.after, q.before) == (correct.after, correct.before)
 
 
+# --- `date:` - one period, or a range of them (order "dates" §1a) ----------
+
+@pytest.mark.parametrize(
+    "raw,after,before",
+    [
+        # A whole period: the same edges `after:`/`before:` give a partial date.
+        ("date:2017", date(2017, 1, 1), date(2017, 12, 31)),
+        ("date:2017-03", date(2017, 3, 1), date(2017, 3, 31)),
+        ("date:2016-02", date(2016, 2, 1), date(2016, 2, 29)),
+        ("date:2017-03-14", date(2017, 3, 14), date(2017, 3, 14)),
+        ("date:14-03-2017", date(2017, 3, 14), date(2017, 3, 14)),
+        # Ranges, each end resolved against its own side.
+        ("date:2017-01-01..2017-06-30", date(2017, 1, 1), date(2017, 6, 30)),
+        ("date:2017-03..2017-06", date(2017, 3, 1), date(2017, 6, 30)),
+        ("date:2016..2017", date(2016, 1, 1), date(2017, 12, 31)),
+        # Either end open.
+        ("date:..2017", None, date(2017, 12, 31)),
+        ("date:2017..", date(2017, 1, 1), None),
+        # Relatives: "since then", except the two that already name one day.
+        ("date:30d", date(2026, 7, 25), None),
+        ("date:today", TODAY, TODAY),
+        ("date:yesterday", date(2026, 8, 23), date(2026, 8, 23)),
+        ("date:30d..7d", date(2026, 7, 25), date(2026, 8, 17)),
+        # The slash form reaches the same fields.
+        ("/date 2017-03", date(2017, 3, 1), date(2017, 3, 31)),
+    ],
+)
+def test_date_operator_forms(raw: str, after, before) -> None:
+    from app.search.commands import expand_slashes
+
+    q = parse_query(expand_slashes(raw), today=TODAY)
+    assert (q.after, q.before) == (after, before)
+    assert q.unknown_operators == ()
+    assert q.terms == ()                    # nothing leaked into the words
+
+
+def test_date_is_the_same_query_as_the_two_operators_it_stands_for() -> None:
+    """The order's own promise: `date:` sets the fields `after:`/`before:`
+    set, so filtering, the sent-date rule and the CLI follow for free."""
+    ranged = parse_query("date:2017-03..2017-06 pump", today=TODAY)
+    spelled = parse_query("after:2017-03 before:2017-06 pump", today=TODAY)
+    assert (ranged.after, ranged.before, ranged.terms) == (
+        spelled.after, spelled.before, spelled.terms)
+    assert ranged.has_filters
+
+
+def test_a_reversed_date_range_covers_both_periods_whole() -> None:
+    q = parse_query("date:2018..2017", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 1, 1), date(2018, 12, 31))
+
+
+def test_an_unreadable_date_value_is_reported_not_searched_for() -> None:
+    """It used to be no operator at all, so `date:2017-13` became the search
+    terms `date` and `2017-13` and the filter silently did nothing."""
+    for raw in ("date:2017-13", "date:..", "date:soon", "-date:2017"):
+        q = parse_query(f"{raw} report", today=TODAY)
+        assert (q.after, q.before) == (None, None), raw
+        assert q.unknown_operators == (raw,), raw
+        assert q.terms == ("report",), raw
+
+
 def test_path_and_sender_operators() -> None:
     q = parse_query('path:"D:\\Projects\\Alpha" from:Jane@Example.com notes')
     assert q.paths == ("D:\\Projects\\Alpha",)
