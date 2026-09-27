@@ -101,3 +101,80 @@ def test_a_short_window_shows_rail_icons_rather_than_labels_cut_in_half(gui_main
     assert _rail_labels_fit(window) == []
     assert all(b.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextUnderIcon
                for b in rail._buttons.values()), "760 tall has room for every label"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the colour checks below
+# ---------------------------------------------------------------------------
+
+def _luminance(colour) -> float:
+    """WCAG relative luminance of a `QColor` (0 black .. 1 white)."""
+    def channel(value: int) -> float:
+        c = value / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * channel(colour.red()) + 0.7152 * channel(colour.green()) + 0.0722 * channel(colour.blue())
+
+
+def _contrast(a, b) -> float:
+    """WCAG contrast ratio of two `QColor`s: 1 (none) .. 21 (black on white)."""
+    la, lb = _luminance(a), _luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+class _Theme:
+    """Switch the real window to one theme for a test, and back afterwards -
+    the same path the Appearance setting takes, stylesheet and pixmaps both."""
+
+    def __init__(self, window, scheme: str) -> None:
+        self.window, self.scheme = window, scheme
+
+    def __enter__(self):
+        self.before = self.window._theme_preference
+        self.window._theme_preference = self.scheme
+        self.window._apply_theme()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.window._theme_preference = self.before
+        self.window._apply_theme()
+
+
+def _most_contrasting(image, rect, ground) -> float:
+    """The strongest contrast any pixel inside `rect` has against `ground` -
+    for a thin icon, that is the icon's own stroke."""
+    from PyQt6.QtGui import QColor
+    best = 1.0
+    for x in range(rect.left(), rect.right() + 1):
+        for y in range(rect.top(), rect.bottom() + 1):
+            best = max(best, _contrast(QColor(image.pixel(x, y)), ground))
+    return best
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, qtbot, scheme):
+    r"""**Before:** in the light theme the chosen page's icon was drawn white on
+    the pale lavender highlight - 1.2 to 1, all but invisible - so the one icon
+    that says "you are here" was the one you could not see. Grab:
+    `before-1100x760/light/search-home.png`, the Search icon.
+
+    Now it is clicked with the mouse, grabbed, and its stroke must reach 3 to 1
+    against the highlight (WCAG's floor for a meaningful graphic) in both themes."""
+    from PyQt6.QtCore import QPoint, QRect
+    from PyQt6.QtGui import QColor
+    from app.ui import theme
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    with _Theme(window, scheme):
+        button = next(b for b in window.rail._buttons.values() if b.text() == "Files")
+        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+        gui_pump(app, 6)
+        assert window.rail.tabText(window.rail.currentIndex()) == "Files"
+        image = button.grab().toImage()
+        ground = QColor(theme.theme_colours()["rail_on_bg"])
+        # The icon sits centred near the top of the button, above its label.
+        size = button.iconSize()
+        left = (button.width() - size.width()) // 2
+        icon_box = QRect(QPoint(left, 4), size + size / 2).intersected(image.rect())
+        assert _most_contrasting(image, icon_box, ground) >= 3.0, scheme
+    window.rail.setCurrentIndex(0)
