@@ -31,6 +31,8 @@ The operations, and the module each lives in:
     priority.py   run a thread or the whole process at lower priority
     programs.py   find an installed program that is not on PATH
     paths.py      the default data folder; how to name the venv's Python
+    pathnames.py  which separator a path uses; whether a folder's disk
+                  treats `Report.docx` and `report.docx` as one file
     cloudfs.py    is this file a cloud placeholder (OneDrive / iCloud)?
 
 **Cheap to import.** Only the standard library and the app's logger are used,
@@ -44,6 +46,13 @@ from __future__ import annotations
 from app.core.osbridge._platform import is_macos, is_windows
 from app.core.osbridge.cloudfs import is_cloud_placeholder
 from app.core.osbridge.launch import open_with_default_app, show_in_file_manager
+from app.core.osbridge.pathnames import (
+    case_sensitive,
+    join_under,
+    path_key,
+    same_path,
+    separator_for,
+)
 from app.core.osbridge.paths import (
     default_data_folder,
     venv_pip_display,
@@ -61,4 +70,5 @@ __all__ = [
     "lower_this_thread", "restore_this_thread", "lower_process_priority",
     "default_data_folder", "venv_python_display", "venv_pip_display",
     "is_cloud_placeholder",
+    "separator_for", "join_under", "case_sensitive", "path_key", "same_path",
 ]
