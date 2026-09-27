@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.first_contact import SUGGESTIONS, greeting
+from app.ui.widgets.flow_layout import FlowLayout
 
 __all__ = ["SearchHome", "HEADLINE", "BOX_WIDTH"]
 
@@ -63,9 +64,19 @@ class SearchHome(QWidget):
         self.slot.addStretch(1)
         outer.addLayout(self.slot)
 
-        pills = QHBoxLayout()
-        pills.setSpacing(8)
-        pills.addStretch(1)
+        # **Wrapping, not squeezing** (order 0x section 9, review finding 14).
+        # In a `QHBoxLayout` the four pills were squeezed below their words on
+        # a narrow window and Qt cut each one in the middle - "the pdf …e
+        # boiler". A centred flow keeps every pill whole and moves the last
+        # ones to a second line only when a line cannot hold them; at 1100
+        # wide they still sit on one line, as before.
+        #
+        # In a box this page sizes itself (`_fit_pills`, from `resizeEvent`)
+        # rather than one Qt sizes by height-for-width: see the flag's note in
+        # `flow_layout.py` for the resize cost that avoids.
+        self._pill_box = QWidget()
+        self._pills = FlowLayout(self._pill_box, spacing=8, centred=True,
+                                 height_for_width=False)
         self.suggestions: list[QToolButton] = []
         for shown, typed in SUGGESTIONS:
             pill = QToolButton()
@@ -76,10 +87,9 @@ class SearchHome(QWidget):
             pill.setToolTip(f"Search for: {typed}")
             pill.setAccessibleName(f"Try searching: {shown}")
             pill.clicked.connect(lambda _c=False, t=typed: self._on_type(t))
-            pills.addWidget(pill)
+            self._pills.addWidget(pill)
             self.suggestions.append(pill)
-        pills.addStretch(1)
-        outer.addLayout(pills)
+        outer.addWidget(self._pill_box)
 
         self.recent = QWidget()
         self.recent.setObjectName("recentList")
@@ -89,6 +99,23 @@ class SearchHome(QWidget):
         self._recent_layout.setSpacing(6)
         outer.addWidget(self.recent, 0, Qt.AlignmentFlag.AlignHCenter)
         outer.addStretch(3)
+
+    # -- sizing -----------------------------------------------------------------
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._fit_pills(event.size().width())
+
+    def _fit_pills(self, width: int) -> None:
+        """Give the pills' box the height its lines need at this width.
+
+        Only a change is written: at any width where the lines stay the same,
+        which is nearly every resize, this is one small sum and nothing else.
+        """
+        margins = self.layout().contentsMargins()
+        needed = self._pills.heightForWidth(max(0, width - margins.left() - margins.right()))
+        if needed > 0 and needed != self._pill_box.maximumHeight():
+            self._pill_box.setFixedHeight(needed)
 
     # -- what the window and toolbar push in ------------------------------------
 

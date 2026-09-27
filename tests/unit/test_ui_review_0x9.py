@@ -542,3 +542,45 @@ def test_the_indexing_headline_agrees_with_the_document_count(gui_mainwindow, qt
         view.headline.setText(getattr(view, "_resting_headline", "Nothing indexed yet."))
         window.rail.setCurrentIndex(0)
         gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("size", [(1100, 760), (760, 560)])
+def test_the_suggested_searches_are_shown_whole_at_any_width(gui_mainwindow, qtbot, size):
+    r"""**Before** (review finding 14): at 760 wide the four suggested searches
+    under the empty box were squeezed into one row and cut in the middle -
+    "the pdf …e boiler", "photos fr… District". Grab:
+    `after-final-760x560/light/search-home.png`.
+
+    Now Escape empties the box, and every suggestion is at least as wide as
+    its own words, none overlaps another or runs off the page, and a click
+    on one still searches for it."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtWidgets import QWidget
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, *size)
+    view = window.search_view
+    try:
+        window.rail.setCurrentIndex(window.rail.indexOf(view))
+        view.input.setFocus()
+        qtbot.keyClicks(view.input, "leeds")
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 8)
+        pills = [w for w in view.findChildren(QWidget)
+                 if w.objectName() == "suggestion" and w.isVisible()]
+        assert len(pills) == 4, "the home page shows its four suggested searches"
+        cut = [f"{p.text()}: {p.width()} < {p.sizeHint().width()}"
+               for p in pills if p.width() < p.sizeHint().width()]
+        assert cut == [], size
+        page = QRect(view.mapToGlobal(view.rect().topLeft()), view.size())
+        boxes = [QRect(p.mapToGlobal(p.rect().topLeft()), p.size()) for p in pills]
+        assert all(page.contains(b) for b in boxes), size
+        assert not any(a.intersects(b) for i, a in enumerate(boxes) for b in boxes[i + 1:]), size
+
+        qtbot.mouseClick(pills[0], Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert view.input.text().strip() != ""
+    finally:
+        view.input.clear()
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 4)
