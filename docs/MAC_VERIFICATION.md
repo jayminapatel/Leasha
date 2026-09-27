@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -98,6 +98,24 @@ it, or write what happened underneath with the date. Anything marked
       it carries on near where it stopped, not at the first message, with no duplicates.
 - [ ] **6.8 A big export.** Index an `.olm` over 2GB. Expect: it is read, not dropped by the
       file-size ceiling.
+
+- [ ] **4.7** Open a video result at a moment in it (a search hit inside a transcript) with VLC
+      and with mpv installed as Mac apps: does it start at that moment? The start-time arguments
+      are the Windows ones. **(UNCONFIRMED on macOS)**
+- [ ] **4.8** With VS Code in `/Applications`, "Open in editor" on a code result opens it.
+      **(UNCONFIRMED on macOS)**
+
+## 7. The Indexing page (order 0x §4)
+
+- [ ] **7.1** Indexing → Status during a run: the bar glides between updates, and shows a moving
+      block while the total is not known yet. **(UNCONFIRMED on macOS)**
+- [ ] **7.2** Minimise to the Dock mid-run and restore: the bar is right at once, with no catch-up
+      slide, and Activity Monitor shows no CPU from Leasha's animation while it was minimised.
+      **(UNCONFIRMED on macOS:** whether a Dock minimise sends Qt a hide event; the code also
+      checks on every step.)
+- [ ] **7.3** Run log → Copy, then paste into TextEdit: every line starts with its HH:MM:SS time.
+- [ ] **7.4** Tab through the Status shelf (turn on System Settings → Keyboard → Keyboard
+      navigation first): filter, Copy, log, Start, Scan, Stop, Pause, Reset.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 

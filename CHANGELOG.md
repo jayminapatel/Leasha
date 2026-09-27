@@ -17,6 +17,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The Indexing page, easier to read while a run is going
+
+- The progress bar now glides between updates instead of jumping, and never moves backwards.
+  While Leasha does not yet know how much there is to do, it shows a moving block.
+- A line under the counts says what the run is doing right now.
+- The run log can show only warnings and errors, and has a Copy button that copies what you
+  can see, with the times.
+- Tab now moves through the Start, Stop, Pause and Reset buttons left to right.
+
 ### Getting ready for a Mac, without changing anything on Windows
 
 - **A Google Takeout mailbox over 2 GB was skipped without being read.** Leasha reads an

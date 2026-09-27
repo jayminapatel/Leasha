@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.6 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.7 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -194,6 +194,14 @@ ends it; the page says whether the pause is yours or the machine's, because it r
 governor as one more reason to wait); `.doc` now reads its WordArt and **counts** what it cannot
 reach inside embedded objects rather than paying LibreOffice for words LibreOffice does not have
 either; the extractor registry loads on first read (38 fewer modules before the window).
+
+*2026-09-27 note - the paragraph below is no longer true.* Order 0x §4a did the work it asks
+for: the Start/Stop/Pause/Reset row is `app/ui/widgets/indexing_controls.py`, the bar is
+`widgets/indexing_bar.py` (`GlidingBar`: a plain `setValue` snaps, `glide_to` slides) and the
+"now" line is `widgets/indexing_headline.py`. `indexing_view.py` is 244 code lines against the
+unchanged 250 guard, and `test_every_qt_view_keeps_its_logic_in_the_presenter` is green. Only
+string-free code moved, so neither `test_pages_reorg` nor `test_ui_never_blocks` was edited.
+Headroom is 6 lines: new Indexing-page code goes in a new `widgets/indexing_*.py`.
 
 *One test is red on purpose, and it should stay red until somebody does the work.*
 `test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter` says

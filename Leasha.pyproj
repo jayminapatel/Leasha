@@ -48,6 +48,7 @@
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />
     <Folder Include="app\core" />
+    <Folder Include="app\core\osbridge" />
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
@@ -152,6 +153,13 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\osbridge\__init__.py" />
+    <Compile Include="app\core\osbridge\_platform.py" />
+    <Compile Include="app\core\osbridge\cloudfs.py" />
+    <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\paths.py" />
+    <Compile Include="app\core\osbridge\priority.py" />
+    <Compile Include="app\core\osbridge\programs.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
@@ -225,6 +233,7 @@
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\pipeline.py" />
+    <Compile Include="app\index\pipeline_bench.py" />
     <Compile Include="app\index\quantize_model.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
@@ -232,6 +241,7 @@
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
     <Compile Include="app\index\stages.py" />
+    <Compile Include="app\index\synthetic_corpus.py" />
     <Compile Include="app\index\video_frames.py" />
     <Compile Include="app\index\walker.py" />
     <Compile Include="app\llm\__init__.py" />
@@ -320,6 +330,7 @@
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
     <Compile Include="app\ui\presenter\interrupted.py" />
+    <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -391,6 +402,9 @@
     <Compile Include="app\ui\widgets\index_controls.py" />
     <Compile Include="app\ui\widgets\index_flows.py" />
     <Compile Include="app\ui\widgets\index_stats.py" />
+    <Compile Include="app\ui\widgets\indexing_bar.py" />
+    <Compile Include="app\ui\widgets\indexing_controls.py" />
+    <Compile Include="app\ui\widgets\indexing_headline.py" />
     <Compile Include="app\ui\widgets\indexing_layout.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
@@ -630,6 +644,7 @@
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />
     <Compile Include="tests\unit\test_index_tuning_acceptance.py" />
+    <Compile Include="tests\unit\test_indexing_page_4.py" />
     <Compile Include="tests\unit\test_indexing_partial_row.py" />
     <Compile Include="tests\unit\test_indexing_that_works.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
@@ -675,6 +690,8 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_osbridge.py" />
+    <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
@@ -694,6 +711,7 @@
     <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />
+    <Compile Include="tests\unit\test_pipeline_bench.py" />
     <Compile Include="tests\unit\test_pipeline_gpu_regression.py" />
     <Compile Include="tests\unit\test_places.py" />
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
@@ -857,12 +875,8 @@
     <Content Include="AGENTS.md" />
     <Content Include="BUILD_SPEC_V2.md" />
     <Content Include="CHANGELOG.md" />
-    <Content Include="CHANGELOG.md" />
-    <Content Include="CHANGELOG.md" />
     <Content Include="CLAUDE.md" />
     <Content Include="GitSearch.txt" />
-    <Content Include="HANDOFF.md" />
-    <Content Include="HANDOFF.md" />
     <Content Include="HANDOFF.md" />
     <Content Include="LOCAL_KNOWLEDGE_GRAPH_V2.md" />
     <Content Include="README.md" />
@@ -928,8 +942,6 @@
     <Content Include="docs\HANDOFF-github.md" />
     <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\MAC_VERIFICATION.md" />
-    <Content Include="docs\ORDER_REGISTER.md" />
-    <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\PARKED-IDEAS.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
