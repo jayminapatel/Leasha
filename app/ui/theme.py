@@ -55,7 +55,13 @@ PALETTES: dict[str, dict[str, str]] = {
         "divider": "#26282b",
         "text": "#e4e6e8",
         "text_dim": "#a0a6ac",
-        "text_faint": "#71777e",
+        # **Faint, but still readable** (order 0x section 9, 2026-09-27). This
+        # was #71777e: 3.6 to 1 on a card and 3.9 on the window, and it is the
+        # colour of every result count, hint, table header and "Nothing logged
+        # yet" - small text that WCAG AA asks to reach 4.5. Lifted just far
+        # enough: 5.1 on a card, 5.4 on the window, still clearly quieter than
+        # `text_dim`. Was #71777e, if the old look is ever wanted back.
+        "text_faint": "#8a9097",
         # **The accent is the brand navy, lifted for a dark ground.** The old
         # blue read as "any Qt app"; the UI Redesign order (202626160950 §0.1)
         # made the splash's navy the one colour the shell owns. On black the
@@ -77,6 +83,12 @@ PALETTES: dict[str, dict[str, str]] = {
         "rail_text": "#a0a6ac",        # == text_dim
         "rail_on": "#ffffff",
         "rail_on_text": "#ffffff",     # text on the rail's own hover/selected fill
+        # **Text and icons on a solid accent fill** - the "Open" button, a chip's
+        # remove cross under the pointer. Near-black here, because the dark
+        # accent is a light lavender: the white `rail_on` these used measured
+        # 2.8 to 1 on it (order 0x section 9, 2026-09-27), under the 4.5 body
+        # text needs. This is 6.5 to 1. `rail_on` keeps its other uses.
+        "accent_on": "#15131f",
         "rail_on_bg": "#2a2150",       # == accent_soft
         "rail_hover": "#2d2f33",       # == surface_hover
         # **Kind badges carry the brand stripes** (§0.1-5): the three splash
@@ -121,7 +133,10 @@ PALETTES: dict[str, dict[str, str]] = {
         "divider": "#ebecef",
         "text": "#1b1d20",
         "text_dim": "#585e66",
-        "text_faint": "#858b93",
+        # Darkened for the same reason as the dark palette's (0x section 9):
+        # #858b93 was 3.4 to 1 on white and 3.2 on the window. This is 4.9 and
+        # 4.6, and still lighter than `text_dim`. Was #858b93.
+        "text_faint": "#6b7178",
         # Navy-derived (202626160950 §1a). Dark enough to be text on white;
         # the soft ground is the same hue at a whisper.
         "accent": "#2b1a7a",
@@ -135,10 +150,15 @@ PALETTES: dict[str, dict[str, str]] = {
         # removal) for text on a dark accent fill - so the rail's own
         # hover/selected text uses `rail_on_text` instead, dark enough to
         # read on this theme's light grey/light accent fills.
+        # (2026-09-27, order 0x section 9: chip removal and the "Open" button
+        # now take `accent_on` below, not `rail_on`, and the rail's chosen icon
+        # takes `rail_on_text`. `rail_on` is still white in both themes.)
         "rail": "#f0f1f3",             # == surface_alt
         "rail_text": "#585e66",        # == text_dim
         "rail_on": "#ffffff",
         "rail_on_text": "#2b1a7a",     # == accent_text
+        # White on the navy accent: 13.7 to 1. See the dark palette's note.
+        "accent_on": "#ffffff",
         "rail_on_bg": "#e9e4fb",       # == accent_soft
         "rail_hover": "#e8eaed",       # == surface_hover
         "kind_doc": "#0778d9",
@@ -268,7 +288,7 @@ QPushButton {{
 }}
 /* The one filled button on a surface - "Open" in the inspector. */
 QPushButton[primary="true"] {{
-    background: {accent}; border-color: {accent}; color: {rail_on};
+    background: {accent}; border-color: {accent}; color: {accent_on};
 }}
 QPushButton[primary="true"]:hover {{ background: {accent_bar}; }}
 QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
@@ -369,7 +389,7 @@ QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18p
     background: transparent; border: none; border-radius: {radius_pill};
     color: {chip_text}; padding: 0 5px; font-weight: 600;
 }}
-#chipRemove:hover {{ background: {accent}; color: {rail_on}; }}
+#chipRemove:hover {{ background: {accent}; color: {accent_on}; }}
 
 /* **The rail** (§2): navy down the left, one entry per page. Selection is a
    filled pill AND a heavier label, so it survives greyscale. */
@@ -772,7 +792,16 @@ RADIUS: dict[str, str] = {
     "radius_input": "5px",
     "radius_control": "8px",
     "radius_box": "10px",
-    "radius_pill": "999px",
+    # **Not 999px: Qt draws no rounding at all when the radius is more than
+    # half the widget's height** - it does not clamp the way a browser does.
+    # 999px therefore gave every "pill" square corners: the suggested
+    # searches, the filter chips, the chat chips (seen in the 2026-09-27
+    # review, order 0x section 9, and checked on plain buttons: 13px rounds a
+    # 26px button, 14px leaves it square). The smallest pill measured is 22px
+    # tall, so 11px is the most that rounds every one of them; taller ones get
+    # softly rounded ends rather than full semicircles, which is still a pill
+    # to the eye. Qt stylesheets cannot say "half the height".
+    "radius_pill": "11px",
 }
 
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built

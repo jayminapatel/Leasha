@@ -56,7 +56,8 @@ def test_the_info_dot_can_be_seen_on_the_toast(scheme: str) -> None:
 
 # --- the rail's indexing pill ------------------------------------------------
 
-_HEADLINES = ("Up to date", "Needs attention", "Indexing", "Paused", "Stopped", "Index")
+_HEADLINES = ("Up to date", "Needs attention", "Indexing", "Paused", "Stopped", "Index",
+              "Nothing yet")      # order 0x section 9: the empty index
 
 
 def test_the_pill_headline_wraps_instead_of_clipping(qapp) -> None:

@@ -472,7 +472,11 @@ class PreviewPane(QWidget):
         """§0.3: icons on the three buttons, in the palette's text colour."""
         from app.ui.widgets.icons import icon
         self._highlighter.setPalette(_theme_palette(self))
-        self.open_button.setIcon(icon("external-link", colours.get("rail_on", "#ffffff")))
+        # The "Open" button is filled with the accent, so its icon takes the
+        # accent's own ink (`accent_on`) - white on navy, near-black on the dark
+        # theme's lavender, where white measured 2.8 to 1 (0x section 9).
+        self.open_button.setIcon(icon("external-link", colours.get(
+            "accent_on", colours.get("rail_on", "#ffffff"))))
         self.reveal_button.setIcon(icon("folder-open", colours.get("text_dim", "#888888")))
         self.pop_button.setIcon(icon("bookmark", colours.get("text_dim", "#888888")))
 
