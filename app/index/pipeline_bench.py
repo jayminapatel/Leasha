@@ -650,10 +650,18 @@ def run_pipeline_bench(options: BenchOptions) -> dict[str, Any]:
             cache_detail=cache_detail, raw_env=raw_env, env_source=env_source,
             note=note)
     finally:
+        # **Let go of the log files first.** The run logged into `work/logs`,
+        # and on Windows an open file cannot be deleted - so without this the
+        # folder silently survived every run there (Linux deletes open files,
+        # which is why it only showed on the Windows CI). Measured, not guessed:
+        # at this point the two log files were the only handles still open
+        # inside `work`; the database and vector store had closed.
+        from app.core.logging import release_log_files
+
+        release_log_files()
         if not options.keep:
-            # `ignore_errors`: on Windows the vector store's files can stay
-            # locked for a moment after closing, and failing to tidy a temp
-            # folder must never turn a finished measurement into an error.
+            # `ignore_errors`: failing to tidy a temp folder must never turn a
+            # finished measurement into an error.
             shutil.rmtree(work, ignore_errors=True)
 
 

@@ -238,6 +238,32 @@ def setup_logging(
     return pattern
 
 
+def release_log_files() -> None:
+    """Flush and close every log file this process has open, and forget the setup.
+
+    Order 0x (2026-09-27). **Windows will not delete a file that is still open**,
+    and loguru keeps its file sinks open for as long as the process lives. A
+    caller that pointed logging at a temporary folder - the indexing benchmark
+    does, so its own run log does not mix with the owner's - must let go of
+    those files before it can remove the folder. Found when the benchmark's
+    throwaway folder survived every run on the Windows CI while vanishing on
+    Linux, which deletes open files without complaint.
+
+    `logger.complete()` first, because the file sinks use `enqueue=True`: lines
+    still waiting in the queue are written before the files close. Everything
+    is removed, not just the files, and `_configured` is reset, so the next
+    `setup_logging` call builds a fresh, complete setup rather than returning
+    early with no sinks at all.
+    """
+    global _configured
+    try:
+        logger.complete()
+    except Exception:  # noqa: BLE001 - tidying up must never raise
+        pass
+    logger.remove()
+    _configured = False
+
+
 def open_log_files() -> list[Path]:
     """The log files this process is writing to right now.
 
