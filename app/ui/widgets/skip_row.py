@@ -25,6 +25,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import format_count
+from app.ui.widgets.buttons import style_button
 
 __all__ = ["SkipRow"]
 
@@ -63,7 +64,9 @@ class SkipRow(QWidget):
                 "Index these files again. Worth it when the cause has gone - a "
                 "file that was locked, a converter since installed - and "
                 "harmless when it has not.")
-            button.setMaximumWidth(140)
+            # Its own width (the button system, buttons.py) rather than a
+            # 140px ceiling, which would cut the words off at a larger font.
+            style_button(button)
             button.setAccessibleName(f"Retry the files skipped because {group.message}")
             button.clicked.connect(lambda: retry_signal.emit(group.code))
             layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)

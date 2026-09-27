@@ -43,6 +43,7 @@ from typing import Any, Optional
 
 from PyQt6.QtWidgets import QWidget
 
+from app.ui.widgets.buttons import refresh_icon
 from app.ui.widgets.index_controls import build_controls
 from app.ui.widgets.indexing_headline import show_now
 
@@ -127,6 +128,7 @@ class IndexControls(QWidget):
         self.stop_button.setEnabled(True)
         self.paused = False
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
         self.pause_button.setEnabled(True)
 
     def show_stopping(self) -> None:
@@ -140,6 +142,7 @@ class IndexControls(QWidget):
         self.paused = False
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
 
     def show_idle(self) -> None:
         """No run: Start is live again, Stop and Pause are not."""
@@ -148,11 +151,14 @@ class IndexControls(QWidget):
         self.stop_button.setEnabled(False)
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
+        refresh_icon(self.pause_button)
 
     def show_held(self, held: bool) -> None:
         """Pause was pressed (`held`) or Resume was: flip the one button's word."""
         self.paused = bool(held)
         self.pause_button.setText(RESUME_LABEL if held else PAUSE_LABEL)
+        # Resume shows the play icon, Pause the pause one (buttons.py's table).
+        refresh_icon(self.pause_button)
 
 
 # -- what pressing Pause and Resume does -------------------------------------

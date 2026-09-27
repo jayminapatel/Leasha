@@ -197,3 +197,32 @@ def test_storage_page_buttons_are_their_own_width_with_an_icon(shown) -> None:
     assert box.run_doctor_button.x() < box.check_button.x() < box.bundle_button.x()
     assert box.clear_logs_button.property("buttonRole") == "danger"
     assert len({b.height() for b in buttons}) == 1
+
+
+def test_indexing_row_is_one_system_start_primary_reset_danger(shown) -> None:
+    """**Before:** the five Indexing buttons had icons (3ddb128) but all in one
+    grey, Start no different from Scan, and Reset - the one that deletes the
+    index - looked like the rest.
+
+    Now Start is the page's filled primary, Reset reads as danger, each has
+    its icon at one height, and while a run is held the Pause button's icon
+    turns to play along with its word."""
+    app, window = shown
+    _open(app, window, "Indexing", "Status")
+    view = window.indexing_view
+    buttons = [view.start_button, view.pause_button, view.stop_button,
+               view.scan_button, view.reset_button]
+    for button in buttons:
+        assert not button.icon().isNull(), button.text()
+        assert button.width() <= button.sizeHint().width(), button.text()
+    assert len({b.height() for b in buttons}) == 1
+    assert view.start_button.property("buttonRole") == "primary"
+    assert view.reset_button.property("buttonRole") == "danger"
+    assert {b.property("buttonRole") for b in buttons[1:4]} == {"secondary"}
+    try:
+        view.controls.show_held(True)
+        assert view.pause_button.text() == "Resume"
+        assert view.pause_button.property("buttonIcon") == "play"
+    finally:
+        view.controls.show_held(False)
+    assert view.pause_button.property("buttonIcon") == "pause"

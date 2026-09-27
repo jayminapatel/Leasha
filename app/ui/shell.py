@@ -1547,21 +1547,9 @@ class MainWindow(QMainWindow):
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)
-        # §0.3: the Indexing page's controls carry icons too - all five of
-        # them (2026-09-24: pause and reset were missing here, so those two
-        # were the only buttons on the page with no icon). Done here rather
-        # than in `indexing_view.py`, which is past its line guard.
-        from PyQt6.QtCore import QSize as _QSize
-
-        from app.ui.widgets.icons import icon as _icon
-
-        for name, glyph in (("start_button", "play"), ("pause_button", "pause"),
-                            ("stop_button", "square"), ("scan_button", "scan-search"),
-                            ("reset_button", "trash-2")):
-            button = getattr(indexing_view, name, None)
-            if button is not None and hasattr(button, "setIcon"):
-                button.setIcon(_icon(glyph, colours.get("text_dim", "#888888")))
-                button.setIconSize(_QSize(16, 16))
+        # §0.3: the Indexing page's five controls carry icons - now drawn by
+        # the button system with the rest (`_style_buttons`, below), so Start
+        # takes the primary's ink rather than every icon the same grey.
         for view in (self.files_view, getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
                      indexing_view, settings_view):
@@ -1582,7 +1570,8 @@ class MainWindow(QMainWindow):
         """
         from app.ui.widgets.buttons import retint_all, style_all
 
-        for page in (getattr(self, "settings_view", None),):
+        indexing_view = getattr(self, "indexing_view", None)
+        for page in (getattr(self, "settings_view", None), indexing_view):
             if page is not None:
                 style_all(page, only_new=True)
         retint_all(colours)
