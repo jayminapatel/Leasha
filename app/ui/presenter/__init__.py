@@ -35,6 +35,7 @@ The package is split by domain; this file re-exports every name so that
   repos       repository rows and the repository filter
   code        the Code tab's routing, git rows and wording
   indexing    progress, runs started elsewhere, skips, index summary
+  interrupted a run that did not finish, in words
   settings    Settings-page text and suggested folders
   offline     catalogued drives and online-only files
 
@@ -104,6 +105,7 @@ from app.ui.presenter.commands import (
     set_volume_filter,
     volume_picker_options,
     resolved_date,
+    resolved_period,
     scope_key,
     _scope_repo,
     _takes_repo,
@@ -138,6 +140,9 @@ from app.ui.presenter.indexing import (
     SkipGroup,
     group_skips,
     progress_for,
+    PHASE_WORDS,
+    PREPARING_WORDS,
+    phase_words,
     STALE_RUN_S,
     external_snapshot,
     external_is_live,
@@ -153,6 +158,16 @@ from app.ui.presenter.indexing import (
     when_text,
     mail_summary,
     archive_summary,
+)
+from app.ui.presenter.interrupted import (
+    PART_READ_LABEL,
+    PART_READ_LABEL_MANY,
+    part_read_rows,
+    UNFINISHED_LABEL,
+    stopped_when,
+    unfinished_reach,
+    unfinished_run_rows,
+    unfinished_run_line,
 )
 from app.ui.presenter.offline import (
     offline_volume_note,
@@ -236,12 +251,16 @@ from app.ui.presenter.search import (
     NOTICE_KIND_SUGGESTION,
     NOTICE_INTERPRET_HINT,
     NOTICE_FILTER_OFFER,
+    NOTICE_DATE_PROBLEM,
     filter_offers,
+    with_date_problems,
     _Hint,
     result_view_state,
     window_notices,
     notice_line,
     chips_for,
+    auto_filters,
+    unanswered,
 )
 from app.ui.presenter.settings import (
     history_label_text,
@@ -361,6 +380,14 @@ __all__ = [
     "StatRow",
     "index_summary",
     "warned_counts",
+    "PART_READ_LABEL",
+    "PART_READ_LABEL_MANY",
+    "part_read_rows",
+    "UNFINISHED_LABEL",
+    "stopped_when",
+    "unfinished_reach",
+    "unfinished_run_rows",
+    "unfinished_run_line",
     "read_index_summary",
     "folder_size",
     "when_text",
@@ -387,6 +414,9 @@ __all__ = [
     "file_query",
     "interpret_message",
     "progress_for",
+    "PHASE_WORDS",
+    "PREPARING_WORDS",
+    "phase_words",
     "progress_text",
     "finished_text",
     "mail_rows",

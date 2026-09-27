@@ -41,7 +41,9 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
-from app.ui.presenter import MAIL_COMMANDS, mail_filters, mail_rows, mail_summary
+from app.ui.presenter import (
+    MAIL_COMMANDS, mail_filters, mail_rows, mail_summary, with_date_problems,
+)
 from app.ui.preview_loader import mail_body, quoted_notice
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
@@ -199,7 +201,8 @@ class MailView(QWidget):
 
     def _run(self) -> None:
         text = expand_slashes(self.input.text().strip())
-        parsed = parse_query(text)
+        # Kept for the summary: an unreadable date is said there (§1d).
+        parsed = self._parsed = parse_query(text)
         filters = mail_filters(parsed)
 
         # Free text cannot be honoured here - this reads `messages` and never
@@ -271,7 +274,8 @@ class MailView(QWidget):
         line of headroom under the 250-line guard, and three branches of string
         formatting inside a widget can only be checked by a person looking at a
         mail tab at the right moment."""
-        return mail_summary(shown, leftover, page_size=PAGE_SIZE)
+        return with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE),
+                                  getattr(self, "_parsed", None))
 
     # -- how it looks ----------------------------------------------------------
 

@@ -176,6 +176,15 @@ def test_a_date_the_parser_rejects_causes_full_fallback_not_a_partial_query() ->
     assert "leeds safety" not in result.query.replace("leeds safety since whenever", "")
 
 
+def test_a_date_operator_the_parser_rejects_falls_back_the_same_way() -> None:
+    """`date:` (order "dates" §1a) is caught by the same rule: a bad value is
+    an unknown operator, so the sentence runs as typed rather than widened."""
+    result = translate("date:2017-13 leeds safety", "leeds safety in the 13th month")
+
+    assert result.query == "leeds safety in the 13th month"
+    assert "date:2017-13" in result.note
+
+
 def test_output_longer_than_the_cap_is_prose_whatever_it_says() -> None:
     result = translate("x" * (MAX_OUTPUT_CHARS + 1), "anything")
     assert not result.changed

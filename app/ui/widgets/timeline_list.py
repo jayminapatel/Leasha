@@ -300,7 +300,7 @@ class TimelineList(QListView):
                           else f"{row_text(block.folds[0]).title}, {row_text(block.folds[0]).detail}")
             item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
             self._model.appendRow(item)
-        QTimer.singleShot(0, self._maybe_more)
+        QTimer.singleShot(0, self._more_once_laid_out)
 
     def clear_blocks(self) -> None:
         self._model.clear()
@@ -349,6 +349,22 @@ class TimelineList(QListView):
         self.viewport().update()
 
     # -- paging ---------------------------------------------------------------
+
+    def _more_once_laid_out(self) -> None:
+        """`_maybe_more` for rows just appended - but only once they are laid out.
+
+        The zero-delay timer in `append_blocks` was meant to run after layout,
+        and usually did. Qt's own delayed item layout is *also* a zero-delay
+        timer, and which fires first is not promised. When ours won, the rows
+        were not laid out yet, the scroll bar still had a maximum of 0, "at the
+        bottom" was true, and a second page was fetched that nobody scrolled to.
+        Found by `test_a_month_of_photographs_arrives_a_page_at_a_time_as_the_list_is_scrolled`,
+        which failed about half the time on main whenever the timing moved.
+        Flushing the pending layout first is the layout the list was about to
+        do anyway, so it costs nothing extra.
+        """
+        self.executeDelayedItemsLayout()
+        self._maybe_more()
 
     def _maybe_more(self, *_args: Any) -> None:
         bar = self.verticalScrollBar()

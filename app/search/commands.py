@@ -209,6 +209,23 @@ COMMANDS: tuple[Command, ...] = (
         values=RELATIVE_DATES,
     ),
     Command(
+        name="date",
+        aliases=(),
+        # Work order "dates, live log and interrupted runs" §1a. Sets the same
+        # `after`/`before` the two above do, so it means the same thing on
+        # every tab - including a message's sent date.
+        summary="Only things from this year, month or day - or between two dates",
+        example="/date 2017-03",
+        # A range first: the menu cuts this at 32 characters, and `A..B` is
+        # the one form nobody would guess.
+        value_hint="2017-03, 2017-01..2017-06, ..2017, 2017, 2017-03-14",
+        is_date=True,
+        icon="▦",
+        # `last month` is left out on purpose: here it would read as "during
+        # last month", and it means the last thirty-one days.
+        values=("today", "yesterday", "7d", "30d", "90d", "1y"),
+    ),
+    Command(
         name="path",
         aliases=("folder", "dir"),
         summary="Only inside folders whose path contains this",
@@ -467,6 +484,17 @@ def help_lines() -> list[str]:
     return out
 
 
+#: Operators the model is told about in their shortest form.
+#:
+#: **`date:` is a spelling of `after:` plus `before:`**, which the prompt
+#: already describes in full, so all the model needs is its syntax. A full
+#: line took the prompt from 2,083 characters to 2,164, over the ceiling
+#: `test_the_prompt_got_shorter_despite_gaining_examples` holds - and that
+#: ceiling moves only with a translation-latency measurement, which a new
+#: spelling of two existing operators does not justify.
+_TERSE_FOR_MODEL: dict[str, str] = {"date": "A..B"}
+
+
 def grammar_for_model() -> str:
     """The operator grammar, for Layer 8a's translation prompt.
 
@@ -501,7 +529,9 @@ def grammar_for_model() -> str:
     lines = ["Operators (use only these):"]
     for command in COMMANDS:
         allowed = closed.get(command.name)
-        if allowed:
+        if command.name in _TERSE_FOR_MODEL:
+            lines.append(f"  {command.name}:{_TERSE_FOR_MODEL[command.name]}")
+        elif allowed:
             lines.append(f"  {command.name}:<value>  {command.summary}. "
                          f"ONLY one of: {allowed}")
         else:

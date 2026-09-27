@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.presenter import (
-    ALL_LOCATIONS, FILES_COMMANDS, file_query, file_rows, file_summary,
+    ALL_LOCATIONS, FILES_COMMANDS, file_query, file_rows, file_summary, with_date_problems,
     set_volume_filter, volume_picker_options,
 )
 from app.ui.view_options import (
@@ -255,7 +255,8 @@ class FilesView(QWidget):
         self._timer.start()
 
     def _run(self) -> None:
-        parsed = file_query(self.input.text())
+        # Kept for `_show`: an unreadable date is said on the summary line (§1d).
+        parsed = self._parsed = file_query(self.input.text())
         # The free text, as the store will see it. Kept here only to decide
         # whether the box is too short to answer and what to put in the summary
         # - the *filtering* is entirely the store's, through the one definition
@@ -342,7 +343,8 @@ class FilesView(QWidget):
         )
         self._apply_prefs()
 
-        self.summary.setText(file_summary(0, shown=len(display), text=text))
+        line = file_summary(0, shown=len(display), text=text)
+        self.summary.setText(with_date_problems(line, getattr(self, "_parsed", None)))
 
     # -- opening -------------------------------------------------------------
 

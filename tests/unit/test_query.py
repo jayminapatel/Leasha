@@ -14,7 +14,7 @@ parseable in the first place, by running it against a real FTS5 table.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from hypothesis import given
@@ -198,6 +198,206 @@ def test_reversed_date_range_is_swapped() -> None:
     # The whole point: a reversed range is the same search as the right one.
     correct = parse_query("after:2024 before:2025", today=TODAY)
     assert (q.after, q.before) == (correct.after, correct.before)
+
+
+# --- `date:` - one period, or a range of them (order "dates" §1a) ----------
+
+@pytest.mark.parametrize(
+    "raw,after,before",
+    [
+        # A whole period: the same edges `after:`/`before:` give a partial date.
+        ("date:2017", date(2017, 1, 1), date(2017, 12, 31)),
+        ("date:2017-03", date(2017, 3, 1), date(2017, 3, 31)),
+        ("date:2016-02", date(2016, 2, 1), date(2016, 2, 29)),
+        ("date:2017-03-14", date(2017, 3, 14), date(2017, 3, 14)),
+        ("date:14-03-2017", date(2017, 3, 14), date(2017, 3, 14)),
+        # Ranges, each end resolved against its own side.
+        ("date:2017-01-01..2017-06-30", date(2017, 1, 1), date(2017, 6, 30)),
+        ("date:2017-03..2017-06", date(2017, 3, 1), date(2017, 6, 30)),
+        ("date:2016..2017", date(2016, 1, 1), date(2017, 12, 31)),
+        # Either end open.
+        ("date:..2017", None, date(2017, 12, 31)),
+        ("date:2017..", date(2017, 1, 1), None),
+        # Relatives: "since then", except the two that already name one day.
+        ("date:30d", date(2026, 7, 25), None),
+        ("date:today", TODAY, TODAY),
+        ("date:yesterday", date(2026, 8, 23), date(2026, 8, 23)),
+        ("date:30d..7d", date(2026, 7, 25), date(2026, 8, 17)),
+        # The slash form reaches the same fields.
+        ("/date 2017-03", date(2017, 3, 1), date(2017, 3, 31)),
+    ],
+)
+def test_date_operator_forms(raw: str, after, before) -> None:
+    from app.search.commands import expand_slashes
+
+    q = parse_query(expand_slashes(raw), today=TODAY)
+    assert (q.after, q.before) == (after, before)
+    assert q.unknown_operators == ()
+    assert q.terms == ()                    # nothing leaked into the words
+
+
+def test_date_is_the_same_query_as_the_two_operators_it_stands_for() -> None:
+    """The order's own promise: `date:` sets the fields `after:`/`before:`
+    set, so filtering, the sent-date rule and the CLI follow for free."""
+    ranged = parse_query("date:2017-03..2017-06 pump", today=TODAY)
+    spelled = parse_query("after:2017-03 before:2017-06 pump", today=TODAY)
+    assert (ranged.after, ranged.before, ranged.terms) == (
+        spelled.after, spelled.before, spelled.terms)
+    assert ranged.has_filters
+
+
+def test_a_reversed_date_range_covers_both_periods_whole() -> None:
+    q = parse_query("date:2018..2017", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 1, 1), date(2018, 12, 31))
+
+
+# --- times of day (order "dates" §1b) ---------------------------------------
+
+@pytest.mark.parametrize(
+    "raw,after,before",
+    [
+        # `after:` takes the first moment of the minute, `before:` the last -
+        # the same rule a partial date follows, one step finer.
+        ("after:2017-03-01T10:00", datetime(2017, 3, 1, 10, 0), None),
+        ("before:2017-03-01T10:00", None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("after:2017-03-01T10:00:30", datetime(2017, 3, 1, 10, 0, 30), None),
+        ("before:2017-03-01T10:00:30", None, datetime(2017, 3, 1, 10, 0, 30, 999999)),
+        ("after:2017-03-01T9:05", datetime(2017, 3, 1, 9, 5), None),
+        ("after:2017-03-01t10:00", datetime(2017, 3, 1, 10, 0), None),
+        # Quoted, so the space survives the tokeniser.
+        ('after:"2017-03-01 10:00"', datetime(2017, 3, 1, 10, 0), None),
+        ('before:"2017-03-01 10:00"', None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ('/before "2017-03-01 10:00"', None, datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("/after 2017-03-01T10:00", datetime(2017, 3, 1, 10, 0), None),
+        # `date:` with a time is that minute, and a range of times is a range.
+        ("date:2017-03-01T10:00", datetime(2017, 3, 1, 10, 0),
+         datetime(2017, 3, 1, 10, 0, 59, 999999)),
+        ("date:2017-03-01T09:00..2017-03-01T17:30", datetime(2017, 3, 1, 9, 0),
+         datetime(2017, 3, 1, 17, 30, 59, 999999)),
+        ('date:"2017-03-01 09:00..2017-03-01 17:30"', datetime(2017, 3, 1, 9, 0),
+         datetime(2017, 3, 1, 17, 30, 59, 999999)),
+        # A time on one end, a whole day on the other.
+        ("date:2017-03-01T09:00..2017-03-02", datetime(2017, 3, 1, 9, 0),
+         date(2017, 3, 2)),
+    ],
+)
+def test_time_of_day_forms(raw: str, after, before) -> None:
+    from app.search.commands import expand_slashes
+
+    q = parse_query(expand_slashes(raw), today=TODAY)
+    assert (q.after, q.before) == (after, before)
+    assert q.unknown_operators == () and q.terms == ()
+
+
+def test_a_date_without_a_time_is_still_a_whole_day() -> None:
+    """§1b's other half: nothing about a date-only value changed."""
+    q = parse_query("after:2017-03-01 before:2017-03-01", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 3, 1), date(2017, 3, 1))
+    assert type(q.after) is date and type(q.before) is date
+
+
+def test_a_range_mixing_a_time_and_a_day_is_ordered_without_raising() -> None:
+    """Python refuses to compare a `datetime` with a `date`, and the swap for
+    a reversed range compares them - `parse_query` must never raise."""
+    q = parse_query("after:2017-03-01T10:00 before:2017-02", today=TODAY)
+    assert (q.after, q.before) == (date(2017, 2, 1), datetime(2017, 3, 1, 10, 0, 59, 999999))
+    ordered = parse_query("after:2017-03-01 before:2017-03-01T10:00", today=TODAY)
+    assert ordered.after == date(2017, 3, 1)
+
+
+@pytest.mark.parametrize("raw", [
+    "after:2017-03-01T25:00", "after:2017-03-01T10:60", "after:2017-02-30T10:00",
+    "after:2017-03T10:00", "before:2017T10:00", "date:2017-03-01T10",
+])
+def test_a_time_that_is_not_on_the_clock_is_reported(raw: str) -> None:
+    q = parse_query(f"{raw} report", today=TODAY)
+    assert (q.after, q.before) == (None, None)
+    assert q.unknown_operators == (raw,)
+
+
+def test_a_time_reaches_the_sql_as_that_moment_on_the_local_clock() -> None:
+    """`epoch_ns` used `datetime.combine`, which takes a `datetime` as a
+    plain date and drops the time. The moment has to survive to the SQL, on
+    the same local clock a whole day is read on."""
+    from app.storage.filters import epoch_ns, file_filter_sql
+
+    moment = datetime(2017, 3, 1, 10, 0)
+    assert epoch_ns(moment) == int(moment.timestamp() * 1_000_000_000)
+    assert epoch_ns(date(2017, 3, 1)) == int(datetime(2017, 3, 1).timestamp() * 1_000_000_000)
+    _where, params = file_filter_sql(parse_query("date:2017-03-01T10:00", today=TODAY))
+    start, end = params[0], params[1]
+    assert start == int(moment.timestamp() * 1_000_000_000)
+    assert end - start == 59_999_999_000                  # the minute, inclusive
+
+
+# --- a mistyped date says what was wrong and what would work (§1d) ----------
+
+@pytest.mark.parametrize("raw,message", [
+    # The order's own example, word for word where it gave the words.
+    ("date:2017-13", "date:2017-13 isn't a date — there is no month 13. "
+                     "Try date:2017-12 or date:2017-01..2017-06"),
+    ("date:2017-00", "date:2017-00 isn't a date — there is no month 0. "
+                     "Try date:2017-01 or date:2017-01..2017-06"),
+    ("date:2017-02-30", "date:2017-02-30 isn't a date — February 2017 has 28 days. "
+                        "Try date:2017-02-28 or date:2017-02"),
+    ("before:2016-02-31", "before:2016-02-31 isn't a date — February 2016 has 29 days. "
+                          "Try before:2016-02-29 or before:2016-02"),
+    ("after:2017-13-05", "after:2017-13-05 isn't a date — there is no month 13. "
+                         "Try after:2017-12-05 or after:2017"),
+    ("after:2017-03-01T25:00", "after:2017-03-01T25:00 has a time that isn't on the clock "
+                               "— try after:2017-03-01T10:00; hours run from 00 to 23, "
+                               "minutes from 00 to 59"),
+    ("date:..", "date:.. has no dates in it — try date:2017-01..2017-06, "
+                "or leave one side open: date:2017.."),
+    ("date:2017..2017-13", "date:2017..2017-13 isn't a date — there is no month 13. "
+                           "Try date:2017-12 or date:2017-01..2017-06"),
+    ("after:2017-01..2017-06", "after:2017-01..2017-06 is two dates, and after: takes one "
+                               "— for a range, try date:2017-01..2017-06"),
+    ("date:soon", "date:soon isn't a date Leasha can read — try date:2017, "
+                  "date:2017-03, date:2017-03-14 or a range, date:2017-01..2017-06"),
+    ("after:nextthursday", "after:nextthursday isn't a date Leasha can read — try "
+                           "after:2017-03-14, after:2017, after:2017-03-14T10:00 or after:30d"),
+    ('before:"2017-03-01 25:00"', 'before:"2017-03-01 25:00" has a time that isn\'t on the '
+                                  "clock — try before:2017-03-01T10:00; hours run from "
+                                  "00 to 23, minutes from 00 to 59"),
+])
+def test_a_mistyped_date_says_what_was_wrong_and_what_would_work(raw: str, message: str) -> None:
+    q = parse_query(f"report {raw}", today=TODAY)
+    assert q.date_problems == (message,)
+    # Still reported the old way too, for everything that reads it: the CLI's
+    # "(ignored: ...)", `translate`'s rejection, the engine's JSON.
+    assert q.unknown_operators == (raw,)
+    assert q.terms == ("report",)
+
+
+def test_every_suggestion_a_problem_makes_is_itself_a_date_that_parses() -> None:
+    """A suggestion that does not work is a second wrong answer."""
+    import re
+
+    for raw in ("date:2017-13", "date:2017-02-30", "after:2017-13-05",
+                "after:2017-03-01T25:00", "date:..", "after:2017-01..2017-06", "date:soon"):
+        (problem,) = parse_query(raw, today=TODAY).date_problems
+        for suggestion in re.findall(r"\b(?:date|after|before):\S+", problem.split("—", 1)[1]):
+            suggestion = suggestion.rstrip(",;.") if not suggestion.endswith("..") else suggestion
+            q = parse_query(suggestion, today=TODAY)
+            assert q.unknown_operators == (), f"{raw} suggested {suggestion}, which does not parse"
+
+
+def test_a_good_date_or_a_negation_makes_no_problem() -> None:
+    """`-date:2017` is reported as not understood, as `-after:` always was -
+    it is not a mistyped date, and a date sentence about it would mislead."""
+    assert parse_query("date:2017 after:2016 before:2018", today=TODAY).date_problems == ()
+    assert parse_query("-date:2017", today=TODAY).date_problems == ()
+
+
+def test_an_unreadable_date_value_is_reported_not_searched_for() -> None:
+    """It used to be no operator at all, so `date:2017-13` became the search
+    terms `date` and `2017-13` and the filter silently did nothing."""
+    for raw in ("date:2017-13", "date:..", "date:soon", "-date:2017"):
+        q = parse_query(f"{raw} report", today=TODAY)
+        assert (q.after, q.before) == (None, None), raw
+        assert q.unknown_operators == (raw,), raw
+        assert q.terms == ("report",), raw
 
 
 def test_path_and_sender_operators() -> None:

@@ -36,8 +36,19 @@ def cmd_stats(args: argparse.Namespace) -> int:
     if settings.fts_db.is_file():
         from app.storage.sqlite_store import SqliteStore
 
+        from app.index.interrupted import read_part_read_archives, read_unfinished_run
+
         with SqliteStore(settings.fts_db) as store:
             info["sqlite"] = store.stats()
+            # Work order `dates-live-log-and-interrupted-runs` 3a: the same
+            # finding the Indexing page shows, for the same reason (#8).
+            unfinished = read_unfinished_run(store)
+            if unfinished:
+                info["unfinished_run"] = unfinished
+            # 3c: and any mail archive a run stopped inside.
+            part_read = read_part_read_archives(store)
+            if part_read:
+                info["part_read_archives"] = part_read
 
     from app.storage.vector_store import VectorStore
 
@@ -76,6 +87,18 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(f"    generation       {sqlite_stats['generation']}")
         if sqlite_stats["skipped_by_code"]:
             print(f"    skipped          {sqlite_stats['skipped_by_code']}")
+        import textwrap
+
+        if info.get("unfinished_run"):
+            from app.ui.presenter import unfinished_run_line
+
+            print()
+            print(textwrap.fill(unfinished_run_line(info["unfinished_run"]), width=78,
+                                initial_indent="  ", subsequent_indent="  "))
+        for row in _part_read_rows(info.get("part_read_archives")):
+            print()
+            print(textwrap.fill(f"{row.label}: {row.value}. {row.note}", width=78,
+                                initial_indent="  ", subsequent_indent="  "))
     else:
         print()
         print("  Metadata store    not created yet (run: app.cli init)")
@@ -96,6 +119,15 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(line)
 
     return EXIT_OK
+
+
+def _part_read_rows(archives: Any) -> list:
+    """The Indexing page's "not finished" row, for the terminal (0w 3c, #8)."""
+    if not archives:
+        return []
+    from app.ui.presenter import part_read_rows
+
+    return part_read_rows(archives)
 
 
 def semantic_search_warnings(

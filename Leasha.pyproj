@@ -70,6 +70,7 @@
     <Folder Include="tests\fixtures\corrupt" />
     <Folder Include="tests\fixtures\email" />
     <Folder Include="tests\fixtures\legacy_office" />
+    <Folder Include="tests\fixtures\legacy_office\src" />
     <Folder Include="tests\fixtures\office" />
     <Folder Include="tests\fixtures\pdf" />
     <Folder Include="tests\fixtures\plaintext" />
@@ -161,6 +162,7 @@
     <Compile Include="app\core\volumes_win.py" />
     <Compile Include="app\core\winfs.py" />
     <Compile Include="app\extract\__init__.py" />
+    <Compile Include="app\extract\_readers.py" />
     <Compile Include="app\extract\archive.py" />
     <Compile Include="app\extract\base.py" />
     <Compile Include="app\extract\cad.py" />
@@ -207,6 +209,7 @@
     <Compile Include="app\extract\vision_caption.py" />
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
+    <Compile Include="app\index\activity.py" />
     <Compile Include="app\index\archives.py" />
     <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
@@ -215,6 +218,7 @@
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\index_bench.py" />
+    <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
@@ -306,12 +310,14 @@
     <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\explain.py" />
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
+    <Compile Include="app\ui\presenter\interrupted.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -336,6 +342,7 @@
     <Compile Include="app\ui\shell.py" />
     <Compile Include="app\ui\splash.py" />
     <Compile Include="app\ui\startup_timing.py" />
+    <Compile Include="app\ui\state_writes.py" />
     <Compile Include="app\ui\tasks.py" />
     <Compile Include="app\ui\theme.py" />
     <Compile Include="app\ui\thumbnail_loader.py" />
@@ -407,6 +414,7 @@
     <Compile Include="app\ui\widgets\result_tools.py" />
     <Compile Include="app\ui\widgets\results_items.py" />
     <Compile Include="app\ui\widgets\roots_box.py" />
+    <Compile Include="app\ui\widgets\run_log.py" />
     <Compile Include="app\ui\widgets\saved_dialogs.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
     <Compile Include="app\ui\widgets\search_bar.py" />
@@ -463,7 +471,9 @@
     <Compile Include="tests\unit\close_scenario_child.py" />
     <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\e2e_support.py" />
+    <Compile Include="tests\unit\interrupted_run_child.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />
     <Compile Include="tests\unit\test_archive_run.py" />
@@ -526,6 +536,7 @@
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
+    <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />
     <Compile Include="tests\unit\test_debug_recorder.py" />
@@ -562,6 +573,7 @@
     <Compile Include="tests\unit\test_exit_placement.py" />
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
+    <Compile Include="tests\unit\test_extract_lazy_registry.py" />
     <Compile Include="tests\unit\test_face_clustering.py" />
     <Compile Include="tests\unit\test_fast_pptx.py" />
     <Compile Include="tests\unit\test_fast_readers.py" />
@@ -618,6 +630,7 @@
     <Compile Include="tests\unit\test_indexing_that_works.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
+    <Compile Include="tests\unit\test_interrupted_runs.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
@@ -629,9 +642,11 @@
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
+    <Compile Include="tests\unit\test_mail_sent_date_filter.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_media_open.py" />
+    <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
@@ -656,12 +671,16 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
+    <Compile Include="tests\unit\test_part_read_archives.py" />
     <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
+    <Compile Include="tests\unit\test_pause_button.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
+    <Compile Include="tests\unit\test_phase_progress.py" />
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
@@ -683,6 +702,7 @@
     <Compile Include="tests\unit\test_preview_window.py" />
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
+    <Compile Include="tests\unit\test_pst_folder_resume.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
     <Compile Include="tests\unit\test_pst_partial_pipeline.py" />
     <Compile Include="tests\unit\test_pst_resilience.py" />
@@ -725,6 +745,7 @@
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
+    <Compile Include="tests\unit\test_run_log.py" />
     <Compile Include="tests\unit\test_run_suite_processes.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
@@ -767,6 +788,7 @@
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />
+    <Compile Include="tests\unit\test_timed_notices.py" />
     <Compile Include="tests\unit\test_timeline.py" />
     <Compile Include="tests\unit\test_timeline_cli.py" />
     <Compile Include="tests\unit\test_timeline_entry_points.py" />
@@ -809,6 +831,7 @@
     <Compile Include="tests\unit\test_winfs.py" />
     <Compile Include="tests\unit\test_wired_features.py" />
     <Compile Include="tests\unit\test_worker_calls.py" />
+    <Compile Include="tests\unit\test_worker_signal_owner.py" />
     <Compile Include="tests\unit\test_write_batching.py" />
     <Compile Include="tests\unit\timeline_env.py" />
     <Compile Include="tools\__init__.py" />
@@ -827,6 +850,7 @@
     <Content Include=".vscode\settings.json" />
     <Content Include=".vscode\tasks.json" />
     <Content Include="ACTIVE_WORK.md" />
+    <Content Include="AGENTS.md" />
     <Content Include="BUILD_SPEC_V2.md" />
     <Content Include="CHANGELOG.md" />
     <Content Include="CLAUDE.md" />
@@ -940,12 +964,14 @@
     <Content Include="docs\WORKORDER-202626271510-results-presentation.md" />
     <Content Include="docs\WORKORDER-202626271601-splash-and-fast-lifecycle.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
+    <Content Include="docs\WORKORDER-dates-live-log-and-interrupted-runs.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
     <Content Include="docs\WORKORDER-git-search-backend.md" />
     <Content Include="docs\WORKORDER-git-search-ui.md" />
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
+    <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
@@ -954,6 +980,7 @@
     <Content Include="docs\WORKORDER-ui-shell-and-results.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
+    <Content Include="finish-cleanup.ps1" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
     <Content Include="pyproject.toml" />

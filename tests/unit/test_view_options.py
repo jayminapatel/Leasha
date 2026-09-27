@@ -721,6 +721,11 @@ def test_a_dragged_width_survives_a_relaunch(tmp_path):
                        available=AVAILABLE_3)
         _drag(first, 1, 320)
         assert dict(chooser.prefs.widths).get("path") == 320
+        # The save is queued on the state writer since bug 3a; the window's
+        # close drains it before the store closes (`_drain_workers`), and so
+        # does this "close".
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
 
     second = _table(app)
     with SqliteStore(database) as store:
@@ -1087,6 +1092,10 @@ def test_dragging_one_column_does_not_shrink_the_last_column_on_restart(tmp_path
             "the last column was never dragged; nothing should be saved for it")
         _settle_stretch(first)
         last_width_live = first.columnWidth(2)
+        # Queued on the ordered state writer since bug 3a - it must land before
+        # this store closes, as `MainWindow._drain_workers` makes it at exit.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
 
     second = _table(app)
     with SqliteStore(database) as store:

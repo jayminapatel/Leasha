@@ -167,7 +167,7 @@ class IndexRunLock:
 # ---------------------------------------------------------------------------
 
 def publish(store: Any, *, owner: str, started_at: float,
-            stats: Any = None) -> None:
+            stats: Any = None, roots: Any = None) -> None:
     """Record what this run is and how far it has got. **Never raises.**
 
     Called on every checkpoint, so it is on the path of a run that may last a
@@ -176,6 +176,13 @@ def publish(store: Any, *, owner: str, started_at: float,
     The payload is one JSON blob rather than a set of keys, because a reader in
     another process would otherwise be able to catch a half-written set and draw
     a bar from one run's numerator and another's denominator.
+
+    `roots` are the folders the run is walking. Work order
+    `dates-live-log-and-interrupted-runs` 3a: a record left behind by a run
+    that died is read the next time the Indexing page opens, and the folders
+    are what let a counting pass's total say how many files it never reached
+    (`app/index/interrupted.py`). Optional, because the lock publishes before
+    it knows them.
     """
     if store is None:
         return
@@ -187,6 +194,8 @@ def publish(store: Any, *, owner: str, started_at: float,
     }
     if stats is not None:
         payload["stats"] = _snapshot(stats)
+    if roots:
+        payload["roots"] = [str(root) for root in roots]
     try:
         store.set_state(RUN_STATE_KEY, json.dumps(payload))
     except Exception:                    # a progress row is never worth a run

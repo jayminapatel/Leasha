@@ -289,6 +289,10 @@ def print_response(response: Any, raw: str = "") -> bool:
     """
     if response.parsed and response.parsed.unknown_operators:
         print(f"  (ignored: {', '.join(response.parsed.unknown_operators)})")
+    # What was wrong with a date, and what would work - the same sentence the
+    # window shows (order "dates" §1d, non-negotiable #8).
+    for problem in getattr(response.parsed, "date_problems", ()) or ():
+        print(f"  ! {problem}")
 
     # **Before the results, and on the way out too.** A search that quietly
     # returned worse results is the failure nobody reports, because it
