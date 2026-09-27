@@ -22,6 +22,8 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from app.core.identifiers import (
     MIN_PART_LENGTH,
@@ -101,6 +103,73 @@ def test_a_generated_file_cannot_double_the_index():
     FTS index across a terabyte."""
     huge = " ".join(f"someLongIdentifier{n}" for n in range(5_000))
     assert len(symbol_tokens(huge)) <= 4_000
+
+
+# --- 0x 5d: the faster scan gives exactly the old answer ---------------------
+
+def _symbol_tokens_before_5d(text: str, *, limit: int = 4_000) -> str:
+    """`symbol_tokens` exactly as it was before work order 0x item 5d.
+
+    It handed every word `_WORD` found to `split_identifier`. The new version
+    only hands over the words `_CANDIDATE` finds; this copy is what it is
+    compared against, so "the output did not change" is a test, not a claim.
+    """
+    import re
+
+    word_re = re.compile(r"[A-Za-z][A-Za-z0-9]+")
+    seen: set[str] = set()
+    out: list[str] = []
+    length = 0
+    for match in word_re.finditer(text):
+        for part in split_identifier(match.group(0)):
+            if len(part) < MIN_PART_LENGTH:
+                continue
+            key = part.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if length + len(part) + 1 > limit:
+                return " ".join(out)
+            out.append(part)
+            length += len(part) + 1
+    return " ".join(out)
+
+
+# Letters of both cases, digits, the punctuation that separates words, and some
+# non-ASCII letters (which `_WORD` does not count as letters) - the characters
+# where a scan that finds words differently would show it.
+_ALPHABET = "aAbBxXyYzZ09 1_.-'(\n\téÉßİıΣ中"
+
+
+@given(st.text(alphabet=_ALPHABET, max_size=200),
+       st.integers(min_value=1, max_value=60))
+@settings(max_examples=3000, deadline=None)
+def test_the_fast_scan_matches_the_old_one_on_generated_text(text, limit):
+    """Every string, and every truncation point, gives the same tokens."""
+    assert symbol_tokens(text, limit=limit) == _symbol_tokens_before_5d(text, limit=limit)
+    assert symbol_tokens(text) == _symbol_tokens_before_5d(text)
+
+
+@pytest.mark.parametrize("text", [
+    "The quick brown fox jumped over the lazy dog.",
+    "public class ResetPasswordHandler { void getUserName() {} }",
+    "9Abc 12abC aB a1 AB ABC ABc XMLHttpRequest parseJSON2Data utf8 sha256",
+    "NASA iPhone COVID19 Q3 page2 2026-09-27 MyISAM éBc ÉcoleNormale",
+    " ".join(f"someLongIdentifier{n}" for n in range(5_000)),
+])
+def test_the_fast_scan_matches_the_old_one_on_known_text(text):
+    assert symbol_tokens(text) == _symbol_tokens_before_5d(text)
+
+
+def test_a_long_run_of_lowercase_letters_is_read_in_linear_time():
+    """A regex that retried from every letter of a run would take minutes here
+    (the time grows with the square of the run); the scan must not."""
+    import time
+
+    blob = "acgt" * 100_000                   # 400,000 letters, not one capital
+    started = time.perf_counter()
+    assert symbol_tokens(blob + " getUserName") == "get User Name"
+    assert time.perf_counter() - started < 2.0
 
 
 # --- what gets searched -----------------------------------------------------
