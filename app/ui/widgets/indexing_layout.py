@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.presenter import index_summary, when_text
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
 __all__ = ["assemble_pages", "paint_run_panels", "paint_totals"]
@@ -52,6 +53,10 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     status_layout.addWidget(view.bar)
     status_layout.addWidget(view.detail)
     status_layout.addWidget(view.notices)
+    # Work order 0w §2b. Made here rather than in the view, which is over its
+    # line guard: `view.run_log` is set on the view exactly as if it had been.
+    view.run_log = RunLog()
+    status_layout.addWidget(view.run_log)
     status_layout.addLayout(controls)
     status_layout.addWidget(view.archives)
     status_layout.addWidget(view.skips, stretch=1)
@@ -105,10 +110,17 @@ def paint_totals(view: Any, payload: dict) -> None:
 
 def paint_run_panels(view: Any, stats: Any) -> None:
     """What a progress tick and a finished run both draw beneath the bar: the
-    skip summary, the archived folders, and the run's notices."""
+    skip summary, the archived folders, the run's notices and its log.
+
+    The log appends only what arrived since it was last painted, so a tick
+    `paint_due` dropped loses nothing - its lines come with the next one.
+    """
     view.skips.show_skips(stats.skipped_by_code)
     view.archives.show_roots(getattr(stats, "skipped_roots", ()))
     view.show_notices(getattr(stats, "notices", ()))
+    run_log = getattr(view, "run_log", None)
+    if run_log is not None:
+        run_log.show_activity(getattr(stats, "activity", None))
 
 
 def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
