@@ -379,7 +379,18 @@ def quokkas(gui_mainwindow):
 
 
 def _rows(view) -> int:
-    return view.results._model.rowCount()
+    """Rows of results on screen - **not** the grey skeleton bars.
+
+    A search that has not answered within 300ms puts four `Skeleton` rows into
+    the same model (§6d). Counting them made "wait for three rows" pass while
+    the list was still only placeholders on a slow machine (Windows CI), so the
+    next Down selected nothing and `next(...)` over the rows found no result.
+    """
+    from app.ui.result_delegate import ROLE_PAYLOAD, Skeleton
+
+    model = view.results._model
+    return sum(1 for n in range(model.rowCount())
+               if not isinstance(model.item(n).data(ROLE_PAYLOAD), Skeleton))
 
 
 def test_the_search_page_start_to_finish_with_the_keyboard_alone(
