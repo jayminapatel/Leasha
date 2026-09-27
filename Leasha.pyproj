@@ -208,6 +208,7 @@
     <Compile Include="app\extract\places.py" />
     <Compile Include="app\extract\plaintext.py" />
     <Compile Include="app\extract\ppt.py" />
+    <Compile Include="app\extract\progress.py" />
     <Compile Include="app\extract\pst_libpff.py" />
     <Compile Include="app\extract\publisher.py" />
     <Compile Include="app\extract\quoting.py" />
@@ -229,6 +230,7 @@
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\interrupted.py" />
+    <Compile Include="app\index\live_progress.py" />
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
@@ -330,6 +332,7 @@
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
     <Compile Include="app\ui\presenter\interrupted.py" />
+    <Compile Include="app\ui\presenter\live_progress.py" />
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
@@ -406,6 +409,7 @@
     <Compile Include="app\ui\widgets\indexing_controls.py" />
     <Compile Include="app\ui\widgets\indexing_headline.py" />
     <Compile Include="app\ui\widgets\indexing_layout.py" />
+    <Compile Include="app\ui\widgets\indexing_workers.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
@@ -649,6 +653,7 @@
     <Compile Include="tests\unit\test_indexing_page_4.py" />
     <Compile Include="tests\unit\test_indexing_partial_row.py" />
     <Compile Include="tests\unit\test_indexing_that_works.py" />
+    <Compile Include="tests\unit\test_indexing_workers_panel.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_interrupted_runs.py" />
@@ -659,6 +664,7 @@
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
+    <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
