@@ -318,7 +318,15 @@ class Rail(QWidget):
     def _retint_buttons(self) -> None:
         if not self._colours:
             return
-        on, off = self._colours.get("rail_on", "#ffffff"), self._colours.get("rail_text", "#c9c1ee")
+        # **The chosen page's icon takes the chosen page's text colour.** It was
+        # `rail_on`, which is white in both themes - right when the rail was
+        # navy, and 1.2 to 1 against the pale lavender fill the light theme's
+        # rail uses now: the one icon that says "you are here" was the one you
+        # could not see (grabbed 2026-09-27, order 0x section 9). `rail_on_text`
+        # is the colour the label under it already uses: navy in the light
+        # theme (11 to 1), white in the dark one, so dark is unchanged.
+        on = self._colours.get("rail_on_text", self._colours.get("rail_on", "#ffffff"))
+        off = self._colours.get("rail_text", "#c9c1ee")
         current = self.stack.currentIndex()
         for index, button in self._buttons.items():
             name = self._icons.get(index)
