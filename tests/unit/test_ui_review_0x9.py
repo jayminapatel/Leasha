@@ -457,3 +457,49 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
         names.setCurrentRow(0)
         window.rail.setCurrentIndex(0)
         gui_pump(app, 4)
+
+
+def test_the_fast_or_thoughtful_box_stays_the_size_of_its_words(gui_mainwindow, qtbot):
+    r"""**Before:** once Chat was ready (its "Ollama is not running" notice
+    hidden) the Fast/Thoughtful box stretched across the whole pane - one word,
+    "Fast", in a bar as wide as the conversation, reading like a title rather
+    than a choice. Grab: `before-1100x760/light/chat.png`, the top bar.
+
+    Now Chat is opened with the mouse and told it is ready (what the window
+    does when Ollama answers); the box stays about as wide as its longest
+    choice, and the keyboard still changes it."""
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    button = next(b for b in window.rail._buttons.values() if b.text() == "Chat")
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+    gui_pump(app, 4)
+    chat = window.chat_view
+    chosen: list = []
+    chat.speed_changed.connect(chosen.append)
+    try:
+        # Opening Chat asks, on a worker, whether Ollama is there; on this
+        # machine it is not, and that answer must land before this test says
+        # "ready", or it lands after and hides the box's new state again.
+        from PyQt6.QtCore import QThreadPool
+        QThreadPool.globalInstance().waitForDone(10_000)
+        gui_pump(app, 10)
+        chat.show_available(True)
+        gui_pump(app, 6)
+        speed = chat.speed
+        assert not chat.notice.isVisible()
+        assert speed.isVisible() and speed.isEnabled()
+        assert speed.width() <= speed.sizeHint().width() + 8, (speed.width(), speed.sizeHint().width())
+        speed.setFocus()
+        qtbot.keyClick(speed, KEY.Key_Down)
+        gui_pump(app, 2)
+        assert chosen and chosen[-1] == "thoughtful"
+        qtbot.keyClick(speed, KEY.Key_Up)
+        gui_pump(app, 2)
+        assert chosen[-1] == "fast"
+        # With the notice back, the notice takes the room, as before.
+        chat.show_available(False, "not running")
+        gui_pump(app, 6)
+        assert chat.notice.isVisible() and chat.notice.width() > speed.width()
+    finally:
+        chat.speed_changed.disconnect(chosen.append)
+        window.rail.setCurrentIndex(0)
