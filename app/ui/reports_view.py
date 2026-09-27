@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
 from app.ui.widgets.space_table import SpaceTables
-from app.ui.widgets.timeline_host import attach_timeline, show_timeline_only
+from app.ui.widgets.timeline_host import REPORT_KEY, attach_timeline, show_timeline_only
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ReportsView", "REPORTS"]
@@ -91,7 +91,7 @@ class ReportsView(QWidget):
         self.list.setAccessibleName("Available reports")
         for key, title, description in REPORTS:
             item = QListWidgetItem(title)
-            item.setData(1, key)
+            item.setData(REPORT_KEY, key)
             item.setToolTip(description)
             self.list.addItem(item)
         self.list.currentRowChanged.connect(self._show_selected)
@@ -183,12 +183,12 @@ class ReportsView(QWidget):
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
         tabled = False
-        if show_timeline_only(self, row >= 0 and self.list.item(row).data(1) == "timeline"):
+        if show_timeline_only(self, row >= 0 and self.list.item(row).data(REPORT_KEY) == "timeline"):
             return
         if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return
-        key = self.list.item(row).data(1)
+        key = self.list.item(row).data(REPORT_KEY)
         if key == "inheritance":
             if not self._sources:
                 self.body.setMarkdown("Nothing indexed yet.")
@@ -209,7 +209,7 @@ class ReportsView(QWidget):
 
     def _selected_key(self) -> str:
         row = self.list.currentRow()
-        return str(self.list.item(row).data(1)) if row >= 0 else ""
+        return str(self.list.item(row).data(REPORT_KEY)) if row >= 0 else ""
 
     def _start_export(self) -> None:
         if self._selected_key() == "space":

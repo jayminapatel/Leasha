@@ -21,6 +21,7 @@ pytest.importorskip("PyQt6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tests.unit.test_ui_redesign_qt import window  # noqa: E402,F401 - the shared window
+from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ def test_opening_the_space_report_shows_it_and_export_is_offered(window):
     view = built.reports_view
     view._loaded(("", None, "# The Space Report\n\nNothing indexed yet."))
     for row in range(view.list.count()):
-        if view.list.item(row).data(1) == "space":
+        if view.list.item(row).data(REPORT_KEY) == "space":
             view.list.setCurrentRow(row)
     assert "Space Report" in view.body.toPlainText()
     assert view.export.isEnabled()
@@ -76,7 +77,7 @@ def test_export_writes_a_pdf_off_the_ui_thread(window, tmp_path, monkeypatch):
     view = built.reports_view
     view._loaded(("", None, "# The Space Report\n\nA line."))
     for row in range(view.list.count()):
-        if view.list.item(row).data(1) == "space":
+        if view.list.item(row).data(REPORT_KEY) == "space":
             view.list.setCurrentRow(row)
     target = tmp_path / "space-report.pdf"
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
