@@ -47,6 +47,7 @@ from app.ui.presenter import (
     index_bytes, offline_media_run_summary,
 )
 from app.ui.state_writes import save_states
+from app.ui.widgets.indexing_layout import repaint_totals
 from app.ui.workers import CallableWorker, run
 
 _log = logger.bind(component="ui.shell")
@@ -754,6 +755,8 @@ class IndexController(QObject):
         if monitor is not None:
             pipeline.ui_lag = monitor.recent_lag_s
         self._w.indexing_view.start(pipeline, total_estimate=self._w._scan_total(chosen))
+        # 0w 3a: this run is the carrying on, so "did not finish" comes down now.
+        repaint_totals(self._w.indexing_view)
 
     def _index_resolve_failed(self, error: Any) -> None:
         """`resolve_for_run` does not raise by contract - see its own docstring -

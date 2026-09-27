@@ -35,6 +35,7 @@ The package is split by domain; this file re-exports every name so that
   repos       repository rows and the repository filter
   code        the Code tab's routing, git rows and wording
   indexing    progress, runs started elsewhere, skips, index summary
+  interrupted a run that did not finish, in words
   settings    Settings-page text and suggested folders
   offline     catalogued drives and online-only files
 
@@ -156,6 +157,13 @@ from app.ui.presenter.indexing import (
     when_text,
     mail_summary,
     archive_summary,
+)
+from app.ui.presenter.interrupted import (
+    UNFINISHED_LABEL,
+    stopped_when,
+    unfinished_reach,
+    unfinished_run_rows,
+    unfinished_run_line,
 )
 from app.ui.presenter.offline import (
     offline_volume_note,
@@ -366,6 +374,11 @@ __all__ = [
     "StatRow",
     "index_summary",
     "warned_counts",
+    "UNFINISHED_LABEL",
+    "stopped_when",
+    "unfinished_reach",
+    "unfinished_run_rows",
+    "unfinished_run_line",
     "read_index_summary",
     "folder_size",
     "when_text",

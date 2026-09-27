@@ -120,7 +120,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     from app.index.walker import WalkConfig, own_paths
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
-    from app.ui.presenter import phase_words
+    from app.ui.presenter import phase_words, unfinished_run_line
     from app.ui.presenter.activity import console_safe, timed_notices
 
     settings = _load(args)
@@ -181,8 +181,16 @@ def cmd_index(args: argparse.Namespace) -> int:
     # function, so the two cannot drift.
     from app.index.resolve import resolve_for_run
 
+    from app.index.interrupted import read_unfinished_run
+
     with SqliteStore(settings.fts_db) as _store:
         tuned = resolve_for_run(settings, _store)
+        # Work order `dates-live-log-and-interrupted-runs` 3a. **Read before
+        # this run takes the lock**, because taking it replaces the record a
+        # run that died left behind - the only evidence that one did.
+        unfinished = read_unfinished_run(_store)
+    if unfinished and not args.json:
+        print(unfinished_run_line(unfinished, carrying_on=True))
     limits = replace(limits, workers=tuned.workers)
     _tuning_log = logger.bind(component="cli.index")
     for key, why in tuned.why.items():
@@ -366,6 +374,8 @@ def cmd_index(args: argparse.Namespace) -> int:
 
     payload = stats.as_dict()
     if args.json:
+        if unfinished:
+            payload["interrupted_before"] = unfinished
         print(json.dumps(payload, indent=2))
         return EXIT_ERROR if stats.stopped_early else EXIT_OK
 
