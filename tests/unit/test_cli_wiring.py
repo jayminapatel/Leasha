@@ -64,7 +64,7 @@ def parser_for(argv):
 COMMANDS = [
     "search", "index", "formats", "commands", "ollama", "doctor",
     "evaluate", "embed-bench", "rerank-bench", "diagnose", "repos", "gitsearch",
-    "offline-media",
+    "offline-media", "bench-pipeline",
 ]
 
 
