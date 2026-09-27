@@ -65,6 +65,47 @@ def _print_vector_coverage(stats) -> None:
     print("          `app.cli reembed` fills the gap without re-reading anything.")
 
 
+class _ActivityPrinter:
+    r"""Work order 0w §2d: the run's log, printed as it arrives.
+
+    The same entries, the same `HH:MM:SS` and the same words as the Indexing
+    page's log (non-negotiable #8), because both come from
+    `presenter.activity`. **Printed on the progress callback**, which runs on
+    the run's own thread, so there is no second thread writing to the
+    console; an entry recorded between two ticks is printed at the next one
+    with the time it was recorded, not the time it was printed. Each line
+    goes above the progress line - `clear`, print, `repaint` - the way the
+    log sink already does it, so neither mangles the other. ASCII-safe for a
+    console left at a legacy code page, as the phase words already were.
+    """
+
+    def __init__(self, progress: ProgressLine) -> None:
+        self._progress = progress
+        self._run: object = None
+        self._seq = 0
+
+    def __call__(self, stats: object) -> None:
+        from app.ui.presenter.activity import activity_lines, console_safe
+
+        log = getattr(stats, "activity", None)
+        if log is None:
+            return
+        # A notice appended without `add_notice` gets its time here too.
+        stamp = getattr(stats, "stamp_notices", None)
+        if callable(stamp):
+            stamp()
+        if log.run != self._run:
+            self._run, self._seq = log.run, 0
+        fresh = log.since(self._seq)
+        if not fresh:
+            return
+        self._seq = fresh[-1].seq
+        self._progress.clear()
+        for line in activity_lines(fresh):
+            print(console_safe(line, sys.stdout.encoding), flush=True)
+        self._progress.repaint()
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build or update the index. Layer 3's entry point.
 
@@ -251,9 +292,12 @@ def cmd_index(args: argparse.Namespace) -> int:
             format="{time:HH:mm:ss} {level: <7} {message}",
         )
 
+    say = _ActivityPrinter(progress)
+
     def show(stats) -> None:
         if args.json:
             return
+        say(stats)
         line = (f"  {stats.indexed:>7,} docs  {stats.unchanged:>6,} unchanged  "
                 f"{stats.unchanged_documents:>7,} already current  "
                 f"{stats.chunks:>8,} chunks")
@@ -325,6 +369,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return EXIT_ERROR if stats.stopped_early else EXIT_OK
 
+    # What arrived after the last tick - the vector index, the word index,
+    # the last line - before the summary, not lost behind it.
+    if not args.quiet:
+        say(stats)
     progress.finish()
     print()
     # Documents, not files. A .pst is one file and thousands of messages, and
