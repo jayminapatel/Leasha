@@ -100,6 +100,13 @@ class ChatView(QWidget):
 
         head = QHBoxLayout()
         head.addWidget(self.notice, stretch=1)
+        # Spare room goes to empty space, never to the Fast/Thoughtful box.
+        # While the notice shows it takes the room (its stretch wins); once
+        # chat is ready the notice hides, and without this the box stretched
+        # across the whole pane - one word, "Fast", in a bar as wide as the
+        # conversation, looking like a title rather than a choice (grabbed
+        # 2026-09-27, order 0x section 9).
+        head.addStretch(0)
         head.addWidget(self.recheck_button)
         head.addWidget(self.speed)
         centre = QWidget()
