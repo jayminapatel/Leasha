@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -98,6 +98,12 @@ it, or write what happened underneath with the date. Anything marked
       it carries on near where it stopped, not at the first message, with no duplicates.
 - [ ] **6.8 A big export.** Index an `.olm` over 2GB. Expect: it is read, not dropped by the
       file-size ceiling.
+
+- [ ] **4.7** Open a video result at a moment in it (a search hit inside a transcript) with VLC
+      and with mpv installed as Mac apps: does it start at that moment? The start-time arguments
+      are the Windows ones. **(UNCONFIRMED on macOS)**
+- [ ] **4.8** With VS Code in `/Applications`, "Open in editor" on a code result opens it.
+      **(UNCONFIRMED on macOS)**
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 
