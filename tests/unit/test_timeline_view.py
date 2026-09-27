@@ -165,6 +165,9 @@ def test_the_kind_box_narrows_the_month_and_is_remembered(qtbot, june):
     qtbot.waitUntil(lambda: len(entries(view)) == 4, timeout=8000)
     view.picker.kind_box.setCurrentIndex(view.picker.kind_box.findData("mail"))
     qtbot.waitUntil(lambda: [e.file_id for e in entries(view)] == [ids["mail"]], timeout=8000)
+    # Queued on the ordered state writer since the page-switch fix (bug 3a).
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:timeline_kind", None) == "mail"
     assert TimelineView(store).picker.kind() == "mail"            # a fresh window starts there
 
