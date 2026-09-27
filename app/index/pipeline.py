@@ -66,6 +66,18 @@ from app.core.priority import lower_this_thread
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
+from app.index.activity import (
+    KIND_FINISHED,
+    KIND_LARGE_FILE,
+    KIND_NOTICE,
+    KIND_PAUSE,
+    KIND_PHASE,
+    KIND_RESUME,
+    KIND_STOPPING,
+    KIND_WARNING,
+    ActivityLog,
+    large_file_kind,
+)
 from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
@@ -334,6 +346,18 @@ class IndexStats:
     #: week should say what it can see coming at the start of it, not at hour
     #: sixty when the disk fills.
     notices: list[str] = field(default_factory=list)
+    #: Work order 0w §2c. When each of `notices` was said, as `time.time()`,
+    #: index for index. **A parallel list rather than a change of type**, so
+    #: every reader of `notices` - the CLI, the finished panel, the run
+    #: record, a dozen tests - still gets the plain strings it always did.
+    #: Filled by `add_notice`; a notice appended directly is stamped by
+    #: `stamp_notices` at the next snapshot instead, so none goes untimed.
+    notice_times: list[float] = field(default_factory=list)
+    #: Work order 0w §2a. The run's own timestamped story - see
+    #: `app/index/activity.py`. Not in `as_dict`: the run record is written
+    #: into the store every run and has no use for a few hundred lines.
+    activity: ActivityLog = field(default_factory=ActivityLog, repr=False,
+                                  compare=False)
     #: Warning code -> how many documents carried it.
     #:
     #: Warnings live on documents that indexed *successfully*, so none of them
@@ -402,12 +426,45 @@ class IndexStats:
         Each container is copied with a single C-level call, which holds the
         interpreter lock for its whole duration.
         """
+        self.stamp_notices()
         clone = copy.copy(self)
         for spec in fields(self):
             value = getattr(clone, spec.name)
             if isinstance(value, (dict, list, set)):
                 setattr(clone, spec.name, type(value)(value))
+        # Its own lock, not the interpreter's: see `ActivityLog.copy`.
+        clone.activity = self.activity.copy()
         return clone
+
+    def add_notice(self, text: str) -> None:
+        """Say a notice, and remember when. Work order 0w §2c.
+
+        The text is stored exactly as given - the time goes beside it, never
+        into it - and the same moment becomes the notice's line in the log.
+        """
+        with self.activity.lock:
+            at = time.time()
+            self.notices.append(text)
+            self.notice_times.append(at)
+            self.activity.record(KIND_NOTICE, text, at=at)
+
+    def stamp_notices(self) -> None:
+        """Time and log any notice that was appended without `add_notice`.
+
+        **A safety net, not the way in.** `notices` is a public list and a
+        caller that appends to it directly - an older path, or a change made
+        without knowing about this one - would otherwise leave a notice with
+        no time and no log line. One length comparison when there is nothing
+        to do, which is every tick but the one after such an append.
+        """
+        if len(self.notice_times) >= len(self.notices):
+            return
+        with self.activity.lock:
+            now = time.time()
+            while len(self.notice_times) < len(self.notices):
+                text = self.notices[len(self.notice_times)]
+                self.notice_times.append(now)
+                self.activity.record(KIND_NOTICE, str(text), at=now)
 
     @property
     def files_per_minute(self) -> float:
@@ -931,6 +988,19 @@ class Pipeline:
         #: The sink's keys, longest first. Rebuilt only when the sink grows.
         self._repo_order: list[str] = []
         self._throttle: Optional[Verdict] = None
+        #: Work order 0w §2a. A log to record into instead of the run's own -
+        #: set by `media_backlog.drain` on the pipeline that reads the queued
+        #: recordings, so the page's log carries straight on through that
+        #: tail rather than starting again empty.
+        self.activity_into: Optional[ActivityLog] = None
+        #: Warning codes already given a line in the log this run. Written by
+        #: the consumer only. See `_note_warnings`.
+        self._warned_codes: set[str] = set()
+        #: Which pause the log last said had started - "manual", "machine" or
+        #: "" - so each is said once however many threads notice it, and
+        #: "carrying on" is said only after a pause that was said.
+        self._pause_said = ""
+        self._pause_said_lock = threading.Lock()
         #: What `_plan_roots` decided this run. Read again at the end, to record
         #: a pass for every archival root that was walked in full.
         self._plans: tuple[Any, ...] = ()
@@ -1029,6 +1099,48 @@ class Pipeline:
         from one that has hung, and the person watching will kill it.
         """
         self._throttle = found if found.action != "run" else None
+        self._say_pause(found)
+
+    def _record(self, kind: str, text: str = "", **extra: Any) -> None:
+        """One entry in this run's log (`IndexStats.activity`). Never raises.
+
+        Through `_stats_ref`, the one object every thread of the run already
+        shares; `getattr`, because several tests build a bare pipeline with
+        only the attributes the method under test needs.
+        """
+        activity = getattr(getattr(self, "_stats_ref", None), "activity", None)
+        if activity is not None:
+            activity.record(kind, text, **extra)
+
+    def _say_pause(self, found: Verdict) -> None:
+        """Work order 0w §2a: a pause, its reason, and the end of it, in the log.
+
+        **Once each, however many threads ask.** The governor reports a change
+        of state from whichever thread noticed it, and the person's own pause
+        is also said by `pause()` the moment the button is pressed - so the
+        last thing said is remembered, and repeating it is a no-op. A stop
+        from the governor (the disk floor) is a warning: it ends the run, and
+        its reason is the fix. Never raises.
+        """
+        try:
+            activity = self._stats_ref.activity
+            action = getattr(found, "action", "")
+            if action == "stop":
+                activity.record(KIND_WARNING, getattr(found, "reason", "") or "")
+                return
+            cause = "manual" if getattr(found, "cause", "") == "manual" else "machine"
+            with self._pause_said_lock:
+                if action == "pause":
+                    if self._pause_said == cause:
+                        return
+                    self._pause_said = cause
+                    activity.record(KIND_PAUSE, getattr(found, "reason", "") or "",
+                                    detail=cause)
+                elif action == "run" and self._pause_said:
+                    self._pause_said = ""
+                    activity.record(KIND_RESUME)
+        except Exception as exc:                 # noqa: BLE001 - a log line
+            self._log.debug("could not note a pause in the run log: {}", exc)
 
     def request_stop(self) -> None:
         """Ask the run to finish the file in flight and return cleanly.
@@ -1037,6 +1149,10 @@ class Pipeline:
         point of stopping cleanly is that the cursor and every completed file
         survive, so resuming costs nothing.
         """
+        # Said once, by the run that owns the log: the media tail's pipeline
+        # is stopped through this too, straight after the outer one.
+        if not self._interrupted and getattr(self, "activity_into", None) is None:
+            self._record(KIND_STOPPING)
         self._interrupted = True
         self._stop.set()
         # **A stop beats a pause, and must leave nothing holding.** Every
@@ -1079,11 +1195,15 @@ class Pipeline:
         if hold is None:
             return
         hold()
+        # Said now, not when a waiter next asks the governor: after the walk
+        # has finished nothing asks it, and the pause would go unrecorded.
+        self._say_pause(Verdict("pause", MANUAL_PAUSE_REASON, cause="manual"))
         self._log.info("paused at the person's request")
 
     def resume(self) -> None:
         """Let go of the pause. The machine's own ceilings still apply."""
         self._release_pause()
+        self._say_pause(Verdict("run"))
         self._log.info("resumed at the person's request")
 
     def _release_pause(self) -> None:
@@ -1151,6 +1271,7 @@ class Pipeline:
         must never be the reason it stops happening.
         """
         stats.phase = phase
+        stats.activity.record(KIND_PHASE, phase)
         self._log.debug("phase: {}", phase)
         if on_progress is None:
             return
@@ -1218,7 +1339,11 @@ class Pipeline:
         on_progress: Optional[Callable[[IndexStats], None]] = None,
     ) -> IndexStats:
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
+        if self.activity_into is not None:
+            stats.activity = self.activity_into
         self._stats_ref = stats          # workers announce the file they are on
+        self._warned_codes = set()
+        self._pause_said = ""
         # Work order 202626130120 (0t) section 6. First thing, before a
         # single file is read or the embedder loads - "before the run
         # starts" means before either of those, not after them. Persisted on
@@ -1444,6 +1569,9 @@ class Pipeline:
         unreachable = dict(getattr(self.config.walk, "stat_failures", {}) or {})
         if unreachable:
             stats.unreachable_by_reason = unreachable
+            stats.activity.record(KIND_WARNING, (
+                f"{sum(unreachable.values()):,} file(s) could not be looked at "
+                "at all, so they are not in the index."), detail="unreachable")
             self._log.warning(
                 "{} file(s) could not be read at all and have no row in the "
                 "index: {}. A count over 260 characters means Windows long-path "
@@ -1462,6 +1590,9 @@ class Pipeline:
             getattr(self.config.walk, "oversize_dropped", {}) or {})
         if oversize_dropped:
             stats.oversize_dropped = oversize_dropped
+            stats.activity.record(KIND_WARNING, (
+                f"{sum(oversize_dropped.values()):,} file(s) were too large to "
+                "open, so they are not in the index."), detail="oversize")
             self._log.warning(
                 "{} file(s) were over the {:,} byte size ceiling and have no "
                 "row in the index: {}. Formats read incrementally (like "
@@ -1510,6 +1641,13 @@ class Pipeline:
         if slower:
             self._log.info("{}", slower)
         self._log.info("index run: {}", stats.as_dict())
+        # The last line of the run's story. Not for a run reading into another
+        # run's log (the media tail): that run is not finished when this is.
+        if self.activity_into is None:
+            stats.stamp_notices()
+            stats.activity.record(
+                KIND_FINISHED,
+                "stopped" if (self._interrupted or stats.stopped_early) else "")
         return stats
 
     def _report_gpu_regression(self, stats: IndexStats) -> None:
@@ -1526,7 +1664,7 @@ class Pipeline:
             notice = getattr(self.config, "gpu_regression_notice", "") or ""
             if not notice:
                 return
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             self._log.warning("{}", notice)
         except Exception as exc:                    # noqa: BLE001 - a notice
             self._log.debug("could not report the lost graphics-card provider: {}", exc)
@@ -1563,7 +1701,7 @@ class Pipeline:
                 notice += (
                     " Nothing in them is in the index. If that is a removable "
                     "or network drive, connect it and index again.")
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             self._log.warning("{}", notice)
         except Exception as exc:                    # noqa: BLE001 - a notice
             self._log.debug("could not describe the unusable roots: {}", exc)
@@ -1620,7 +1758,7 @@ class Pipeline:
                     "read and held no files Leasha can index - if that is a "
                     "removable or network drive, check it is connected.")
 
-            stats.notices.append(notice)
+            stats.add_notice(notice)
             # WARNING, not INFO: a run that indexed nothing and said nothing is
             # the report this exists to prevent.
             self._log.warning("{}", notice)
@@ -1822,7 +1960,7 @@ class Pipeline:
             f"nothing indexed is lost - but on a corpus this size it is worth "
             f"freeing space before starting rather than at hour sixty."
         )
-        stats.notices.append(notice)
+        stats.add_notice(notice)
         self._log.warning("{}", notice)
 
     # -- the two passes ------------------------------------------------------
@@ -2666,6 +2804,14 @@ class Pipeline:
         if held is not None:
             yield _Extracted(candidate, digest, error=held)
             return
+
+        # Work order 0w §2a. After the gate, not before it: a video the gate
+        # queues for the tail is not being read now, and a line saying it was
+        # would be the kind of thing that makes a log untrustworthy.
+        large = large_file_kind(candidate.path, candidate.size_bytes)
+        if large:
+            self._record(KIND_LARGE_FILE, candidate.path.name,
+                         size=candidate.size_bytes, detail=large)
 
         # Work order 202626270509, item 1b. Only asked of extractors that
         # opt in (`extractor_for(...).supports_resume`); the lookup and the
@@ -3807,6 +3953,16 @@ class Pipeline:
             # line per archive, and the only place the log names what was missed.
             if log or code == "ERR_PST_PARTIAL":
                 self._log.warning("{} | {}", warning.message, warning.suggestion)
+            # Work order 0w §2a. **The first of each code, and every partial
+            # archive.** A warning is counted per document and 400 decks can
+            # carry the same one; four hundred identical lines would push
+            # everything else out of the log. A partial archive is one line
+            # per archive already, and each one names a different file.
+            said = self.__dict__.setdefault("_warned_codes", set())
+            if code == "ERR_PST_PARTIAL" or (code and code not in said):
+                said.add(code)
+                self._record(KIND_WARNING,
+                             str(getattr(warning, "message", "") or code), detail=code)
             if code:
                 self._stats_ref.warned_by_code[code] = (
                     self._stats_ref.warned_by_code.get(code, 0) + 1)
