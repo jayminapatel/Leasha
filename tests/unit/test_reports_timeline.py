@@ -77,6 +77,26 @@ def test_a_range_typed_backwards_is_turned_round_not_refused():
     assert Period.from_words("2015-08", "2015-06") == Period.from_words("2015-06", "2015-08")
 
 
+def test_the_range_boxes_take_a_time_of_day_as_that_moment():
+    r"""Order "dates" §1b: the range boxes read dates through the search box's
+    own parser, so they take its new time forms - and a time is the moment,
+    not its whole day, or 09:00 to 17:00 would quietly be the entire day."""
+    def at(hour: int, minute: int = 0) -> int:
+        return int(dt.datetime(2015, 6, 1, hour, minute).timestamp()) * NS
+
+    working = Period.from_words("2015-06-01T09:00", "2015-06-01 17:00")
+    assert working.start_ns == at(9)
+    assert working.start_ns <= at(17) < working.end_ns    # 17:00 itself is in
+    assert working.end_ns == at(17, 1)                      # the minute, whole
+    assert not working.start_ns <= at(8, 59) < working.end_ns
+    # One side a time, the other a day - and typed backwards, turned round
+    # rather than refused on comparing a datetime with a date.
+    mixed = Period.from_words("2015-06-02", "2015-06-01T09:00")
+    assert mixed is not None and mixed.start_ns == at(9)
+    from app.reports.timeline_words import period_words
+    assert period_words(working) == "1 Jun 2015 09:00 to 1 Jun 2015 17:00"
+
+
 def test_something_that_is_not_a_date_is_not_guessed_at():
     assert Period.from_words("banana", "") is None
     assert Period.from_words("2015", "not-a-date") is None

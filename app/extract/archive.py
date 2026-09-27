@@ -52,6 +52,7 @@ from typing import Any, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.base import Document, SourceKind, register
 
 __all__ = [
@@ -261,12 +262,24 @@ def read_archive(
     try:
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()
-            for entry in entries:
-                if budget.left <= 0:
-                    log.info("{} reached its {}MB budget", path.name,
-                             MAX_ARCHIVE_BYTES // 1_048_576)
-                    return
-                yield from _member(archive, entry, path, key, depth, budget)
+            # Work order 0x section 3b: "member 12 of 40, q3/report.docx".
+            # The total is the central directory's own length, already in
+            # memory, so it costs nothing. Directory entries are counted too:
+            # they are in the list, skipping them would need a second pass,
+            # and "of 40" being two folders generous is harmless. A nested
+            # archive is read on this same thread, so its frame lands on top
+            # of this one and the page shows `outer.zip › inner.zip › ...`.
+            with progress.enter("zip", path.name, unit="member",
+                                total=len(entries),
+                                stage=progress.STAGE_ZIP) as frame:
+                for position, entry in enumerate(entries, start=1):
+                    if budget.left <= 0:
+                        log.info("{} reached its {}MB budget", path.name,
+                                 MAX_ARCHIVE_BYTES // 1_048_576)
+                        return
+                    frame.n = position
+                    frame.where = entry.filename
+                    yield from _member(archive, entry, path, key, depth, budget)
     except (zipfile.BadZipFile, OSError) as exc:
         # Corrupt, truncated, or gone between the walk and here.
         #

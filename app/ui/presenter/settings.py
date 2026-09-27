@@ -108,6 +108,13 @@ def owns_path(candidate: str, home: Optional[str] = None) -> bool:
     if not root:
         return False
 
+    # A comparison key only - never shown, stored or opened (order 0x
+    # section 7a/7b, kept as it was). Both sides are flattened the same way,
+    # so on a Mac `/Users/me` and `/Users/me/Documents` compare correctly with
+    # the separators turned round. Ignoring case can only make this guard say
+    # "yours" for a folder whose name differs from the home folder by case
+    # alone; every suggestion is built from the home folder itself, so that
+    # cannot happen to a suggested folder.
     def flatten(value: str) -> str:
         return value.replace("/", "\\").rstrip("\\").lower()
 

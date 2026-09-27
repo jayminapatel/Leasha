@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.13 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,168 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-27 (later) - order 0x is active, run as a master thread.** The owner released
+`docs/WORKORDER-overhaul-and-mac-ready.md`: the indexer moves into its own process so the
+window never waits on it; the Indexing page says what it is doing down to the message inside
+an archive; indexing speed work, measured; `/between` and plain-English date ranges in every
+box; and every line written or moved made to work on macOS too. Its §D holds the owner's
+decisions: indexer as a child process (no FastAPI, no port), Windows first and Mac second,
+nothing may degrade, and a `macos-14` CI job (non-blocking at first). It overrides "working
+version first" and the Mac parking for its own scope only; hardware-specific Mac work stays
+parked in its §P. **It builds on 0w**, which shipped the same day and is merged into the
+0x branch. The owner's real-Mac checks accumulate in `docs/MAC_VERIFICATION.md`.
+Section 0 is done (baseline, requirement markers, the Mac CI job, `doctor.py` on a Mac).
+**2026-09-27 (later still) - traps found while clearing the red tests, and the child indexer.**
+- **Qt's default timers can fire up to 5% early.** `SearchView`'s 400 ms idle timer fired at
+  379-399 ms, the view re-measured the gap, decided "interim", and the full search (the one that
+  logs to `searches`, corrects spelling and writes notices) never ran until Enter. Each timer now
+  passes the interval its own firing proves. This was not a 0w regression; it happened before too.
+- **The `view_options.py` timer crash is fixed** (the "open" trap above): `remember_widths`' `look`
+  closure and its timer formed a cycle the garbage collector cleared while the C++ timer lived, so a
+  tick called a function with no globals (seen in a core dump). A module-level `_WATCHERS` keeps each
+  running `look` reachable while its timer exists.
+- **`gui_mainwindow` hides its window before closing the store.** Qt 6's `app.quit()` sends a close
+  event to every *visible* top-level window, and a leaked visible window's `closeEvent` then saved its
+  geometry to a closed store.
+- **`scripts/run_suite.py` names "the last file it started" even when every test finished** and the
+  crash came from garbage collection at exit - read the per-test results before blaming that file.
+- **Never run `scripts/regen_vs_project.py` mid-merge without the fix now in it**: with conflicts
+  unresolved, `git ls-files` lists a path once per stage, which is how three docs came to be listed
+  three times each. It now de-duplicates.
+- **`SqliteStore.close()` used to crash the process if a reader was mid-query on another thread**
+  (a native -11 / 0xC0000005 with no traceback; the write lock covered writers, not readers).
+  Connections are now `_GuardedConnection`: every call into SQLite is counted, and `close()` retires,
+  `interrupt()`s, waits (5 s cap) and only then closes. A cut-short reader gets "was closed while a
+  worker was using it", which workers treat as shutdown. Pinned by `test_close_during_read.py` (child
+  process). **Trap:** never reach SQLite except through the store's connection and cursor methods - a
+  raw `sqlite3.Cursor(conn)` bypasses the count and brings the crash back. Cost: about 2 us more per tiny
+  query and 0.7 us per row when iterating a cursor; `fetchall` and `executemany` unchanged.
+- **`view_options._apply_widths` (0x 9m):** a fit over an empty table no longer marks the table as
+  fitted *while no widths are saved*; with any saved width it behaves exactly as before. Reports list
+  keys are read with `timeline_host.REPORT_KEY` (UserRole), never role 1. On the Search home,
+  `FlowLayout(height_for_width=False)` plus the page sizing the box itself avoids Qt's ~1 ms per resize.
+- **Theme (0x §9):** `radius_pill` is 11 px, not 999 (Qt draws no rounding past half a widget's
+  height); new token `accent_on`; `text_faint` darkened in light and lightened in dark to reach WCAG AA
+  (old values noted beside the new); new `widgets/flow_layout.py`.
+- **Any new "have we seen this file" set must use `osbridge.path_key`, never `.lower()`** (0x §7).
+  The walker and the prune pass share one set; mixing keys drops or duplicates files on a
+  case-sensitive disk. On Windows `path_key` is `str.lower()` byte for byte.
+- **The child indexer** (0x §2, off by default): a new monotonic-clock field in IndexStats must go in
+  `run_events.MONOTONIC_FIELDS`; commands reach the pipeline only from its first progress tick; closing
+  the child's stdin means Stop then exit after 60 s, so never run `--events` in-process with stdin at
+  end-of-file (under pytest it stops the run and later calls `os._exit`).
+
+**2026-09-27 (later) - the owner's feedback: three bugs fixed, order 0w built and SHIPPED.** Seven items came
+in. Three were bugs with a verified cause and were fixed directly. Three became order 0w
+(`docs/WORKORDER-dates-live-log-and-interrupted-runs.md`), released and built the same day. The
+seventh, general jerkiness, has no measured cause and is not ordered. It needs the lag-monitor
+numbers from a real run (the owner-run step further down this section). What is new and load-bearing:
+
+- **UI state writes are queued, not synchronous** (`app/ui/state_writes.py`). The page-switch
+  freeze was `set_state` on the UI thread waiting on `SqliteStore._write_lock`, which the indexer
+  holds for every batch. Every UI-side `set_state`/`set_states` now goes through `save_state`/
+  `save_states`: one thread, in order, fire-and-forget. `test_ui_never_blocks` no longer exempts
+  them; only `closeEvent`'s geometry save may stay synchronous. `_drain_workers` drains the queue
+  before the store closes. `IndexWorker.run` waits for it (`settle_before_run`, 5 s cap) before
+  a run reads its settings. **Trap:** a test that closes its store straight after a UI write
+  must drain `state_writes.pool()` first, or it reads the old value on Windows CI.
+- **Mail is dated by when it was sent.** `files.taken_at_ns` now holds a message's sent date,
+  written at index time and backfilled by **schema v27**. `after:`/`before:`, result dates,
+  recency and browse all use it. The Search tab **applies** recognised filters
+  (`translate_rules.apply`), which reverses order 0c 3b (dated note in that order).
+- **Progress phases** (`IndexStats.phase`, `Pipeline._announce_phase`). `on_progress` is now
+  called *before* the first file is read. A test that stops "on the first tick" must stop on the
+  first tick with something indexed.
+- **A run log** (`IndexStats.activity`, `app/index/activity.py`). New notice sites must use
+  `IndexStats.add_notice`, which records the time.
+- **Interrupted runs** (`app/index/interrupted.py`), read from the `run:active` record without
+  its mutex. **PST folder resume** for libpff through `resume:archive:<path hash>` keys (under
+  `resume:`, so a reset clears them). Outlook is deliberately not resumable; see the 0w 3b note.
+- **Dates** (0w §1): `date:` ranges and times of day are parsed in `app/search/query.py` into the
+  same `after`/`before` every box already used. Bad dates land in `ParsedQuery.date_problems`
+  *and* stay in `unknown_operators`. The Mail tab's `before` now includes its last day. In Code,
+  `after:` still means git history; `/date` means the index.
+- **The timeline's "near the bottom?" check flushes pending layout first**
+  (`TimelineList._more_once_laid_out`). Without it, `main` fetched an unrequested second page
+  about half the time.
+- `Leasha.pyproj` is regenerated and `test_vs_project` is green again.
+  `scripts/regen_vs_project.py` runs on Linux too.
+
+**Not verified on the owner's machine:** none of this has run on Windows with real data. Worth one
+real run: switch pages during a large index, type "mail from 2017", watch the bar and the log
+through a full run, then end Leasha from Task Manager mid-archive and relaunch.
+
+**Owner testing for order 0x (on Windows), added 2026-09-27.** Same rule: tick, or a dated note.
+
+- [ ] **`/between` in every box.** In Search, Files, Mail, Code and the mini-search (Alt+Space), type
+      `/bet`: `/between` sits under `/date`. `/between 2024-03-01 and 2024-06-30`, then `… to …`, match
+      `/date 2024-03-01..2024-06-30`; Search shows one chip and removing it leaves no stray "and". On
+      Mail, `/between 2023-12-01 and 2023-12-31` includes the 31st. `/between 2024-03-01 and
+      2024-13-01` says what is wrong. In Code, `/range v1..v2` still runs git.
+- [ ] **Plain-English ranges.** "letters between March and June 2024" offers after 2024-03-01 and
+      before 2024-06-30; "from 1 Oct to 5 Nov" offers nothing.
+- [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
+      start a large index, click round every page, then compare the log's `shutdown: window
+      responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
+      "did not finish". End the window from Task Manager mid-run: the child `pythonw` goes within a
+      minute. End only the child: the page says "The indexing process stopped unexpectedly while
+      reading …", the next open shows the interrupted notice, and Start carries on. Close the window
+      mid-run: no Leasha process remains. Then `app.cli bench-pipeline --probe --size medium`, with
+      and without `--child-process`, on the real machine - that settles whether it becomes the default.
+- [ ] **UI review fixes (0x §9).** At 125%, shrink the window to about 600 px tall: the rail shows icons
+      only. Light theme: the chosen rail icon is navy; dark: the Open button's text is dark on lavender.
+      Chips have round ends. Settings shows "Storage & maintenance" in full. Reports › Browse your
+      timeline at about 800 px wide wraps its months. `text_faint` still reads quieter than `text_dim`.
+      **Two answers wanted:** are unticked checkboxes visible in Settings › Appearance on Windows 11?
+      And does Indexing › Status ever say "Nothing indexed yet." with documents present on the real
+      index? Each decides a proposed fix.
+- [ ] **The UI goldens.** `venv\Scripts\python.exe -m pytest tests/unit/test_grab_ui.py` on Windows. It
+      drifts on `search-home` at 1024x600 in the Linux sandbox because the pills now wrap there (wider
+      font). If it passes on Windows, nothing to do; if it drifts there too, look at the grab and, if it
+      is right, regenerate the three `search-home` goldens with `tools/grab_ui.py`.
+- [ ] **Close while a search is loading.** During a large index, open the `/` popup, keep typing and
+      close the window: a clean exit, nothing in `crash.log`. The log's `shutdown: sqlite store closed`
+      stays well under a second.
+- [ ] **Where it is inside an archive.** Index a real `.pst` (libpff) and a large `.mbox`: the page
+      shows the folder and "message n of m" (for a PST, n of m within the folder), one line per
+      reader, and "last activity" keeps moving. Check folder names read naturally ("Inbox/...", not
+      "Top of Personal Folders/..."), also on a non-English Outlook if you have one.
+- [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
+      bar glides during a scanned run and shows a moving block before the total is known; minimise
+      and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+
+**Owner testing to do later (on Windows, with the real index).** Deferred by the owner
+2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated
+note under it. Everything above passed offscreen tests in a Linux sandbox and the Windows CI.
+None of it has met a real display, real data, a real PST or Outlook.
+
+- [ ] **Page switch while indexing.** Start a large index and click round every page on the
+      rail. No freeze. Afterwards, read the log's `shutdown: window responsiveness this session`
+      line (beats, p50/p99/worst, stalls) and any `unresponsive for N ms` lines. Record them here:
+      they are also the measurement general jerkiness (item 3b of the feedback) is waiting for.
+- [ ] **Settings survive a quick Start.** Change an archive mode or cloud folder, press Start
+      at once, and check the run used the new setting.
+- [ ] **"mail from 2017".** The Search tab shows mail only, sent in 2017, newest first, with
+      removable chips. Remove a chip and the words come back as search terms. Try "invoice 2017"
+      too: 2017 should stay a search word.
+- [ ] **Schema v27 on the real index.** First open after updating: note how long the backfill
+      took (logged) and that Outlook mail now shows its sent date.
+- [ ] **Dates in every box.** `date:2017-03..2017-06`, `date:..2017`,
+      `after:2017-03-01T10:00` and `/date` in Search, Files, Mail, Code and the mini-search. Then
+      a bad one, `date:2017-13`, which should say what is wrong. On the Mail tab, check
+      `before:2024` now includes 31 December.
+- [ ] **The progress bar and the live log through a whole run.** The bar visibly animates
+      during warm-up, planning and tidying (there was once a "frozen full bar"). "What the run is
+      doing" has a time on every line, stays put when scrolled up, and follows at the bottom.
+      Check it at 125% display scaling.
+- [ ] **An interrupted run.** End Leasha from Task Manager part-way through a large `.pst` and
+      relaunch. The Indexing page should say the last run did not finish, and list the archive as
+      not finished. Start again: that archive carries on from its folder (libpff), and the final
+      message count equals an uninterrupted run. Repeat once with a pulled plug if you can.
+- [ ] **A normal Stop or Pause is not reported as "did not finish".**
+- [ ] **`app.cli index` and `app.cli stats`** print the timestamped lines and the
+      did-not-finish note in the Windows console, with no stray characters.
 
 **2026-09-27 - the branches were folded back into main; two fixes had been left behind.**
 Every `claude/*` branch on origin was checked against `main` by patch, not by hash (a
@@ -112,6 +274,14 @@ governor as one more reason to wait); `.doc` now reads its WordArt and **counts*
 reach inside embedded objects rather than paying LibreOffice for words LibreOffice does not have
 either; the extractor registry loads on first read (38 fewer modules before the window).
 
+*2026-09-27 note - the paragraph below is no longer true.* Order 0x §4a did the work it asks
+for: the Start/Stop/Pause/Reset row is `app/ui/widgets/indexing_controls.py`, the bar is
+`widgets/indexing_bar.py` (`GlidingBar`: a plain `setValue` snaps, `glide_to` slides) and the
+"now" line is `widgets/indexing_headline.py`. `indexing_view.py` is 244 code lines against the
+unchanged 250 guard, and `test_every_qt_view_keeps_its_logic_in_the_presenter` is green. Only
+string-free code moved, so neither `test_pages_reorg` nor `test_ui_never_blocks` was edited.
+Headroom is 6 lines: new Indexing-page code goes in a new `widgets/indexing_*.py`.
+
 *One test is red on purpose, and it should stay red until somebody does the work.*
 `test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter` says
 `indexing_view.py` is **299 code lines against a 250 guard**, because the Pause button added
@@ -152,6 +322,11 @@ Nothing is pushed; the branch is `claude/outstanding-work-bugs-7edba5`.
   installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against
   `REQUIRED_FREE_GB`); no update check inside the app; supported Windows 11 and 10 22H2, tested on
   11 only; unsigned until the repository is public.
+- *2026-09-27 note - the item below is reversed. The owner dropped the PySide6 migration
+  (`202626270238`, now DROPPED in the register): Leasha stays on PyQt6. Packaging no longer
+  waits on the migration; it waits on an open owner decision about which licence a
+  distributed build carries, since PyQt6 is GPL-3.0-only and `LICENSE` is MIT. Do not start
+  or promote the order.*
 - **PySide6 first.** PyQt6 6.11.0's metadata reads `GPL-3.0-only`; the project is MIT. The
   migration (`202626270238`, DRAFT, 0/10) is now the first item of Layer 9 and must precede any
   packaged release. It is not started, and it changes the venv the running app uses, so it wants
@@ -302,7 +477,7 @@ built and merged, and the suite now runs to the end.** For whoever picks this up
   because `indexing_view.py` is 292 lines against a 250-line guard, which predates all of this.
 - **Deliberately not built:** pywinauto black-box journeys and the scheduled nightly task
   (0m 3a/3b/5b - they need the owner's desktop); the Life Timeline (0n section 4, held);
-  the PySide6 migration (held); cloud volumes and cloud connectors (removed from scope);
+  the PySide6 migration (held; *dropped by the owner 2026-09-27*); cloud volumes and cloud connectors (removed from scope);
   install and distribution (`202626082213`); on-tape ordering and the UNC test (0l - need the
   hardware); the OCR order's section 3 measurement; terabyte-scale and PST owner runs.
 - **Built but not measured on the owner's machine:** 0r 2b (<1.5 s window-visible), 0n 3c

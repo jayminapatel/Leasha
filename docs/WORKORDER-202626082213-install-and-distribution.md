@@ -1,6 +1,6 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 0.2 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 0.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 **Thread:** the single merged thread
@@ -220,6 +220,12 @@ this order already gave unless it says otherwise. A note, not an edit: §7 is le
 | **[FINALISE 4]** | **No update check inside the application.** Updates arrive through `winget upgrade` only, and the download page and README say so in one sentence. | Leasha's claim is that it is fully offline. An application that reads a whole archive and then phones a server on its own, even to ask a version number, breaks the claim it is sold on. Silence is the chosen posture, stated rather than accidental. |
 | **[FINALISE 5]** | **Supported: Windows 11 and Windows 10 22H2.** Tested: Windows 11 only, until a second machine exists. | winget needs 1809+ with App Installer, so 22H2 is comfortably inside it; saying "tested" and "supported" apart keeps the claim honest. |
 | **Signing** (the 'sixth decision', ORDER_REGISTER §5) | **Stay unsigned for the first release. Revisit only if the repository is made public.** | `LICENSE` is MIT, so the licence half of SignPath's condition is met, but SignPath Foundation also needs the codebase to be public and it is private. Publishing it is the owner's decision, not a packaging one. |
+
+> **2026-09-27 - the two paragraphs below are overtaken.** The owner dropped the PySide6
+> order (`202626270238`); Leasha stays on PyQt6. §4 no longer waits on that migration. It
+> waits instead on a new open decision: which licence a distributed build carries, given
+> PyQt6 is GPL-3.0-only and `LICENSE` is MIT (see `ORDER_REGISTER.md` §5). The paragraphs
+> are left as written.
 
 **A sequencing consequence.** The installed `PyQt6 6.11.0` declares `License-Expression:
 GPL-3.0-only` in its own metadata, while `LICENSE` is MIT. The PySide6 order

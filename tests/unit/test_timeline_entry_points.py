@@ -19,6 +19,7 @@ pytest.importorskip("PyQt6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QPoint, Qt                               # noqa: E402
+from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 from PyQt6.QtWidgets import QMenu                                  # noqa: E402
 
 from app.ui.controllers.timeline_controller import NO_DATE         # noqa: E402
@@ -37,7 +38,7 @@ class _Row:
 
 
 def timeline_row(view) -> int:
-    return [view.list.item(i).data(1) for i in range(view.list.count())].index("timeline")
+    return [view.list.item(i).data(REPORT_KEY) for i in range(view.list.count())].index("timeline")
 
 
 # ---------------------------------------------------------------------------

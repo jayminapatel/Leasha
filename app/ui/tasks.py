@@ -64,19 +64,23 @@ def settings_labels(store: Any) -> tuple:
     return searches, direct
 
 
-def filter_offer_notices(store: Any, sentence: str, preferences: Any = None) -> list:
+def filter_offer_notices(store: Any, sentence: str, preferences: Any = None,
+                         applied: Any = ()) -> list:
     r"""Offers for the filters the rules read out of a sentence. **Worker only.**
 
     `translate_rules.read` asks the store for its known senders and file types,
     which is a query - so this is here, off the interface thread, and the view
     only ever receives the finished notices. Never raises.
+
+    `applied` is what the search already applied (`presenter.auto_filters`):
+    a filter already in force is not offered again beside its own chip.
     """
     try:
         from app.search.policy import from_settings
-        from app.ui.presenter.search import chips_for, filter_offers
+        from app.ui.presenter.search import chips_for, filter_offers, unanswered
 
         chips = chips_for(store, sentence, from_settings("search", preferences))
-        return filter_offers(chips, sentence)
+        return filter_offers(unanswered(chips, applied), sentence)
     except Exception as exc:                     # noqa: BLE001 - an offer, not a search
         _log.debug("no filter offers for this query: {}", exc)
         return []
@@ -513,6 +517,14 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
     except Exception as exc:                     # noqa: BLE001 - reported, not swallowed
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return payload
+
+    # Work order `dates-live-log-and-interrupted-runs` 3a. Here, on the worker,
+    # because it probes the run mutex as well as reading a row. Never raises.
+    from app.index.interrupted import read_part_read_archives, read_unfinished_run
+
+    payload["unfinished"] = read_unfinished_run(store)
+    # 3c: archives a run stopped inside. Stats each one, so on the worker too.
+    payload["part_read"] = read_part_read_archives(store)
 
     if settings is None:
         return payload

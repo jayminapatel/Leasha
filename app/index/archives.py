@@ -95,6 +95,18 @@ def normalise(root: Any) -> str:
     the two. A mode keyed under one of those and looked up under another is a
     setting that silently does nothing - the failure this project has already
     had three times with Windows paths.
+
+    **A stored key, so it keeps this exact format on every system** (order 0x
+    section 7, decided 2026-09-27). The result is written into the index's
+    state (`RECORD_STATE_KEY`, and the archive-mode setting beside it) and
+    looked up again on the next run; changing it would orphan every
+    archive-mode choice already saved on Windows. It is only ever compared
+    with other results of this same function, never opened as a path, so on a
+    Mac `/Users/me/Archive` simply becomes the key `\users\me\archive` -
+    odd to look at, but consistent, and nothing is ever joined or opened with
+    it. Folding letter case is kept too: two indexed folders whose names
+    differ *only* by case, on a case-sensitive disk, would share one setting -
+    a corner too rare to justify a second key format on a Mac.
     """
     return str(root).replace("/", "\\").rstrip("\\").lower()
 

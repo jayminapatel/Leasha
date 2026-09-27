@@ -17,4 +17,6 @@ mypy==2.3.1
 pytest-qt==4.5.0
 pytest-timeout==2.4.0
 hypothesis==6.165.10
-pywinauto==0.6.9
+# pywinauto drives real Windows windows, so it is installed on Windows only
+# (order 0x §0b); the tests that use it are Windows-only already.
+pywinauto==0.6.9; sys_platform == "win32"

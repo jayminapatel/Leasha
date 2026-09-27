@@ -58,6 +58,14 @@ def pill_text(state: str, *, indexed: int = 0, documents: Optional[int] = None,
     # Finished whole, or idle with a count.
     if documents is None:
         return PillState("Index", "")
+    # **An empty index is not "up to date".** On the very first run the pill
+    # said "Up to date - 0 files" while the Search page, beside it, said
+    # "Nothing has been indexed yet" - two answers to one question, and the
+    # reassuring one was wrong (grabbed 2026-09-27, order 0x section 9). New
+    # words, for a state that had none of its own; "Up to date" is unchanged
+    # for every index that holds something.
+    if documents == 0:
+        return PillState("Nothing yet", "0 files")
     return PillState("Up to date", f"{format_count(documents)} files")
 
 

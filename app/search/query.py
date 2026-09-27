@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from typing import Optional, Sequence
 
 from app.core.identifiers import expand_term, has_case_boundary
@@ -52,6 +53,11 @@ _FIELD_ALIASES = {
     "type": "ext", "ext": "ext", "kind": "ext",
     "after": "after", "since": "after",
     "before": "before", "until": "before",
+    "date": "date",
+    # Order 0x §6a, decision D2: `between:` is another spelling of `date:`,
+    # so it fills exactly the same `after`/`before`. What it adds is that its
+    # two ends may be joined by a word - see `join_between_words`.
+    "between": "date",
     "path": "path", "folder": "path", "dir": "path",
     "repo": "repo", "repository": "repo", "project": "repo",
     "on": "volume", "volume": "volume", "drive": "volume",
@@ -201,6 +207,9 @@ class ParsedQuery:
     terms: tuple[str, ...] = ()                      # bare words, deduped, order kept
     excluded: tuple[str, ...] = ()                   # -word
     ext: tuple[str, ...] = ()                        # normalised, no leading dot
+    #: The first and last day included - or, when a time of day was typed,
+    #: a `datetime` (a subclass of `date`) holding the first and last moment.
+    #: See `_parse_moment` for which consumers need to tell the two apart.
     after: Optional[date] = None
     before: Optional[date] = None
     paths: tuple[str, ...] = ()
@@ -299,6 +308,11 @@ class ParsedQuery:
     sort: str = ""
 
     unknown_operators: tuple[str, ...] = field(default_factory=tuple)
+    #: One sentence per date in `unknown_operators` that could not be read:
+    #: what was wrong and what would work (non-negotiable #2). A box shows
+    #: these where it already shows its notices, instead of the bare
+    #: `Ignored: date:2017-13` that says what happened and not why.
+    date_problems: tuple[str, ...] = ()
 
     @property
     def has_filters(self) -> bool:
@@ -401,6 +415,71 @@ def _end_of(year: int, month: Optional[int] = None) -> date:
     return following - timedelta(days=1)
 
 
+#: A full date and a time of day: `2017-03-01T10:00`, or `"2017-03-01 10:00"`
+#: quoted so the space survives the tokeniser. Seconds are optional. Lowercase
+#: `t`, because `_parse_date` lowers its input before it looks at anything.
+_WITH_TIME = re.compile(
+    r"^(?P<day>[^\st]+)[t ](?P<hour>\d{1,2}):(?P<minute>\d{2})(?::(?P<second>\d{2}))?$")
+
+#: The spellings of one whole day. The partial forms are not here: a time of
+#: day belongs to a day, and `2017-03T10:00` names no particular one.
+_DAY_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y")
+
+
+def _parse_day(value: str) -> Optional[date]:
+    for fmt in _DAY_FORMATS:
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_moment(found: re.Match[str], *, end: bool) -> Optional[datetime]:
+    r"""A time of day, as a local `datetime`. None if either half is not real.
+
+    **Local time, with no zone attached**, because that is how every other
+    date in this application is read: `epoch_ns` turns a day into midnight on
+    this machine's clock and the indexer stores EXIF dates the same way. A
+    single-user offline app has one clock, and a zone here would be the only
+    one anywhere.
+
+    **A time names a period too, and `end` takes its last moment** - the same
+    rule a partial date follows. `before:2017-03-01T10:00` is on or before
+    that minute, so a message sent at 10:00:30 is inside it; with seconds
+    typed, the period is that second. `date:2017-03-01T10:00` is then the one
+    minute, not an empty range.
+
+    A `datetime` is a `date`, so everything that only asks for `.year` or
+    compares days keeps working; what needs the time - `epoch_ns`, the Mail
+    tab's bounds, the Timeline's period - checks for it.
+    """
+    day = _parse_day(found.group("day"))
+    if day is None:
+        return None
+    second = found.group("second")
+    try:
+        moment = datetime(day.year, day.month, day.day, int(found.group("hour")),
+                          int(found.group("minute")), int(second or 0))
+    except ValueError:
+        return None
+    if end:
+        moment = moment.replace(second=moment.second if second else 59,
+                                microsecond=999_999)
+    return moment
+
+
+def _instant(value: date, *, end: bool = False) -> datetime:
+    """A date or a moment as a moment, so the two can be put in order.
+
+    Python refuses to compare a `datetime` with a `date`, and a range may
+    well hold one of each: `after:2017-03-01T10:00 before:2017-02`.
+    """
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, dt_time.max if end else dt_time.min)
+
+
 def _parse_date(value: str, *, today: Optional[date] = None,
                 end: bool = False) -> Optional[date]:
     r"""ISO dates, partial ISO, and plain-English relatives. Never raises.
@@ -421,6 +500,10 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     if not v:
         return None
 
+    timed = _WITH_TIME.match(v)
+    if timed:
+        return _parse_moment(timed, end=end)
+
     if v in _RELATIVE_DAYS:
         return today - timedelta(days=_RELATIVE_DAYS[v])
     if v.startswith("last"):                       # last-week, last month
@@ -432,11 +515,9 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     if span:
         return today - timedelta(days=int(span.group(1)) * _SPAN_DAYS[span.group(2).lower()])
 
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(v, fmt).date()
-        except ValueError:
-            continue
+    day = _parse_day(v)
+    if day is not None:
+        return day
 
     # The partial forms, which name a period rather than a day.
     for fmt, whole in (("%Y-%m", "month"), ("%Y", "year")):
@@ -450,12 +531,204 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     return None
 
 
+def _is_relative(value: str) -> bool:
+    """True for `today`, `7d`, `last month` - a moment counted back from now."""
+    v = value.strip().strip('"').lower()
+    if v in _RELATIVE_DAYS or _RELATIVE_SPAN.match(v):
+        return True
+    return v.startswith("last") and v.replace("last", "", 1).strip(" -_") in _RELATIVE_DAYS
+
+
+#: The separator between the two ends of a `date:` range.
+_RANGE = ".."
+
+#: `between:A and B` or `between:A to B`, as typed. Order 0x §6a.
+#:
+#: **Why this is a rewrite and not a second range syntax.** The operator
+#: pattern above takes one run of non-space characters as a value, so
+#: `between:2024-03-01 and 2024-06-30` would give the value `2024-03-01` and
+#: leave `and` and `2024-06-30` behind as two search words. Rather than teach
+#: the tokeniser a new shape, the words are joined back into the one shape it
+#: already reads - `between:2024-03-01..2024-06-30` - before anything else
+#: looks at the line. From there on it is `date:` in every respect.
+#:
+#: The pieces, left to right:
+#:
+#: * `head` - `between:` at the start of a word, with the `-`/`!` a negation
+#:   would carry (a negated date is reported as a problem, as `-date:` is).
+#: * `first` - one value: a quoted run, or a run of non-space characters.
+#: * `and` or `to`, in any letter case, between spaces. `AND` in capitals is
+#:   the boolean word everywhere else, but straight after `between:` the only
+#:   thing it can mean is "the other end".
+#: * `last` - one value, **but never an operator.** `between:2024 to:priya`
+#:   is a date and a recipient, and must stay that way: the negative lookahead
+#:   refuses any word that looks like `name:`. A time of day such as
+#:   `2024-03-01T10:00` still passes, because it starts with a digit.
+_BETWEEN_WORDS = re.compile(
+    r'(?<![\w-])(?P<head>[-!]?between:)'
+    r'(?P<first>"[^"]*"|[^\s"]+)'
+    r'\s+(?:and|to)\s+'
+    r'(?![A-Za-z][\w-]*:)(?P<last>"[^"]*"|[^\s"]+)',
+    re.IGNORECASE,
+)
+
+
+def join_between_words(text: str) -> str:
+    r"""`between:A and B` and `between:A to B` become `between:A..B`.
+
+    Nothing else on the line is touched, and a value that already has `..` in
+    it is left alone - `between:2017..2018 and more` is a range followed by two
+    search words, not a range with three ends.
+
+    Quoted ends stay quoted, so a time of day survives: `between:"2024-03-01
+    10:00" and "2024-03-02 09:00"` becomes one quoted value with `..` in the
+    middle, which `_parse_span` already reads.
+
+    Public because the chips under the Search box need the same answer to
+    "where does this filter end?" - see `app/ui/chips_logic.py`.
+
+    >>> join_between_words("report between:2024-03-01 and 2024-06-30")
+    'report between:2024-03-01..2024-06-30'
+    >>> join_between_words("between:2024 to:priya")
+    'between:2024 to:priya'
+    """
+    def glue(found: re.Match[str]) -> str:
+        first = found.group("first").strip('"').strip()
+        last = found.group("last").strip('"').strip()
+        if _RANGE in first or _RANGE in last:
+            return found.group(0)
+        joined = f"{first}{_RANGE}{last}"
+        # A space inside either end means the whole value has to be quoted,
+        # or the tokeniser would split it straight back apart.
+        if any(ch.isspace() for ch in joined):
+            joined = f'"{joined}"'
+        return f"{found.group('head')}{joined}"
+
+    return _BETWEEN_WORDS.sub(glue, str(text or ""))
+
+
+def _parse_span(value: str, *, today: Optional[date] = None) -> Optional[tuple]:
+    r"""`date:`'s value as `(first, last, raw_first, raw_last)`. None if unreadable.
+
+    **One period, both edges.** `date:2017` is `after:2017 before:2017` - the
+    whole year - because `_parse_date` already knows which edge of a partial
+    date each side means. Writing it out again here would be a second set of
+    date rules, and the first one has been corrected twice.
+
+    `A..B` is a range and either end may be empty: `date:..2017` has no start
+    and `date:2017..` no end, which is `None` on that side - no limit, rather
+    than a limit invented for it. A relative value on its own is "since then":
+    `date:30d` is the last thirty days, not the single day thirty days ago,
+    which nobody would type `date:` to mean. `today` and `yesterday` are the
+    exceptions, because they already name one whole day.
+
+    The raw text of each end is returned so a reversed range can be resolved
+    again against the correct edge, exactly as `after:`/`before:` are.
+    """
+    text = value.strip().strip('"').strip()
+    if _RANGE in text:
+        start, _sep, finish = (part.strip() for part in text.partition(_RANGE))
+        if not start and not finish:
+            return None
+        first = _parse_date(start, today=today) if start else None
+        last = _parse_date(finish, today=today, end=True) if finish else None
+        if (start and first is None) or (finish and last is None):
+            return None
+        return first, last, start, finish
+    if not text:
+        return None
+    if _is_relative(text) and text.lower() not in ("today", "yesterday"):
+        first = _parse_date(text, today=today)
+        return (first, None, text, "") if first is not None else None
+    first = _parse_date(text, today=today)
+    last = _parse_date(text, today=today, end=True)
+    if first is None or last is None:
+        return None
+    return first, last, text, text
+
+
+_DASH = " — "
+_MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December")
+_YEAR_MONTH = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})$")
+_YEAR_MONTH_DAY = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$")
+
+
+def _date_problem(op: str, value: str, *, today: Optional[date] = None) -> str:
+    r"""What was wrong with a date somebody typed, and what would work.
+
+    Non-negotiable #2, for the search box. `after:banana` has always been
+    reported - as `Ignored: after:banana`, which says *that* and not *why* -
+    and before `date:` existed a mistyped `date:2017-13` was not an operator
+    at all: it became the search words `date` and `2017-13`, and the person
+    got a list that looked like an answer to the question they asked.
+
+    The suggestion is built from what was typed wherever it can be, because
+    "try date:2017-12" is something to type and "use a valid date" is not.
+    Plain words, one sentence, no jargon: an eight-year-old types these.
+    """
+    text = value.strip().strip('"').strip()
+    typed = f'{op}:"{text}"' if " " in text else f"{op}:{text}"
+    # `between:` is a spelling of `date:` (order 0x §6a), so it takes a range
+    # too and must never be told it "takes one" date.
+    ranged = op in ("date", "between")
+    if not ranged and _RANGE in text:
+        spelled = f'date:"{text}"' if " " in text else f"date:{text}"
+        return f"{typed} is two dates, and {op}: takes one{_DASH}for a range, try {spelled}"
+    if ranged and _RANGE in text:
+        start, _sep, finish = (part.strip() for part in text.partition(_RANGE))
+        if not start and not finish:
+            return (f"{typed} has no dates in it{_DASH}try date:2017-01..2017-06, "
+                    f"or leave one side open: date:2017..")
+        bad = start if start and _parse_date(start, today=today) is None else finish
+        return _one_date_problem(typed, bad, op)
+    return _one_date_problem(typed, text, op)
+
+
+def _one_date_problem(typed: str, bad: str, op: str) -> str:
+    """The sentence for one unreadable date, `bad`, inside what was `typed`."""
+    lowered = bad.lower()
+    timed = _WITH_TIME.match(lowered)
+    if timed and _parse_day(timed.group("day")) is not None:
+        day = timed.group("day")
+        return (f"{typed} has a time that isn't on the clock{_DASH}"
+                f"try {op}:{day}T10:00; hours run from 00 to 23, minutes from 00 to 59")
+    whole = _YEAR_MONTH.match(lowered)
+    if whole:
+        year, month = whole.group("year"), int(whole.group("month"))
+        nearest = "12" if month > 12 else "01"
+        return (f"{typed} isn't a date{_DASH}there is no month {month}. "
+                f"Try {op}:{year}-{nearest} or date:{year}-01..{year}-06")
+    full = _YEAR_MONTH_DAY.match(lowered)
+    if full:
+        year, month = int(full.group("year")), int(full.group("month"))
+        if 1 <= month <= 12:
+            last = _end_of(year, month).day
+            name = _MONTH_NAMES[month - 1]
+            return (f"{typed} isn't a date{_DASH}{name} {year} has {last} days. "
+                    f"Try {op}:{year}-{month:02d}-{last:02d} or {op}:{year}-{month:02d}")
+        return (f"{typed} isn't a date{_DASH}there is no month {month}. "
+                f"Try {op}:{year}-12-{int(full.group('day')):02d} or {op}:{year}")
+    if op == "date":
+        return (f"{typed} isn't a date Leasha can read{_DASH}try date:2017, "
+                f"date:2017-03, date:2017-03-14 or a range, date:2017-01..2017-06")
+    if op == "between":
+        # Order 0x §6a. The examples are the forms `/between` is for - two
+        # ends joined by "and" or "to" - so the fix can be copied as shown.
+        return (f"{typed} isn't a date Leasha can read{_DASH}try "
+                f"between:2017-01 and 2017-06, or between:2017-03-01 to 2017-03-14")
+    return (f"{typed} isn't a date Leasha can read{_DASH}try {op}:2017-03-14, "
+            f"{op}:2017, {op}:2017-03-14T10:00 or {op}:30d")
+
+
 def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     """Decompose a raw search string. Never raises, whatever is thrown at it."""
     if raw is None:
         raw = ""
     original = raw
-    working = raw[:MAX_QUERY_CHARS]
+    # `between:A and B` is joined into `between:A..B` first, so the operator
+    # pattern below sees one value - see `join_between_words`. Order 0x §6a.
+    working = join_between_words(raw[:MAX_QUERY_CHARS])
 
     ext: list[str] = []
     paths: list[str] = []
@@ -492,6 +765,8 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     sizes: list[tuple[str, int]] = []
     has_attachment: Optional[bool] = None
     unknown: list[str] = []
+    #: Plain-words reasons for the dates in `unknown` - see `_date_problem`.
+    problems: list[str] = []
     sort_order = ""
     after: Optional[date] = None
     before: Optional[date] = None
@@ -628,6 +903,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 raw_after = val
             else:
                 unknown.append(match.group(0))
+                problems.append(_date_problem("after", val, today=today))
         elif fld == "before":
             # `end=True`: `before:2024` means the end of 2024, not its start.
             parsed = _parse_date(val, today=today, end=True)
@@ -636,6 +912,26 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 raw_before = val
             else:
                 unknown.append(match.group(0))
+                problems.append(_date_problem("before", val, today=today))
+        elif fld == "date":
+            # **The same two fields, not a third.** `after`/`before` are what
+            # the SQL builder, the sent-date rule for mail, the Mail tab and
+            # the CLI already read, so `date:` needs nothing downstream of
+            # this line. An open end leaves that side as it was.
+            span = _parse_span(val, today=today)
+            if span is None:
+                unknown.append(match.group(0))
+                # Said in the spelling that was typed, so `/between` gets a
+                # sentence about `between:` and not about a `date:` nobody
+                # wrote. `date:` itself is unchanged, word for word.
+                spelled = "between" if match.group("field").lower() == "between" else "date"
+                problems.append(_date_problem(spelled, val, today=today))
+            else:
+                first, last, raw_first, raw_last = span
+                if first is not None:
+                    after, raw_after = first, raw_first
+                if last is not None:
+                    before, raw_before = last, raw_last
         return " "                                  # remove from the free text
 
     working = _OPERATOR.sub(_take_operator, working)
@@ -715,7 +1011,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     # `after:2025 before:2024` into 31 December 2024 to 1 January 2025 - two
     # days, from a query that plainly means those two whole years. Parsing each
     # raw value again against its new side gives the outer edges.
-    if after and before and after > before:
+    if after and before and _instant(after) > _instant(before, end=True):
         after = _parse_date(raw_before, today=today) or before
         before = _parse_date(raw_after, today=today, end=True) or after
 
@@ -758,6 +1054,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         has_attachment=has_attachment,
         sort=sort_order,
         unknown_operators=tuple(unknown),
+        date_problems=tuple(problems),
     )
 
 

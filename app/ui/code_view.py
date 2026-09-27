@@ -36,7 +36,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLa
 from app.core.logging import logger
 from app.ui.presenter import (
     REPO_FILE_LIMIT, GitScope, code_preset, code_route, code_rows_and_repos, code_rows_for,
-    code_summary, repo_empty_state, repo_file_rows, repo_root_for,
+    code_summary, repo_empty_state, repo_file_rows, repo_root_for, with_date_problems,
 )
 from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.view_options import button as view_button
@@ -217,6 +217,7 @@ class CodeView(QWidget):
         self._search_index(route)
 
     def _search_index(self, route: Any) -> None:
+        self._parsed = route.parsed              # §1d: a bad date is said in the summary
         self._generation += 1
         generation = self._generation
         # One call for both engines - see `presenter.code_rows_for`. The tree
@@ -277,8 +278,9 @@ class CodeView(QWidget):
         if isinstance(payload, dict):
             draw_matches(self, payload.get("matching"))
         if self._repos:
-            self.summary.setText(code_summary(rows, self._repos, self._scope,
-                                              preset=code_preset(self._store)))
+            self.summary.setText(with_date_problems(code_summary(
+                rows, self._repos, self._scope, preset=code_preset(self._store)),
+                getattr(self, "_parsed", None)))
 
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""

@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from app.core.logging import logger
+from app.core.osbridge.pathnames import case_sensitive, path_key
 from app.index.walker import DEFAULT_EXCLUDE_DIRS, DEFAULT_EXCLUDE_GLOBS
 
 __all__ = [
@@ -714,6 +715,10 @@ def scan(
             continue
         if str(root).rstrip("\\/").lower() in blocked:
             continue
+        # Probe the folder's disk for letter case first, exactly as the walker
+        # does (order 0x 7b), so the count below agrees with what the walk
+        # will index. No disk access on Windows.
+        case_sensitive(root)
 
         stack: list[tuple[Path, bool]] = [(root, False)]
         while stack:
@@ -764,7 +769,11 @@ def scan(
                     continue
                 size = int(stat.st_size)
 
-                key = str(entry.path).lower()
+                # The walker's own key (order 0x 7b): lower-cased on Windows
+                # exactly as before; case kept in a case-sensitive folder, so
+                # `A.txt` and `a.txt` there are counted as the two files the
+                # walk will index, and the estimate matches the run.
+                key = path_key(entry.path)
                 if key in seen_files:
                     continue                      # overlapping roots, counted once
                 seen_files.add(key)

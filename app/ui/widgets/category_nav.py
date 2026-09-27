@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QVBoxLayout, QWidget
 
 __all__ = ["CategoryNav"]
@@ -54,6 +54,11 @@ class CategoryNav(QWidget):
         # than push the content pane off-screen on a narrow window.
         self.sidebar.setMaximumWidth(190)
         self.sidebar.setMinimumWidth(120)
+        # See `_fit_sidebar`: the floor and ceiling above are only where the
+        # sidebar starts; once it is on screen it is sized to its own words.
+        # A sideways scrollbar under five short names says "something is cut
+        # off" and nothing is, so it is never offered.
+        self.sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.sidebar.currentTextChanged.connect(self._on_row_selected)
 
         self._content = QWidget()
@@ -88,6 +93,49 @@ class CategoryNav(QWidget):
             name = self.ICONS.get(item.text())
             if name:
                 item.setIcon(icon(name, colours.get("text_dim", "#888888")))
+        self._fit_sidebar()
+
+    #: The widest the sidebar may grow to fit its names. Past this a name is
+    #: allowed to be cut rather than take the page's room.
+    SIDEBAR_CEILING = 260
+
+    def _fit_sidebar(self) -> None:
+        """Make the sidebar exactly wide enough for its longest name.
+
+        **Why.** It had a floor of 120 and a ceiling of 190 pixels, and the
+        page beside it takes every pixel it can. On Settings' Search category,
+        whose page is wide, the sidebar was pushed down to its 120 floor and
+        read "What's index" and "Storage & m"; on Appearance, at 190, "Storage
+        & maintenance" was a few pixels too wide and a sideways scrollbar
+        appeared under the list (both grabbed 2026-09-27, order 0x section 9).
+        At 125% display scaling on Windows the names are wider again.
+
+        So the list is asked how wide its widest row is - icon, padding and
+        the stylesheet's own item border included, because `sizeHintForColumn`
+        goes through the same style that paints the row - and held at that
+        width, both floor and ceiling, so it neither squeezes nor sprawls.
+        Called on show and whenever the font, the style or the icons change;
+        it touches nothing but two numbers on one widget.
+        """
+        if self.sidebar.count() == 0:
+            return
+        self.sidebar.ensurePolished()
+        frame = 2 * self.sidebar.frameWidth()
+        # A little slack, because a label measured to the exact pixel is the
+        # one a rounding difference on another machine cuts by a letter.
+        needed = self.sidebar.sizeHintForColumn(0) + frame + 6
+        width = max(120, min(needed, self.SIDEBAR_CEILING))
+        if width != self.sidebar.minimumWidth() or width != self.sidebar.maximumWidth():
+            self.sidebar.setFixedWidth(width)
+
+    def showEvent(self, event) -> None:                       # noqa: N802 - Qt's name
+        super().showEvent(event)
+        self._fit_sidebar()
+
+    def changeEvent(self, event) -> None:                     # noqa: N802 - Qt's name
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._fit_sidebar()
 
     def add_category(self, name: str, page: QWidget) -> None:
         """Register one category's content widget, in display order.

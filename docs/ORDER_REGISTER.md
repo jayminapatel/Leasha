@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.38 · **Updated:** 2026-09-21 · **Applies to:** app v0.3.3
+**Doc version:** 1.39 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -30,6 +30,7 @@ venv\Scripts\python.exe -m app.cli orders     # if built; otherwise the shell on
 | `HELD` | Authorised in principle, parked behind a named condition |
 | `PARKED` | Written, not authorised, no condition set. Revisit deliberately |
 | `SUPERSEDED` | Replaced by a later order, named in the row |
+| `DROPPED` | Decided against by the owner. The order is kept for the record and must not be started or promoted *(added 2026-09-27)* |
 
 **Two conventions this table introduces, because their absence is what let the queue
 drift.** First, every order carries a `**Status:**` line in its header — 25 of the 42
@@ -67,6 +68,8 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0t | `202626130120` | One onnxruntime, and it says which one it is | **SHIPPED** | **24 / 0** | Closed 2026-09-15 — see the order's own 2026-09-15 notes and the register's note below |
 | 0u | `202626191300` | Indexing that works - the measured causes of "55 days" | RELEASED | **22 / 3** | 5b, 6e closed 2026-09-20; a **Pause button** added the same day at the owner's request (it holds the run through the governor as a fourth reason to wait, so the page says whether the pause is yours or the machine's; `app.cli index --pause-file PATH`). **Open:** 6d (the 2026-09-17 nine-hour incident is still unreproduced - one mechanism was closed, and note that `test_close_ends_the_app.py` goes red on a *busy* machine for starvation reasons, which is not the same thing) and the real-corpus ETA (the owner's run) |
 | 0v | `pst-resilience` | PST resilience - an archive that is held open or slightly damaged | RELEASED | **17 / 1** | 4a decided 2026-09-20 (retry a partial read next pass only when the cause was transient); 3d, 3e, 5a built; 6c measured on damaged scratch copies of a real archive (no fix needed); 6b ticked with the whole suite run and its failures fixed. **Open:** 1e only (owner-run: how Outlook holds a `.pst` needs an Outlook left running with one attached). **Known, unfixed:** the last block of test files died twice with a native crash in one Qt test when four test processes share a memory-starved machine - see the order's 6b note |
+| 0w | `dates-live-log-and-interrupted-runs` | Date ranges in every box, a live index log, and runs that say they were interrupted | **SHIPPED** | **14 / 0** | Released and built 2026-09-27 from the owner's structured feedback, in the same session. The three verified bugs in that feedback (page-switch freeze, mail dates, silent progress phases) were fixed directly, not ordered. PST folder resume is libpff only (Outlook reason in the order's 3b note). **Not run on the owner's machine** - see `HANDOFF.md` §3, 2026-09-27 (later)
+| 0x | `overhaul-and-mac-ready` | A window that never waits, an indexer that shows its work, and code ready for a Mac | **ACTIVE** *(owner, 2026-09-27)* | 44 / 8 | Builds on 0w (`dates-live-log-and-interrupted-runs`), which shipped and was merged into this branch on 2026-09-27. Overrides "working version first" and the macOS parking for its own scope only (owner decision D4); hardware-specific Mac work stays parked (§P). Run as a master thread with helper threads in worktrees |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
@@ -273,7 +276,7 @@ READY. 66 new tests across five files (`test_onnxruntime_pins.py`,
 | `202626270611` | The Chat tab — a conversation, local sources first | RELEASED | 24 / 2 | Built 2026-09-19 on the owner's instruction, made conversational 2026-09-20, with optional off-by-default web augmentation (a recorded scope exception; only Wikipedia verified live). **The 85% floor was being measured against keyword-only retrieval** - `evaluate --chat` built its engine with no embedder and no vectors, the same mistake this repository made once before on the search evaluation. Fixed, and re-measured with the real stack: extractive **84.0%** (was 73.9%), citation validity 97.1%, absence honesty and router 100%, 0 sentences without a receipt. **Open:** 4b (84.0% against 85%, and 97.1% against 98% - a one-point miss, floor deliberately NOT lowered; try a stronger answerer) and 4c (first-token latency spread unmeasured) |
 | `no-text-layer-advice` | The skip that says OCR does not exist | DRAFT | 0 / 9 | Raised 2026-09-21. `ERR_NO_TEXT_LAYER`'s advice says OCR is not something this app does; `OCR_MODES`, `_ocr_gate`, `ERR_OCR_HELD` and `ERR_OCR_UNAVAILABLE` all say otherwise. `pdf.py:17-23` already recorded the contradiction and fixed the code without touching the sentence. **One `[FINALISE]` open** — whether a false user-facing string is a correction or a forbidden reword — plus one UNCONFIRMED in §4 |
 | `202626082213` | Install and distribution | DRAFT | 0 / 0 | **Five `[FINALISE]` decisions open.** See §5 |
-| `202626270238` | Migrate PyQt6 → PySide6 | DRAFT | 0 / 10 | Structural — deferred behind the working version |
+| `202626270238` | Migrate PyQt6 → PySide6 | **DROPPED** *(owner, 2026-09-27; was DRAFT)* | 0 / 10 | **2026-09-27: dropped by the owner - Leasha stays on PyQt6, knowing the licence consequence (see §5's dated note).** Structural — deferred behind the working version |
 | `202626270515` | Video and audio | **RELEASED** *(owner's instruction 2026-09-20)* | **4 / 0** | The file keeps its `-DRAFT` name. PyAV only (no ffmpeg), a background media backlog, open-at-time, per-frame pictures and faces, **off by default** (speech about 12x real time). **Closed 2026-09-20:** the last item - the picture stack on the owner's corpus - is ticked on a real 131-photograph run (131 indexed, 0 failed, 467 faces, 243 AI tags, 63.8 min). Its exit-139 crash was the OCR ladder's rung-2 probe driving the DirectML sessions outside `gpu_exclusive`; at four threads that also returned **no text at all while reporting success**. Fixed, and it explains the unexplained 2026-09-12 `crash.log` entry |
 | `202626160950` | UI Redesign — one shell for Windows and macOS | **SHIPPED** | **50 / 0** | Closed 2026-09-20: 9j measured on a quiet machine against the pre-redesign commit `3da478a` - a results page paints 27% faster (259 to 189 ms) and 2,000 rows build 2.6x faster. The real-window pass (six faults at 125%) and the follow-ups (guard split, theme once, deferred F5/drop replay, Escape order, empty pinned panel, icon-only rail when short) are in the order's dated notes. The rail entry stays "Offline" (owner) |
 | `space-report-and-idle-tune-ui-wiring` | Wire the Space Report and the idle-tune scheduler into the redesigned shell | **SHIPPED** | **7 / 0** | Raised 2026-09-16 by the crash-recovery session; both wirings built the same day in the redesign session (`reports_view.py`, `shell.py`); ticked 2026-09-16 by the same session's Windows run (`pytest tests/unit/test_idle_tune_and_space_report_ui.py -v`, 10 passed) — see the order's own dated note |
@@ -334,3 +337,11 @@ written while the repository had no `LICENSE`, and concluded that free code sign
 through SignPath — which requires a public codebase under a recognised OSS licence —
 was therefore unavailable. `LICENSE` now exists and is MIT. The signing question is
 open again.
+
+**2026-09-27 - the licence of a distributed build is now an open decision too.** The
+owner dropped the PySide6 migration (`202626270238`), so Leasha stays on PyQt6 6.11.0,
+whose own metadata reads `GPL-3.0-only`. A packaged build handed to anyone else is
+therefore a GPL work, while `LICENSE` reads MIT. Nothing is distributed today, so
+nothing is wrong yet; but before the first packaged release the owner decides which
+licence that build carries (for example GPL for distributed builds, or a commercial
+PyQt6 licence). Packaging no longer waits on the migration; it waits on this.

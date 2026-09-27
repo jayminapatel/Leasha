@@ -56,7 +56,9 @@ def test_what_a_wider_second_search_tried_is_shown(env):
     turn, _events = ask(env.engine("extractive"), "Did I ever get an email from HMRC?")
     assert turn.kind == "absence"
     searched = [n for n in turn.notes if n.startswith("Searched for:")]
-    assert len(searched) == 2 and "type:eml" in searched[0]
+    # `type:mail`, not `type:eml`: "email" names the whole mail group (msg,
+    # eml, pst) since 2026-09-27 - `type:eml` missed every Outlook message.
+    assert len(searched) == 2 and "type:mail" in searched[0]
     assert "names and dates left out" in turn.text
 
 

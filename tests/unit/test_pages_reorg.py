@@ -403,6 +403,9 @@ def test_last_category_is_remembered_across_a_simulated_relaunch(settings_and_st
 
     first = _settings_view(settings, store)
     first._nav.show_category(CATEGORY_MODELS)
+    # Queued on the ordered state writer since bug 3a - wait for it.
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:settings_category") == CATEGORY_MODELS
 
     second = SettingsView(settings, store)

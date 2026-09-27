@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.27 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.29 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,144 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Easier to read, and nothing cut off
+
+- On a short window the page names down the left are no longer cut in half; they become icons.
+- An empty index no longer says it is up to date.
+- Faint text, the chosen page's icon in the light theme and the dark theme's Open button are easier
+  to read.
+- The timeline's months and dates wrap onto a second line instead of disappearing or overlapping, and
+  Settings shows every category name in full.
+- Closing the window while a search or a `/` suggestion was still loading could crash Leasha. Fixed.
+- The Indexing page no longer says "Nothing indexed yet." above a count of your documents.
+- The suggested searches wrap onto a second line on a narrow window instead of being cut in half.
+- Files and Mail open with the name and sender columns wide enough to read, until you set your own.
+
+### Indexing can run in its own process (off for now)
+
+- A new switch, **Index in a separate process** (Indexing › Tuning › Strategy), runs the index as a
+  second Leasha process so the window never competes with it for time. Pause, Resume and Stop work
+  the same; if that process ever stops unexpectedly, the page says so and names the file it was
+  reading, and the next Start carries on. It is off until it has been measured on a real index.
+
+### Fixes found while clearing the test suite
+
+- **Typing a search and pausing sometimes never ran the full search** until you pressed Enter, so
+  spelling help and "recent searches" did not appear. Qt's timers can fire a little early, and the
+  search box took that as "still typing". It now counts the pause correctly.
+- A rare crash when a Files, Mail or Code page was closed while it was still remembering its column
+  widths is fixed.
+
+### Date ranges you can type the way you say them
+
+- `/between 2024-03-01 and 2024-06-30` (or `… to …`) works in every search box, and gives exactly
+  what `/date 2024-03-01..2024-06-30` gives. `/range` in the Code tab still means git.
+- Typing "letters between March and June 2024" or "from 1 January 2024 to 5 February 2024" now
+  offers those dates as filters you can accept. Leasha does not guess: a range without a year that
+  could mean two different years is left as words.
+
+### The Indexing page, easier to read while a run is going
+
+- **Inside a big mail archive or zip, the page now says where it is:** "Reading Archive2019.pst ›
+  Inbox/Projects — message 4,512 of 18,300", or "backup.zip › mail.mbox — message 812 of 2,000".
+  Before, a two-hour archive showed only a running count, which looked the same as a stuck one.
+- One line for each file being read at the same time, each with how long it has been on it.
+- "Working · last activity 2 s ago" underneath, and after a quiet minute a plain note of what can
+  normally take that long (a large scan being read with OCR, a very large attachment).
+- The progress bar now glides between updates instead of jumping, and never moves backwards.
+  While Leasha does not yet know how much there is to do, it shows a moving block.
+- A line under the counts says what the run is doing right now.
+- The run log can show only warnings and errors, and has a Copy button that copies what you
+  can see, with the times.
+- Tab now moves through the Start, Stop, Pause and Reset buttons left to right.
+
+### Getting ready for a Mac, without changing anything on Windows
+
+- **A Google Takeout mailbox over 2 GB was skipped without being read.** Leasha reads an
+  `.mbox` one message at a time, but the general file-size limit dropped big ones before the
+  reader saw them. They are now read, like `.pst` files.
+- **Mail from a Mac can be searched.** Apple Mail's `.emlx` files and Outlook for Mac's
+  `.olm` exports are now read as mail, one message at a time. An `.olm` export carries on where
+  it stopped if indexing is interrupted. (Checked here with sample files; a real Apple Mail
+  folder and a real export are first on the Mac checklist.)
+- Installing Leasha's requirements on a Mac no longer stops at the first Windows-only
+  package: `pywin32` and `pywinauto` now install on Windows only. Windows installs exactly
+  what it did before.
+- `doctor.py` on a Mac passes its platform check and says the one thing missing there -
+  mail from a running Outlook - instead of failing outright. On Windows it reads as before.
+- Every push is now also tested on a real Mac (GitHub's `macos-14` runner). For now that job
+  reports rather than blocks.
+- Docs: order 0x released (`docs/WORKORDER-overhaul-and-mac-ready.md`), its register row,
+  a HANDOFF note, a dated note on the Mac section of `docs/PARKED-IDEAS.md`, and
+  `docs/MAC_VERIFICATION.md`, the checklist for a first session on a real Mac.
+
+### Leasha stays on PyQt6 - the PySide6 migration is dropped
+
+- The owner decided on 2026-09-27 not to move from PyQt6 to PySide6. Nothing changes for
+  anyone using Leasha today. The earlier entry below saying the migration "must come before
+  any packaged release" no longer holds.
+- What it leaves open: PyQt6 is GPL-3.0-only and `LICENSE` is MIT, so the licence a
+  distributed build carries is now a decision to take before the first packaged release.
+- Docs: dated notes in `HANDOFF.md`, `docs/ORDER_REGISTER.md` (new `DROPPED` status),
+  the migration order, the install-and-distribution order and `docs/CHECKLIST-A-PLUS.md`.
+  Existing wording was left alone; only the register's status cell and one HANDOFF list
+  entry gained the new status.
+### The owner's feedback, 2026-09-27 - search that finds mail by year, and an index run you can watch
+
+**Things that were wrong**
+
+- **Switching pages while an index ran froze the whole window.** Every click on the rail
+  saved "last page" to the database on the window's own thread. That save waited for the
+  indexer to finish whatever it was writing. It now happens in the background, one save at a
+  time and in order, and so do all the other remembered choices (theme, column widths,
+  settings). In a test holding the indexer's lock, a page switch took 2 seconds before and
+  under a tenth of a second after. A run started straight after you change a setting waits
+  for that setting to be saved first.
+- **"mail from 2017" found no 2017 mail.** Two reasons. Dates in a search compared each
+  file's modified date, and every message in an Outlook archive carried the archive's own
+  date. So a `.pst` touched last week made every letter in it "last week". Mail is now dated
+  by when it was sent, for new and already-indexed mail alike (schema v27 fills it in on first
+  open: 167 ms for 60,000 messages on a test index). And the words were only ever *offered*
+  as filters beside the results. On the Search tab, "mail", a year, or a sender Leasha knows
+  now become filters straight away, each shown as a chip you can remove. What you typed is
+  never changed. "invoice 2017" keeps 2017 as a word, because a document's file date is
+  often just the day it was copied.
+- **The progress bar sat still for whole stretches of a run.** Getting the search model
+  ready, working out which folders to read, catching up on the last run and tidying the index
+  afterwards sent no progress at all. In those stretches the bar now shows it is busy, and
+  one line says what is happening.
+- **A Mail tab range dropped its last day.** `before:2024` on the Mail tab missed everything
+  from 31 December. It now includes it, as the Search tab and `/before`'s own words ("on or
+  before") always said.
+- **The timeline sometimes fetched a second page nobody had scrolled to.** It checked whether
+  you were near the bottom before the new rows had been laid out, so the answer was always yes.
+  It now waits for the layout.
+- **The mini-search's `/` commands were searched for as words.** `/after 2017` there looked for
+  the words "after" and "2017". It now has the same `/` menu as the other boxes, and uses it.
+
+**New**
+
+- **Dates and times in every search box.** `date:2017`, `date:2017-03`, `date:2017-03-14`, and
+  ranges: `date:2017-01..2017-06`, or with one side open, `date:..2017` or `date:2017..`.
+  `after:` and `before:` take a time too (`after:2017-03-01T10:00`). `/date` offers them in the
+  `/` menu of Search, Files, Mail, Code and the mini-search. Type a date that cannot be read and
+  Leasha says what was wrong and what would work ("date:2017-13 isn't a date - there is no
+  month 13. Try date:2017-12 or date:2017-01..2017-06"), instead of quietly searching for it
+  as a word.
+- **A live log on the Indexing page**, headed "What the run is doing". Every line has its
+  time: each step, each large archive or video as it is opened, pauses and why, warnings, and
+  how the run ended. Scroll up to read, and it stays where you left it. The run's notices
+  now show the time they happened, and `app.cli index` prints the same lines.
+- **A run that did not finish says so.** After a crash, a power cut or the app being ended,
+  the Indexing page says when the last run stopped, roughly how far it had got, and that
+  starting again carries on with nothing lost. A normal Stop or Pause is not reported this
+  way. `app.cli stats` says the same.
+- **A mail archive carries on where it stopped.** An interrupted `.pst` read by Leasha's own
+  reader restarts at the folder it was in, not the first message. Its place is saved at least
+  every 30 seconds. The page lists any archive a run stopped inside. Archives read through
+  Outlook still start again from the top, skipping what is already indexed. Outlook does not
+  promise the order of its folders, and attaching an archive changes its date.
 
 ### Start no longer invites a second click during a slow hardware detection
 

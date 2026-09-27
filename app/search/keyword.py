@@ -275,6 +275,32 @@ def _newest_matching(store: Any, where: str, params: list[Any], limit: int,
         gate, order = "f.taken_at_ns IS NULL", "f.mtime_ns"
         size_probe = "SELECT 1 FROM files LIMIT ?"
 
+    # **The same gate `_filter_only` puts on the whole browse, per half.**
+    # Since schema v27 every message carries its sent date in `taken_at_ns`,
+    # so neither half is reliably small any more, and a half with no match for
+    # the filter at all - `type:pdf` among the dated rows, `type:mail` among
+    # the undated ones - walked its whole date index looking for one before
+    # this. Measured 2026-09-27 on 200,000 files (60,000 messages), limit 100:
+    # `type:mail` 17 ms before v27, 176 ms after it without this gate; `type:
+    # pdf` 31 ms and 77 ms. Asking "are there `limit` of these in this half"
+    # without an ORDER BY lets SQLite use the filter's own index and stop at
+    # `limit`, so a sparse half is read directly and never walked.
+    few = [int(row[0]) for row in store.conn.execute(
+        f"SELECT f.id FROM files f WHERE {gate}{where} LIMIT ?",
+        [*params, limit]).fetchall()]
+    if len(few) < limit:
+        if not few:
+            return []
+        listed = ", ".join(str(n) for n in few)      # ids from the database
+        rows = store.conn.execute(f"""
+            SELECT {_FILTER_ONLY_COLUMNS}
+            FROM chunks c
+            JOIN files f ON f.id = c.file_id
+            WHERE c.ordinal = 0 AND f.id IN ({listed})
+            ORDER BY {order} DESC
+        """).fetchall()
+        return [dict(row) for row in rows]
+
     def window(size: int) -> list[dict[str, Any]]:
         rows = store.conn.execute(f"""
             SELECT {_FILTER_ONLY_COLUMNS}

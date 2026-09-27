@@ -198,6 +198,28 @@ def test_nothing_blocks_the_ui_thread(path):
                 )
 
 
+#: A pool wait that is legitimate because it never runs on the UI thread, keyed
+#: by (file, function) so nothing else shares the name. `settle_before_run` lets
+#: an index run wait for settings saved just before Start (bug 3a's queue); the
+#: test below pins its only caller to the run's own thread.
+OFF_THREAD_POOL_WAITS = {("state_writes.py", "settle_before_run")}
+
+
+def test_settle_before_run_is_only_called_from_the_index_workers_thread():
+    """If it were called from the window, the allowance above would be a freeze."""
+    callers = []
+    for path in MODULES:
+        for node in calls_in(path):
+            if called_name(node) == "settle_before_run":
+                callers.append((path.name, enclosing_function(path, node.lineno)))
+    assert callers == [("workers.py", "run")], callers
+    source = (UI / "workers.py").read_text(encoding="utf-8")
+    body = source[source.index("class IndexWorker"):]
+    assert "settle_before_run" in body[:body.index("\ndef ")], (
+        "settle_before_run must be called from IndexWorker.run, the run's thread"
+    )
+
+
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
     """`waitForDone` on the UI thread is a freeze by another name."""
@@ -205,6 +227,8 @@ def test_no_ui_module_waits_on_a_thread_pool_except_when_closing(path):
         if called_name(node) != "waitForDone":
             continue
         where = enclosing_function(path, node.lineno)
+        if (path.name, where) in OFF_THREAD_POOL_WAITS:
+            continue
         assert where in PROCESS_EVENTS_ALLOWED_IN, (
             f"{path.name}:{node.lineno} waits for the thread pool inside "
             f"{where!r}, which freezes the window."
@@ -268,6 +292,12 @@ OFF_THREAD = {
     # arriving later reads as one that cannot make up its mind. If the Index
     # Tuning screen gives this a home with progress of its own, move it there.
     "_chunk_count",
+    # `IndexController._save_last_index_time` is the `save_last_run` callable
+    # `IndexScheduler.notify_finished` hands to a `CallableWorker` - in
+    # `scheduler.py`, so the structural `worker_bodies` scan of
+    # `index_controller.py` cannot see it. Named once `set_state` stopped being
+    # exempt (bug 3a); it was always off the UI thread.
+    "_save_last_index_time",
 }
 
 #: Keyed reads and writes of `index_state`, allowed **wherever they appear**.
@@ -283,7 +313,26 @@ OFF_THREAD = {
 #: said nothing. The distinction that matters is which call it is, not which
 #: function it sits in - so it is drawn there now, and a constructor that
 #: reaches for anything heavier fails.
-KEYED_STATE = {"get_state", "set_state", "set_states", "all_state"}
+#:
+#: **Reads only, since bug 3a.** `set_state`/`set_states` were in this set,
+#: on the same "one keyed row" reasoning - and that reasoning is right about
+#: the *work* and wrong about the *wait*. A write goes through
+#: `SqliteStore.write()`, which takes the process-wide `_write_lock` the
+#: indexer holds for every batch, so a page switch during an index run froze
+#: the window until the batch committed. Reads do not wait: each thread has
+#: its own connection and WAL gives it the last committed snapshot. Writes go
+#: through `app/ui/state_writes.py` now, and a synchronous one fails below.
+KEYED_STATE = {"get_state", "all_state"}
+
+#: Where a synchronous keyed write on the UI thread is still allowed, and why.
+#:
+#: `MainWindow.closeEvent` saves the window geometry synchronously: the window is about to
+#: hide, there is no event loop left to hand a worker's result back to, and
+#: `_drain_workers` - called later in the same method - waits (bounded) for
+#: every write queued through `state_writes` before the store closes. **This is
+#: the only entry.** A second one is a freeze being waved through.
+KEYED_WRITE = {"set_state", "set_states"}
+KEYED_WRITE_ALLOWED_IN = {("shell.py", "closeEvent")}
 
 #: Painting and model-filling. A blocking call here runs per row.
 PAINT_PATHS = {"paint", "sizeHint", "_append", "_rebuild", "data", "_redraw"}
@@ -384,6 +433,9 @@ def test_no_store_call_outside_a_worker(path):
             if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
                 continue
             if not _is_store_call(call):
+                continue
+            if (call.func.attr in KEYED_WRITE
+                    and (path.name, node.name) in KEYED_WRITE_ALLOWED_IN):
                 continue
             # A call passed *to* CallableWorker is being scheduled, not made.
             scheduled = any(
@@ -801,6 +853,9 @@ def _offenders(path: Path) -> list[str]:
             continue
         for call in _calls_directly_in(node):
             if _is_store_call(call):
+                if (call.func.attr in KEYED_WRITE
+                        and (path.name, node.name) in KEYED_WRITE_ALLOWED_IN):
+                    continue
                 found.append(f"{node.name}:{call.func.attr}")
     return found
 
@@ -830,6 +885,37 @@ def test_the_guard_still_allows_a_keyed_setting_in_a_constructor(tmp_path) -> No
                              "    def __init__(self, store):\n"
                              "        self.mode = store.get_state('ui:pst', 'auto')\n")
     assert _offenders(path) == []
+
+
+def test_the_guard_catches_a_keyed_write_in_a_slot(tmp_path) -> None:
+    """Bug 3a, exactly: `_remember_page` saved `ui:page` with `set_state` on
+    the UI thread, and waited for the indexer's batch to do it."""
+    path = _module(tmp_path, "class W:\n"
+                             "    def _remember_page(self, index):\n"
+                             "        self._store.set_state('ui:page', 'Files')\n"
+                             "    def _tray(self):\n"
+                             "        self._w._store.set_states({'ui:tray': 'on'})\n")
+    assert sorted(_offenders(path)) == ["_remember_page:set_state", "_tray:set_states"]
+
+
+def test_the_guard_allows_a_queued_keyed_write(tmp_path) -> None:
+    """`state_writes.save_state` is how a slot saves a choice now."""
+    path = _module(tmp_path, "class W:\n"
+                             "    def _remember_page(self, index):\n"
+                             "        save_state(self._store, 'ui:page', 'Files')\n")
+    assert _offenders(path) == []
+
+
+def test_the_close_allowance_is_for_the_main_window_only(tmp_path) -> None:
+    """`closeEvent` in `shell.py` may write synchronously; one anywhere else
+    - a pop-out, a dialog - still has an event loop to hand a worker to."""
+    body = ("class W:\n"
+            "    def closeEvent(self, event):\n"
+            "        self._store.set_states({'ui:window_geometry': 'x'})\n")
+    shell = tmp_path / "shell.py"
+    shell.write_text(body, encoding="utf-8")
+    assert _offenders(shell) == []
+    assert _offenders(_module(tmp_path, body)) == ["closeEvent:set_states"]
 
 
 def test_the_guard_catches_a_store_method_nobody_listed(tmp_path) -> None:

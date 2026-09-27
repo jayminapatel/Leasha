@@ -149,6 +149,19 @@ def check_in_venv() -> Check:
 
 
 def check_platform() -> Check:
+    # Order 0x section 0d (2026-09-27): a Mac is platform two. Files, photos and
+    # code are meant to work there; only live Outlook mail (MAPI, Windows-only)
+    # does not. So on macOS this check passes and says what is missing, instead
+    # of failing the whole doctor run over one mail source. The Windows result
+    # below is exactly what it always was - Windows is platform one - and any
+    # other platform still fails as before. (UNCONFIRMED on macOS: nobody has
+    # run doctor.py on a real Mac yet; see docs/MAC_VERIFICATION.md.)
+    if sys.platform == "darwin":
+        return Check(
+            "Windows platform", True,
+            "darwin - macOS: files, photos and code are supported; mail from a running "
+            "Outlook needs Windows (point Leasha at .pst, .mbox or .eml files instead)",
+        )
     ok = sys.platform == "win32"
     return Check(
         "Windows platform", ok, sys.platform,

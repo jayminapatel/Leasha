@@ -483,6 +483,229 @@ class PendingSuggestion:
     pile_name: str
 
 
+# -- closing a connection another thread is using ---------------------------
+#
+# **Why this exists: `close()` used to crash the whole process.** Each thread
+# gets its own connection (see `SqliteStore.__init__`), and `close()` closes
+# all of them from whichever thread is closing - usually the UI thread, as the
+# window shuts. But a worker can be in the middle of a query on its own
+# connection at that moment: the popup counting folder names as somebody
+# types, a search still running. Python lets other threads run while SQLite
+# is working, so the worker is "inside" `execute()` or `fetchall()` with
+# nothing to stop the closer. Closing tears down the connection's internals
+# underneath it, and when the worker carries on it reads memory that is no
+# longer there. That is not an exception anybody can catch: the process dies
+# with a segmentation fault (an access violation on Windows), no traceback.
+# Found in the test suite on 2026-09-27 and reproduced on its own by
+# `tests/unit/test_close_during_read.py`.
+#
+# **The fix: a connection counts its callers in, and `close()` waits for none.**
+# Every call that makes SQLite do work - running a statement, fetching rows,
+# committing - goes through `_GuardedConnection._call` (or its copy in
+# `_GuardedCursor.__next__`), which keeps a count of calls in flight. `close()` then:
+#
+#   1. marks each connection *retired*, so no new call can start on it;
+#   2. calls `interrupt()` on any with a call in flight - the one method SQLite
+#      documents as safe from another thread - so a long query stops at once
+#      rather than running to the end;
+#   3. waits (briefly, and with a limit) for the count to reach zero, and only
+#      then closes it.
+#
+# The worker whose query was cut short gets the same plain-words error as one
+# that asks for a connection after close, which the workers already recognise
+# as "the window is closing" and do not report as a bug.
+#
+# **Why wrap the connection rather than the ~hundreds of call sites.** Every
+# query in this file is `self.conn.execute(...)`, and more take `store.conn`
+# elsewhere. Wrapping the connection itself (SQLite lets you choose the class
+# it builds) covers every one of them, including code not written yet.
+
+#: How long `close()` waits for a worker's interrupted query to hand its
+#: connection back before giving up on closing that one. An interrupted query
+#: stops within milliseconds; this is a ceiling for something stuck, not a
+#: delay anybody normally sees. A connection still busy after it is left open
+#: rather than closed under its user - see `SqliteStore.close`.
+_CLOSE_WAIT_S = 5.0
+
+
+def _closed_while_in_use() -> AppErrorException:
+    """The error a worker gets when the store closes during its query.
+
+    The same words as `SqliteStore.conn`'s "closed while we waited" path, on
+    purpose: `app/ui/workers.py` matches "was closed while a worker was using
+    it" to recognise a window close and stay quiet about it."""
+    return AppErrorException(make_error(
+        "ERR_UNEXPECTED", "storage.sqlite",
+        details="SqliteStore was closed while a worker was using it.",
+        suggestion=(
+            "If this appeared while closing the window, a background "
+            "search outlived the store and the message is harmless."
+        ),
+    ))
+
+
+class _GuardedConnection(sqlite3.Connection):
+    """A `sqlite3.Connection` that knows whether it is in use right now.
+
+    Built by `sqlite3.connect(..., factory=_GuardedConnection)`. Behaves
+    exactly like the standard one; the only addition is the count of calls in
+    flight and the "retired" flag that `SqliteStore.close()` uses to close it
+    safely. See the block comment above for the whole story.
+
+    **What it costs, measured** (1,000,000 rows, Linux sandbox, Python 3.12):
+    `fetchall()` and `executemany()` unchanged; a `for row in cursor` loop
+    about 0.7 microseconds more per row (0.5 s -> 1.2 s for the million); one
+    small `execute().fetchone()` about 2 microseconds more (1.6 -> 3.8). Next
+    to a query that reads the disk, noise; a hot loop of tiny lookups should
+    prefer one `fetchall()` anyway.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # One small lock per connection, held only for the instant it takes to
+        # add or subtract one - never while SQLite is working, so a reader
+        # never waits on it for longer than that.
+        self._guard = threading.Lock()
+        #: Calls in flight. A count, not a yes/no, because calls can nest:
+        #: `executemany` pulling its rows from a generator that itself reads.
+        self._busy = 0
+        #: Set by `close()`. From then on no new call may start.
+        self._retired = False
+        #: The thread that opened it - the only one expected to use it.
+        self._owner = threading.get_ident()
+
+    def _call(self, method: Any, *args: Any) -> Any:
+        """Run one SQLite call counted in, and translate a cut-short one.
+
+        A query interrupted by `close()` raises `sqlite3.OperationalError:
+        interrupted`, and one on a connection closed between two calls raises
+        `ProgrammingError`. Both would reach the person as "This is a bug".
+        Once the connection is retired they are neither - they are the window
+        closing - so they become the error that says so."""
+        guard = self._guard
+        with guard:
+            if self._retired:
+                raise _closed_while_in_use()
+            self._busy += 1
+        try:
+            return method(*args)
+        except sqlite3.Error as exc:
+            if self._retired:
+                raise _closed_while_in_use() from exc
+            raise
+        finally:
+            with guard:
+                self._busy -= 1
+
+    # -- used by SqliteStore.close() ------------------------------------------
+
+    def _retire(self) -> int:
+        """Refuse every new call; return how many are still in flight."""
+        with self._guard:
+            self._retired = True
+            return self._busy
+
+    def _wait_idle(self, timeout: float) -> bool:
+        """Wait for the calls in flight to finish. True once there are none.
+
+        Checks every couple of milliseconds rather than being woken: waking
+        would cost every query something, and this runs once, at close."""
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._guard:
+                if self._busy == 0:
+                    return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.002)
+
+    # -- every method that makes SQLite do work -------------------------------
+    #
+    # `Connection.execute` and friends are written in C and would build a plain
+    # cursor, bypassing ours - so each one is spelled out here as "make one of
+    # our cursors and ask it". That is exactly what the C version does, minus
+    # the bypass.
+
+    def cursor(self, factory: Any = None) -> sqlite3.Cursor:  # type: ignore[override]
+        return sqlite3.Connection.cursor(self, factory or _GuardedCursor)
+
+    def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:  # type: ignore[override]
+        return self.cursor().execute(sql, parameters)
+
+    def executemany(self, sql: str, parameters: Any, /) -> sqlite3.Cursor:  # type: ignore[override]
+        return self.cursor().executemany(sql, parameters)
+
+    def executescript(self, sql_script: str, /) -> sqlite3.Cursor:  # type: ignore[override]
+        return self.cursor().executescript(sql_script)
+
+    def commit(self) -> None:
+        self._call(sqlite3.Connection.commit, self)
+
+    def rollback(self) -> None:
+        self._call(sqlite3.Connection.rollback, self)
+
+    def set_progress_handler(self, handler: Any, n: int) -> None:  # type: ignore[override]
+        # Closing frees the handler; setting one while that happens is the
+        # same race in miniature.
+        self._call(sqlite3.Connection.set_progress_handler, self, handler, n)
+
+
+_CURSOR_NEXT = sqlite3.Cursor.__next__
+
+
+class _GuardedCursor(sqlite3.Cursor):
+    """A cursor whose every trip into SQLite is counted by its connection.
+
+    `fetchall()` and iterating (`for row in cursor`) do real work - each row is
+    another step of the query - so they are counted exactly like `execute()`.
+    """
+
+    connection: _GuardedConnection
+
+    def execute(self, sql: str, parameters: Any = (), /) -> "_GuardedCursor":  # type: ignore[override]
+        return self.connection._call(sqlite3.Cursor.execute, self, sql, parameters)
+
+    def executemany(self, sql: str, seq_of_parameters: Any, /) -> "_GuardedCursor":  # type: ignore[override]
+        return self.connection._call(sqlite3.Cursor.executemany, self, sql, seq_of_parameters)
+
+    def executescript(self, sql_script: str, /) -> "_GuardedCursor":  # type: ignore[override]
+        return self.connection._call(sqlite3.Cursor.executescript, self, sql_script)
+
+    def fetchone(self) -> Any:
+        return self.connection._call(sqlite3.Cursor.fetchone, self)
+
+    def fetchmany(self, size: Optional[int] = None) -> list[Any]:  # type: ignore[override]
+        return self.connection._call(sqlite3.Cursor.fetchmany, self,
+                                     self.arraysize if size is None else size)
+
+    def fetchall(self) -> list[Any]:
+        return self.connection._call(sqlite3.Cursor.fetchall, self)
+
+    def close(self) -> None:
+        # Closing a cursor resets its statement inside SQLite - brief, but work
+        # on the connection all the same.
+        self.connection._call(sqlite3.Cursor.close, self)
+
+    def __next__(self) -> Any:
+        # `_call` written out in place: this runs once per row, and a loop over
+        # a hundred thousand rows should not pay for an extra call per row.
+        conn = self.connection
+        guard = conn._guard
+        with guard:
+            if conn._retired:
+                raise _closed_while_in_use()
+            conn._busy += 1
+        try:
+            return _CURSOR_NEXT(self)
+        except sqlite3.Error as exc:
+            if conn._retired:
+                raise _closed_while_in_use() from exc
+            raise
+        finally:
+            with guard:
+                conn._busy -= 1
+
+
 class SqliteStore:
     """Open, migrate and operate the metadata database.
 
@@ -567,6 +790,10 @@ class SqliteStore:
                 # worker that has already exited cannot close its own.
                 check_same_thread=False,
                 isolation_level=None,      # explicit transactions only
+                # Counts its calls in flight, so `close()` never closes it
+                # while another thread is inside a query - see
+                # `_GuardedConnection`.
+                factory=_GuardedConnection,
             )
         except sqlite3.Error as exc:
             raise AppErrorException(make_error(
@@ -675,9 +902,36 @@ class SqliteStore:
         # PRAGMA optimize rather than at every close. Running it on the
         # close path delays shutdown while holding the single-instance lock,
         # which makes a relaunch wait unnecessarily.
+        #
+        # **Readers are the other half, and the lock does not cover them.** A
+        # worker reading on its own connection holds neither lock, so it can be
+        # mid-query right now - and closing a connection underneath a running
+        # query crashes the process outright (see `_GuardedConnection`). So
+        # each connection is retired first, any query in flight is interrupted,
+        # and it is closed only once its thread has let go of it.
         with self._write_lock, self._conns_lock:
             self._closed = True
+            me = threading.get_ident()
             for conn in self._open:
+                if isinstance(conn, _GuardedConnection) and conn._retire() \
+                        and conn._owner != me:
+                    conn.interrupt()      # documented safe from any thread
+            deadline = time.monotonic() + _CLOSE_WAIT_S
+            for conn in self._open:
+                if isinstance(conn, _GuardedConnection):
+                    # Our own thread's connection cannot be mid-query while we
+                    # are here - unless close() was called from inside a query
+                    # on it, and then waiting would wait for ourselves.
+                    in_use = (conn._busy > 0 if conn._owner == me else
+                              not conn._wait_idle(max(0.0, deadline - time.monotonic())))
+                    if in_use:
+                        # **Left open rather than closed under its user.** It is
+                        # retired, so nothing can start on it, and it closes
+                        # itself when the thread holding it lets go of it.
+                        _log.warning(
+                            "a connection to {} was still busy {}s after close() "
+                            "and was left to close itself", self.db_path, _CLOSE_WAIT_S)
+                        continue
                 try:
                     conn.close()
                 except sqlite3.Error:
@@ -4027,6 +4281,23 @@ class SqliteStore:
         `LIMIT 1` stops at the first row.
         """
         return self.conn.execute("SELECT 1 FROM files LIMIT 1").fetchone() is not None
+
+    def holds_ext(self, extensions: Any) -> bool:
+        r"""Does the index hold at least one file of any of these extensions?
+
+        **A seek, not a census.** The search tab asks this before applying
+        `type:mail` to "mail from 2017" (`translate_rules.apply`), on every
+        dispatch. `distinct_values("ext")` answers it too, by grouping every
+        row: measured 25.5 ms on 200,000 files, where this - `idx_files_ext`,
+        `LIMIT 1` - measured 0.006 ms on the same table.
+        """
+        wanted = [str(ext).lstrip(".").lower() for ext in extensions or () if str(ext)]
+        if not wanted:
+            return False
+        marks = ", ".join("?" for _ in wanted)
+        return self.conn.execute(
+            f"SELECT 1 FROM files WHERE ext IN ({marks}) LIMIT 1", wanted,
+        ).fetchone() is not None
 
     def stats(self) -> dict[str, Any]:
         counts = {

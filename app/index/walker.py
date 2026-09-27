@@ -40,6 +40,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
+from app.core.osbridge.cloudfs import is_dataless
+from app.core.osbridge.pathnames import case_sensitive, path_key
 from app.core.winfs import CLOUD_PLACEHOLDER_MASK
 
 __all__ = [
@@ -131,6 +133,11 @@ class Candidate:
     #: Raw Windows attribute bits from the stat already performed, so a
     #: placeholder check costs nothing extra. None off Windows.
     attributes: Optional[int] = None
+    #: Order 0x section 1 (2026-09-27): the BSD file flags from that same stat,
+    #: which is where macOS marks an iCloud file that is not downloaded
+    #: (`SF_DATALESS`). None on Windows and Linux, whose stat has no such field,
+    #: so nothing changes there. (UNCONFIRMED on macOS.)
+    flags: Optional[int] = None
     #: Whether anything can read this file's *contents*.
     #:
     #: **False is not a failure and not a skip.** Extension routing decides
@@ -167,11 +174,23 @@ class Candidate:
     @property
     def is_cloud_placeholder(self) -> bool:
         """True if reading this file would pull it down from the cloud."""
-        return bool(self.attributes or 0) and bool(self.attributes & CLOUD_PLACEHOLDER_MASK)
+        if self.attributes and self.attributes & CLOUD_PLACEHOLDER_MASK:
+            return True
+        # A Mac's iCloud placeholder: the same question, asked of the flags the
+        # stat already returned - reading the file to find out would download it.
+        return is_dataless(self.flags)
 
     def sort_key(self) -> tuple[int, str]:
         """Priority first, then path. Deterministic, which is what lets a
-        resumed run pick up where the last one stopped."""
+        resumed run pick up where the last one stopped.
+
+        **Still plain `.lower()`, on every system (order 0x section 7b).** This
+        only decides the *order* files are worked through, never whether two
+        of them are the same file, so a case-sensitive Mac folder holding both
+        `A.txt` and `a.txt` loses nothing: the two sort next to each other and
+        both are indexed. Keeping it unchanged keeps the Windows order - and
+        so every resumed run - exactly as it was.
+        """
         return (self.priority, str(self.path).lower())
 
 
@@ -619,8 +638,14 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # `continue` as an oversized disk image, and 17 of a 20-file archive went
     # missing this way with no skip code and no log line. `.ost` gets the
     # same exemption for the same reason, even though it is read through
-    # Outlook alone.
-    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost"})
+    # Outlook alone. `.olm` (an Outlook for Mac export, work order 0x §8b)
+    # joins them: it is read one message at a time out of the zip by
+    # `app/extract/email_olm.py`, never whole, and a real mailbox export is
+    # routinely larger than the ceiling. `.mbox` too (2026-09-27, found while
+    # building `.olm`): `email_mbox.py` reads one message at a time and its own
+    # docstring promises a 10GB Google Takeout mbox is indexed - but until now a
+    # Takeout export over the ceiling was dropped here before it was ever read.
+    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".olm", ".mbox"})
     size_exempt = (
         (media_extensions() & extensions)
         | (STREAMED_ARCHIVE_EXTENSIONS & extensions)
@@ -642,6 +667,13 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
             # index directory would still be walked in full.
             config.root_problems[str(root)] = "excluded by a setting"
             continue
+        # **Ask this folder's disk whether letter case counts, before listing
+        # a single file in it** (order 0x section 7b). The answer is
+        # remembered, and `path_key` below - and the pipeline's clean-up pass,
+        # which looks paths up in the same `seen` set - both read it. On
+        # Windows this returns at once without touching the disk: NTFS ignores
+        # case, and the keys stay exactly as they always were.
+        case_sensitive(root)
 
         for directory, subdirectories, filenames in os.walk(
             root, topdown=True, followlinks=config.follow_symlinks
@@ -672,6 +704,13 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
             # paths from configuration, compared against paths from the
             # filesystem, and on Windows the same directory routinely appears
             # with different casing in the two.
+            #
+            # **Left case-insensitive on a Mac and Linux too (order 0x 7b).**
+            # These are the application's own folders (its logs, its index).
+            # The only thing a case-sensitive disk could change is a *second*
+            # folder whose name differs from one of those only by case - and
+            # leaving that out errs on the safe side: the indexer never reads
+            # its own files, which is what this list exists for.
             subdirectories[:] = [
                 name for name in subdirectories
                 if str(Path(directory, name)).lower() not in blocked
@@ -692,7 +731,13 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 if not readable and not config.name_only:
                     continue
 
-                key = str(path).lower()
+                # **`path_key`, not `.lower()`** (order 0x section 7b). On
+                # Windows it *is* `str(path).lower()`, byte for byte. On a
+                # case-sensitive Mac or Linux folder it keeps the case, so
+                # `Report.docx` and `report.docx` - two real files there - are
+                # two keys and both are indexed, instead of the second being
+                # dropped here as a "duplicate" of the first.
+                key = path_key(path)
                 if key in seen:            # overlapping roots must not double-index
                     continue
 
@@ -732,6 +777,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     continue
 
                 attributes = getattr(stat, "st_file_attributes", None)
+                flags = getattr(stat, "st_flags", None)
                 relative_path = None
                 if root_volume_id is not None:
                     # **Relative to the root actually being walked**, not to
@@ -749,6 +795,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     mtime_ns=stat.st_mtime_ns,
                     priority=_priority_for(path, config.priority_roots),
                     attributes=attributes,
+                    flags=flags,
                     readable=readable and not too_big and stat.st_size > 0,
                     volume_id=root_volume_id,
                     relative_path=relative_path,
@@ -763,6 +810,12 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     # `cloud_content_cap_bytes` - the trap this item names:
                     # two opted-in folders sharing one budget, not each
                     # getting their own.
+                    # A stored setting's key (`CLOUD_CONTENT_STATE_KEY`), in
+                    # the Windows format on every system on purpose (order 0x
+                    # 7b): it is compared with the saved list, which was
+                    # written lower-cased, and it only decides whether a
+                    # cloud file's *content* is downloaded - never whether
+                    # the file is indexed at all.
                     root_key = str(root).rstrip("\\/").lower()
                     opted_in = root_key in config.cloud_content_roots
                     within_cap = (config.cloud_bytes_spent + candidate.size_bytes

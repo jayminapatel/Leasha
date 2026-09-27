@@ -29,6 +29,31 @@ __all__ = ["Chip", "chips_for", "without", "chip_label"]
 _SLASH = re.compile(r'(?<!\S)/(?P<name>[A-Za-z]+)(?:[ \t]+(?P<value>"[^"]*"|[^\s/]+))?')
 _COLON = re.compile(r'(?<!\S)(?P<neg>[-!])?(?P<name>[A-Za-z]+):(?P<value>"[^"]*"|\S+)')
 
+#: The second half of `/between A and B`, straight after `A`. Order 0x §6a.
+#:
+#: **One chip for the whole range, not a chip and two stray words.** The
+#: parser joins `between:A and B` into `A..B` (`query.join_between_words`),
+#: so the filter really is all four words; a chip covering only `between A`
+#: would, when removed, leave `and B` behind as a search for the word "and".
+#: The same rules as the parser's: `and` or `to` in any case, then one value
+#: that is not itself an operator (`between:2024 to:priya` is two filters).
+_BETWEEN_TAIL = re.compile(
+    r'[ \t]+(?:and|to)[ \t]+(?![A-Za-z][\w-]*:)(?P<last>"[^"]*"|[^\s"/]+)',
+    re.IGNORECASE)
+
+
+def _with_between_tail(text: str, name: str, value: str, end: int) -> tuple[str, int]:
+    """`(value, end)` stretched over `and B` when `name` is `between`.
+
+    Anything else, or a value that is already a range, comes back unchanged.
+    """
+    if name != "between" or not value or ".." in value:
+        return value, end
+    tail = _BETWEEN_TAIL.match(text, end)
+    if tail is None or ".." in tail.group("last"):
+        return value, end
+    return f"{value}{tail.group(0)}".strip(), tail.end()
+
 
 @dataclass(frozen=True)
 class Chip:
@@ -81,6 +106,7 @@ def chips_for(text: str) -> list[Chip]:
         else:
             value = match.group("value") or ""
             start, end = match.start(), match.end()
+            value, end = _with_between_tail(text, command.name, value, end)
         if free(start, end):
             found.append(Chip(command.name, value, start, end))
             taken.append((start, end))
@@ -88,9 +114,10 @@ def chips_for(text: str) -> list[Chip]:
         command = command_for(match.group("name"))
         if command is None or not free(match.start(), match.end()):
             continue
-        found.append(Chip(command.name, match.group("value"), match.start(),
-                          match.end(), negated=bool(match.group("neg"))))
-        taken.append((match.start(), match.end()))
+        value, end = _with_between_tail(text, command.name, match.group("value"), match.end())
+        found.append(Chip(command.name, value, match.start(),
+                          end, negated=bool(match.group("neg"))))
+        taken.append((match.start(), end))
     found.sort(key=lambda chip: chip.start)
     return found
 

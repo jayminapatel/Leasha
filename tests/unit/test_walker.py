@@ -754,3 +754,44 @@ def test_own_paths_survives_a_settings_missing_a_field():
     from app.index.walker import own_paths
 
     assert own_paths(object()) == frozenset()
+
+
+def test_a_mail_archive_over_the_ceiling_is_still_read(tmp_path: Path) -> None:
+    """**A mail archive is read one message at a time, never whole.** So the
+    size ceiling - which exists because hashing a 40GB disk image yields
+    nothing - must not apply to it. A 10GB Google Takeout `.mbox` or a large
+    Outlook for Mac `.olm` export used to be dropped here unread, while an
+    ordinary oversized file next to it is still refused as before."""
+    make_tree(tmp_path, {
+        "Takeout.mbox": "From x\n" + "y" * 5000,
+        "export.olm": "z" * 5000,
+        "big.txt": "y" * 5000,
+    })
+    config = WalkConfig(
+        roots=[tmp_path], extensions=frozenset({".txt", ".mbox", ".olm"}),
+        max_file_bytes=1000,
+    )
+    found = list(walk(config))
+
+    assert readable(found) == {"Takeout.mbox", "export.olm"}
+    assert names(found) == {"Takeout.mbox", "export.olm", "big.txt"}
+
+
+def test_an_icloud_file_that_is_not_downloaded_is_a_placeholder(tmp_path: Path) -> None:
+    """Order 0x section 1: a Mac marks an iCloud file whose contents are still
+    in the cloud with `SF_DATALESS` in the stat's flags. The walker carries
+    those flags from the stat it already made, so the check never opens the
+    file (opening it would download it). Windows attribute bits keep working
+    exactly as before, and a file with neither is not a placeholder."""
+    from app.core.osbridge.cloudfs import SF_DATALESS
+    from app.core.winfs import FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+    from app.index.walker import Candidate
+
+    def candidate(**extra):
+        return Candidate(path=tmp_path / "a.txt", size_bytes=1, mtime_ns=0,
+                         priority=0, **extra)
+
+    assert candidate(flags=SF_DATALESS).is_cloud_placeholder
+    assert candidate(attributes=FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).is_cloud_placeholder
+    assert not candidate().is_cloud_placeholder
+    assert not candidate(flags=0x1).is_cloud_placeholder, "another flag is not iCloud"

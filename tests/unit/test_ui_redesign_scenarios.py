@@ -148,6 +148,10 @@ def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app)
     assert _page(first) == "Files"
+    # The save is queued on the ordered state writer since the page-switch fix
+    # (bug 3a) - wait for it, as the window's own close does before its store goes.
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert store.get_state("ui:page", "") == "Files"
 
     second = launch()                     # the same store: a second launch
@@ -375,7 +379,18 @@ def quokkas(gui_mainwindow):
 
 
 def _rows(view) -> int:
-    return view.results._model.rowCount()
+    """Rows of results on screen - **not** the grey skeleton bars.
+
+    A search that has not answered within 300ms puts four `Skeleton` rows into
+    the same model (§6d). Counting them made "wait for three rows" pass while
+    the list was still only placeholders on a slow machine (Windows CI), so the
+    next Down selected nothing and `next(...)` over the rows found no result.
+    """
+    from app.ui.result_delegate import ROLE_PAYLOAD, Skeleton
+
+    model = view.results._model
+    return sum(1 for n in range(model.rowCount())
+               if not isinstance(model.item(n).data(ROLE_PAYLOAD), Skeleton))
 
 
 def test_the_search_page_start_to_finish_with_the_keyboard_alone(
@@ -750,6 +765,9 @@ def test_the_text_size_preference_reaches_the_results_list(gui_mainwindow, paint
         assert heights["small"] < heights["large"], heights
         # And it is the saved preference, so it is there next launch.
         _set_prefs(window, density="compact", font_pt=16)
+        # Saved on the ordered state writer since bug 3a - wait for it.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
         state = store.all_state()
         assert state["ui:results:font_pt"] == "16" and state["ui:results:density"] == "compact"
     finally:
