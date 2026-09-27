@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.6 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.9 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -102,6 +102,23 @@ numbers from a real run (the owner-run step further down this section). What is 
 real run: switch pages during a large index, type "mail from 2017", watch the bar and the log
 through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 
+**Owner testing for order 0x (on Windows), added 2026-09-27.** Same rule: tick, or a dated note.
+
+- [ ] **`/between` in every box.** In Search, Files, Mail, Code and the mini-search (Alt+Space), type
+      `/bet`: `/between` sits under `/date`. `/between 2024-03-01 and 2024-06-30`, then `… to …`, match
+      `/date 2024-03-01..2024-06-30`; Search shows one chip and removing it leaves no stray "and". On
+      Mail, `/between 2023-12-01 and 2023-12-31` includes the 31st. `/between 2024-03-01 and
+      2024-13-01` says what is wrong. In Code, `/range v1..v2` still runs git.
+- [ ] **Plain-English ranges.** "letters between March and June 2024" offers after 2024-03-01 and
+      before 2024-06-30; "from 1 Oct to 5 Nov" offers nothing.
+- [ ] **Where it is inside an archive.** Index a real `.pst` (libpff) and a large `.mbox`: the page
+      shows the folder and "message n of m" (for a PST, n of m within the folder), one line per
+      reader, and "last activity" keeps moving. Check folder names read naturally ("Inbox/...", not
+      "Top of Personal Folders/..."), also on a non-English Outlook if you have one.
+- [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
+      bar glides during a scanned run and shows a moving block before the total is known; minimise
+      and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated
 note under it. Everything above passed offscreen tests in a Linux sandbox and the Windows CI.
@@ -194,6 +211,14 @@ ends it; the page says whether the pause is yours or the machine's, because it r
 governor as one more reason to wait); `.doc` now reads its WordArt and **counts** what it cannot
 reach inside embedded objects rather than paying LibreOffice for words LibreOffice does not have
 either; the extractor registry loads on first read (38 fewer modules before the window).
+
+*2026-09-27 note - the paragraph below is no longer true.* Order 0x §4a did the work it asks
+for: the Start/Stop/Pause/Reset row is `app/ui/widgets/indexing_controls.py`, the bar is
+`widgets/indexing_bar.py` (`GlidingBar`: a plain `setValue` snaps, `glide_to` slides) and the
+"now" line is `widgets/indexing_headline.py`. `indexing_view.py` is 244 code lines against the
+unchanged 250 guard, and `test_every_qt_view_keeps_its_logic_in_the_presenter` is green. Only
+string-free code moved, so neither `test_pages_reorg` nor `test_ui_never_blocks` was edited.
+Headroom is 6 lines: new Indexing-page code goes in a new `widgets/indexing_*.py`.
 
 *One test is red on purpose, and it should stay red until somebody does the work.*
 `test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter` says

@@ -38,6 +38,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.base import Document, SourceKind, looks_locked, with_closing_warning
 from app.extract.email_files import build_email_document, html_to_text
 
@@ -287,6 +288,26 @@ def read_archive(
     A damaged archive therefore resumes only from before its first damage,
     which costs a re-parse of what follows it and nothing else.
     """
+    # Work order 0x section 3b. The frame is opened before the file is, so a
+    # slow open of a 20GB archive already reads "opening Archive2019.pst"
+    # rather than nothing. `_read_archive` holds what used to be this body.
+    with progress.enter("pst", path.name, unit="message",
+                        stage=progress.STAGE_OPENING) as frame:
+        yield from _read_archive(
+            path, frame, skip_folders=skip_folders, resume_from=resume_from,
+            seen_attachments=seen_attachments, read_before=read_before)
+
+
+def _read_archive(
+    path: Path,
+    frame: progress.Frame,
+    *,
+    skip_folders: Optional[frozenset[str]],
+    resume_from: int,
+    seen_attachments: Iterable[str],
+    read_before: int,
+) -> Iterator[Document]:
+    """The body of `read_archive`, inside its progress frame. See there."""
     from app.extract.email_pst import DEFAULT_SKIP_FOLDERS
 
     skip = skip_folders if skip_folders is not None else DEFAULT_SKIP_FOLDERS
@@ -336,7 +357,8 @@ def read_archive(
     try:
         yield from with_closing_warning(
             _messages(root, path, store_name, skip, report, seen_hashes,
-                      resume_from=max(0, int(resume_from or 0))), closing)
+                      resume_from=max(0, int(resume_from or 0)),
+                      frame=frame), closing)
     finally:
         try:
             archive.close()
@@ -344,9 +366,31 @@ def read_archive(
             pass
 
 
+def display_folder(folder_path: str) -> str:
+    """A folder path as a person would say it: `Inbox/Projects`.
+
+    `_walk_folders` starts every path at the archive's root folder, which has
+    no name a person has ever seen (libpff reports it empty, so it reads
+    "(unnamed)"), and Outlook puts everything under a folder called "Top of
+    Personal Folders" or "Top of Outlook data file". Neither is where anybody
+    thinks their mail is, so both are left off for the progress line only -
+    `folder_path` in `Document.meta` is unchanged.
+
+    (UNCONFIRMED against real archives: the "Top of ..." names are the ones
+    Outlook's own folder list shows; a localised Outlook may use other words,
+    in which case they simply stay in the displayed path.)
+    """
+    parts = [part for part in str(folder_path or "").split("/") if part]
+    parts = parts[1:]                            # the root folder
+    if parts and parts[0].strip().lower().startswith("top of "):
+        parts = parts[1:]
+    return "/".join(parts)
+
+
 def _messages(
     root: Any, path: Path, store_name: str, skip: frozenset[str], report: _Report,
     seen_hashes: set[str], *, resume_from: int = 0,
+    frame: Optional[progress.Frame] = None,
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -356,7 +400,16 @@ def _messages(
     costs one message.
 
     `resume_from` and the two cursor keys: see `read_archive`.
+
+    **Progress (work order 0x section 3b).** `frame` is told the folder, and
+    "message n of m" *within that folder*. The per-folder count is the one
+    libpff already hands over (`get_number_of_sub_messages`, called here
+    anyway to drive the loop), so it costs nothing. A whole-archive total
+    would need every folder visited first - a second walk of a file that can
+    be tens of gigabytes - so there is none, on purpose.
     """
+    if frame is None:
+        frame = progress.Frame("pst", path.name, unit="message")
     for ordinal, (folder_path, folder) in enumerate(_walk_folders(root, report=report)):
         if ordinal < resume_from:
             continue
@@ -365,13 +418,21 @@ def _messages(
             continue
         read_before = report.read
 
+        # Once per folder, never per message: a string split, then plain stores.
+        frame.stage = progress.STAGE_FOLDER
+        frame.where = display_folder(folder_path)
+        frame.n = 0
+        frame.total = None
         try:
             count = folder.get_number_of_sub_messages()
         except Exception as exc:                 # noqa: BLE001
             report.folder_failed(folder_path, exc)
             continue
+        frame.total = count
+        frame.stage = progress.STAGE_MESSAGES
 
         for index in range(count):
+            frame.n = index + 1
             try:
                 message = folder.get_sub_message(index)
                 document = _to_document(message, path, store_name, folder_path)
@@ -391,7 +452,7 @@ def _messages(
                 # attachments`.
                 for attached in _attachment_documents(
                     message, document.virtual_path or f"pst://{store_name}/{folder_path}/{index}",
-                    seen_hashes, report,
+                    seen_hashes, report, frame=frame,
                 ):
                     _mark_folder(attached, report, ordinal, read_before)
                     yield attached
@@ -553,6 +614,7 @@ def _hash_bytes(data: bytes) -> str:
 
 def _attachment_documents(
     message: Any, message_key: str, seen_hashes: set[str], report: _Report,
+    *, frame: Optional[progress.Frame] = None,
 ) -> Iterator[Document]:
     """Extract each attachment through the normal registry, deduplicated.
 
@@ -569,13 +631,36 @@ def _attachment_documents(
     and `meta` shape - so Layer 3 cannot tell, and should not have to,
     which backend produced an attachment.
     """
-    from app.extract.base import extract as extract_path
-    from app.extract.email_pst import MAX_ATTACHMENT_BYTES
 
     try:
         count = message.get_number_of_attachments()
     except Exception:                            # noqa: BLE001
         return
+    if not count:
+        return
+
+    # Work order 0x section 3b: while attachments are read the page says so,
+    # and names the one being read - a 60MB attachment is exactly the kind of
+    # thing that makes one message take minutes. Put back afterwards however
+    # this ends, so the next message is not shown as "extracting attachments".
+    if frame is not None:
+        frame.stage = progress.STAGE_ATTACHMENTS
+    try:
+        yield from _each_attachment(message, message_key, seen_hashes, report,
+                                    count, frame)
+    finally:
+        if frame is not None:
+            frame.stage = progress.STAGE_MESSAGES
+            frame.detail = ""
+
+
+def _each_attachment(
+    message: Any, message_key: str, seen_hashes: set[str], report: _Report,
+    count: int, frame: Optional[progress.Frame],
+) -> Iterator[Document]:
+    """The attachment loop of `_attachment_documents`. See there."""
+    from app.extract.base import extract as extract_path
+    from app.extract.email_pst import MAX_ATTACHMENT_BYTES
 
     for index in range(count):
         try:
@@ -585,6 +670,8 @@ def _attachment_documents(
             continue
 
         name = _attachment_name(attachment, index)
+        if frame is not None:
+            frame.detail = name
 
         try:
             size = int(attachment.get_size())
