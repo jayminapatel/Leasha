@@ -373,6 +373,37 @@ def finished_text(stats: Any) -> tuple[str, str]:
     return headline, detail
 
 
+def resting_headline(stats: Optional[Mapping[str, Any]]) -> str:
+    r"""The Indexing page's headline before any run has been shown, or "".
+
+    **Why this exists** (order 0x section 9, review finding 10, 2026-09-27).
+    The page opens with the headline "Nothing indexed yet." and only a run -
+    starting, finishing, failing - ever replaced it. So a person who opened
+    Indexing on an index of seventeen documents, with no run this session, read
+    "Nothing indexed yet." directly above "Documents 17": the page answering
+    its own first question two ways.
+
+    **No new words.** When the index holds documents this returns the sentence
+    the Search page already says about the same count ("17 documents ready to
+    search."), taken from `first_contact.greeting` itself rather than copied,
+    so the two pages cannot drift apart. It says what is true without claiming
+    anything about freshness - a run may well be owed.
+
+    Returns "" for an empty or unreadable index, which the caller reads as
+    "keep the starting headline" - that one is still right then.
+    """
+    # Imported here, not at the top: `first_contact` is a plain-Python module
+    # beside the presenter and imports no Qt, but nothing else in this package
+    # depends on it, and this keeps that dependency to the one line that needs it.
+    from app.ui.first_contact import greeting
+
+    try:
+        documents = int((stats or {}).get("files_total", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        return ""
+    return greeting(documents) if documents > 0 else ""
+
+
 #: Entities loaded into the Graph panel's table. Above this the table itself
 #: becomes the bottleneck rather than the query, and nobody scrolls 500 rows.
 GRAPH_TABLE_LIMIT = 500

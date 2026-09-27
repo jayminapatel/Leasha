@@ -15,11 +15,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QObject
+from PyQt6.QtCore import QEvent, QObject, Qt
 
 from app.ui.timeline_view import TimelineView
 
-__all__ = ["attach_timeline", "show_timeline_only", "show_timeline", "keep_names_readable"]
+__all__ = ["attach_timeline", "show_timeline_only", "show_timeline", "keep_names_readable",
+           "REPORT_KEY"]
+
+#: The item-data role each Reports list entry carries its key ("inheritance",
+#: "space", "timeline") under.
+#:
+#: **`Qt.ItemDataRole.UserRole`, not `1`** (order 0x section 9, review finding
+#: 13). Role 1 *is* `DecorationRole`: the key was being handed to Qt as the
+#: item's icon, and although a string draws nothing, the list still reserved an
+#: icon's width for it - every report name sat behind a ~36px blank indent.
+#: Here rather than in `reports_view.py` because that view is at its line
+#: guard, and this module is the other reader of the key.
+REPORT_KEY = Qt.ItemDataRole.UserRole
 
 
 def attach_timeline(page: Any, store: Any, layout: Any) -> TimelineView:
@@ -91,7 +103,7 @@ def show_timeline(page: Any, then: Any) -> None:
     example `lambda timeline: timeline.browse_month_of(when_ns)`). The one way
     other pages - a result's menu, the results' timeline strip - reach it."""
     for row in range(page.list.count()):
-        if page.list.item(row).data(1) == "timeline":
+        if page.list.item(row).data(REPORT_KEY) == "timeline":
             page.list.setCurrentRow(row)
             break
     then(page.timeline)

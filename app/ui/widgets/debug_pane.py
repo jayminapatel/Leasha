@@ -124,8 +124,12 @@ class DebugPane(QGroupBox):
         controls.addWidget(self.pop_button)
         controls.addWidget(self.copy_button)
 
+        # **The style's own margins, as every other card has** (order 0x
+        # section 9, review finding 13). They were zeroed here, which in a
+        # `QGroupBox` - a bordered card since the redesign - put the caption
+        # and the log's box hard against the card's edge, beside "Index
+        # storage" and "Environment", whose contents sit inset.
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(caption)
         layout.addWidget(self.view, stretch=1)
         layout.addLayout(controls)
