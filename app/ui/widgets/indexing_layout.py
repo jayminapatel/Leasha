@@ -28,6 +28,7 @@ from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.indexing_controls import PAUSED_DETAIL, PAUSED_HEADLINE
 from app.ui.widgets.indexing_headline import show_now
+from app.ui.widgets.indexing_workers import IndexingWorkers
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
@@ -63,6 +64,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     status_layout.addWidget(view.stats_box)
     status_layout.addWidget(view.bar)
     status_layout.addWidget(view.detail)
+    # 0x §4d: one line per reader, the heartbeat, and the work behind them,
+    # under the detail line they add to. Made here rather than in the view,
+    # which is at its line guard; `view.workers_panel` is set on the view
+    # exactly as if it had been. Hidden until a run has something to show.
+    view.workers_panel = IndexingWorkers()
+    status_layout.addWidget(view.workers_panel)
     status_layout.addWidget(view.notices)
     # Work order 0w §2b. Made here rather than in the view, which is over its
     # line guard: `view.run_log` is set on the view exactly as if it had been.
@@ -243,6 +250,10 @@ def paint_progress(view: Any, stats: Any) -> None:
     view.detail.setText(detail)
     # 0x §4b: the "what is happening now" sentence.
     show_now(view, stats, stopping=view._stopping)
+    # 0x §4d: the per-reader lines. `show_now(view, None)` clears them.
+    panel = getattr(view, "workers_panel", None)
+    if panel is not None:
+        panel.show_live(stats, stopping=view._stopping)
     paint_run_panels(view, stats)
 
 

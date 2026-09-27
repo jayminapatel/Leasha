@@ -29,6 +29,9 @@ The functions, for the Indexing page:
 * `writer_line(stats)` - what happens behind the readers: "Making text
   searchable by meaning, batch 3 of 12", or "Saving where to resume from".
 * `live_view(stats, now=...)` - all four at once, as a `LiveProgress`.
+* `now_headline(stats, stopping=...)` - the Indexing page's "now" line
+  (0x §4b): `live_headline` when there is something to say that no other
+  line on the page already says, else the 0w words, else "".
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
+from app.ui.presenter.activity import READING_WORDS
 from app.ui.presenter.indexing import PHASE_WORDS
 
 __all__ = [
@@ -48,6 +52,7 @@ __all__ = [
     "inner_trail",
     "live_headline",
     "live_view",
+    "now_headline",
     "position_text",
     "since_text",
     "stage_words",
@@ -240,8 +245,13 @@ def live_headline(stats: Any) -> str:
     busy = _busy(stats)
     if not busy:
         # Before the first file is handed to a reader, the walker is the only
-        # thing moving - worth a sentence rather than a blank.
-        if _get(stats, "phase") == "reading" and not _get(stats, "walk_complete", False):
+        # thing moving - worth a sentence rather than a blank. Only for stats
+        # that carry a `workers` map at all: one without (an older snapshot, a
+        # record from another process) says nothing about the readers, and
+        # "no readers busy" would be a guess.
+        if (_get(stats, "workers") is not None
+                and _get(stats, "phase") == "reading"
+                and not _get(stats, "walk_complete", False)):
             return f"{stage_words('finding')}…"
         return ""
 
@@ -360,3 +370,30 @@ def live_view(stats: Any, *, now: Optional[float] = None) -> LiveProgress:
         quiet=quiet,
         writer=writer_line(stats),
     )
+
+
+def now_headline(stats: Any, *, stopping: bool = False) -> str:
+    """The Indexing page's "what is happening now" sentence (0x §4b), or "".
+
+    The slot on the page is `widgets/indexing_headline.now_sentence`, which
+    calls this and nothing else. **It never says what another line on the
+    page already says**, the rule §4b's first version set:
+
+    * stopping or paused - the counts line itself changes to say so, so "";
+    * a stretch with its own words (loading the model, tidying the index) -
+      the detail line under the bar carries those words, so "". This is also
+      why the detail line needs no change to stop repeating them: the two
+      are never both shown;
+    * reading - the busiest reader's place, "Reading Archive2019.pst ›
+      Inbox/Projects — message 4,512 of 18,300", or "Finding files…" before
+      the first file is handed out;
+    * reading, with nothing more precise known (a snapshot from before this
+      existed, or a run in another process that sends no `workers`) - the
+      0w words the page has always used, "Reading your files…".
+    """
+    if stats is None or stopping or _get(stats, "paused", False) \
+            or _get(stats, "paused_by_person", False):
+        return ""
+    if PHASE_WORDS.get(str(_get(stats, "phase", "") or "")):
+        return ""
+    return live_headline(stats) or READING_WORDS
