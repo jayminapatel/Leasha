@@ -1,6 +1,6 @@
 # Work order (One thread): date ranges in every box, a live index log, and runs that say they were interrupted
 
-**Doc version:** 1.0 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (query parser + the four search boxes; pipeline activity
 events + an Indexing-page log; run records + PST resume)
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build it in the
@@ -26,6 +26,10 @@ What was checked before writing this, so nobody re-derives it:
 - **The Indexing page has no log.** Its only list is the run's notices, as plain
   strings with no time (`IndexStats.notices`). The Settings → Debug pane already
   shows `HH:mm:ss` lines, but it is the application log, not the run's story.
+> **2026-09-27, later the same day:** the bullet below is no longer true for Leasha's own PST
+> reader (libpff). Since 3b, an interrupted archive resumes at the folder it was in, through a
+> `resume:archive:<path hash>` cursor. It is still true for the Outlook reader; see the note on 3b.
+
 - **Interrupted runs.** Resume is per file: unfinished files stay `PENDING`, and
   nothing is corrupted. **A PST has no resume inside itself.** An interrupted archive
   is re-read from its first message next run. Messages already indexed are skipped by
@@ -53,40 +57,51 @@ What was checked before writing this, so nobody re-derives it:
 
 ## 2. A live log on the Indexing page
 
-- [ ] **2a** the pipeline records what it is doing as timestamped activity entries:
+- [x] **2a** the pipeline records what it is doing as timestamped activity entries:
       phase changes, each large file it starts (an archive, a long media file), a
       pause and its reason, warnings, and the run's notices. They sit in a bounded
       buffer on the run, not the application log, and cost nothing when nobody reads
       them.
-- [ ] **2b** the Indexing page shows them in a small scrolling log with an
+- [x] **2b** the Indexing page shows them in a small scrolling log with an
       `HH:MM:SS` time on every line. The newest line is at the bottom, and it scrolls
       with the run unless the owner has scrolled up to read. Lines are capped. The
       widget lives in `app/ui/widgets/` and its formatting in the presenter:
       `indexing_view.py` is already over its line guard and must not grow.
-- [ ] **2c** the run's existing notices carry the time they happened, both in the
+- [x] **2c** the run's existing notices carry the time they happened, both in the
       log and wherever they are shown today.
-- [ ] **2d** `app.cli index` prints the same entries with the same timestamps
+- [x] **2d** `app.cli index` prints the same entries with the same timestamps
       (non-negotiable #8).
-- [ ] **2e** tests: entries are emitted in order for a small real run, the buffer
+- [x] **2e** tests: entries are emitted in order for a small real run, the buffer
       is bounded, the widget keeps the reader's scroll position, and repaints stay
       within the existing 0.25 s paint throttle.
 
 ## 3. Interrupted runs, and archives read part-way
 
-- [ ] **3a** a run that ended without finishing (crash, power cut, the app killed)
+- [x] **3a** a run that ended without finishing (crash, power cut, the app killed)
       is recognised the next time the Indexing page opens. The page says so in plain
       words: when it stopped, how many files it had not reached, and that starting
       again carries on from there with nothing lost.
-- [ ] **3b** a PST resumes inside itself at folder granularity: the folder cursor
+> **2026-09-27:** built for the libpff reader only. The Outlook half is not built, because its
+> folder walk cannot be proven equivalent. `walk_session` walks MAPI `Folders` collections, whose
+> order Outlook does not promise and which Outlook itself changes while it runs. Attaching an
+> archive to Outlook also writes to it and moves its modified time (`WORKORDER-pst-resilience.md`,
+> the note above §0), so a cursor checked against size and modified time would be discarded by
+> the very read that wanted it. An Outlook read therefore starts from the top as before, and
+> skips messages already indexed by their text hash. The reason is also recorded on
+> `PstExtractor.supports_resume`. The cursor is saved at a folder boundary at most every 30 s,
+> after a blocking flush. No real `.pst` fixture is committed; stop-and-resume was checked against
+> two public sample archives (265 KB and 14 MB) and matched an uninterrupted read exactly.
+
+- [x] **3b** a PST resumes inside itself at folder granularity: the folder cursor
       is persisted before it is needed (non-negotiable #4) through the existing
       `resume:` mechanism, and the next run starts at the first unfinished folder.
       Build it for the libpff backend first. It can be tested here against a real
       archive fixture. The Outlook backend follows only if its folder walk can be
       proven equivalent; if not, record why here.
-- [ ] **3c** an archive read part-way says so on the Indexing page: which one, and
+- [x] **3c** an archive read part-way says so on the Indexing page: which one, and
       that it will carry on next run. This is kept distinct from "Mail archives partly
       read", which means damage, not interruption.
-- [ ] **3d** tests: an index stopped mid-archive and then resumed ends with exactly
+- [x] **3d** tests: an index stopped mid-archive and then resumed ends with exactly
       the message set of an uninterrupted run, with no duplicates and no gaps. A killed
       run is detected as interrupted, and a clean stop is not.
 
