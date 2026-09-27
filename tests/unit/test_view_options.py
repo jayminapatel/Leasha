@@ -721,6 +721,11 @@ def test_a_dragged_width_survives_a_relaunch(tmp_path):
                        available=AVAILABLE_3)
         _drag(first, 1, 320)
         assert dict(chooser.prefs.widths).get("path") == 320
+        # The save is queued on the state writer since bug 3a; the window's
+        # close drains it before the store closes (`_drain_workers`), and so
+        # does this "close".
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
 
     second = _table(app)
     with SqliteStore(database) as store:

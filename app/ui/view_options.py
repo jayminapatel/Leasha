@@ -36,7 +36,7 @@ _log = logger.bind(component="ui.view")
 
 __all__ = [
     "load_prefs", "save_prefs", "build_menu", "apply_to_table", "apply_to_tree",
-    "button",
+    "button", "save_prefs_later",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
@@ -306,13 +306,36 @@ def save_prefs(store: Any, prefix: str, prefs: ViewPreferences) -> bool:
     try:
         store.set_states(prefs_to_state(prefs, prefix))
         return True
-    except Exception:                                # noqa: BLE001
+    except Exception as exc:                         # noqa: BLE001
+        # Logged, because this now runs on the state writer's thread (see
+        # `save_prefs_later`) where nobody reads the False.
+        _log.warning("view preferences for {} not saved: {}", prefix, exc)
         return False
 
 
 # ---------------------------------------------------------------------------
 # The Qt half: a menu, and applying the result to a table
 # ---------------------------------------------------------------------------
+
+def save_prefs_later(store: Any, prefix: str, prefs: ViewPreferences) -> None:
+    """`save_prefs`, queued on the ordered state writer. **Never blocks.**
+
+    Bug 3a: a column dragged or a density picked during an index run waited
+    for the indexer's write transaction, because `set_states` takes the same
+    process-wide write lock as every index batch. `remember_width` fires on
+    every pixel of a drag, so that was a frozen drag, not a frozen click.
+
+    Built as `CallableWorker(save_prefs, ...)` here rather than inside
+    `state_writes`, so `test_ui_never_blocks` can see structurally that
+    `save_prefs` is a worker body.
+    """
+    from app.ui.state_writes import start
+    from app.ui.workers import CallableWorker
+
+    if store is None:
+        return
+    start(CallableWorker(save_prefs, store, prefix, prefs, component="ui.view"))
+
 
 def build_menu(
     parent: Any,
@@ -557,7 +580,7 @@ def button(
     def changed(prefs: ViewPreferences) -> None:
         widget.prefs = prefs
         if store is not None:
-            save_prefs(store, prefix, prefs)
+            save_prefs_later(store, prefix, prefs)
         if on_change is not None:
             on_change(prefs)
 
@@ -605,7 +628,7 @@ def button(
         """
         widget.prefs = widget.prefs.with_width(key, pixels)
         if store is not None:
-            save_prefs(store, prefix, widget.prefs)
+            save_prefs_later(store, prefix, widget.prefs)
 
     widget.show_menu = show
     widget.toggle_preview = toggle_preview

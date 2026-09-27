@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from app.reports.timeline import KINDS, Period
 from app.reports.timeline_words import BAD_DATE, KIND_TIPS, KIND_WORDS
+from app.ui.state_writes import save_state
 
 __all__ = ["TimelinePicker", "KIND_KEY", "FOLD_KEY"]
 
@@ -132,11 +133,9 @@ class TimelinePicker(QWidget):
         return default if value is None else str(value)
 
     def _remember(self, key: str, value: str) -> None:
-        try:
-            if self._store is not None:
-                self._store.set_state(key, value)
-        except Exception:                            # noqa: BLE001 - a preference
-            pass
+        # Queued on the ordered state writer (bug 3a), so a choice made while
+        # an index runs never waits for its batch; a failure is logged there.
+        save_state(self._store, key, value, component="ui.timeline")
 
     def kind(self) -> str:
         return str(self.kind_box.currentData() or "everything")

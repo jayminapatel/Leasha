@@ -625,6 +625,10 @@ def test_fast_or_thoughtful_is_remembered_and_handed_to_the_engine(chat):
     c = chat
     c.view.speed.setCurrentIndex(c.view.speed.findData("thoughtful"))
     gui_pump(c.app)
+    # Queued on the ordered state writer since bug 3a; the question below
+    # reads the combo, not the store, so only the persisting has to wait.
+    from app.ui.state_writes import pool
+    assert pool().waitForDone(5000)
     assert c.store.get_state("ui:chat_speed", "") == "thoughtful"
     ask(c, "deposit?")
     answered(c)

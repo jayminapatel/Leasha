@@ -50,7 +50,8 @@ from app.ui.settings_view import SettingsView
 from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
 from app.ui.tray import TrayPresence
-from app.ui.view_options import load_prefs, save_prefs
+from app.ui.state_writes import pool as state_write_pool, save_state, save_states
+from app.ui.view_options import load_prefs, save_prefs_later
 from app.ui.window_state import restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.rail import Rail
@@ -325,7 +326,7 @@ class MainWindow(QMainWindow):
         self.search_view.set_interpret_enabled(interpret_on)
         self.search_view.set_view_preferences(load_prefs(store, RESULTS_PREFS_KEY))
         self.search_view.view_preferences_changed.connect(
-            lambda prefs: save_prefs(self._store, RESULTS_PREFS_KEY, prefs))
+            lambda prefs: save_prefs_later(self._store, RESULTS_PREFS_KEY, prefs))
 
         # **The window watches for a run it did not start.** `app.cli index` is
         # a separate process since the run lock was split from the window lock,
@@ -1662,10 +1663,10 @@ class MainWindow(QMainWindow):
         A move or a resize fires this on every pixel, so it goes to a worker
         rather than fsyncing the database inside a drag.
         """
-        store = self._store
-        run(QThreadPool.globalInstance(),
-            CallableWorker(lambda: store.set_states(dict(values or {})),
-                           component="ui.log.window"))
+        # The ordered state writer rather than the global pool: a drag queues
+        # dozens of these, and on a pool with several threads an earlier
+        # geometry could land after the last one (bug 3a, `state_writes`).
+        save_states(self._store, dict(values or {}), component="ui.log.window")
 
     def _forget_log_window(self) -> None:
         """It was closed. Let it go, so the next pop-out builds a fresh one."""
@@ -1768,7 +1769,8 @@ class MainWindow(QMainWindow):
     def _motion_changed(self, on: bool) -> None:
         """§5c: one keyed upsert, then every preview pane hears about it."""
         self._motion = bool(on)
-        self._store.set_state("ui:motion", "on" if on else "off")
+        save_state(self._store, "ui:motion", "on" if on else "off",
+                   component="ui.motion")
         self._apply_motion()
 
     def _preview_panes(self) -> list:
@@ -1795,9 +1797,14 @@ class MainWindow(QMainWindow):
 
     def _remember_page(self, index: int) -> None:
         """§2f: one keyed upsert, the same path `ui:theme` takes."""
+        # **Queued, never waited for (bug 3a).** A synchronous `set_state` here
+        # took the store's write lock on the UI thread - the lock the indexer
+        # holds for every batch - so during a run each click on the rail froze
+        # the window until the indexer's transaction committed.
+        # `test_page_switch_never_waits.py` holds that lock and switches page.
         title = self.rail.tabText(index)
         if title:
-            self._store.set_state("ui:page", title)
+            save_state(self._store, "ui:page", title, component="ui.page")
 
     def _restore_last_page(self) -> None:
         """§2f: read post-construction (M13), and only if the page exists."""
@@ -2173,6 +2180,11 @@ class MainWindow(QMainWindow):
         # matching decode in `__init__`.
         import base64
         geometry_b64 = base64.b64encode(save_window_state(self)).decode("ascii")
+        # **Synchronous on purpose - the one UI-thread store write allowed**
+        # (`test_ui_never_blocks.KEYED_WRITE_ALLOWED_IN`). The window is about
+        # to hide and there is no event loop left to hand a result back to.
+        # Every write queued earlier through `state_writes` is drained in
+        # `_drain_workers` below, before the store closes.
         self._store.set_states({"ui:window_geometry": geometry_b64})
 
         # §3b: Hide the window first (perceived instant close). User sees the
@@ -2294,6 +2306,13 @@ class MainWindow(QMainWindow):
         if index_view is not None:
             pools.append((index_view.pool, self.INDEX_SHUTDOWN_GRACE_MS,
                           "index run "))
+        # **Queued state writes last** (bug 3a): the page, the theme, a setting
+        # changed a moment ago - each waits on the write lock, which an index
+        # batch may hold until the run above has stopped. Draining them after
+        # it gives them the best chance to land before the store closes, and
+        # the grace keeps a wedged lock from holding the exit hostage.
+        pools.append((state_write_pool(), self.SHUTDOWN_GRACE_MS,
+                      "state write "))
 
         for pool, grace_ms, what in pools:
             deadline = QDeadlineTimer(grace_ms)
