@@ -131,16 +131,22 @@ def timed_notices(stats: Any) -> list[str]:
     return shown
 
 
-def console_safe(line: str) -> str:
+def console_safe(line: str, encoding: Optional[str] = None) -> str:
     """A line the Windows console cannot choke on. Non-negotiable #8's half.
 
     The phase words carry an ellipsis and some notices a dash; on a console
     left at a legacy code page either one raises `UnicodeEncodeError` in the
-    middle of a run. The common punctuation becomes its ASCII look-alike and
-    anything else that is not ASCII - a name with an accent in it - becomes
-    `?`, which loses a letter rather than the run's output.
+    middle of a run. The common punctuation always becomes its ASCII
+    look-alike, as the phase words already did. Anything else the console's
+    `encoding` cannot show - ASCII when none is given - becomes `?`, which
+    loses a letter rather than the run's output; a name with an accent in it
+    survives on any console that can show it.
     """
     text = str(line)
     for fancy, plain in _ASCII.items():
         text = text.replace(fancy, plain)
-    return text.encode("ascii", "replace").decode("ascii")
+    target = encoding or "ascii"
+    try:
+        return text.encode(target, "replace").decode(target)
+    except LookupError:
+        return text.encode("ascii", "replace").decode("ascii")
