@@ -68,8 +68,35 @@ def test_the_model_is_told_only_about_operators_that_exist():
     unpredictable and therefore useless over your own archive."""
     grammar = grammar_for_model()
     for command in COMMANDS:
+        if command.alias_of:
+            # Order 0x §6a: another spelling of a filter (`between:` is
+            # `date:`). The model is told the filter once, under its own
+            # name - see `test_a_spelling_row_stands_for_a_real_filter`.
+            assert f"{command.alias_of}:" in grammar, command.name
+            continue
         assert f"{command.name}:" in grammar
     assert "colour:" not in grammar
+
+
+def test_a_spelling_row_stands_for_a_real_filter():
+    r"""Order 0x §6a. A command with `alias_of` has a menu row of its own but
+    must mean *exactly* what it names: the same field in the parser, and the
+    same `after`/`before` for the same dates. Otherwise the model, which is
+    told only the original, and the person, who typed the spelling, would be
+    running two different searches."""
+    from app.search.query import _FIELD_ALIASES
+
+    spellings = [command for command in COMMANDS if command.alias_of]
+    assert [command.name for command in spellings] == ["between"]
+    for command in spellings:
+        target = command_for(command.alias_of)
+        assert target is not None and not target.alias_of
+        assert _FIELD_ALIASES[command.name] == _FIELD_ALIASES[target.name]
+        assert command.is_date == target.is_date
+        assert command.values == target.values
+        typed = parse_query(expand_slashes(f"/{command.name} 2017-03..2017-06"))
+        named = parse_query(expand_slashes(f"/{target.name} 2017-03..2017-06"))
+        assert (typed.after, typed.before) == (named.after, named.before)
 
 
 # -- slashes are a doorway, not a grammar ------------------------------------

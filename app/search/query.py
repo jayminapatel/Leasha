@@ -54,6 +54,10 @@ _FIELD_ALIASES = {
     "after": "after", "since": "after",
     "before": "before", "until": "before",
     "date": "date",
+    # Order 0x §6a, decision D2: `between:` is another spelling of `date:`,
+    # so it fills exactly the same `after`/`before`. What it adds is that its
+    # two ends may be joined by a word - see `join_between_words`.
+    "between": "date",
     "path": "path", "folder": "path", "dir": "path",
     "repo": "repo", "repository": "repo", "project": "repo",
     "on": "volume", "volume": "volume", "drive": "volume",
@@ -538,6 +542,70 @@ def _is_relative(value: str) -> bool:
 #: The separator between the two ends of a `date:` range.
 _RANGE = ".."
 
+#: `between:A and B` or `between:A to B`, as typed. Order 0x §6a.
+#:
+#: **Why this is a rewrite and not a second range syntax.** The operator
+#: pattern above takes one run of non-space characters as a value, so
+#: `between:2024-03-01 and 2024-06-30` would give the value `2024-03-01` and
+#: leave `and` and `2024-06-30` behind as two search words. Rather than teach
+#: the tokeniser a new shape, the words are joined back into the one shape it
+#: already reads - `between:2024-03-01..2024-06-30` - before anything else
+#: looks at the line. From there on it is `date:` in every respect.
+#:
+#: The pieces, left to right:
+#:
+#: * `head` - `between:` at the start of a word, with the `-`/`!` a negation
+#:   would carry (a negated date is reported as a problem, as `-date:` is).
+#: * `first` - one value: a quoted run, or a run of non-space characters.
+#: * `and` or `to`, in any letter case, between spaces. `AND` in capitals is
+#:   the boolean word everywhere else, but straight after `between:` the only
+#:   thing it can mean is "the other end".
+#: * `last` - one value, **but never an operator.** `between:2024 to:priya`
+#:   is a date and a recipient, and must stay that way: the negative lookahead
+#:   refuses any word that looks like `name:`. A time of day such as
+#:   `2024-03-01T10:00` still passes, because it starts with a digit.
+_BETWEEN_WORDS = re.compile(
+    r'(?<![\w-])(?P<head>[-!]?between:)'
+    r'(?P<first>"[^"]*"|[^\s"]+)'
+    r'\s+(?:and|to)\s+'
+    r'(?![A-Za-z][\w-]*:)(?P<last>"[^"]*"|[^\s"]+)',
+    re.IGNORECASE,
+)
+
+
+def join_between_words(text: str) -> str:
+    r"""`between:A and B` and `between:A to B` become `between:A..B`.
+
+    Nothing else on the line is touched, and a value that already has `..` in
+    it is left alone - `between:2017..2018 and more` is a range followed by two
+    search words, not a range with three ends.
+
+    Quoted ends stay quoted, so a time of day survives: `between:"2024-03-01
+    10:00" and "2024-03-02 09:00"` becomes one quoted value with `..` in the
+    middle, which `_parse_span` already reads.
+
+    Public because the chips under the Search box need the same answer to
+    "where does this filter end?" - see `app/ui/chips_logic.py`.
+
+    >>> join_between_words("report between:2024-03-01 and 2024-06-30")
+    'report between:2024-03-01..2024-06-30'
+    >>> join_between_words("between:2024 to:priya")
+    'between:2024 to:priya'
+    """
+    def glue(found: re.Match[str]) -> str:
+        first = found.group("first").strip('"').strip()
+        last = found.group("last").strip('"').strip()
+        if _RANGE in first or _RANGE in last:
+            return found.group(0)
+        joined = f"{first}{_RANGE}{last}"
+        # A space inside either end means the whole value has to be quoted,
+        # or the tokeniser would split it straight back apart.
+        if any(ch.isspace() for ch in joined):
+            joined = f'"{joined}"'
+        return f"{found.group('head')}{joined}"
+
+    return _BETWEEN_WORDS.sub(glue, str(text or ""))
+
 
 def _parse_span(value: str, *, today: Optional[date] = None) -> Optional[tuple]:
     r"""`date:`'s value as `(first, last, raw_first, raw_last)`. None if unreadable.
@@ -601,10 +669,13 @@ def _date_problem(op: str, value: str, *, today: Optional[date] = None) -> str:
     """
     text = value.strip().strip('"').strip()
     typed = f'{op}:"{text}"' if " " in text else f"{op}:{text}"
-    if op != "date" and _RANGE in text:
+    # `between:` is a spelling of `date:` (order 0x §6a), so it takes a range
+    # too and must never be told it "takes one" date.
+    ranged = op in ("date", "between")
+    if not ranged and _RANGE in text:
         spelled = f'date:"{text}"' if " " in text else f"date:{text}"
         return f"{typed} is two dates, and {op}: takes one{_DASH}for a range, try {spelled}"
-    if op == "date" and _RANGE in text:
+    if ranged and _RANGE in text:
         start, _sep, finish = (part.strip() for part in text.partition(_RANGE))
         if not start and not finish:
             return (f"{typed} has no dates in it{_DASH}try date:2017-01..2017-06, "
@@ -641,6 +712,11 @@ def _one_date_problem(typed: str, bad: str, op: str) -> str:
     if op == "date":
         return (f"{typed} isn't a date Leasha can read{_DASH}try date:2017, "
                 f"date:2017-03, date:2017-03-14 or a range, date:2017-01..2017-06")
+    if op == "between":
+        # Order 0x §6a. The examples are the forms `/between` is for - two
+        # ends joined by "and" or "to" - so the fix can be copied as shown.
+        return (f"{typed} isn't a date Leasha can read{_DASH}try "
+                f"between:2017-01 and 2017-06, or between:2017-03-01 to 2017-03-14")
     return (f"{typed} isn't a date Leasha can read{_DASH}try {op}:2017-03-14, "
             f"{op}:2017, {op}:2017-03-14T10:00 or {op}:30d")
 
@@ -650,7 +726,9 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     if raw is None:
         raw = ""
     original = raw
-    working = raw[:MAX_QUERY_CHARS]
+    # `between:A and B` is joined into `between:A..B` first, so the operator
+    # pattern below sees one value - see `join_between_words`. Order 0x §6a.
+    working = join_between_words(raw[:MAX_QUERY_CHARS])
 
     ext: list[str] = []
     paths: list[str] = []
@@ -843,7 +921,11 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             span = _parse_span(val, today=today)
             if span is None:
                 unknown.append(match.group(0))
-                problems.append(_date_problem("date", val, today=today))
+                # Said in the spelling that was typed, so `/between` gets a
+                # sentence about `between:` and not about a `date:` nobody
+                # wrote. `date:` itself is unchanged, word for word.
+                spelled = "between" if match.group("field").lower() == "between" else "date"
+                problems.append(_date_problem(spelled, val, today=today))
             else:
                 first, last, raw_first, raw_last = span
                 if first is not None:

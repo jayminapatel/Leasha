@@ -682,8 +682,11 @@ def value_rows(name: str, values: Sequence[Any], *, resolve: Any = None,
             count=None if plain else getattr(entry, "count", None),
             exact=True if plain else bool(getattr(entry, "exact", True)),
             noun=noun,
+            # `/between` is `/date` by another name (order 0x §6a), so its
+            # values name a period in the same words.
             hint=(resolved_period(value, today=today)
                   if getattr(command, "name", "") == "date"
+                  or getattr(command, "alias_of", "") == "date"
                   else resolved_date(value, today=today)) if is_date else "",
         ))
     return rows
