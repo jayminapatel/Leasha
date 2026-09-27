@@ -37,6 +37,11 @@ __all__ = [
 
 _log = logger.bind(component="ui.workers")
 
+#: How long an index run waits for queued UI state writes before it starts
+#: reading settings (see `IndexWorker.run`). A keyed upsert takes milliseconds;
+#: this is the ceiling for one stuck behind another process's transaction.
+SETTLED_STATE_WAIT_MS = 5_000
+
 
 #: Codes that mean "the window is closing", not "something went wrong".
 #:
@@ -417,6 +422,20 @@ class IndexWorker(QRunnable):
 
         limits = getattr(getattr(self.pipeline, "config", None), "limits", None)
         polite = bool(getattr(limits, "low_priority", True))
+        # **Settings saved a moment ago land before the run reads them.** UI
+        # state writes are queued (`app.ui.state_writes`, bug 3a), and the run
+        # reads some of them itself - the archive modes, the cloud-content
+        # folders. Change one and press Start straight away, and without this
+        # wait the run could read the value from before the change. Waited for
+        # here, on the run's own thread, so the window never waits with it;
+        # bounded, because a write stuck behind a CLI run must not hold this
+        # one forever - the run then reads what is committed, as it always did.
+        from app.ui import state_writes
+
+        if not state_writes.settle_before_run(SETTLED_STATE_WAIT_MS):
+            _log.warning("starting the index run with a settings save still queued "
+                         "after {} ms; the run reads what is already saved",
+                         SETTLED_STATE_WAIT_MS)
         try:
             with IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI):
                 # **This thread, and every thread the run starts, lowers itself
