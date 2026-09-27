@@ -17,6 +17,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Indexing is faster
+
+- Measured on the same test corpus, a medium-sized index builds in about half the time it took
+  (126 s to 66 s) and a small one about a fifth faster, with exactly the same results. The biggest
+  saving: marking a passage as ready for meaning-based search no longer re-indexes all its words.
+  Measured on Linux with a stand-in model; the figures on your own machine will differ.
+- A maximised window now comes back maximised from the tray, a second launch or a link.
+
 ### Easier to read, and nothing cut off
 
 - On a short window the page names down the left are no longer cut in half; they become icons.
