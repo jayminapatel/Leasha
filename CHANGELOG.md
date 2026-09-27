@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.28 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.29 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,19 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Getting ready for a Mac, without changing anything on Windows
+
+- Installing Leasha's requirements on a Mac no longer stops at the first Windows-only
+  package: `pywin32` and `pywinauto` now install on Windows only. Windows installs exactly
+  what it did before.
+- `doctor.py` on a Mac passes its platform check and says the one thing missing there -
+  mail from a running Outlook - instead of failing outright. On Windows it reads as before.
+- Every push is now also tested on a real Mac (GitHub's `macos-14` runner). For now that job
+  reports rather than blocks.
+- Docs: order 0x released (`docs/WORKORDER-overhaul-and-mac-ready.md`), its register row,
+  a HANDOFF note, a dated note on the Mac section of `docs/PARKED-IDEAS.md`, and
+  `docs/MAC_VERIFICATION.md`, the checklist for a first session on a real Mac.
 
 ### Leasha stays on PyQt6 - the PySide6 migration is dropped
 
