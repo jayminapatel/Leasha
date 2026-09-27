@@ -518,6 +518,12 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return payload
 
+    # Work order `dates-live-log-and-interrupted-runs` 3a. Here, on the worker,
+    # because it probes the run mutex as well as reading a row. Never raises.
+    from app.index.interrupted import read_unfinished_run
+
+    payload["unfinished"] = read_unfinished_run(store)
+
     if settings is None:
         return payload
 

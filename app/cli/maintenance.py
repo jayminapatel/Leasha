@@ -36,8 +36,15 @@ def cmd_stats(args: argparse.Namespace) -> int:
     if settings.fts_db.is_file():
         from app.storage.sqlite_store import SqliteStore
 
+        from app.index.interrupted import read_unfinished_run
+
         with SqliteStore(settings.fts_db) as store:
             info["sqlite"] = store.stats()
+            # Work order `dates-live-log-and-interrupted-runs` 3a: the same
+            # finding the Indexing page shows, for the same reason (#8).
+            unfinished = read_unfinished_run(store)
+            if unfinished:
+                info["unfinished_run"] = unfinished
 
     from app.storage.vector_store import VectorStore
 
@@ -76,6 +83,14 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(f"    generation       {sqlite_stats['generation']}")
         if sqlite_stats["skipped_by_code"]:
             print(f"    skipped          {sqlite_stats['skipped_by_code']}")
+        if info.get("unfinished_run"):
+            import textwrap
+
+            from app.ui.presenter import unfinished_run_line
+
+            print()
+            print(textwrap.fill(unfinished_run_line(info["unfinished_run"]), width=78,
+                                initial_indent="  ", subsequent_indent="  "))
     else:
         print()
         print("  Metadata store    not created yet (run: app.cli init)")

@@ -20,13 +20,13 @@ from typing import Any
 
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-from app.ui.presenter import index_summary, when_text
+from app.ui.presenter import index_summary, unfinished_run_rows, when_text
 from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
-__all__ = ["assemble_pages", "paint_run_panels", "paint_totals"]
+__all__ = ["assemble_pages", "paint_run_panels", "paint_totals", "repaint_totals"]
 
 
 def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) -> CategoryNav:
@@ -91,7 +91,15 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
 
 def paint_totals(view: Any, payload: dict) -> None:
     """Paint the index summary from a worker's payload. UI thread, no I/O."""
-    rows = index_summary(
+    # Kept, so `repaint_totals` can redraw without a second read - see there.
+    view._totals_payload = payload
+    # Work order `dates-live-log-and-interrupted-runs` 3a. First, because it
+    # is the one row that answers "what happened while I was away" - and it
+    # is dropped while any run is going, since that run is the carrying on.
+    running = getattr(view, "_worker", None) is not None or bool(
+        getattr(view, "_external", None))
+    rows = unfinished_run_rows(payload.get("unfinished"), running=running)
+    rows += index_summary(
         payload.get("stats"),
         payload.get("vectors"),
         data_path=payload.get("data_path", ""),
@@ -107,6 +115,19 @@ def paint_totals(view: Any, payload: dict) -> None:
         view.totals_shown.emit(int(stats.get("files_total", 0) or 0))
     except (AttributeError, TypeError, ValueError):
         pass
+
+
+def repaint_totals(view: Any) -> None:
+    """Redraw the summary from the last payload, with no store read.
+
+    Called as a run starts. The summary was read before the run took the lock,
+    so a "did not finish" row painted then would otherwise stay on screen for
+    the whole of the run that is carrying on - and the next read, at the end
+    of the run, is hours away. Nothing to do before the first read.
+    """
+    payload = getattr(view, "_totals_payload", None)
+    if isinstance(payload, dict):
+        paint_totals(view, payload)
 
 
 def paint_run_panels(view: Any, stats: Any) -> None:

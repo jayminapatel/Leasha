@@ -4918,7 +4918,8 @@ class Pipeline:
             "cursor:indexed": str(stats.indexed),
         })
         publish(self.store, owner=self.run_owner,
-                started_at=self._run_started_wall, stats=stats)
+                started_at=self._run_started_wall, stats=stats,
+                roots=self.config.walk.roots)
 
         # **A stop asked for by somebody else.** The Stop button in the window
         # has to work on this run even when the window did not start it, and the
