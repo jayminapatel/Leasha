@@ -323,6 +323,15 @@ class StatsRebuilder:
         from app.index.pipeline import IndexStats
 
         stats = IndexStats()
+        # **A rebuilt stats is a snapshot: plain data, no live parts.** A new
+        # IndexStats carries a live `WorkerBoard` (order 0x §3c), and
+        # `snapshot()` - which `IndexWorker` calls on every tick - would
+        # refresh `workers` from that empty board, wiping the reader lines
+        # that came across the pipe and stamping `last_activity` with the
+        # window's "now". `IndexStats.snapshot` sets the same `None` on its
+        # own copies, for the same reason.
+        if hasattr(stats, "board"):
+            stats.board = None
         data = payload if isinstance(payload, dict) else {}
         names = {spec.name for spec in dataclasses.fields(IndexStats)}
         for key, raw in data.items():
