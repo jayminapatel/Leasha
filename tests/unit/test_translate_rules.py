@@ -457,6 +457,17 @@ def test_a_typed_date_operator_wins_over_the_year_rule():
         assert set(parsed.ext) == {"msg", "eml", "pst"}
 
 
+def test_a_typed_date_that_does_not_parse_still_keeps_the_year_rule_away():
+    """Order "dates" §1d. The person asked for a date filter and mistyped it;
+    the box says what is wrong, and quietly applying "in 2017" instead would
+    answer a question they did not ask."""
+    applied = _applied("mail in 2017 date:2017-13")
+    assert not any(f.kind == "date" for f in applied.filters)
+    parsed = parse_query(applied.query)
+    assert parsed.after is None and parsed.before is None
+    assert parsed.date_problems
+
+
 def test_a_declined_filter_puts_its_words_back():
     """Removing a chip restores normal behaviour for that part, and only that
     part: the mail filter stays, and "2017" is a search word again."""

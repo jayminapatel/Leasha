@@ -661,7 +661,11 @@ def _apply(text: str, store: Any, today: date, declined: set, parse_query: Any,
 
     about_mail = (any(chosen.kind in ("type", "person") for chosen in filters)
                   or (bool(typed.ext) and set(typed.ext) <= set(_EXT_GROUPS["mail"])))
-    if len(years) == 1 and typed.after is None and typed.before is None:
+    # A typed date the parser could not read still wins: the person asked for
+    # a date filter, and quietly putting a different one in its place would
+    # answer a question they did not ask while the box says what is wrong.
+    if (len(years) == 1 and typed.after is None and typed.before is None
+            and not getattr(typed, "date_problems", ())):
         i = years[0]
         year = int(lowered[i])
         before = lowered[i - 1] if i else ""

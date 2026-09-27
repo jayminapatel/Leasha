@@ -381,6 +381,8 @@ def interpret_hint(raw: str, *, enabled: bool) -> str:
 NOTICE_KIND_SUGGESTION = "NOTICE_KIND_SUGGESTION"
 NOTICE_INTERPRET_HINT = "NOTICE_INTERPRET_HINT"
 NOTICE_FILTER_OFFER = "NOTICE_FILTER_OFFER"
+#: A date the parser could not read, said in words (order "dates" §1d).
+NOTICE_DATE_PROBLEM = "NOTICE_DATE_PROBLEM"
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,7 +458,15 @@ def window_notices(raw: str, parsed: Any = None, *,
     `type:` needs no help choosing a type, and a hint on every search is a hint
     nobody reads.
     """
+    import html
+
     found: list[Any] = []
+    # **First, because it is the one that explains a surprising list.** A
+    # date the parser could not read is a filter that is not there, and the
+    # list below it is wider than was asked for. Escaped: the bar draws rich
+    # text, and the sentence quotes whatever was typed.
+    for problem in getattr(parsed, "date_problems", ()) or ():
+        found.append(_Hint(NOTICE_DATE_PROBLEM, html.escape(str(problem), quote=False)))
     if not getattr(parsed, "ext", ()):
         word, switch = kind_suggestion(raw)
         if word:
@@ -473,6 +483,22 @@ def window_notices(raw: str, parsed: Any = None, *,
 # ---------------------------------------------------------------------------
 # Search notices
 # ---------------------------------------------------------------------------
+
+def with_date_problems(line: str, parsed: Any) -> str:
+    r"""A tab's summary line, with any unreadable date said first.
+
+    Order "dates" §1d, for the boxes whose only place for a notice is the
+    line under them - Files, Mail and Code. Here rather than in each view
+    because all three are within a few lines of the 250-line guard, and
+    because "which comes first" is a decision: the date, since a filter that
+    is silently not there is the whole explanation for the list beneath it.
+    """
+    problems = [str(p) for p in getattr(parsed, "date_problems", ()) or () if str(p)]
+    if not problems:
+        return line
+    parts = [f"\u26a0 {problem}" for problem in problems]
+    return "  ·  ".join([*parts, line] if line else parts)
+
 
 def notice_line(notices: Any) -> str:
     """One line for the notice bar, or "" when the search was healthy.

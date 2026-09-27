@@ -330,6 +330,66 @@ def test_a_time_reaches_the_sql_as_that_moment_on_the_local_clock() -> None:
     assert end - start == 59_999_999_000                  # the minute, inclusive
 
 
+# --- a mistyped date says what was wrong and what would work (§1d) ----------
+
+@pytest.mark.parametrize("raw,message", [
+    # The order's own example, word for word where it gave the words.
+    ("date:2017-13", "date:2017-13 isn't a date — there is no month 13. "
+                     "Try date:2017-12 or date:2017-01..2017-06"),
+    ("date:2017-00", "date:2017-00 isn't a date — there is no month 0. "
+                     "Try date:2017-01 or date:2017-01..2017-06"),
+    ("date:2017-02-30", "date:2017-02-30 isn't a date — February 2017 has 28 days. "
+                        "Try date:2017-02-28 or date:2017-02"),
+    ("before:2016-02-31", "before:2016-02-31 isn't a date — February 2016 has 29 days. "
+                          "Try before:2016-02-29 or before:2016-02"),
+    ("after:2017-13-05", "after:2017-13-05 isn't a date — there is no month 13. "
+                         "Try after:2017-12-05 or after:2017"),
+    ("after:2017-03-01T25:00", "after:2017-03-01T25:00 has a time that isn't on the clock "
+                               "— try after:2017-03-01T10:00; hours run from 00 to 23, "
+                               "minutes from 00 to 59"),
+    ("date:..", "date:.. has no dates in it — try date:2017-01..2017-06, "
+                "or leave one side open: date:2017.."),
+    ("date:2017..2017-13", "date:2017..2017-13 isn't a date — there is no month 13. "
+                           "Try date:2017-12 or date:2017-01..2017-06"),
+    ("after:2017-01..2017-06", "after:2017-01..2017-06 is two dates, and after: takes one "
+                               "— for a range, try date:2017-01..2017-06"),
+    ("date:soon", "date:soon isn't a date Leasha can read — try date:2017, "
+                  "date:2017-03, date:2017-03-14 or a range, date:2017-01..2017-06"),
+    ("after:nextthursday", "after:nextthursday isn't a date Leasha can read — try "
+                           "after:2017-03-14, after:2017, after:2017-03-14T10:00 or after:30d"),
+    ('before:"2017-03-01 25:00"', 'before:"2017-03-01 25:00" has a time that isn\'t on the '
+                                  "clock — try before:2017-03-01T10:00; hours run from "
+                                  "00 to 23, minutes from 00 to 59"),
+])
+def test_a_mistyped_date_says_what_was_wrong_and_what_would_work(raw: str, message: str) -> None:
+    q = parse_query(f"report {raw}", today=TODAY)
+    assert q.date_problems == (message,)
+    # Still reported the old way too, for everything that reads it: the CLI's
+    # "(ignored: ...)", `translate`'s rejection, the engine's JSON.
+    assert q.unknown_operators == (raw,)
+    assert q.terms == ("report",)
+
+
+def test_every_suggestion_a_problem_makes_is_itself_a_date_that_parses() -> None:
+    """A suggestion that does not work is a second wrong answer."""
+    import re
+
+    for raw in ("date:2017-13", "date:2017-02-30", "after:2017-13-05",
+                "after:2017-03-01T25:00", "date:..", "after:2017-01..2017-06", "date:soon"):
+        (problem,) = parse_query(raw, today=TODAY).date_problems
+        for suggestion in re.findall(r"\b(?:date|after|before):\S+", problem.split("—", 1)[1]):
+            suggestion = suggestion.rstrip(",;.") if not suggestion.endswith("..") else suggestion
+            q = parse_query(suggestion, today=TODAY)
+            assert q.unknown_operators == (), f"{raw} suggested {suggestion}, which does not parse"
+
+
+def test_a_good_date_or_a_negation_makes_no_problem() -> None:
+    """`-date:2017` is reported as not understood, as `-after:` always was -
+    it is not a mistyped date, and a date sentence about it would mislead."""
+    assert parse_query("date:2017 after:2016 before:2018", today=TODAY).date_problems == ()
+    assert parse_query("-date:2017", today=TODAY).date_problems == ()
+
+
 def test_an_unreadable_date_value_is_reported_not_searched_for() -> None:
     """It used to be no operator at all, so `date:2017-13` became the search
     terms `date` and `2017-13` and the filter silently did nothing."""

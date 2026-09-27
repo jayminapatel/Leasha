@@ -480,6 +480,7 @@ class SearchResponse:
             "search_id": self.search_id,
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
+            "date_problems": list(self.parsed.date_problems) if self.parsed else [],
             # The date range the query applied, whichever operator set it -
             # `date:2017` and `after:2017 before:2017` read the same here, so
             # a headless check sees the filter the window would have used.
