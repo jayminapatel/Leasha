@@ -209,6 +209,7 @@
     <Compile Include="app\extract\vision_caption.py" />
     <Compile Include="app\extract\xls.py" />
     <Compile Include="app\index\__init__.py" />
+    <Compile Include="app\index\activity.py" />
     <Compile Include="app\index\archives.py" />
     <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
@@ -308,6 +309,7 @@
     <Compile Include="app\ui\offline_media_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
@@ -410,6 +412,7 @@
     <Compile Include="app\ui\widgets\result_tools.py" />
     <Compile Include="app\ui\widgets\results_items.py" />
     <Compile Include="app\ui\widgets\roots_box.py" />
+    <Compile Include="app\ui\widgets\run_log.py" />
     <Compile Include="app\ui\widgets\saved_dialogs.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
     <Compile Include="app\ui\widgets\search_bar.py" />
@@ -467,6 +470,7 @@
     <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\e2e_support.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />
     <Compile Include="tests\unit\test_archive_run.py" />
@@ -734,6 +738,7 @@
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
+    <Compile Include="tests\unit\test_run_log.py" />
     <Compile Include="tests\unit\test_run_suite_processes.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
@@ -776,6 +781,7 @@
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />
+    <Compile Include="tests\unit\test_timed_notices.py" />
     <Compile Include="tests\unit\test_timeline.py" />
     <Compile Include="tests\unit\test_timeline_cli.py" />
     <Compile Include="tests\unit\test_timeline_entry_points.py" />
