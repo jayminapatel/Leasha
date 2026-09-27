@@ -1569,6 +1569,23 @@ class MainWindow(QMainWindow):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
                     retint(colours)
+        self._style_buttons(colours)
+
+    def _style_buttons(self, colours: dict) -> None:
+        """The button system (`widgets/buttons.py`, owner 2026-09-27).
+
+        Every action button on the pages built so far gets its icon, its kind
+        and its natural width - buttons already done are skipped, so running
+        this again when the late pages arrive only touches the new ones - and
+        then every button icon in every open window is redrawn in this
+        palette, because icons are pictures and never see the stylesheet.
+        """
+        from app.ui.widgets.buttons import retint_all, style_all
+
+        for page in (getattr(self, "settings_view", None),):
+            if page is not None:
+                style_all(page, only_new=True)
+        retint_all(colours)
 
     def _pin_document(self, row: Any, provider: Any = None) -> None:
         r"""Open this document in a window of its own. Workspace §2.
