@@ -34,10 +34,26 @@ __all__ = ["FlowLayout"]
 class FlowLayout(QLayout):
     """Widgets left to right, wrapping to a new line when the next will not fit."""
 
-    def __init__(self, parent: Optional[QWidget] = None, *, spacing: int = 6) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, *, spacing: int = 6,
+                 centred: bool = False, height_for_width: bool = True) -> None:
         super().__init__(parent)
         self._items: list[QLayoutItem] = []
         self._spacing = spacing
+        #: Each line centred in the width rather than starting at the left, for
+        #: a page that is itself centred - the Search page's suggested searches
+        #: sit under a centred box, and a left-aligned second line there reads
+        #: as a mistake. Off by default, so the timeline is exactly as it was.
+        self._centred = centred
+        #: Whether Qt is told this layout's height depends on its width. True
+        #: (the default, and the timeline's) is the textbook arrangement. False
+        #: is for a page that sizes the layout's widget itself - the Search
+        #: page does, because telling Qt made **every resize of the whole
+        #: window about 1 ms slower** (measured 2026-09-27: 2.0 to 3.0 ms
+        #: median), with Qt re-asking every layout above it, for a row of four
+        #: buttons whose height changes only when a line is added or taken away.
+        self._height_for_width = height_for_width
+        #: `(width, height)` from the last `heightForWidth`, or None.
+        self._hfw: Optional[tuple[int, int]] = None
         self.setContentsMargins(0, 0, 0, 0)
 
     # -- the QLayout contract: Qt calls these, never this module's own code ----
@@ -59,10 +75,21 @@ class FlowLayout(QLayout):
         return Qt.Orientation(0)
 
     def hasHeightForWidth(self) -> bool:                      # noqa: N802 - Qt's name
-        return True
+        return self._height_for_width
 
     def heightForWidth(self, width: int) -> int:              # noqa: N802 - Qt's name
-        return self._arrange(QRect(0, 0, width, 0), place=False)
+        # Qt asks this several times per resize with the same width; the answer
+        # only changes when the width or the widgets do (`invalidate`).
+        cached = self._hfw
+        if cached is not None and cached[0] == width:
+            return cached[1]
+        height = self._arrange(QRect(0, 0, width, 0), place=False)
+        self._hfw = (width, height)
+        return height
+
+    def invalidate(self) -> None:
+        self._hfw = None
+        super().invalidate()
 
     def setGeometry(self, rect: QRect) -> None:               # noqa: N802 - Qt's name
         super().setGeometry(rect)
@@ -92,7 +119,8 @@ class FlowLayout(QLayout):
         """Walk the widgets as if writing a line of text; return the height used.
 
         With `place` False it only measures (for `heightForWidth`); with it
-        True it also moves each widget to where it belongs. Each widget is
+        True it also moves each widget to where it belongs (and, when `centred`,
+        shifts each line right by half the room it leaves). Each widget is
         centred on its line, so a label beside a taller box sits level with the
         box's text rather than at its top edge.
         """
@@ -116,6 +144,10 @@ class FlowLayout(QLayout):
             height = max((hint.height() for _item, hint in line), default=0)
             if place:
                 x = area.x()
+                if self._centred:
+                    used = sum(hint.width() for _item, hint in line)
+                    used += self._spacing * max(0, len(line) - 1)
+                    x += max(0, (area.width() - used) // 2)
                 for item, hint in line:
                     item.setGeometry(QRect(QPoint(x, y + (height - hint.height()) // 2), hint))
                     x += hint.width() + self._spacing
