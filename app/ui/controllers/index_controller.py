@@ -671,6 +671,16 @@ class IndexController(QObject):
             self._w.indexing_view.start_button.setEnabled(True)
             return
 
+        # Work order 0x §2: the same run, in a child process, when the
+        # "Index in a separate process" switch is on. Everything below this
+        # line is the in-process path, unchanged.
+        if bool(getattr(self._w._settings, "index_separate_process", False)):
+            self._w.indexing_view.start(
+                self._child_run(tuned, chosen, roots, recheck_archives),
+                total_estimate=self._w._scan_total(chosen))
+            repaint_totals(self._w.indexing_view)
+            return
+
         limits = replace(limits_from_settings(self._w._settings),
                          workers=tuned.workers)
 
@@ -757,6 +767,50 @@ class IndexController(QObject):
         self._w.indexing_view.start(pipeline, total_estimate=self._w._scan_total(chosen))
         # 0w 3a: this run is the carrying on, so "did not finish" comes down now.
         repaint_totals(self._w.indexing_view)
+
+    def _child_run(self, tuned: Any, chosen: list[str], roots: Optional[list[str]],
+                   recheck_archives: bool) -> Any:
+        r"""A `ChildIndexRun` carrying what the in-process `Pipeline` would get.
+
+        Each in-process choice above has its counterpart here, so switching
+        between the two paths changes *where* the run happens and nothing
+        about *what* it does:
+
+        * the folders chosen, and `--no-prune` for a run over some of them;
+        * the cloud-content folders, only when the master switch is on;
+        * "Rescan archived folders now";
+        * the worker count `resolve_for_run` just decided;
+        * **every setting, from this window's live copy** (`settings_
+          environment`), because the Tuning shelf changes that copy the moment
+          a control moves and the in-process run has always read it;
+        * the `.env` it came from, for anything else the child reads.
+
+        Builds a command and an environment and touches nothing on disk, so
+        it is safe here on the window's thread; the child is started by
+        `IndexWorker`, on the page's own run thread.
+        """
+        import os
+
+        from app.core.config import project_root
+        from app.index.child_run import (
+            CHILD_STDERR_NAME, ChildIndexRun, child_command, settings_environment,
+        )
+
+        settings = self._w._settings
+        cloud = (self._w.settings_view.current_cloud_content_roots()
+                 if self._w.settings_view.cloud.isChecked() else ())
+        argv = child_command(
+            chosen, env_file=getattr(settings, "env_file", None),
+            prune=roots is None, recheck_archives=recheck_archives,
+            workers=int(getattr(tuned, "workers", 0) or 0),
+            cloud_content_keys=cloud)
+        env = dict(os.environ)
+        env.update(settings_environment(settings))
+        log_path = getattr(settings, "log_path", None)
+        return ChildIndexRun(
+            argv, env=env, cwd=project_root(),
+            stderr_path=(Path(log_path) / CHILD_STDERR_NAME) if log_path else None,
+            low_priority=bool(getattr(settings, "index_low_priority", True)))
 
     def _index_resolve_failed(self, error: Any) -> None:
         """`resolve_for_run` does not raise by contract - see its own docstring -
