@@ -162,6 +162,15 @@ class MiniSearch(QFrame):
         # `keyPressEvent` ever sees it, so intercepting it here - on the box
         # itself, via an event filter - is the one place that works.
         self.box.installEventFilter(self)
+        # **The same `/` menu as every other box** - order "dates" §1c asks
+        # for `/date` here, and this box had no menu at all, so `/after`
+        # was typed blind and then searched for as the word "after". The
+        # index's filters only: this box runs one engine search and never
+        # the repository half, so the git switches would be rows that do
+        # nothing. See `_take` for the one thing the menu changes here.
+        from app.ui.widgets.command_popup import attach_to
+
+        self._popup = attach_to(self.box, store=getattr(engine, "store", None))
 
         self.list = QListWidget()
         self.list.setAccessibleName("Results")
@@ -251,6 +260,7 @@ class MiniSearch(QFrame):
         """Gone, and holding nothing. Escape, focus loss, or a chosen result."""
         self._timer.stop()
         self._generation += 1                    # anything in flight is stale
+        self._popup.popup().hide()               # a menu outliving its box
         self.hide()
         self.box.clear()
         self.list.clear()
@@ -301,7 +311,11 @@ class MiniSearch(QFrame):
         """One tier, on a worker, carrying a generation. Never raises."""
         from app.ui.workers import CallableWorker, run
 
-        query = self.box.text().strip()
+        # `/date 2017` becomes `date:2017` here, as it does in the Search tab
+        # and the CLI - the parser has never known about slashes.
+        from app.search.commands import expand_slashes
+
+        query = expand_slashes(self.box.text().strip())
         if not query or self._engine is None:
             self.list.clear()
             self._rows = []
@@ -469,7 +483,15 @@ class MiniSearch(QFrame):
         is the way out of a box too small for the question being asked, and it
         is better than doing nothing: somebody who pressed Enter meant
         something to happen.
+
+        **Not while the `/` menu is open.** Enter on a menu row reaches the
+        box as `returnPressed` *before* the row is inserted - checked with
+        `QTest` against a real `QCompleter` - so choosing `/date` with Enter
+        opened whatever result was highlighted and closed the box on the
+        person mid-sentence. The menu has already taken that Enter.
         """
+        if self._popup.popup().isVisible():
+            return
         row = self.list.currentRow()
         if 0 <= row < len(self._rows):
             chosen = self._rows[row]

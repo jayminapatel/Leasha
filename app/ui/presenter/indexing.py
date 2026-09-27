@@ -81,6 +81,38 @@ def group_skips(
 # feel right" is the only symptom anybody can report.
 # ---------------------------------------------------------------------------
 
+#: What the detail line says while the run is in a stretch it cannot count,
+#: keyed by `pipeline.PHASE_*`. A phase absent from here - `reading`, or none
+#: yet - is drawn from the counts as usual.
+#:
+#: **Every one of these used to be a bar that did not move.** Loading the
+#: model, catching up on a previous run, building the vector index at the end:
+#: minutes each on a large index, with no tick at all, so the page showed
+#: whatever it showed last and the run was taken for a hang. A busy bar with a
+#: sentence beside it is the honest picture - something is happening, this is
+#: what, and nobody can say how long.
+PHASE_WORDS: dict[str, str] = {
+    "model": "Getting the search model ready…",
+    "word_index_check": "Checking the word index…",
+    "catch_up": "Finishing what the last run left undone…",
+    "planning": "Working out which folders to read…",
+    "media": "Reading videos and recordings…",
+    "tidying": "Tidying up the index…",
+    "vector_index": "Organising the index so searches stay quick…",
+    "word_index": "Tidying the word index so searches stay quick…",
+}
+
+#: Said the moment Start is pressed, before any run exists. The window works
+#: out the tuning numbers first, which on a cold cache means asking Windows
+#: about the disk and the graphics card - seconds, sometimes more.
+PREPARING_WORDS = "Getting ready to index…"
+
+
+def phase_words(stats: Any) -> str:
+    """The sentence for the phase `stats` is in, or "" when it is counting."""
+    return PHASE_WORDS.get(str(getattr(stats, "phase", "") or ""), "")
+
+
 def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     """`(value, maximum)` for the bar, given a progress tick.
 
@@ -97,7 +129,12 @@ def progress_for(stats: Any, *, total_estimate: int = 0) -> tuple[int, int]:
     goes. Honest, and it moves - unlike a fixed total nobody can know before the
     walk completes, or an indeterminate bar that spins forever and reads as
     stuck.
+
+    A phase with nothing to count (`phase_words`) is always indeterminate:
+    whatever the numbers say, none of them are moving.
     """
+    if phase_words(stats):
+        return 0, 0
     done = (
         int(getattr(stats, "indexed", 0) or 0)
         + int(getattr(stats, "unchanged", 0) or 0)
@@ -257,6 +294,17 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
             "it will continue on its own.",
         )
 
+    headline = (
+        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
+        f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
+        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
+    )
+    # Counts stay in the headline - they are still true - and the detail says
+    # what is happening instead of a rate that is not being earned.
+    doing = phase_words(stats)
+    if doing:
+        return headline, doing
+
     done, _total = progress_for(stats, total_estimate=total_estimate)
 
     # **The rate over the last quarter of an hour, not since the start.**
@@ -278,12 +326,6 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
         eta = format_eta(max(0, total_estimate - done), files_per_minute=rate)
     else:
         eta = "time remaining unknown - run `app.cli scan` for a real estimate"
-
-    headline = (
-        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
-        f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
-        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
-    )
 
     current = getattr(stats, "current", "") or ""
     # **Say when it is OCR.** A run reading text moves at hundreds of files a
@@ -329,6 +371,37 @@ def finished_text(stats: Any) -> tuple[str, str]:
         f"{getattr(stats, 'mb_per_minute', 0) or 0:,.1f} MB/min"
     )
     return headline, detail
+
+
+def resting_headline(stats: Optional[Mapping[str, Any]]) -> str:
+    r"""The Indexing page's headline before any run has been shown, or "".
+
+    **Why this exists** (order 0x section 9, review finding 10, 2026-09-27).
+    The page opens with the headline "Nothing indexed yet." and only a run -
+    starting, finishing, failing - ever replaced it. So a person who opened
+    Indexing on an index of seventeen documents, with no run this session, read
+    "Nothing indexed yet." directly above "Documents 17": the page answering
+    its own first question two ways.
+
+    **No new words.** When the index holds documents this returns the sentence
+    the Search page already says about the same count ("17 documents ready to
+    search."), taken from `first_contact.greeting` itself rather than copied,
+    so the two pages cannot drift apart. It says what is true without claiming
+    anything about freshness - a run may well be owed.
+
+    Returns "" for an empty or unreadable index, which the caller reads as
+    "keep the starting headline" - that one is still right then.
+    """
+    # Imported here, not at the top: `first_contact` is a plain-Python module
+    # beside the presenter and imports no Qt, but nothing else in this package
+    # depends on it, and this keeps that dependency to the one line that needs it.
+    from app.ui.first_contact import greeting
+
+    try:
+        documents = int((stats or {}).get("files_total", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        return ""
+    return greeting(documents) if documents > 0 else ""
 
 
 #: Entities loaded into the Graph panel's table. Above this the table itself

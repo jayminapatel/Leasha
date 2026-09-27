@@ -273,7 +273,15 @@ GIT_COMMANDS: tuple[Command, ...] = (
        "/history", "no value needed - this is the slow one", "◷", ("yes",)),
     _c("commit", ("sha", "commits"), "Search one commit, or several",
        "/commit a1b2c3d", "a commit id, or several: a1b2c3d,b2c3d4e", "◆", source="commit", scoped_by=("repo",)),
-    _c("range", ("between",), "Search between two commits or tags",
+    # **2026-09-27, order 0x §6a (decision D2): `between` is no longer a
+    # spelling of `/range`.** It is `/date` under another name now, in every
+    # box including this one. Left here, it would have done two wrong things
+    # at once: `widgets/code_commands._merged` drops a git switch whose
+    # spelling the index already claims, so `/range` itself would have
+    # vanished from the Code and Search menus; and `presenter.code_route`
+    # would have sent `/between 2024-03 and 2024-06` to git as a commit
+    # range. `/range v5.0..v6.0` is unchanged.
+    _c("range", (), "Search between two commits or tags",
        "/range v5.0..v6.0", "a..b - commits or tags, either way round", "↔"),
     _c("tag", ("release", "tags"), "Search one tag or release",
        "/tag v5.1", "a tag name, or several: v5.0,v6.0", "⌂", source="tag", scoped_by=("repo",)),

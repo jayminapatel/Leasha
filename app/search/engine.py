@@ -459,6 +459,14 @@ class SearchResponse:
     #: message string to decide anything.
     notices: tuple[Notice, ...] = ()
 
+    #: Filters the window read out of the typed sentence and applied before
+    #: calling `search` ("mail from 2017" runs as `type:mail` and a 2017
+    #: range). **Never filled here** - the engine does not read sentences, and
+    #: must not (see `test_the_search_engine_cannot_reach_the_translator`). The
+    #: search worker sets it so the chips travel with the results they
+    #: describe. Opaque to this layer.
+    applied: tuple = ()
+
     def __len__(self) -> int:
         return len(self.results)
 
@@ -472,6 +480,14 @@ class SearchResponse:
             "search_id": self.search_id,
             "timings_ms": {k: round(v, 1) for k, v in self.timings.items()},
             "unknown_operators": list(self.parsed.unknown_operators) if self.parsed else [],
+            "date_problems": list(self.parsed.date_problems) if self.parsed else [],
+            # The date range the query applied, whichever operator set it -
+            # `date:2017` and `after:2017 before:2017` read the same here, so
+            # a headless check sees the filter the window would have used.
+            "dates": {
+                "after": _iso(self.parsed.after) if self.parsed else None,
+                "before": _iso(self.parsed.before) if self.parsed else None,
+            },
             "unmatched_terms": list(self.unmatched),
             "spelling": (self.spelling.suggestion
                          if self.spelling is not None else None),
@@ -480,6 +496,10 @@ class SearchResponse:
             "notices": [notice.as_dict() for notice in self.notices],
             "results": [result.as_dict() for result in self.results],
         }
+
+
+def _iso(value: Any) -> Optional[str]:
+    return value.isoformat() if value is not None else None
 
 
 class SearchEngine:

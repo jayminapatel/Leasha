@@ -34,10 +34,11 @@ import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.base import Document, SourceKind, looks_locked, with_closing_warning
 from app.extract.email_files import build_email_document, html_to_text
 
@@ -237,10 +238,26 @@ def _open_error(path: Path, exc: BaseException) -> AppErrorException:
     ))
 
 
+#: `Document.meta` keys for the folder cursor. Work order
+#: `dates-live-log-and-interrupted-runs` 3b; the pipeline reads them by these
+#: names (`app/index/pipeline.py`), so they are spelt once, here.
+#:
+#: `pst_folder` is the folder's place in `_walk_folders`' depth-first order,
+#: counting every folder including the skipped ones - the one numbering that is
+#: the same on every read of the same bytes, whatever the settings say.
+FOLDER_META_KEY = "pst_folder"
+#: How many messages had been read before this document's folder began, so a
+#: resumed read can still say "(412 were)" about the whole archive.
+READ_BEFORE_META_KEY = "pst_read_before"
+
+
 def read_archive(
     path: Path,
     *,
     skip_folders: Optional[frozenset[str]] = None,
+    resume_from: int = 0,
+    seen_attachments: Iterable[str] = (),
+    read_before: int = 0,
 ) -> Iterator[Document]:
     """Every message in a `.pst`, as Documents. No Outlook involved.
 
@@ -253,7 +270,44 @@ def read_archive(
     used to be a known gap (names only, no content, "a job of its own" left to
     the Outlook backend); `pypff.attachment.read_buffer` turned out to make
     that job small enough to do here.
+
+    **Resuming at a folder** (work order `dates-live-log-and-interrupted-runs`
+    3b). `resume_from` skips every folder numbered below it without reading a
+    message in it - the folder tree is still walked, because that walk is the
+    numbering. The two things a folder number cannot carry come back with it:
+    `seen_attachments`, the content hashes of attachments already read, so an
+    attachment whose first copy was in a skipped folder is still deduplicated
+    exactly as an uninterrupted read would; and `read_before`, so the partial-
+    read summary still counts the whole archive.
+
+    Every document carries `FOLDER_META_KEY` and `READ_BEFORE_META_KEY` for
+    the pipeline to persist - **until anything fails to read.** From then on
+    they are left off, so no cursor can move past the first failure: a resumed
+    read always walks back over it, counts it again, and `ERR_PST_PARTIAL`
+    stays true of the whole archive rather than only of the part read last.
+    A damaged archive therefore resumes only from before its first damage,
+    which costs a re-parse of what follows it and nothing else.
     """
+    # Work order 0x section 3b. The frame is opened before the file is, so a
+    # slow open of a 20GB archive already reads "opening Archive2019.pst"
+    # rather than nothing. `_read_archive` holds what used to be this body.
+    with progress.enter("pst", path.name, unit="message",
+                        stage=progress.STAGE_OPENING) as frame:
+        yield from _read_archive(
+            path, frame, skip_folders=skip_folders, resume_from=resume_from,
+            seen_attachments=seen_attachments, read_before=read_before)
+
+
+def _read_archive(
+    path: Path,
+    frame: progress.Frame,
+    *,
+    skip_folders: Optional[frozenset[str]],
+    resume_from: int,
+    seen_attachments: Iterable[str],
+    read_before: int,
+) -> Iterator[Document]:
+    """The body of `read_archive`, inside its progress frame. See there."""
     from app.extract.email_pst import DEFAULT_SKIP_FOLDERS
 
     skip = skip_folders if skip_folders is not None else DEFAULT_SKIP_FOLDERS
@@ -276,6 +330,7 @@ def read_archive(
         )) from exc
 
     report = _Report()
+    report.read = max(0, int(read_before or 0))
 
     def closing() -> Optional[AppError]:
         if not report.failed:
@@ -297,11 +352,13 @@ def read_archive(
     # eight times inside one `.pst` produces one extraction and eight
     # `content_hash`-identical references, not eight embeddings of the same
     # bytes.
-    seen_hashes: set[str] = set()
+    seen_hashes: set[str] = set(seen_attachments or ())
 
     try:
         yield from with_closing_warning(
-            _messages(root, path, store_name, skip, report, seen_hashes), closing)
+            _messages(root, path, store_name, skip, report, seen_hashes,
+                      resume_from=max(0, int(resume_from or 0)),
+                      frame=frame), closing)
     finally:
         try:
             archive.close()
@@ -309,9 +366,31 @@ def read_archive(
             pass
 
 
+def display_folder(folder_path: str) -> str:
+    """A folder path as a person would say it: `Inbox/Projects`.
+
+    `_walk_folders` starts every path at the archive's root folder, which has
+    no name a person has ever seen (libpff reports it empty, so it reads
+    "(unnamed)"), and Outlook puts everything under a folder called "Top of
+    Personal Folders" or "Top of Outlook data file". Neither is where anybody
+    thinks their mail is, so both are left off for the progress line only -
+    `folder_path` in `Document.meta` is unchanged.
+
+    (UNCONFIRMED against real archives: the "Top of ..." names are the ones
+    Outlook's own folder list shows; a localised Outlook may use other words,
+    in which case they simply stay in the displayed path.)
+    """
+    parts = [part for part in str(folder_path or "").split("/") if part]
+    parts = parts[1:]                            # the root folder
+    if parts and parts[0].strip().lower().startswith("top of "):
+        parts = parts[1:]
+    return "/".join(parts)
+
+
 def _messages(
     root: Any, path: Path, store_name: str, skip: frozenset[str], report: _Report,
-    seen_hashes: set[str],
+    seen_hashes: set[str], *, resume_from: int = 0,
+    frame: Optional[progress.Frame] = None,
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -319,19 +398,41 @@ def _messages(
     fetched fine but broke `_to_document` used to raise out of the generator and
     end the archive - every message after it never read. One bad message now
     costs one message.
+
+    `resume_from` and the two cursor keys: see `read_archive`.
+
+    **Progress (work order 0x section 3b).** `frame` is told the folder, and
+    "message n of m" *within that folder*. The per-folder count is the one
+    libpff already hands over (`get_number_of_sub_messages`, called here
+    anyway to drive the loop), so it costs nothing. A whole-archive total
+    would need every folder visited first - a second walk of a file that can
+    be tens of gigabytes - so there is none, on purpose.
     """
-    for folder_path, folder in _walk_folders(root, report=report):
+    if frame is None:
+        frame = progress.Frame("pst", path.name, unit="message")
+    for ordinal, (folder_path, folder) in enumerate(_walk_folders(root, report=report)):
+        if ordinal < resume_from:
+            continue
         leaf = folder_path.rsplit("/", 1)[-1].strip().lower()
         if leaf in skip:
             continue
+        read_before = report.read
 
+        # Once per folder, never per message: a string split, then plain stores.
+        frame.stage = progress.STAGE_FOLDER
+        frame.where = display_folder(folder_path)
+        frame.n = 0
+        frame.total = None
         try:
             count = folder.get_number_of_sub_messages()
         except Exception as exc:                 # noqa: BLE001
             report.folder_failed(folder_path, exc)
             continue
+        frame.total = count
+        frame.stage = progress.STAGE_MESSAGES
 
         for index in range(count):
+            frame.n = index + 1
             try:
                 message = folder.get_sub_message(index)
                 document = _to_document(message, path, store_name, folder_path)
@@ -341,6 +442,7 @@ def _messages(
 
             if document is not None:
                 report.read += 1
+                _mark_folder(document, report, ordinal, read_before)
                 yield document
                 # **After the message, not instead of it.** One bad
                 # attachment must never cost the message itself - `_to_
@@ -348,10 +450,25 @@ def _messages(
                 # runs, so the worst an attachment failure does now is one
                 # missing attachment, logged and counted in `report.
                 # attachments`.
-                yield from _attachment_documents(
+                for attached in _attachment_documents(
                     message, document.virtual_path or f"pst://{store_name}/{folder_path}/{index}",
-                    seen_hashes, report,
-                )
+                    seen_hashes, report, frame=frame,
+                ):
+                    _mark_folder(attached, report, ordinal, read_before)
+                    yield attached
+
+
+def _mark_folder(document: Document, report: _Report, ordinal: int, read_before: int) -> None:
+    """Stamp the folder cursor on a document - unless something has failed.
+
+    See `read_archive` for why a failure freezes the cursor where it is. An
+    attachment that failed is not a failure of the archive (`report.failed`
+    ignores it, as `ERR_PST_PARTIAL` always has), so it freezes nothing.
+    """
+    if report.failed:
+        return
+    document.meta[FOLDER_META_KEY] = ordinal
+    document.meta[READ_BEFORE_META_KEY] = read_before
 
 
 def _to_document(
@@ -497,6 +614,7 @@ def _hash_bytes(data: bytes) -> str:
 
 def _attachment_documents(
     message: Any, message_key: str, seen_hashes: set[str], report: _Report,
+    *, frame: Optional[progress.Frame] = None,
 ) -> Iterator[Document]:
     """Extract each attachment through the normal registry, deduplicated.
 
@@ -513,13 +631,36 @@ def _attachment_documents(
     and `meta` shape - so Layer 3 cannot tell, and should not have to,
     which backend produced an attachment.
     """
-    from app.extract.base import extract as extract_path
-    from app.extract.email_pst import MAX_ATTACHMENT_BYTES
 
     try:
         count = message.get_number_of_attachments()
     except Exception:                            # noqa: BLE001
         return
+    if not count:
+        return
+
+    # Work order 0x section 3b: while attachments are read the page says so,
+    # and names the one being read - a 60MB attachment is exactly the kind of
+    # thing that makes one message take minutes. Put back afterwards however
+    # this ends, so the next message is not shown as "extracting attachments".
+    if frame is not None:
+        frame.stage = progress.STAGE_ATTACHMENTS
+    try:
+        yield from _each_attachment(message, message_key, seen_hashes, report,
+                                    count, frame)
+    finally:
+        if frame is not None:
+            frame.stage = progress.STAGE_MESSAGES
+            frame.detail = ""
+
+
+def _each_attachment(
+    message: Any, message_key: str, seen_hashes: set[str], report: _Report,
+    count: int, frame: Optional[progress.Frame],
+) -> Iterator[Document]:
+    """The attachment loop of `_attachment_documents`. See there."""
+    from app.extract.base import extract as extract_path
+    from app.extract.email_pst import MAX_ATTACHMENT_BYTES
 
     for index in range(count):
         try:
@@ -529,6 +670,8 @@ def _attachment_documents(
             continue
 
         name = _attachment_name(attachment, index)
+        if frame is not None:
+            frame.detail = name
 
         try:
             size = int(attachment.get_size())

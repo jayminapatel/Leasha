@@ -315,19 +315,39 @@ def test_a_filter_that_empties_the_page_is_let_go_of_and_named(journeys, qtbot):
     assert any("pdf" in label for label in view.chips.labels())
 
 
-def test_a_sentence_with_a_known_name_offers_that_name_as_a_filter(journeys, qtbot):
-    r"""3a/3b. "the email Dave sent about the school trip": Dave is a sender in
-    the index, so the page offers `from dave.smith@acme.com` - beside what she
-    typed, never instead of it. Clicking the offer adds the filter and keeps
-    her words."""
+def test_a_sentence_with_a_known_name_applies_that_name_as_a_filter(journeys, qtbot):
+    r"""3a, as the owner decided on 2026-09-27: recognised filters are
+    *applied*, not only offered. "the email Dave sent about the school trip":
+    Dave is a sender in the index and "email" means mail, so the search runs
+    as `from dave.smith@acme.com` and mail, each shown as a chip - and the box
+    still says exactly what she typed.
+
+    Removing the person chip puts "Dave" back as a word and the filter
+    returns to being an offer on the bar; clicking the offer adds the filter
+    to the box, as it always did. (This scenario used to assert the offer
+    alone - order 0c §3b's "chips, not rewrites", reversed by that decision.)
+    """
+    from PyQt6.QtWidgets import QToolButton
+
     app, window, *_ = journeys
     view = window.search_view
     sentence = "the email Dave sent about the school trip"
     _type(qtbot, app, view, sentence)
 
-    _wait_for_bar(qtbot, view, "dave.smith@acme.com")
+    qtbot.waitUntil(lambda: "from dave.smith@acme.com" in view.chips.labels(), timeout=4000)
+    qtbot.waitUntil(lambda: "dad-school-trip.eml" in _names(view), timeout=4000)
+    assert "mail" in view.chips.labels()
+    assert view.input.text() == sentence
+    assert "apply:from:" not in _bar(view)          # applied, so not offered too
+
+    person = next(button for button in view.chips.findChildren(QToolButton, "chip")
+                  if button.text().startswith("from dave.smith@acme.com"))
+    qtbot.mouseClick(person, Qt.MouseButton.LeftButton)
+    gui_pump(app)
+    assert "from dave.smith@acme.com" not in view.chips.labels()
     assert view.input.text() == sentence
 
+    _wait_for_bar(qtbot, view, "dave.smith@acme.com")
     # A QLabel link cannot be hit by coordinate without its layout, so the
     # click is the label's own `linkActivated` - the signal Qt emits for one.
     view.notices.label.linkActivated.emit(_offer_href(view))
@@ -399,6 +419,32 @@ def test_clearing_the_box_offers_what_she_searched_for_last(journeys, qtbot):
                    for b in view.home.recent.findChildren(QToolButton))
 
     qtbot.waitUntil(offered, timeout=4000)
+
+
+def test_the_idle_timer_runs_the_full_search_even_when_it_fires_early(journeys, monkeypatch):
+    r"""Why the scenarios above failed about one run in two: Qt's default timers
+    may fire up to 5% early, so the 400ms idle timer went off at 380-399ms,
+    the measured gap read "not idle yet", and only the keyword glance ran -
+    no spelling help, no notices, nothing in her recent searches. Here the
+    timer fires the instant after her last key, which is as early as it gets.
+    """
+    import time
+
+    app, window, *_ = journeys
+    view = window.search_view
+    tiers: list[str] = []
+    monkeypatch.setattr(view, "_dispatch", tiers.append)
+    view._interim_timer.stop()
+    view._full_timer.stop()
+    view.input.blockSignals(True)
+    try:
+        view.input.setText("rivers")
+    finally:
+        view.input.blockSignals(False)
+    view._last_keystroke = time.monotonic()
+
+    view._full_timer.timeout.emit()
+    assert tiers == ["full"]
 
 
 def test_every_scenario_here_ran_without_a_model(journeys):

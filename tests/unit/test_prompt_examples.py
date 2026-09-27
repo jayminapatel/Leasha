@@ -122,7 +122,9 @@ def test_every_operator_is_still_named():
     stops working."""
     text = prompt()
     for command in COMMANDS:
-        assert f"{command.name}:" in text
+        # Order 0x §6a: a spelling row (`between:`) is its filter's other
+        # name, and the filter it names is what must be here.
+        assert f"{command.alias_of or command.name}:" in text
 
 
 # ---------------------------------------------------------------------------

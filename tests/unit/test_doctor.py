@@ -91,7 +91,9 @@ def test_check_file_formats_passes_the_counts_through(
     real `.env`) - separate from `load_settings`, which `_pending_counts_by_ext`
     uses. Both have to point at the fixture for this one test to mean anything.
     """
-    _store_with(data_path, [("plan.dwg", "dwg", FileStatus.NAME_ONLY)] * 5)
+    # Five *different* paths: `upsert_file` is keyed on the path, so five
+    # copies of one path were one row, and the detail said "1 .dwg file".
+    _store_with(data_path, [(f"plan-{n}.dwg", "dwg", FileStatus.NAME_ONLY) for n in range(5)])
 
     real_env_path = doctor.env_path
     monkeypatch.setattr(
@@ -107,3 +109,34 @@ def test_check_file_formats_passes_the_counts_through(
     if not dwg_rows:
         pytest.skip("no .dwg converter binary route is blocked on this machine")
     assert "5" in dwg_rows[0].detail
+
+
+# --- order 0x section 0d: the platform check on each platform ------------------
+#
+# The check used to fail anywhere but Windows. A Mac is now platform two, so it
+# passes there and says what is missing (live Outlook mail). Windows must read
+# exactly as before, and anything else must still fail - these three tests pin
+# all three answers, so a later edit cannot quietly change one of them.
+
+
+def test_the_platform_check_passes_on_windows_exactly_as_before(monkeypatch):
+    monkeypatch.setattr(doctor.sys, "platform", "win32")
+    check = doctor.check_platform()
+    assert check.ok is True
+    assert check.name == "Windows platform"
+    assert check.detail == "win32"
+
+
+def test_the_platform_check_passes_on_a_mac_and_says_what_is_missing(monkeypatch):
+    monkeypatch.setattr(doctor.sys, "platform", "darwin")
+    check = doctor.check_platform()
+    assert check.ok is True
+    assert "macOS" in check.detail
+    assert "Outlook" in check.detail, "the one missing source must be named"
+
+
+def test_the_platform_check_still_fails_on_any_other_platform(monkeypatch):
+    monkeypatch.setattr(doctor.sys, "platform", "linux")
+    check = doctor.check_platform()
+    assert check.ok is False
+    assert "Windows 10/11" in check.fix

@@ -682,7 +682,12 @@ def value_rows(name: str, values: Sequence[Any], *, resolve: Any = None,
             count=None if plain else getattr(entry, "count", None),
             exact=True if plain else bool(getattr(entry, "exact", True)),
             noun=noun,
-            hint=resolved_date(value, today=today) if is_date else "",
+            # `/between` is `/date` by another name (order 0x §6a), so its
+            # values name a period in the same words.
+            hint=(resolved_period(value, today=today)
+                  if getattr(command, "name", "") == "date"
+                  or getattr(command, "alias_of", "") == "date"
+                  else resolved_date(value, today=today)) if is_date else "",
         ))
     return rows
 
@@ -784,6 +789,37 @@ def resolved_date(value: str, *, today: Any = None) -> str:
     # Linux and raises `ValueError` on Windows, which is the only platform this
     # ships to. The day is formatted by hand instead.
     return f"(since {found.day} {found:%b %Y})"
+
+
+def resolved_period(value: str, *, today: Any = None) -> str:
+    r"""What a `/date` value covers, for the hint beside it. `""` if unreadable.
+
+    **Not `resolved_date`**, whose "(since 28 Jul)" is right for `/after` and
+    wrong here: `date:today` is today, not everything since this morning.
+    Read through the parser's own `_parse_span`, so the hint cannot describe a
+    period the filter would not then apply.
+    """
+    from app.search.query import _parse_span
+
+    try:
+        found = _parse_span(str(value or ""), today=today)
+    except Exception:                            # noqa: BLE001 - a hint
+        return ""
+    if found is None:
+        return ""
+    first, last, _raw_first, _raw_last = found
+
+    def day(moment: Any) -> str:
+        # By hand, for the reason `resolved_date` gives: no `%-d` on Windows.
+        return f"{moment.day} {moment:%b %Y}"
+
+    if first is not None and last is None:
+        return f"(since {day(first)})"
+    if first is None and last is not None:
+        return f"(up to {day(last)})"
+    if first == last or (first.year, first.month, first.day) == (last.year, last.month, last.day):
+        return f"({day(first)})"
+    return f"({day(first)} to {day(last)})"
 
 
 def scope_key(name: str, context: Any, resolve: Any = None) -> str:

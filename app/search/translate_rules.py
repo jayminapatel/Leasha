@@ -39,6 +39,7 @@ from typing import Any, Optional, Sequence
 
 __all__ = [
     "Chip", "Reading", "read", "MAIL_VERBS", "KIND_WORDS", "SENT_BY_ME",
+    "Applied", "AppliedFilter", "apply", "AUTO_MAIL_WORDS",
 ]
 
 #: Words that mean "this is about mail" [TUNE].
@@ -65,10 +66,18 @@ SENT_BY_ME = frozenset({"i", "me", "my", "we", "us", "our"})
 #: extensions the corpus actually contains, so "spreadsheet" on a corpus of
 #: `.csv` and no `.xlsx` produces a filter that finds something.
 KIND_WORDS: dict = {
-    "email": ("eml", "msg"),
-    "emails": ("eml", "msg"),
-    "message": ("eml", "msg"),
-    "messages": ("eml", "msg"),
+    # **The mail words name the `type:mail` group, not one extension.** They
+    # used to offer `type:eml` - the first of `("eml", "msg")` - which is not
+    # what typing `type:mail` means (msg, eml *and* pst) and missed every
+    # message read out of an Outlook archive. `mail` itself was absent. A group
+    # name is resolved against the index like an extension: it is usable when
+    # the corpus holds any of its members (`_usable`).
+    "mail": ("mail",),
+    "mails": ("mail",),
+    "email": ("mail",),
+    "emails": ("mail",),
+    "message": ("mail",),
+    "messages": ("mail",),
     "pdf": ("pdf",),
     "pdfs": ("pdf",),
     "document": ("docx", "doc", "odt"),
@@ -246,6 +255,21 @@ def _known(store: Any, kind: str, limit: int = 400) -> tuple:
     return tuple(dict.fromkeys(found))
 
 
+def _usable(option: str, have: set) -> bool:
+    """Whether a `KIND_WORDS` option can find anything in this corpus.
+
+    An extension must be held; a group name (`mail`) is usable when any of the
+    extensions `type:` expands it to is. An empty `have` means the index could
+    not be asked, and then everything is allowed - fewer checks, not fewer
+    chips (see `test_without_a_store_the_rules_still_read_what_they_can`).
+    """
+    if not have:
+        return True
+    from app.search.query import _EXT_GROUPS
+
+    return any(ext in have for ext in _EXT_GROUPS.get(option, (option,)))
+
+
 def _match_person(word: str, known: Sequence[str]) -> Optional[str]:
     r"""The indexed address whose name contains this word, if exactly one does.
 
@@ -286,6 +310,132 @@ def _i_am_the_sender(lowered: Sequence[str]) -> bool:
     return False
 
 
+#: Short month names [TUNE]. Order 0x §6b: "from 1 Jan to 5 Feb".
+#:
+#: **Read only inside a range phrase, never on their own.** "may", "mar" and
+#: "jun" are ordinary words or bits of names, so the lone-month rule below
+#: keeps to the full names it has always read. Between "from 1" and "to 5
+#: Feb" there is nothing else "jan" could be.
+_MONTHS_SHORT = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+                 "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12}
+
+#: Any month name, full or short, as a regex alternative. Longest first, so
+#: "september" is not read as "sep" followed by the letters "tember".
+_MONTH_ALTERNATIVES = "|".join(sorted({*_MONTHS, *_MONTHS_SHORT}, key=len, reverse=True))
+
+
+def _range_end(tag: str) -> str:
+    r"""One end of a range: `[day] month [year]`, each group named for `tag`.
+
+    `1 Jan`, `1st January 2024`, `March`, `Jun. 2024`. The day may carry an
+    ordinal ending; a full stop after a short month is allowed because people
+    write "5 Feb." as often as "5 Feb".
+    """
+    return (rf"(?:(?P<{tag}day>\d{{1,2}})(?:st|nd|rd|th)?\s+)?"
+            rf"(?P<{tag}month>{_MONTH_ALTERNATIVES})\.?"
+            rf"(?:\s+(?P<{tag}year>(?:19|20)\d{{2}}))?")
+
+
+#: "between March and June 2024", "from 1 January 2024 to 5 February 2024",
+#: "from 1 Jan to 5 Feb" [TUNE]. Order 0x §6b.
+#:
+#: **The opening word and the joining word come as a pair**: "between ... and"
+#: or "from ... to". Those are the two ways English marks both ends of a span
+#: as ends. "March and June" alone is two months somebody mentioned, and
+#: "2016 to 2017" alone could be a version number or a score, so neither is
+#: read - the rest of this file's rule, applied to ranges.
+_MONTH_RANGE = re.compile(
+    rf"\b(?:between\s+{_range_end('a')}\s+and\s+{_range_end('b')}"
+    rf"|from\s+{_range_end('c')}\s+to\s+{_range_end('d')})\b")
+
+#: "between 2019 and 2021", "from 2016 to 2017" [TUNE]. Order 0x §6b.
+_YEAR_RANGE = re.compile(
+    r"\b(?:between\s+(?P<a>(?:19|20)\d{2})\s+and\s+(?P<b>(?:19|20)\d{2})"
+    r"|from\s+(?P<c>(?:19|20)\d{2})\s+to\s+(?P<d>(?:19|20)\d{2}))\b")
+
+
+def _last_day(year: int, month: int) -> int:
+    """How many days `month` has in `year` - 28 or 29 for February."""
+    following = date(year + month // 12, month % 12 + 1, 1)
+    return (following - date(year, month, 1)).days
+
+
+def _range_chips(text: str, *, today: date) -> Optional[list]:
+    r"""`after:`/`before:` chips for a date range in `text`.
+
+    `None` when there is no range phrase at all, so the other date rules may
+    look. `[]` when there is one but reading it would need a guess - and then
+    **nothing** is read, not even part of it: "between November and February
+    2024" must not quietly become November alone.
+
+    Order 0x §6b. `text` is already lower-case. Four shapes are read, and
+    each end of a month range may carry its own day and year:
+
+    * "between 2019 and 2021" / "from 2016 to 2017" - two whole years.
+    * "between March and June 2024" - the year written once, at the end,
+      belongs to both months, which is how English says it.
+    * "from 1 January 2024 to 5 February 2024" - two exact days.
+    * "from 1 Jan to 5 Feb" - no year at all; see below.
+
+    **When nothing is read, and why.** Each of these would need a guess, and a
+    wrong date filter hides documents without a word, so none is made:
+
+    * **An end that is not a real day** ("31 February") - no chip, rather than
+      a nearby day nobody typed.
+    * **A range that runs backwards once its years are filled in** - "between
+      November and February 2024" is probably November 2023 to February 2024,
+      but "probably" is a guess. With both years typed, backwards is backwards.
+    * **No year anywhere, and the range is not plainly this year's.** The
+      lone-month rule has always read "June" as this June, so "from 1 Jan to
+      5 Feb" is this year's January and February - but only while that is in
+      the past or includes today. Typed in September, "from 1 Oct to 5 Nov"
+      could only mean last year's (this year's has not happened) or next
+      year's plans, and a range crossing New Year ("from 1 Dec to 5 Feb") has
+      two years in it and says neither. Those stay as words.
+    """
+    years = _YEAR_RANGE.search(text)
+    if years:
+        first = years.group("a") or years.group("c")
+        last = years.group("b") or years.group("d")
+        if int(first) > int(last):
+            return []                              # backwards: see above
+        source = years.group(0)
+        return [Chip("after", f"{first}-01-01", source),
+                Chip("before", f"{last}-12-31", source)]
+
+    found = _MONTH_RANGE.search(text)
+    if found is None:
+        return None
+    # Whichever pair matched - "between ... and" (a, b) or "from ... to" (c, d).
+    one, two = ("a", "b") if found.group("amonth") else ("c", "d")
+
+    def month_of(tag: str) -> int:
+        word = found.group(f"{tag}month")
+        return _MONTHS.get(word) or _MONTHS_SHORT[word]
+
+    first_year, last_year = found.group(f"{one}year"), found.group(f"{two}year")
+    guessed_year = not (first_year or last_year)
+    # A year written once serves both ends: "between March and June 2024",
+    # and equally "from March 2024 to June".
+    first_year = int(first_year or last_year or today.year)
+    last_year = int(last_year or first_year)
+    first_month, last_month = month_of(one), month_of(two)
+    first_day = int(found.group(f"{one}day") or 1)
+    last_day = int(found.group(f"{two}day") or 0) or _last_day(last_year, last_month)
+    try:
+        start = date(first_year, first_month, first_day)
+        end = date(last_year, last_month, last_day)
+    except ValueError:
+        return []                                  # "31 February": not a day
+    if start > end:
+        return []                                  # backwards: see above
+    if guessed_year and start > today:
+        return []                                  # not plainly this year's
+    source = found.group(0)
+    return [Chip("after", start.isoformat(), source),
+            Chip("before", end.isoformat(), source)]
+
+
 def _dates(sentence: str, *, today: date) -> list:
     """`after:`/`before:` chips from the date phrases people actually type.
 
@@ -297,6 +447,13 @@ def _dates(sentence: str, *, today: date) -> list:
     """
     text = str(sentence or "").lower()
     found: list = []
+
+    # **A range first** (order 0x §6b), because it contains the other shapes:
+    # "between March and June 2024" read by the rules below would become
+    # March alone. See `_range_chips` for the ones deliberately not read.
+    ranged = _range_chips(text, today=today)
+    if ranged is not None:
+        return ranged
 
     if "last year" in text:
         year = today.year - 1
@@ -380,7 +537,7 @@ def read(sentence: str, store: Any = None, *,
         options = KIND_WORDS.get(word)
         if not options:
             continue
-        usable = [ext for ext in options if not have or ext in have]
+        usable = [ext for ext in options if _usable(ext, have)]
         if not usable:
             continue
         chips.append(Chip("type", usable[0], words[position]))
@@ -408,3 +565,265 @@ def read(sentence: str, store: Any = None, *,
                        if low not in claimed and low not in MAIL_VERBS)
     return Reading(sentence=text, chips=tuple(chips),
                    residue=residue.strip(), mail=mail)
+
+
+# ---------------------------------------------------------------------------
+# Applied, not only offered - "mail from 2017"
+# ---------------------------------------------------------------------------
+#
+# **Owner decision, 2026-09-27: recognised filters are applied, not merely
+# offered.** "mail from 2017" typed into the Search tab ran as the plain words
+# `"mail" OR "2017"` and found nothing useful, while the right filters sat on
+# the notice bar waiting for a click nobody made. This reverses §3b's "chips,
+# not rewrites" for the few readings confident enough to act on; the work
+# order's own text is left as released, and the reversal is recorded beside
+# it. `read()` above is unchanged and still feeds the offers and Interpret -
+# applying is a separate, narrower function.
+#
+# **What the person typed is still never altered.** The box keeps their words.
+# What changes is the query that runs: the words a filter consumed leave the
+# search terms, the filter joins it, and the window shows each one as a chip
+# whose removal puts those words back as ordinary search terms (`declined`).
+
+#: Words that mean "mail" confidently enough to apply `type:mail` [TUNE].
+#:
+#: **Deliberately narrower than `KIND_WORDS`.** "message" alone is left out:
+#: "the error message" is a document search at least as often as a mail one,
+#: so it stays an offer. The plural is kept - "messages from Dave" is not
+#: about an error.
+AUTO_MAIL_WORDS = frozenset({"mail", "mails", "email", "emails", "e-mail",
+                             "e-mails", "messages"})
+
+#: Words that, directly before a year, make it a date [TUNE]. "in 2017" and
+#: "from 2017" name a period; "2017" alone might be a number in a file name.
+_YEAR_PREPOSITIONS = frozenset({"in", "from", "during"})
+
+#: Words that, directly before a known name, make it a person filter [TUNE].
+_PERSON_PREPOSITIONS = {"from": "from", "by": "from", "to": "to"}
+
+#: A bare four-digit year and nothing else in the token.
+_YEAR_TOKEN = re.compile(r"^(?:19|20)\d{2}$")
+#: Punctuation a word may carry at its edges in a sentence.
+_EDGES = ".,;:!?()[]{}'\"’"
+
+
+@dataclass(frozen=True)
+class AppliedFilter:
+    """One filter the rules applied to a query, and the words it replaced.
+
+    `key` is what a person declines by removing the chip: the kind of filter
+    and the words it was read from, so declining "2017" does not also decline
+    "2018" typed a moment later - new words, a new reading.
+    """
+
+    kind: str                      # "type" | "date" | "person"
+    operators: tuple = ()          # exactly as the parser accepts them
+    words: str = ""                # the words consumed, as typed
+    label: str = ""                # what the chip says
+
+    @property
+    def key(self) -> tuple:
+        return (self.kind, self.words.lower())
+
+
+@dataclass(frozen=True)
+class Applied:
+    """A sentence with its confident filters applied. `query` is what to run."""
+
+    sentence: str
+    query: str
+    filters: tuple = ()
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.filters)
+
+
+def _holds_mail(store: Any) -> bool:
+    """Whether the index holds any mail - `type:mail`'s extensions. **Never
+    raises.** A store that cannot be asked allows it, as `_usable` does.
+
+    `SqliteStore.holds_ext` is a one-row seek; anything without it (a test's
+    fake store) is asked through `distinct_values`, as `read()` asks.
+    """
+    from app.search.query import _EXT_GROUPS
+
+    probe = getattr(store, "holds_ext", None)
+    if callable(probe):
+        try:
+            return bool(probe(_EXT_GROUPS["mail"]))
+        except Exception:                          # noqa: BLE001 - a helper
+            return True
+    return _usable("mail", {value.lower() for value in _known(store, "ext")})
+
+
+def _tokens(text: str) -> list:
+    """`(start, end, word)` for each whitespace token a filter may consume.
+
+    **Anything the person wrote as syntax is out of reach**: a token inside
+    quotes, a `field:value` operator, a `-exclusion`, a `/command` and the
+    capitalised boolean words keep their exact meaning. `word` is the token
+    with sentence punctuation trimmed; it is `""` for a protected token.
+    """
+    quoted = [(m.start(), m.end()) for m in re.finditer(r'"[^"]*"?', text)]
+    found = []
+    for match in re.finditer(r"\S+", text):
+        token = match.group(0)
+        inside = any(a <= match.start() < b for a, b in quoted)
+        protected = (inside or ":" in token or token[:1] in "-!/\""
+                     or token in ("OR", "AND", "NOT"))
+        found.append((match.start(), match.end(), "" if protected else token.strip(_EDGES)))
+    return found
+
+
+def apply(sentence: str, store: Any = None, *, today: Optional[date] = None,
+          declined: Sequence = ()) -> Applied:
+    r"""The sentence as a query, with the filters the rules are sure of applied.
+
+    **Never raises**, and never returns less than the sentence: anything not
+    confidently recognised stays a search term exactly as typed. No model, no
+    network - the first non-negotiable holds, because this is a regex, a
+    dictionary and (with a store) three indexed `DISTINCT`s.
+
+    What is applied, and why each is safe to act on:
+
+    * **mail** - `mail`, `email(s)`, `messages` (`AUTO_MAIL_WORDS`) become
+      `type:mail`, the same msg/eml/pst group typing `type:mail` gives. Only
+      when the corpus holds mail, or cannot be asked.
+    * **a year** - `in 2017`, `from 2017`, `during 2017` always; `before 2017`
+      and `after 2017` as that edge; a **bare** `2017` only in a sentence that
+      is about mail. That is the conservative line: *"invoice 2017"* keeps
+      2017 as a word, because a document's only date is often its copy date
+      (`mtime_ns`) while its name says 2017 - a year filter there would hide
+      the very file asked for, which is the failure this project exists to
+      remove. It is still *offered* on the notice bar. A message's sent date
+      is a fact (schema v27), so in a mail sentence the year is safe. Two
+      years in one sentence ("2016 to 2017") is a range these rules do not
+      read, so neither is applied.
+    * **a person** - a capitalised word matching exactly one sender (or
+      recipient) the index holds, found the way `read()` finds it - applied
+      only when the sentence is about mail or the name follows `from`/`by`/
+      `to`. "Budget Dave" in a document search is left alone: a person filter
+      would narrow it to mail.
+
+    Filters the person already typed win: a typed `type:`, `after:`/`before:`
+    or `from:`/`to:` switches the matching rule off. `declined` holds the
+    `AppliedFilter.key` of every chip the person removed; those words stay
+    search terms. If every word left over is a stopword or an instruction
+    ("show me the"), the query is filters alone - a browse, newest first,
+    which the engine already runs for `type:pdf after:2024` typed by hand.
+    """
+    from app.search.query import _INSTRUCTION_WORDS, _STOPWORDS, parse_query
+
+    text = str(sentence or "").strip()
+    try:
+        return _apply(text, store, today or date.today(), set(declined or ()),
+                      parse_query, _STOPWORDS | _INSTRUCTION_WORDS)
+    except Exception:                              # noqa: BLE001 - a helper
+        return Applied(sentence=text, query=text)
+
+
+def _apply(text: str, store: Any, today: date, declined: set, parse_query: Any,
+           filler: frozenset) -> Applied:
+    if not text:
+        return Applied(sentence=text, query=text)
+    typed = parse_query(text, today=today)
+    tokens = _tokens(text)
+    lowered = [word.lower() for _, _, word in tokens]
+    consumed: set = set()
+    filters: list = []
+
+    def take(kind: str, operators: tuple, positions: Sequence[int], label: str) -> None:
+        words = " ".join(tokens[i][2] for i in sorted(set(positions)))
+        chosen = AppliedFilter(kind, operators, words, label)
+        if chosen.key in declined:
+            return
+        filters.append(chosen)
+        consumed.update(positions)
+
+    # -- mail ------------------------------------------------------------
+    # **Every store lookup below is asked only when its answer could change
+    # the query.** This runs before each search, keystrokes included, and the
+    # obvious lookups are not cheap: measured on 200,000 files holding 60,000
+    # messages, `distinct_values` took 25.5 ms for `ext`, 27.2 ms for `sender`
+    # and 19.2 ms for `recipient` - 58 ms for "mail from 2017" when all three
+    # were asked up front. Mail is now a one-row seek (`_holds_mail`), and the
+    # people are only fetched for a capitalised word that could be applied.
+    mail_at = [i for i, word in enumerate(lowered) if word in AUTO_MAIL_WORDS]
+    about_mail = bool(mail_at) or any(word in _SENDING for word in lowered)
+    if mail_at and not typed.ext and not typed.not_ext and _holds_mail(store):
+        take("type", ("type:mail",), mail_at, "mail")
+
+    # -- a person --------------------------------------------------------
+    people: dict = {}
+
+    def known(kind: str) -> tuple:
+        if kind not in people:
+            people[kind] = _known(store, kind)
+        return people[kind]
+
+    if not (typed.senders or typed.recipients):
+        for i, (_, _, word) in enumerate(tokens):
+            if (not word or i in consumed or word.lower() in _NOT_NAMES
+                    or not word[:1].isupper()):
+                continue
+            before = lowered[i - 1] if i else ""
+            if not (about_mail or before in _PERSON_PREPOSITIONS):
+                continue                           # "Budget Dave": not asked at all
+            field = _PERSON_PREPOSITIONS.get(before) or (
+                "to" if _i_am_the_sender(lowered) else "from")
+            pool = (known("recipient") or known("sender")) if field == "to" else known("sender")
+            match = _match_person(word, pool)
+            if match is None:
+                continue
+            positions = [i - 1, i] if before in _PERSON_PREPOSITIONS else [i]
+            # The sending verb goes with the person: "Dave sent me".
+            positions += [j for j, low in enumerate(lowered)
+                          if low in _SENDING and j not in consumed]
+            take("person", (Chip(field, match).as_filter(),), positions,
+                 f"{field} {match}")
+            break                                  # one person, as in `read()`
+
+    # -- a year ----------------------------------------------------------
+    years = [i for i, word in enumerate(lowered)
+             if _YEAR_TOKEN.match(word) and i not in consumed]
+    # A bare year needs the query to *be* mail - a mail or person filter
+    # applied, or `type:mail` typed - not merely to mention it: "emails
+    # type:pdf 2017" is a document search, where a year is not a safe filter.
+    from app.search.query import _EXT_GROUPS
+
+    about_mail = (any(chosen.kind in ("type", "person") for chosen in filters)
+                  or (bool(typed.ext) and set(typed.ext) <= set(_EXT_GROUPS["mail"])))
+    # A typed date the parser could not read still wins: the person asked for
+    # a date filter, and quietly putting a different one in its place would
+    # answer a question they did not ask while the box says what is wrong.
+    if (len(years) == 1 and typed.after is None and typed.before is None
+            and not getattr(typed, "date_problems", ())):
+        i = years[0]
+        year = int(lowered[i])
+        before = lowered[i - 1] if i else ""
+        if before == "before":
+            take("date", (f"before:{year - 1}-12-31",), [i - 1, i], f"before {year}")
+        elif before == "after":
+            take("date", (f"after:{year + 1}-01-01",), [i - 1, i], f"after {year}")
+        elif before in _YEAR_PREPOSITIONS or about_mail:
+            positions = [i - 1, i] if before in _YEAR_PREPOSITIONS else [i]
+            take("date", (f"after:{year}-01-01", f"before:{year}-12-31"),
+                 positions, f"in {year}")
+
+    if not filters:
+        return Applied(sentence=text, query=text)
+
+    kept = [(start, end) for n, (start, end, _) in enumerate(tokens) if n not in consumed]
+    leftover = [lowered[n] for n in range(len(tokens)) if n not in consumed]
+    # Once the query is about mail, "sent" and "received" say nothing more -
+    # left as the only term, "emails sent in 2017" would find just the
+    # messages containing the word "sent".
+    if any(chosen.kind in ("type", "person") for chosen in filters):
+        filler = filler | MAIL_VERBS
+    if all(word and word in filler for word in leftover):
+        kept = []                                  # nothing left worth searching for
+    words = " ".join(text[start:end] for start, end in kept)
+    operators = [op for chosen in filters for op in chosen.operators]
+    return Applied(sentence=text, query=" ".join([words, *operators]).strip(),
+                   filters=tuple(filters))

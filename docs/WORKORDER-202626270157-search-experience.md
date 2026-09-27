@@ -1,6 +1,6 @@
 # Work order (One thread): the search experience — one box for an 8-year-old, power for everyone else
 
-**Doc version:** 1.20 · **Updated:** 2026-09-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.21 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search policy + translate + UI surfaces + Code tab)
 **Status:** SHIPPED — all 26 items ticked; closed 2026-09-07 by section 6c, whose four referenced items were verified complete in the remediation order rather than duplicated. Kept here as record. Originally RELEASED by the owner 2026-08-27 — sequenced after
 `WORKORDER-202626270114-index-tuning.md`. The translator (§3) is **built** in
@@ -91,6 +91,18 @@ corrects. Ollama is one backend; this adds the second.
   spreadsheet, photo, deck, invoice…) → `type:`; date phrases ("before
   2023", "last summer", "in June") → `after:`/`before:`. Residual words pass
   through untouched. Pure, Qt-free, testable — no model, no network.
+> **2026-09-27 - the owner reversed the "offer, don't apply" half of 3b.** "mail from 2017"
+> found nothing, because the rules only *offered* `type:mail` and the year while the box ran
+> `"mail" OR "2017"`. On the owner's decision, the Search tab now **applies** what the rules
+> recognise with confidence (`translate_rules.apply()`: mail words become `type:mail`; "in", "from"
+> or "during" plus a year become that year; a bare year only in a mail sentence; a capitalised
+> name matching exactly one sender becomes `from:`), and shows each as a removable chip. Removing
+> a chip puts its words back as search terms and the filter returns as an offer. What still holds
+> from the item below: **the typed text is never altered**, it is rules only with no model, and
+> the `auto_chips` policy still decides which boxes do this. So Files, Mail and Code are unchanged.
+> "invoice 2017" keeps 2017 as a search word, because a document's date is often its copy date.
+> Built with the fix for mail dates (`after:`/`before:` now use a message's sent date, schema v27);
+> see `CHANGELOG.md` for 2026-09-27.
 - [x] **3b Chips, not rewrites.** Extracted filters appear as removable chips
   the user accepts with one click (`auto_chips` policy: on for tab one,
   behind Interpret elsewhere). The typed text is never altered — the chips

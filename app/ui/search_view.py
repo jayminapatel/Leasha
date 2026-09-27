@@ -120,12 +120,12 @@ class SearchView(QWidget):
         self._interim_timer = QTimer(self)
         self._interim_timer.setSingleShot(True)
         self._interim_timer.setInterval(TYPING_DEBOUNCE_MS)
-        self._interim_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False))
+        self._interim_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False, waited_ms=TYPING_DEBOUNCE_MS))
 
         self._full_timer = QTimer(self)
         self._full_timer.setSingleShot(True)
         self._full_timer.setInterval(IDLE_DEBOUNCE_MS)
-        self._full_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False))
+        self._full_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False, waited_ms=IDLE_DEBOUNCE_MS))
 
     def set_interpret_enabled(self, enabled: bool) -> None:
         """Show the Interpret button only when it can do something.
@@ -233,8 +233,16 @@ class SearchView(QWidget):
         self._interim_timer.stop(); self._full_timer.stop()
         self._dispatch(Tier.FULL)
 
-    def _maybe_dispatch(self, *, submitted: bool) -> None:
-        still_for_ms = int((time.monotonic() - self._last_keystroke) * 1000)
+    def _maybe_dispatch(self, *, submitted: bool, waited_ms: int = 0) -> None:
+        # **A timer that fired has already proved the wait.** Every keystroke
+        # restarts both timers, so the idle timer going off at all means she
+        # stopped typing for its interval. Measuring the gap again with the
+        # clock is not enough on its own: Qt's default ("coarse") timers may
+        # fire up to 5% early - 380ms for the 400ms one - and a 399ms gap made
+        # `tier_for` answer "interim", so the full search (spelling help, the
+        # notices, the recent-searches log) never ran until she pressed Enter.
+        # `waited_ms` is the interval the firing timer stands for.
+        still_for_ms = max(waited_ms, int((time.monotonic() - self._last_keystroke) * 1000))
         tier = tier_for(self.input.text(), still_for_ms=still_for_ms, submitted=submitted)
         if tier != Tier.NONE: self._dispatch(tier)
 
@@ -256,7 +264,7 @@ class SearchView(QWidget):
 
         self._generation += 1
         options = search_options(tier, scope=self.current_scope(), rerank=self.rerank_toggle.isChecked(),
-                                 surface="search", preferences=self._search_preferences)
+                                 surface="search", preferences=self._search_preferences, declined=self.chips.declined)
         worker = SearchWorker(
             self._engine, query, tier=tier, generation=self._generation, **options
         )
@@ -322,7 +330,7 @@ class SearchView(QWidget):
         self.notices.show_notices(notices)
         # Offers for the filters the sentence contains arrive from a worker and
         # join the bar - see `presenter.filter_offers`. Only if still current.
-        offer_filters(self, notices, generation)
+        offer_filters(self, notices, generation, response)
         self._shown_anything = self._shown_anything or bool(response.results)
         self.status.setText(status)
         # The shape of the search, never its text - see `debug_recorder.py`.

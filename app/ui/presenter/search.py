@@ -106,7 +106,8 @@ def file_query(raw: str) -> Any:
 
 
 def search_options(tier: str, *, scope: str, rerank: bool,
-                   surface: str = "search", preferences: Any = None) -> dict:
+                   surface: str = "search", preferences: Any = None,
+                   declined: Any = None) -> dict:
     r"""What to pass the engine for one tier.
 
     `rerank` is only meaningful on the full tier - the interim one is BM25 with
@@ -128,6 +129,12 @@ def search_options(tier: str, *, scope: str, rerank: bool,
     }
     if tier == Tier.FULL:
         options["rerank"] = bool(rerank)
+    # **Both tiers**, so the keyword glance and the full search answer the
+    # same question - otherwise "mail from 2017" would flip between the words
+    # and the filters as the second tier landed. `SearchWorker` takes this key
+    # off before the engine sees the options (see `auto_filters`).
+    if declined is not None and options["policy"].auto_chips:
+        options["declined"] = tuple(declined)
     return options
 
 
@@ -374,6 +381,8 @@ def interpret_hint(raw: str, *, enabled: bool) -> str:
 NOTICE_KIND_SUGGESTION = "NOTICE_KIND_SUGGESTION"
 NOTICE_INTERPRET_HINT = "NOTICE_INTERPRET_HINT"
 NOTICE_FILTER_OFFER = "NOTICE_FILTER_OFFER"
+#: A date the parser could not read, said in words (order "dates" §1d).
+NOTICE_DATE_PROBLEM = "NOTICE_DATE_PROBLEM"
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,6 +434,14 @@ def filter_offers(chips: Any, raw: str) -> list[Any]:
         operator = chip.as_filter()
         if f"{chip.field}:" in typed:
             continue
+        # `date:` sets both edges, so it has already said what either would.
+        if chip.field in ("after", "before") and ("date:" in typed or "/date" in typed):
+            continue
+        # So does `between:`, which is `date:` under another name (order 0x
+        # §6a). A separate test rather than a longer one above, so the line
+        # `date:` has always been answered by is left exactly as it was.
+        if chip.field in ("after", "before") and ("between:" in typed or "/between" in typed):
+            continue
         shown = html.escape(chip.label())
         offers.append(_Hint(
             NOTICE_FILTER_OFFER,
@@ -446,7 +463,15 @@ def window_notices(raw: str, parsed: Any = None, *,
     `type:` needs no help choosing a type, and a hint on every search is a hint
     nobody reads.
     """
+    import html
+
     found: list[Any] = []
+    # **First, because it is the one that explains a surprising list.** A
+    # date the parser could not read is a filter that is not there, and the
+    # list below it is wider than was asked for. Escaped: the bar draws rich
+    # text, and the sentence quotes whatever was typed.
+    for problem in getattr(parsed, "date_problems", ()) or ():
+        found.append(_Hint(NOTICE_DATE_PROBLEM, html.escape(str(problem), quote=False)))
     if not getattr(parsed, "ext", ()):
         word, switch = kind_suggestion(raw)
         if word:
@@ -463,6 +488,22 @@ def window_notices(raw: str, parsed: Any = None, *,
 # ---------------------------------------------------------------------------
 # Search notices
 # ---------------------------------------------------------------------------
+
+def with_date_problems(line: str, parsed: Any) -> str:
+    r"""A tab's summary line, with any unreadable date said first.
+
+    Order "dates" §1d, for the boxes whose only place for a notice is the
+    line under them - Files, Mail and Code. Here rather than in each view
+    because all three are within a few lines of the 250-line guard, and
+    because "which comes first" is a decision: the date, since a filter that
+    is silently not there is the whole explanation for the list beneath it.
+    """
+    problems = [str(p) for p in getattr(parsed, "date_problems", ()) or () if str(p)]
+    if not problems:
+        return line
+    parts = [f"\u26a0 {problem}" for problem in problems]
+    return "  ·  ".join([*parts, line] if line else parts)
+
 
 def notice_line(notices: Any) -> str:
     """One line for the notice bar, or "" when the search was healthy.
@@ -523,3 +564,49 @@ def chips_for(store: Any, sentence: str, policy: Any = None) -> tuple:
     except Exception as exc:                       # noqa: BLE001 - a helper
         _log.debug("no filter chips for this query: {}", exc)
         return ()
+
+
+def auto_filters(store: Any, sentence: str, policy: Any = None,
+                 declined: Any = ()) -> tuple[str, tuple]:
+    r"""`(query to run, filters applied)` for a typed sentence. **Worker only,
+    never raises.**
+
+    **Owner decision 2026-09-27: "mail from 2017" applies its filters.** It
+    used to run as the words `"mail" OR "2017"`, with the right filters only
+    offered on the notice bar - see `translate_rules.apply` for exactly which
+    readings are confident enough to act on and why "invoice 2017" is not one.
+    The box keeps what was typed; the query that runs loses the words a filter
+    consumed and gains the filter, and the window draws each applied filter as
+    a removable chip (`ChipRow.show_applied`). Removing one adds its key to
+    `declined`, and those words go back to being ordinary search terms.
+
+    Here, on the presenter side, for the reason `chips_for` is: the engine may
+    not know translation exists. `auto_chips` decides, as it does for the
+    offers, so the power surfaces (off by default) keep their words as typed.
+    Called from `SearchWorker.run`, because the reading asks the store for its
+    senders and file types - a query, so never on the interface thread.
+    """
+    text = str(sentence or "")
+    if policy is not None and not getattr(policy, "auto_chips", True):
+        return text, ()
+    try:
+        from app.search.translate_rules import apply
+
+        applied = apply(text, store, declined=tuple(declined or ()))
+        return applied.query, tuple(applied.filters)
+    except Exception as exc:                       # noqa: BLE001 - a helper
+        _log.debug("no filters applied to this query: {}", exc)
+        return text, ()
+
+
+#: Which offered chip fields an applied filter already answers, so the bar
+#: does not offer "only 2017?" beside a search already limited to 2017.
+_ANSWERED_BY = {"type": ("type",), "date": ("after", "before"),
+                "person": ("from", "to")}
+
+
+def unanswered(chips: Any, applied: Any) -> tuple:
+    """The offered `chips` no applied filter already covers."""
+    covered = {field for chosen in applied or ()
+               for field in _ANSWERED_BY.get(getattr(chosen, "kind", ""), ())}
+    return tuple(chip for chip in chips or () if chip.field not in covered)

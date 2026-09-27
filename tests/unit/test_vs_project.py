@@ -136,6 +136,24 @@ def test_no_source_file_is_missing_from_the_project() -> None:
     )
 
 
+def test_a_merge_in_progress_does_not_list_a_file_twice(monkeypatch) -> None:
+    """While a merge has conflicts, `git ls-files` prints each unresolved
+    path once per side. The generator run then committed three copies of
+    CHANGELOG.md, HANDOFF.md and docs\\ORDER_REGISTER.md (b248c9d), and the
+    byte-for-byte test below failed on the next machine to run it."""
+    import importlib.util
+    from types import SimpleNamespace
+
+    spec = importlib.util.spec_from_file_location("regen_vs_project", GENERATOR)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    mid_merge = "CHANGELOG.md\nCHANGELOG.md\nCHANGELOG.md\napp/main.py\n"
+    monkeypatch.setattr(module.subprocess, "run",
+                        lambda *_a, **_k: SimpleNamespace(stdout=mid_merge))
+
+    assert module.tracked_files() == ["CHANGELOG.md", "app\\main.py"]
+
+
 def test_the_committed_project_matches_what_the_generator_produces() -> None:
     """Byte-for-byte, so drift is caught here rather than by whoever next opens
     the solution.

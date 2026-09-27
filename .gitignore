@@ -129,6 +129,7 @@ tests/fixtures/corrupt/*
 
 # Local-only folders: other sessions' lane notes, sandbox worktrees, scratch space.
 /.claude/lanes/
+/.claude/worktrees/
 /.worktrees/
 /scratchpad/
 

@@ -406,6 +406,14 @@ SETTINGS: tuple[Setting, ...] = (
              "images filled in afterwards.",
     ),
     Setting(
+        key="INDEX_SEPARATE_PROCESS", label="Index in a separate process",
+        kind="bool", default=False, group="Tuning", surface="indexing.tuning",
+        help="Runs the indexer as its own program beside the window, so a "
+             "busy index can never make the window catch or stutter. Pause, "
+             "Stop and the progress on this page work the same either way. "
+             "Takes effect from the next Start.",
+    ),
+    Setting(
         key="INDEX_NAME_ONLY", label="Index every file by name", kind="bool",
         default=True, group="Tuning", surface="indexing.tuning",
         help="Records a row for every file, including the ones nothing can "

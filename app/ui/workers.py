@@ -37,6 +37,11 @@ __all__ = [
 
 _log = logger.bind(component="ui.workers")
 
+#: How long an index run waits for queued UI state writes before it starts
+#: reading settings (see `IndexWorker.run`). A keyed upsert takes milliseconds;
+#: this is the ceiling for one stuck behind another process's transaction.
+SETTLED_STATE_WAIT_MS = 5_000
+
 
 #: Codes that mean "the window is closing", not "something went wrong".
 #:
@@ -357,14 +362,31 @@ class SearchWorker(QRunnable):
 
     def run(self) -> None:
         try:
+            # **The recognised filters are applied here, on the worker** -
+            # `presenter.auto_filters` reads the store's senders and file types,
+            # which is I/O the interface thread may not do. Present only when
+            # the surface's policy applies them (`search_options`), and taken
+            # off the options, because the engine has no such argument and must
+            # not: it may not know a sentence was read at all.
+            options = dict(self._options)
+            query, applied = self._query, ()
+            if "declined" in options:
+                from app.ui.presenter.search import auto_filters
+
+                query, applied = auto_filters(
+                    getattr(self._engine, "store", None), self._query,
+                    options.get("policy"), options.pop("declined"))
             if self._tier == "interim":
                 # The interim tier takes a scope too but not a rerank flag, so
                 # the options cannot simply be forwarded whole.
                 response = self._engine.interim(
-                    self._query, scope=self._options.get("scope", "all")
+                    query, scope=options.get("scope", "all")
                 )
             else:
-                response = self._engine.search(self._query, **self._options)
+                response = self._engine.search(query, **options)
+            # Set on every response, cached or not, so a chip can never be
+            # carried over from the search that happened to fill the cache.
+            response.applied = applied
             _emit(self.signals, "finished", (self.generation, response))
         except Exception as exc:
             error = to_app_error(exc, "ui.search")
@@ -405,6 +427,8 @@ class IndexWorker(QRunnable):
         that waiting on it - if the CLI got there first - cannot freeze the
         window; the failure arrives as an ordinary `failed` signal.
         """
+        from contextlib import nullcontext
+
         from app.core.priority import background_thread
         from app.core.run_lock import GUI, IndexRunLock
 
@@ -417,13 +441,36 @@ class IndexWorker(QRunnable):
 
         limits = getattr(getattr(self.pipeline, "config", None), "limits", None)
         polite = bool(getattr(limits, "low_priority", True))
+        # **Settings saved a moment ago land before the run reads them.** UI
+        # state writes are queued (`app.ui.state_writes`, bug 3a), and the run
+        # reads some of them itself - the archive modes, the cloud-content
+        # folders. Change one and press Start straight away, and without this
+        # wait the run could read the value from before the change. Waited for
+        # here, on the run's own thread, so the window never waits with it;
+        # bounded, because a write stuck behind a CLI run must not hold this
+        # one forever - the run then reads what is committed, as it always did.
+        from app.ui import state_writes
+
+        if not state_writes.settle_before_run(SETTLED_STATE_WAIT_MS):
+            _log.warning("starting the index run with a settings save still queued "
+                         "after {} ms; the run reads what is already saved",
+                         SETTLED_STATE_WAIT_MS)
+        # Work order 0x §2. **A run in a child process takes the lock itself**
+        # (`app.index.child_run.ChildIndexRun`): it is an ordinary
+        # `app.cli index`, and it could not take the lock if this thread held
+        # it. Nor is this thread lowered for it - it only waits on the child's
+        # output, and a waiting thread at the lowest priority would read the
+        # child's progress late on a busy machine. The child lowers itself,
+        # the way `app.cli index` always has.
+        in_child = bool(getattr(self.pipeline, "takes_its_own_run_lock", False))
         try:
-            with IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI):
+            with (nullcontext() if in_child
+                  else IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI)):
                 # **This thread, and every thread the run starts, lowers itself
                 # - the process does not.** The window is in this process, and
                 # lowering the process lowered the window with it. See
                 # `app.core.priority`.
-                with background_thread(polite):
+                with background_thread(polite and not in_child):
                     self.pipeline.thread_priority_only = polite
                     stats = self.pipeline.run(on_progress=progress)
             _emit(self.signals, "finished", stats)
@@ -447,8 +494,6 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
     were happening inline, which is why opening a result felt slow when the
     work itself is nearly free - see `MainWindow._open_result`.
     """
-    import subprocess
-    import sys
     from pathlib import Path
 
     from app.core.errors import make_error
@@ -463,15 +508,13 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
         )
 
     try:
-        if sys.platform == "win32":
-            if select:
-                subprocess.Popen(["explorer", "/select,", str(target)])
-            else:
-                import os
+        # Order 0x section 1b (2026-09-27): the platform-specific part lives in
+        # `app.core.osbridge` now. On Windows it sends exactly what this
+        # function always sent (`explorer /select,` or `os.startfile`); on a
+        # Mac it uses Finder's `open -R`; elsewhere `xdg-open` as before.
+        from app.core.osbridge import show_in_file_manager
 
-                os.startfile(str(target))        # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(["xdg-open", str(target if not select else target.parent)])
+        show_in_file_manager(target, select=select)
         return None
     except Exception as exc:
         return to_app_error(exc, "ui.open", path=str(target))
@@ -604,7 +647,7 @@ def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
 
 
 def filter_offers_async(store: Any, sentence: str, preferences: Any,
-                        on_done: Callable) -> None:
+                        on_done: Callable, applied: Any = ()) -> None:
     """Read the filters a typed sentence contains, off the interface thread.
 
     Here for the reason `decorate_results_async` is: it is a store query, and
@@ -615,7 +658,7 @@ def filter_offers_async(store: Any, sentence: str, preferences: Any,
     from app.ui.tasks import filter_offer_notices
 
     worker = CallableWorker(filter_offer_notices, store, sentence, preferences,
-                            component="ui.search.offers")
+                            tuple(applied or ()), component="ui.search.offers")
     worker.signals.finished.connect(on_done)
     run(QThreadPool.globalInstance(), worker)
 

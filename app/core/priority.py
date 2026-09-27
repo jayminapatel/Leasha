@@ -27,26 +27,36 @@ inherit below-normal from the lowered process, so `child_creationflags` hands
 the same class to them explicitly while a lowered run is active.
 
 Never raises. A priority that could not be set costs the courtesy, never the run.
+
+**2026-09-27, work order 0x §1b: the Windows calls moved.** The `kernel32`
+code (`SetThreadPriority` and friends) now lives in
+`app/core/osbridge/priority.py`, the one package allowed to make Windows-only
+calls. It was moved, not changed: same calls, same flags, same log lines. What
+stays here is the *policy* - when a run lowers its threads and its children -
+and every name this module has always offered, so no caller changes.
 """
 
 from __future__ import annotations
 
-import sys
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Iterator
 
-from app.core.logging import logger
+# The thread calls and the Windows constants are re-exported under their old
+# names, so `from app.core.priority import lower_this_thread` (the index
+# pipeline) and `priority.THREAD_PRIORITY_LOWEST` (the tests) keep working.
+from app.core.osbridge._platform import is_windows
+from app.core.osbridge.priority import (
+    BELOW_NORMAL_PRIORITY_CLASS,
+    THREAD_PRIORITY_LOWEST,
+    current_thread_priority,
+    lower_this_thread,
+    restore_this_thread,
+)
 
 __all__ = [
     "lower_this_thread", "restore_this_thread", "background_thread",
     "set_children_low", "child_creationflags", "current_thread_priority",
 ]
-
-log = logger.bind(component="core.priority")
-
-THREAD_PRIORITY_LOWEST = -2
-_THREAD_PRIORITY_ERROR_RETURN = 0x7FFFFFFF
-BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 
 #: True while an index run in a shared process is active, so a child process the
 #: run starts is created below normal. A plain bool: written twice per run by the
@@ -54,83 +64,12 @@ BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 #: file's converter is harmless.
 _children_low = False
 
-_kernel32 = None
-
-
-def _api():
-    """`kernel32` with the three calls typed, or None off Windows."""
-    global _kernel32
-    if sys.platform != "win32":
-        return None
-    if _kernel32 is None:
-        import ctypes
-        from ctypes import wintypes
-
-        k = ctypes.WinDLL("kernel32", use_last_error=True)
-        k.GetCurrentThread.restype = wintypes.HANDLE
-        k.GetCurrentThread.argtypes = []
-        k.GetThreadPriority.restype = ctypes.c_int
-        k.GetThreadPriority.argtypes = [wintypes.HANDLE]
-        k.SetThreadPriority.restype = wintypes.BOOL
-        k.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
-        _kernel32 = k
-    return _kernel32
-
-
-def lower_this_thread() -> Optional[int]:
-    """Lower the calling thread to `LOWEST`. Returns what it was, or None.
-
-    The return value is what `restore_this_thread` takes; `None` means nothing
-    was changed - not Windows, or the call was refused - and there is nothing to
-    restore.
-    """
-    try:
-        k = _api()
-        if k is None:
-            return None
-        handle = k.GetCurrentThread()
-        previous = int(k.GetThreadPriority(handle))
-        if previous == _THREAD_PRIORITY_ERROR_RETURN:
-            return None
-        if not k.SetThreadPriority(handle, THREAD_PRIORITY_LOWEST):
-            return None
-        return previous
-    except Exception as exc:                     # noqa: BLE001 - a courtesy
-        log.debug("could not lower this thread's priority: {}", exc)
-        return None
-
-
-def restore_this_thread(previous: Optional[int]) -> None:
-    """Put the calling thread back. A `None` (nothing was changed) does nothing.
-
-    Matters for a pool thread, which outlives the run that lowered it; a
-    `threading.Thread` simply ends.
-    """
-    if previous is None:
-        return
-    try:
-        k = _api()
-        if k is not None:
-            k.SetThreadPriority(k.GetCurrentThread(), int(previous))
-    except Exception as exc:                     # noqa: BLE001
-        log.debug("could not restore this thread's priority: {}", exc)
-
-
-def current_thread_priority() -> Optional[int]:
-    """The calling thread's current priority, or None. For tests and the log."""
-    try:
-        k = _api()
-        if k is None:
-            return None
-        value = int(k.GetThreadPriority(k.GetCurrentThread()))
-        return None if value == _THREAD_PRIORITY_ERROR_RETURN else value
-    except Exception:                            # noqa: BLE001
-        return None
-
 
 def set_children_low(on: bool) -> None:
     global _children_low
-    _children_low = bool(on) and sys.platform == "win32"
+    # Only Windows reads a priority class from `creationflags`; elsewhere the
+    # flag would mean nothing, so it is never switched on there.
+    _children_low = bool(on) and is_windows()
 
 
 def child_creationflags() -> int:

@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from app.core import settings_registry as reg
 from app.ui.presenter import history_label_text, pst_status_text, settings_labels
+from app.ui.state_writes import save_state
 from app.ui.widgets.chat_box import ChatBox
 from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.debug_pane import DebugPane
@@ -257,8 +258,11 @@ class SettingsShelves:
         write in this window (`ui:theme`, `ui:pst_backend`, ...) - a single
         keyed upsert, not the kind of store work M13 exists to keep off the
         UI thread."""
-        if self._store is not None:
-            self._store.set_state(CATEGORY_STATE_KEY, name)
+        # Correction, 2026-09-27 (bug 3a): no longer synchronous. A keyed
+        # upsert is cheap to run but not to wait for - it takes the store's
+        # write lock, which an index batch holds - so it is queued on the
+        # ordered state writer like every other small UI-state write now.
+        save_state(self._store, CATEGORY_STATE_KEY, name, component="ui.settings")
 
     def _restore_last_category(self) -> None:
         """Which category was open last, read off the UI thread.

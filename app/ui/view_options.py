@@ -36,7 +36,7 @@ _log = logger.bind(component="ui.view")
 
 __all__ = [
     "load_prefs", "save_prefs", "build_menu", "apply_to_table", "apply_to_tree",
-    "button",
+    "button", "save_prefs_later",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
@@ -317,13 +317,36 @@ def save_prefs(store: Any, prefix: str, prefs: ViewPreferences) -> bool:
     try:
         store.set_states(prefs_to_state(prefs, prefix))
         return True
-    except Exception:                                # noqa: BLE001
+    except Exception as exc:                         # noqa: BLE001
+        # Logged, because this now runs on the state writer's thread (see
+        # `save_prefs_later`) where nobody reads the False.
+        _log.warning("view preferences for {} not saved: {}", prefix, exc)
         return False
 
 
 # ---------------------------------------------------------------------------
 # The Qt half: a menu, and applying the result to a table
 # ---------------------------------------------------------------------------
+
+def save_prefs_later(store: Any, prefix: str, prefs: ViewPreferences) -> None:
+    """`save_prefs`, queued on the ordered state writer. **Never blocks.**
+
+    Bug 3a: a column dragged or a density picked during an index run waited
+    for the indexer's write transaction, because `set_states` takes the same
+    process-wide write lock as every index batch. `remember_width` fires on
+    every pixel of a drag, so that was a frozen drag, not a frozen click.
+
+    Built as `CallableWorker(save_prefs, ...)` here rather than inside
+    `state_writes`, so `test_ui_never_blocks` can see structurally that
+    `save_prefs` is a worker body.
+    """
+    from app.ui.state_writes import start
+    from app.ui.workers import CallableWorker
+
+    if store is None:
+        return
+    start(CallableWorker(save_prefs, store, prefix, prefs, component="ui.view"))
+
 
 def build_menu(
     parent: Any,
@@ -568,7 +591,7 @@ def button(
     def changed(prefs: ViewPreferences) -> None:
         widget.prefs = prefs
         if store is not None:
-            save_prefs(store, prefix, prefs)
+            save_prefs_later(store, prefix, prefs)
         if on_change is not None:
             on_change(prefs)
 
@@ -616,7 +639,7 @@ def button(
         """
         widget.prefs = widget.prefs.with_width(key, pixels)
         if store is not None:
-            save_prefs(store, prefix, widget.prefs)
+            save_prefs_later(store, prefix, widget.prefs)
 
     widget.show_menu = show
     widget.toggle_preview = toggle_preview
@@ -798,6 +821,38 @@ def _bound_to_table(width: int, available: int) -> int:
 #: a column, and a dozen integer reads at that rate is nothing.
 WATCH_MS = 600
 
+#: Every running width watcher: `id(look) -> (its timer, look)`.
+#:
+#: **This is what stops the native crash of 2026-09-27, and it is only a
+#: reference.** `look` is a closure, and it sits in a reference cycle with its
+#: own timer (`look` holds `watcher`; PyQt tells the garbage collector that the
+#: timer's wrapper holds the slot). When a view is let go, the cyclic collector
+#: can find that cycle unreachable while the C++ timer is still alive and
+#: ticking. The collector then *clears* the function - its globals become
+#: NULL - and the next tick calls it: a segfault on entry, before one line of
+#: it runs. A core dump from the full suite showed exactly that frame:
+#: `remember_widths.<locals>.look`, globals 0x0, called from QTimer::timeout.
+#:
+#: Held here, `look` is always reachable from this module, so the collector
+#: never picks it (or anything it holds) to clear. Entries go when their timer
+#: has been deleted - pruned on the next `remember_widths` - or when `look`
+#: stops its own timer because the table has gone.
+_WATCHERS: dict = {}
+
+
+def _keep_watcher(timer: Any, look: Any) -> None:
+    """Register a watcher, first dropping those whose timer no longer exists."""
+    from PyQt6 import sip
+
+    for key, (other, _look) in list(_WATCHERS.items()):
+        try:
+            gone = sip.isdeleted(other)
+        except TypeError:
+            gone = True
+        if gone:
+            _WATCHERS.pop(key, None)
+    _WATCHERS[id(look)] = (timer, look)
+
 
 def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
     r"""Save a column width when somebody drags it, and only then.
@@ -958,6 +1013,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         except RuntimeError:
             # The table's C++ side went away - a tab closing, or shutdown.
             watcher.stop()
+            _WATCHERS.pop(id(look), None)        # nothing left to watch
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not check the column widths: {}", exc)
 
@@ -966,6 +1022,8 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     watcher = QTimer(table)
     watcher.setInterval(WATCH_MS)
     watcher.timeout.connect(look)
+    # Kept reachable for as long as the timer lives - see `_WATCHERS`.
+    _keep_watcher(watcher, look)
     watcher.start()
 
     # `apply_to_table` calls this so a fitted width is never mistaken for a
@@ -989,6 +1047,15 @@ def apply_font(widget: Any, font_pt: int) -> None:
     # Qt warns and ignores anything <= 0. A widget sized from a px stylesheet
     # reports pointSize() == -1, which is how a -1 reached setPointSize at all.
     widget.setStyleSheet(f"font-size: {size}pt;" if size > 0 else "")
+
+
+def _has_rows(table: Any) -> bool:
+    """Does the table hold any rows to measure? True when it cannot say, so
+    an unfamiliar table keeps the old once-and-done fitting."""
+    try:
+        return int(table.rowCount()) > 0
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return True
 
 
 def _apply_widths(table: Any, prefs: ViewPreferences,
@@ -1085,9 +1152,29 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         # The flag is now cleared by the button before it calls back, which is
         # the honest expression of "somebody asked for a fit": an explicit
         # request, not a state the restore code has to infer.
+        #
+        # **Dated note, 2026-09-27 (order 0x section 9, review finding 3) -
+        # "once per table" was spent on an empty table.** Files and Mail apply
+        # their preferences in `__init__`, before their first query returns, so
+        # the one fit measured nothing but the headings and set `FITTED`; the
+        # rows arrived a moment later and were never measured. Every column
+        # opened at its heading's width - Name 63px, "12 Mar ..." cut short -
+        # while the stretched last column took the rest (probed on the grab
+        # fixture: fit at 0 rows, widths [63, 52, 83, 56, 754]).
+        #
+        # So a fit over **no rows** does not use the table's one fit up -
+        # **but only while nothing has been saved for this table.** With a
+        # saved width, the flag is set exactly as before, rows or not, so a
+        # table somebody has sized behaves identically to how it always has;
+        # that is the whole of the scope this was allowed. The fit that then
+        # happens on the first fill runs here, under `APPLYING` and with the
+        # header's signals blocked, and `apply_to_table` resyncs the watcher's
+        # baseline afterwards - so it is never recorded as a width somebody
+        # chose. `_cap_columns` below still holds any fitted column to 40%.
         if not table.property(FITTED):
             table.resizeColumnsToContents()
-            table.setProperty(FITTED, True)
+            if prefs.widths or _has_rows(table):
+                table.setProperty(FITTED, True)
 
         saved = dict(prefs.widths)
         room = _available_width(table)

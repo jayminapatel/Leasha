@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
 
 from app.reports.timeline import KINDS, Period
 from app.reports.timeline_words import BAD_DATE, KIND_TIPS, KIND_WORDS
+from app.ui.state_writes import save_state
+from app.ui.widgets.flow_layout import FlowLayout
 
 __all__ = ["TimelinePicker", "KIND_KEY", "FOLD_KEY"]
 
@@ -71,11 +73,21 @@ class TimelinePicker(QWidget):
         self.year_box.setToolTip("Pick a year, then a month. Every year that has anything in it "
                                  "is listed.")
         self.year_box.setAccessibleName("Year")
+        # **Sized to what it holds, every time it changes.** Qt's default sizes
+        # a combo box once, on first show - and this one is first shown empty,
+        # because the years arrive later from a worker. It stayed the width of
+        # nothing and read "2015   (1" with the count cut off (grabbed
+        # 2026-09-27, order 0x section 9). Re-fitting on each fill costs one
+        # width sum over a handful of years.
+        self.year_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.year_box.currentIndexChanged.connect(self._year_chosen)
         self.months = QButtonGroup(self)
         self.months.setExclusive(True)
         self.month_buttons: list = []
-        months = QHBoxLayout()
+        # A wrapping row (see `pick` below for why): each button keeps the
+        # width of its own word, and the months that do not fit move to a
+        # second line instead of being squeezed.
+        months = FlowLayout(spacing=2)
         for index, label in enumerate(("Whole year", *_MONTHS)):
             button = QToolButton()
             button.setText(label)
@@ -85,7 +97,6 @@ class TimelinePicker(QWidget):
             self.months.addButton(button, index)
             months.addWidget(button)
             self.month_buttons.append(button)
-        months.addStretch(1)
         self.months.idClicked.connect(self._month_chosen)
 
         self.range_from = QLineEdit()
@@ -110,15 +121,27 @@ class TimelinePicker(QWidget):
         pick = QHBoxLayout()
         pick.addWidget(QLabel("Year"))
         pick.addWidget(self.year_box)
-        pick.addLayout(months, 1)
-        free = QHBoxLayout()
+        pick.addStretch(1)
+        # **The months have a row of their own** (order 0x section 9,
+        # 2026-09-27). Beside the year box, thirteen buttons wanted more room
+        # than the pane had: at a normal window "Whole year" read "Who...ear",
+        # and at a narrow one every month button was squeezed to nothing and
+        # the row was empty but for the chosen month's highlight. Under the
+        # year they get the pane's whole width, and on a narrow window they wrap
+        # onto a second line. Same buttons, same order, same words; only the
+        # line they sit on changed.
+        #
+        # The "Or any dates" row wraps the same way: its two boxes are held at
+        # 200 pixels so their examples show whole, and on a narrow window the
+        # row was narrower than the two boxes, so they were drawn on top of
+        # each other and of the word "to".
+        free = FlowLayout()
         for widget in (QLabel("Or any dates"), self.range_from, QLabel("to"), self.range_to,
                        self.range_go):
             free.addWidget(widget)
-        free.addStretch(1)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        for row in (top, pick, free):
+        for row in (top, pick, months, free):
             layout.addLayout(row)
         self._enable_months(None)
 
@@ -132,11 +155,9 @@ class TimelinePicker(QWidget):
         return default if value is None else str(value)
 
     def _remember(self, key: str, value: str) -> None:
-        try:
-            if self._store is not None:
-                self._store.set_state(key, value)
-        except Exception:                            # noqa: BLE001 - a preference
-            pass
+        # Queued on the ordered state writer (bug 3a), so a choice made while
+        # an index runs never waits for its batch; a failure is logged there.
+        save_state(self._store, key, value, component="ui.timeline")
 
     def kind(self) -> str:
         return str(self.kind_box.currentData() or "everything")

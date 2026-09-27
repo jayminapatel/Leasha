@@ -1,6 +1,6 @@
 # The A+ checklist — what stands between here and world-class, and when each item can be done
 
-**Doc version:** 1.0 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 The target state, from the 2026-08-27 prospective review: **nothing claimed
 that isn't proven, nothing pending that matters, nothing broken that's known.**
@@ -36,6 +36,9 @@ instructs the thread until the owner promotes an item.
   *Note (owner, 2026-08-27): Outlook COM has run in testing — the only code
   path no test could exercise now has. Remaining: the same at scale, plus
   the PST and 50GB passes.*
+  *2026-09-27 note: the decision below is reversed. The owner dropped PySide6 and Leasha
+  stays on PyQt6; the licence of a distributed build is now its own open decision (see
+  `ORDER_REGISTER.md` §5).*
 - [ ] **Decide PySide6 — DECIDED 2026-08-27**: PySide6 chosen to keep every
   licensing future open. Draft order:
   `WORKORDER-202626270238-pyside6-migration.md` (NOT for execution;
