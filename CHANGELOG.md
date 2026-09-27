@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.27 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.28 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,18 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Leasha stays on PyQt6 - the PySide6 migration is dropped
+
+- The owner decided on 2026-09-27 not to move from PyQt6 to PySide6. Nothing changes for
+  anyone using Leasha today. The earlier entry below saying the migration "must come before
+  any packaged release" no longer holds.
+- What it leaves open: PyQt6 is GPL-3.0-only and `LICENSE` is MIT, so the licence a
+  distributed build carries is now a decision to take before the first packaged release.
+- Docs: dated notes in `HANDOFF.md`, `docs/ORDER_REGISTER.md` (new `DROPPED` status),
+  the migration order, the install-and-distribution order and `docs/CHECKLIST-A-PLUS.md`.
+  Existing wording was left alone; only the register's status cell and one HANDOFF list
+  entry gained the new status.
 
 ### Start no longer invites a second click during a slow hardware detection
 

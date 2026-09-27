@@ -1,7 +1,18 @@
 # Work order (One thread): migrate PyQt6 → PySide6 — DRAFT
 
-**Doc version:** 0.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 0.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI + tests + packaging)
+
+> **2026-09-27 - DROPPED by the owner. Do not start this order, and do not promote it.**
+> Leasha stays on PyQt6. The owner was told the licensing consequence and took the
+> decision knowing it: PyQt6 is GPL-3.0-only, so a packaged build handed to anyone else
+> is a GPL work, while `LICENSE` reads MIT. Which licence a distributed build carries is
+> now an open owner decision recorded in `WORKORDER-202626082213-install-and-distribution.md`,
+> not something this order will resolve. Everything below is kept unedited for the
+> record. Two of its measured facts had already gone stale by this date and should not
+> be reused: PyQt6 is referenced by 205 files, not 75, and `sip` is now called in code
+> (`app/ui/widgets/skeleton.py`, `tests/unit/test_later.py`,
+> `tests/unit/test_worker_signal_owner.py`), not only named in comments.
 **Status: DRAFT — NOT FOR EXECUTION.** The owner has taken the *decision*
 (PySide6, to keep every licensing future open) but not scheduled the work.
 Scheduled slot: **first item of the post-working-version restructure window**
