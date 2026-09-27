@@ -15,10 +15,21 @@ name: CI
 # PR should not wait on a 130MB fetch to get a result).
 
 on:
+  # 2026-09-27 (order 0x): pushes to a branch with an open pull request used
+  # to run everything twice - once for the push, once for the pull request -
+  # and the macOS job bills at about ten times the Windows rate. `main` still
+  # runs on push; every other branch runs through its pull request only.
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
     branches: ["**"]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still going for the old
+# one: only the newest commit's result is ever read.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
