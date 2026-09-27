@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from typing import Optional, Sequence
 
 from app.core.identifiers import expand_term, has_case_boundary
@@ -202,6 +203,9 @@ class ParsedQuery:
     terms: tuple[str, ...] = ()                      # bare words, deduped, order kept
     excluded: tuple[str, ...] = ()                   # -word
     ext: tuple[str, ...] = ()                        # normalised, no leading dot
+    #: The first and last day included - or, when a time of day was typed,
+    #: a `datetime` (a subclass of `date`) holding the first and last moment.
+    #: See `_parse_moment` for which consumers need to tell the two apart.
     after: Optional[date] = None
     before: Optional[date] = None
     paths: tuple[str, ...] = ()
@@ -402,6 +406,71 @@ def _end_of(year: int, month: Optional[int] = None) -> date:
     return following - timedelta(days=1)
 
 
+#: A full date and a time of day: `2017-03-01T10:00`, or `"2017-03-01 10:00"`
+#: quoted so the space survives the tokeniser. Seconds are optional. Lowercase
+#: `t`, because `_parse_date` lowers its input before it looks at anything.
+_WITH_TIME = re.compile(
+    r"^(?P<day>[^\st]+)[t ](?P<hour>\d{1,2}):(?P<minute>\d{2})(?::(?P<second>\d{2}))?$")
+
+#: The spellings of one whole day. The partial forms are not here: a time of
+#: day belongs to a day, and `2017-03T10:00` names no particular one.
+_DAY_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y")
+
+
+def _parse_day(value: str) -> Optional[date]:
+    for fmt in _DAY_FORMATS:
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_moment(found: re.Match[str], *, end: bool) -> Optional[datetime]:
+    r"""A time of day, as a local `datetime`. None if either half is not real.
+
+    **Local time, with no zone attached**, because that is how every other
+    date in this application is read: `epoch_ns` turns a day into midnight on
+    this machine's clock and the indexer stores EXIF dates the same way. A
+    single-user offline app has one clock, and a zone here would be the only
+    one anywhere.
+
+    **A time names a period too, and `end` takes its last moment** - the same
+    rule a partial date follows. `before:2017-03-01T10:00` is on or before
+    that minute, so a message sent at 10:00:30 is inside it; with seconds
+    typed, the period is that second. `date:2017-03-01T10:00` is then the one
+    minute, not an empty range.
+
+    A `datetime` is a `date`, so everything that only asks for `.year` or
+    compares days keeps working; what needs the time - `epoch_ns`, the Mail
+    tab's bounds, the Timeline's period - checks for it.
+    """
+    day = _parse_day(found.group("day"))
+    if day is None:
+        return None
+    second = found.group("second")
+    try:
+        moment = datetime(day.year, day.month, day.day, int(found.group("hour")),
+                          int(found.group("minute")), int(second or 0))
+    except ValueError:
+        return None
+    if end:
+        moment = moment.replace(second=moment.second if second else 59,
+                                microsecond=999_999)
+    return moment
+
+
+def _instant(value: date, *, end: bool = False) -> datetime:
+    """A date or a moment as a moment, so the two can be put in order.
+
+    Python refuses to compare a `datetime` with a `date`, and a range may
+    well hold one of each: `after:2017-03-01T10:00 before:2017-02`.
+    """
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, dt_time.max if end else dt_time.min)
+
+
 def _parse_date(value: str, *, today: Optional[date] = None,
                 end: bool = False) -> Optional[date]:
     r"""ISO dates, partial ISO, and plain-English relatives. Never raises.
@@ -422,6 +491,10 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     if not v:
         return None
 
+    timed = _WITH_TIME.match(v)
+    if timed:
+        return _parse_moment(timed, end=end)
+
     if v in _RELATIVE_DAYS:
         return today - timedelta(days=_RELATIVE_DAYS[v])
     if v.startswith("last"):                       # last-week, last month
@@ -433,11 +506,9 @@ def _parse_date(value: str, *, today: Optional[date] = None,
     if span:
         return today - timedelta(days=int(span.group(1)) * _SPAN_DAYS[span.group(2).lower()])
 
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(v, fmt).date()
-        except ValueError:
-            continue
+    day = _parse_day(v)
+    if day is not None:
+        return day
 
     # The partial forms, which name a period rather than a day.
     for fmt, whole in (("%Y-%m", "month"), ("%Y", "year")):
@@ -782,7 +853,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     # `after:2025 before:2024` into 31 December 2024 to 1 January 2025 - two
     # days, from a query that plainly means those two whole years. Parsing each
     # raw value again against its new side gives the outer edges.
-    if after and before and after > before:
+    if after and before and _instant(after) > _instant(before, end=True):
         after = _parse_date(raw_before, today=today) or before
         before = _parse_date(raw_after, today=today, end=True) or after
 

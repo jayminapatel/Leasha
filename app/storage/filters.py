@@ -225,7 +225,9 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
 
     elif parsed.after is not None:
         # Dates from the query are whole days, so the comparison is against
-        # midnight. See `_date_clause` for which column is compared.
+        # midnight - or against the moment itself when a time of day was
+        # typed (see `epoch_ns`). See `_date_clause` for which column is
+        # compared.
         clauses.append(_date_clause(">="))
         params.extend([epoch_ns(parsed.after)] * 2)
 
@@ -501,5 +503,15 @@ def epoch_ns(day: Any, *, end_of_day: bool = False) -> int:
     from datetime import datetime
     from datetime import time as time_of_day
 
+    # **A time of day is already the moment meant.** `after:2017-03-01T10:00`
+    # reaches here as a `datetime`, and the parser has resolved which edge of
+    # it a `before:` means (`query._parse_moment`). `combine` would quietly
+    # take its date and throw the time away - it accepts a `datetime` as a
+    # date - so it is checked first. Same local clock as a whole day.
+    # Whole seconds and microseconds apart, so the last microsecond of a minute
+    # is not lost to a float.
+    if isinstance(day, datetime):
+        whole = int(day.replace(microsecond=0).timestamp())
+        return whole * 1_000_000_000 + day.microsecond * 1_000
     moment = datetime.combine(day, time_of_day.max if end_of_day else time_of_day.min)
     return int(moment.timestamp() * 1_000_000_000)

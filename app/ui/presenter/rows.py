@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time as _time
 from dataclasses import dataclass
+from datetime import datetime as _datetime
 from datetime import timedelta as _timedelta
 from typing import Any, Iterable, Mapping, Optional
 
@@ -271,9 +272,18 @@ def mail_filters(parsed: Any) -> dict[str, Any]:
     # `before:2024` dropped 31 December, and `date:2017-03` lost the 31st of
     # March. Every other surface reads `before` as "on or before", which is
     # what `/before` says it does, and the Mail tab now reads it the same way.
+    #
+    # **A time of day is a moment, and `sent_at` is whole seconds.** The parser
+    # has already resolved a `before` time to the last moment it covers
+    # (`10:00` is 10:00:59.999999), so the exclusive bound is the whole second
+    # after it; an `after` time is its own first second.
     for name in ("after", "before"):
         value = getattr(parsed, name, None)
         if value is None:
+            continue
+        if isinstance(value, _datetime):
+            seconds = int(_time.mktime(value.timetuple()))
+            filters[name] = seconds + 1 if name == "before" else seconds
             continue
         if name == "before":
             value = value + _timedelta(days=1)
