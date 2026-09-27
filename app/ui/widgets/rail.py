@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QProgressBar, QSizePolicy,
@@ -46,6 +46,29 @@ __all__ = ["Rail", "RAIL_WIDTH", "ICON_SIZE"]
 
 RAIL_WIDTH = 72
 ICON_SIZE = 20
+
+
+def _forget_sizes(layout: Any) -> None:
+    """Make a layout, and every layout and widget slot inside it, forget the
+    sizes it remembered.
+
+    **Why this is needed.** A layout keeps a copy of each widget's size so it
+    does not have to ask again, and it only throws that copy away when the
+    event loop gets round to it. `invalidate()` on the outer layout alone does
+    not reach the copies held inside the two button layouts, so a button that
+    had just switched to icons-only (37 pixels tall) was still counted at its
+    old 55 - measured 2026-09-27. Clearing every level by hand makes the very
+    next `totalMinimumSize()` ask each widget afresh. It is a dozen items, so
+    it costs nothing worth timing.
+    """
+    for number in range(layout.count()):
+        item = layout.itemAt(number)
+        inner = item.layout()
+        if inner is not None:
+            _forget_sizes(inner)
+        else:
+            item.invalidate()
+    layout.invalidate()
 
 
 class _Pill(QFrame):
@@ -270,7 +293,16 @@ class Rail(QWidget):
     # -- the pill -------------------------------------------------------------
 
     def show_pill(self, state: PillState, fraction: Optional[float]) -> None:
+        headline = self.pill.headline.text()
         self.pill.show_state(state, fraction)
+        # "Index" is one line; "Up to date" wraps to two and brings a detail
+        # line with it, so the pill grows by about thirty pixels and the rail's
+        # sums go stale. Measure again - but only when the headline word
+        # changes, which is a handful of times a run, never on every progress
+        # tick, and on the next turn of the event loop so the pill's own new
+        # height has been worked out first.
+        if headline != state.headline and self.isVisible():
+            QTimer.singleShot(0, self._measure)
 
     def _open_pill(self) -> None:
         if self._pill_index is not None:
@@ -296,17 +328,33 @@ class Rail(QWidget):
     # -- internals -------------------------------------------------------------
 
     def _relayout(self) -> None:
+        # **Take each button out of its layout, but leave it where it lives.**
+        # This used to say `item.widget().setParent(None)`, which quietly hides
+        # the widget. Adding it back to a layout gives it a parent again, but Qt
+        # only shows it *later*, from the event loop - so when `_measure` ran a
+        # line below, every button was still hidden, a hidden widget takes up no
+        # room, and the rail decided it needed 114 pixels instead of about 617.
+        # Found on 2026-09-27 (order 0x section 9) by grabbing the window at
+        # 560 pixels tall: the rail never switched to icons, and every label was
+        # cut in half ("Searcn", "Uhat"). Taking the item out of the layout is
+        # all a re-order needs; the button never stops being visible.
         for layout in (self._top, self._bottom):
             while layout.count():
-                item = layout.takeAt(0)
-                if item.widget() is not None:
-                    item.widget().setParent(None)
+                layout.takeAt(0)
         for button in list(self.group.buttons()):
             self.group.removeButton(button)
         for index in sorted(self._buttons):
             button = self._buttons[index]
             self.group.addButton(button, index)
             (self._bottom if index in self._foot else self._top).addWidget(button)
+            # A button made a moment ago in `insertTab` has never been shown,
+            # and the layout would only show it later, from the event loop -
+            # too late for the measurement below, which would not count it.
+            # Showing it now is what the layout was going to do anyway. A
+            # button somebody hid on purpose carries Qt's "explicitly shown or
+            # hidden" flag and is left exactly as it is.
+            if not button.testAttribute(Qt.WidgetAttribute.WA_WState_ExplicitShowHide):
+                button.show()
         if self.isVisible():
             self._measure()
 
@@ -334,8 +382,17 @@ class Rail(QWidget):
         was = self._compact
         self._set_compact(True)
         self.column.setMinimumHeight(0)
-        self.column.layout().invalidate()
+        _forget_sizes(self.column.layout())
         self.column.setMinimumHeight(self.column.layout().totalMinimumSize().height())
+        # The same again with the labels showing, so `_fit_height` compares the
+        # rail's real height against a figure worked out *now*, not one left
+        # over from before the buttons or the pill changed shape. Measured
+        # whether or not the rail is in icons-only form at the moment - a figure
+        # only refreshed while the labels show is stale exactly when it is
+        # needed, which is when deciding whether they can come back.
+        self._set_compact(False)
+        _forget_sizes(self.column.layout())
+        self._natural = self.column.layout().totalMinimumSize().height()
         self._set_compact(was)
         self._fit_height()
 
