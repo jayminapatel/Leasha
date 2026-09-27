@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.30 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.31 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Indexing can read files in separate processes
+
+- New switch, Indexing › Tuning › "Read files in separate processes" (off by default). Documents and
+  mail are read in helper processes, one per reader, so they use more of the computer's cores at
+  once. On the benchmark corpus a run took about 45-49% less time, with exactly the same results.
+  Each helper uses about 40 MB. A file that makes its reader fail is skipped
+  (`ERR_READER_PROCESS_ENDED`) and the run carries on. Pictures, PDFs, zips, Outlook and older
+  Office files are still read in the main process. `bench-pipeline --read-processes` measures it.
 
 ### Indexing in a separate process stays a choice
 

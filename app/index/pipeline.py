@@ -97,6 +97,7 @@ from app.index.live_progress import (
     WorkerBoard,
 )
 from app.index.phash import PhashComputer
+from app.index.read_process import ReaderProcess, reads_in_process
 from app.index.resources import (
     MANUAL_PAUSE_REASON,
     ResourceGovernor,
@@ -754,6 +755,12 @@ class PipelineConfig:
     #: ceiling raised. Cheaper and far more targeted than `--force`, which
     #: re-indexes the whole corpus including everything that succeeded.
     retry_skipped: bool = False
+    #: Work order 0x §5b. Read files in a process per extraction thread
+    #: (`app/index/read_process.py`), so readers stop taking turns on one
+    #: interpreter lock. Only readers that are pure file parsing move; every
+    #: other file is read on the thread as before. Off by default: the
+    #: "Read files in separate processes" switch on the Indexing page.
+    read_processes: bool = False
     #: Which pass this is. See `OCR_MODES` and `_ocr_gate`.
     #:
     #: **OCR is the schedule, not a feature.** At 3.6 seconds a page, 100,000
@@ -2794,6 +2801,13 @@ class Pipeline:
             if slot is not None:
                 reader_progress.attach(slot.frames)
             self._worker_slots().slot = slot
+            # 0x 5b: this thread's reader process, started now so its start-up
+            # overlaps the walk rather than delaying the first file.
+            if getattr(getattr(self, "config", None), "read_processes", False):
+                reader = ReaderProcess(
+                    low_priority=bool(self.config.resolved_limits().low_priority))
+                reader.start()
+                self._worker_slots().reader = reader
             self._extract_worker_loop(work, results)
             clean = True
         except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
@@ -2806,6 +2820,10 @@ class Pipeline:
                 board.close_slot(slot)
                 reader_progress.detach()
             self._worker_slots().slot = None
+            reader = getattr(self._worker_slots(), "reader", None)
+            if reader is not None:
+                self._worker_slots().reader = None
+                reader.close()
             if not clean:
                 try:
                     results.put(_STOP, timeout=5)
@@ -2886,6 +2904,7 @@ class Pipeline:
             self._stats_ref.current_item = 0
             if slot is not None:
                 slot.begin(candidate.path)       # 0x 3c: once per file
+            stream = None
             try:
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
@@ -2922,6 +2941,15 @@ class Pipeline:
                     error=to_app_error(exc, "index.pipeline", path=str(candidate.path)),
                 ))
             finally:
+                # Closed here rather than left for the garbage collector: a
+                # file abandoned part-way (Stop, Pause) must let go of what it
+                # was reading - with 0x 5b, a reader process part-way through a
+                # mailbox - before this thread takes its next file.
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:           # noqa: BLE001 - already reported above
+                        pass
                 self._stats_ref.current = ""
                 self._stats_ref.current_item = 0
                 if slot is not None:
@@ -3116,27 +3144,11 @@ class Pipeline:
         #: for a reason that will pass (Outlook was busy) - see below.
         retry_next_pass = False
         try:
-            for index, document in enumerate(
-                extract(candidate.path, resume_from=resume_from,
-                        resume_extra=resume_extra)
+            for index, (document, chunks) in enumerate(
+                self._read_documents(candidate, resume_from, resume_extra, slot)
             ):
                 if any(_is_transient_partial(w) for w in document.warnings):
                     retry_next_pass = True
-                chunks: list[dict[str, Any]] = []
-                # 0x 3a: "chunking" while the text is cut into passages. Two
-                # plain stores per document; nothing is formatted here.
-                if slot is not None:
-                    slot.stage = STAGE_CHUNKING
-                for ordinal, chunk in enumerate(chunk_document(document)):
-                    chunks.append({
-                        "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
-                        "char_start": chunk.char_start, "char_end": chunk.char_end,
-                        # Adoptions §6a. `None` for everything that is not a
-                        # spreadsheet, which is nearly every document.
-                        "label": chunk.label,
-                    })
-                if slot is not None:
-                    slot.stage = STAGE_READING
 
                 if not chunks:
                     # One empty message in an archive is ordinary and silent.
@@ -3231,6 +3243,42 @@ class Pipeline:
                 first_of_file=False, file_marker=True,
                 resume_key=resume_key,
             )
+
+    def _read_documents(
+        self, candidate: Candidate, resume_from: int,
+        resume_extra: Optional[dict[str, Any]], slot: Any,
+    ) -> Iterator[tuple[Any, list[dict[str, Any]]]]:
+        """Each document of one file with its passages, from wherever it is read.
+
+        0x 5b: in this thread's reader process when there is one and the file's
+        reader is on `read_process.PROCESS_READERS`; otherwise here, exactly as
+        before. Either way the passages are the same dictionaries - the reader
+        process runs the same `extract` and `chunk_document`.
+        """
+        reader = getattr(self._worker_slots(), "reader", None)
+        if reader is not None and reads_in_process(candidate.path):
+            yield from reader.read(
+                candidate.path, resume_from=resume_from, resume_extra=resume_extra,
+                frames=slot.frames if slot is not None else None)
+            return
+        for document in extract(candidate.path, resume_from=resume_from,
+                                resume_extra=resume_extra):
+            chunks: list[dict[str, Any]] = []
+            # 0x 3a: "chunking" while the text is cut into passages. Two
+            # plain stores per document; nothing is formatted here.
+            if slot is not None:
+                slot.stage = STAGE_CHUNKING
+            for ordinal, chunk in enumerate(chunk_document(document)):
+                chunks.append({
+                    "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                    "char_start": chunk.char_start, "char_end": chunk.char_end,
+                    # Adoptions §6a. `None` for everything that is not a
+                    # spreadsheet, which is nearly every document.
+                    "label": chunk.label,
+                })
+            if slot is not None:
+                slot.stage = STAGE_READING
+            yield document, chunks
 
     # -- stage 3: embed and write (one thread: this one) --------------------
 

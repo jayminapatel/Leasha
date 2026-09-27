@@ -727,6 +727,9 @@ class IndexController(QObject):
                 dedup_chunks=bool(getattr(self._w._settings, "embed_dedup", True)),
                 two_phase=bool(getattr(self._w._settings, "index_two_phase", True)),
                 bulk_fts=str(getattr(self._w._settings, "index_bulk_fts", "auto")),
+                # 0x §5b: "Read files in separate processes".
+                read_processes=bool(getattr(
+                    self._w._settings, "index_read_processes", False)),
                 prune_missing=roots is None,     # a folder-scoped run must not prune the rest
                 # A folder marked as an archive is walked once and then checked
                 # with one `stat` - the largest single saving available on a

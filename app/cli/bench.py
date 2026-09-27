@@ -223,6 +223,7 @@ def cmd_bench_pipeline(args: argparse.Namespace) -> int:
         probe_yield=not args.no_yield, workers=args.workers,
         full_speed=args.full_speed,
         child_process=bool(getattr(args, "child_process", False)),
+        read_processes=(True if getattr(args, "read_processes", False) else None),
         env_file=Path(args.env) if getattr(args, "env", None) else None,
         my_settings=args.my_settings, keep=args.keep, on_note=note,
     )
@@ -450,6 +451,10 @@ def add_bench_pipeline_parser(sub: argparse._SubParsersAction,
                    help="index in a child process (app.cli index --events jsonl),\n"
                         "as the window does with 'Index in a separate process' on;\n"
                         "with --probe only the heartbeat stays in this process")
+    # Work order 0x §5b: the "after" number for reading in processes.
+    p.add_argument("--read-processes", action="store_true",
+                   help="read files in a process per extraction worker, as\n"
+                        "'Read files in separate processes' does")
     p.add_argument("--keep", action="store_true",
                    help="keep the throwaway data folder (and a temporary corpus)")
     p.add_argument("--out", metavar="FILE", help="also write the JSON report here")

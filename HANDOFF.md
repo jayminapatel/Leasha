@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.17 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -164,6 +164,12 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 > **2026-09-27:** the owner decided the setting stays optional and configurable for good; the
 > in-process path is never retired. This check now decides only the default.
 
+- [ ] **Read files in separate processes (off by default, 0x §5b).** Indexing › Tuning: turn it on,
+      run `app.cli bench-pipeline --size medium --full-speed` with and without `--read-processes`
+      (on Linux: 63 s -> 35 s). Then a real index with it on: Task Manager shows one extra
+      `pythonw` per reader, each well under 100 MB; the page still shows "message N of M" inside a
+      large `.mbox`; Pause, Stop and closing the window leave no reader `pythonw` behind. If the
+      Windows numbers hold, it becomes the default in its own small change.
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not

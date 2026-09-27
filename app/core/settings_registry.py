@@ -414,6 +414,15 @@ SETTINGS: tuple[Setting, ...] = (
              "Takes effect from the next Start.",
     ),
     Setting(
+        key="INDEX_READ_PROCESSES", label="Read files in separate processes",
+        kind="bool", default=False, group="Tuning", surface="indexing.tuning",
+        help="Reads documents and mail in helper processes, one per reader, so "
+             "they use more of the computer's cores at once and indexing "
+             "finishes sooner. Uses more memory while a run is going. A file "
+             "that makes its reader fail is skipped without stopping the run. "
+             "Takes effect from the next Start.",
+    ),
+    Setting(
         key="INDEX_NAME_ONLY", label="Index every file by name", kind="bool",
         default=True, group="Tuning", surface="indexing.tuning",
         help="Records a row for every file, including the ones nothing can "
