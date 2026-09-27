@@ -161,6 +161,33 @@ RESUME_POSITION_META_KEY = "mbox_index"
 #: Also matched by `SqliteStore.clear_index()`'s reset delete.
 RESUME_STATE_PREFIX = "resume:"
 
+#: Work order `dates-live-log-and-interrupted-runs` 3b. The folder cursor an
+#: archive extractor (`pst_libpff.read_archive`) stamps on each document, and
+#: the message count before that folder. Spelt the same as there; not imported,
+#: because importing the libpff reader here would load it for every run.
+ARCHIVE_FOLDER_META_KEY = "pst_folder"
+ARCHIVE_READ_META_KEY = "pst_read_before"
+
+#: `index_state` key prefix for an archive's folder cursor. **Keyed on the
+#: archive's path, not a content hash**: an archive is read externally
+#: (`reads_externally`) and never hashed, so there is no digest to key on. The
+#: cursor records the archive's size and modified time instead and is used
+#: only while both still match - a changed archive starts from the top and
+#: overwrites it. Under `RESUME_STATE_PREFIX`, so a reset clears it too.
+ARCHIVE_RESUME_PREFIX = f"{RESUME_STATE_PREFIX}archive:"
+
+#: The most often an archive's folder cursor is written *during* a run, at a
+#: folder boundary. **What a pulled plug costs**, at most: the folders finished
+#: since the last write are re-parsed (their messages are skipped by text hash,
+#: so nothing is embedded twice). Each write first waits for the embedding
+#: thread to catch up - the cursor may only point past what is durable - so
+#: writing at every boundary would give up the overlap between reading and
+#: embedding on an archive of many small folders. Thirty seconds bounds the
+#: loss to seconds of parsing and the cost to one short wait a half-minute.
+#: A fixed constant (non-negotiable #11): nobody could choose it better than
+#: this, and a slower machine only makes the same trade in the same place.
+RESUME_PERSIST_S = 30.0
+
 #: Chunks per embedding call. The single biggest throughput lever in the whole
 #: pipeline: ONNX is efficient on large batches and spends its time on call
 #: overhead on small ones.
@@ -770,6 +797,11 @@ class _Extracted:
     #: nothing to compare against and re-reads the whole archive on every run
     #: forever - destroying the one property the incremental design exists for.
     file_marker: bool = False
+    #: Work order `dates-live-log-and-interrupted-runs` 3b. The `index_state`
+    #: key of this file's archive folder cursor (`ARCHIVE_RESUME_PREFIX`), or
+    #: None for anything that has none. Set on every item from such a file,
+    #: including its marker, which is what clears the cursor.
+    resume_key: Optional[str] = None
 
     @property
     def row_key(self) -> str:
@@ -793,6 +825,16 @@ class _Extracted:
         if self.key:
             return self.key
         return _candidate_row_key(self.candidate)
+
+
+def _archive_resume_key(path: Path) -> str:
+    """The `index_state` key of one archive's folder cursor (0w 3b).
+
+    A hash of the lower-cased path rather than the path itself: a key is a
+    short identifier, and Windows paths differ only in case.
+    """
+    digest = hashlib.blake2b(str(path).lower().encode("utf-8"), digest_size=16)
+    return f"{ARCHIVE_RESUME_PREFIX}{digest.hexdigest()}"
 
 
 def _candidate_row_key(candidate: "Candidate") -> str:
@@ -971,6 +1013,16 @@ class Pipeline:
         #: cursor is no longer needed. See the two for why this only ever
         #: holds *confirmed-embedded* positions, never merely-chunked ones.
         self._resume_progress: dict[str, tuple[str, int]] = {}
+        #: Work order `dates-live-log-and-interrupted-runs` 3b. The same idea
+        #: for an archive read by folders: `path -> cursor dict` (see
+        #: `_note_archive_progress`). Consumer thread only, like the above.
+        self._archive_cursors: dict[str, dict[str, Any]] = {}
+        #: Cursors a worker found and resumed from, handed to the consumer so
+        #: the attachments it names are carried into the next write. Written by
+        #: extraction workers, taken by the consumer; a plain dict's single
+        #: assignment and `pop` are atomic, which is all this needs.
+        self._archive_resumed: dict[str, dict[str, Any]] = {}
+        self._last_resume_persist = 0.0
         #: Every path this run has covered, lowercased. **One set, shared**
         #: between the walker, `_candidates` and `_produce` - see M17 in
         #: `_candidates`. Replaced at the start of each run.
@@ -1368,8 +1420,12 @@ class Pipeline:
         # `_extract_stream`'s lookup) rather than trusting a prior run's
         # object state.
         self._resume_progress = {}
+        self._archive_cursors = {}
+        self._archive_resumed = {}
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
+        # The first mid-run cursor write waits a full interval, like the rest.
+        self._last_resume_persist = self._run_started
         self._run_started_wall = time.time()
         self._stop.clear()
         self._interrupted = False
@@ -2820,6 +2876,8 @@ class Pipeline:
         # whole file from message 0 exactly as it always did if this fails
         # or finds nothing, which is always still correct, only slower.
         resume_from = 0
+        resume_extra: Optional[dict[str, Any]] = None
+        resume_key: Optional[str] = None
         if digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
@@ -2833,6 +2891,14 @@ class Pipeline:
                         candidate.path.name, exc,
                     )
                     resume_from = 0
+        elif reads_externally(candidate.path):
+            # Work order `dates-live-log-and-interrupted-runs` 3b: an archive,
+            # which has no digest - see `ARCHIVE_RESUME_PREFIX`.
+            extractor = extractor_for(candidate.path)
+            if extractor is not None and getattr(extractor, "supports_resume", False):
+                resume_key = _archive_resume_key(candidate.path)
+                resume_from, resume_extra = self._load_archive_cursor(
+                    candidate, resume_key)
 
         produced = 0
         seen_keys: set[str] = set()
@@ -2841,7 +2907,8 @@ class Pipeline:
         retry_next_pass = False
         try:
             for index, document in enumerate(
-                extract(candidate.path, resume_from=resume_from)
+                extract(candidate.path, resume_from=resume_from,
+                        resume_extra=resume_extra)
             ):
                 if any(_is_transient_partial(w) for w in document.warnings):
                     retry_next_pass = True
@@ -2904,6 +2971,7 @@ class Pipeline:
                     source_kind=document.source_kind,
                     warnings=document.warnings,
                     first_of_file=(index == 0),
+                    resume_key=resume_key,
                 )
         except AppErrorException as exc:
             # A failure part-way through an archive costs the rest of that
@@ -2943,6 +3011,7 @@ class Pipeline:
                 candidate=candidate, content_hash=digest,
                 key=default_key, source_kind="archive",
                 first_of_file=False, file_marker=True,
+                resume_key=resume_key,
             )
 
     # -- stage 3: embed and write (one thread: this one) --------------------
@@ -3107,7 +3176,8 @@ class Pipeline:
                 # that wrote it, and a warning on every unchanged message would
                 # repeat on every incremental pass.
                 self._note_warnings(item, log=False)
-                self._note_resume_progress(item)
+                if self._note_resume_progress(item):
+                    self._persist_at_folder_boundary(pending_vectors)
                 continue
 
             if item.error is not None:
@@ -3127,13 +3197,17 @@ class Pipeline:
             # to the feeder - so both are candidates to advance the resume
             # cursor once the feeder actually confirms them; see
             # `_note_resume_progress` and `_persist_resume_progress`.
-            self._note_resume_progress(item)
+            crossed_folder = self._note_resume_progress(item)
 
             if len(pending_vectors) >= self.config.embed_batch:
                 # §6b: handed off, not embedded here - the consumer moves
                 # straight on to the next batch while the feeder thread does
                 # this one. See `_feed_async`, and the module docstring.
                 self._feed_async(pending_vectors)
+
+            if crossed_folder:
+                # 0w 3b: an archive moved on to its next folder. See there.
+                self._persist_at_folder_boundary(pending_vectors)
 
             if len(self._pending_images) >= self.config.embed_batch:
                 # Work order 0h, H7 pattern: flushed in a batch on its own
@@ -3868,8 +3942,16 @@ class Pipeline:
                 self.store.delete_state(f"{RESUME_STATE_PREFIX}{item.content_hash}")
             except Exception as exc:        # noqa: BLE001 - H4
                 self._log.debug("could not clear resume cursor: {}", exc)
+        # 0w 3b: and an archive's folder cursor, for the same reason. Popped
+        # first, so the end of the run cannot write it back.
+        self._archive_cursors.pop(str(candidate.path), None)
+        if item.resume_key:
+            try:
+                self.store.delete_state(item.resume_key)
+            except Exception as exc:        # noqa: BLE001 - H4
+                self._log.debug("could not clear the archive's folder cursor: {}", exc)
 
-    def _note_resume_progress(self, item: _Extracted) -> None:
+    def _note_resume_progress(self, item: _Extracted) -> bool:
         """Remember the furthest position an extractor's `meta` has reported.
 
         In-memory only, and cheap: a dict update on the consumer's own
@@ -3877,20 +3959,138 @@ class Pipeline:
         - see `_persist_resume_progress` for why that has to wait until a
         flush actually confirms the vectors exist, not merely that the
         chunks were handed to `_write_one`.
+
+        True when an archive read by folders has just moved on to a later
+        folder (0w 3b) - the moment a cursor written now would save the most
+        re-reading. See `_persist_at_folder_boundary`.
         """
+        if item.resume_key and ARCHIVE_FOLDER_META_KEY in item.meta:
+            return self._note_archive_progress(item)
         position = item.meta.get(RESUME_POSITION_META_KEY)
         if position is None or item.content_hash is None:
-            return
+            return False
         try:
             position = int(position)
         except (TypeError, ValueError):
-            return
+            return False
         path_key = str(item.candidate.path)
         current = self._resume_progress.get(path_key)
         if current is None or current[0] != item.content_hash:
             self._resume_progress[path_key] = (item.content_hash, position)
         elif position > current[1]:
             self._resume_progress[path_key] = (item.content_hash, position)
+        return False
+
+    def _note_archive_progress(self, item: _Extracted) -> bool:
+        r"""Work order `dates-live-log-and-interrupted-runs` 3b, for one document.
+
+        **The cursor is the folder of the furthest settled document**, and a
+        resumed read re-reads that folder whole. Documents reach this thread in
+        the order the extractor yielded them (one worker per file, one queue),
+        so once a document from folder *g* has settled, every document from
+        every folder before *g* has settled too - which is exactly what "skip
+        the folders before *g*" needs, once a flush has made them durable.
+        What a resumed read finds again in folder *g* itself is already
+        indexed and is skipped by its text hash (`_already_current`), so it
+        costs a parse and never a duplicate.
+
+        Carried with it: the message count before *g*, so the partial-read
+        summary still covers the whole archive; and the content hash of every
+        attachment that settled, so an attachment first seen in a skipped
+        folder is still deduplicated as an uninterrupted read would. Seeded
+        from the cursor this read resumed from, if any, so a run interrupted
+        twice forgets nothing the first run knew.
+        """
+        try:
+            folder = int(item.meta[ARCHIVE_FOLDER_META_KEY])
+            read = int(item.meta.get(ARCHIVE_READ_META_KEY, 0) or 0)
+        except (TypeError, ValueError):
+            return False
+        path_key = str(item.candidate.path)
+        cursor = self._archive_cursors.get(path_key)
+        crossed = False
+        if cursor is None or cursor["key"] != item.resume_key:
+            earlier = self._archive_resumed.pop(path_key, None) or {}
+            cursor = {
+                "key": item.resume_key,
+                "path": str(item.candidate.path),
+                "size": int(item.candidate.size_bytes),
+                "mtime_ns": int(item.candidate.mtime_ns),
+                "folder": folder,
+                "read": read,
+                "seen": set(earlier.get("seen") or ()),
+            }
+            self._archive_cursors[path_key] = cursor
+        elif folder > cursor["folder"]:
+            cursor["folder"], cursor["read"] = folder, read
+            crossed = True
+        if item.meta.get("attachment_of") and item.meta.get("content_hash"):
+            cursor["seen"].add(str(item.meta["content_hash"]))
+        return crossed
+
+    def _load_archive_cursor(
+        self, candidate: Candidate, key: str,
+    ) -> tuple[int, Optional[dict[str, Any]]]:
+        """`(resume_from, resume_extra)` for an archive, or `(0, None)`.
+
+        Worker thread. **Used only if the archive is the size and age it was**
+        when the cursor was written: folder numbers describe one archive's
+        tree, and after Outlook or anybody else has written to it they may
+        describe another. Anything unreadable is a read from the top, which is
+        always correct and only slower - the cursor is an optimisation, never
+        a correctness requirement (H4).
+        """
+        import json
+
+        try:
+            raw = self.store.get_state(key)
+            if not raw:
+                return 0, None
+            cursor = json.loads(raw)
+            if (int(cursor.get("size", -1)) != int(candidate.size_bytes)
+                    or int(cursor.get("mtime_ns", -1)) != int(candidate.mtime_ns)):
+                self._log.info(
+                    "{} has changed since it was read part-way; reading it from "
+                    "the start", candidate.path.name)
+                return 0, None
+            folder = int(cursor.get("folder", 0) or 0)
+            extra = {"seen": [str(h) for h in cursor.get("seen") or ()],
+                     "read": int(cursor.get("read", 0) or 0)}
+        except Exception as exc:                     # noqa: BLE001 - H4
+            self._log.debug(
+                "folder cursor unreadable for {}, starting from the top: {}",
+                candidate.path.name, exc)
+            return 0, None
+        if folder <= 0:
+            return 0, None
+        self._archive_resumed[str(candidate.path)] = extra
+        self._log.info(
+            "{} was read part-way before; carrying on at folder {}",
+            candidate.path.name, folder)
+        return folder, extra
+
+    def _persist_at_folder_boundary(self, pending: list[tuple[int, int, str]]) -> None:
+        """Write the resume cursors now, if it has been a while. See
+        `RESUME_PERSIST_S`: this is what makes a pulled plug cost seconds.
+
+        **Durable first, then the cursor** - the same order the end of
+        `_consume` keeps, for the same reason: a cursor pointing past a message
+        whose vectors never landed would skip it on resume, which is loss.
+        `_feed_sync` raises if the embedding thread failed, exactly as it does
+        before an archive's marker.
+        """
+        now = time.monotonic()
+        if now - self._last_resume_persist < RESUME_PERSIST_S:
+            return
+        self._last_resume_persist = now
+        self._flush_pending_images()
+        self._feed_sync(pending)
+        if self._embed_abandoned:
+            return
+        try:
+            self._persist_resume_progress()
+        except Exception as exc:            # noqa: BLE001 - H4: never the run
+            self._log.warning("could not persist an archive's folder cursor: {}", exc)
 
     def _persist_resume_progress(self) -> None:
         """Flush every tracked resume position to `index_state`, at once.
@@ -3905,12 +4105,23 @@ class Pipeline:
         vector never actually made it to LanceDB, which is silent data loss,
         not a slower resume.
         """
-        if not self._resume_progress:
-            return
-        self.store.set_states({
+        import json
+
+        values = {
             f"{RESUME_STATE_PREFIX}{content_hash}": str(position + 1)
             for content_hash, position in self._resume_progress.values()
-        })
+        }
+        # 0w 3b. The folder itself, not `+ 1`: the folder may not be finished,
+        # and it is re-read whole - see `_note_archive_progress`.
+        for cursor in self._archive_cursors.values():
+            values[cursor["key"]] = json.dumps({
+                "path": cursor["path"], "size": cursor["size"],
+                "mtime_ns": cursor["mtime_ns"], "folder": cursor["folder"],
+                "read": cursor["read"], "seen": sorted(cursor["seen"]),
+            })
+        if not values:
+            return
+        self.store.set_states(values)
 
     def _already_current(self, item: _Extracted) -> bool:
         """Has this exact document already been indexed, unchanged?
