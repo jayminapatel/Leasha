@@ -91,7 +91,9 @@ def test_check_file_formats_passes_the_counts_through(
     real `.env`) - separate from `load_settings`, which `_pending_counts_by_ext`
     uses. Both have to point at the fixture for this one test to mean anything.
     """
-    _store_with(data_path, [("plan.dwg", "dwg", FileStatus.NAME_ONLY)] * 5)
+    # Five *different* paths: `upsert_file` is keyed on the path, so five
+    # copies of one path were one row, and the detail said "1 .dwg file".
+    _store_with(data_path, [(f"plan-{n}.dwg", "dwg", FileStatus.NAME_ONLY) for n in range(5)])
 
     real_env_path = doctor.env_path
     monkeypatch.setattr(
