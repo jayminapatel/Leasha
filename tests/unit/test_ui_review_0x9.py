@@ -272,3 +272,36 @@ def test_quiet_text_still_reaches_wcag_aa(gui_mainwindow, qtbot, scheme):
         assert _most_contrasting(image, image.rect(), ground) >= 4.5, (scheme, label.text())
         view.input.clear()
     window.rail.setCurrentIndex(0)
+
+
+def test_an_empty_index_does_not_call_itself_up_to_date(gui_mainwindow, qtbot):
+    r"""**Before:** on a first run, with nothing indexed, the rail's pill read
+    "Up to date - 0 files" while the Search page beside it said "Nothing has
+    been indexed yet". Grab: `after1-rail-760x560/light/search-home.png` (an
+    empty store), the pill at the rail's foot.
+
+    Now the Indexing page's count of 0 reaches the pill as it does in the app
+    (the page's own signal), the pill reads "Nothing yet", a mouse click on it
+    opens the Indexing page, and a count of documents brings "Up to date" back
+    word for word."""
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    pill = window.rail.pill
+    before = window._last_document_count
+    try:
+        window.indexing_view.totals_shown.emit(0)
+        gui_pump(app, 4)
+        assert pill.headline.text() == "Nothing yet"
+        assert "Up to date" not in pill.accessibleName()
+        qtbot.mouseClick(pill, Qt.MouseButton.LeftButton)
+        gui_pump(app, 4)
+        assert window.rail.tabText(window.rail.currentIndex()) == "Indexing"
+
+        window.indexing_view.totals_shown.emit(3)
+        gui_pump(app, 4)
+        assert pill.headline.text() == "Up to date"
+        assert pill.detail.text() == "3 files"
+    finally:
+        window.indexing_view.totals_shown.emit(before or 0)
+        window.rail.setCurrentIndex(0)
+        gui_pump(app, 4)
