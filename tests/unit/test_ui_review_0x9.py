@@ -305,3 +305,57 @@ def test_an_empty_index_does_not_call_itself_up_to_date(gui_mainwindow, qtbot):
         window.indexing_view.totals_shown.emit(before or 0)
         window.rail.setCurrentIndex(0)
         gui_pump(app, 4)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_suggested_searches_and_filter_chips_are_round_not_square(gui_mainwindow, qtbot, scheme):
+    r"""**Before:** every "pill" had square corners - the four suggested
+    searches under the empty box and each filter chip - because they asked for
+    a 999px radius and Qt draws no rounding at all for a radius above half the
+    height. Grab: `before-1100x760/light/search-home.png`, the four boxes
+    under the search box.
+
+    Now Escape empties the box (the home page, suggestions showing), and a
+    typed `/type pdf` makes a chip; the top-left corner pixel of each must be
+    the page behind it, not the pill's own fill."""
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QColor, QImage, QPainter, QRegion
+    from PyQt6.QtWidgets import QWidget
+    from app.ui import theme
+
+    app, window, *_ = gui_mainwindow
+    _front(app, window, qtbot, 1100, 760)
+    view = window.search_view
+
+    def corner_is_rounded(widget) -> bool:
+        # Render it over a colour that is in neither theme, so a corner that
+        # is not painted shows that colour and nothing else.
+        image = QImage(widget.size(), QImage.Format.Format_ARGB32)
+        image.fill(QColor("#ff00ff"))
+        painter = QPainter(image)
+        # Children only - without this flag Qt first fills the whole rectangle
+        # with the window colour, and every corner looks painted.
+        widget.render(painter, QPoint(), QRegion(), QWidget.RenderFlag.DrawChildren)
+        painter.end()
+        return image.pixelColor(0, 0).name() == "#ff00ff"
+
+    with _Theme(window, scheme):
+        window.rail.setCurrentIndex(window.rail.indexOf(view))
+        view.input.setFocus()
+        qtbot.keyClicks(view.input, "leeds")
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 6)
+        assert view.input.text() == ""
+        suggestions = [w for w in view.findChildren(QWidget)
+                       if w.objectName() == "suggestion" and w.isVisible()]
+        assert suggestions, "the home page shows suggested searches"
+        assert all(corner_is_rounded(s) for s in suggestions), scheme
+
+        qtbot.keyClicks(view.input, "leeds /type pdf")
+        qtbot.waitUntil(lambda: any(w.objectName() == "chip" and w.isVisible()
+                                    for w in view.findChildren(QWidget)), timeout=4000)
+        chips = [w for w in view.findChildren(QWidget) if w.objectName() == "chip" and w.isVisible()]
+        assert all(corner_is_rounded(c) for c in chips), scheme
+        assert theme.RADIUS["radius_pill"] != "999px"
+        qtbot.keyClick(view.input, KEY.Key_Escape)
+        gui_pump(app, 4)
