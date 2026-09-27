@@ -1,6 +1,6 @@
 # Work order (One thread): a window that never waits, an indexer that shows its work, and code that is ready for a Mac
 
-**Doc version:** 1.2 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Thread:** One thread, run as a master thread that coordinates helper threads (each in
 its own git worktree) and merges their work
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build all of it.
@@ -166,6 +166,10 @@ The design was agreed in conversation first. The owner confirmed every recommend
 - [ ] **2d** Measured, before and after, on the same synthetic corpus: the window's
       longest stall and p99 (the lag monitor) while indexing, files per minute, and memory.
       The change lands only if the window is better and throughput is no worse.
+> **2026-09-27, owner's decision: the setting stays for good.** "Index in a separate process" remains
+> optional and configurable permanently. The in-process path is **not** retired, whatever 2d shows;
+> the "then retired in a later change" below no longer holds. 2d now decides only which way the
+> setting is switched by default.
 - [x] **2e** The in-process path is kept behind a setting until 2d is confirmed on the
       owner's real index, then retired in a later change.
 

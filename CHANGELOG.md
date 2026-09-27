@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.29 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.30 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Indexing in a separate process stays a choice
+
+- The owner decided on 2026-09-27 that "Index in a separate process" stays an optional setting
+  permanently. The built-in way of indexing is kept rather than retired; the pending measurement
+  (order 0x item 2d) decides only which way it is switched by default.
 
 ### Buttons that look like they belong together
 
