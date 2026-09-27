@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -119,6 +119,27 @@ it, or write what happened underneath with the date. Anything marked
 
 - [ ] **7.5** Index a large `.mbox` and a zip of documents: the page names the archive and "message
       n of m" / "member n of m", one line per reader, and "last activity" keeps moving.
+
+## 8. The indexer in its own process (order 0x §2)
+
+- [ ] **8.1** Turn on Indexing › Tuning › Strategy › "Index in a separate process" and start an index.
+      Activity Monitor shows a second `python` at lower priority (nice 10); Pause, Resume and Stop
+      reach it. **(UNCONFIRMED on macOS)**
+- [ ] **8.2** Force-quit Leasha mid-run: the second `python` exits within 60 seconds.
+- [ ] **8.3** `venv/bin/python -m app.cli bench-pipeline --probe --child-process --size small`
+      completes and reports the child's memory.
+
+## 9. Paths and letter case (order 0x §7)
+
+- [ ] **9.1** On the normal disk: `venv/bin/python -c "from app.core.osbridge import case_sensitive;
+      print(case_sensitive('/Users/<you>/Documents'))"` prints `False`.
+- [ ] **9.2** In Disk Utility make an APFS (Case-sensitive) disk image, mount it, create
+      `Report.txt` and `report.txt` in a folder on it, index that folder and search "report": both
+      appear; `case_sensitive('/Volumes/<image>/<folder>')` prints `True`; index again and neither is
+      removed. **(UNCONFIRMED on macOS)**
+- [ ] **9.3** A folder on an exFAT or FAT32 USB drive: `case_sensitive` prints `False`.
+- [ ] **9.4** Index a git repository and search a term from its history: the result's path reads
+      `/Users/.../repo/src/file.py` with no backslashes, and Open and Show in Finder work.
 
 ## 5. Parked for a later order (hardware-specific; see order 0x §P)
 

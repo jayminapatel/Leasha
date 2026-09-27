@@ -485,6 +485,23 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # Work order 0x §2c. The indexer runs in a process of its own, started by
+    # the window, and that process ended without saying it had finished - a
+    # crash inside a reader, the machine running out of memory, or something
+    # ending it from outside. `{where}` is " while reading <file>" when the
+    # last progress event named one, and empty when it did not, so the
+    # sentence stays true either way. Resume is per file (non-negotiable #4),
+    # which is why the suggestion can promise that nothing finished is redone.
+    "ERR_INDEX_PROCESS_ENDED": _Spec(
+        message="The indexing process stopped unexpectedly{where}.",
+        suggestion=(
+            "Everything indexed before it stopped is kept. Press Start to carry "
+            "on from where it left off - files already done are not read again. "
+            "If it stops again on the same file, that file is the likely cause: "
+            "move it out of the indexed folders for now and start again."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # Offline Media catalogues a *volume*, whose identity is the drive's own
     # GUID (or a share's UNC name) - a folder has neither, and a drive letter is
     # never stored. Said in words, with the way out, instead of the

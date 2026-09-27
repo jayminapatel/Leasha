@@ -427,6 +427,8 @@ class IndexWorker(QRunnable):
         that waiting on it - if the CLI got there first - cannot freeze the
         window; the failure arrives as an ordinary `failed` signal.
         """
+        from contextlib import nullcontext
+
         from app.core.priority import background_thread
         from app.core.run_lock import GUI, IndexRunLock
 
@@ -453,13 +455,22 @@ class IndexWorker(QRunnable):
             _log.warning("starting the index run with a settings save still queued "
                          "after {} ms; the run reads what is already saved",
                          SETTLED_STATE_WAIT_MS)
+        # Work order 0x §2. **A run in a child process takes the lock itself**
+        # (`app.index.child_run.ChildIndexRun`): it is an ordinary
+        # `app.cli index`, and it could not take the lock if this thread held
+        # it. Nor is this thread lowered for it - it only waits on the child's
+        # output, and a waiting thread at the lowest priority would read the
+        # child's progress late on a busy machine. The child lowers itself,
+        # the way `app.cli index` always has.
+        in_child = bool(getattr(self.pipeline, "takes_its_own_run_lock", False))
         try:
-            with IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI):
+            with (nullcontext() if in_child
+                  else IndexRunLock(getattr(self.pipeline, "store", None), owner=GUI)):
                 # **This thread, and every thread the run starts, lowers itself
                 # - the process does not.** The window is in this process, and
                 # lowering the process lowered the window with it. See
                 # `app.core.priority`.
-                with background_thread(polite):
+                with background_thread(polite and not in_child):
                     self.pipeline.thread_priority_only = polite
                     stats = self.pipeline.run(on_progress=progress)
             _emit(self.signals, "finished", stats)

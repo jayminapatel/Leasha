@@ -34,6 +34,10 @@ The design was agreed in conversation first. The owner confirmed every recommend
    had confirmed `/between X and Y`; to avoid two syntaxes for one thing, `/between` is
    built here as an **alias of `/date`** that also accepts `X and Y` and `X to Y`. `/from`
    keeps its meaning (email from this person).
+> **2026-09-27 note on D3:** running the macOS job on every commit used up the account's Actions
+> allowance within an afternoon (macOS bills at about ten times the Windows rate; a run took about
+> 50 minutes), after which GitHub refused every job, Windows included. The macOS job now runs only
+> when started by hand (Actions → CI → Run workflow) or weekly; Windows still runs on every PR commit.
 3. **A macOS runner is added to CI** (GitHub Actions `macos-14`, Apple Silicon). It starts
    as a non-blocking report and becomes blocking section by section, as each part is made
    to pass there.
@@ -134,21 +138,35 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 2. The indexer in its own process
 
-- [ ] **2a** `app.cli index` gains a machine-readable mode that writes one JSON line per
+> **2026-09-27, 2a-2c and 2e built; 2d measured, not yet confirmed.** `app.cli index --events jsonl`
+> streams one JSON line per event (`app/index/run_events.py`); IndexStats crosses by value type, so
+> fields other sections add travel on their own, and a test shows the page's headline and reader lines
+> read the same from the child as in-process. `app/index/child_run.py` runs it with `Popen` on the
+> page's existing one-thread index pool - not QProcess, which would have meant changing the view -
+> and turns a crash or a silent exit into `ERR_INDEX_PROCESS_ENDED` naming the file it was reading.
+> The child takes the run lock as "the window", so 0w's interrupted-run notice works unchanged; it
+> lowers its own priority through the CLI's existing path; closing its stdin means Stop, then exit
+> after 60 s, so it never outlives the window. The setting is "Index in a separate process"
+> (`INDEX_SEPARATE_PROCESS`), **off by default**. 2d, Linux sandbox, fake embedder, shared noisy
+> machine: the window's heartbeat p99 improved (21 → 8 ms small, 10.5 → 4 ms medium), throughput was
+> equal on the medium corpus (1,488 vs 1,486 files/min) and 16% lower on the small one (the child's
+> 2-3 s start-up), and the longest stall did not improve on medium (55 vs 54 ms). That is not enough to
+> switch it on for everyone: 2d stays open until the owner's real-index comparison (HANDOFF checklist).
+- [x] **2a** `app.cli index` gains a machine-readable mode that writes one JSON line per
       event to standard output (progress, activity, heartbeat, finished) and reads
       commands (pause, resume, stop) on standard input. The existing human-readable output
       is unchanged.
-- [ ] **2b** A supervisor in the window starts that process, reads its lines without ever
+- [x] **2b** A supervisor in the window starts that process, reads its lines without ever
       blocking the interface thread, and turns them into the same `IndexStats` updates the
       page already draws. Pause and Stop reach the child. The run lock, the external-run
       watch and the schedule keep working.
-- [ ] **2c** Crash handling: if the child dies, the page says so in plain words, the run
+- [x] **2c** Crash handling: if the child dies, the page says so in plain words, the run
       carries on from its last saved position when started again (0w's interrupted-run
       notice), and the file it was reading is named.
 - [ ] **2d** Measured, before and after, on the same synthetic corpus: the window's
       longest stall and p99 (the lag monitor) while indexing, files per minute, and memory.
       The change lands only if the window is better and throughput is no worse.
-- [ ] **2e** The in-process path is kept behind a setting until 2d is confirmed on the
+- [x] **2e** The in-process path is kept behind a setting until 2d is confirmed on the
       owner's real index, then retired in a later change.
 
 ## 3. Progress you can read, inside one file too
@@ -250,10 +268,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 7. Paths and letter case, ready for a Mac
 
-- [ ] **7a** Code that hard-codes `\` when joining or splitting paths uses the system's own
+> **2026-09-27, §7 built** (`app/core/osbridge/pathnames.py`). `federate` joins with `/` on a Mac;
+> on Windows it runs the old expression, pinned against a verbatim copy over 84 root/path pairs. The
+> walker, the pipeline's seen/prune/retry sets, `media_backlog`, `scan` and the archive resume key use
+> `path_key`, which is exactly `str.lower()` on Windows and never touches the disk there; on a Mac or
+> Linux it follows a per-folder probe (a case-swapped `lstat` compared by device and inode, cached).
+> A real case-sensitive folder holding `Report.txt` and `report.txt` now keeps both rows through a
+> full index and a rerun; with the old key put back, three of those tests fail. Kept in the Windows
+> format on every system, because they are stored keys: `archives.normalise`, the cloud-content
+> opt-in, the repos table's `COLLATE NOCASE` (two repositories differing only by case would share a
+> row on a case-sensitive disk - attribution, not a lost file). Cost on Windows: about 20 ns a call in
+> a micro-benchmark. **(UNCONFIRMED on macOS:** the APFS probe, and Unicode normalisation.)
+- [x] **7a** Code that hard-codes `\` when joining or splitting paths uses the system's own
       separator. **Paths already stored in an index are not changed**, so nothing on the
       owner's machine is reindexed or migrated.
-- [ ] **7b** Whether a drive compares names with or without regard to letter case is
+- [x] **7b** Whether a drive compares names with or without regard to letter case is
       decided per indexed folder, by probing it when it is added. Windows behaviour is
       unchanged (case-insensitive); a case-sensitive Mac volume is respected.
 

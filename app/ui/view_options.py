@@ -810,6 +810,38 @@ def _bound_to_table(width: int, available: int) -> int:
 #: a column, and a dozen integer reads at that rate is nothing.
 WATCH_MS = 600
 
+#: Every running width watcher: `id(look) -> (its timer, look)`.
+#:
+#: **This is what stops the native crash of 2026-09-27, and it is only a
+#: reference.** `look` is a closure, and it sits in a reference cycle with its
+#: own timer (`look` holds `watcher`; PyQt tells the garbage collector that the
+#: timer's wrapper holds the slot). When a view is let go, the cyclic collector
+#: can find that cycle unreachable while the C++ timer is still alive and
+#: ticking. The collector then *clears* the function - its globals become
+#: NULL - and the next tick calls it: a segfault on entry, before one line of
+#: it runs. A core dump from the full suite showed exactly that frame:
+#: `remember_widths.<locals>.look`, globals 0x0, called from QTimer::timeout.
+#:
+#: Held here, `look` is always reachable from this module, so the collector
+#: never picks it (or anything it holds) to clear. Entries go when their timer
+#: has been deleted - pruned on the next `remember_widths` - or when `look`
+#: stops its own timer because the table has gone.
+_WATCHERS: dict = {}
+
+
+def _keep_watcher(timer: Any, look: Any) -> None:
+    """Register a watcher, first dropping those whose timer no longer exists."""
+    from PyQt6 import sip
+
+    for key, (other, _look) in list(_WATCHERS.items()):
+        try:
+            gone = sip.isdeleted(other)
+        except TypeError:
+            gone = True
+        if gone:
+            _WATCHERS.pop(key, None)
+    _WATCHERS[id(look)] = (timer, look)
+
 
 def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]]) -> None:
     r"""Save a column width when somebody drags it, and only then.
@@ -970,6 +1002,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         except RuntimeError:
             # The table's C++ side went away - a tab closing, or shutdown.
             watcher.stop()
+            _WATCHERS.pop(id(look), None)        # nothing left to watch
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not check the column widths: {}", exc)
 
@@ -978,6 +1011,8 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     watcher = QTimer(table)
     watcher.setInterval(WATCH_MS)
     watcher.timeout.connect(look)
+    # Kept reachable for as long as the timer lives - see `_WATCHERS`.
+    _keep_watcher(watcher, look)
     watcher.start()
 
     # `apply_to_table` calls this so a fitted width is never mistaken for a

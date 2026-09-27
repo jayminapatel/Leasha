@@ -266,7 +266,7 @@ def test_the_long_lived_receivers_really_are_long_lived():
 # the opt-in teardown that the leak investigation produced
 # ---------------------------------------------------------------------------
 
-def _sweep(app, before: set) -> None:
+def _sweep(app, before: dict) -> None:
     """What `no_leaked_widgets` does, so a test can check it rather than describe it."""
     from PyQt6.QtCore import QEvent
     from PyQt6.QtWidgets import QApplication
@@ -312,7 +312,8 @@ def test_the_opt_in_teardown_deletes_what_the_test_built(app):
     from PyQt6 import sip
     from PyQt6.QtWidgets import QApplication
 
-    before = {id(w) for w in QApplication.topLevelWidgets()}
+    # The widgets themselves, not only their ids - see `no_leaked_widgets`.
+    before = {id(w): w for w in QApplication.topLevelWidgets()}
     made = [QWidget() for _ in range(3)]
     for widget in made:
         widget.show()
@@ -333,9 +334,13 @@ def test_the_teardown_keeps_widgets_it_did_not_create(app):
     from PyQt6 import sip
     from PyQt6.QtWidgets import QApplication
 
+    # Everything alive before this test, so the clean-up at the end removes
+    # only what the test built.
+    outside = {id(w): w for w in QApplication.topLevelWidgets()}
     survivor = QWidget()
     survivor.show()
-    before = {id(w) for w in QApplication.topLevelWidgets()}
+    # The widgets themselves, not only their ids - see `no_leaked_widgets`.
+    before = {id(w): w for w in QApplication.topLevelWidgets()}
 
     newcomer = QWidget()
     newcomer.show()
@@ -345,7 +350,11 @@ def test_the_teardown_keeps_widgets_it_did_not_create(app):
         "a widget that predated the snapshot was deleted - a module-scoped MainWindow "
         "would go the same way, mid-module")
     assert sip.isdeleted(newcomer), "the widget the test created was not cleaned up"
-    _sweep(app, set())
+    # Only `survivor` - not every top-level widget in the process. Sweeping with
+    # an empty snapshot deleted the module-scoped MainWindows of earlier files
+    # too, which is the crash `gui_mainwindow` warns about (exit -11 in the full
+    # suite, in this very `_sweep`).
+    _sweep(app, outside)
 
 
 def test_the_fixture_itself_runs_and_cleans_up(no_leaked_widgets):

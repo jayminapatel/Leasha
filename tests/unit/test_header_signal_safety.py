@@ -321,3 +321,59 @@ class TestALetGoViewTakesItsWatcherWithIt:
         finally:
             if was_enabled:
                 gc.enable()
+
+
+#: Run in a child process, because before the fix it did not fail - it
+#: segfaulted, and would have taken the whole test run down with it.
+_ORPHANED_WATCHER = '''
+import gc, time
+from PyQt6 import sip
+from PyQt6.QtWidgets import QApplication, QTableWidget
+from app.ui import view_options
+
+class Button:
+    def remember_width(self, *_a):
+        pass
+
+app = QApplication([])
+kept = []
+for _ in range(5):
+    table = QTableWidget(2, 3)
+    view_options.remember_widths(table, Button(), [("a", "A"), ("b", "B"), ("c", "C")])
+    sip.transferto(table, None)          # C++ owns it: it outlives its Python side
+    kept.append(sip.unwrapinstance(table))
+    del table
+gc.collect()                             # the watcher's Python side is now garbage
+end = time.monotonic() + 1.5
+while time.monotonic() < end:            # two ticks of the 600ms watcher, at least
+    app.processEvents()
+    time.sleep(0.01)
+print("survived")
+'''
+
+
+def test_a_watcher_whose_python_side_was_collected_does_not_crash_on_its_next_tick(
+        tmp_path) -> None:
+    """The native crash of 2026-09-27 (`view_options._WATCHERS` has the story).
+
+    A table that lives on in C++ after its Python wrapper is dropped keeps its
+    width timer ticking. The collector found `look` and its timer in an
+    unreachable cycle and cleared the function, and the next tick called a
+    function with no globals: exit -11, in whichever test was running. A core
+    dump from the full suite named the frame. Before the fix this script
+    ended with signal 11; it must now finish and say so.
+    """
+    import os
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[2]
+    script = tmp_path / "orphaned_watcher.py"
+    script.write_text(_ORPHANED_WATCHER, encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONPATH=str(root))
+    done = subprocess.run([sys.executable, str(script)], cwd=root, env=env,
+                          capture_output=True, text=True, timeout=120)
+
+    assert done.returncode == 0 and "survived" in done.stdout, (
+        f"exit {done.returncode}: a collected width watcher still ticked into "
+        f"a cleared closure\n{done.stderr[-2000:]}")

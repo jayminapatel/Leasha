@@ -17,6 +17,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Indexing can run in its own process (off for now)
+
+- A new switch, **Index in a separate process** (Indexing › Tuning › Strategy), runs the index as a
+  second Leasha process so the window never competes with it for time. Pause, Resume and Stop work
+  the same; if that process ever stops unexpectedly, the page says so and names the file it was
+  reading, and the next Start carries on. It is off until it has been measured on a real index.
+
+### Fixes found while clearing the test suite
+
+- **Typing a search and pausing sometimes never ran the full search** until you pressed Enter, so
+  spelling help and "recent searches" did not appear. Qt's timers can fire a little early, and the
+  search box took that as "still typing". It now counts the pause correctly.
+- A rare crash when a Files, Mail or Code page was closed while it was still remembering its column
+  widths is fixed.
+
 ### Date ranges you can type the way you say them
 
 - `/between 2024-03-01 and 2024-06-30` (or `… to …`) works in every search box, and gives exactly

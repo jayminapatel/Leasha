@@ -157,6 +157,7 @@
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
     <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\pathnames.py" />
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
     <Compile Include="app\core\osbridge\programs.py" />
@@ -224,6 +225,7 @@
     <Compile Include="app\index\archives.py" />
     <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
+    <Compile Include="app\index\child_run.py" />
     <Compile Include="app\index\clip_embedder.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
@@ -240,6 +242,7 @@
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
+    <Compile Include="app\index\run_events.py" />
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
     <Compile Include="app\index\stages.py" />
@@ -491,6 +494,7 @@
     <Compile Include="tests\unit\close_scenario_child.py" />
     <Compile Include="tests\unit\conftest.py" />
     <Compile Include="tests\unit\e2e_support.py" />
+    <Compile Include="tests\unit\fake_index_child.py" />
     <Compile Include="tests\unit\interrupted_run_child.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
@@ -532,6 +536,7 @@
     <Compile Include="tests\unit\test_chat_webrule.py" />
     <Compile Include="tests\unit\test_chat_wiring.py" />
     <Compile Include="tests\unit\test_chat_wiring_qt.py" />
+    <Compile Include="tests\unit\test_child_run.py" />
     <Compile Include="tests\unit\test_chunker.py" />
     <Compile Include="tests\unit\test_cli_expands_slashes.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
@@ -642,6 +647,8 @@
     <Compile Include="tests\unit\test_idle_tune_and_space_report_ui.py" />
     <Compile Include="tests\unit\test_image_orientation.py" />
     <Compile Include="tests\unit\test_image_vector_store.py" />
+    <Compile Include="tests\unit\test_index_child_gui.py" />
+    <Compile Include="tests\unit\test_index_child_process.py" />
     <Compile Include="tests\unit\test_index_flows.py" />
     <Compile Include="tests\unit\test_index_force.py" />
     <Compile Include="tests\unit\test_index_freshness.py" />
@@ -700,6 +707,7 @@
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_osbridge.py" />
     <Compile Include="tests\unit\test_osbridge_guard.py" />
+    <Compile Include="tests\unit\test_osbridge_pathnames.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
@@ -774,6 +782,7 @@
     <Compile Include="tests\unit\test_review_section_four.py" />
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
+    <Compile Include="tests\unit\test_run_events.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_run_log.py" />
     <Compile Include="tests\unit\test_run_suite_processes.py" />
