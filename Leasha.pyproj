@@ -1044,6 +1044,7 @@
     <Content Include="docs\WORKORDER-202626271510-results-presentation.md" />
     <Content Include="docs\WORKORDER-202626271601-splash-and-fast-lifecycle.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
+    <Content Include="docs\WORKORDER-code-and-mail-world-class.md" />
     <Content Include="docs\WORKORDER-dates-live-log-and-interrupted-runs.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
