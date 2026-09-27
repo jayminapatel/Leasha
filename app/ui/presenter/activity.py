@@ -95,6 +95,12 @@ def activity_text(entry: Any) -> str:
         return "Carrying on."
     if kind == "stopping":
         return "Stopping after the current file. Everything indexed so far is kept."
+    if kind == "archive":
+        # 0w 3b/3c. Interruption, never damage: nothing here is "partly read",
+        # which is the damaged-archive row's wording and means something else.
+        if detail == "resumed":
+            return f"Carrying on with {text} from where an earlier run stopped."
+        return f"Stopped part-way through {text}. The next run carries on with it."
     if kind == "finished":
         if text == "stopped":
             return "Stopped. Everything indexed so far is kept."

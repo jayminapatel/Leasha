@@ -159,6 +159,9 @@ from app.ui.presenter.indexing import (
     archive_summary,
 )
 from app.ui.presenter.interrupted import (
+    PART_READ_LABEL,
+    PART_READ_LABEL_MANY,
+    part_read_rows,
     UNFINISHED_LABEL,
     stopped_when,
     unfinished_reach,
@@ -374,6 +377,9 @@ __all__ = [
     "StatRow",
     "index_summary",
     "warned_counts",
+    "PART_READ_LABEL",
+    "PART_READ_LABEL_MANY",
+    "part_read_rows",
     "UNFINISHED_LABEL",
     "stopped_when",
     "unfinished_reach",

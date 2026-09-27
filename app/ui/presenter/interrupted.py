@@ -27,6 +27,15 @@ from app.ui.presenter.indexing import StatRow
 #: The row's label on the Indexing page's "This index" panel.
 UNFINISHED_LABEL = "Last run did not finish"
 
+#: Work order 3c: the row for a mail archive a run stopped inside. **Not "partly
+#: read"**, which is the damaged-archive row's wording (`index_summary`) and
+#: sends the person to scanpst.exe - an interrupted archive needs nothing.
+PART_READ_LABEL = "Mail archive not finished"
+PART_READ_LABEL_MANY = "Mail archives not finished"
+
+#: Names listed before "and N more". A row is one line of a panel, not a list.
+PART_READ_NAMED = 3
+
 #: What starting again costs, said once and the same way everywhere.
 CARRIES_ON = ("Starting the index again carries on from where it stopped, and "
               "nothing already indexed is lost.")
@@ -125,3 +134,32 @@ def unfinished_run_line(
         return (f"{head} This run carries on from where it stopped; nothing "
                 "already indexed is lost.")
     return f"{head} {CARRIES_ON}"
+
+
+def part_read_rows(
+    archives: Optional[list[Mapping[str, Any]]], *, running: bool = False,
+) -> list[StatRow]:
+    """The row for mail archives a run stopped inside, or `[]` (3c).
+
+    Which one, and that the next run carries on with it. Calm for the same
+    reason as `unfinished_run_rows`, and dropped while a run is going for the
+    same reason too: that run is the one carrying on.
+    """
+    entries = [entry for entry in (archives or ()) if entry.get("name")]
+    if not entries or running:
+        return []
+    names = [str(entry["name"]) for entry in entries]
+    carry = ("The next index run carries on with it, and everything already read "
+             "is searchable now.")
+    if len(names) == 1:
+        return [StatRow(PART_READ_LABEL, names[0],
+                        note=f"A run stopped part-way through it. {carry}")]
+    shown = names[:PART_READ_NAMED]
+    rest = len(names) - len(shown)
+    listed = (", ".join(shown[:-1]) + f" and {shown[-1]}" if not rest
+              else ", ".join(shown) + f" and {rest:,} more")
+    return [StatRow(
+        PART_READ_LABEL_MANY, format_count(len(names)),
+        note=(f"A run stopped part-way through {listed}. The next index run "
+              "carries on with them, and everything already read is searchable now."),
+    )]

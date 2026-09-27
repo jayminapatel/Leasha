@@ -67,6 +67,7 @@ from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
 from app.index import backends
 from app.index.activity import (
+    KIND_ARCHIVE,
     KIND_FINISHED,
     KIND_LARGE_FILE,
     KIND_NOTICE,
@@ -82,6 +83,7 @@ from app.index.clip_embedder import ClipImageEmbedder
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
+from app.index.interrupted import ARCHIVE_RESUME_PREFIX
 from app.index.phash import PhashComputer
 from app.index.resources import (
     MANUAL_PAUSE_REASON,
@@ -168,13 +170,14 @@ RESUME_STATE_PREFIX = "resume:"
 ARCHIVE_FOLDER_META_KEY = "pst_folder"
 ARCHIVE_READ_META_KEY = "pst_read_before"
 
-#: `index_state` key prefix for an archive's folder cursor. **Keyed on the
-#: archive's path, not a content hash**: an archive is read externally
-#: (`reads_externally`) and never hashed, so there is no digest to key on. The
-#: cursor records the archive's size and modified time instead and is used
-#: only while both still match - a changed archive starts from the top and
-#: overwrites it. Under `RESUME_STATE_PREFIX`, so a reset clears it too.
-ARCHIVE_RESUME_PREFIX = f"{RESUME_STATE_PREFIX}archive:"
+# `ARCHIVE_RESUME_PREFIX` (imported above) is the `index_state` key prefix for
+# an archive's folder cursor. **Keyed on the archive's path, not a content
+# hash**: an archive is read externally (`reads_externally`) and never hashed,
+# so there is no digest to key on. The cursor records the archive's size and
+# modified time instead and is used only while both still match - a changed
+# archive starts from the top and overwrites it. Under `RESUME_STATE_PREFIX`, so
+# a reset clears it too. Declared beside its reader, `app/index/interrupted.py`
+# (3c: the Indexing page lists these), which must not import this module.
 
 #: The most often an archive's folder cursor is written *during* a run, at a
 #: folder boundary. **What a pulled plug costs**, at most: the folders finished
@@ -1566,6 +1569,14 @@ class Pipeline:
             # already ended itself having recorded the error. This only has
             # to ask it to stop.
             self._stop_feeder(feeder)
+
+        # 0w 3c: an archive this run stopped inside says so in the run's log.
+        # The Indexing page's summary says it too, from the cursor, for as long
+        # as it stays true - this is the moment it became true.
+        if self._interrupted:
+            for cursor in list(self._archive_cursors.values()):
+                stats.activity.record(
+                    KIND_ARCHIVE, Path(cursor["path"]).name, detail="part_read")
 
         # Work order 202626270515: videos and recordings the run only found are
         # read now, after everything else - see `app/index/media_backlog.py`.
@@ -4067,6 +4078,7 @@ class Pipeline:
         self._log.info(
             "{} was read part-way before; carrying on at folder {}",
             candidate.path.name, folder)
+        self._record(KIND_ARCHIVE, candidate.path.name, detail="resumed")
         return folder, extra
 
     def _persist_at_folder_boundary(self, pending: list[tuple[int, int, str]]) -> None:
