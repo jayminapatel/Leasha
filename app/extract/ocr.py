@@ -356,6 +356,27 @@ def ocr_image(
     engine: Optional[Callable[[Any], Any]] = None,
     min_confidence: float = MIN_CONFIDENCE,
 ) -> OcrResult:
+    """Read text from one image, telling the Indexing page it is OCR. Never raises.
+
+    Order 0x section 3 (2026-09-27). OCR runs at seconds a page where reading
+    text runs at hundreds of files a minute, so a reader that is OCR-ing looks
+    stuck unless the page says so. `progress.stage` marks the innermost reader
+    frame on this thread as "ocr" for the length of the call - one attribute
+    store each way, and a no-op when no reader frame is open (a CLI `extract`,
+    a unit test). Everything else is `_ocr_image_now`, unchanged.
+    """
+    from app.extract import progress
+
+    with progress.stage(progress.STAGE_OCR):
+        return _ocr_image_now(source, engine=engine, min_confidence=min_confidence)
+
+
+def _ocr_image_now(
+    source: Any,
+    *,
+    engine: Optional[Callable[[Any], Any]] = None,
+    min_confidence: float = MIN_CONFIDENCE,
+) -> OcrResult:
     """Read text from one image. Never raises.
 
     `source` is a path or raw bytes. `engine` is the seam: a callable returning

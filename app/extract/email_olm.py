@@ -107,6 +107,7 @@ from xml.etree import ElementTree
 
 from app.core.errors import AppError, make_error, raise_error
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.archive import _member_count, _refusal, safe_member_name
 from app.extract.base import (
     Document,
@@ -510,8 +511,15 @@ class OlmExtractor:
                         details=str(exc) or exc.__class__.__name__)
             return
 
-        with archive:
-            for index, entry in enumerate(message_members(archive)):
+        with archive, progress.enter("olm", path.name, unit="message",
+                                     stage=progress.STAGE_MESSAGES) as frame:
+            members = message_members(archive)
+            # Work order 0x section 3b: "message 812 of 2,000". The list of
+            # message members is built before the loop anyway (it is what
+            # `resume_from` indexes into), so its length is the total for free.
+            frame.total = len(members)
+            for index, entry in enumerate(members):
+                frame.n = index + 1
                 if index < resume_from:
                     # Already finished by an earlier run. Not opened, not
                     # decompressed, not parsed - that is the whole saving.
