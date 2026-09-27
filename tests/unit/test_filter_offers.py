@@ -93,3 +93,102 @@ def test_a_broken_store_yields_no_offers_rather_than_raising():
     # what must not appear is a person, and nothing may raise.
     found = filter_offer_notices(Broken(), "the email Dave sent")
     assert not [o for o in found if "apply:from:" in o.message]
+
+
+# ---------------------------------------------------------------------------
+# Applied, not only offered - owner decision 2026-09-27 ("mail from 2017")
+# ---------------------------------------------------------------------------
+
+def test_the_search_tab_applies_what_it_recognises(store):
+    from app.search.policy import SEARCH, for_surface
+    from app.ui.presenter import auto_filters
+
+    query, applied = auto_filters(store, "mail from 2017", for_surface(SEARCH))
+    assert query == "type:mail after:2017-01-01 before:2017-12-31"
+    assert [a.label for a in applied] == ["mail", "in 2017"]
+
+
+def test_a_surface_with_auto_chips_off_runs_the_words_as_typed(store):
+    from app.search.policy import CODE, for_surface
+    from app.ui.presenter import auto_filters
+
+    assert auto_filters(store, "mail from 2017", for_surface(CODE)) == ("mail from 2017", ())
+
+
+def test_a_broken_store_costs_the_person_filter_not_the_search():
+    from app.ui.presenter import auto_filters
+
+    class Broken:
+        def distinct_values(self, *_a, **_k):
+            raise RuntimeError("locked")
+
+    query, _ = auto_filters(Broken(), "mail from Dave in 2017")
+    assert "from:" not in query and "type:mail" in query and "Dave" in query
+
+
+def test_declines_travel_only_when_the_policy_applies_filters():
+    from app.ui.presenter import Tier, search_options
+
+    on = search_options(Tier.FULL, scope="all", rerank=False, surface="search",
+                        declined={("date", "from 2017")})
+    assert on["declined"] == (("date", "from 2017"),)
+    off = search_options(Tier.FULL, scope="all", rerank=False, surface="search",
+                         preferences={"auto_chips": False}, declined=set())
+    assert "declined" not in off
+    # A caller that says nothing about declines gets exactly what it got before.
+    assert "declined" not in search_options(Tier.INTERIM, scope="all", rerank=False)
+
+
+def test_an_applied_filter_is_not_offered_again(store):
+    """"Only show results in 2017?" beside a page already limited to 2017 is
+    noise; the offer returns once the chip is removed."""
+    from app.ui.presenter import auto_filters, filter_offer_notices
+
+    sentence = "the email Dave sent about the school trip"
+    _, applied = auto_filters(store, sentence)
+    assert any(a.kind == "person" for a in applied)
+    offers = filter_offer_notices(store, sentence, None, applied)
+    assert not [o for o in offers if "apply:from:" in o.message]
+    assert not [o for o in offers if "apply:type:" in o.message]
+    declined = tuple(a for a in applied if a.kind != "person")
+    offers = filter_offer_notices(store, sentence, None, declined)
+    assert [o for o in offers if "apply:from:dave.smith@acme.com" in o.message]
+
+
+def test_the_search_worker_runs_the_applied_query_and_carries_the_chips(store):
+    """**The wiring.** The worker - not the interface thread, because reading
+    the sentence asks the store - rewrites the query, keeps the `declined` key
+    away from the engine (it has no such argument, and must not), and puts
+    the applied filters on the response for the chip row."""
+    pytest.importorskip("PyQt6")
+    from app.search.engine import SearchResponse
+    from app.search.policy import SEARCH, for_surface
+    from app.ui.workers import SearchWorker
+
+    class Engine:
+        def __init__(self):
+            self.store, self.calls = store, []
+
+        def search(self, raw, **options):
+            self.calls.append(("search", raw, options))
+            return SearchResponse()
+
+        def interim(self, raw, **options):
+            self.calls.append(("interim", raw, options))
+            return SearchResponse()
+
+    for tier in ("interim", "full"):
+        engine = Engine()
+        worker = SearchWorker(engine, "mail from 2017", tier=tier, generation=1,
+                              scope="all", policy=for_surface(SEARCH), declined=())
+        landed = []
+        worker.signals.finished.connect(landed.append)
+        worker.run()
+        _, raw, options = engine.calls[0]
+        assert raw == "type:mail after:2017-01-01 before:2017-12-31"
+        assert "declined" not in options
+        assert [a.label for a in landed[0][1].applied] == ["mail", "in 2017"]
+
+    engine = Engine()                               # no declines key: untouched
+    SearchWorker(engine, "mail from 2017", tier="full", generation=1).run()
+    assert engine.calls[0][1] == "mail from 2017"

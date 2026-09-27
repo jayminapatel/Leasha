@@ -362,14 +362,31 @@ class SearchWorker(QRunnable):
 
     def run(self) -> None:
         try:
+            # **The recognised filters are applied here, on the worker** -
+            # `presenter.auto_filters` reads the store's senders and file types,
+            # which is I/O the interface thread may not do. Present only when
+            # the surface's policy applies them (`search_options`), and taken
+            # off the options, because the engine has no such argument and must
+            # not: it may not know a sentence was read at all.
+            options = dict(self._options)
+            query, applied = self._query, ()
+            if "declined" in options:
+                from app.ui.presenter.search import auto_filters
+
+                query, applied = auto_filters(
+                    getattr(self._engine, "store", None), self._query,
+                    options.get("policy"), options.pop("declined"))
             if self._tier == "interim":
                 # The interim tier takes a scope too but not a rerank flag, so
                 # the options cannot simply be forwarded whole.
                 response = self._engine.interim(
-                    self._query, scope=self._options.get("scope", "all")
+                    query, scope=options.get("scope", "all")
                 )
             else:
-                response = self._engine.search(self._query, **self._options)
+                response = self._engine.search(query, **options)
+            # Set on every response, cached or not, so a chip can never be
+            # carried over from the search that happened to fill the cache.
+            response.applied = applied
             _emit(self.signals, "finished", (self.generation, response))
         except Exception as exc:
             error = to_app_error(exc, "ui.search")
@@ -623,7 +640,7 @@ def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
 
 
 def filter_offers_async(store: Any, sentence: str, preferences: Any,
-                        on_done: Callable) -> None:
+                        on_done: Callable, applied: Any = ()) -> None:
     """Read the filters a typed sentence contains, off the interface thread.
 
     Here for the reason `decorate_results_async` is: it is a store query, and
@@ -634,7 +651,7 @@ def filter_offers_async(store: Any, sentence: str, preferences: Any,
     from app.ui.tasks import filter_offer_notices
 
     worker = CallableWorker(filter_offer_notices, store, sentence, preferences,
-                            component="ui.search.offers")
+                            tuple(applied or ()), component="ui.search.offers")
     worker.signals.finished.connect(on_done)
     run(QThreadPool.globalInstance(), worker)
 

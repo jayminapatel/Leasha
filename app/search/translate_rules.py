@@ -39,6 +39,7 @@ from typing import Any, Optional, Sequence
 
 __all__ = [
     "Chip", "Reading", "read", "MAIL_VERBS", "KIND_WORDS", "SENT_BY_ME",
+    "Applied", "AppliedFilter", "apply", "AUTO_MAIL_WORDS",
 ]
 
 #: Words that mean "this is about mail" [TUNE].
@@ -65,10 +66,18 @@ SENT_BY_ME = frozenset({"i", "me", "my", "we", "us", "our"})
 #: extensions the corpus actually contains, so "spreadsheet" on a corpus of
 #: `.csv` and no `.xlsx` produces a filter that finds something.
 KIND_WORDS: dict = {
-    "email": ("eml", "msg"),
-    "emails": ("eml", "msg"),
-    "message": ("eml", "msg"),
-    "messages": ("eml", "msg"),
+    # **The mail words name the `type:mail` group, not one extension.** They
+    # used to offer `type:eml` - the first of `("eml", "msg")` - which is not
+    # what typing `type:mail` means (msg, eml *and* pst) and missed every
+    # message read out of an Outlook archive. `mail` itself was absent. A group
+    # name is resolved against the index like an extension: it is usable when
+    # the corpus holds any of its members (`_usable`).
+    "mail": ("mail",),
+    "mails": ("mail",),
+    "email": ("mail",),
+    "emails": ("mail",),
+    "message": ("mail",),
+    "messages": ("mail",),
     "pdf": ("pdf",),
     "pdfs": ("pdf",),
     "document": ("docx", "doc", "odt"),
@@ -246,6 +255,21 @@ def _known(store: Any, kind: str, limit: int = 400) -> tuple:
     return tuple(dict.fromkeys(found))
 
 
+def _usable(option: str, have: set) -> bool:
+    """Whether a `KIND_WORDS` option can find anything in this corpus.
+
+    An extension must be held; a group name (`mail`) is usable when any of the
+    extensions `type:` expands it to is. An empty `have` means the index could
+    not be asked, and then everything is allowed - fewer checks, not fewer
+    chips (see `test_without_a_store_the_rules_still_read_what_they_can`).
+    """
+    if not have:
+        return True
+    from app.search.query import _EXT_GROUPS
+
+    return any(ext in have for ext in _EXT_GROUPS.get(option, (option,)))
+
+
 def _match_person(word: str, known: Sequence[str]) -> Optional[str]:
     r"""The indexed address whose name contains this word, if exactly one does.
 
@@ -380,7 +404,7 @@ def read(sentence: str, store: Any = None, *,
         options = KIND_WORDS.get(word)
         if not options:
             continue
-        usable = [ext for ext in options if not have or ext in have]
+        usable = [ext for ext in options if _usable(ext, have)]
         if not usable:
             continue
         chips.append(Chip("type", usable[0], words[position]))
@@ -408,3 +432,261 @@ def read(sentence: str, store: Any = None, *,
                        if low not in claimed and low not in MAIL_VERBS)
     return Reading(sentence=text, chips=tuple(chips),
                    residue=residue.strip(), mail=mail)
+
+
+# ---------------------------------------------------------------------------
+# Applied, not only offered - "mail from 2017"
+# ---------------------------------------------------------------------------
+#
+# **Owner decision, 2026-09-27: recognised filters are applied, not merely
+# offered.** "mail from 2017" typed into the Search tab ran as the plain words
+# `"mail" OR "2017"` and found nothing useful, while the right filters sat on
+# the notice bar waiting for a click nobody made. This reverses §3b's "chips,
+# not rewrites" for the few readings confident enough to act on; the work
+# order's own text is left as released, and the reversal is recorded beside
+# it. `read()` above is unchanged and still feeds the offers and Interpret -
+# applying is a separate, narrower function.
+#
+# **What the person typed is still never altered.** The box keeps their words.
+# What changes is the query that runs: the words a filter consumed leave the
+# search terms, the filter joins it, and the window shows each one as a chip
+# whose removal puts those words back as ordinary search terms (`declined`).
+
+#: Words that mean "mail" confidently enough to apply `type:mail` [TUNE].
+#:
+#: **Deliberately narrower than `KIND_WORDS`.** "message" alone is left out:
+#: "the error message" is a document search at least as often as a mail one,
+#: so it stays an offer. The plural is kept - "messages from Dave" is not
+#: about an error.
+AUTO_MAIL_WORDS = frozenset({"mail", "mails", "email", "emails", "e-mail",
+                             "e-mails", "messages"})
+
+#: Words that, directly before a year, make it a date [TUNE]. "in 2017" and
+#: "from 2017" name a period; "2017" alone might be a number in a file name.
+_YEAR_PREPOSITIONS = frozenset({"in", "from", "during"})
+
+#: Words that, directly before a known name, make it a person filter [TUNE].
+_PERSON_PREPOSITIONS = {"from": "from", "by": "from", "to": "to"}
+
+#: A bare four-digit year and nothing else in the token.
+_YEAR_TOKEN = re.compile(r"^(?:19|20)\d{2}$")
+#: Punctuation a word may carry at its edges in a sentence.
+_EDGES = ".,;:!?()[]{}'\"’"
+
+
+@dataclass(frozen=True)
+class AppliedFilter:
+    """One filter the rules applied to a query, and the words it replaced.
+
+    `key` is what a person declines by removing the chip: the kind of filter
+    and the words it was read from, so declining "2017" does not also decline
+    "2018" typed a moment later - new words, a new reading.
+    """
+
+    kind: str                      # "type" | "date" | "person"
+    operators: tuple = ()          # exactly as the parser accepts them
+    words: str = ""                # the words consumed, as typed
+    label: str = ""                # what the chip says
+
+    @property
+    def key(self) -> tuple:
+        return (self.kind, self.words.lower())
+
+
+@dataclass(frozen=True)
+class Applied:
+    """A sentence with its confident filters applied. `query` is what to run."""
+
+    sentence: str
+    query: str
+    filters: tuple = ()
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.filters)
+
+
+def _holds_mail(store: Any) -> bool:
+    """Whether the index holds any mail - `type:mail`'s extensions. **Never
+    raises.** A store that cannot be asked allows it, as `_usable` does.
+
+    `SqliteStore.holds_ext` is a one-row seek; anything without it (a test's
+    fake store) is asked through `distinct_values`, as `read()` asks.
+    """
+    from app.search.query import _EXT_GROUPS
+
+    probe = getattr(store, "holds_ext", None)
+    if callable(probe):
+        try:
+            return bool(probe(_EXT_GROUPS["mail"]))
+        except Exception:                          # noqa: BLE001 - a helper
+            return True
+    return _usable("mail", {value.lower() for value in _known(store, "ext")})
+
+
+def _tokens(text: str) -> list:
+    """`(start, end, word)` for each whitespace token a filter may consume.
+
+    **Anything the person wrote as syntax is out of reach**: a token inside
+    quotes, a `field:value` operator, a `-exclusion`, a `/command` and the
+    capitalised boolean words keep their exact meaning. `word` is the token
+    with sentence punctuation trimmed; it is `""` for a protected token.
+    """
+    quoted = [(m.start(), m.end()) for m in re.finditer(r'"[^"]*"?', text)]
+    found = []
+    for match in re.finditer(r"\S+", text):
+        token = match.group(0)
+        inside = any(a <= match.start() < b for a, b in quoted)
+        protected = (inside or ":" in token or token[:1] in "-!/\""
+                     or token in ("OR", "AND", "NOT"))
+        found.append((match.start(), match.end(), "" if protected else token.strip(_EDGES)))
+    return found
+
+
+def apply(sentence: str, store: Any = None, *, today: Optional[date] = None,
+          declined: Sequence = ()) -> Applied:
+    r"""The sentence as a query, with the filters the rules are sure of applied.
+
+    **Never raises**, and never returns less than the sentence: anything not
+    confidently recognised stays a search term exactly as typed. No model, no
+    network - the first non-negotiable holds, because this is a regex, a
+    dictionary and (with a store) three indexed `DISTINCT`s.
+
+    What is applied, and why each is safe to act on:
+
+    * **mail** - `mail`, `email(s)`, `messages` (`AUTO_MAIL_WORDS`) become
+      `type:mail`, the same msg/eml/pst group typing `type:mail` gives. Only
+      when the corpus holds mail, or cannot be asked.
+    * **a year** - `in 2017`, `from 2017`, `during 2017` always; `before 2017`
+      and `after 2017` as that edge; a **bare** `2017` only in a sentence that
+      is about mail. That is the conservative line: *"invoice 2017"* keeps
+      2017 as a word, because a document's only date is often its copy date
+      (`mtime_ns`) while its name says 2017 - a year filter there would hide
+      the very file asked for, which is the failure this project exists to
+      remove. It is still *offered* on the notice bar. A message's sent date
+      is a fact (schema v27), so in a mail sentence the year is safe. Two
+      years in one sentence ("2016 to 2017") is a range these rules do not
+      read, so neither is applied.
+    * **a person** - a capitalised word matching exactly one sender (or
+      recipient) the index holds, found the way `read()` finds it - applied
+      only when the sentence is about mail or the name follows `from`/`by`/
+      `to`. "Budget Dave" in a document search is left alone: a person filter
+      would narrow it to mail.
+
+    Filters the person already typed win: a typed `type:`, `after:`/`before:`
+    or `from:`/`to:` switches the matching rule off. `declined` holds the
+    `AppliedFilter.key` of every chip the person removed; those words stay
+    search terms. If every word left over is a stopword or an instruction
+    ("show me the"), the query is filters alone - a browse, newest first,
+    which the engine already runs for `type:pdf after:2024` typed by hand.
+    """
+    from app.search.query import _INSTRUCTION_WORDS, _STOPWORDS, parse_query
+
+    text = str(sentence or "").strip()
+    try:
+        return _apply(text, store, today or date.today(), set(declined or ()),
+                      parse_query, _STOPWORDS | _INSTRUCTION_WORDS)
+    except Exception:                              # noqa: BLE001 - a helper
+        return Applied(sentence=text, query=text)
+
+
+def _apply(text: str, store: Any, today: date, declined: set, parse_query: Any,
+           filler: frozenset) -> Applied:
+    if not text:
+        return Applied(sentence=text, query=text)
+    typed = parse_query(text, today=today)
+    tokens = _tokens(text)
+    lowered = [word.lower() for _, _, word in tokens]
+    consumed: set = set()
+    filters: list = []
+
+    def take(kind: str, operators: tuple, positions: Sequence[int], label: str) -> None:
+        words = " ".join(tokens[i][2] for i in sorted(set(positions)))
+        chosen = AppliedFilter(kind, operators, words, label)
+        if chosen.key in declined:
+            return
+        filters.append(chosen)
+        consumed.update(positions)
+
+    # -- mail ------------------------------------------------------------
+    # **Every store lookup below is asked only when its answer could change
+    # the query.** This runs before each search, keystrokes included, and the
+    # obvious lookups are not cheap: measured on 200,000 files holding 60,000
+    # messages, `distinct_values` took 25.5 ms for `ext`, 27.2 ms for `sender`
+    # and 19.2 ms for `recipient` - 58 ms for "mail from 2017" when all three
+    # were asked up front. Mail is now a one-row seek (`_holds_mail`), and the
+    # people are only fetched for a capitalised word that could be applied.
+    mail_at = [i for i, word in enumerate(lowered) if word in AUTO_MAIL_WORDS]
+    about_mail = bool(mail_at) or any(word in _SENDING for word in lowered)
+    if mail_at and not typed.ext and not typed.not_ext and _holds_mail(store):
+        take("type", ("type:mail",), mail_at, "mail")
+
+    # -- a person --------------------------------------------------------
+    people: dict = {}
+
+    def known(kind: str) -> tuple:
+        if kind not in people:
+            people[kind] = _known(store, kind)
+        return people[kind]
+
+    if not (typed.senders or typed.recipients):
+        for i, (_, _, word) in enumerate(tokens):
+            if (not word or i in consumed or word.lower() in _NOT_NAMES
+                    or not word[:1].isupper()):
+                continue
+            before = lowered[i - 1] if i else ""
+            if not (about_mail or before in _PERSON_PREPOSITIONS):
+                continue                           # "Budget Dave": not asked at all
+            field = _PERSON_PREPOSITIONS.get(before) or (
+                "to" if _i_am_the_sender(lowered) else "from")
+            pool = (known("recipient") or known("sender")) if field == "to" else known("sender")
+            match = _match_person(word, pool)
+            if match is None:
+                continue
+            positions = [i - 1, i] if before in _PERSON_PREPOSITIONS else [i]
+            # The sending verb goes with the person: "Dave sent me".
+            positions += [j for j, low in enumerate(lowered)
+                          if low in _SENDING and j not in consumed]
+            take("person", (Chip(field, match).as_filter(),), positions,
+                 f"{field} {match}")
+            break                                  # one person, as in `read()`
+
+    # -- a year ----------------------------------------------------------
+    years = [i for i, word in enumerate(lowered)
+             if _YEAR_TOKEN.match(word) and i not in consumed]
+    # A bare year needs the query to *be* mail - a mail or person filter
+    # applied, or `type:mail` typed - not merely to mention it: "emails
+    # type:pdf 2017" is a document search, where a year is not a safe filter.
+    from app.search.query import _EXT_GROUPS
+
+    about_mail = (any(chosen.kind in ("type", "person") for chosen in filters)
+                  or (bool(typed.ext) and set(typed.ext) <= set(_EXT_GROUPS["mail"])))
+    if len(years) == 1 and typed.after is None and typed.before is None:
+        i = years[0]
+        year = int(lowered[i])
+        before = lowered[i - 1] if i else ""
+        if before == "before":
+            take("date", (f"before:{year - 1}-12-31",), [i - 1, i], f"before {year}")
+        elif before == "after":
+            take("date", (f"after:{year + 1}-01-01",), [i - 1, i], f"after {year}")
+        elif before in _YEAR_PREPOSITIONS or about_mail:
+            positions = [i - 1, i] if before in _YEAR_PREPOSITIONS else [i]
+            take("date", (f"after:{year}-01-01", f"before:{year}-12-31"),
+                 positions, f"in {year}")
+
+    if not filters:
+        return Applied(sentence=text, query=text)
+
+    kept = [(start, end) for n, (start, end, _) in enumerate(tokens) if n not in consumed]
+    leftover = [lowered[n] for n in range(len(tokens)) if n not in consumed]
+    # Once the query is about mail, "sent" and "received" say nothing more -
+    # left as the only term, "emails sent in 2017" would find just the
+    # messages containing the word "sent".
+    if any(chosen.kind in ("type", "person") for chosen in filters):
+        filler = filler | MAIL_VERBS
+    if all(word and word in filler for word in leftover):
+        kept = []                                  # nothing left worth searching for
+    words = " ".join(text[start:end] for start, end in kept)
+    operators = [op for chosen in filters for op in chosen.operators]
+    return Applied(sentence=text, query=" ".join([words, *operators]).strip(),
+                   filters=tuple(filters))

@@ -4028,6 +4028,23 @@ class SqliteStore:
         """
         return self.conn.execute("SELECT 1 FROM files LIMIT 1").fetchone() is not None
 
+    def holds_ext(self, extensions: Any) -> bool:
+        r"""Does the index hold at least one file of any of these extensions?
+
+        **A seek, not a census.** The search tab asks this before applying
+        `type:mail` to "mail from 2017" (`translate_rules.apply`), on every
+        dispatch. `distinct_values("ext")` answers it too, by grouping every
+        row: measured 25.5 ms on 200,000 files, where this - `idx_files_ext`,
+        `LIMIT 1` - measured 0.006 ms on the same table.
+        """
+        wanted = [str(ext).lstrip(".").lower() for ext in extensions or () if str(ext)]
+        if not wanted:
+            return False
+        marks = ", ".join("?" for _ in wanted)
+        return self.conn.execute(
+            f"SELECT 1 FROM files WHERE ext IN ({marks}) LIMIT 1", wanted,
+        ).fetchone() is not None
+
     def stats(self) -> dict[str, Any]:
         counts = {
             row["status"]: int(row["n"])

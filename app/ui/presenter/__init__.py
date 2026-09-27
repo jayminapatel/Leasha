@@ -245,6 +245,8 @@ from app.ui.presenter.search import (
     window_notices,
     notice_line,
     chips_for,
+    auto_filters,
+    unanswered,
 )
 from app.ui.presenter.settings import (
     history_label_text,
