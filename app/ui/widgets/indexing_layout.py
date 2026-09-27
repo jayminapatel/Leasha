@@ -21,6 +21,7 @@ from typing import Any
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.presenter import index_summary, when_text
+from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
@@ -117,7 +118,9 @@ def paint_run_panels(view: Any, stats: Any) -> None:
     """
     view.skips.show_skips(stats.skipped_by_code)
     view.archives.show_roots(getattr(stats, "skipped_roots", ()))
-    view.show_notices(getattr(stats, "notices", ()))
+    # Work order 0w §2c: each notice with the time it was said, in front of
+    # its unchanged words. `show_notices` itself is untouched.
+    view.show_notices(timed_notices(stats))
     run_log = getattr(view, "run_log", None)
     if run_log is not None:
         run_log.show_activity(getattr(stats, "activity", None))

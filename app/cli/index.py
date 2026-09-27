@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -79,6 +80,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
     from app.ui.presenter import phase_words
+    from app.ui.presenter.activity import console_safe, timed_notices
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -335,9 +337,10 @@ def cmd_index(args: argparse.Namespace) -> int:
     if stats.unchanged_documents:
         print(f"          {stats.unchanged_documents:,} document(s) inside them were "
               f"already up to date")
-    for notice in getattr(stats, "notices", ()):
+    # Work order 0w §2c: with the time each was said, as the page shows them.
+    for notice in timed_notices(stats):
         print()
-        print(f"Note      {notice}")
+        print(console_safe(f"Note      {notice}", sys.stdout.encoding))
     if stats.skipped_roots:
         # **Said before the totals, not after.** A run that indexed 40 files
         # because three of its four folders were skipped needs to say so where
