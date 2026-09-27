@@ -619,8 +619,11 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # `continue` as an oversized disk image, and 17 of a 20-file archive went
     # missing this way with no skip code and no log line. `.ost` gets the
     # same exemption for the same reason, even though it is read through
-    # Outlook alone.
-    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost"})
+    # Outlook alone. `.olm` (an Outlook for Mac export, work order 0x §8b)
+    # joins them: it is read one message at a time out of the zip by
+    # `app/extract/email_olm.py`, never whole, and a real mailbox export is
+    # routinely larger than the ceiling.
+    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".olm"})
     size_exempt = (
         (media_extensions() & extensions)
         | (STREAMED_ARCHIVE_EXTENSIONS & extensions)

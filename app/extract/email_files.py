@@ -42,7 +42,10 @@ from app.extract.base import (
     register,
 )
 
-__all__ = ["EmlExtractor", "MsgExtractor", "html_to_text", "build_email_document"]
+__all__ = [
+    "EmlExtractor", "MsgExtractor", "html_to_text", "build_email_document",
+    "document_from_message",
+]
 
 _log = logger.bind(component="extract.email")
 
@@ -197,6 +200,54 @@ def build_email_document(
     return builder.build()
 
 
+def _sent_at(message: EmailMessage) -> Optional[int]:
+    """The `Date:` header as Unix seconds, or None when absent or unreadable.
+
+    A missing or garbled date is common in old mail and is not a reason to
+    lose the message - it simply sorts and filters by nothing.
+    """
+    date_header = message.get("Date")
+    if not date_header:
+        return None
+    try:
+        return int(parsedate_to_datetime(date_header).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def document_from_message(
+    path: Path,
+    message: EmailMessage,
+    *,
+    sent_at: Optional[int] = None,
+) -> Document:
+    """Turn one parsed RFC 822 message into the standard mail `Document`.
+
+    **One function, so every reader of "a message in MIME form" agrees.** It
+    is exactly what `EmlExtractor` did inline before it was lifted out; Apple
+    Mail's `.emlx` (work order 0x, 8a) is the same MIME message with a byte
+    count in front and a property list behind, so it calls this too, and the
+    two cannot drift apart on what counts as the sender, the recipients or
+    the body.
+
+    `sent_at` is a fallback used only when the message has no readable
+    `Date:` header - `.emlx` knows when Apple Mail *received* the message,
+    which is better than nothing. `.eml` never passes it.
+    """
+    senders = _addresses(message, "From")
+    header_date = _sent_at(message)
+    return build_email_document(
+        path,
+        subject=str(message.get("Subject") or "").strip(),
+        sender=senders[0] if senders else "",
+        recipients=_addresses(message, "To", "Cc"),
+        sent_at=header_date if header_date is not None else sent_at,
+        conversation=_conversation_key(message),
+        body=_body_text(message),
+        attachments=_attachment_names(message),
+    )
+
+
 class EmlExtractor:
     name = "eml"
     extensions = frozenset({".eml", ".mht", ".mhtml"})
@@ -220,25 +271,7 @@ class EmlExtractor:
             raise_error("ERR_FILE_CORRUPT", "extract.eml", path=str(path), details=str(exc))
             return
 
-        sent_at: Optional[int] = None
-        date_header = message.get("Date")
-        if date_header:
-            try:
-                sent_at = int(parsedate_to_datetime(date_header).timestamp())
-            except (TypeError, ValueError):
-                sent_at = None
-
-        senders = _addresses(message, "From")
-        document = build_email_document(
-            path,
-            subject=str(message.get("Subject") or "").strip(),
-            sender=senders[0] if senders else "",
-            recipients=_addresses(message, "To", "Cc"),
-            sent_at=sent_at,
-            conversation=_conversation_key(message),
-            body=_body_text(message),
-            attachments=_attachment_names(message),
-        )
+        document = document_from_message(path, message)
         if document.is_empty:
             raise_error(
                 "ERR_NO_TEXT_LAYER",
