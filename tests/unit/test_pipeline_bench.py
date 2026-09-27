@@ -183,3 +183,33 @@ def test_the_command_prints_parseable_json(tmp_path: Path, no_person_env: Path,
     assert code == cli.EXIT_OK
     report = json.loads(capsys.readouterr().out)
     assert report["tool"] == "app.cli bench-pipeline"
+
+
+def test_nothing_inside_the_throwaway_folder_is_left_open(
+        tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """**Windows cannot delete an open file; Linux can.** So a handle left open
+    inside the throwaway folder only shows up on Windows, as a folder that
+    survives the run - which is exactly how the benchmark's own log files
+    escaped for a while. This asks the operating system which files the process
+    still holds inside the folder at the moment it is about to be deleted, so
+    the same mistake fails here too, on any system."""
+    import psutil
+
+    import app.index.pipeline_bench as bench
+
+    work = tmp_path / "work"
+    held: list[str] = []
+    real_rmtree = bench.shutil.rmtree
+
+    def spy(path, *args, **kwargs):
+        held.extend(f.path for f in psutil.Process().open_files()
+                    if Path(f.path).is_relative_to(work))
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(bench.shutil, "rmtree", spy)
+    run_pipeline_bench(BenchOptions(
+        corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
+        env_file=no_person_env, work_dir=work))
+
+    assert held == [], f"still open when the folder was deleted: {held}"
+    assert not work.exists()
