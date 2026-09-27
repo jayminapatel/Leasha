@@ -1570,10 +1570,9 @@ class MainWindow(QMainWindow):
         """
         from app.ui.widgets.buttons import retint_all, style_all
 
-        indexing_view = getattr(self, "indexing_view", None)
-        for page in (getattr(self, "settings_view", None), indexing_view):
-            if page is not None:
-                style_all(page, only_new=True)
+        # The whole window: every page, the preview pane, the find and notice
+        # bars. Pop-outs and dialogs style themselves as they are built.
+        style_all(self, only_new=True)
         retint_all(colours)
 
     def _pin_document(self, row: Any, provider: Any = None) -> None:

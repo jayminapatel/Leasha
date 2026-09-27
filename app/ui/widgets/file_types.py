@@ -64,6 +64,7 @@ from PyQt6.QtWidgets import (
 
 from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
@@ -171,6 +172,9 @@ class EditFileTypeDialog(QDialog):
         layout.addWidget(self.warning)
         layout.addWidget(note)
         layout.addWidget(buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def _warn_about_cost(self, value: int) -> None:
         """Say what a large cap costs, for the types where it is not obvious.

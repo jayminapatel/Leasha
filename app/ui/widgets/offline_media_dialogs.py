@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["ScanNameDialog", "DeleteVolumeDialog", "RenameSuggestionDialog"]
 
@@ -88,6 +89,9 @@ class ScanNameDialog(QDialog):
 
         self._refresh()
         self.name.setFocus()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def chosen_name(self) -> str:
         return self.name.text().strip()
@@ -138,6 +142,9 @@ class RenameSuggestionDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(message)
         layout.addWidget(self.buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
 
 class DeleteVolumeDialog(QDialog):
@@ -171,3 +178,6 @@ class DeleteVolumeDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(message)
         layout.addWidget(self.buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)

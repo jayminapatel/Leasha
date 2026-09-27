@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 from app.ui import pinned
 from app.ui.result_delegate import ROLE_PAYLOAD
 from app.ui.widgets.result_drag_model import DraggableResultsModel
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["PinnedPanel", "PANEL_ENABLED_KEY"]
 
@@ -93,6 +94,9 @@ class PinnedPanel(QGroupBox):
         layout.addWidget(self.list, stretch=1)
         layout.addLayout(buttons)
         self._redraw(remember=False)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def _button(self, label: str, tip: str, on_click: Any) -> QPushButton:
         button = QPushButton(label)

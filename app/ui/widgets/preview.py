@@ -62,6 +62,7 @@ from app.ui.widgets.epub_view import EpubView
 from app.ui.widgets.highlight import CodeHighlighter, language_for
 from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.buttons import ROW_SPACING, style_all
 
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
 
@@ -301,8 +302,12 @@ class PreviewPane(QWidget):
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.find)
 
+        # "Open" is this pane's primary action and "Show in folder" and "Pin in
+        # a window" secondary - said once, in the button system's table
+        # (widgets/buttons.py), which also draws their icons.
+        style_all(self)
         buttons = QHBoxLayout()
-        self.open_button.setProperty("primary", True)
+        buttons.setSpacing(ROW_SPACING)
         buttons.addWidget(self.open_button)
         buttons.addWidget(self.reveal_button)
         buttons.addWidget(self.pop_button)
@@ -469,16 +474,10 @@ class PreviewPane(QWidget):
         self.facts.setVisible(bool(facts))
 
     def retint(self, colours: dict) -> None:
-        """§0.3: icons on the three buttons, in the palette's text colour."""
-        from app.ui.widgets.icons import icon
+        """The highlighter's colours. The three buttons' icons are the button
+        system's (`widgets/buttons.py`), redrawn by the window with every
+        other button's on a theme change."""
         self._highlighter.setPalette(_theme_palette(self))
-        # The "Open" button is filled with the accent, so its icon takes the
-        # accent's own ink (`accent_on`) - white on navy, near-black on the dark
-        # theme's lavender, where white measured 2.8 to 1 (0x section 9).
-        self.open_button.setIcon(icon("external-link", colours.get(
-            "accent_on", colours.get("rail_on", "#ffffff"))))
-        self.reveal_button.setIcon(icon("folder-open", colours.get("text_dim", "#888888")))
-        self.pop_button.setIcon(icon("bookmark", colours.get("text_dim", "#888888")))
 
     def _start(self) -> None:
         if self._row is None:

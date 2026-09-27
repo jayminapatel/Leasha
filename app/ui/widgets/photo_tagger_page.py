@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
+from app.ui.widgets.buttons import style_all
 
 __all__ = ["PhotoTaggerPage"]
 
@@ -164,6 +165,9 @@ class _SuggestionChip(QWidget):
         layout.addWidget(self._picture, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(question, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addLayout(buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def set_picture(self, image: Any) -> None:
         if image is None:
@@ -245,6 +249,9 @@ class PhotoTaggerPage(QWidget):
         layout.addWidget(self._empty_note)
 
         self.reload()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     # -- loading ----------------------------------------------------------
 
@@ -540,6 +547,9 @@ class _BatchEraDialog(QDialog):
             "no date, or an earlier guess, are affected."))
         layout.addLayout(row)
         layout.addWidget(buttons)
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def chosen_year(self) -> int:
         low, high = sorted((self._from.value(), self._to.value()))
@@ -587,6 +597,9 @@ class _ManageFacesDialog(QDialog):
         layout.addWidget(close_button)
 
         self._load()
+        # The button system (widgets/buttons.py): every action button in
+        # here gets its icon, its kind and its natural width.
+        style_all(self)
 
     def _load(self) -> None:
         from app.ui.thumbnail_loader import decode_face_crop
