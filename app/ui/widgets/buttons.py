@@ -69,6 +69,7 @@ from app.ui.widgets.icons import icon as themed_icon
 __all__ = [
     "BUTTONS", "ROLES", "ICON_PX", "ROW_SPACING", "action_button", "style_button",
     "style_all", "retint_all", "button_row", "is_exempt", "clean_label", "lookup",
+    "refresh_icon",
 ]
 
 #: The three kinds of button. See rule 5 in the module docstring.
@@ -319,6 +320,16 @@ def style_button(button: QPushButton, glyph: Optional[str] = None,
         style.unpolish(button)
         style.polish(button)
     return button
+
+
+def refresh_icon(button: QPushButton) -> None:
+    """After a button's words change ("Pause" -> "Resume"), show the icon the
+    table gives its new words. Words the table does not know keep the icon
+    the button already had."""
+    found = lookup(button.text())
+    if found is not None and button.property("buttonRole"):
+        button.setProperty("buttonIcon", found[0])
+        _paint_icon(button, _colours())
 
 
 def action_button(text: str, glyph: Optional[str] = None, role: Optional[str] = None,

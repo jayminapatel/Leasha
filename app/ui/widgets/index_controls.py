@@ -22,6 +22,8 @@ from typing import Any
 
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton
 
+from app.ui.widgets.buttons import ROW_SPACING, style_button
+
 __all__ = ["build_controls"]
 
 
@@ -91,7 +93,13 @@ def build_controls(*, on_stop: Any, on_pause: Any, on_scan: Any, on_reset: Any):
         "can always be rebuilt. What it costs is the time to index again.")
     reset.clicked.connect(lambda _c=False: on_reset())
 
+    # **The button system** (widgets/buttons.py, owner 2026-09-27): Start is
+    # the page's one primary action, Reset the one that deletes, the rest
+    # secondary - each with its icon, its natural width, one height.
+    for button in (start, pause, stop, scan, reset):
+        style_button(button)
     row = QHBoxLayout()
+    row.setSpacing(ROW_SPACING)
     row.addWidget(start)
     row.addWidget(pause)
     row.addWidget(stop)
