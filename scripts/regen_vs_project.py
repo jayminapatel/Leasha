@@ -55,7 +55,12 @@ def tracked_files() -> list[str]:
         line.strip() for line in result.stdout.splitlines()
         if line.strip() and not line.startswith(SKIP_PREFIXES)
     ]
-    return sorted(path.replace("/", "\\") for path in paths)
+    # **A set, because `git ls-files` repeats a path in a merge.** While a
+    # merge still has conflicts, each unresolved file is listed once per
+    # side (up to three times). Run then, the generator wrote CHANGELOG.md,
+    # HANDOFF.md and docs\ORDER_REGISTER.md three times each into the file
+    # committed in b248c9d, and test_vs_project failed on the next run.
+    return sorted({path.replace("/", "\\") for path in paths})
 
 
 def folders_of(paths: list[str]) -> list[str]:
