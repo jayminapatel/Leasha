@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 from PyQt6.QtGui import QGuiApplication
 
-__all__ = ["save_window_state", "restore_window_state"]
+__all__ = ["save_window_state", "restore_window_state", "bring_forward"]
 
 
 def save_window_state(window: Any) -> bytes:
@@ -117,3 +117,33 @@ def _clamp_to_visible_screen(window: Any) -> None:
     new_y = available.y() + (available.height() - new_height) // 2
 
     window.setGeometry(new_x, new_y, new_width, new_height)
+
+
+def bring_forward(window: Any) -> None:
+    """Show a window in front, **keeping it maximised if it was**.
+
+    2026-09-27, reported by the owner: "the window does not remember its last
+    state - it was maximised". Every path that brought Leasha back - the tray
+    icon, a second launch, a `leasha://` link, "show me all of it" from the
+    mini search - called `showNormal()`. That undoes minimising, but it also
+    undoes *maximising*: Qt's "normal" means neither. So a maximised window
+    hidden to the tray came back small.
+
+    What each of those paths actually wants is narrower:
+    - **minimised** -> un-minimise, back to whatever it was before (maximised
+      or not). Clearing just the minimised flag does exactly that.
+    - **hidden** (closed to the tray) -> show it. `show()` keeps the window's
+      state, so a maximised window reappears maximised.
+    - then raise it and give it focus. `raise_` alone is advisory on Windows;
+      `activateWindow` is the half that brings it in front.
+    """
+    from PyQt6.QtCore import Qt
+
+    state = window.windowState()
+    if state & Qt.WindowState.WindowMinimized:
+        window.setWindowState((state & ~Qt.WindowState.WindowMinimized)
+                              | Qt.WindowState.WindowActive)
+    if not window.isVisible():
+        window.show()
+    window.raise_()
+    window.activateWindow()

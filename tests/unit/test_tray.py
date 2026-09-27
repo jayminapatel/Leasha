@@ -46,6 +46,24 @@ class FakeWindow:
     def showNormal(self):        # noqa: N802 - Qt's naming
         self.shown = True
 
+    # 2026-09-27: restore goes through `window_state.bring_forward` now (it
+    # keeps a maximised window maximised, which `showNormal` did not), so the
+    # fake answers the calls a real window answers there. A hidden window
+    # that is shown still counts as "shown" - the assertions are unchanged.
+    def windowState(self):       # noqa: N802
+        from PyQt6.QtCore import Qt
+
+        return Qt.WindowState.WindowNoState
+
+    def setWindowState(self, state):   # noqa: N802
+        pass
+
+    def isVisible(self):         # noqa: N802
+        return self.shown
+
+    def show(self):
+        self.shown = True
+
     def raise_(self):
         pass
 
