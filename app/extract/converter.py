@@ -46,6 +46,7 @@ from typing import Any, Iterable, Optional
 
 from app.core.errors import AppErrorException, make_error, raise_error
 from app.core.logging import logger
+from app.core.osbridge import programs as _programs
 from app.core.priority import child_creationflags
 
 __all__ = [
@@ -197,50 +198,25 @@ class ConversionResult:
             self._set_cleanup(None)
 
 
-#: Where these programs actually install on Windows, relative to a program-files
-#: root.
+#: Where these programs install on Windows, relative to a program-files root:
+#: name -> (the folders it installs into, the executable to look for).
 #:
-#: **`shutil.which` alone was not enough, and this is the bug it caused.**
-#: LibreOffice does not put itself on `PATH` on Windows - it never has - so a
-#: machine with LibreOffice installed and working reported "needs attention",
-#: offered an install link for software already present, and refused to enable
-#: the `.doc` and `.ppt` routes. The person is then told to fix something that
-#: is not broken, which is worse than saying nothing.
-#:
-#: PATH is still checked first: somebody who has deliberately put a build on it
-#: means that one.
-#: name -> (the folders it installs into, the executable to look for)
-#:
-#: **Folders, not full paths, because the layout inside them varies.**
-#: The first version hardcoded `LibreDWG\bin\dwg2dxf.exe`, and a real install
-#: turned out to be `C:\Program Files\libredwg` with the executable somewhere
-#: else inside it. Guessing the exact layout for every project is how this table
-#: goes stale; searching the two or three arrangements that actually exist -
-#: the folder itself, `bin\`, `program\` - costs three `is_file()` calls and
-#: covers all of them.
-_WINDOWS_LOCATIONS: dict[str, tuple[tuple[str, ...], str]] = {
-    "soffice": (("LibreOffice",), "soffice.exe"),
-    "libreoffice": (("LibreOffice",), "soffice.exe"),
-    "libreoffice-python": (("LibreOffice",), "python.exe"),
-    "tesseract": (("Tesseract-OCR",), "tesseract.exe"),
-    # No `pandoc` entry: it came off ALLOWED_BINARIES when `.epub` and `.fb2`
-    # moved in-process. A location for a name that cannot run is dead weight,
-    # and `test_only_allowed_names_have_locations` is what caught it here.
-    "dwg2dxf": (("libredwg", "LibreDWG"), "dwg2dxf.exe"),
-    "ODAFileConverter": (("ODA",), "ODAFileConverter.exe"),
-    # Same install, second program - so the same folders, and the same three
-    # arrangements `_WINDOWS_SUBDIRS` already covers.
-    "dwg2SVG": (("libredwg", "LibreDWG"), "dwg2SVG.exe"),
-}
+#: **Moved to `app/core/osbridge/programs.py` (work order 0x §1b)**, together
+#: with the write-up of the bug it fixes (LibreOffice never puts itself on
+#: `PATH` on Windows) and why it lists folders rather than full paths. The
+#: names below are the same tables under their old names, so the tests and
+#: anything else reading `converter._WINDOWS_LOCATIONS` see exactly what they
+#: always saw.
+_WINDOWS_LOCATIONS = _programs.CONVERTER_WINDOWS_LOCATIONS
 
 #: Where an executable sits inside its install folder. `""` is the folder
 #: itself, which is how a zip extracted by hand usually looks.
-_WINDOWS_SUBDIRS = ("", "bin", "program")
+_WINDOWS_SUBDIRS = _programs.CONVERTER_WINDOWS_SUBDIRS
 
 #: The roots `_WINDOWS_LOCATIONS` is resolved against, in order of preference.
 #: `LOCALAPPDATA\Programs` catches a per-user install, which is what somebody
 #: without administrator rights ends up with.
-_WINDOWS_ROOTS = ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432")
+_WINDOWS_ROOTS = _programs.WINDOWS_PROGRAM_ROOT_VARIABLES
 
 
 def _is_windows() -> bool:
@@ -262,30 +238,9 @@ def _installed_on_windows(name: str) -> Optional[str]:
     """
     if not _is_windows():
         return None
-
-    entry = _WINDOWS_LOCATIONS.get(name)
-    if entry is None:
-        return None
-    folders, executable = entry
-
-    roots = [os.environ.get(key) for key in _WINDOWS_ROOTS]
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        roots.append(os.path.join(local, "Programs"))
-
-    for root in roots:
-        if not root:
-            continue
-        for folder in folders:
-            for sub in _WINDOWS_SUBDIRS:
-                parts = [root, folder] + ([sub] if sub else []) + [executable]
-                candidate = Path(*parts)
-                try:
-                    if candidate.is_file():
-                        return str(candidate)
-                except OSError:                  # a drive that is not there
-                    continue
-    return None
+    # The search itself (the table, the roots, the sub-folders, the order)
+    # lives in the platform package now - see `_WINDOWS_LOCATIONS` above.
+    return _programs.find_converter_on_windows(name)
 
 
 def resolve_binary(name: str) -> Optional[str]:
@@ -297,10 +252,17 @@ def resolve_binary(name: str) -> Optional[str]:
 
     Looks on `PATH` first, then in the standard Windows install locations - see
     `_WINDOWS_LOCATIONS` for why the second half is needed at all.
+
+    2026-09-27 (work order 0x §1a): and then, on a Mac only, in
+    `/Applications` app bundles and Homebrew's folders, which a program started
+    from Finder does not have on its `PATH` - the Mac version of the same bug.
+    The Mac search returns None at once anywhere else, so Windows and Linux
+    answer exactly as before. (UNCONFIRMED on macOS.)
     """
     if name not in ALLOWED_BINARIES:
         return None
-    return shutil.which(name) or _installed_on_windows(name)
+    return (shutil.which(name) or _installed_on_windows(name)
+            or _programs.find_converter_on_macos(name))
 
 
 def available_binaries() -> dict[str, Optional[str]]:
