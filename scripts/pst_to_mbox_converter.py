@@ -10,7 +10,6 @@ Install via: choco install libpst (or download from https://www.five-ten-sg.com/
 import os
 import sys
 import subprocess
-import shutil
 from pathlib import Path
 from datetime import datetime
 
