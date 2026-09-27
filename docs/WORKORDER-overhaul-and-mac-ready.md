@@ -34,6 +34,10 @@ The design was agreed in conversation first. The owner confirmed every recommend
    had confirmed `/between X and Y`; to avoid two syntaxes for one thing, `/between` is
    built here as an **alias of `/date`** that also accepts `X and Y` and `X to Y`. `/from`
    keeps its meaning (email from this person).
+> **2026-09-27 note on D3:** running the macOS job on every commit used up the account's Actions
+> allowance within an afternoon (macOS bills at about ten times the Windows rate; a run took about
+> 50 minutes), after which GitHub refused every job, Windows included. The macOS job now runs only
+> when started by hand (Actions → CI → Run workflow) or weekly; Windows still runs on every PR commit.
 3. **A macOS runner is added to CI** (GitHub Actions `macos-14`, Apple Silicon). It starts
    as a non-blocking report and becomes blocking section by section, as each part is made
    to pass there.
