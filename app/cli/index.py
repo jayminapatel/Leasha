@@ -106,22 +106,330 @@ class _ActivityPrinter:
         self._progress.repaint()
 
 
+def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: object,
+                          workers: int | None = None, memory_mb: int | None = None,
+                          cpu_percent: int | None = None, full_speed: bool = False,
+                          first: tuple = (), include_cloud: bool = False,
+                          cloud_content_roots: frozenset = frozenset(),
+                          cloud_content_cap_mb: int | None = None,
+                          verify_hash: bool = True, prune: bool = True,
+                          force: bool = False, retry_skipped: bool = False,
+                          ocr_mode: str | None = None, archives: bool = True,
+                          recheck_archives: bool = False,
+                          pause_file: Path | None = None):
+    r"""The `PipelineConfig` a command-line run uses, from settings and flags.
+
+    **One construction, shared, so two callers cannot drift apart.** It was
+    written inline in `cmd_index`, and `app/index/pipeline_bench.py` kept a
+    copy of it with a comment asking to be kept in step - which is the kind of
+    promise that holds until the first busy day. Work order 0x §2 made it
+    matter more: the window's child-process runs go through `cmd_index` too,
+    and the benchmark that decides whether they land has to measure the same
+    configuration they use.
+
+    `tuned` is what `resolve.resolve_for_run` decided for this machine (its
+    `workers`, `embed_batch` and `gpu_regression_notice` are read); the
+    caller resolves it because doing so needs the store. Every keyword is a
+    `cmd_index` flag, with the flag's default, so a caller that passes
+    nothing gets exactly what `app.cli index FOLDER` does:
+
+    * `workers`, `memory_mb`, `cpu_percent` - override the settings for this
+      run, as `--workers`, `--memory-mb` and `--cpu-percent` do;
+    * `full_speed` - no CPU ceiling, no pausing on battery, normal priority;
+    * `cloud_content_roots` - normalised folder keys whose cloud-only files
+      may be downloaded and read;
+    * `ocr_mode` - `both`, `text` or `images`; None asks the settings, the
+      way `_ocr_mode` does with no flag.
+    """
+    from app.extract.media import MediaConfig
+    from app.index.pipeline import PipelineConfig
+    from app.index.walker import WalkConfig, own_paths
+
+    limits = replace(limits_from_settings(settings), workers=tuned.workers)
+    # A flag typed on the command still wins: it is a decision about this
+    # run, and a tuning mode is a standing preference.
+    if workers:
+        limits = replace(limits, workers=workers)
+    if memory_mb:
+        limits = replace(limits, memory_mb=memory_mb)
+    if cpu_percent is not None:
+        limits = replace(limits, cpu_percent=cpu_percent)
+    if full_speed:
+        # An explicit opt-out for a machine nobody is using. Named for what it
+        # costs rather than what it gives: this is the setting that makes the
+        # computer unusable while it runs.
+        limits = replace(
+            limits, cpu_percent=0, pause_on_battery=False, low_priority=False,
+            workers=workers or max(1, (os.cpu_count() or 2) - 1),
+        )
+    if ocr_mode is None:
+        ocr_mode = _ocr_mode(argparse.Namespace(), settings)
+
+    return PipelineConfig(
+        walk=WalkConfig(
+            roots=list(roots),
+            priority_roots=[Path(p).expanduser() for p in (first or ())],
+            include_cloud=include_cloud,
+            cloud_content_roots=frozenset(cloud_content_roots),
+            cloud_content_cap_bytes=(
+                cloud_content_cap_mb or settings.cloud_content_cap_mb
+            ) * 1024 * 1024,
+            # Never index our own index, logs, cache or models. Indexing the
+            # project folder had the run reading the log file it was writing.
+            exclude_paths=own_paths(settings),
+            # Every file gets a row, whether or not anything can read it - see
+            # `WalkConfig.name_only`. Off makes the walk behave as it did.
+            name_only=settings.index_name_only,
+        ),
+        limits=limits,
+        min_free_gb=settings.min_free_gb,
+        required_free_gb=settings.required_free_gb,
+        verify_hash=verify_hash,
+        prune_missing=prune,
+        force=force,
+        retry_skipped=retry_skipped,
+        # A folder marked as an archive is walked once and then checked
+        # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
+        # hatch that ignores the modes entirely without touching the records.
+        ocr_mode=ocr_mode,
+        archives=archives,
+        recheck_archives=recheck_archives,
+        recheck_days=settings.archive_recheck_days,
+        # Resolved for this machine and this mode, by the caller.
+        embed_batch=tuned.embed_batch,
+        dedup_chunks=settings.embed_dedup,
+        two_phase=settings.index_two_phase,
+        bulk_fts=settings.index_bulk_fts,
+        caption_trickle_enabled=settings.caption_trickle_enabled,
+        ollama_url=settings.ollama_url,
+        ollama_vision_model=settings.ollama_vision_model,
+        people_recognition_enabled=settings.people_recognition_enabled,
+        # Work order 202626270515. Off unless VIDEO_INDEXING_ENABLED and/or
+        # AUDIO_TRANSCRIPTION_ENABLED are on in `.env`.
+        media=MediaConfig.from_settings(settings),
+        # Work order 202626130120 (0t) section 6: resolved once, by the same
+        # resolve_for_run call the window uses before it builds a Pipeline.
+        gpu_regression_notice=tuned.gpu_regression_notice,
+        # 2026-09-20. The command line's half of the Indexing page's Pause
+        # button - see `add_index_parser` for why it is a file and not a verb.
+        pause_file=pause_file,
+    )
+
+
+class _EventSession:
+    r"""`app.cli index --events jsonl`: the child-process side of work order 0x §2.
+
+    The window starts this command as a child (`app/index/child_run.py`) and
+    talks to it over two pipes. This class is the child's half:
+
+    * **Out**, on standard output: the `EventWriter` from
+      `app/index/run_events.py` - hello, progress, heartbeats, finished.
+      Standard output carries events and nothing else (see `_redirect_stdout`).
+    * **In**, on standard input: one command a line - `pause`, `resume`,
+      `stop` - read by a thread of its own, so a command is acted on at once
+      whatever the run is doing.
+
+    **Commands can arrive before there is a run to give them to** - the
+    person presses Pause while the settings are still loading. They are kept,
+    and applied at the run's first progress tick (`progress`): not at
+    `attach`, because `Pipeline.run` starts by clearing any stop and letting
+    go of any pause left from before it began (a pause "belongs to the run it
+    was asked for"), so one applied earlier would be silently undone.
+
+    **The window going away means stop.** When the window closes its end of
+    the pipe - or dies, killed from Task Manager, so the operating system
+    closes it - this process's standard input reaches its end. That is taken
+    as Stop, the clean kind that keeps everything done so far; and if the
+    stop has not finished `ORPHAN_GRACE_S` later, the process ends itself.
+    An indexer with no window, running for hours, is the "closed but still
+    running" incident HANDOFF describes, and it must not be possible here.
+    """
+
+    def __init__(self, out) -> None:
+        import threading
+
+        from app.index.run_events import EventWriter
+
+        self.writer = EventWriter(out, on_broken=self.window_gone)
+        self._lock = threading.Lock()
+        self._pipeline = None
+        self._live = False           # True from the run's first progress tick
+        self._stop = False
+        self._paused = False
+        self._gone = False
+
+    def attach(self, pipeline) -> None:
+        """Name the run that commands will act on, once it is under way."""
+        with self._lock:
+            self._pipeline = pipeline
+
+    def progress(self, stats) -> None:
+        """The pipeline's `on_progress`: apply early commands once, then report.
+
+        The first tick comes from inside `Pipeline.run`, after it has reset
+        its stop and pause - so this is the first moment a command sticks.
+        Applying one twice (it also arrived directly a moment ago) is
+        harmless: pausing a paused run and stopping a stopping one do nothing.
+        """
+        apply = None
+        with self._lock:
+            if not self._live and self._pipeline is not None:
+                self._live = True
+                apply = (self._pipeline, self._stop, self._paused)
+        if apply is not None:
+            pipeline, stop, paused = apply
+            if stop:
+                pipeline.request_stop()
+            elif paused:
+                pipeline.pause()
+        self.writer.offer(stats)
+
+    def command(self, word: str) -> None:
+        """Act on one command from the window. Unknown words are ignored."""
+        from app.index.run_events import COMMAND_PAUSE, COMMAND_RESUME, COMMAND_STOP
+
+        with self._lock:
+            pipeline = self._pipeline if self._live else None
+            if word == COMMAND_STOP:
+                self._stop, self._paused = True, False
+            elif word == COMMAND_PAUSE:
+                self._paused = True
+            elif word == COMMAND_RESUME:
+                self._paused = False
+        if pipeline is None:
+            return
+        if word == COMMAND_STOP:
+            pipeline.request_stop()
+        elif word == COMMAND_PAUSE:
+            pipeline.pause()
+        elif word == COMMAND_RESUME:
+            pipeline.resume()
+
+    def listen(self, stream) -> None:
+        """Read commands from `stream` on a daemon thread until it ends."""
+        import threading
+
+        from app.index.run_events import parse_command
+
+        def read() -> None:
+            try:
+                for line in stream:
+                    word = parse_command(line)
+                    if word:
+                        self.command(word)
+            except (OSError, ValueError):
+                pass
+            self.window_gone()
+
+        threading.Thread(target=read, name="index-commands", daemon=True).start()
+
+    def window_gone(self) -> None:
+        """Stop cleanly now; end the process if that has not worked in time."""
+        import threading
+
+        from app.index.child_run import ORPHAN_GRACE_S
+
+        with self._lock:
+            if self._gone:
+                return
+            self._gone = True
+        logger.bind(component="cli.index").warning(
+            "the window that started this run has gone; stopping")
+        self.command("stop")
+
+        def end() -> None:
+            logger.bind(component="cli.index").error(
+                "the run did not stop within {:.0f}s of its window going; ending it",
+                ORPHAN_GRACE_S)
+            os._exit(EXIT_ERROR)
+
+        timer = threading.Timer(ORPHAN_GRACE_S, end)
+        timer.daemon = True
+        timer.start()
+
+
+def _redirect_stdout():
+    r"""Keep standard output for events only, and return the stream to write them to.
+
+    **Anything else printed would corrupt the conversation.** A library that
+    prints a warning, a stray `print` - on standard output, either would land
+    in the middle of the event stream. So the real standard output is kept
+    aside (a duplicate of file descriptor 1) for the events, and descriptor 1
+    itself is pointed at standard error, where the window sends everything to
+    a log file. This catches output from C libraries too, which write to the
+    descriptor rather than to Python's `sys.stdout`. Where that cannot be
+    done, `sys.stdout` alone is swapped, which catches everything written from
+    Python. The window's reader ignores any line that is not an event either
+    way, so a leak costs a log line, never a misread.
+    """
+    sys.stdout.flush()
+    try:
+        saved = os.dup(1)
+        os.dup2(2, 1)
+        return open(saved, "w", encoding="ascii", errors="replace",  # noqa: SIM115
+                    newline="\n", buffering=1)
+    except (OSError, ValueError, AttributeError):
+        events = sys.stdout
+        sys.stdout = sys.stderr if sys.stderr is not None else open(  # noqa: SIM115
+            os.devnull, "w")
+        return events
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Build or update the index. Layer 3's entry point.
 
     Unlike `extract`, this one writes - so it takes the single-instance lock.
     Two copies indexing into one SQLite file is exactly the corruption the
     mutex exists to prevent.
+
+    With `--events jsonl` it is the window's child process (work order 0x §2):
+    machine-readable events on standard output, commands on standard input,
+    and every error reported as a `finished` event rather than printed.
     """
+    if getattr(args, "events", None):
+        return _cmd_index_events(args)
+    return _cmd_index(args, None)
+
+
+def _cmd_index_events(args: argparse.Namespace) -> int:
+    """`cmd_index` as a child: events out, commands in, errors as events."""
+    from app.core.errors import AppErrorException, to_app_error
+
+    session = _EventSession(_redirect_stdout())
+    session.writer.start()
+    session.listen(sys.stdin)
+    try:
+        return _cmd_index(args, session)
+    except AppErrorException as exc:
+        session.writer.finish(error=exc.error, exit_code=EXIT_ERROR)
+        return EXIT_ERROR
+    except Exception as exc:                     # noqa: BLE001 - said, as an event
+        error = to_app_error(exc, "cli.index")
+        logger.bind(component="cli.index").error("{}", error.render())
+        session.writer.finish(error=error, exit_code=EXIT_ERROR)
+        return EXIT_ERROR
+
+
+def _cmd_index(args: argparse.Namespace, events: "_EventSession | None") -> int:
+    """The body of `cmd_index`. `events` is None for the ordinary command."""
+    from app.core.errors import AppErrorException
+    from app.core.run_lock import GUI
     from app.index.clip_embedder import ClipImageEmbedder
     from app.index.embedder import Embedder
-    from app.extract.media import MediaConfig
-    from app.index.pipeline import Pipeline, PipelineConfig
-    from app.index.walker import WalkConfig, own_paths
+    from app.index.pipeline import Pipeline
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
     from app.ui.presenter import phase_words, unfinished_run_line
     from app.ui.presenter.activity import console_safe, timed_notices
+
+    #: Nothing for a person to read: machine output of one kind or the other.
+    machine = bool(args.json or events is not None)
+
+    def refuse(error) -> int:
+        """A refusal: printed for a person, a `finished` event for the window."""
+        if events is not None:
+            raise AppErrorException(error)
+        return _report(error, args.json)
 
     settings = _load(args)
     setup_logging(settings.log_path)
@@ -148,15 +456,15 @@ def cmd_index(args: argparse.Namespace) -> int:
         from_settings = bool(roots)
 
     if not roots:
-        return _report(make_error(
+        return refuse(make_error(
             "ERR_CONFIG_INVALID", "cli.index",
             key="roots", reason="no folders to index",
             suggestion=r'Name them here - app.cli index "D:\SearchData" - or '
                        r'set them once on the Settings page, under "Folders to '
                        r'index", and run this with no arguments.',
-        ), args.json)
+        ))
 
-    if from_settings and not args.json:
+    if from_settings and not machine:
         # **Said out loud.** A command that silently uses a setting is a command
         # whose output cannot be attributed to anything.
         print("Indexing the folders saved in Settings:")
@@ -165,14 +473,12 @@ def cmd_index(args: argparse.Namespace) -> int:
 
     missing = [root for root in roots if not root.exists()]
     if missing:
-        return _report(make_error(
+        return refuse(make_error(
             "ERR_CONFIG_INVALID", "cli.index",
             key="roots", reason=f"does not exist: {', '.join(str(m) for m in missing)}",
             suggestion="Check the path and the drive. A folder on a disconnected drive looks "
                        "exactly like a folder that was deleted.",
-        ), args.json)
-
-    limits = limits_from_settings(settings)
+        ))
 
     # **The tuning mode reaches the run, not only the screen.** Before this the
     # panel resolved `0` to `Auto (4)` for display and the run read the literal
@@ -189,86 +495,51 @@ def cmd_index(args: argparse.Namespace) -> int:
         # this run takes the lock**, because taking it replaces the record a
         # run that died left behind - the only evidence that one did.
         unfinished = read_unfinished_run(_store)
-    if unfinished and not args.json:
+    if unfinished and not machine:
         print(unfinished_run_line(unfinished, carrying_on=True))
-    limits = replace(limits, workers=tuned.workers)
     _tuning_log = logger.bind(component="cli.index")
     for key, why in tuned.why.items():
         _tuning_log.debug("{}: {}", key, why)
 
-    # `--workers` still wins: a flag typed on this command is a decision about
-    # this run, and a tuning mode is a standing preference.
-    if args.workers:
-        limits = replace(limits, workers=args.workers)
-    if args.memory_mb:
-        limits = replace(limits, memory_mb=args.memory_mb)
-    if args.cpu_percent is not None:
-        limits = replace(limits, cpu_percent=args.cpu_percent)
-    if args.full_speed:
-        # An explicit opt-out for a machine nobody is using. Named for what it
-        # costs rather than what it gives: this is the setting that makes the
-        # computer unusable while it runs.
-        limits = replace(
-            limits, cpu_percent=0, pause_on_battery=False, low_priority=False,
-            workers=args.workers or max(1, (os.cpu_count() or 2) - 1),
-        )
+    # Folders whose cloud-only files may be downloaded. `--allow-cloud-content`
+    # is typed by a person and normalised here; `--cloud-content-key` is the
+    # window's child process passing the keys exactly as the window stores
+    # them (`archives.normalise`), so the two runs agree on every platform.
+    cloud_keys = frozenset(
+        str(Path(p).expanduser()).rstrip("\\/").lower()
+        for p in (args.allow_cloud_content or [])
+    ) | frozenset(getattr(args, "cloud_content_key", None) or ())
 
-    config = PipelineConfig(
-        walk=WalkConfig(
-            roots=roots,
-            priority_roots=[Path(p).expanduser() for p in (args.first or [])],
-            include_cloud=args.include_cloud,
-            cloud_content_roots=frozenset(
-                str(Path(p).expanduser()).rstrip("\\/").lower()
-                for p in (args.allow_cloud_content or [])
-            ),
-            cloud_content_cap_bytes=(
-                args.cloud_content_cap_mb or settings.cloud_content_cap_mb
-            ) * 1024 * 1024,
-            # Never index our own index, logs, cache or models. Indexing the
-            # project folder had the run reading the log file it was writing.
-            exclude_paths=own_paths(settings),
-            # Every file gets a row, whether or not anything can read it - see
-            # `WalkConfig.name_only`. Off makes the walk behave as it did.
-            name_only=settings.index_name_only,
-        ),
-        limits=limits,
-        min_free_gb=settings.min_free_gb,
-        required_free_gb=settings.required_free_gb,
+    config = build_pipeline_config(
+        settings, roots, tuned=tuned,
+        workers=args.workers, memory_mb=args.memory_mb,
+        cpu_percent=args.cpu_percent, full_speed=args.full_speed,
+        first=tuple(args.first or ()), include_cloud=args.include_cloud,
+        cloud_content_roots=cloud_keys,
+        cloud_content_cap_mb=args.cloud_content_cap_mb,
         verify_hash=not args.fast,
-        prune_missing=not args.no_prune,
+        prune=not args.no_prune,
         force=bool(getattr(args, "force", False)),
         retry_skipped=bool(getattr(args, "retry_skipped", False)),
-        # A folder marked as an archive is walked once and then checked
-        # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
-        # hatch that ignores the modes entirely without touching the records.
         ocr_mode=_ocr_mode(args, settings),
         archives=not bool(getattr(args, "all_roots", False)),
         recheck_archives=bool(getattr(args, "recheck_archives", False)),
-        recheck_days=settings.archive_recheck_days,
-        # Resolved for this machine and this mode, above.
-        embed_batch=tuned.embed_batch,
-        dedup_chunks=settings.embed_dedup,
-        two_phase=settings.index_two_phase,
-        bulk_fts=settings.index_bulk_fts,
-        caption_trickle_enabled=settings.caption_trickle_enabled,
-        ollama_url=settings.ollama_url,
-        ollama_vision_model=settings.ollama_vision_model,
-        people_recognition_enabled=settings.people_recognition_enabled,
-        # Work order 202626270515. Off unless VIDEO_INDEXING_ENABLED and/or
-        # AUDIO_TRANSCRIPTION_ENABLED are on in `.env`.
-        media=MediaConfig.from_settings(settings),
-        # Work order 202626130120 (0t) section 6: resolved once, above, by
-        # the same resolve_for_run call the window uses before it builds a
-        # Pipeline.
-        gpu_regression_notice=tuned.gpu_regression_notice,
-        # 2026-09-20. The command line's half of the Indexing page's Pause
-        # button - see `add_index_parser` for why it is a file and not a verb.
         pause_file=(Path(args.pause_file).expanduser()
                     if getattr(args, "pause_file", None) else None),
     )
 
-    embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
+    if getattr(args, "fake_embedder_for_bench", False):
+        # **For `app.cli bench-pipeline --child-process` only** (hidden from
+        # `--help`). The benchmark must be able to run where the real model
+        # has never been downloaded, and a fake run in the child has to be
+        # the same fake the in-process benchmark uses, or the two numbers
+        # would not compare. Its model name says what it is wherever it lands.
+        from app.index.pipeline_bench import FAKE_MODEL_NAME, _fake_encoder
+
+        embedder = Embedder(FAKE_MODEL_NAME, dim=settings.embed_dim,
+                            encoder=_fake_encoder(settings.embed_dim))
+    else:
+        embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
     # Work order 0h §1c item 3. **The same construction, at the same site
     # that already builds `embedder`**, so indexing from the command line
     # writes the CLIP vectors the search side (`cmd_search`, `cmd_shell`,
@@ -280,7 +551,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     # costs nothing on a run that never reaches an image file.
     image_embedder = ClipImageEmbedder.from_settings(settings)
 
-    progress = ProgressLine(enabled=not args.quiet and not args.json)
+    progress = ProgressLine(enabled=not args.quiet and not machine)
 
     # Route console logging through the progress line, so a warning about one
     # unreadable file cannot leave the heartbeat mangled and apparently frozen.
@@ -362,15 +633,34 @@ def cmd_index(args: argparse.Namespace) -> int:
     # `app.cli index` could not run at all while Leasha was open, even though
     # the window was only reading. What must not overlap is two *writers*, and
     # that hazard lasts exactly as long as this block. See `core/run_lock.py`.
+    #
+    # **Whose run it is**, for the sentence another reader shows ("the window,
+    # since 14:02"). The window's own child process says it is the window's,
+    # because to the person it is: they pressed Start on the Indexing page.
+    owner = GUI if getattr(args, "run_owner", "") == "window" else COMMAND_LINE
     with SqliteStore(settings.fts_db) as store, \
-            IndexRunLock(store, owner=COMMAND_LINE), \
+            IndexRunLock(store, owner=owner), \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
             ImageVectorStore(settings.vector_path) as image_vectors:
         pipeline = Pipeline(
             store, vectors, embedder, config,
             image_embedder=image_embedder, image_vectors=image_vectors,
         )
-        stats = pipeline.run(on_progress=None if args.quiet else show)
+        pipeline.run_owner = owner
+        if events is not None:
+            # Commands from the window (and any that arrived while the model
+            # was loading) now have a run to act on.
+            events.attach(pipeline)
+            stats = pipeline.run(on_progress=events.progress)
+        else:
+            stats = pipeline.run(on_progress=None if args.quiet else show)
+
+    if events is not None:
+        # The last line the window reads. Everything a person would be told
+        # below is in the stats, and the page words it itself.
+        code = EXIT_ERROR if stats.stopped_early else EXIT_OK
+        events.writer.finish(stats=stats, exit_code=code)
+        return code
 
     payload = stats.as_dict()
     if args.json:
@@ -770,6 +1060,23 @@ def add_index_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
              "  type nul > pause.flag   holds it\n"
              "  del pause.flag          carries on")
     p_index.add_argument("--quiet", action="store_true", help="no progress lines")
+    # Work order 0x §2a. **The machine-readable mode the window's child process
+    # uses** - see `_EventSession` and `app/index/run_events.py`. Shown in
+    # `--help`, because a person can usefully watch it: one JSON object per
+    # line on standard output; `pause`, `resume` or `stop` typed on standard
+    # input act on the run; closing standard input stops it.
+    p_index.add_argument(
+        "--events", choices=("jsonl",), metavar="jsonl",
+        help="machine-readable progress: one JSON object per line on stdout\n"
+             "(progress, heartbeat, finished); reads pause / resume / stop on\n"
+             "stdin, and stops when stdin closes. For the window's own use.")
+    # The rest are for the window and the benchmark only, so hidden from help.
+    p_index.add_argument("--run-owner", choices=("command-line", "window"),
+                         default="command-line", help=argparse.SUPPRESS)
+    p_index.add_argument("--cloud-content-key", action="append", default=[],
+                         help=argparse.SUPPRESS)
+    p_index.add_argument("--fake-embedder-for-bench", action="store_true",
+                         help=argparse.SUPPRESS)
     p_index.set_defaults(func=cmd_index)
 
 
