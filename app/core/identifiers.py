@@ -81,6 +81,19 @@ MAX_SYMBOL_CHARS = 4_000
 #: ever sees the pieces that are left.
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]+")
 
+#: A word from `_WORD` that *could* have a boundary: one with a capital or a
+#: digit somewhere after its first letter. Work order 0x item 5d - see
+#: `symbol_tokens` for why this exists and why it finds exactly the same words.
+#:
+#: **The `(?<![A-Za-z])` at the front keeps it linear.** Without it, a long run
+#: of lowercase letters (a DNA sequence, a squashed log line) is tried from
+#: every one of its letters, each attempt reading to the end of the run - the
+#: time grows with the square of the run's length. With it, only the first
+#: letter of a run can start a match, which is also the only place a `_WORD`
+#: match can start (a letter after a letter is always inside the word that
+#: began before it).
+_CANDIDATE = re.compile(r"(?<![A-Za-z])[A-Za-z][a-z]*[A-Z0-9][A-Za-z0-9]*")
+
 #: The three boundaries, in one pass:
 #:   lower|digit -> upper      getUser   -> get|User
 #:   upper       -> upper+lower  XMLHttp -> XML|Http
@@ -125,12 +138,41 @@ def symbol_tokens(text: str, *, limit: int = MAX_SYMBOL_CHARS) -> str:
 
     Order is preserved rather than sorted purely so the column is readable when
     somebody is working out why a search did or did not match.
+
+    **Only the words that could split are looked at in Python.** Work order 0x
+    item 5d. This runs for every passage the indexer writes, and it used to
+    hand *every* word to `split_identifier` - a Python function call and a
+    regex search per word, for prose where almost no word splits. Sampling
+    the indexer's main thread while it wrote the benchmark corpus showed this
+    one function holding Python's interpreter lock for over half of that
+    thread's time, and while it held the lock the reading threads could not
+    run (py-spy `--gil`, `app.cli bench-pipeline` small corpus, fake
+    embedder, Linux sandbox, 4 CPUs, 2026-09-27).
+
+    `_CANDIDATE` now picks out, inside the regex engine, only the words with a
+    capital or a digit after their first letter. **It returns exactly the
+    words that can contribute**, so the output is unchanged, character for
+    character:
+
+    * every one of the three boundaries needs a capital or a digit *after*
+      the first letter (`getUser`, `XMLHttp`, `utf8`), so a word without one
+      splits to nothing and never added anything here;
+    * a word that has one is matched whole, from the same first letter to the
+      same last character `_WORD` would have given: the match starts at the
+      first letter of the run (it cannot start at a digit or straight after a
+      letter, and failing at the first letter means there is no capital or
+      digit after it, so no later letter in the run could succeed), and the
+      greedy tail runs to the end of the letters and digits.
+
+    Each such word still goes through `split_identifier`, so what is kept is
+    decided by exactly the code that decided it before.
+    `test_identifiers.py` compares the two over generated text to hold this.
     """
     seen: set[str] = set()
     out: list[str] = []
     length = 0
 
-    for match in _WORD.finditer(text):
+    for match in _CANDIDATE.finditer(text):
         word = match.group(0)
         parts = split_identifier(word)
         if not parts:
