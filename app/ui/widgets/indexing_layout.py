@@ -21,14 +21,20 @@ from typing import Any
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.presenter import (
-    index_summary, part_read_rows, unfinished_run_rows, when_text,
+    finished_text, index_summary, part_read_rows, progress_for, progress_text,
+    unfinished_run_rows, when_text,
 )
 from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.indexing_controls import PAUSED_DETAIL, PAUSED_HEADLINE
+from app.ui.widgets.indexing_headline import show_now
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 
-__all__ = ["assemble_pages", "paint_run_panels", "paint_totals", "repaint_totals"]
+__all__ = [
+    "assemble_pages", "paint_finished", "paint_progress", "paint_run_panels",
+    "paint_totals", "repaint_totals",
+]
 
 
 def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) -> CategoryNav:
@@ -51,6 +57,8 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     status_layout.setContentsMargins(0, 0, 0, 0)
     status_layout.setSpacing(8)
     status_layout.addWidget(view.headline)
+    # 0x §4b: what the run is doing now, straight under the counts it explains.
+    status_layout.addWidget(view.now_line)
     status_layout.addWidget(view.totals)
     status_layout.addWidget(view.stats_box)
     status_layout.addWidget(view.bar)
@@ -60,9 +68,28 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     # line guard: `view.run_log` is set on the view exactly as if it had been.
     view.run_log = RunLog()
     status_layout.addWidget(view.run_log)
-    status_layout.addLayout(controls)
+    # 0x §4a: the button row is a widget of its own now
+    # (`widgets/indexing_controls.py`), no longer a bare layout.
+    status_layout.addWidget(controls)
+    # **Tab reaches the log's filter, Copy and the log before the buttons
+    # below them**, the order they appear in. The log is made here, after the
+    # buttons, so Qt's made-first-comes-first default would put it after them
+    # (and after everything else on the page). The log's three are slotted in
+    # just before Start; the row keeps its own left-to-right order.
+    chain = (controls.start_button.previousInFocusChain(), view.run_log.filter,
+             view.run_log.copy_button, view.run_log.view) + _row(controls)
+    for first, second in zip(chain, chain[1:]):
+        QWidget.setTabOrder(first, second)
     status_layout.addWidget(view.archives)
     status_layout.addWidget(view.skips, stretch=1)
+    # **Spare height goes below everything, not between the lines.** While
+    # the skips panel has nothing to show it is hidden, and its stretch goes
+    # with it; Qt then shared the page's spare height out as gaps between
+    # every row, so the log's caption floated a hand's width above its own
+    # box (seen in the 0x §4 grabs, and already so before them). This spacer
+    # has stretch 0, so while the skips panel is showing it takes nothing and
+    # the page looks exactly as it did.
+    status_layout.addStretch(0)
 
     schedule_page = QWidget()
     schedule_layout = QVBoxLayout(schedule_page)
@@ -89,6 +116,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     layout.setContentsMargins(9, 9, 9, 9)
     layout.addWidget(nav)
     return nav
+
+
+def _row(controls: Any) -> tuple:
+    """The button row's buttons, left to right, for the tab order."""
+    return (controls.start_button, controls.scan_button, controls.stop_button,
+            controls.pause_button, controls.reset_button)
 
 
 def paint_totals(view: Any, payload: dict) -> None:
@@ -174,3 +207,63 @@ def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
     view._last_paused = paused
     view._last_phase = phase
     return True
+
+
+def paint_progress(view: Any, stats: Any) -> None:
+    """Draw one progress tick that `paint_due` let through. UI thread, no I/O.
+
+    Moved out of `IndexingView._on_progress` by 0x §4a, unchanged except for
+    the two §4 additions marked below; the throttle check itself stays in the
+    view, where the interval is read at call time.
+    """
+    # See `presenter.progress_for` for both bugs this has had: the numerator
+    # once left out `indexed`, so a fresh corpus sat near zero for hours;
+    # then the denominator was `seen`, which a bounded queue keeps close to
+    # the numerator, so it read 100% within seconds of starting.
+    # `(0, 0)` is Qt's indeterminate range - a moving barber pole - and it
+    # is what `progress_for` returns while the size of the job is genuinely
+    # unknown.
+    value, total = progress_for(stats, total_estimate=view._total_estimate)
+    # 0x §4c: slide there rather than jump, unless the total changed - see
+    # `widgets/indexing_bar.py`. A total of 0 is still the busy bar.
+    view.bar.glide_to(value, total)
+    view.progressed.emit("running", int(getattr(stats, "indexed", 0) or 0),
+                         int(value), int(total),
+                         bool(getattr(stats, "paused", False)), False, "")
+
+    headline, detail = progress_text(
+        stats, total_estimate=view._total_estimate, stopping=view._stopping
+    )
+    if getattr(stats, "paused_by_person", False):
+        # The presenter cannot tell the two pauses apart from `paused`
+        # alone, and its sentence - "waiting for the machine" - is the
+        # wrong one here: this run is waiting for the person.
+        headline, detail = PAUSED_HEADLINE, PAUSED_DETAIL
+    view.headline.setText(headline)
+    view.detail.setText(detail)
+    # 0x §4b: the "what is happening now" sentence.
+    show_now(view, stats, stopping=view._stopping)
+    paint_run_panels(view, stats)
+
+
+def paint_finished(view: Any, stats: Any) -> None:
+    """Draw a run that has ended (normally, or after Stop). UI thread, no I/O.
+
+    Moved out of `IndexingView._on_finished` by 0x §4a; the view still emits
+    its `finished` signal itself, after this.
+    """
+    # **Only a run that reached the end is full.** `pipeline.run` returns
+    # normally after a Stop and after the governor aborts, so this painted a
+    # complete green bar over a run stopped at 3% - next to a headline
+    # saying it had been stopped, so the panel contradicted itself. The same
+    # fault was found and fixed in `_on_failed` and not here.
+    finished_whole = not view._stopping and not getattr(stats, "stopped_early", None)
+    view.bar.setRange(0, 1)
+    view.bar.setValue(1 if finished_whole else 0)
+    view.progressed.emit("finished", int(getattr(stats, "indexed", 0) or 0),
+                         1, 1, False, not finished_whole, "")
+    headline, detail = finished_text(stats)
+    view.headline.setText(headline)
+    view.detail.setText(detail)
+    show_now(view, None)
+    paint_run_panels(view, stats)

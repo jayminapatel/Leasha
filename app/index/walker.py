@@ -40,6 +40,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
+from app.core.osbridge.cloudfs import is_dataless
 from app.core.winfs import CLOUD_PLACEHOLDER_MASK
 
 __all__ = [
@@ -131,6 +132,11 @@ class Candidate:
     #: Raw Windows attribute bits from the stat already performed, so a
     #: placeholder check costs nothing extra. None off Windows.
     attributes: Optional[int] = None
+    #: Order 0x section 1 (2026-09-27): the BSD file flags from that same stat,
+    #: which is where macOS marks an iCloud file that is not downloaded
+    #: (`SF_DATALESS`). None on Windows and Linux, whose stat has no such field,
+    #: so nothing changes there. (UNCONFIRMED on macOS.)
+    flags: Optional[int] = None
     #: Whether anything can read this file's *contents*.
     #:
     #: **False is not a failure and not a skip.** Extension routing decides
@@ -167,7 +173,11 @@ class Candidate:
     @property
     def is_cloud_placeholder(self) -> bool:
         """True if reading this file would pull it down from the cloud."""
-        return bool(self.attributes or 0) and bool(self.attributes & CLOUD_PLACEHOLDER_MASK)
+        if self.attributes and self.attributes & CLOUD_PLACEHOLDER_MASK:
+            return True
+        # A Mac's iCloud placeholder: the same question, asked of the flags the
+        # stat already returned - reading the file to find out would download it.
+        return is_dataless(self.flags)
 
     def sort_key(self) -> tuple[int, str]:
         """Priority first, then path. Deterministic, which is what lets a
@@ -738,6 +748,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     continue
 
                 attributes = getattr(stat, "st_file_attributes", None)
+                flags = getattr(stat, "st_flags", None)
                 relative_path = None
                 if root_volume_id is not None:
                     # **Relative to the root actually being walked**, not to
@@ -755,6 +766,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     mtime_ns=stat.st_mtime_ns,
                     priority=_priority_for(path, config.priority_roots),
                     attributes=attributes,
+                    flags=flags,
                     readable=readable and not too_big and stat.st_size > 0,
                     volume_id=root_volume_id,
                     relative_path=relative_path,

@@ -1,14 +1,15 @@
-"""`embed-bench`, `bench-index` and `rerank-bench`: what this machine costs."""
+"""`embed-bench`, `bench-index`, `bench-pipeline` and `rerank-bench`: what this machine costs."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from app.cli._common import EXIT_OK, _load
+from app.cli._common import EXIT_ERROR, EXIT_OK, _load
 from app.core.config import Settings
 from app.core.logging import setup_logging
 
@@ -175,6 +176,80 @@ def cmd_bench_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_bench_pipeline(args: argparse.Namespace) -> int:
+    r"""Index a made-up corpus with the real pipeline, and report what it cost.
+
+    Work order 0x item 5a ("a repeatable benchmark") and the measuring tool
+    2d needs (the window's stalls while indexing). The corpus comes from
+    `app/index/synthetic_corpus.py` and is the same on every machine for the
+    same `--size` and `--seed`; the run goes into a throwaway data folder and
+    never touches the real index. See `app/index/pipeline_bench.py` for what
+    is measured and why, and how it differs from `bench-index`.
+
+    **Deliberately does not call `_load(args)`.** Every other command needs a
+    working `.env`; this one must run on a machine that has never been set up
+    (a Mac being tried for the first time, CI), so the person's settings are
+    only *looked at*, for the downloaded model, and a missing `.env` means
+    the fake embedder rather than an error.
+    """
+    from app.index.pipeline_bench import BenchOptions, format_report, run_pipeline_bench
+    from app.index.synthetic_corpus import SIZES
+
+    spec = None
+    counts = {name: getattr(args, name) for name in (
+        "documents", "mbox_messages", "zip_members", "eml_files")
+        if getattr(args, name) is not None}
+    if counts or args.seed != 1:
+        # Explicit counts start from the named size and change only what was
+        # given, so `--size small --mbox-messages 20000` means what it says.
+        base = SIZES[args.size]
+        spec = replace(base, seed=args.seed, **counts)
+
+    as_json = bool(getattr(args, "json", False))
+    folder = Path(args.corpus).expanduser() if args.corpus else None
+    temporary_corpus = folder is None
+    if temporary_corpus:
+        import tempfile
+
+        folder = Path(tempfile.mkdtemp(prefix="leasha-bench-corpus-"))
+
+    def note(text: str) -> None:
+        """Progress lines go to stderr, so `--json` stdout stays parseable."""
+        print(f"  {text}", file=sys.stderr, flush=True)
+
+    options = BenchOptions(
+        corpus_folder=folder, size=args.size, spec=spec,
+        embedder=args.embedder, probe=args.probe,
+        probe_yield=not args.no_yield, workers=args.workers,
+        full_speed=args.full_speed,
+        env_file=Path(args.env) if getattr(args, "env", None) else None,
+        my_settings=args.my_settings, keep=args.keep, on_note=note,
+    )
+    try:
+        report = run_pipeline_bench(options)
+    except (ValueError, FileExistsError) as exc:
+        # A bad request (wrong size, no model for --embedder real, a folder
+        # holding a different corpus) is said in one line, not a traceback.
+        print(f"bench-pipeline: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    finally:
+        if temporary_corpus and not args.keep:
+            import shutil
+
+            shutil.rmtree(folder, ignore_errors=True)
+
+    if args.out:
+        Path(args.out).expanduser().write_text(
+            json.dumps(report, indent=2), encoding="utf-8")
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(format_report(report))
+        if args.out:
+            print(f"\n  JSON written to {args.out}")
+    return EXIT_OK
+
+
 def _bench_result(settings: Settings):
     from app.index.embed_bench import BenchResult
 
@@ -325,6 +400,52 @@ def add_bench_index_parser(sub: argparse._SubParsersAction, common: argparse.Arg
         "--no-save", action="store_true",
         help="print the numbers without storing them for auto-tuning")
     p_index_bench.set_defaults(func=cmd_bench_index)
+
+
+def add_bench_pipeline_parser(sub: argparse._SubParsersAction,
+                              common: argparse.ArgumentParser) -> None:
+    """`bench-pipeline`: see `cmd_bench_pipeline`."""
+    from app.index.synthetic_corpus import SIZES
+
+    p = sub.add_parser(
+        "bench-pipeline", parents=[common],
+        help="index a made-up corpus (documents, a big mbox, a zip) with the "
+             "real pipeline into a throwaway folder, and report the time per "
+             "stage, memory and - with --probe - how the window keeps up")
+    p.add_argument("--corpus", metavar="FOLDER",
+                   help="where to make (or reuse) the corpus; default: a "
+                        "temporary folder, deleted afterwards")
+    p.add_argument("--size", choices=list(SIZES), default="small",
+                   help="corpus size (default: %(default)s)")
+    p.add_argument("--seed", type=int, default=1,
+                   help="corpus seed; same seed and size, same files "
+                        "(default: %(default)s)")
+    p.add_argument("--documents", type=int, help="override: loose documents")
+    p.add_argument("--mbox-messages", type=int, dest="mbox_messages",
+                   help="override: messages in the big mbox")
+    p.add_argument("--zip-members", type=int, dest="zip_members",
+                   help="override: members in the zip")
+    p.add_argument("--eml-files", type=int, dest="eml_files",
+                   help="override: loose .eml files")
+    p.add_argument("--embedder", choices=("auto", "real", "fake"), default="auto",
+                   help="real model, a labelled fake, or auto: real if already "
+                        "downloaded, never a download (default: %(default)s)")
+    p.add_argument("--probe", action="store_true",
+                   help="run inside a Qt event loop with the lag monitor's "
+                        "heartbeat, and report its lateness while indexing")
+    p.add_argument("--no-yield", action="store_true",
+                   help="with --probe: do not let the pipeline slow down when "
+                        "the window runs late")
+    p.add_argument("--workers", type=int, metavar="N",
+                   help="extraction workers (default: what the app would pick)")
+    p.add_argument("--full-speed", action="store_true",
+                   help="as index --full-speed: no CPU ceiling, normal priority")
+    p.add_argument("--my-settings", action="store_true",
+                   help="use the tuning in your .env instead of the app defaults")
+    p.add_argument("--keep", action="store_true",
+                   help="keep the throwaway data folder (and a temporary corpus)")
+    p.add_argument("--out", metavar="FILE", help="also write the JSON report here")
+    p.set_defaults(func=cmd_bench_pipeline)
 
 
 def add_rerank_bench_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

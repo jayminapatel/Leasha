@@ -99,7 +99,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 1. One home for platform code (`app/core/osbridge/`)
 
-- [ ] **1a** The package, with a plain-English module docstring explaining why it exists.
+> **2026-09-27, §1 built:** `app/core/osbridge/` (`launch`, `priority`, `programs`, `paths`,
+> `cloudfs`), with the Windows code moved unchanged and every old name still working. The guard
+> `test_no_windows_only_call_outside_osbridge` reads the code with Python's own parser (comments and
+> docstrings never count), is on the load-bearing table, and its allow-list is shrink-only - a second
+> test fails when a listed file no longer needs its entry. After 0w merged, `workers.open_in_explorer`
+> moved too (Finder `open -R` on a Mac) and left the list; the walker now carries the stat's BSD flags
+> so an iCloud file that is not downloaded is recognised without being opened. Still on the list:
+> `email_pst.py` (Outlook COM is Windows-only by nature), the parked §P files, `lo_session`/`lo_server`
+> job objects and `single_instance`'s named mutex. 58 branch tests run every Mac path with the
+> platform faked. Deliberately not built: per-thread priority on a Mac (QoS classes, UNCONFIRMED);
+> the process is lowered with `nice` instead. `config.py` still requires `DATA_PATH`.
+- [x] **1a** The package, with a plain-English module docstring explaining why it exists.
       Operations: open a file with its default app; show a file in Explorer or Finder;
       lower the priority of the current process and of a thread; find an installed
       program (LibreOffice, its Python, Tesseract, DWG converters, editors, media
@@ -107,18 +118,18 @@ The design was agreed in conversation first. The owner confirmed every recommend
       (`%LOCALAPPDATA%\Leasha` on Windows, `~/Library/Application Support/Leasha` on a
       Mac); whether a file is a cloud placeholder (OneDrive attributes on Windows, the
       iCloud "dataless" flag on a Mac); the interpreter path shown in messages.
-- [ ] **1b** Move the existing Windows code behind it with **identical behaviour on
+- [x] **1b** Move the existing Windows code behind it with **identical behaviour on
       Windows**: `core/priority.py`, `core/media_open.py`, `ui/workers.open_in_explorer`,
       `extract/converter.resolve_binary`'s Windows locations, `ui/editors.py`'s lookup,
       `core/winfs.py`. Callers keep their names; only the implementation moves.
-- [ ] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
+- [x] **1c** The guard test `test_no_windows_only_call_outside_osbridge`: no
       `ctypes.windll`/`WinDLL`, `winreg`, `win32com`, `pythoncom`, `msvcrt`,
       `os.startfile`, `explorer`, `powershell` subprocess, `.exe` lookup or hard-coded
       `"\\"` path join outside `app/core/osbridge/`. Files not yet moved are listed in an
       allow-list **that may only shrink**, each with the section that will move it. Seen to
       fail against a deliberate violation before it lands. Added to the load-bearing table
       in `WORKORDER-CONVENTIONS.md` §0.
-- [ ] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
+- [x] **1d** Tests that run every macOS branch with the platform set to `darwin` and the
       system calls faked, so the Mac logic is exercised on every run.
 
 ## 2. The indexer in its own process
@@ -156,19 +167,37 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 4. The Indexing page
 
-- [ ] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
+> **2026-09-27, 4a-4c and 4e built.** 4a: the row is its own widget and the guard is green at
+> 244/250 without raising it or editing a test. 4b: the "now" line's slot is built on 0w's
+> existing wording (`READING_WORDS`) and waits for §3's presenter function at the adapter point in
+> `widgets/indexing_headline.py`. 4c: the bar glides over one paint interval in 50 ms steps, never
+> backwards on the same total, busy when the total is unknown, and stops when the page is hidden
+> or minimised; measured offscreen at about 3.7 ms of UI-thread time a second more than jumping
+> (noisy, shared machine). 4e: All / Warnings and errors, and Copy of the visible lines with their
+> times. Found and fixed on the way: Tab now moves through the buttons left to right, and the log's
+> caption no longer floats above its box when the skipped-files panel is hidden.
+- [x] **4a** First, move the Start/Stop/Pause/Reset row into its own widget file (the view
       is over its 250-line guard; the guard is not raised).
-- [ ] **4b** One plain headline sentence for what is happening now, from §3's stages.
-- [ ] **4c** A progress bar that glides between updates instead of jumping, and moves as a
+- [x] **4b** One plain headline sentence for what is happening now, from §3's stages.
+- [x] **4c** A progress bar that glides between updates instead of jumping, and moves as a
       busy bar when the total is not known yet. Animation costs are measured: no more than
       the existing 0.25 s paint throttle allows.
 - [ ] **4d** The per-worker lines from 3c, each with its own "n s on this item" clock, and
       a per-file bar for archives only.
-- [ ] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
+- [x] **4e** 0w's timestamped log, with a filter (all / warnings and errors) and Copy.
 
 ## 5. Indexing speed, measured one change at a time
 
-- [ ] **5a** A repeatable benchmark: a synthetic corpus with a large mbox, a zip with
+> **2026-09-27, 5a built:** `app.cli bench-pipeline` (`app/index/synthetic_corpus.py`,
+> `app/index/pipeline_bench.py`): a seeded, byte-identical corpus on every platform, the real
+> pipeline into a throwaway data folder, and a report that carries its conditions (corpus digest,
+> REAL/FAKE embedder, machine, commit). `--probe` is 2d's instrument: the lag monitor's own heartbeat
+> on the main thread while the pipeline runs on a worker. First figures, **Linux sandbox, fake
+> embedder, not representative**: medium corpus (3,002 files, 13,900 documents) 115 s, 1,563
+> files/min; heartbeat p99 4-6 ms, worst 46-120 ms, no stalls. With the model out, the SQLite
+> write stage is 87-96% of the run and grows faster than the corpus (about 4 ms a document small,
+> 7 ms medium) - the first lead for 5d, not yet diagnosed.
+- [x] **5a** A repeatable benchmark: a synthetic corpus with a large mbox, a zip with
       hundreds of members, and ordinary documents; figures recorded per stage.
 - [ ] **5b** Reading across several processes where reading is CPU-bound, feeding one
       writer. Lands only with a measured gain.
