@@ -52,7 +52,7 @@ from app.ui.theme import detect_scheme, stylesheet
 from app.ui.tray import TrayPresence
 from app.ui.state_writes import pool as state_write_pool, save_state, save_states
 from app.ui.view_options import load_prefs, save_prefs_later
-from app.ui.window_state import restore_window_state, save_window_state
+from app.ui.window_state import bring_forward, restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.rail import Rail
 from app.ui.widgets.restart_note import mark_restart_needed
@@ -1419,9 +1419,8 @@ class MainWindow(QMainWindow):
     def _search_from_mini(self, query: str) -> None:
         """"Show me all of it": bring the window up with this query in it."""
         try:
-            self.showNormal()
-            self.raise_()
-            self.activateWindow()
+            # Keeps a maximised window maximised - see `bring_forward`.
+            bring_forward(self)
             self._show(self.search_view)
             self.search_view.input.setText(str(query or ""))
             self.search_view.search_now()
@@ -1964,9 +1963,7 @@ class MainWindow(QMainWindow):
         ends on, pulled out because a plain "somebody double-clicked the
         icon again" carries no query to run first.
         """
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        bring_forward(self)       # keeps a maximised window maximised
 
 
     def _run_link(self, request: Any) -> None:
