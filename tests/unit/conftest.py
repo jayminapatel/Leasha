@@ -130,6 +130,15 @@ def gui_mainwindow(tmp_path_factory):
 
     # Deliberately not closing the window - see `test_window_opens.py`. The
     # process is ending anyway, and tearing it down is what crashes.
+    #
+    # **But hidden, before its store closes.** A test that `show()`s it (the
+    # Chat tab's fixture does) left it visible, and in Qt 6 any later
+    # `app.quit()` in the same process - `test_later.py` pumps with one - asks
+    # every *visible* window to close. That ran this window's `closeEvent`, whose
+    # geometry save hit the store closed two lines below, and the
+    # ERR_UNEXPECTED traceback failed whichever test happened to be running.
+    # A hidden window is not asked.
+    window.hide()
     engine.close()
     store.close()
     vectors.close()
