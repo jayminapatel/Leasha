@@ -933,6 +933,9 @@
     <Compile Include="tools\bench_results_paint.py" />
     <Compile Include="tools\extract_speed.py" />
     <Compile Include="tools\grab_ui.py" />
+    <Compile Include="tools\measure_ollama_chat.py" />
+    <Compile Include="tools\measure_onnx_chat.py" />
+    <Compile Include="tools\measure_onnx_photo.py" />
     <Compile Include="tools\nightly.py" />
     <Compile Include="tools\nightly_probe.py" />
     <Compile Include="tools\reader_recall.py" />

@@ -1,6 +1,6 @@
 # Work order: every model inside Leasha on ONNX Runtime, Chat switchable to Ollama
 
-**Doc version:** 1.0 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Created:** 2026-09-29 · **Layer:** L2 (new package `app/ort/`), with L1/L5 wiring
 **Thread:** the local laptop session of 2026-09-29 (order 1a's), branch `feat/onnx-everywhere`
 **Status:** ACTIVE *(owner, 2026-09-29: "i want you to do this now all should be onnx be default ... and for chat it should be configurable to use ollama or Onnx... go for it do it all any decisions make them")*. Written after the work started, as the record of it: the owner authorised the work directly and asked for the decisions to be made, and they are all below.
@@ -87,8 +87,31 @@ and loads everywhere Leasha runs.
 - [ ] **7** Chat and Interpret measured on the real Qwen model (it was still downloading at
   ~75 KB/s): tokens per second on the processor, first-token time, one Interpret sentence, one
   Chat answer, the router and planner (JSON) on it.
-- [ ] **8** Florence-2 full precision measured against int8: vision encoder on DirectML
+  > **2026-09-30, int8 measured - not good enough yet; left open.** Load 3.3-5.7 s, first word
+  > 0.45-0.77 s, 4.8-5.8 tokens/s on the processor; an ordinary Chat answer was sensible.
+  > **Interpret failed** (prose, or the sentence back, where Ollama's `qwen2.5:1.5b` on the same
+  > laptop gave `from:chris license after:2025-12-31`), and JSON came back as an echo of the
+  > instruction. Two real faults found and fixed on the way: (1) at ONNX Runtime's full graph
+  > optimisation the cached step chose different words from a from-scratch recompute ("phrase"
+  > for "three") - the chat model now opens at `basic`, where they agree
+  > (`session.load_session(optimise=)`); (2) JSON now starts the reply with `{` for the model,
+  > since plain decoding cannot be constrained the way Ollama's `format: json` is - it then
+  > parsed. What remains is most likely the **int8 file**: it quantises activations on every
+  > step; Ollama's copy is 4-bit weights with full-precision activations. The export's
+  > `model_q4.onnx` is quantised that way; the owner approved the download (1.7 GB, ~85 KB/s -
+  > hours). The chat model prefers it when present (`hub.QWEN_1_5B_Q4`) - **unmeasured; this
+  > item closes only when q4 is measured against Ollama on the same sentences**
+  > (`tools/measure_onnx_chat.py` and `tools/measure_ollama_chat.py`; photos: `tools/measure_onnx_photo.py`).
+  > Until then Interpret on ONNX is unreliable: on a machine where Ollama works, `CHAT_ENGINE`
+  > `ollama` gives the better Interpret today.
+- [x] **8** Florence-2 full precision measured against int8: vision encoder on DirectML
   (the decoder stays on the processor, D3), caption quality on the same four photos.
+  > **2026-09-30.** Full precision, vision graph on the graphics card: **3.6-5.8 s a photo**;
+  > all on the processor 7.8-8.7 s; int8 (processor only) 11.4-13.6 s. The graphics card's
+  > captions matched the processor's word for word, and read better than int8's ("a blue
+  > sculpture on a gray background ... a human head" where int8 said "a white background").
+  > Full precision is now the default when it is on disk (`hub.FLORENCE`), int8 the fallback
+  > (`hub.FLORENCE_INT8`); Download fetches full precision (about 1 GB).
 - [ ] **9** One real index run with photo tags and speech on, read from its logs (order 1a §3).
 - [ ] **10** HANDOFF and the register updated; CHANGELOG entry; PR; the owner merges.
 

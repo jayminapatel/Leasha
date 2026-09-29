@@ -56,11 +56,13 @@ class Loaded:
         return bool(self.choice is not None and self.choice.is_gpu)
 
 
-def _options(providers: tuple[str, ...], threads: int) -> Any:
+def _options(providers: tuple[str, ...], threads: int, optimise: str = "all") -> Any:
     import onnxruntime as ort
 
     options = ort.SessionOptions()
-    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.graph_optimization_level = (ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+                                        if optimise == "basic"
+                                        else ort.GraphOptimizationLevel.ORT_ENABLE_ALL)
     if threads > 0:
         options.intra_op_num_threads = threads
     if providers and providers[0] == "DmlExecutionProvider":
@@ -102,7 +104,8 @@ def _processor_only(path: Path) -> str:
 
 
 def load_session(path: Path, *, what: str, device: str = "auto",
-                 threads: Optional[int] = None, profile: Any = None) -> Loaded:
+                 threads: Optional[int] = None, profile: Any = None,
+                 optimise: str = "all") -> Loaded:
     """Open `path` on the processor `device` asks for, falling back to the CPU.
 
     `what` names the model in the run log ("photo tags", "speech", ...).
@@ -122,6 +125,12 @@ def load_session(path: Path, *, what: str, device: str = "auto",
     matched the processor to 6e-5, and every later step returned NaN and
     values near 1e38 - a page of symbols. Encoders and Florence-2's vision
     graph have no cache and may use the graphics card; the decoders cannot.
+
+    `optimise="basic"` is for the chat model: at ONNX Runtime's full graph
+    optimisation its cached step chose a different word from recomputing the
+    same text from scratch ("phrase" for "three", 2026-09-30, Qwen2.5-1.5B int8,
+    processor) - a fused attention kernel that mishandles the cache. At
+    `basic` the two agree. Florence-2 and Whisper were checked at `all`.
     """
     import onnxruntime as ort
 
@@ -136,7 +145,7 @@ def load_session(path: Path, *, what: str, device: str = "auto",
     count = default_threads() if threads is None else threads
 
     def build(providers: tuple[str, ...]) -> Any:
-        return ort.InferenceSession(str(path), sess_options=_options(providers, count),
+        return ort.InferenceSession(str(path), sess_options=_options(providers, count, optimise),
                                     providers=list(providers))
 
     with gpu_exclusive(wanted.is_gpu):

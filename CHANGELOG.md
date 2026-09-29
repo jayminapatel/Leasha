@@ -25,8 +25,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   search. Windows' Smart App Control had blocked the old photo-tag engine (torch) on the owner's
   laptop, so photos got no tags; it can block it on any PC where it is on, and an administrator
   cannot make an exception. Measured on the owner's laptop: the same tags as before, captions of
-  the same quality, the photo model loads in 4 s instead of 22 s; speech got every word of a test
-  clip right, and an 80-second clip took about 4 seconds.
+  the same quality or better, the photo model loads in 4 s instead of 22 s and describes a photo
+  in 4-6 s instead of 11-14 s (its picture part runs on the graphics card); speech got every word
+  of a test clip right, and an 80-second clip took about 4 seconds.
+- The chat model inside Leasha answers ordinary Chat questions, but does not yet rewrite a
+  sentence into a search for Interpret as well as the same model through Ollama does; a better
+  copy of it is being measured. Until then, Ollama gives the better Interpret where it is installed.
 - Chat, Interpret and Describe have a new setting: run inside Leasha (the default, nothing else
   to install) or use Ollama. Inside Leasha, the chat model is downloaded once from Settings;
   Settings no longer contacts Ollama unless Ollama is chosen.

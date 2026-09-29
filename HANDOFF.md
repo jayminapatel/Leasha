@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.19 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 7.20 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -64,6 +64,15 @@ line, no traceback and no window.
   to Ollama (`CHAT_ENGINE`, default `onnx`). Photo tags and speech are measured on the real models;
   the chat model (Qwen 2.5 1.5B, 1.5 GB) was still downloading at ~75 KB/s - its measurement is
   the order's item 7.
+- **2026-09-30, early - what the real models showed.** Florence-2 full precision: 3.6-5.8 s a photo
+  with its picture part on the graphics card (int8 was 11-14 s) - now the default when on disk.
+  The chat model (Qwen int8) answers Chat sensibly (~5 tokens/s, first word <1 s) but **fails
+  Interpret**, where Ollama's copy of the same model succeeds. A cache bug at full graph
+  optimisation was found and fixed (chat model opens at `basic`), and JSON is now started with
+  `{`; the rest is most likely the int8 file. `model_q4.onnx` (1.7 GB) was downloading at
+  ~85 KB/s; the chat model uses it automatically when it lands. **Next: run
+  `tools/measure_onnx_chat.py` and `tools/measure_ollama_chat.py` and compare** - order 1b item 7.
+  Until then, where Ollama works, `CHAT_ENGINE=ollama` gives the better Interpret.
 - **Smart App Control is now OFF on the owner's laptop** (the owner's decision), so torch and
   rawpy load there again. It is still on for most people - see the Traps.
 - Order 1a: §0-§1 done (0.6's "system-Python launcher" was the venv's own redirector - one Leasha,

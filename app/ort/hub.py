@@ -17,7 +17,8 @@ from typing import Callable, Optional
 
 from app.core.logging import logger
 
-__all__ = ["OnnxModel", "FLORENCE", "WHISPER_BASE", "QWEN_1_5B", "MODELS", "by_key",
+__all__ = ["OnnxModel", "FLORENCE", "FLORENCE_INT8", "WHISPER_BASE", "QWEN_1_5B", "QWEN_1_5B_Q4",
+           "MODELS", "by_key",
            "resolve", "present", "fetch"]
 
 _log = logger.bind(component="ort.hub")
@@ -49,14 +50,24 @@ class OnnxModel:
         return tuple(self.graph_file(g) for g in self.graphs) + self.required + self.extra
 
 
-#: Florence-2 photo tags. int8: the full-precision graphs are four times the
-#: size, and on a processor int8 is the faster of the two (see `florence.py`
-#: for what was measured on the owner's laptop).
+#: Florence-2 photo tags. **Full precision** (2026-09-30, measured on the owner's
+#: laptop, same four photos): 3.6-5.8 s a photo with the vision graph on the
+#: graphics card and 7.8-8.7 s all on the processor, against 11.4-13.6 s for
+#: int8 - which runs on the processor only (`session.py`). Captions on the
+#: graphics card matched the processor's word for word. About 1 GB to fetch.
 FLORENCE = OnnxModel(
     key="florence-2-base", repo="onnx-community/Florence-2-base",
     label="Florence-2 base (photo tags and captions)",
     graphs=("vision_encoder", "embed_tokens", "encoder_model", "decoder_model_merged"),
+    suffix="",
     required=("config.json", "generation_config.json", "tokenizer.json"),
+    approx_mb=1035, licence="MIT")
+
+#: The int8 copy (260 MB) - used when it is what is on disk.
+FLORENCE_INT8 = OnnxModel(
+    key="florence-2-base-int8", repo="onnx-community/Florence-2-base",
+    label="Florence-2 base, smaller copy (photo tags and captions)",
+    graphs=FLORENCE.graphs, suffix="_int8", required=FLORENCE.required,
     approx_mb=260, licence="MIT")
 
 #: Whisper speech. Full precision by default: the int8 decoder is the one part
@@ -78,7 +89,28 @@ QWEN_1_5B = OnnxModel(
               "tokenizer_config.json"),
     approx_mb=1510, licence="Apache-2.0")
 
-MODELS: tuple[OnnxModel, ...] = (FLORENCE, WHISPER_BASE, QWEN_1_5B)
+#: The 4-bit copy (weights only, activations in full precision - how Ollama's
+#: `qwen2.5:1.5b` is quantised). 2026-09-30: the int8 copy above quantises the
+#: activations on every step, and on the owner's laptop it answered Interpret
+#: with prose where Ollama's copy of the same model gave a query. Preferred when
+#: it is on disk; **not yet measured** - order 1b item 7 decides whether it stays.
+QWEN_1_5B_Q4 = OnnxModel(
+    key="qwen2.5-1.5b-instruct-q4", repo="onnx-community/Qwen2.5-1.5B-Instruct",
+    label="Qwen 2.5 1.5B Instruct, 4-bit (chat, Interpret)",
+    graphs=("model",), suffix="_q4", required=QWEN_1_5B.required,
+    approx_mb=1705, licence="Apache-2.0")
+
+MODELS: tuple[OnnxModel, ...] = (FLORENCE, FLORENCE_INT8, WHISPER_BASE, QWEN_1_5B, QWEN_1_5B_Q4)
+
+
+def resolve_any(models: tuple[OnnxModel, ...], cache_dir: Optional[Path]
+                ) -> Optional[tuple[OnnxModel, Path]]:
+    """The first of `models` (best first) that is complete in the cache. Offline."""
+    for model in models:
+        folder = resolve(model, cache_dir)
+        if folder is not None:
+            return model, folder
+    return None
 
 
 def by_key(key: str) -> Optional[OnnxModel]:

@@ -104,7 +104,7 @@ def available() -> bool:
         if importlib.util.find_spec("onnxruntime") is None:
             return False
         cache, _device = _settings()
-        return hub.present(hub.FLORENCE, cache)
+        return hub.resolve_any((hub.FLORENCE, hub.FLORENCE_INT8), cache) is not None
     except Exception:                              # noqa: BLE001
         return False
 

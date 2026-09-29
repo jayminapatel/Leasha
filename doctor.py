@@ -688,7 +688,8 @@ def check_onnx_models() -> list[Check]:
         wanted.append((hub.QWEN_1_5B, "Chat and Interpret are", "Settings, Models, Chat model"))
     checks = []
     for model, purpose, where in wanted:
-        folder = hub.resolve(model, Path(cache))
+        folder = (hub.resolve_any((hub.FLORENCE, hub.FLORENCE_INT8), Path(cache))
+                  if model is hub.FLORENCE else hub.resolve(model, Path(cache)))
         if folder is not None:
             checks.append(Check(f"{model.label} (ONNX)", True, "downloaded", optional=True))
         else:

@@ -143,12 +143,18 @@ class OnnxFlorence:
         decoder = open_graph("decoder_model_merged")
         self.decoder = Decoder(decoder.session, heads=self.config.heads,
                                head_dim=self.config.head_dim)
-        self.on_gpu = decoder.on_gpu
+        # The vision graph is the part the graphics card can take (the decoder
+        # stays on the processor, `session.py`), so this says where it ran.
+        self.on_gpu = self.vision.on_gpu
 
     @classmethod
     def from_cache(cls, cache_dir: Optional[Path], *, device: str = "auto") -> Optional["OnnxFlorence"]:
-        folder = hub.resolve(hub.FLORENCE, cache_dir)
-        return cls(folder, device=device) if folder is not None else None
+        """Full precision when it is downloaded, the int8 copy otherwise."""
+        found = hub.resolve_any((hub.FLORENCE, hub.FLORENCE_INT8), cache_dir)
+        if found is None:
+            return None
+        model, folder = found
+        return cls(folder, model=model, device=device)
 
     def _embed(self, ids: list[int]) -> np.ndarray:
         return self.embed.session.run(None, {"input_ids": np.array([ids], dtype=np.int64)})[0]

@@ -123,8 +123,10 @@ class _Loaded:
         heads = int(config.get("num_attention_heads", 12))
         kv_heads = int(config.get("num_key_value_heads", heads))
         head_dim = int(config.get("head_dim") or int(config.get("hidden_size", 1536)) // heads)
+        # `basic`, not full optimisation: see `load_session` - at full
+        # optimisation the cached step picked different words (2026-09-30).
         loaded = load_session(folder / model.graph_file(model.graphs[0]), what="chat model",
-                              device=device)
+                              device=device, optimise="basic")
         self.decoder = Decoder(loaded.session, heads=kv_heads, head_dim=head_dim)
         self.tokenizer = Tokenizer.from_file(str(folder / "tokenizer.json"))
         eos = generation.get("eos_token_id", config.get("eos_token_id", []))
@@ -176,7 +178,7 @@ class OnnxLLM:
         return [m.key for m in (hub.QWEN_1_5B,) if hub.present(m, self.cache_dir)]
 
     def has_model(self) -> bool:
-        return hub.present(self._spec(), self.cache_dir)
+        return hub.resolve_any(self._copies(), self.cache_dir) is not None
 
     def health(self, *, force: bool = False) -> bool:
         """Up means "can answer": the model is downloaded and did not fail to load."""
@@ -196,18 +198,24 @@ class OnnxLLM:
                      f"(about {spec.approx_mb} MB)."),
         ))
 
+    def _copies(self) -> tuple[hub.OnnxModel, ...]:
+        """The copies of the chosen model, best first: the 4-bit one when it is the
+        Qwen chat model and on disk (see `hub.QWEN_1_5B_Q4`), then int8."""
+        spec = self._spec()
+        return (hub.QWEN_1_5B_Q4, spec) if spec is hub.QWEN_1_5B else (spec,)
+
     def _ensure(self) -> _Loaded:
         with self._lock:
             if self._loaded is not None and self._loaded_key == self._model:
                 return self._loaded
-            spec = self._spec()
-            folder = hub.resolve(spec, self.cache_dir)
-            if folder is None:
+            found = hub.resolve_any(self._copies(), self.cache_dir)
+            if found is None:
                 raise self.missing_error()
+            spec, folder = found
             try:
                 started = time.monotonic()
                 self._loaded = _Loaded(folder, spec, self.device)
-                self._loaded_key = spec.key
+                self._loaded_key = self._model      # the choice, whichever copy served it
                 self._load_error = None
                 _log.info("{} loaded in {:.1f}s on the {}", spec.key, time.monotonic() - started,
                           "graphics card" if self._loaded.on_gpu else "processor")
@@ -327,6 +335,12 @@ class OnnxLLM:
         limit = float(timeout or self.timeout)
         text = chatml([{"role": "user", "content": prompt}],
                       system=JSON_SYSTEM if json_mode else None)
+        # **The reply is started for it.** Ollama's `format: json` constrains
+        # decoding with a grammar; this cannot, so the answer begins with "{"
+        # already written - measured 2026-09-30, the instruction alone got
+        # "You are a helpful assistant. Reply with JSON." back instead of JSON.
+        lead = "{" if json_mode else ""
+        text += lead
         state: dict = {}
         reply = "".join(self._until_stop(self._tokens(text, temperature=temperature,
                                                       max_tokens=max_tokens, timeout=limit,
@@ -338,6 +352,7 @@ class OnnxLLM:
             raise AppErrorException(make_error(
                 "ERR_LOCAL_MODEL_TIMEOUT", "ort.llm", timeout_s=round(limit),
                 details=f"no reply within {limit:.0f}s"))
+        reply = lead + reply
         if json_mode:
             reply = first_json(reply)
         return Completion(text=reply.strip(), model=self._model, elapsed_s=elapsed)
