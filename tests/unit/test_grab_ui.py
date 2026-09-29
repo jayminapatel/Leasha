@@ -144,6 +144,12 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
             compared += 1
             if distance > TOLERANCE:
                 drifted.append(f"{theme}-{size}/{path.name}: distance {distance}")
+                # TEMPORARY (never merged): hand the fresh Windows grab back
+                # through the log so the golden can be regenerated.
+                import base64
+                print(f"GOLDEN-BEGIN {theme}-{size}/{theme}/{path.name}")
+                print(base64.b64encode(path.read_bytes()).decode("ascii"))
+                print("GOLDEN-END")
     assert compared, "no golden was compared with anything"
     assert not drifted, ("the look drifted from the goldens - if that was the "
                          "point of the commit, regenerate them and say so in "
