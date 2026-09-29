@@ -95,9 +95,33 @@ def _start(run: ChildIndexRun, seen: list):
     return thread, outcome
 
 
+def _finish(run: ChildIndexRun, seen: list, timeout: float = 300.0):
+    """`run.run()`, but a run that never finishes fails **with its last state**.
+
+    2026-09-29: on the first Windows CI run this test waited until the suite's
+    own ten-minute limit ended everything, with nothing said about why. The
+    child was alive (its heartbeats kept coming) and not indexing. Now the
+    failure names the phase it was in and why it was paused, and the child is
+    ended so the rest of the suite runs.
+    """
+    thread, outcome = _start(run, seen)
+    thread.join(timeout)
+    if thread.is_alive():
+        last = seen[-1] if seen else None
+        run.shutdown(grace_s=5)
+        pytest.fail(
+            f"the child run did not finish in {timeout:.0f}s; last phase "
+            f"{getattr(last, 'phase', None)!r}, paused because "
+            f"{getattr(last, 'pause_reason', '')!r}, "
+            f"{getattr(last, 'indexed', 0)} of {FILES} indexed")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["stats"]
+
+
 def test_a_whole_run_arrives_as_the_stats_the_page_draws(setup) -> None:
     seen: list = []
-    stats = _child(setup).run(on_progress=seen.append)
+    stats = _finish(_child(setup), seen)
 
     assert stats.indexed == FILES and stats.seen == FILES
     assert stats.stopped_early is None
