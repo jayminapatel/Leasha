@@ -28,6 +28,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   real window; it now uses the Windows fonts. One test's name was too long for a Windows environment
   variable; the letter-case tests ran a Linux check on a Windows-shaped folder; one test broke
   pytest's own clean-up; and the open-files check stopped at a file it was not allowed to look at.
+### A silent indexing process no longer hangs the window
+
+- With "Index in a separate process" on, an indexing process that stopped answering was waited on for
+  ever. It is now ended after a minute of silence (three minutes while it starts) and reported like a
+  crash, with its error output, and the next Start carries on. Found by the first Windows CI run.
 
 ### Indexing in a separate process stays a choice
 
