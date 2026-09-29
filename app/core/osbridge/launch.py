@@ -36,9 +36,23 @@ from typing import Union
 
 from app.core.osbridge._platform import is_macos, is_windows
 
-__all__ = ["open_with_default_app", "show_in_file_manager"]
+__all__ = ["open_with_default_app", "show_in_file_manager", "hidden_console_flags"]
 
 PathLike = Union[str, "os.PathLike[str]"]
+
+
+def hidden_console_flags() -> int:
+    """`creationflags` for a command-line program started with no window of its own.
+
+    Order 0y §1a. The window runs under `pythonw.exe`, which has no console, so
+    Windows gives every console program it starts - `git`, for one - a console
+    window of its own: a black box flashes up and vanishes on every history
+    search. `CREATE_NO_WINDOW` stops that. macOS and Linux never open a window
+    for a child, and only Windows reads the flag, so elsewhere this is 0.
+    """
+    if is_windows():
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+    return 0
 
 
 def open_with_default_app(path: PathLike) -> None:

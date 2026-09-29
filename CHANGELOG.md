@@ -43,6 +43,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   Each helper uses about 40 MB. A file that makes its reader fail is skipped
   (`ERR_READER_PROCESS_ENDED`) and the run carries on. Pictures, PDFs, zips, Outlook and older
   Office files are still read in the main process. `bench-pipeline --read-processes` measures it.
+### Code tab: no console flash, a Stop for history, and "Ignore this repository"
+
+- Searching history no longer flashes a black console window on Windows.
+- A history search can be stopped: the button reads "Stop" while it runs, and Esc does the same.
+- Right-click a file in a repository › "Ignore this repository" when a folder is not really a
+  repository. Its files stay indexed and searchable; they just stop counting as code. "Undo" puts it
+  back straight away.
 ### The question box on the Chat tab grows as you type
 
 - A question that wrapped onto a second or third line stayed one line tall on Windows, so its start

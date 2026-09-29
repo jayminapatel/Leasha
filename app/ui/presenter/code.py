@@ -372,6 +372,25 @@ def code_route(text: str) -> CodeRoute:
 # and a choice made inside a widget is one nobody can test without a display.
 # ---------------------------------------------------------------------------
 
+def _anything_indexed(store: Any) -> bool:
+    """Cheap and guarded. Only decides which of two sentences to show.
+
+    **It used to say that and not be true.** `stats()` is three `COUNT(*)`,
+    two of them scans of `chunks` - 93ms at two million, around 460ms at
+    ten - and this runs while the tab is being drawn. `has_any_files()` is
+    one row with a `LIMIT 1`, which is what "is there anything" needs.
+
+    Moved here from `CodeView` (order 0y §1) when the view reached the
+    250-line guard; the name is kept so `test_ui_never_blocks`' named
+    exemption still covers it.
+    """
+    try:
+        return store.has_any_files()
+    except Exception as exc:                 # noqa: BLE001
+        _log.debug("could not read the index size: {}", exc)
+        return True                          # the less alarming of the two
+
+
 def repo_root_for(repos: Iterable[Mapping[str, Any]], name: str) -> str:
     """The folder for a repository name, or the only one there is.
 
