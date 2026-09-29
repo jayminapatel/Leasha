@@ -30,6 +30,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Right-click a file in a repository › "Ignore this repository" when a folder is not really a
   repository. Its files stay indexed and searchable; they just stop counting as code. "Undo" puts it
   back straight away.
+### A silent indexing process no longer hangs the window
+
+- With "Index in a separate process" on, an indexing process that stopped answering was waited on for
+  ever. It is now ended after a minute of silence (three minutes while it starts) and reported like a
+  crash, with its error output, and the next Start carries on. Found by the first Windows CI run.
 
 ### Indexing in a separate process stays a choice
 
