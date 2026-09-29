@@ -113,7 +113,8 @@ def _finish(run: ChildIndexRun, seen: list, timeout: float = 300.0):
             f"the child run did not finish in {timeout:.0f}s; last phase "
             f"{getattr(last, 'phase', None)!r}, paused because "
             f"{getattr(last, 'pause_reason', '')!r}, "
-            f"{getattr(last, 'indexed', 0)} of {FILES} indexed")
+            f"{getattr(last, 'indexed', 0)} of {FILES} indexed\n"
+            f"child stderr:\n{_tail(run.stderr_path, 40) if run.stderr_path else '(none)'}")
     if "error" in outcome:
         raise outcome["error"]
     return outcome["stats"]
@@ -185,7 +186,7 @@ _PARENT = textwrap.dedent("""
     from app.index.child_run import ChildIndexRun
     argv = {argv!r}
     run = ChildIndexRun(argv, env=dict(os.environ, TMPDIR={locks!r}),
-                        cwd={project!r})
+                        cwd={project!r}, stderr_path={stderr!r})
     run.pause()
     said = threading.Event()
     def seen(stats):
@@ -198,6 +199,29 @@ _PARENT = textwrap.dedent("""
 """)
 
 
+def _tail(path: Path, lines: int = 15) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    except OSError:
+        return "(none)"
+
+
+def _first_line(parent, timeout: float, child_log: Path, parent_log: Path) -> int:
+    """The parent's first line (the child's pid), or a failure naming both logs."""
+    import threading
+
+    got: dict = {}
+    reader = threading.Thread(
+        target=lambda: got.setdefault("line", parent.stdout.readline()), daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if "line" not in got or not got["line"].strip():
+        pytest.fail(
+            f"the stand-in window never reported its paused child within {timeout:.0f}s\n"
+            f"child stderr:\n{_tail(child_log)}\nparent stderr:\n{_tail(parent_log)}")
+    return int(got["line"].strip())
+
+
 def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
     """The window killed outright - Task Manager, a crash - must not leave an
     indexer running with no window: the "closed but still running" incident."""
@@ -205,11 +229,17 @@ def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
 
     argv = child_command([setup["corpus"]], env_file=setup["env"],
                          extra=["--fake-embedder-for-bench"])
-    script = _PARENT.format(project=str(PROJECT), argv=argv, locks=str(setup["locks"]))
-    parent = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
-                              cwd=str(PROJECT), text=True)
+    child_log = setup["tmp"] / "child-stderr.log"
+    parent_log = setup["tmp"] / "parent-stderr.log"
+    script = _PARENT.format(project=str(PROJECT), argv=argv, locks=str(setup["locks"]),
+                            stderr=str(child_log))
+    with open(parent_log, "wb") as parent_err:
+        parent = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                                  stderr=parent_err, cwd=str(PROJECT), text=True)
     try:
-        pid = int(parent.stdout.readline().strip())
+        # **Bounded, and it says why.** 2026-09-29: on the first Windows CI runs
+        # this line waited until the suite's ten-minute limit ended everything.
+        pid = _first_line(parent, 180.0, child_log, parent_log)
         child = psutil.Process(pid)
         assert child.is_running()
     finally:
@@ -238,9 +268,35 @@ def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(tmp_path) -
     the same corpus through `ChildIndexRun` and says so in its report."""
     from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
 
-    report = run_pipeline_bench(BenchOptions(
-        corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
-        child_process=True, full_speed=True, work_dir=tmp_path / "work"))
+    import threading
+
+    # 2026-09-29: bounded, like `_finish`. On Windows CI this call waited out
+    # the suite's ten-minute limit, and pytest was ended before it could print
+    # why the four tests above had failed.
+    got: dict = {}
+
+    def bench() -> None:
+        try:
+            got["report"] = run_pipeline_bench(BenchOptions(
+                corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
+                child_process=True, full_speed=True, work_dir=tmp_path / "work"))
+        except BaseException as exc:            # noqa: BLE001 - raised below
+            got["error"] = exc
+
+    thread = threading.Thread(target=bench, daemon=True)
+    thread.start()
+    thread.join(300)
+    if thread.is_alive():
+        from app.index.child_run import live_children
+
+        logs = sorted((tmp_path / "work").rglob("*.log"))
+        for run in live_children():
+            run.shutdown(grace_s=5)
+        pytest.fail("the benchmark's child run did not finish in 300s\n" + "\n".join(
+            f"{log.name}:\n{_tail(log, 40)}" for log in logs))
+    if "error" in got:
+        raise got["error"]
+    report = got["report"]
     results = report["results"]
     assert results["documents"] == results["expected_documents"]
     assert "CHILD process" in report["conditions"]["pipeline"]["entry"]
