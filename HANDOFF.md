@@ -243,6 +243,15 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       Stop part-way and Start again: it carries on with the files it had not reached. Tuning ›
       Strategy › Reading order "As found" restores the old order. Also with "Index in a separate
       process" on.
+- [ ] **Number fields and model lists (2026-09-29).** Every number box on Settings and Indexing (and
+      the View menu's text size, the file-type and meaning-model dialogs) has no up/down arrows and a
+      small reset icon inside its right edge, greyed at the default; hovering says "Back to the default
+      (N)". Check it looks right at 100% and 125%, light and dark, and that no number is clipped under the
+      icon (sizes are measured on Linux). Every model is a drop-down you cannot type in. Press Download
+      once for a small Ollama model (Settings › Models › Photo description model › Download ›
+      moondream) and once for a file model (Search › Rerank model: pick jina turbo, Download), then Stop
+      one halfway: the bar moves, Stop ends it, and Download again carries on. Neither download has
+      been run for real anywhere yet.
 
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated

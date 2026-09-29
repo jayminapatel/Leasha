@@ -156,23 +156,38 @@ def test_a_fresh_start_is_available_anywhere(qapp, tmp_path: Path):
 
 
 # --- the rebuild dialog ----------------------------------------------------
+#
+# Dated note, 2026-09-29: the owner - "where there are models it has to be
+# dropdown only no manual entry for models". The box is no longer editable, so
+# the tests below that typed a model now choose a listed one, and the typing
+# test became the two after it: nothing can be typed, and a model already in
+# use that the list does not know is shown, marked, rather than swapped.
 
-def test_typing_a_model_beats_whatever_was_last_picked(qapp):
-    """**The expensive direction of a small bug.**
+def _pick(dialog, identifier="BAAI/bge-base-en-v1.5"):
+    dialog.model.setCurrentIndex(dialog.model.findData(identifier))
 
-    The box is editable so any model can be named, but typing does not move
-    `currentIndex` - so `currentData()` kept returning the preset that happened
-    to be selected. This is the dialog that invalidates every vector and
-    re-embeds the corpus; it would have spent those hours on a model nobody
-    chose, and written it to `.env` afterwards.
-    """
-    dialog = RebuildVectorsDialog("a/model", chunk_count=1_000)
-    dialog.model.setCurrentIndex(0)
-    picked = dialog.chosen_model()
-    dialog.model.setEditText("somebody/typed-this")
 
-    assert dialog.chosen_model() == "somebody/typed-this", (
-        f"the box says one thing and the dialog would use {picked!r}")
+def test_the_meaning_model_cannot_be_typed(qapp):
+    """**The expensive direction of a small bug**, closed for good: a model
+    that cannot be typed cannot be typed wrongly, and the dialog that
+    invalidates every vector only ever uses a name from its own list."""
+    dialog = RebuildVectorsDialog("BAAI/bge-small-en-v1.5", chunk_count=1_000)
+
+    assert not dialog.model.isEditable()
+    assert dialog.model.lineEdit() is None
+
+
+def test_an_unlisted_model_in_use_is_shown_as_itself_and_marked(qapp):
+    """An `.env` from before the list was the only way in may name a model the
+    list does not know. It is still the model in use: shown, selected, marked -
+    never quietly replaced by the first entry."""
+    from app.ui.widgets.index_flows import NOT_LISTED
+
+    dialog = RebuildVectorsDialog("somebody/older-model", chunk_count=1_000)
+
+    assert dialog.chosen_model() == "somebody/older-model"
+    assert NOT_LISTED in dialog.model.currentText()
+    assert "already in use" in dialog.cost.text()
 
 
 def test_picking_from_the_list_still_uses_its_identifier(qapp):
@@ -187,7 +202,7 @@ def test_picking_from_the_list_still_uses_its_identifier(qapp):
 
 def test_the_cost_is_stated_in_hours_for_a_real_index(qapp):
     dialog = RebuildVectorsDialog("BAAI/bge-small-en-v1.5", chunk_count=4_200_000)
-    dialog.model.setEditText("some/other-model")
+    _pick(dialog, "sentence-transformers/all-MiniLM-L6-v2")      # the same width, 384
 
     text = dialog.cost.text()
     assert "4,200,000" in text
@@ -197,7 +212,7 @@ def test_the_cost_is_stated_in_hours_for_a_real_index(qapp):
 
 def test_a_small_index_says_minutes_rather_than_zero_hours(qapp):
     dialog = RebuildVectorsDialog("a/model", chunk_count=1_000)
-    dialog.model.setEditText("b/model")
+    _pick(dialog)
 
     assert "few minutes" in dialog.cost.text()
 
@@ -213,7 +228,7 @@ def test_the_same_model_is_not_a_change(qapp):
 def test_an_unknown_chunk_count_does_not_invent_a_duration(qapp):
     """Zero means "could not read it". Saying "0 hours" would be a promise."""
     dialog = RebuildVectorsDialog("a/model", chunk_count=0)
-    dialog.model.setEditText("b/model")
+    _pick(dialog)
 
     assert "hour" not in dialog.cost.text()
 
@@ -259,8 +274,7 @@ def test_a_listed_model_never_asks_for_a_number_it_knows(qapp):
 def test_an_unlisted_model_asks_rather_than_guesses(qapp):
     """An unlisted model is a legitimate choice and its width cannot be known.
     Guessing it is the bug; asking is the fix."""
-    dialog = RebuildVectorsDialog("a/model", chunk_count=10, current_dim=384)
-    dialog.model.setEditText("somebody/typed-this")
+    dialog = RebuildVectorsDialog("somebody/typed-this", chunk_count=10, current_dim=384)
 
     assert dialog.known_dim() is None
     assert dialog.dim_row.isVisibleTo(dialog), "guessed a width it cannot know"
@@ -273,7 +287,6 @@ def test_changing_only_the_width_still_counts_as_a_change(qapp):
     """A custom model at a new width is as destructive as a new model, and the
     button was enabled on the name alone."""
     dialog = RebuildVectorsDialog("a/model", chunk_count=10, current_dim=384)
-    dialog.model.setEditText("a/model")
     dialog.dim.setValue(768)
 
     ok = dialog.buttons.button(dialog.buttons.StandardButton.Ok)
@@ -298,7 +311,7 @@ def test_the_cost_states_the_rate_it_assumed(qapp):
     """`CHUNKS_PER_SECOND` is a constant, and a duration derived from an
     unstated assumption cannot be checked against the machine it is shown on."""
     dialog = RebuildVectorsDialog("a/model", chunk_count=39_306, current_dim=384)
-    dialog.model.setEditText("somebody/typed-this")
+    _pick(dialog)
 
     assert "chunks/sec" in dialog.cost.text()
     assert "embed-bench" in dialog.cost.text()

@@ -190,9 +190,10 @@ class ChatController(QObject):
                 # Two controls name the same setting (the photo description model: the
                 # text box on the Models page, and the Describe row of the roles grid).
                 # Each says what the other was set to, so they never disagree on screen.
-                grid.activated.connect(lambda _i, v=vision, g=grid: v.setText(g.value()))
-                vision.editingFinished.connect(
-                    lambda g=grid, v=vision: g.select(v.text().strip()))
+                # Dated note, 2026-09-29: the Models page's control is a drop-down
+                # now (owner: no manual entry for models), so both sides select.
+                grid.activated.connect(lambda _i, v=vision, g=grid: v.select(g.value()))
+                vision.activated.connect(lambda _i, g=grid, v=vision: g.select(v.value()))
         # Chat follows the Index Tuning mode (work order 3e): its settings are
         # invisible outside Manual and the engine ignores them there. The mode is
         # changed on the Indexing page, whose box does not go through `settings_view`.

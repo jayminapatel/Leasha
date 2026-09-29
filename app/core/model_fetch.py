@@ -1,0 +1,299 @@
+r"""Fetching a model, only because somebody pressed Download.
+
+Layer: L0 (no Qt; blocks, so it is called from a worker)
+
+**The owner, 2026-09-29:** *"where there are models it has to be dropdown only
+no manual entry for models, if there are other options add them and put a
+mechanism to download"*. Every model list in Settings is now a drop-down of
+names this application can actually load, and beside it a Download button for
+the one chosen when it is not on this computer yet. This module is what that
+button runs.
+
+**Offline is still the rule.** Nothing here runs by itself: not at start-up,
+not while indexing, not while searching. A download starts when a person
+presses Download next to a named model, and the button says so before it is
+pressed. Four kinds of model, each fetched the way the code that *loads* it
+expects to find it:
+
+* ``ollama`` - the Interpret, Chat and photo description models. Ollama keeps
+  its own store; `OllamaClient.pull` asks it to fetch one and reports the bytes
+  as they arrive.
+* ``embed`` - the meaning model (`EMBED_MODEL`), loaded by fastembed's
+  `TextEmbedding(model_name, cache_dir=MODEL_CACHE)` in `app/index/embedder.py`.
+* ``rerank`` - the reranker (`RERANK_MODEL`), loaded by fastembed's
+  `TextCrossEncoder(model_name, cache_dir=MODEL_CACHE)` in `app/search/rerank.py`.
+* ``speech`` - the speech model (`TRANSCRIBE_MODEL`), loaded by faster-whisper
+  from `MODEL_CACHE\whisper` with `local_files_only=True`
+  (`app/extract/transcribe.py`), which is why it is never fetched by itself.
+
+**The three file-based kinds download in a child process**, running exactly
+the constructor the application uses, into exactly the folder it reads. That
+is what makes Stop honest: the child is ended and the download with it, where a
+thread inside a library call cannot be stopped at all. What was fetched stays
+in the Hugging Face cache and the next Download carries on from it. Progress is
+the growth of the folder against the model's published size, the same
+outside-in measure `embedder._DownloadProgressWatcher` already uses, because
+neither library forwards a progress hook this far.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from app.core.errors import AppErrorException, make_error
+
+__all__ = [
+    "KINDS", "APPROX_MB", "present", "fetch", "target_dir", "child_code",
+    "STOPPED", "DONE",
+]
+
+KINDS = ("ollama", "embed", "rerank", "speech")
+
+#: What `fetch` returns.
+DONE = "done"
+STOPPED = "stopped"
+
+#: Published download sizes in MB, for the progress line only - never for
+#: correctness. fastembed's own catalogue (`size_in_GB`, fastembed 0.8.0) for
+#: the meaning and rerank models; the model cards for faster-whisper's. A model
+#: missing here still downloads; its progress is shown in MB so far instead.
+APPROX_MB: dict[str, int] = {
+    "BAAI/bge-small-en-v1.5": 67,
+    "BAAI/bge-base-en-v1.5": 210,
+    "BAAI/bge-large-en-v1.5": 1200,
+    "sentence-transformers/all-MiniLM-L6-v2": 90,
+    "snowflake/snowflake-arctic-embed-s": 130,
+    "snowflake/snowflake-arctic-embed-m": 430,
+    "mixedbread-ai/mxbai-embed-large-v1": 640,
+    "jinaai/jina-embeddings-v2-small-en": 120,
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": 220,
+    "Xenova/ms-marco-MiniLM-L-6-v2": 80,
+    "Xenova/ms-marco-MiniLM-L-12-v2": 120,
+    "jinaai/jina-reranker-v1-tiny-en": 130,
+    "jinaai/jina-reranker-v1-turbo-en": 150,
+    "BAAI/bge-reranker-base": 1040,
+    "jinaai/jina-reranker-v2-base-multilingual": 1110,
+    "tiny": 75,
+    "base": 145,
+    "small": 484,
+    "medium": 1530,
+    "large-v3-turbo": 1620,
+    "large-v3": 3090,
+}
+
+#: How often a child download is looked at, in seconds.
+_POLL_S = 0.5
+
+#: The child's whole program, per kind: the loader the application uses, with
+#: the model name and the folder as arguments so nothing is quoted into code.
+_CHILD_CODE = {
+    "embed": ("import sys; from fastembed import TextEmbedding; "
+              "TextEmbedding(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
+    "rerank": ("import sys; from fastembed.rerank.cross_encoder import TextCrossEncoder; "
+               "TextCrossEncoder(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
+    "speech": ("import sys; from faster_whisper import download_model; "
+               "download_model(sys.argv[1], cache_dir=sys.argv[2])"),
+}
+
+
+def child_code(kind: str) -> str:
+    """The one-line program a file-based download runs. For the tests and the CLI."""
+    return _CHILD_CODE[kind]
+
+
+def target_dir(kind: str, model_cache: Any) -> Optional[Path]:
+    r"""The folder the application loads this kind of model from, or None.
+
+    `MODEL_CACHE` for fastembed's two, `MODEL_CACHE\whisper` for speech -
+    exactly what `Embedder.from_settings`, `Reranker.from_settings` and
+    `MediaBox.load` hand their loaders.
+    """
+    if not model_cache:
+        return None
+    root = Path(str(model_cache))
+    return root / "whisper" if kind == "speech" else root
+
+
+def _folder_bytes(path: Path) -> int:
+    total = 0
+    try:
+        for entry in path.rglob("*"):
+            try:
+                if entry.is_file():
+                    total += entry.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return total
+
+
+def _fastembed_source(kind: str, name: str) -> Optional[str]:
+    """The Hugging Face repository fastembed fetches `name` from, or None."""
+    try:
+        if kind == "embed":
+            from fastembed import TextEmbedding as loader
+        else:
+            from fastembed.rerank.cross_encoder import TextCrossEncoder as loader
+        for entry in loader.list_supported_models():
+            if str(entry.get("model", "")).lower() == name.lower():
+                return str((entry.get("sources") or {}).get("hf") or "") or None
+    except Exception:                              # noqa: BLE001 - a lookup, never a failure
+        return None
+    return None
+
+
+def present(kind: str, name: str, *, model_cache: Any = None,
+            client: Any = None) -> bool:
+    """Is `name` already on this computer? Never raises; False when unsure.
+
+    Disk (or, for Ollama, one loopback request) - so a worker calls this, never
+    the window.
+    """
+    name = str(name or "").strip()
+    if not name:
+        return False
+    try:
+        if kind == "ollama":
+            installed = list(client.available_models()) if client is not None else []
+            # `llava` is installed as `llava:latest`; `qwen2.5vl:7b` must match
+            # itself exactly, not any other size of the same family.
+            return any(n == name or (":" not in name and n.split(":")[0] == name)
+                       for n in installed)
+        folder = target_dir(kind, model_cache)
+        if folder is None or not folder.is_dir():
+            return False
+        if kind == "speech":
+            from app.extract.transcribe import model_present
+
+            return model_present(name, folder)
+        source = _fastembed_source(kind, name)
+        if source:
+            repo = folder / ("models--" + source.replace("/", "--"))
+            if any(repo.glob("snapshots/*/**/*.onnx")):
+                return True
+        # fastembed's older download layout: a `fast-<name>` folder.
+        tail = name.split("/")[-1].lower()
+        return any(p.is_dir() and p.name.lower().startswith("fast-")
+                   and tail in p.name.lower() for p in folder.iterdir())
+    except Exception:                              # noqa: BLE001 - see docstring
+        return False
+
+
+def _describe_bytes(done: int, total: int) -> str:
+    def mb(n: int) -> str:
+        return f"{n / 1024 ** 3:.1f} GB" if n >= 1024 ** 3 else f"{n / 1024 ** 2:.0f} MB"
+    if total > 0:
+        percent = min(99, int(100 * done / total))
+        return f"{percent}% ({mb(done)} of about {mb(total)})"
+    return f"{mb(done)} so far"
+
+
+def _fetch_ollama(name: str, client: Any, on_progress: Callable[[str], None],
+                  stop: threading.Event) -> str:
+    def status(event: dict) -> None:
+        total = int(event.get("total") or 0)
+        done = int(event.get("completed") or 0)
+        words = str(event.get("status") or "").strip()
+        if total:
+            on_progress(f"Downloading {name}: {_describe_bytes(done, total)}")
+        elif words:
+            on_progress(f"{name}: {words}")
+
+    finished = client.pull(name, on_status=status, should_stop=stop.is_set)
+    return DONE if finished else STOPPED
+
+
+def _no_window_flags() -> int:
+    if os.name != "nt":
+        return 0
+    # CREATE_NO_WINDOW: the window is a GUI program, and a console flashing up
+    # for a download reads as something having gone wrong.
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def _fetch_in_child(kind: str, name: str, folder: Path,
+                    on_progress: Callable[[str], None], stop: threading.Event,
+                    popen: Callable[..., Any]) -> str:
+    folder.mkdir(parents=True, exist_ok=True)
+    start = _folder_bytes(folder)
+    total = APPROX_MB.get(name, 0) * 1024 ** 2
+    # The child's messages go to a file, never a pipe: the download libraries
+    # draw progress bars on stderr, and a pipe nobody reads fills up and
+    # stops the child dead partway through.
+    said = tempfile.TemporaryFile()
+    try:
+        child = popen(
+            [sys.executable, "-c", _CHILD_CODE[kind], name, str(folder)],
+            stdout=subprocess.DEVNULL, stderr=said,
+            creationflags=_no_window_flags())
+    except OSError as exc:
+        said.close()
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details=f"could not start the download: {exc}")) from exc
+    on_progress(f"Downloading {name}...")
+    try:
+        while child.poll() is None:
+            if stop.is_set():
+                child.kill()
+                child.wait(timeout=10)
+                said.close()
+                return STOPPED
+            grown = max(0, _folder_bytes(folder) - start)
+            on_progress(f"Downloading {name}: {_describe_bytes(grown, total)}")
+            stop.wait(_POLL_S)
+    finally:
+        if child.poll() is None:
+            child.kill()
+    try:
+        said.seek(0)
+        text = said.read().decode("utf-8", "replace")
+    except Exception:                              # noqa: BLE001 - only for the message
+        text = ""
+    finally:
+        said.close()
+    if child.returncode != 0:
+        # Progress bars end in carriage returns; the last real line is the error.
+        lines = [line for line in text.replace("\r", "\n").splitlines() if line.strip()]
+        last = lines[-1:] or [f"exit code {child.returncode}"]
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name, details=last[0][:400]))
+    return DONE
+
+
+def fetch(kind: str, name: str, *, model_cache: Any = None, client: Any = None,
+          on_progress: Optional[Callable[[str], None]] = None,
+          stop: Optional[threading.Event] = None,
+          popen: Optional[Callable[..., Any]] = None) -> str:
+    """Download `name`. Returns `DONE` or `STOPPED`; raises `ERR_MODEL_DOWNLOAD`.
+
+    Blocks until the download ends, so it runs on a worker. `on_progress` gets
+    one plain sentence at a time ("Downloading llava: 42% (1.9 GB of about
+    4.4 GB)"); `stop` ends it early. `popen` is for tests.
+    """
+    name = str(name or "").strip()
+    say = on_progress or (lambda _text: None)
+    stop = stop or threading.Event()
+    if kind not in KINDS or not name:
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name or "(none)",
+            details=f"nothing to download for {kind!r} {name!r}"))
+    if kind == "ollama":
+        if client is None:
+            raise AppErrorException(make_error(
+                "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+                details="no Ollama address to download from"))
+        return _fetch_ollama(name, client, say, stop)
+    folder = target_dir(kind, model_cache)
+    if folder is None:
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details="MODEL_CACHE is not set, so there is nowhere to put it"))
+    return _fetch_in_child(kind, name, folder, say, stop, popen or subprocess.Popen)
