@@ -534,7 +534,13 @@ def _priority_for(path: Path, priority_roots: Sequence[Path]) -> int:
     """
     text = str(path).lower()
     for index, root in enumerate(priority_roots):
-        if text.startswith(str(root).lower()):
+        # **At a folder boundary** (2026-09-29): a bare prefix test put
+        # `C:\Docs2\a.txt` inside a first folder `C:\Docs`. Harmless while the
+        # priority only reordered a 256-file window; wrong once the whole run
+        # is sorted by it.
+        prefix = str(root).lower().rstrip("\\/")
+        if text == prefix or (text.startswith(prefix)
+                              and text[len(prefix):len(prefix) + 1] in ("\\", "/")):
             return index
     return 100
 

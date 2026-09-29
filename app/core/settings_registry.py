@@ -396,6 +396,17 @@ SETTINGS: tuple[Setting, ...] = (
              "leaves the rest of the index usable while the images are done.",
     ),
     Setting(
+        key="INDEX_ORDER", label="Order files are read in", kind="choice",
+        default="newest", group="Tuning", surface="indexing.tuning",
+        choices=("newest", "found"),
+        help="Newest first finds every file before reading any, then reads "
+             "the folders you marked \"Index this folder first\", then "
+             "everything else newest first - mail and files mixed, small "
+             "before large within a month - so what you worked on lately is "
+             "searchable soonest. As found reads files in the order the scan "
+             "reaches them, as before.",
+    ),
+    Setting(
         key="INDEX_OCR_MODE", label="Images and scans", kind="choice",
         default="both", group="Tuning", surface="indexing.tuning",
         choices=("both", "text", "images"),

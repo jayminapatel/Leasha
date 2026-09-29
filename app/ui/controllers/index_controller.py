@@ -690,6 +690,7 @@ class IndexController(QObject):
         from app.index.embedder import Embedder
         from app.extract.media import MediaConfig
         from app.index.pipeline import Pipeline, PipelineConfig
+        from app.index.read_order import normalise_order
         from app.index.walker import WalkConfig
 
         self._w._resolving_index = False
@@ -748,6 +749,8 @@ class IndexController(QObject):
                         self._w._settings, "cloud_content_cap_mb", 1024)) * 1024 * 1024,
                     name_only=bool(getattr(
                         self._w._settings, "index_name_only", True)),
+                    # 2026-09-29: "Index this folder first", in order.
+                    priority_roots=[Path(folder) for folder in self._first_folders()],
                 ),
                 # Memory, CPU, battery and disk ceilings, from .env. Without
                 # these an index run competes with whatever the person is
@@ -793,6 +796,9 @@ class IndexController(QObject):
                 # tuned.workers - see its own docstring for why the notice
                 # cannot be computed from the Pipeline's cached profile alone.
                 gpu_regression_notice=tuned.gpu_regression_notice,
+                # 2026-09-29: newest first, unless Tuning says "as found".
+                read_order=normalise_order(
+                    getattr(self._w._settings, "index_order", "")),
             ),
             image_embedder=image_embedder, image_vectors=self._w._image_vectors,
         )
@@ -846,7 +852,7 @@ class IndexController(QObject):
             chosen, env_file=getattr(settings, "env_file", None),
             prune=roots is None, recheck_archives=recheck_archives,
             workers=int(getattr(tuned, "workers", 0) or 0),
-            cloud_content_keys=cloud)
+            cloud_content_keys=cloud, first=self._first_folders())
         env = dict(os.environ)
         env.update(settings_environment(settings))
         log_path = getattr(settings, "log_path", None)
@@ -854,6 +860,20 @@ class IndexController(QObject):
             argv, env=env, cwd=project_root(),
             stderr_path=(Path(log_path) / CHILD_STDERR_NAME) if log_path else None,
             low_priority=bool(getattr(settings, "index_low_priority", True)))
+
+    def _first_folders(self) -> list[str]:
+        """2026-09-29: the folder list's "Index this folder first", in order,
+        from the widget - no I/O, so safe on this thread. Empty for a window
+        built without a settings page (a test stub)."""
+        view = getattr(self._w, "settings_view", None)
+        read = getattr(view, "current_first_folders", None)
+        if read is None:
+            return []
+        try:
+            return list(read())
+        except Exception as exc:                     # noqa: BLE001 - never the run
+            _log.debug("folders to index first not read: {}", exc)
+            return []
 
     def _index_resolve_failed(self, error: Any) -> None:
         """`resolve_for_run` does not raise by contract - see its own docstring -
